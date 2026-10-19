@@ -410,4 +410,52 @@ it('CT11/CT12: operator reparenting removes former coordinator control authority
   ).toThrow(/attached/i);
   expect(() => f.work.assertControlAction('slice-1', 'new_worker_dispatch')).not.toThrow();
   expect(() => f.work.assertControlAction('slice-2', 'new_worker_dispatch')).toThrow(/hold/i);
+  const ack = {
+    requestId: 'still-attached',
+    controlId: c.controlId,
+    itemId: 'feature-2',
+    assignmentRevision: 1,
+  };
+  expect(() =>
+    f.work.acknowledgeControl(ack, { kind: 'conversation', id: 'lead-2' }),
+  ).not.toThrow();
+  expect(() => f.work.enforceControlAction('slice-2', 'new_worker_dispatch', 'worker-2')).toThrow(
+    /hold/i,
+  );
+  expect(
+    f.work.readControl(c.controlId, f.actor).targets.find((t) => t.itemId === 'feature-2')
+      ?.workers[0].stage,
+  ).toBe('applied');
+});
+
+it('CT12: acknowledgement and its durable replay retain only the authenticated recipient view', () => {
+  const f = fixture();
+  const c = f.request('safe_point');
+  expect(() => f.work.enforceControlAction('slice-2', 'safe_point', 'worker-2')).toThrow(/hold/i);
+  const ack = {
+    requestId: 'private-ack',
+    controlId: c.controlId,
+    itemId: 'slice-1',
+    assignmentRevision: 1,
+  };
+  const actor = { kind: 'conversation' as const, id: 'worker-1' };
+  const expected = () => f.work.readControl(c.controlId, actor);
+  const receipt = f.work.acknowledgeControl(ack, actor);
+  expect(receipt).toEqual(expected());
+  expect(receipt.targets).toHaveLength(1);
+  expect(receipt.targets[0].workers.map((w) => w.conversationId)).toEqual(['worker-1']);
+  expect(receipt.history.every((h) => h.conversationId === 'worker-1')).toBe(true);
+  // Simulate a receipt retained by the earlier unfiltered implementation.
+  f.canonical.db
+    .prepare('UPDATE telos_work_control_commands SET receipt=? WHERE actor_id=? AND request_id=?')
+    .run(
+      JSON.stringify(f.work.readControl(c.controlId, f.actor)),
+      'conversation:worker-1',
+      ack.requestId,
+    );
+  // A newly linked sibling must not leak through a replayed, previously saved receipt.
+  f.add('sibling', 'feature-1', 'work_item');
+  f.assign('sibling', 'worker', 'sibling-worker');
+  f.restart();
+  expect(f.work.acknowledgeControl(ack, actor)).toEqual(expected());
 });

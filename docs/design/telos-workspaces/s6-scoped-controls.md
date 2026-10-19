@@ -67,8 +67,11 @@ explicitly outstanding. The host guard/revalidation ledger is preparatory until
 that action owner is connected and tested.
 
 A new-worker-dispatch hold also fences the first provider turn of an already
-allocated/queued worker. The existing execution ledger's durable provider-attempt
-history distinguishes a started conversation from queue admission. Existing
+allocated/queued worker. Durable native dispatch events, execution-ledger provider
+attempts and the existing account-bound native ACK history distinguish a started
+conversation from queue admission. The ordinary Codex callback writes its event
+after all admission checks and before native dispatch; prior accepted turns also
+remain recognizable through their native ledger after upgrade/restart. Existing
 workers can continue unless a safe-point hold separately applies. Restart
 preserves that distinction. The new allocated-but-unstarted regression was
 observed red and then green. The real delegation-host regression was updated to
@@ -80,3 +83,7 @@ former control cannot follow it into unrelated work or read its new recipients.
 Other still-attached recipients retain their own gates/evidence. Detached scope
 is pending/unavailable rather than applied. A dedicated red/green regression
 covers current routing after reparenting; prior control records are retained.
+Recipient acknowledgement responses and replays use current read scoping, including
+receipts saved before that scoping was enforced. Attachment validation for
+acknowledgement and host application checks only the exact recipient's branch;
+reparenting another target cannot suppress evidence for still-held recipients.

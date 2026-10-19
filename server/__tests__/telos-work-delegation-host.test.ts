@@ -453,16 +453,14 @@ it('CT05: delegated workers retain admission-time names across replay and EventS
 it('CT11: a real retry retires old completion authority without erasing either ordinary allocation or task attribution', async () => {
   const f = await fixture();
   const first = await f.host().delegate(f.request());
-  const second = await f
-    .host()
-    .delegate(
-      f.request({
-        ...f.input,
-        requestId: 'explicit-retry',
-        mode: 'retry',
-        predecessorAttemptId: first.attempt.attemptId,
-      }),
-    );
+  const second = await f.host().delegate(
+    f.request({
+      ...f.input,
+      requestId: 'explicit-retry',
+      mode: 'retry',
+      predecessorAttemptId: first.attempt.attemptId,
+    }),
+  );
   const resolve = (receipt: typeof first) =>
     resolveTelosWorkTaskToolContext(
       { events: f.ordinary.store, tasks: f.tasks, work: () => f.work },

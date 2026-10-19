@@ -475,13 +475,21 @@ it('CT12: a dispatch hold also fences an already allocated but unstarted worker,
   expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).toThrow(/hold/i);
   f.work.releaseControl({ requestId: 'release-first', controlId: first.controlId }, f.actor);
   expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).not.toThrow();
-  const execution = f.events.beginExecution(
-    'worker',
-    'synthetic-execution',
-    'already-queued',
-    'offline-fingerprint',
-  );
-  f.events.beginProviderAttempt(execution.token, 'synthetic-provider-attempt');
+  const nativeHold = hold('native-history');
+  const nativeHistory = vi.fn(() => true);
+  expect(() =>
+    assertTelosWorkCommandAdmission(
+      { ...f.owners(), hasAcceptedProviderTurn: nativeHistory },
+      'worker',
+      f.account,
+    ),
+  ).not.toThrow();
+  expect(nativeHistory).toHaveBeenCalledWith('worker', f.account);
+  f.work.releaseControl({ requestId: 'release-native', controlId: nativeHold.controlId }, f.actor);
+  // The native Codex dispatch callback writes this event for ordinary turns;
+  // codex-chat-session.test.ts exercises that actual callback. Such turns have
+  // no closeout provider_attempts row.
+  f.events.append('worker', 'ordinary_provider_dispatch_started', { messageId: 'already-queued' });
   hold('after-first-dispatch');
   f.reopen();
   expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).not.toThrow();

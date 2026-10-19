@@ -2052,6 +2052,13 @@ async function openCodexChatBound(
       options.ownedOpenShell?.assertBeforeDispatch(messageId);
       options.ordinaryTurnLifecycle?.beforeDispatch(messageId);
       beginTrackedProviderAttempt(options.session, messageId);
+      // Ordinary owned turns do not use closeout's provider-attempt ledger.
+      // Persist this boundary only after every admission fence succeeds, before
+      // native turn/start. Queued commands alone cannot mark a worker started.
+      if (options.conversationId)
+        options.eventStore.append(options.conversationId, 'ordinary_provider_dispatch_started', {
+          messageId,
+        });
     },
     onProviderAccepted: (messageId, threadId, turnId) => {
       // Thread instructions already contain the retained snapshot. The exact

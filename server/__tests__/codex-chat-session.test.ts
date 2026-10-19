@@ -255,6 +255,7 @@ function options(abortController: AbortController) {
     mcpServers: {},
     profile: { planType: 'api', credentialRef: '/test/login' },
     eventStore: {
+      append: vi.fn(),
       getRecentConversationText: () => [],
       getSession: () => undefined,
       getSessionEvents: () => [],
@@ -3121,6 +3122,7 @@ it('rechecks owned command authority immediately before native enqueue and provi
   try {
     const query = await openCodexChat({ ...f.opts, assertAgentContextAuthorization: guard });
     const callbacks = mocks.conversationOptions!;
+    expect(f.eventStore.hasProviderDispatchForConversation('owned-session')).toBe(false);
     current = false;
     expect(() => (callbacks.beforeEnqueue as (input: unknown) => void)({})).toThrow(
       'scope revoked',
@@ -3130,6 +3132,7 @@ it('rechecks owned command authority immediately before native enqueue and provi
     );
     expect(enqueue).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalled();
+    expect(f.eventStore.hasProviderDispatchForConversation('owned-session')).toBe(false);
     expect(callbacks.environmentContinuationOwner).toBeUndefined();
     current = true;
     query.close();
@@ -3179,7 +3182,9 @@ it('uses the already verified owned client locally regardless of global OpenShel
       model: 'owned-model',
       reasoningEffort: null,
     });
+    expect(f.eventStore.hasProviderDispatchForConversation('owned-session')).toBe(false);
     (config.onProviderDispatch as (id: string) => void)('owned-command');
+    expect(f.eventStore.hasProviderDispatchForConversation('owned-session')).toBe(true);
     const source = {
       commandId: 'owned-command',
       messageId: 'visible-owned-reply',

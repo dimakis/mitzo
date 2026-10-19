@@ -12,7 +12,7 @@ import {
 } from './ordinary-local-vertex-sdk-query.js';
 import { LocalVertexClaudeFirstCommandSchema } from '@mitzo/protocol';
 import type { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
-import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
+import type { AccountBinding, OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { OrdinaryLocalVertexSdkAuthority } from './ordinary-local-vertex-sdk-authority.js';
 import {
   OrdinaryLocalResponsesOwnedRuntime,
@@ -207,6 +207,9 @@ export function resolveOwnedTelosWorkCommandScope(sessionId: string, forNewComma
     const owners = {
       events: eventStore,
       tasks: _taskStore,
+      hasAcceptedProviderTurn: (id: string, account: AccountBinding | undefined) =>
+        account?.provider === 'openai-codex' &&
+        getCodexConversationStore().hasAcceptedProviderTurn(id, account),
       work: () =>
         (work ??= new TelosWorkStore(
           process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),

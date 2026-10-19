@@ -425,6 +425,17 @@ export class CodexConversationStore {
   hasConversation(id: string): boolean {
     return Boolean(this.db.prepare('SELECT 1 FROM codex_conversations WHERE id=?').get(id));
   }
+  /** Existing native ACK history also covers workers started before dispatch
+   * boundary events were added. Queue/claim/thread creation alone prove no turn. */
+  hasAcceptedProviderTurn(id: string, binding: AccountBinding): boolean {
+    if (!this.hasConversation(id)) return false;
+    this.read(id, binding);
+    return Boolean(
+      this.db
+        .prepare('SELECT 1 FROM codex_capacity_native_acks WHERE conversation_id=? LIMIT 1')
+        .get(id),
+    );
+  }
   read(id: string, b: AccountBinding): Conversation {
     const row = this.db
       .prepare(

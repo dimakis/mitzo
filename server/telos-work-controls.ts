@@ -328,7 +328,7 @@ export class TelosWorkControls {
     return this.db
       .transaction(() => {
         const c = this.load(input.controlId);
-        this.attached(c);
+        this.attached(c, input.itemId);
         if (c.released) conflict('Control has been released; late acknowledgement rejected');
         const view = this.project(c);
         const target = view.targets.find((t) => t.itemId === input.itemId);
@@ -340,7 +340,7 @@ export class TelosWorkControls {
         if (actor.kind !== 'conversation' || actor.id !== id || !this.available(actor.id))
           denied('Current control recipient required');
         if (revision !== input.assignmentRevision) conflict('Current assignment revision required');
-        return this.replay(actor, input.requestId, { operation: 'acknowledge', input }, () => {
+        this.replay(actor, input.requestId, { operation: 'acknowledge', input }, () => {
           const event: Evidence = {
             eventId: randomUUID(),
             itemId: input.itemId,
@@ -353,8 +353,11 @@ export class TelosWorkControls {
           this.db
             .prepare('INSERT INTO telos_work_control_evidence(control_id,data) VALUES(?,?)')
             .run(c.controlId, JSON.stringify(event));
-          return this.project(c);
+          return this.read(c.controlId, actor);
         });
+        // Reauthorize and project even old receipts saved before recipient scoping.
+        // A replay must never return broader or stale assignment visibility.
+        return this.read(c.controlId, actor);
       })
       .immediate();
   }
@@ -379,7 +382,7 @@ export class TelosWorkControls {
     this.db
       .transaction(() => {
         const c = this.load(proof.controlId);
-        this.attached(c);
+        this.attached(c, proof.itemId);
         if (c.released) conflict('Control already released');
         const view = this.project(c);
         const target = view.targets.find((t) => t.itemId === proof.itemId);

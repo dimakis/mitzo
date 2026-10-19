@@ -74,6 +74,8 @@ export function resolveTelosWorkCommandScope(
  * dispatch. Do not use for tools/completion inside an already running turn. */
 export function assertTelosWorkCommandAdmission(
   owners: Omit<Owners, 'work' | 'events'> & {
+    /** Trusted native history for conversations predating dispatch events. */
+    hasAcceptedProviderTurn?(sessionId: string, account: AccountBinding | undefined): boolean;
     events: Owners['events'] & Pick<EventStore, 'hasProviderDispatchForConversation'>;
     work(): Pick<
       TelosWorkStore,
@@ -90,7 +92,11 @@ export function assertTelosWorkCommandAdmission(
   const selected = resolveTelosWorkRoleContext(owners.events, sessionId, account);
   if (!selected) return;
   owners.work().enforceControlAction(selected.itemId, 'safe_point', sessionId);
-  if (scope && !owners.events.hasProviderDispatchForConversation(sessionId))
+  if (
+    scope &&
+    !owners.events.hasProviderDispatchForConversation(sessionId) &&
+    !owners.hasAcceptedProviderTurn?.(sessionId, account)
+  )
     owners.work().enforceControlAction(selected.itemId, 'new_worker_dispatch', sessionId);
   if (scope) owners.work().assertExecutionBriefCurrent(scope.currentTaskId, sessionId);
 }

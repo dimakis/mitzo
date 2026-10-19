@@ -2221,8 +2221,12 @@ export class EventStore {
     if (!this.db) throw new Error('Execution history unavailable');
     this.assertConversationIdentity(sessionId);
     return !!this.db
-      .prepare('SELECT 1 FROM provider_attempts WHERE session_id=? LIMIT 1')
-      .get(sessionId);
+      .prepare(
+        `SELECT 1 FROM provider_attempts WHERE session_id=?
+         UNION ALL SELECT 1 FROM events WHERE session_id=? AND type='ordinary_provider_dispatch_started'
+         LIMIT 1`,
+      )
+      .get(sessionId, sessionId);
   }
 
   /** Read provider-attempt history for one immutable execution generation. */
