@@ -1753,6 +1753,12 @@ open. See [the adoption contract](telos-workspaces/s8-chat-components.md) and
 [scoped checks](../evidence/telos-s8-components/checks.json). The approved settings
 ledger and frozen Telos reference remain unchanged.
 
+The bounded S8 review correction permits explicit valid external-origin inspection
+without ordinary direct entry. Its closing tree leaves grid flow while shared
+normal-motion exit retains it, preserving transcript height/width, draft and focus.
+Six normal-motion browser scenarios sample that exit in addition to the original
+six reduced-motion scenarios. See the [correction evidence](../evidence/telos-s8-components/review-corrections/checks.json).
+
 ## Telos worker creation receipt
 
 `TelosWorkerReceiptCard` renders the frozen Telos mock's worker material row inside

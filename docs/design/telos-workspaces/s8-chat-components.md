@@ -54,3 +54,29 @@ do not remount the composer for a tree toggle.
 Both CT15/CT16 and S8 remain open. Full build/browser CI, exact-head review and
 dependency acceptance remain separate from this component evidence. No staging,
 live target, model call, production change or merge is authorized by this increment.
+
+## Bounded Centaur corrections
+
+Review `5565480763` on `f21eab11` identified two blocking defects. Both have
+test-first corrections with [retained red/green evidence](../../evidence/telos-s8-components/review-corrections/checks.json).
+Valid external Codex origins can delegate their retained URL to `onOpen` after an
+explicit click, including when ordinary availability is unknown. Ordinary direct
+entry remains restricted to an available Mitzo non-origin conversation. This reuses
+the existing `TelosItemSources` external-inspection contract; it grants no assignment.
+
+During normal-motion tree exit, the retained inert panel is positioned outside grid
+flow at the same top/end edge, bounded by the transcript height. Closing restores
+the transcript column without adding a temporary second row or scroll height.
+Shared `MotionPresence` and its tokens remain unchanged. Six new normal-motion
+scenarios sample the actual WAAPI exit at three points on all browser projects,
+in light/dark, alongside the six original reduced-motion scenarios. They verify
+layout, focus, unmount and the same mounted ordinary composer/draft. All 125 focused
+checks pass (one existing design skip), as do all 12 browser scenarios plus two
+startup checks. Exact-head trusted review must still verify both CEN findings.
+
+Accepted Symposium source is now `3882cd217daad3e61e3642f84f7377c1d2caef52`.
+Its shared `ConversationAgents`, mobile/desktop header and source-link owners were
+inspected through that Git ref. This correction does not adopt or rebase those
+changes. S5b and its remaining WebKit dependency were unaccepted at handoff; full
+ordinary/non-code integration remains open. The original evidence above retains
+its historical base and scope.
