@@ -1158,10 +1158,10 @@ export class EventStore {
   recoverPendingSendCommands(options: { excludeSymposium?: boolean } = {}): void {
     const rows = this.db!.prepare(
       `SELECT client_msg_id, session_id, payload FROM send_commands c
-      WHERE error IS NULL AND session_id != '' AND NOT EXISTS (
+      WHERE error IS NULL AND session_id != '' AND (c.preparing = 1 OR NOT EXISTS (
         SELECT 1 FROM events e WHERE e.session_id = c.session_id AND e.type = 'user_message'
         AND json_extract(e.payload, '$.messageId') = c.client_msg_id
-      ) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id=c.session_id
+      )) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id=c.session_id
         AND (s.session_type='symposium' OR s.symposium_config IS NOT NULL)))`,
     ).all(options.excludeSymposium ? 1 : 0) as Array<{
       client_msg_id: string;
@@ -1193,6 +1193,14 @@ export class EventStore {
       });
       this.setSessionState(row.session_id, 'ENDED', { force: true, reason: 'server_restart' });
     }
+  }
+
+  /** Retention is acknowledged separately from provider startup admission. */
+  setSendCommandPreparing(clientMsgId: string, preparing: boolean): void {
+    this.db!.prepare('UPDATE send_commands SET preparing=? WHERE client_msg_id=?').run(
+      preparing ? 1 : 0,
+      clientMsgId,
+    );
   }
 
   failSendCommand(clientMsgId: string, error: string): void {
@@ -1253,6 +1261,12 @@ export class EventStore {
       )
     )
       db.exec('ALTER TABLE send_commands ADD COLUMN ordinary_admission TEXT');
+    if (
+      !(db.prepare('PRAGMA table_info(send_commands)').all() as Array<{ name: string }>).some(
+        (c) => c.name === 'preparing',
+      )
+    )
+      db.exec('ALTER TABLE send_commands ADD COLUMN preparing INTEGER NOT NULL DEFAULT 0');
     this.migrateSdkTranscriptVerification(db);
     this.migrateSymposium(db);
     this.migrateConversationSource(db);

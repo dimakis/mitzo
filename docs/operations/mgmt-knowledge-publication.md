@@ -295,3 +295,35 @@ report only a fixed state/code, with no paths, configuration values or credentia
 The status writer requires a dedicated GitHub App installed on this repository, with commit-status write, pull-request read and issue read permissions. Set `CENTAUR_STATUS_APP_ID` as a repository variable. Put `CENTAUR_STATUS_APP_PRIVATE_KEY` **only** in the `centaur-status-writer` environment. Restrict that environment's deployment branches to the default branch (`main`); do not allow pull-request refs or feature branches. Do not duplicate the key in repository or organization secrets. Bind the required `Centaur final LGTM` status to this dedicated App's actual numeric application ID, never the GitHub Actions App or any source. Verify these settings and a real status before claiming enforcement. Until provisioned, the workflow fails closed and the guarded CLI remains the manual gate.
 
 The default-branch writer rechecks pushes, review comments and manual dispatches; a five-minute scheduled reconciliation covers review submissions, edits and dismissals without running PR-controlled code with the App credential. All triggers share one non-cancelling repository queue to prevent overlapping verdict writes. This has eventual review freshness; it does not claim an atomic lock between a new review and GitHub's merge operation.
+
+## Preparing conversions before chat sends
+
+When a host enrolls an OpenShell knowledge store, Mitzo observes its publisher's
+existing snapshot at startup and every thirty seconds. It verifies that snapshot
+and prepares the pinned format conversion without creating a sandbox or a model
+turn. Warmup does not select knowledge for any future command. Each explicit
+command still runs the publisher freshness reconciliation and all source policy,
+runtime compatibility, ownership and delivery checks. Failed warmups are retried;
+a send never falls back to stale knowledge when reconciliation fails.
+
+The MGMT adapter can reuse a matching conversion from private adapter state after
+checking its pinned clean release, configuration, exact source/builder identities,
+physical publication directory, receipt, baseline and complete file hashes/modes.
+A cache hit avoids Python startup and another Git fetch. An invalid matching cache
+blocks admission; a different accepted revision requires its own conversion.
+
+Legacy HTTP sends acknowledge retention as soon as their exact user-message event
+is durable, independently of runtime readiness. The stable `retained: true` receipt
+means the prompt was saved, not that execution was admitted. Retries keep the same
+command and session identities and do not start another dispatch. Preparation
+continues through the existing admission gates; failures are durable chat events.
+A retained preparation interrupted by server restart becomes an explicit failure
+instead of silently disappearing or automatically replaying external effects.
+Native commands and guarded runtime command routes retain their own receipt rules.
+
+The existing chat status banner shows “Preparing response…” after retained
+acceptance and clears for response output or terminal/error events. No layout,
+controls, tokens or approved settings designs change. `knowledge.initial_reconcile`,
+`knowledge.verify_host` and `knowledge.freeze_upload` spans now include initial
+seed preparation; existing turn acknowledgement and first-output spans continue
+to distinguish preparation overhead from model response latency.
