@@ -1395,7 +1395,48 @@
       "authority": "Newactualhumaninstruction monitor01a15537-a6a9-72a1-b719-1dd50268d96c: Let\u2019s get em all merged. Verifiedhumancontext grants existingowners necessaryscopedreview/preparation/guardedmerges withnormalgates/reviewercoordination. No deployment/live/stagingauthority.",
       "executionHold": "Existing credentialread+normalPOST executionguard requiresoriginchat answer. No such answer hasarrivedhere; retainexistingprompt, no duplicatequestion, no credentialrequestretry/secretread/POST/queuechange/actorproxy/modeworkaround. Alloldheadpayloads remainunsubmitted.",
       "localExecution": "Staticpin/blobverification andnormalhooks only. Fresh combined normalremoteCI required; no localbroad/browser/native or realmodeltest/live/runtime/staging operation.",
-      "ownership": "Existingnewcore01a1510b-0f0a-7e52-8021-c5223e696019 hasfoundation1012 actualmergeturn, itselfheldatitsownoriginmergeprompt. It remainsunaccepted, not imported. No competingactualmerge or globalprep hold. Acurrentconflict preparation proceeds independently; eventualguardedsquashrequiresrootallocatedturn andlatestgates."
+      "ownership": "At the privateLibrarymerge, foundation1012 was stillunaccepted. Its owner subsequentlyreceiveddirectoriginmergeapproval and accepted18ec14ed; latestFoundationcheck records that next sourceintegration before any publication. No concurrentactualmerge taken byA."
+    },
+    "acceptedFoundationBaseIntegration": {
+      "source": "7ae9230617d05e218399b069e0e6aa9533b15bc6",
+      "sourceTree": "481eaee47e01fda3194dac5377a6d3bf061e0fab",
+      "parents": [
+        "d4e795061f881be5dd43f4fed0e922097d3c6b24",
+        "18ec14ed577970e3d430d94bbf93bc99f7ee9565"
+      ],
+      "acceptedMain": "18ec14ed577970e3d430d94bbf93bc99f7ee9565",
+      "acceptedTree": "330d2dce9f545cf936689f20a9c3e843c9894108",
+      "manifest": {
+        "runtimeRevision": "v1.0.330-symposium-native-request.31-symposium-shared-ui.4",
+        "aPinCount": 607,
+        "acceptedPinCount": 609,
+        "unionPinCount": 613,
+        "mismatches": 0,
+        "resolution": "One actual runtime-revision conflict: acceptednative31+A suffix. Entire613pin union verified against609accepted+allA11overrides/A4unique additions; accepted pin ordering preserved by auto merge, no blanket parent/file selection.",
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "postHooksProof": "All613pins/0mismatches,60Aownedpaths including11modules/34captures,52incomingfoundationpaths,426retainedacceptedpaths and8approvedreference/ledgerpaths exact afternormalhooks."
+      },
+      "acceptedSource": "Actualmerged1012 at18ec14ed,tree330d2dce9f545cf936689f20a9c3e843c9894108,soleparent1c300. All52nativefoundation nonmanifestpaths retainedexact; no nativepatchreplay, rewrite, installation orruntimeadoption. Privatecredentialobservation remainsserverprivate; count/consume/sampling/permission contracts retain nativeowner authority.",
+      "approvedA": "A11modules/all60ownedsource/test/fixture/34capturepaths unchanged. All426knownaccepted source/evidence paths and8approvedreference/ledgerpaths exact. No header/countgeometry orapprovedreference/protectedassertion change.",
+      "batchedPublication": "PrivateLibrarymerge482b4f1a andevidenced4e79506 were not published separately; actualfoundation arrived beforepublication and wasintegrated into same normalCIhead. Two necessaryactualconflict resolutions, no intermediate CIhead or modelreviewrequest.",
+      "normalHooks": "passed ESLint/Prettier/gitleaks/commitlint with1GiBheap",
+      "reviewContract": "Retainapproved08e report5563606448/4982r1 and earlierqualifyinghistory. Acceptedfoundation was independentlyreviewed and accepted, notAownednewnativecode. Need currenthead targetedverification of PRownedmanifestresolutions and affected auth/draft/policy/forwarding/knowledge/nativeinterface assumptions. No wholefullreset merelySHA/base/cap; unchangedAfilenames/greenCIalone insufficient.",
+      "executionHold": "Renewedhumanmerge/reviewintent verified in monitor01a15537-a6a9-72a1-b719-1dd50268d96c. Existingcredential+POST executionguard stillrequiresoriginresponse; nonearrivedhere. Retainexistingprompt, no duplicatequestion, retry, secretread, POST, queuechange, actorproxy ormodeworkaround.",
+      "priorValidation": "56c90af9 CI39252560430 all8workflowjobs/10ordinarychecksSUCCESS remainssourcebound. FreshcombinedCIrequired; localstaticchecks/hooks do notqualifycombinedtests/UX/runtime.",
+      "coverageBounds": "No localbroad/native/browser/realmodel/live/staging/deployment operation. Nativepayload byteidentity reuses acceptedfoundation evidence as sourcebound support, not a claim of physicaliOS orlive runtimequalification.",
+      "landing": "A isnextconditional1021 only; noactualmergeturn until reviewer verifiescurrentbase/head/CI/exactheadtrustedLGTM/App/threads and assignsactualturn. Sourceonlyacceptance, no runtimeactivation."
     }
   },
   "integrationHandoff": {
@@ -1427,8 +1468,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "1c300bdb8a0aba9ab87c5a7dd0bd34c7aa686fca",
-  "acceptedMainMerge": "482b4f1ad5d994880641b78c67f040a8dbac4521",
+  "latestAcceptedMain": "18ec14ed577970e3d430d94bbf93bc99f7ee9565",
+  "acceptedMainMerge": "7ae9230617d05e218399b069e0e6aa9533b15bc6",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -1562,10 +1603,10 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "1c300bdb8a0aba9ab87c5a7dd0bd34c7aa686fca",
+  "integratedAcceptedBase": "18ec14ed577970e3d430d94bbf93bc99f7ee9565",
   "baseRefresh": "Actual acceptedS7 4bac conflict requires integration.604-pin source union with explicit revision+A4-key resolution,all11 A modules/protected/captures unchanged,352 accepted files includingS7/B/C/S9 preserved after hooks. f66 greenCI/old08e baseline retained scoped; new currentCI and targetedintegrationreview/App required. Deniedreviewcredential action staysheld.",
-  "latestValidation": "checks.acceptedLibraryBaseIntegration",
-  "priorAcceptedMainMerge": "7624ebccc1f6983d6972673b4ef8c86a06fa675c",
+  "latestValidation": "checks.acceptedFoundationBaseIntegration",
+  "priorAcceptedMainMerge": "482b4f1ad5d994880641b78c67f040a8dbac4521",
   "acceptedMainMergeHistory": [
     "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
     "163f74748e4c9e782e1f27db7179987fdcb903aa",
@@ -1580,7 +1621,8 @@
     "e4186e5694cb18f27935ae005c9c9c811ad52fe3",
     "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23",
     "7624ebccc1f6983d6972673b4ef8c86a06fa675c",
-    "482b4f1ad5d994880641b78c67f040a8dbac4521"
+    "482b4f1ad5d994880641b78c67f040a8dbac4521",
+    "7ae9230617d05e218399b069e0e6aa9533b15bc6"
   ],
   "priorIntegrationOwnerSessions": ["01a14b49-df1f-7b82-be70-10be0789161c"]
 }
