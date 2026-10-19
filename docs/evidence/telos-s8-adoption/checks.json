@@ -1,7 +1,7 @@
 {
   "baseAcceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
   "componentCandidate": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
-  "implementationCheckpoint": "046fb5f1",
+  "implementationCheckpoint": "3c2ec5d3",
   "productionAdoption": [
     "TelosItemWorkspace Chat -> TelosItemChatTab -> ordinary /chat/:sessionId",
     "ChatView/DesktopChatView -> TelosChatRouteLayout using recorded association and canonical record -> TelosChatFrame",
@@ -13,15 +13,18 @@
     "routes": "Real item/chat test failed at missing View item button before page adoption",
     "hydration": "Existing textarea identity changed when async work data resolved; fixed with stable frame structure",
     "chooserRefresh": "Three-to-one refresh silently navigated to worker; fixed to restrict direct entry to initial entry",
-    "reconnect": "Count/title failed to refresh after connection transition; fixed canonical/work refresh keys"
+    "reconnect": "Count/title failed to refresh after connection transition; fixed canonical/work refresh keys",
+    "ordinaryReadIsolation": "Original S5b write guard detected unrelated work-link POST; dedicated route regression failed then passed after restricting work lookup"
   },
   "checks": {
-    "focusedPassed": 143,
+    "focusedPassed": 144,
     "existingSkipped": 1,
     "fullRouteBrowserCases": 6,
     "componentMotionCases": 12,
     "browserStartupChecks": 2,
-    "eslint": "PASS"
+    "eslint": "PASS",
+    "s5bFrontendOverlay": "28 focused checks, 12 browser scenarios plus 2 startup; original S5b fixture unchanged",
+    "ci": "Previous a414 CI found unsupported ByRoleOptions.exact in new test; fixed in86f1c9df; current-head CI pending"
   },
   "limits": [
     "Candidate source; not accepted main or full S9 acceptance",

@@ -1,0 +1,265 @@
+
+Running 14 tests using 1 worker
+
+(node:26807) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [browser-startup-0] › tests/support/browser-startup.setup.ts:5:1 › browser startup (774ms)
+(node:26906) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   2 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (209ms)
+(node:26913) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   3 [mobile-webkit] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (non-code) (1.8s)
+  ✓   4 [mobile-webkit] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (repository) (1.7s)
+  ✘   5 [mobile-webkit] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) (1.7s)
+(node:26966) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘   6 [mobile-webkit] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) (1.8s)
+(node:26986) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   7 [mobile-chromium] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (non-code) (2.4s)
+  ✓   8 [mobile-chromium] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (repository) (2.2s)
+  ✘   9 [mobile-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) (2.3s)
+(node:27044) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  10 [mobile-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) (2.3s)
+(node:27060) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  11 [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (non-code) (2.3s)
+  ✓  12 [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (repository) (2.2s)
+  ✘  13 [desktop-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) (2.4s)
+(node:27131) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  14 [desktop-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) (2.4s)
+
+
+  1) [mobile-webkit] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 6
+
+    - Array []
+    + Array [
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    + ]
+
+      347 |     });
+      348 |     expect(errors).toEqual([]);
+    > 349 |     expect(forbidden).toEqual([]);
+          |                       ^
+      350 |   });
+      351 |
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-s5b-ui-validation/tests/offline/telos-ordinary-chat.spec.ts:349:23
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [mobile-webkit] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 6
+
+    - Array []
+    + Array [
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    + ]
+
+      347 |     });
+      348 |     expect(errors).toEqual([]);
+    > 349 |     expect(forbidden).toEqual([]);
+          |                       ^
+      350 |   });
+      351 |
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-s5b-ui-validation/tests/offline/telos-ordinary-chat.spec.ts:349:23
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--mobile-webkit/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--mobile-webkit/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--mobile-webkit/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--mobile-webkit/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) [mobile-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 6
+
+    - Array []
+    + Array [
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    + ]
+
+      347 |     });
+      348 |     expect(errors).toEqual([]);
+    > 349 |     expect(forbidden).toEqual([]);
+          |                       ^
+      350 |   });
+      351 |
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-s5b-ui-validation/tests/offline/telos-ordinary-chat.spec.ts:349:23
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--mobile-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--mobile-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--mobile-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) [mobile-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 6
+
+    - Array []
+    + Array [
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    + ]
+
+      347 |     });
+      348 |     expect(errors).toEqual([]);
+    > 349 |     expect(forbidden).toEqual([]);
+          |                       ^
+      350 |   });
+      351 |
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-s5b-ui-validation/tests/offline/telos-ordinary-chat.spec.ts:349:23
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--mobile-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--mobile-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--mobile-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--mobile-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) [desktop-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 6
+
+    - Array []
+    + Array [
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    + ]
+
+      347 |     });
+      348 |     expect(errors).toEqual([]);
+    > 349 |     expect(forbidden).toEqual([]);
+          |                       ^
+      350 |   });
+      351 |
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-s5b-ui-validation/tests/offline/telos-ordinary-chat.spec.ts:349:23
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--desktop-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-ordinary-chat-ordina-4176c-y-before-continuation-dark--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6) [desktop-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    - Expected  - 1
+    + Received  + 6
+
+    - Array []
+    + Array [
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    +   "/api/telos/work/links",
+    + ]
+
+      347 |     });
+      348 |     expect(errors).toEqual([]);
+    > 349 |     expect(forbidden).toEqual([]);
+          |                       ^
+      350 |   });
+      351 |
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-s5b-ui-validation/tests/offline/telos-ordinary-chat.spec.ts:349:23
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--desktop-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-ordinary-chat-ordina-fff01--before-continuation-light--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  6 failed
+    [mobile-webkit] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) 
+    [mobile-webkit] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) 
+    [mobile-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) 
+    [mobile-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) 
+    [desktop-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) 
+    [desktop-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) 
+  8 passed (33.4s)

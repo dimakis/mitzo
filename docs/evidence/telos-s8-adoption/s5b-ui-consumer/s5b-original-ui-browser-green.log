@@ -1,0 +1,29 @@
+
+Running 14 tests using 1 worker
+
+(node:34004) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 [browser-startup-0] › tests/support/browser-startup.setup.ts:5:1 › browser startup (740ms)
+(node:34047) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   2 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (427ms)
+(node:34053) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   3 [mobile-webkit] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (non-code) (1.9s)
+  ✓   4 [mobile-webkit] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (repository) (1.6s)
+  ✓   5 [mobile-webkit] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) (1.5s)
+  ✓   6 [mobile-webkit] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) (1.4s)
+(node:34201) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   7 [mobile-chromium] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (non-code) (2.5s)
+  ✓   8 [mobile-chromium] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (repository) (2.2s)
+  ✓   9 [mobile-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) (2.0s)
+  ✓  10 [mobile-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) (1.9s)
+(node:34553) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  11 [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (non-code) (2.3s)
+  ✓  12 [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:25:3 › S8 actual item and ordinary routes retain chat ownership (repository) (2.2s)
+  ✓  13 [desktop-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (dark) (2.0s)
+  ✓  14 [desktop-chromium] › tests/offline/telos-ordinary-chat.spec.ts:26:3 › ordinary bound first command survives reload and explicit recovery before continuation (light) (1.8s)
+
+  14 passed (27.6s)
