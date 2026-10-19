@@ -125,7 +125,7 @@ it('opens an external origin explicitly and retains distinct ordinary additional
   fireEvent.click(await screen.findByRole('button', { name: 'Open Originating conversation' }));
   expect(open).toHaveBeenCalledWith('codex://threads/source', '_blank', 'noopener,noreferrer');
   expect(newSession).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole('button', { name: 'New chat', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'New chat' }));
   await screen.findByTestId('setup');
   const draft = listChatDrafts()[0];
   const params = new URLSearchParams(draft.settings.search);
