@@ -216,10 +216,14 @@
     {
       "file": "native-trusted-root-child-cwd.patch",
       "sha256": "fd6c6b41ad2510228d7695381207151a0c94b323400ea7e8ac58ec62be02e970"
+    },
+    {
+      "file": "native-extension-tool-inventory.patch",
+      "sha256": "4f7da79a4723d70cabdc576bbf34b0bb9c18ba0d933758dda44dc8b228248124"
     }
   ],
-  "sourceTree": "098b7933552a6fd2120010f38fa8a71aa4df7990",
-  "localSourceCommit": "4cea83bbbf2330e7ffc22389eafcc6dc6f18d8a2",
+  "sourceTree": "77a800c70646406a5165ea56237219e56518c36b",
+  "localSourceCommit": "557ce440b823868ea853e583c2277d16ec0af726",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -278,7 +282,8 @@
     "ff92b351fbc3ae89a9e0a57d3268975b2347ce92",
     "3ec49f15814168d9be0553f7bc12e6d78542371a",
     "a69928ec137aafd75d89111ef46c1aadc15e38f1",
-    "4cea83bbbf2330e7ffc22389eafcc6dc6f18d8a2"
+    "4cea83bbbf2330e7ffc22389eafcc6dc6f18d8a2",
+    "557ce440b823868ea853e583c2277d16ec0af726"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -288,7 +293,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "53-patch source: bound local child cwd comparison uses existing host-owned trusted-root-only normalization after actual52 trace proved that representation mismatch; raw request/executor custody and all other guards preserved.",
+    "scope": "54-patch source: registration-owned extension tool capture and renewal; legacy state-bound contributors refuse without callbacks. Complete Core/MCP/request/account preparation and ordinary prepared dispatch remain incomplete.",
     "localFocused": {
       "status": "source_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -297,14 +302,15 @@
       "allOrderedChecksumsReconstructExactTree": true
     },
     "ci": {
-      "status": "pending_53_patch_trusted_root_child_cwd_fix",
+      "status": "pending_54_patch_extension_inventory",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
         "codex-api",
         "codex-state",
         "codex-http-client",
-        "codex-guardian-reviewer"
+        "codex-guardian-reviewer",
+        "codex-extension-api"
       ],
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
@@ -534,6 +540,28 @@
       "localRustCompilationOrExecution": false,
       "runtimeRepairEstablished": false,
       "notImmutableDirectoryIdentityOrSameSpellingRetargetProof": true
+    },
+    "extensionToolInventory": {
+      "sourceCommit": "557ce440b823868ea853e583c2277d16ec0af726",
+      "sourceTree": "77a800c70646406a5165ea56237219e56518c36b",
+      "crate": "codex-extension-api",
+      "registryOwner": "ExtensionRegistry / ExtensionRegistryBuilder",
+      "registration": "fixed_tools retains real executors and freezes metadata for both ordinary planning and capture; tool_contributor remains explicitly unresolved",
+      "capture": "capture_pre_session_tools, no caller inventory or callbacks, returns only extension partition",
+      "renewal": "renew_pre_session_tools requires identical immutable registry identity; every rebuild invalidates prior capture",
+      "offlineRegressions": 4,
+      "regressionCoverage": [
+        "mixed unresolved contributors refuse without discovery or tool execution",
+        "ordinary order, initial/deferred specs, exposure and parallel metadata retained despite underlying metadata drift",
+        "original tool invocation delegated once through retained executable runtime",
+        "rebuild/addition/ABA refuses even with equal definitions; empty registry distinct from empty state-bound result"
+      ],
+      "scopedRustfmtPassed": true,
+      "localRustCompilationOrTests": false,
+      "ciResult": "pending",
+      "productionStateBoundContributorsUpgraded": false,
+      "wholeRequestPreparationReady": false,
+      "runtimeActivation": false
     }
   },
   "runtimeQualified": false,
@@ -2189,6 +2217,14 @@
           "native52-mac-result.json": "0c27741c4aba83ac170aca52c52521c64fc7afd33cc3a056cce3678ee6a8398f"
         }
       }
+    },
+    {
+      "sourceTree": "098b7933552a6fd2120010f38fa8a71aa4df7990",
+      "localSourceCommit": "4cea83bbbf2330e7ffc22389eafcc6dc6f18d8a2",
+      "patchCount": 53,
+      "acceptedPr": 1012,
+      "qualifiedNativeCi": 39271304931,
+      "scope": "Retained exact 53-patch source, no extension pre-session inventory API or tests yet."
     }
   ]
 }

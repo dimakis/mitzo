@@ -6,11 +6,35 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 53 patches
+## Current composed source: 54 patches
 
-The 53 ordered patches reconstruct native tree
-`098b7933552a6fd2120010f38fa8a71aa4df7990` (local source `4cea83bbbf2330e7ffc22389eafcc6dc6f18d8a2`).
-The current source adds the actual ordinary child-approval consumer to the retained
+The 54 ordered patches reconstruct native tree
+`77a800c70646406a5165ea56237219e56518c36b` (local source `557ce440b823868ea853e583c2277d16ec0af726`).
+Patch 54 adds an extension-registry input contract for pre-session inventory.
+The owning extension can register its real executable tools with `fixed_tools`;
+the registry retains their definitions for both ordinary planning and capture.
+`capture_pre_session_tools` reads registration-owned definitions in ordinary
+order without discovery, Session creation, MCP activation or provider calls.
+Any ordinary state-bound `tool_contributor` remains unresolved, including one
+that would return no tools. Capture refuses before invoking any contributor.
+`renew_pre_session_tools` checks the exact immutable registry identity; a rebuild
+with equal definitions still invalidates the prior process-local capture.
+
+The new offline integration fixtures cover refusal without callbacks, order and
+metadata parity with the ordinary contributor path, retained executable dispatch,
+mutable metadata, registry replacement/addition/ABA and empty-result authority.
+CI adds the extension API crate to the existing Linux/Mac fixture and formatting
+gates, preserving prior coverage. Scoped formatting and source reconstruction are
+local checks; compilation and these new fixtures require CI results on this tree.
+
+This captures only the extension partition before ordinary step policy. Existing
+production contributors still select tools using thread/config/step state and
+have not been relabeled as fixed. Core/MCP discovery, host dynamic tools, account
+and late HTTP contributors still need their authoritative pre-session inputs.
+No complete prepared request, capacity, joining, dispatch or runtime readiness is
+claimed by this registration contract.
+
+The retained source includes the actual ordinary child-approval consumer to the retained
 immutable-request foundation. It reuses only a genuine fresh user approval from
 the same still-active initial invocation. The original runtime lifetime flag is
 never reopened, and returning/yielding from that invocation closes reuse. The
