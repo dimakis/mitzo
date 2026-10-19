@@ -5,8 +5,10 @@ import {
   CollaborationContractError,
   CollaborationSnapshotMessageSchema,
   CollaborationSnapshotSelectionSchema,
-  SessionCollaborationSchema,
+  CollaborationForwardSelectionSchema,
+  type CollaborationForwardSelection,
 } from '@mitzo/protocol';
+import { collaborationForwardSelectionFingerprint } from '@mitzo/protocol/collaboration-forward-custody';
 import type { AuthorizedCollaborationContext } from './collaboration-context-compiler.js';
 import type {
   RetainedCollaborationArtifact,
@@ -14,60 +16,11 @@ import type {
 } from './collaboration-retained-artifact-source.js';
 
 const sha = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
-const selection = CollaborationSnapshotSelectionSchema.shape;
-const id = CollaborationSnapshotMessageSchema.shape.messageId;
-const blockPin = CollaborationSnapshotMessageSchema.shape.blocks.element.omit({ content: true });
-const artifactPin = selection.artifacts.element;
-const target = z.strictObject({
-  collaborationId: SessionCollaborationSchema.shape.collaborationId,
-  expectedMembershipRevision: selection.expectedMembershipRevision,
-  sessionIds: SessionCollaborationSchema.shape.participantSessionIds.refine(
-    (ids) => ids.length > 0,
-  ),
-});
-/** Select complete visible blocks, never caller-supplied text or a private-history selector.
- * Linked URLs/Git references are not accepted as independently retained bytes.
- */
-export const CollaborationForwardSelectionSchema = z
-  .strictObject({
-    requestId: selection.requestId,
-    target,
-    sourceConversationId: selection.sourceConversationId.nullable(),
-    boundary: selection.boundary.nullable(),
-    messages: z
-      .array(
-        z.strictObject({
-          messageId: id,
-          sequence: CollaborationSnapshotMessageSchema.shape.sequence,
-          blocks: z.array(blockPin).min(1).max(100),
-        }),
-      )
-      .max(500),
-    artifacts: z
-      .array(
-        z.discriminatedUnion('kind', [
-          artifactPin.extend({ kind: z.literal('transcript_reference') }),
-          artifactPin.extend({ kind: z.literal('retained_artifact') }),
-        ]),
-      )
-      .max(100),
-  })
-  .refine(
-    (input) => input.messages.length + input.artifacts.length > 0,
-    'Explicit content required',
-  )
-  .refine(
-    (input) =>
-      input.sourceConversationId !== null
-        ? input.boundary !== null
-        : input.boundary === null &&
-          input.messages.length === 0 &&
-          input.artifacts.length > 0 &&
-          input.artifacts.every((artifact) => artifact.kind === 'retained_artifact'),
-    'A source conversation and boundary are required for transcript content',
-  );
-export type CollaborationForwardSelection = z.infer<typeof CollaborationForwardSelectionSchema>;
-export type CollaborationForwardTarget = z.infer<typeof target>;
+const artifactPin = CollaborationSnapshotSelectionSchema.shape.artifacts.element;
+// The existing protocol owner supplies the selector shared with durable storage.
+export { CollaborationForwardSelectionSchema };
+export type { CollaborationForwardSelection };
+export type CollaborationForwardTarget = CollaborationForwardSelection['target'];
 
 type Message = z.infer<typeof CollaborationSnapshotMessageSchema>;
 type TranscriptArtifact = z.infer<typeof artifactPin> & {
@@ -111,7 +64,7 @@ function bounded(value: unknown) {
  * there; recover the original receipt before recompilation and reject identity reuse.
  */
 export function collaborationForwardFingerprint(raw: unknown): string {
-  return sha(JSON.stringify(CollaborationForwardSelectionSchema.parse(raw)));
+  return collaborationForwardSelectionFingerprint(raw);
 }
 /** Read-only host composition. No persistence, allocator, queue, capacity adapter or
  * provider port exists here. The ordinary delivery owner must retain the exact packet

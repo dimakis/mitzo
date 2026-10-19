@@ -1,5 +1,6 @@
 import type {
   AgentProfileSelection,
+  CollaborationApplicationReviewInput,
   CollaborationJoin,
   CollaborationJoinInput,
   CollaborationSettings,
@@ -18,6 +19,9 @@ export interface ConversationAgentSetup {
   runOn: 'openshell' | 'local';
   selection: AccountSelection | null;
   agent: AgentProfileSelection | null;
+  /** Explicit fresh-target intent only; the server revalidates preparation custody. */
+  repositoryWorkspaceId?: string;
+  permissionMode?: CollaborationApplicationReviewInput['target']['permissionMode'];
 }
 export interface ConversationArtifactOption {
   artifactId: string;
@@ -36,18 +40,39 @@ export interface ConversationJoiningReviewResult {
  * No production owner is installed by this presentation slice. Review has no
  * allocation/model side effects. Confirm/recover retain ordinary operation IDs.
  */
-export interface ConversationJoiningOwner {
+export interface ConversationJoiningReviewRequest {
+  requestId: string;
+  setup: ConversationAgentSetup;
+  joiningBrief?: string;
+  previousSnapshot?: { snapshotId: string; sha256: string };
+}
+interface JoiningOwnerBase {
   sourceConversationId: string;
   artifacts?: ConversationArtifactOption[];
-  review(
-    input: {
-      requestId: string;
-      setup: ConversationAgentSetup;
-      joiningBrief?: string;
-      previousSnapshot?: { snapshotId: string; sha256: string };
-    },
-    signal: AbortSignal,
-  ): Promise<ConversationJoiningReviewResult>;
   confirm(input: CollaborationJoinInput): Promise<CollaborationJoin>;
   recover(joinId: string, signal: AbortSignal): Promise<CollaborationJoin>;
 }
+export interface LegacyConversationJoiningOwner extends JoiningOwnerBase {
+  kind?: undefined;
+  review(
+    input: ConversationJoiningReviewRequest,
+    signal: AbortSignal,
+  ): Promise<ConversationJoiningReviewResult>;
+}
+/** Capture is observational. The hook durably retains its parsed public intent
+ * before review crosses the authenticated POST boundary. Live client identity
+ * and all server-owned capacity/preparation evidence stay outside this contract. */
+export interface ApplicationConversationJoiningOwner extends JoiningOwnerBase {
+  kind: 'application';
+  collaborationId: string;
+  captureReview(
+    input: ConversationJoiningReviewRequest,
+    signal: AbortSignal,
+  ): Promise<CollaborationApplicationReviewInput>;
+  review(
+    input: CollaborationApplicationReviewInput,
+    signal: AbortSignal,
+  ): Promise<ConversationJoiningReviewResult>;
+}
+export type ConversationJoiningOwner =
+  LegacyConversationJoiningOwner | ApplicationConversationJoiningOwner;

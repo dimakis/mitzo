@@ -1,0 +1,199 @@
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/ordinary_parent_binding_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/ordinary_parent_binding_tests.rs
+index 3602237..f7f6da2 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/ordinary_parent_binding_tests.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/ordinary_parent_binding_tests.rs
+@@ -343,12 +343,14 @@ async fn ordinary_manager_retains_populated_descriptor_and_real_bound_parent() -
+     };
+     let result = async {
+         let mut approvals = Vec::new();
+-        let output = tokio::time::timeout(Duration::from_secs(45), async {
++        let outcome = tokio::time::timeout(Duration::from_secs(45), async {
+             loop {
+                 tokio::select! {
+                     result = running.call.as_mut().unwrap() => {
+                         running.call.take();
+-                        return result.map_err(anyhow::Error::from)?.map_err(anyhow::Error::from);
++                        return parent_inheritance_manager_tests::initial_outcome(
++                            result.map_err(anyhow::Error::from)?
++                        );
+                     },
+                     event = fixture.events.recv() => {
+                         if let EventMsg::ExecApprovalRequest(request) = event?.msg {
+@@ -374,9 +376,11 @@ async fn ordinary_manager_retains_populated_descriptor_and_real_bound_parent() -
+             "/bin/cat" | "/usr/bin/cat"
+         ));
+         assert_eq!(approvals[1].command[1], fixture.secret.to_string_lossy());
+-        assert_eq!(output.exit_code, Some(1));
+-        assert!(output.process_id.is_none());
+-        let text = String::from_utf8_lossy(&output.raw_output);
++        let bytes = parent_inheritance_manager_tests::terminal_initial_output(
++            &fixture, process_id, &outcome,
++        )
++        .await?;
++        let text = String::from_utf8_lossy(bytes);
+         assert!(text.contains("Q1-marker"));
+         assert!(!text.contains(std::str::from_utf8(SECRET)?));
+         assert_eq!(std::fs::read(&fixture.secret)?, SECRET);
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs
+index ffbf48e..1c04097 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs
+@@ -81,10 +81,9 @@ async fn actual_immediate_admission_never_enters_installed_fallback_pause() -> a
+         let (output, approvals) =
+             initial(fixture, case.running.as_mut().unwrap(), &command).await?;
+         assert_eq!(approvals.len(), 1);
+-        assert_eq!(output.exit_code, Some(1));
+-        assert!(output.process_id.is_none());
++        let bytes = terminal_initial_output(fixture, case.process_id.unwrap(), &output).await?;
+         assert_trace(fixture, true);
+-        assert_nonleak(fixture, &output.raw_output)?;
++        assert_nonleak(fixture, bytes)?;
+         assert_no_approval(fixture);
+         assert!(pause.observations().is_empty());
+         // The release guard stays live; success must finish without any release notification.
+@@ -129,6 +128,7 @@ async fn config_drift_after_actual_closed_flag_scope_none_refuses_before_manual(
+         let fixture = &case.fixture;
+         let process_id = case.process_id.unwrap();
+         let (first, approvals) = initial(fixture, case.running.as_mut().unwrap(), &command).await?;
++        let first = first.map_err(anyhow::Error::from)?;
+         assert_eq!(approvals.len(), 1);
+         assert_eq!(first.process_id, Some(process_id));
+         assert_eq!(first.exit_code, None);
+@@ -301,11 +301,7 @@ async fn initial_with_child_hook(
+     expected: &[String],
+     mode: HookMode,
+     installed: &mut Option<InstalledHook>,
+-) -> anyhow::Result<(
+-    ExecCommandToolOutput,
+-    Vec<ExecApprovalRequestEvent>,
+-    HookEvents,
+-)> {
++) -> anyhow::Result<(InitialOutcome, Vec<ExecApprovalRequestEvent>, HookEvents)> {
+     let fixture = &case.fixture;
+     let running = case.running.as_mut().unwrap();
+     let mut approvals = Vec::new();
+@@ -314,7 +310,7 @@ async fn initial_with_child_hook(
+         tokio::select! {
+             result = running.call.as_mut().unwrap() => {
+                 running.call.take();
+-                let output = result.map_err(anyhow::Error::from)?.map_err(anyhow::Error::from)?;
++                let output = initial_outcome(result.map_err(anyhow::Error::from)?)?;
+                 return Ok((output, approvals, hooks));
+             }
+             event = fixture.events.recv() => match event?.msg {
+@@ -363,14 +359,12 @@ async fn matching_child_hook_case(mode: HookMode, name: &str) -> anyhow::Result<
+             initial_with_child_hook(&mut case, &expected, mode, &mut installed).await?;
+         let fixture = &case.fixture;
+         assert_eq!(approvals.len(), if mode == HookMode::Deny { 1 } else { 2 });
+-        assert_eq!(output.exit_code, Some(1));
+-        assert!(output.process_id.is_none());
++        let bytes = terminal_initial_output(fixture, case.process_id.unwrap(), &output).await?;
+         assert_bound_before_gate(fixture); // exact CandidateSome/BoundSome, NO Runtime CAS phase
+-        assert_nonleak(fixture, &output.raw_output)?;
++        assert_nonleak(fixture, bytes)?;
+         if mode == HookMode::Deny {
+             assert!(
+-                String::from_utf8_lossy(&output.raw_output)
+-                    .contains("Execution denied: boundary-hook-denied")
++                String::from_utf8_lossy(bytes).contains("Execution denied: boundary-hook-denied")
+             );
+         }
+         while let Ok(event) = fixture.events.try_recv() {
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_manager_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_manager_tests.rs
+index 259b1ef..703c4f0 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_manager_tests.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_manager_tests.rs
+@@ -4,6 +4,7 @@ use super::*;
+ use crate::session::step_settings::ResolvedStepSettings;
+ use crate::session::turn_context::TurnContext;
+ use crate::tools::context::ExecCommandToolOutput;
++use crate::unified_exec::UnifiedExecError;
+ use crate::unified_exec::WriteStdinRequest;
+ use codex_extension_api::ApprovalDecision;
+ use codex_extension_api::ApprovalReviewContributor;
+@@ -249,18 +250,63 @@ fn start(fixture: &Fixture, request: ExecCommandRequest) -> RunningCall {
+         cleaned: false,
+     }
+ }
++// Retain the manager's actual terminal-denial payload; never fabricate a tool response.
++pub(super) type InitialOutcome = Result<ExecCommandToolOutput, UnifiedExecError>;
++
++pub(super) fn initial_outcome(result: InitialOutcome) -> anyhow::Result<InitialOutcome> {
++    match result {
++        Ok(output) => Ok(Ok(output)),
++        Err(error @ UnifiedExecError::SandboxDenied { .. }) => Ok(Err(error)),
++        Err(error) => Err(error.into()),
++    }
++}
++
++pub(super) async fn terminal_initial_output<'a>(
++    fixture: &Fixture,
++    process_id: i32,
++    outcome: &'a InitialOutcome,
++) -> anyhow::Result<&'a [u8]> {
++    let bytes = match outcome {
++        Ok(output) => {
++            assert_eq!(output.exit_code, Some(1));
++            assert!(output.process_id.is_none());
++            output.raw_output.as_slice()
++        }
++        Err(UnifiedExecError::SandboxDenied { output, .. }) => {
++            assert_eq!(output.exit_code, 1);
++            assert!(!output.timed_out);
++            let secret = std::str::from_utf8(SECRET)?;
++            assert!(!output.stdout.text.contains(secret));
++            assert!(!output.stderr.text.contains(secret));
++            output.aggregated_output.text.as_bytes()
++        }
++        Err(error) => anyhow::bail!("unexpected initial manager outcome: {error:?}"),
++    };
++    // Observe the actual store BEFORE cleanup; absence is not inferred from an error variant.
++    assert_eq!(
++        fixture
++            .session
++            .services
++            .unified_exec_manager
++            .environment_id_for_process(process_id)
++            .await,
++        None
++    );
++    Ok(bytes)
++}
++
+ async fn initial(
+     fixture: &Fixture,
+     running: &mut RunningCall,
+     expected: &[String],
+-) -> anyhow::Result<(ExecCommandToolOutput, Vec<ExecApprovalRequestEvent>)> {
++) -> anyhow::Result<(InitialOutcome, Vec<ExecApprovalRequestEvent>)> {
+     let mut approvals = Vec::new();
+     tokio::time::timeout(Duration::from_secs(45), async {
+         loop {
+             tokio::select! {
+                 result = running.call.as_mut().unwrap() => {
+                     running.call.take();
+-                    return Ok((result.map_err(anyhow::Error::from)?.map_err(anyhow::Error::from)?, approvals));
++                    return Ok((initial_outcome(result.map_err(anyhow::Error::from)?)?, approvals));
+                 },
+                 event = fixture.events.recv() => {
+                     if let EventMsg::ExecApprovalRequest(request) = event?.msg {
+@@ -477,9 +523,8 @@ async fn default_child_uses_actual_parent_during_original_initial_call_and_keeps
+         let (output, approvals) =
+             initial(fixture, case.running.as_mut().unwrap(), &expected).await?;
+         assert_eq!(approvals.len(), 1);
+-        assert_eq!(output.exit_code, Some(1));
+-        assert!(output.process_id.is_none());
+-        assert_nonleak(fixture, &output.raw_output)?;
++        let bytes = terminal_initial_output(fixture, case.process_id.unwrap(), &output).await?;
++        assert_nonleak(fixture, bytes)?;
+         assert_trace(fixture, true);
+         assert_no_approval(fixture);
+         Ok(())
+@@ -522,6 +567,7 @@ async fn same_task_child_after_actual_initial_return_reaches_closed_original_fla
+         let process_id = case.process_id.unwrap();
+         let (initial_output, initial_approvals) =
+             initial(fixture, case.running.as_mut().unwrap(), &expected).await?;
++        let initial_output = initial_output.map_err(anyhow::Error::from)?;
+         assert_eq!(initial_approvals.len(), 1);
+         assert_eq!(initial_output.process_id, Some(process_id));
+         assert_eq!(initial_output.exit_code, None);

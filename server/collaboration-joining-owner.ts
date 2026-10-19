@@ -3,8 +3,11 @@ import { z } from 'zod';
 import {
   CollaborationContractError,
   CollaborationJoinInputSchema,
+  CollaborationJoinReconcileInputSchema,
   type CollaborationJoin,
   type CollaborationJoinInput,
+  type CollaborationJoinReconcileInput,
+  type SessionCollaboration,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
@@ -29,6 +32,19 @@ export interface OrdinaryCollaborationJoiningAuthority {
    * This check must support already-linked recovery without granting execution.
    */
   authorizeJoin(input: JoinScope, signal: AbortSignal): Promise<void>;
+  /** Reauthorize the original operator/source/settings/native capacity and separately
+   * approve current membership with the exact original review. Do not reinterpret the
+   * original review as compiled at the newer revision. Already-linked request retries
+   * authorize observation only; the store alone decides whether the receipt is exact.
+   */
+  authorizeReconciliation(
+    input: Scope & {
+      join: CollaborationJoin;
+      membership: SessionCollaboration;
+      approval: CollaborationJoinReconcileInput;
+    },
+    signal: AbortSignal,
+  ): Promise<void>;
 }
 
 /** Structural port for an authenticated router; only public join records escape. */
@@ -43,6 +59,13 @@ export interface OrdinaryCollaborationJoiningPort {
     operatorId: string,
     collaborationId: string,
     joinId: string,
+    signal: AbortSignal,
+  ): Promise<CollaborationJoin>;
+  reconcile(
+    operatorId: string,
+    collaborationId: string,
+    joinId: string,
+    raw: unknown,
     signal: AbortSignal,
   ): Promise<CollaborationJoin>;
 }
@@ -96,6 +119,43 @@ export class OrdinaryCollaborationJoining implements OrdinaryCollaborationJoinin
     );
     if (!join) throw new CollaborationContractError('not_found');
     return this.finish(scope, join, 'recover', signal);
+  }
+
+  async reconcile(
+    operatorId: string,
+    collaborationId: string,
+    joinId: string,
+    raw: unknown,
+    signal: AbortSignal,
+  ): Promise<CollaborationJoin> {
+    const scope = this.scope(operatorId, collaborationId);
+    const input = CollaborationJoinReconcileInputSchema.parse(structuredClone(raw));
+    signal.throwIfAborted();
+    const join = this.deps.store.collaborationConversation.getJoin(
+      collaborationId,
+      z.uuid().parse(joinId),
+    );
+    const membership = this.deps.store.getSessionCollaboration(collaborationId);
+    if (!join || !membership) throw new CollaborationContractError('not_found');
+    if (join.state === 'allocated' && input.expectedMembershipRevision !== membership.revision)
+      throw new CollaborationContractError('conflict');
+    await this.deps.authority.authorizeReconciliation(
+      {
+        ...scope,
+        join: structuredClone(join),
+        membership: structuredClone(membership),
+        approval: structuredClone(input),
+      },
+      signal,
+    );
+    signal.throwIfAborted();
+    // No asynchronous allocation/resolver step. The existing EventStore transaction
+    // rechecks current membership, exact prepared settings and first-command freshness.
+    return this.deps.store.collaborationConversation.reconcileJoin(
+      collaborationId,
+      join.joinId,
+      input,
+    );
   }
 
   private scope(operatorId: string, collaborationId: string): Scope {
@@ -165,6 +225,9 @@ export class OrdinaryCollaborationJoining implements OrdinaryCollaborationJoinin
       },
     );
     await authorize();
+    // A confirmation request receipt may describe the earlier pending state. The
+    // allocation owner returns the latest retained join; a linked retry is a read.
+    if (join.state === 'linked') return join;
     return this.deps.store.collaborationConversation.linkJoin(
       scope.collaborationId,
       join.joinId,

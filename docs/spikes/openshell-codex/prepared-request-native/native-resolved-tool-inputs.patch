@@ -1,0 +1,604 @@
+diff --git a/codex-rs/core/src/agent/role.rs b/codex-rs/core/src/agent/role.rs
+index f6633e7..43e25e4 100644
+--- a/codex-rs/core/src/agent/role.rs
++++ b/codex-rs/core/src/agent/role.rs
+@@ -264,36 +264,55 @@ mod role_overrides {
+ pub(crate) mod spawn_tool_spec {
+     use super::*;
+ 
++    pub(crate) struct LoadedRoleDescriptions {
++        roles: Vec<LoadedRoleDescription>,
++    }
++
++    struct LoadedRoleDescription {
++        name: String,
++        description: Option<String>,
++        model: Option<String>,
++        reasoning_effort: Option<String>,
++    }
++
++    impl LoadedRoleDescriptions {
++        pub(crate) fn render(&self) -> String {
++            let formatted_roles = self.roles.iter().map(format_role).collect::<Vec<_>>();
++            format!("Available roles:\n{}", formatted_roles.join("\n"))
++        }
++    }
++
+     /// Builds the spawn-agent tool description text from built-in and configured roles.
+     pub(crate) fn build(user_defined_agent_roles: &BTreeMap<String, AgentRoleConfig>) -> String {
+-        let built_in_roles = built_in::configs();
+-        build_from_configs(built_in_roles, user_defined_agent_roles)
++        load(user_defined_agent_roles).render()
+     }
+ 
+-    // This function is not inlined for testing purpose.
+-    fn build_from_configs(
+-        built_in_roles: &BTreeMap<String, AgentRoleConfig>,
++    /// Resolves the descriptive role fields once at the ordinary tool-building point.
++    /// Missing or invalid sources keep the existing description-only fallback.
++    pub(crate) fn load(
+         user_defined_roles: &BTreeMap<String, AgentRoleConfig>,
+-    ) -> String {
++    ) -> LoadedRoleDescriptions {
++        let built_in_roles = built_in::configs();
+         let mut seen = BTreeSet::new();
+-        let mut formatted_roles = Vec::new();
++        let mut roles = Vec::new();
+         for (name, declaration) in user_defined_roles {
+             if seen.insert(name.as_str()) {
+-                formatted_roles.push(format_role(name, declaration));
++                roles.push(load_role(name, declaration));
+             }
+         }
+         for (name, declaration) in built_in_roles {
+             if seen.insert(name.as_str()) {
+-                formatted_roles.push(format_role(name, declaration));
++                roles.push(load_role(name, declaration));
+             }
+         }
+ 
+-        format!("Available roles:\n{}", formatted_roles.join("\n"))
++        LoadedRoleDescriptions { roles }
+     }
+ 
+-    fn format_role(name: &str, declaration: &AgentRoleConfig) -> String {
+-        if let Some(description) = &declaration.description {
+-            let locked_settings_note = declaration
++    fn load_role(name: &str, declaration: &AgentRoleConfig) -> LoadedRoleDescription {
++        // Roles without descriptions never read a config file in this path.
++        let role_toml = declaration.description.as_ref().and_then(|_| {
++            declaration
+                 .config_file
+                 .as_ref()
+                 .and_then(|config_file| {
+@@ -302,31 +321,42 @@ pub(crate) mod spawn_tool_spec {
+                         .or_else(|| std::fs::read_to_string(config_file).ok())
+                 })
+                 .and_then(|contents| toml::from_str::<TomlValue>(&contents).ok())
+-                .map(|role_toml| {
+-                    let model = role_toml
+-                        .get("model")
+-                        .and_then(TomlValue::as_str);
+-                    let reasoning_effort = role_toml
+-                        .get("model_reasoning_effort")
+-                        .and_then(TomlValue::as_str);
+-                    match (model, reasoning_effort) {
+-                        (Some(model), Some(reasoning_effort)) => format!(
+-                            "\n- This role's model is set to `{model}` and its reasoning effort is set to `{reasoning_effort}`. These settings cannot be changed."
+-                        ),
+-                        (Some(model), None) => {
+-                            format!(
+-                                "\n- This role's model is set to `{model}` and cannot be changed."
+-                            )
+-                        }
+-                        (None, Some(reasoning_effort)) => {
+-                            format!(
+-                                "\n- This role's reasoning effort is set to `{reasoning_effort}` and cannot be changed."
+-                            )
+-                        }
+-                        (None, None) => String::new(),
+-                    }
+-                })
+-                .unwrap_or_default();
++        });
++        let string_field = |name| {
++            role_toml
++                .as_ref()
++                .and_then(|value| value.get(name))
++                .and_then(TomlValue::as_str)
++                .map(str::to_owned)
++        };
++        LoadedRoleDescription {
++            name: name.to_owned(),
++            description: declaration.description.clone(),
++            model: string_field("model"),
++            reasoning_effort: string_field("model_reasoning_effort"),
++        }
++    }
++
++    fn format_role(role: &LoadedRoleDescription) -> String {
++        let name = &role.name;
++        if let Some(description) = &role.description {
++            let locked_settings_note = match (
++                role.model.as_deref(),
++                role.reasoning_effort.as_deref(),
++            ) {
++                (Some(model), Some(reasoning_effort)) => format!(
++                    "\n- This role's model is set to `{model}` and its reasoning effort is set to `{reasoning_effort}`. These settings cannot be changed."
++                ),
++                (Some(model), None) => {
++                    format!("\n- This role's model is set to `{model}` and cannot be changed.")
++                }
++                (None, Some(reasoning_effort)) => {
++                    format!(
++                        "\n- This role's reasoning effort is set to `{reasoning_effort}` and cannot be changed."
++                    )
++                }
++                (None, None) => String::new(),
++            };
+             format!("{name}: {{\n{description}{locked_settings_note}\n}}")
+         } else {
+             format!("{name}: no description")
+diff --git a/codex-rs/core/src/agent/role_tests.rs b/codex-rs/core/src/agent/role_tests.rs
+index fad4e30..01454b3 100644
+--- a/codex-rs/core/src/agent/role_tests.rs
++++ b/codex-rs/core/src/agent/role_tests.rs
+@@ -724,6 +724,35 @@ fn spawn_tool_spec_marks_role_locked_model_and_reasoning_effort() {
+         ));
+ }
+ 
++#[test]
++fn loaded_spawn_role_descriptions_retain_source_values_and_fallbacks() {
++    let home = TempDir::new().unwrap();
++    let path = home.path().join("role.toml");
++    fs::write(
++        &path,
++        "model = \"captured-role-model\"\nmodel_reasoning_effort = \"high\"\n",
++    )
++    .unwrap();
++    let roles = BTreeMap::from([(
++        "retained".into(),
++        AgentRoleConfig {
++            description: Some("Retained role.".into()),
++            config_file: Some(path.clone()),
++            nickname_candidates: None,
++        },
++    )]);
++    let loaded = spawn_tool_spec::load(&roles);
++    let expected = spawn_tool_spec::build(&roles);
++    fs::write(&path, "model = \"changed-role-model\"\n").unwrap();
++    assert_eq!(loaded.render(), expected);
++    fs::remove_file(&path).unwrap();
++    assert_eq!(loaded.render(), expected);
++    let missing = spawn_tool_spec::load(&roles);
++    assert!(missing.render().contains("retained: {\nRetained role.\n}"));
++    fs::write(&path, "not valid TOML [").unwrap();
++    assert_eq!(spawn_tool_spec::load(&roles).render(), missing.render());
++}
++
+ #[test]
+ fn spawn_tool_spec_marks_role_locked_reasoning_effort_only() {
+     let tempdir = TempDir::new().expect("create temp dir");
+diff --git a/codex-rs/core/src/tools/spec_plan.rs b/codex-rs/core/src/tools/spec_plan.rs
+index bb1474f..fa44a3f 100644
+--- a/codex-rs/core/src/tools/spec_plan.rs
++++ b/codex-rs/core/src/tools/spec_plan.rs
+@@ -779,11 +779,10 @@ fn wait_agent_timeout_options(turn_context: &TurnContext) -> WaitAgentTimeoutOpt
+ }
+ 
+ fn agent_type_description(
+-    turn_context: &TurnContext,
++    roles: &crate::agent::role::spawn_tool_spec::LoadedRoleDescriptions,
+     default_agent_type_description: &str,
+ ) -> String {
+-    let agent_type_description =
+-        crate::agent::role::spawn_tool_spec::build(&turn_context.config.agent_roles);
++    let agent_type_description = roles.render();
+     if agent_type_description.is_empty() {
+         default_agent_type_description.to_string()
+     } else {
+@@ -1297,6 +1296,18 @@ fn add_core_utility_tools(context: &CoreToolPlanContext<'_>, registry: &mut Tool
+ 
+ #[instrument(level = "trace", skip_all)]
+ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut ToolRegistry) {
++    add_collaboration_tools_with_role_resolver(context, registry, || {
++        crate::agent::role::spawn_tool_spec::load(&context.turn_context.config.agent_roles)
++    });
++}
++
++// The ordinary wrapper remains effectful. Resolve only when the enabled branch
++// reaches the original role-description point, preserving its registration order.
++fn add_collaboration_tools_with_role_resolver(
++    context: &CoreToolPlanContext<'_>,
++    registry: &mut ToolRegistry,
++    resolve_roles: impl FnOnce() -> crate::agent::role::spawn_tool_spec::LoadedRoleDescriptions,
++) {
+     let turn_context = context.turn_context;
+     if collab_tools_enabled(turn_context, context.model_info) {
+         if multi_agent_v2_enabled(turn_context) {
+@@ -1311,8 +1322,9 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut Too
+             let tool_namespace = namespace_tools_enabled(turn_context)
+                 .then_some(turn_context.config.multi_agent_v2.tool_namespace.as_deref())
+                 .flatten();
++            let roles = resolve_roles();
+             let agent_type_description =
+-                agent_type_description(turn_context, context.default_agent_type_description);
++                agent_type_description(&roles, context.default_agent_type_description);
+             let hide_spawn_agent_metadata =
+                 turn_context.config.multi_agent_v2.hide_spawn_agent_metadata;
+             registry.register_trusted_with_exposure(
+@@ -1394,8 +1406,9 @@ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut Too
+                 exposure,
+             );
+         } else {
++            let roles = resolve_roles();
+             let agent_type_description =
+-                agent_type_description(turn_context, context.default_agent_type_description);
++                agent_type_description(&roles, context.default_agent_type_description);
+             let exposure = if search_tool_enabled(turn_context, context.model_info) {
+                 ToolExposure::Deferred
+             } else {
+@@ -1490,13 +1503,10 @@ fn append_extension_tool_executors(
+         if is_standalone_web_search && (!standalone_web_search_enabled || !web_search_mode_on) {
+             continue;
+         }
+-        if tool_name == ToolName::namespaced(IMAGE_GEN_NAMESPACE, IMAGEGEN_TOOL_NAME)
+-            && !image_generation_available(turn_context, model_info)
++        let eligibility = resolve_extension_tool_eligibility(turn_context, model_info, &tool_name);
++        if register_resolved_extension_tool(executor, eligibility, registry)
++            && is_standalone_web_search
+         {
+-            continue;
+-        }
+-        let runtime = Arc::new(ExtensionToolAdapter::new(executor));
+-        if registry.register_external(runtime) && is_standalone_web_search {
+             standalone_web_search_tool = Some(tool_name);
+         }
+     }
+@@ -1504,6 +1514,34 @@ fn append_extension_tool_executors(
+     standalone_web_search_tool
+ }
+ 
++// Retains only the existing image eligibility gate for this executor. Tool
++// policy and executor callbacks still run at their ordinary registration point.
++struct ResolvedExtensionToolEligibility {
++    allowed: bool,
++}
++
++fn resolve_extension_tool_eligibility(
++    turn_context: &TurnContext,
++    model_info: &ModelInfo,
++    tool_name: &ToolName,
++) -> ResolvedExtensionToolEligibility {
++    ResolvedExtensionToolEligibility {
++        allowed: tool_name != &ToolName::namespaced(IMAGE_GEN_NAMESPACE, IMAGEGEN_TOOL_NAME)
++            || image_generation_available(turn_context, model_info),
++    }
++}
++
++fn register_resolved_extension_tool(
++    executor: Arc<dyn for<'call> ToolExecutor<ExtensionToolCall<'call>>>,
++    eligibility: ResolvedExtensionToolEligibility,
++    registry: &mut ToolRegistry,
++) -> bool {
++    if !eligibility.allowed {
++        return false;
++    }
++    registry.register_external(Arc::new(ExtensionToolAdapter::new(executor)))
++}
++
+ fn compare_code_mode_tools(
+     left: &codex_code_mode::ToolDefinition,
+     right: &codex_code_mode::ToolDefinition,
+diff --git a/codex-rs/core/src/tools/spec_plan_tests.rs b/codex-rs/core/src/tools/spec_plan_tests.rs
+index 1518558..5287f49 100644
+--- a/codex-rs/core/src/tools/spec_plan_tests.rs
++++ b/codex-rs/core/src/tools/spec_plan_tests.rs
+@@ -1,6 +1,7 @@
+ use crate::session::tests::update_turn_settings_for_test;
+ use std::collections::BTreeMap;
+ use std::sync::Arc;
++use std::sync::Mutex;
+ 
+ use codex_features::Feature;
+ use codex_login::AuthManager;
+@@ -65,6 +66,254 @@ use crate::tools::spec_plan::build_core_tool_registry;
+ 
+ const MULTI_AGENT_V2_NAMESPACE: &str = "collaboration";
+ 
++struct OrderedPlanningContributor {
++    event: &'static str,
++    trace: Arc<Mutex<Vec<&'static str>>>,
++    role_path: Option<std::path::PathBuf>,
++    return_tool: bool,
++}
++
++impl codex_extension_api::ToolContributor for OrderedPlanningContributor {
++    fn tools(
++        &self,
++        _session_store: &codex_extension_api::ExtensionData,
++        _thread_store: &codex_extension_api::ExtensionData,
++    ) -> Vec<Arc<dyn for<'call> ToolExecutor<ExtensionToolCall<'call>>>> {
++        self.trace.lock().unwrap().push(self.event);
++        if let Some(path) = &self.role_path {
++            std::fs::write(path, "model = \"next-wrapper-model\"\n").unwrap();
++        }
++        if self.return_tool {
++            vec![Arc::new(OrderedPlanningTool(Arc::clone(&self.trace)))]
++        } else {
++            Vec::new()
++        }
++    }
++}
++
++struct OrderedPlanningTool(Arc<Mutex<Vec<&'static str>>>);
++
++impl<'call> ToolExecutor<ExtensionToolCall<'call>> for OrderedPlanningTool {
++    fn tool_name(&self) -> ToolName {
++        ToolName::namespaced("ordering", "probe")
++    }
++
++    fn exposure(&self) -> ToolExposure {
++        self.0.lock().unwrap().push("first_registration");
++        ToolExposure::Direct
++    }
++
++    fn spec(&self) -> ToolSpec {
++        TestNamespaceExtensionTool {
++            namespace: "ordering",
++            tool_name: "probe",
++        }
++        .spec()
++    }
++
++    fn handle<'a>(&'a self, _call: ExtensionToolCall<'call>) -> codex_tools::ToolExecutorFuture<'a>
++    where
++        'call: 'a,
++    {
++        Box::pin(async {
++            Ok(Box::new(codex_tools::JsonToolOutput::new(json!({}))) as Box<dyn ToolOutput>)
++        })
++    }
++}
++
++#[tokio::test]
++async fn ordinary_tool_builder_recaptures_roles_and_preserves_contributor_registration_order() {
++    let (mut session, mut turn) = make_session_and_context().await;
++    turn.multi_agent_version = MultiAgentVersion::V2;
++    let home = tempfile::tempdir().unwrap();
++    let path = home.path().join("role.toml");
++    std::fs::write(&path, "model = \"first-wrapper-model\"\n").unwrap();
++    Arc::make_mut(&mut turn.config).agent_roles.insert(
++        "ordered".into(),
++        crate::config::AgentRoleConfig {
++            description: Some("Ordered role.".into()),
++            config_file: Some(path.clone()),
++            nickname_candidates: None,
++        },
++    );
++    let trace = Arc::new(Mutex::new(Vec::new()));
++    let mut extensions = codex_extension_api::ExtensionRegistryBuilder::new();
++    extensions.tool_contributor(Arc::new(OrderedPlanningContributor {
++        event: "first_contributor",
++        trace: Arc::clone(&trace),
++        role_path: Some(path),
++        return_tool: true,
++    }));
++    extensions.tool_contributor(Arc::new(OrderedPlanningContributor {
++        event: "second_contributor",
++        trace: Arc::clone(&trace),
++        role_path: None,
++        return_tool: false,
++    }));
++    session.services.extensions = Arc::new(extensions.build());
++    let mcp = Arc::new(codex_mcp::McpBinding::empty(mcp_config_for_test(
++        &turn.config,
++    )));
++    for expected in ["first-wrapper-model", "next-wrapper-model"] {
++        trace.lock().unwrap().clear();
++        let router = super::build_tool_router(
++            &session,
++            &turn,
++            turn.model_info(),
++            &turn.initial_environments,
++            &mcp,
++            false,
++            &turn.extension_data,
++            None,
++        )
++        .unwrap();
++        let body = serde_json::to_string(router.model_visible_specs().as_ref()).unwrap();
++        assert!(body.contains(expected));
++        let events = trace.lock().unwrap();
++        let first = events
++            .iter()
++            .position(|event| *event == "first_contributor")
++            .unwrap();
++        let registration = events
++            .iter()
++            .position(|event| *event == "first_registration")
++            .unwrap();
++        let second = events
++            .iter()
++            .position(|event| *event == "second_contributor")
++            .unwrap();
++        assert!(first < registration && registration < second, "{events:?}");
++    }
++}
++
++#[tokio::test]
++async fn ordinary_tool_builder_recaptures_image_eligibility_after_auth_changes() {
++    struct ImageContributor;
++
++    impl codex_extension_api::ToolContributor for ImageContributor {
++        fn tools(
++            &self,
++            _session_store: &codex_extension_api::ExtensionData,
++            _thread_store: &codex_extension_api::ExtensionData,
++        ) -> Vec<Arc<dyn for<'call> ToolExecutor<ExtensionToolCall<'call>>>> {
++            vec![Arc::new(TestNamespaceExtensionTool {
++                namespace: "image_gen",
++                tool_name: "imagegen",
++            })]
++        }
++    }
++
++    let (mut session, mut turn) = make_session_and_context().await;
++    set_feature(&mut turn, Feature::ImageGeneration, true);
++    update_turn_settings_for_test(&mut turn, |settings| {
++        Arc::make_mut(&mut settings.model_info).input_modalities = vec![InputModality::Image];
++    });
++    let mut extensions = codex_extension_api::ExtensionRegistryBuilder::new();
++    extensions.tool_contributor(Arc::new(ImageContributor));
++    session.services.extensions = Arc::new(extensions.build());
++    let mcp = Arc::new(codex_mcp::McpBinding::empty(mcp_config_for_test(
++        &turn.config,
++    )));
++
++    for eligible in [true, false, true] {
++        if eligible {
++            use_chatgpt_auth(&mut turn);
++        } else {
++            turn.auth_manager = None;
++        }
++        let router = super::build_tool_router(
++            &session,
++            &turn,
++            turn.model_info(),
++            &turn.initial_environments,
++            &mcp,
++            false,
++            &turn.extension_data,
++            None,
++        )
++        .unwrap();
++        let body = serde_json::to_string(router.model_visible_specs().as_ref()).unwrap();
++        assert_eq!(body.contains("image_gen"), eligible);
++    }
++}
++
++#[tokio::test]
++async fn resolved_collaboration_stage_does_not_reread_role_sources() {
++    let (_session, mut turn) = make_session_and_context().await;
++    turn.multi_agent_version = MultiAgentVersion::V2;
++    let home = tempfile::tempdir().unwrap();
++    let path = home.path().join("role.toml");
++    std::fs::write(&path, "model = \"retained-stage-model\"\n").unwrap();
++    Arc::make_mut(&mut turn.config).agent_roles.insert(
++        "retained".into(),
++        crate::config::AgentRoleConfig {
++            description: Some("Retained role.".into()),
++            config_file: Some(path.clone()),
++            nickname_candidates: None,
++        },
++    );
++    let roles = crate::agent::role::spawn_tool_spec::load(&turn.config.agent_roles);
++    std::fs::write(&path, "model = \"changed-stage-model\"\n").unwrap();
++    let mcp = codex_mcp::McpBinding::empty(mcp_config_for_test(&turn.config));
++    let policy = codex_extension_api::ToolPolicy::default();
++    let default_description = crate::agent::role::spawn_tool_spec::build(&BTreeMap::new());
++    let context = super::CoreToolPlanContext {
++        tool_policy: &policy,
++        turn_context: &turn,
++        model_info: turn.model_info(),
++        environments: &turn.initial_environments,
++        mcp: &mcp,
++        tool_suggest_candidates: None,
++        wait_for_environment_tool_config: None,
++        default_agent_type_description: &default_description,
++        wait_agent_timeouts: super::wait_agent_timeout_options(&turn),
++    };
++    let mut registry = crate::tools::registry::ToolRegistry::default();
++    super::add_collaboration_tools_with_role_resolver(&context, &mut registry, || roles);
++    let router = ToolRouter::from_registry(
++        &turn,
++        turn.model_info(),
++        registry,
++        Vec::new(),
++        &Default::default(),
++    );
++    let body = serde_json::to_string(router.model_visible_specs().as_ref()).unwrap();
++    assert!(body.contains("retained-stage-model"));
++    assert!(!body.contains("changed-stage-model"));
++}
++
++#[tokio::test]
++async fn resolved_extension_stage_uses_retained_image_eligibility() {
++    let (_session, mut turn) = make_session_and_context().await;
++    use_chatgpt_auth(&mut turn);
++    set_feature(&mut turn, Feature::ImageGeneration, true);
++    update_turn_settings_for_test(&mut turn, |settings| {
++        Arc::make_mut(&mut settings.model_info).input_modalities = vec![InputModality::Image];
++    });
++    let name = ToolName::namespaced("image_gen", "imagegen");
++    let eligible = super::resolve_extension_tool_eligibility(&turn, turn.model_info(), &name);
++    turn.auth_manager = None;
++    let mut registry = crate::tools::registry::ToolRegistry::default();
++    assert!(super::register_resolved_extension_tool(
++        Arc::new(TestNamespaceExtensionTool {
++            namespace: "image_gen",
++            tool_name: "imagegen"
++        }),
++        eligible,
++        &mut registry,
++    ));
++    let unavailable = super::resolve_extension_tool_eligibility(&turn, turn.model_info(), &name);
++    let mut next_registry = crate::tools::registry::ToolRegistry::default();
++    assert!(!super::register_resolved_extension_tool(
++        Arc::new(TestNamespaceExtensionTool {
++            namespace: "image_gen",
++            tool_name: "imagegen"
++        }),
++        unavailable,
++        &mut next_registry,
++    ));
++}
++
+ #[derive(Default)]
+ struct ToolPlanInputs {
+     tool_runtimes: Vec<RegisteredTool>,
+@@ -3207,8 +3456,10 @@ async fn hosted_web_search_fallback_follows_winning_browser_runtime() {
+     plan.assert_visible_contains(&["web_search"]);
+ }
+ 
++// Keep the runtime-gate groups in separate futures: the combined fixture
++// overflows the default test stack in unoptimized builds, including the baseline.
+ #[tokio::test]
+-async fn hosted_web_search_and_standalone_image_generation_follow_runtime_gates() {
++async fn standalone_image_generation_follows_runtime_gates() {
+     let image_generation_tool = Arc::new(TestNamespaceExtensionTool {
+         namespace: "image_gen",
+         tool_name: "imagegen",
+@@ -3276,7 +3527,10 @@ async fn hosted_web_search_and_standalone_image_generation_follow_runtime_gates(
+     )
+     .await;
+     unsupported_provider.assert_visible_lacks(&["image_gen"]);
++}
+ 
++#[tokio::test]
++async fn hosted_web_search_follows_runtime_gates() {
+     let live_web_search = probe(|turn| {
+         set_web_search_mode(turn, WebSearchMode::Live);
+         update_turn_settings_for_test(turn, |settings| {
+@@ -3319,7 +3573,10 @@ async fn hosted_web_search_and_standalone_image_generation_follow_runtime_gates(
+             "web_search",
+         ]
+     );
++}
+ 
++#[tokio::test]
++async fn standalone_web_search_requires_registered_extension_executor() {
+     let standalone_web_search_without_web_run = probe(|turn| {
+         set_feature(turn, Feature::StandaloneWebSearch, /*enabled*/ true);
+         set_web_search_mode(turn, WebSearchMode::Live);
+@@ -3377,7 +3634,10 @@ async fn hosted_web_search_and_standalone_image_generation_follow_runtime_gates(
+     )
+     .await;
+     standalone_web_search.assert_visible_lacks(&["web_search"]);
++}
+ 
++#[tokio::test]
++async fn bedrock_web_search_keeps_hosted_fallback() {
+     let bedrock_cached_web_search = probe(|turn| {
+         use_bedrock_provider(turn);
+         update_turn_settings_for_test(turn, |settings| {

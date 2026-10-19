@@ -1,0 +1,985 @@
+diff --git a/codex-rs/state/migrations/0061_prepared_request_sampling.sql b/codex-rs/state/migrations/0061_prepared_request_sampling.sql
+new file mode 100644
+index 0000000..c2822e1
+--- /dev/null
++++ b/codex-rs/state/migrations/0061_prepared_request_sampling.sql
+@@ -0,0 +1,86 @@
++-- Existing rows keep their command-wide tombstones. Only explicitly identified
++-- sampling chains may continue, and no migration grants historical chain rights.
++ALTER TABLE prepared_requests ADD COLUMN native_turn_owner_preparation_id TEXT
++REFERENCES prepared_requests(preparation_id)
++CHECK (native_turn_owner_preparation_id IS NULL OR
++    (consumed = 1 AND native_thread_id IS NULL AND native_turn_id IS NULL
++        AND json_extract(binding_json, '$.sampling.previous_preparation_id') IS NOT NULL));
++
++DROP INDEX prepared_requests_consumed_command;
++CREATE UNIQUE INDEX prepared_requests_consumed_command_root
++ON prepared_requests (
++    json_extract(binding_json, '$.application_scope_id'),
++    json_extract(binding_json, '$.command_id')
++) WHERE consumed = 1 AND json_extract(binding_json, '$.sampling.previous_preparation_id') IS NULL;
++
++CREATE UNIQUE INDEX prepared_requests_consumed_sampling
++ON prepared_requests (
++    json_extract(binding_json, '$.application_scope_id'),
++    json_extract(binding_json, '$.command_id'),
++    json_extract(binding_json, '$.sampling.sampling_id')
++) WHERE consumed = 1 AND json_extract(binding_json, '$.sampling.sampling_id') IS NOT NULL;
++
++CREATE UNIQUE INDEX prepared_requests_consumed_successor
++ON prepared_requests (json_extract(binding_json, '$.sampling.previous_preparation_id'))
++WHERE consumed = 1 AND json_extract(binding_json, '$.sampling.previous_preparation_id') IS NOT NULL;
++
++-- A predecessor acknowledgement and acceptance remain distinct observations;
++-- neither establishes completion, current source authority or tool execution.
++CREATE TRIGGER prepared_requests_sampling_predecessor
++BEFORE UPDATE OF consumed ON prepared_requests
++WHEN OLD.consumed = 0 AND NEW.consumed = 1
++    AND json_extract(NEW.binding_json, '$.sampling.previous_preparation_id') IS NOT NULL
++    AND NOT EXISTS (
++        SELECT 1 FROM prepared_requests previous
++        WHERE previous.preparation_id = json_extract(NEW.binding_json, '$.sampling.previous_preparation_id')
++            AND previous.preparation_id != NEW.preparation_id
++            AND previous.consumed = 1 AND previous.attempt_state = 'committed'
++            AND previous.provider_response_id IS NOT NULL
++            AND (previous.native_turn_id IS NOT NULL OR previous.native_turn_owner_preparation_id IS NOT NULL)
++            AND json_type(previous.binding_json, '$.sampling.sampling_id') = 'text'
++            AND json_type(NEW.binding_json, '$.sampling.sampling_id') = 'text'
++            AND json_extract(previous.binding_json, '$.application_scope_id') = json_extract(NEW.binding_json, '$.application_scope_id')
++            AND json_extract(previous.binding_json, '$.command_id') = json_extract(NEW.binding_json, '$.command_id')
++            AND json_extract(previous.binding_json, '$.account_id') = json_extract(NEW.binding_json, '$.account_id')
++            AND json_extract(previous.binding_json, '$.route_revision') = json_extract(NEW.binding_json, '$.route_revision')
++            AND json_extract(previous.binding_json, '$.runtime_revision') = json_extract(NEW.binding_json, '$.runtime_revision')
++            AND json_extract(previous.binding_json, '$.settings_revision') = json_extract(NEW.binding_json, '$.settings_revision')
++            AND previous.model = NEW.model
++    )
++BEGIN
++    SELECT RAISE(ABORT, 'sampling predecessor is unavailable or conflicts');
++END;
++
++-- The original unique native thread/turn receipt stays on the root request.
++-- A continuation can only reference that original owner, never copy its receipt.
++CREATE TRIGGER prepared_requests_continuation_native_receipt
++BEFORE UPDATE OF native_thread_id, native_turn_id ON prepared_requests
++WHEN json_extract(NEW.binding_json, '$.sampling.previous_preparation_id') IS NOT NULL
++    AND (NEW.native_thread_id IS NOT NULL OR NEW.native_turn_id IS NOT NULL)
++BEGIN
++    SELECT RAISE(ABORT, 'continuation must retain the original native turn owner');
++END;
++
++CREATE TRIGGER prepared_requests_native_turn_owner
++BEFORE UPDATE OF native_turn_owner_preparation_id ON prepared_requests
++WHEN (OLD.native_turn_owner_preparation_id IS NOT NULL
++        AND NEW.native_turn_owner_preparation_id IS NOT OLD.native_turn_owner_preparation_id)
++    OR (NEW.native_turn_owner_preparation_id IS NOT NULL AND NOT EXISTS (
++        SELECT 1 FROM prepared_requests previous
++        JOIN prepared_requests root ON root.preparation_id = NEW.native_turn_owner_preparation_id
++        WHERE previous.preparation_id = json_extract(NEW.binding_json, '$.sampling.previous_preparation_id')
++            AND COALESCE(previous.native_turn_owner_preparation_id,
++                CASE WHEN previous.native_turn_id IS NOT NULL THEN previous.preparation_id END) = root.preparation_id
++            AND root.native_turn_id IS NOT NULL AND root.native_turn_owner_preparation_id IS NULL
++            AND json_extract(root.binding_json, '$.sampling.previous_preparation_id') IS NULL
++            AND json_extract(root.binding_json, '$.application_scope_id') = json_extract(NEW.binding_json, '$.application_scope_id')
++            AND json_extract(root.binding_json, '$.command_id') = json_extract(NEW.binding_json, '$.command_id')
++            AND json_extract(root.binding_json, '$.account_id') = json_extract(NEW.binding_json, '$.account_id')
++            AND json_extract(root.binding_json, '$.route_revision') = json_extract(NEW.binding_json, '$.route_revision')
++            AND json_extract(root.binding_json, '$.runtime_revision') = json_extract(NEW.binding_json, '$.runtime_revision')
++            AND json_extract(root.binding_json, '$.settings_revision') = json_extract(NEW.binding_json, '$.settings_revision')
++            AND root.model = NEW.model
++    ))
++BEGIN
++    SELECT RAISE(ABORT, 'native turn owner is immutable and command bound');
++END;
+diff --git a/codex-rs/state/src/lib.rs b/codex-rs/state/src/lib.rs
+index cbe062d..2668ef9 100644
+--- a/codex-rs/state/src/lib.rs
++++ b/codex-rs/state/src/lib.rs
+@@ -90,6 +90,7 @@ pub use runtime::PreparedRequestClosure;
+ pub use runtime::PreparedRequestConsumption;
+ pub use runtime::PreparedRequestMeasurement;
+ pub use runtime::PreparedRequestRecord;
++pub use runtime::PreparedRequestSampling;
+ pub use runtime::PreparedRequestScope;
+ pub use runtime::PreparedTurnReceipt;
+ pub use runtime::RemoteControlEnrollmentRecord;
+diff --git a/codex-rs/state/src/runtime.rs b/codex-rs/state/src/runtime.rs
+index 37b2f6b..3184739 100644
+--- a/codex-rs/state/src/runtime.rs
++++ b/codex-rs/state/src/runtime.rs
+@@ -77,6 +77,7 @@ pub use prepared_requests::PreparedRequestClosure;
+ pub use prepared_requests::PreparedRequestConsumption;
+ pub use prepared_requests::PreparedRequestMeasurement;
+ pub use prepared_requests::PreparedRequestRecord;
++pub use prepared_requests::PreparedRequestSampling;
+ pub use prepared_requests::PreparedRequestScope;
+ pub use prepared_requests::PreparedTurnReceipt;
+ pub use queued_items::SqliteQueueStore;
+diff --git a/codex-rs/state/src/runtime/prepared_request_attempts.rs b/codex-rs/state/src/runtime/prepared_request_attempts.rs
+index 602cbee..ca11f77 100644
+--- a/codex-rs/state/src/runtime/prepared_request_attempts.rs
++++ b/codex-rs/state/src/runtime/prepared_request_attempts.rs
+@@ -4,6 +4,7 @@ use super::NewPreparedRequest;
+ use super::PreparedRequestRecord;
+ use super::StateRuntime;
+ use super::record_from_row;
++use super::sampling::REQUEST_BY_PREPARATION_ID;
+ use super::validate_request;
+ use super::validate_text;
+ use sqlx::Connection;
+@@ -74,7 +75,7 @@ impl StateRuntime {
+         validate_request(&expected.request)?;
+         let mut connection = self.prepared_request_connection().await?;
+         let mut transaction = connection.begin_with("BEGIN IMMEDIATE").await?;
+-        let row = sqlx::query("SELECT * FROM prepared_requests WHERE preparation_id = ?")
++        let row = sqlx::query(REQUEST_BY_PREPARATION_ID)
+             .bind(&expected.preparation_id)
+             .fetch_one(&mut *transaction)
+             .await?;
+@@ -115,7 +116,7 @@ impl StateRuntime {
+         validate_request(request)?;
+         let mut connection = self.prepared_request_connection().await?;
+         let mut transaction = connection.begin_with("BEGIN IMMEDIATE").await?;
+-        let row = sqlx::query("SELECT * FROM prepared_requests WHERE preparation_id = ?")
++        let row = sqlx::query(REQUEST_BY_PREPARATION_ID)
+             .bind(preparation_id)
+             .fetch_one(&mut *transaction)
+             .await?;
+diff --git a/codex-rs/state/src/runtime/prepared_request_sampling.rs b/codex-rs/state/src/runtime/prepared_request_sampling.rs
+new file mode 100644
+index 0000000..e58b210
+--- /dev/null
++++ b/codex-rs/state/src/runtime/prepared_request_sampling.rs
+@@ -0,0 +1,139 @@
++use super::NewPreparedRequest;
++use super::PreparedRequestAttemptState;
++use super::PreparedRequestRecord;
++use super::PreparedRequestScope;
++use super::PreparedTurnReceipt;
++use super::record_from_row;
++use super::validate_text;
++use serde::Deserialize;
++use serde::Serialize;
++use sqlx::SqliteConnection;
++
++macro_rules! request_query {
++    ($identity:literal) => {
++        concat!(
++            "SELECT prepared_requests.*, ",
++            "(SELECT native_thread_id FROM prepared_requests root WHERE root.preparation_id = prepared_requests.native_turn_owner_preparation_id) AS owner_native_thread_id, ",
++            "(SELECT native_turn_id FROM prepared_requests root WHERE root.preparation_id = prepared_requests.native_turn_owner_preparation_id) AS owner_native_turn_id ",
++            "FROM prepared_requests WHERE ", $identity, " = ?"
++        )
++    };
++}
++
++pub(super) const REQUEST_BY_PREPARATION_ID: &str = request_query!("preparation_id");
++pub(super) const REQUEST_BY_OPERATION_ID: &str = request_query!("operation_id");
++
++/// Stable identity for one sampling request within an ordinary command.
++/// A first sampling opts into a chain; continuations name their exact predecessor.
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub struct PreparedRequestSampling {
++    pub sampling_id: String,
++    pub previous_preparation_id: Option<String>,
++}
++
++impl PreparedRequestRecord {
++    /// All sampling receipts resolve to one original native turn owner. Delivery
++    /// must use that original owner rather than emit once per sampling request.
++    pub fn reply_origin_preparation_id(&self) -> Option<&str> {
++        self.exact_turn.as_ref().map(|_| {
++            self.native_turn_owner_preparation_id
++                .as_deref()
++                .unwrap_or(&self.preparation_id)
++        })
++    }
++}
++
++pub(super) fn validate_sampling(request: &NewPreparedRequest) -> anyhow::Result<()> {
++    if let Some(sampling) = &request.binding.sampling {
++        anyhow::ensure!(
++            request.scope == PreparedRequestScope::Command,
++            "review context cannot own a sampling chain"
++        );
++        validate_text(&sampling.sampling_id)?;
++        if let Some(previous) = &sampling.previous_preparation_id {
++            validate_text(previous)?;
++        }
++    }
++    Ok(())
++}
++
++async fn predecessor(
++    connection: &mut SqliteConnection,
++    record: &PreparedRequestRecord,
++) -> anyhow::Result<Option<PreparedRequestRecord>> {
++    let Some(previous_id) = record
++        .request
++        .binding
++        .sampling
++        .as_ref()
++        .and_then(|sampling| sampling.previous_preparation_id.as_deref())
++    else {
++        return Ok(None);
++    };
++    anyhow::ensure!(
++        previous_id != record.preparation_id,
++        "sampling cannot name itself as predecessor"
++    );
++    let row = sqlx::query(REQUEST_BY_PREPARATION_ID)
++        .bind(previous_id)
++        .fetch_one(connection)
++        .await?;
++    let previous = record_from_row(&row)?;
++    let current_binding = &record.request.binding;
++    let previous_binding = &previous.request.binding;
++    anyhow::ensure!(
++        previous.request.scope == PreparedRequestScope::Command
++            && previous_binding.sampling.is_some()
++            && previous_binding.application_scope_id == current_binding.application_scope_id
++            && previous_binding.command_id == current_binding.command_id
++            && previous_binding.account_id == current_binding.account_id
++            && previous_binding.route_revision == current_binding.route_revision
++            && previous_binding.runtime_revision == current_binding.runtime_revision
++            && previous_binding.settings_revision == current_binding.settings_revision
++            && previous.request.model == record.request.model,
++        "sampling predecessor command or authority conflicts"
++    );
++    Ok(Some(previous))
++}
++
++/// This proves retained observations and chain custody only. The ordinary owner
++/// must independently authorize current source/history/tools and actual continuation.
++pub(super) async fn validate_consumption(
++    connection: &mut SqliteConnection,
++    record: &PreparedRequestRecord,
++) -> anyhow::Result<()> {
++    if let Some(previous) = predecessor(connection, record).await? {
++        anyhow::ensure!(
++            previous.consumed
++                && previous.attempt_state == PreparedRequestAttemptState::Committed
++                && previous.provider_receipt.is_some()
++                && previous.exact_turn.is_some(),
++            "sampling predecessor has no committed acceptance and native acknowledgement"
++        );
++    }
++    Ok(())
++}
++
++pub(super) async fn acknowledge_continuation(
++    connection: &mut SqliteConnection,
++    record: &PreparedRequestRecord,
++    receipt: &PreparedTurnReceipt,
++) -> anyhow::Result<bool> {
++    let Some(previous) = predecessor(connection, record).await? else {
++        return Ok(false);
++    };
++    anyhow::ensure!(
++        previous.exact_turn.as_ref() == Some(receipt),
++        "continuation native turn conflicts with original command"
++    );
++    let root_id = previous
++        .reply_origin_preparation_id()
++        .ok_or_else(|| anyhow::anyhow!("sampling predecessor has no native turn owner"))?;
++    sqlx::query("UPDATE prepared_requests SET native_turn_owner_preparation_id = ? WHERE preparation_id = ? AND consumed = 1 AND native_turn_owner_preparation_id IS NULL")
++        .bind(root_id)
++        .bind(&record.preparation_id)
++        .execute(connection)
++        .await?;
++    Ok(true)
++}
+diff --git a/codex-rs/state/src/runtime/prepared_request_sampling_tests.rs b/codex-rs/state/src/runtime/prepared_request_sampling_tests.rs
+new file mode 100644
+index 0000000..208d98a
+--- /dev/null
++++ b/codex-rs/state/src/runtime/prepared_request_sampling_tests.rs
+@@ -0,0 +1,507 @@
++use super::*;
++use pretty_assertions::assert_eq;
++
++fn sampling_request(sampling_id: &str, predecessor: Option<&str>) -> NewPreparedRequest {
++    let mut request = request();
++    request.binding.sampling = Some(PreparedRequestSampling {
++        sampling_id: sampling_id.into(),
++        previous_preparation_id: predecessor.map(str::to_owned),
++    });
++    request
++}
++
++async fn measure_sample(
++    runtime: &StateRuntime,
++    operation: &str,
++    request: &NewPreparedRequest,
++) -> PreparedRequestRecord {
++    let prepared = runtime.prepare_request(operation, request).await.unwrap();
++    let mut witness = measurement();
++    witness.request_identity = request.request_identity.clone();
++    runtime
++        .measure_prepared_request(&prepared.preparation_id, request, &witness)
++        .await
++        .unwrap();
++    runtime
++        .read_prepared_request(operation)
++        .await
++        .unwrap()
++        .unwrap()
++}
++
++async fn commit_sample(runtime: &StateRuntime, prepared: &PreparedRequestRecord) {
++    let handle = runtime
++        .consume_prepared_request(&prepared.preparation_id, &prepared.request, "witness")
++        .await
++        .expect("each distinct sampling must have one live consumption in its command");
++    runtime
++        .commit_prepared_request_attempt(handle)
++        .await
++        .unwrap();
++}
++
++async fn acknowledge_sample(
++    runtime: &StateRuntime,
++    prepared: &PreparedRequestRecord,
++    turn: &PreparedTurnReceipt,
++    provider_id: &str,
++) {
++    runtime
++        .acknowledge_prepared_request(&prepared.preparation_id, turn)
++        .await
++        .expect("sampling acknowledgements must retain the same ordinary turn");
++    runtime
++        .record_prepared_provider_receipt(
++            &prepared.preparation_id,
++            &PreparedProviderReceipt {
++                request_identity: prepared.request.request_identity.clone(),
++                provider_response_id: provider_id.into(),
++            },
++        )
++        .await
++        .unwrap();
++}
++
++async fn accepted_root(runtime: &StateRuntime) -> (PreparedRequestRecord, PreparedTurnReceipt) {
++    let root = measure_sample(
++        runtime,
++        "initial-operation",
++        &sampling_request("initial", /*predecessor*/ None),
++    )
++    .await;
++    commit_sample(runtime, &root).await;
++    let turn = PreparedTurnReceipt {
++        thread_id: "ordinary-thread".into(),
++        turn_id: "ordinary-turn".into(),
++    };
++    acknowledge_sample(runtime, &root, &turn, "initial-response").await;
++    (root, turn)
++}
++
++#[tokio::test]
++async fn prepared_request_sampling_continuations_share_command_and_exact_native_turn() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let (root, turn) = accepted_root(&runtime).await;
++    let mut next_request = sampling_request("tool-continuation", Some(&root.preparation_id));
++    next_request.binding.history_revision = "history-with-tool-result".into();
++    next_request.request_identity = "b".repeat(/*n*/ 64);
++    next_request.encoded_body =
++        br#"{"model":"test-model","input":"retained tool result","max_output_tokens":10}"#.to_vec();
++    let next = measure_sample(&runtime, "continuation-operation", &next_request).await;
++    commit_sample(&runtime, &next).await;
++    let changed_turn = PreparedTurnReceipt {
++        turn_id: "unrelated-turn".into(),
++        ..turn.clone()
++    };
++    assert!(
++        runtime
++            .acknowledge_prepared_request(&next.preparation_id, &changed_turn)
++            .await
++            .is_err()
++    );
++    acknowledge_sample(&runtime, &next, &turn, "continuation-response").await;
++    let third_request = sampling_request("next-sampling", Some(&next.preparation_id));
++    let third = measure_sample(&runtime, "third-operation", &third_request).await;
++    commit_sample(&runtime, &third).await;
++    acknowledge_sample(&runtime, &third, &turn, "third-response").await;
++    let mut retained_records = Vec::new();
++    for (prepared, provider_id) in [
++        (&root, "initial-response"),
++        (&next, "continuation-response"),
++        (&third, "third-response"),
++    ] {
++        let retained = runtime
++            .read_prepared_request(&prepared.operation_id)
++            .await
++            .unwrap()
++            .unwrap();
++        assert_eq!(
++            retained.reply_origin_preparation_id(),
++            Some(root.preparation_id.as_str())
++        );
++        assert_eq!(retained.request, prepared.request);
++        assert_eq!(retained.exact_turn, Some(turn.clone()));
++        assert_eq!(
++            retained.provider_receipt,
++            Some(PreparedProviderReceipt {
++                request_identity: prepared.request.request_identity.clone(),
++                provider_response_id: provider_id.into(),
++            })
++        );
++        assert!(
++            runtime
++                .consume_prepared_request(&prepared.preparation_id, &prepared.request, "witness")
++                .await
++                .is_err()
++        );
++        runtime
++            .acknowledge_prepared_request(&prepared.preparation_id, &turn)
++            .await
++            .unwrap();
++        retained_records.push(retained);
++    }
++    assert_eq!(
++        sqlx::query_scalar::<_, i64>(
++            "SELECT count(*) FROM prepared_requests WHERE native_turn_id IS NOT NULL"
++        )
++        .fetch_one(runtime.pool.as_ref())
++        .await
++        .unwrap(),
++        1
++    );
++    runtime.close().await;
++    let reopened = open(&home).await;
++    for retained in retained_records {
++        assert_eq!(
++            reopened
++                .read_prepared_request(&retained.operation_id)
++                .await
++                .unwrap(),
++            Some(retained)
++        );
++    }
++    reopened.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_sampling_rejects_new_root_reused_sampling_and_concurrent_forks() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let other = open(&home).await;
++    let (root, turn) = accepted_root(&runtime).await;
++    let replacement = measure_sample(
++        &runtime,
++        "replacement-root",
++        &sampling_request("different-root", /*predecessor*/ None),
++    )
++    .await;
++    assert!(
++        runtime
++            .consume_prepared_request(&replacement.preparation_id, &replacement.request, "witness")
++            .await
++            .is_err()
++    );
++    let reused = measure_sample(
++        &runtime,
++        "reused-sampling",
++        &sampling_request("initial", Some(&root.preparation_id)),
++    )
++    .await;
++    assert!(
++        runtime
++            .consume_prepared_request(&reused.preparation_id, &reused.request, "witness")
++            .await
++            .is_err()
++    );
++    let first = measure_sample(
++        &runtime,
++        "successor-a",
++        &sampling_request("successor-a", Some(&root.preparation_id)),
++    )
++    .await;
++    let second = measure_sample(
++        &runtime,
++        "successor-b",
++        &sampling_request("successor-b", Some(&root.preparation_id)),
++    )
++    .await;
++    let (a, b) = tokio::join!(
++        runtime.consume_prepared_request(&first.preparation_id, &first.request, "witness"),
++        other.consume_prepared_request(&second.preparation_id, &second.request, "witness")
++    );
++    assert_eq!(usize::from(a.is_ok()) + usize::from(b.is_ok()), 1);
++    let (owner, winner, handle) = if let Ok(handle) = a {
++        (&runtime, first, handle)
++    } else {
++        (&other, second, b.unwrap())
++    };
++    owner.commit_prepared_request_attempt(handle).await.unwrap();
++    acknowledge_sample(owner, &winner, &turn, "successor-response").await;
++    assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM prepared_requests WHERE json_extract(binding_json, '$.sampling.previous_preparation_id') = ? AND consumed = 1")
++        .bind(&root.preparation_id).fetch_one(runtime.pool.as_ref()).await.unwrap(), 1);
++    other.close().await;
++    runtime.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_sampling_requires_bound_acknowledged_accepted_predecessor() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let (root, _) = accepted_root(&runtime).await;
++    for field in ["scope", "command", "account", "route", "runtime", "missing"] {
++        let mut request = sampling_request(field, Some(&root.preparation_id));
++        match field {
++            "scope" => request.binding.application_scope_id.push('2'),
++            "command" => request.binding.command_id.as_mut().unwrap().push('2'),
++            "account" => request.binding.account_id.push('2'),
++            "route" => request.binding.route_revision.push('2'),
++            "runtime" => request.binding.runtime_revision.push('2'),
++            "missing" => {
++                request
++                    .binding
++                    .sampling
++                    .as_mut()
++                    .unwrap()
++                    .previous_preparation_id = Some("missing-preparation".into())
++            }
++            _ => unreachable!(),
++        }
++        let candidate = measure_sample(&runtime, field, &request).await;
++        assert!(
++            runtime
++                .consume_prepared_request(&candidate.preparation_id, &request, "witness")
++                .await
++                .is_err(),
++            "{field}"
++        );
++        assert!(
++            !runtime
++                .read_prepared_request(field)
++                .await
++                .unwrap()
++                .unwrap()
++                .consumed
++        );
++    }
++    for (index, stage) in [
++        "unconsumed",
++        "consumed",
++        "committed",
++        "no-native-ack",
++        "no-provider-receipt",
++        "legacy",
++    ]
++    .iter()
++    .enumerate()
++    {
++        let mut request = sampling_request(stage, /*predecessor*/ None);
++        request.binding.command_id = Some(format!("incomplete-{index}"));
++        if *stage == "legacy" {
++            request.binding.sampling = None;
++        }
++        let previous = measure_sample(&runtime, &format!("previous-{index}"), &request).await;
++        if *stage != "unconsumed" {
++            let handle = runtime
++                .consume_prepared_request(&previous.preparation_id, &request, "witness")
++                .await
++                .unwrap();
++            if *stage != "consumed" {
++                runtime
++                    .commit_prepared_request_attempt(handle)
++                    .await
++                    .unwrap();
++            }
++        }
++        let turn = PreparedTurnReceipt {
++            thread_id: "incomplete-thread".into(),
++            turn_id: format!("turn-{index}"),
++        };
++        if ["no-provider-receipt", "legacy"].contains(stage) {
++            runtime
++                .acknowledge_prepared_request(&previous.preparation_id, &turn)
++                .await
++                .unwrap();
++        }
++        if ["no-native-ack", "legacy"].contains(stage) {
++            runtime
++                .record_prepared_provider_receipt(
++                    &previous.preparation_id,
++                    &PreparedProviderReceipt {
++                        request_identity: request.request_identity.clone(),
++                        provider_response_id: format!("response-{index}"),
++                    },
++                )
++                .await
++                .unwrap();
++        }
++        request.binding.sampling = Some(PreparedRequestSampling {
++            sampling_id: "next".into(),
++            previous_preparation_id: Some(previous.preparation_id.clone()),
++        });
++        let candidate = measure_sample(&runtime, &format!("invalid-next-{index}"), &request).await;
++        assert!(
++            runtime
++                .consume_prepared_request(&candidate.preparation_id, &request, "witness")
++                .await
++                .is_err(),
++            "{stage}"
++        );
++    }
++    runtime.close().await;
++}
++
++async fn frozen_command_setting(field: &str) {
++    let mut rejected = Vec::new();
++    for path in ["native", "sql"] {
++        let home = unique_temp_dir();
++        let runtime = open(&home).await;
++        let (root, _) = accepted_root(&runtime).await;
++        let mut request = sampling_request("changed-setting", Some(&root.preparation_id));
++        match field {
++            "model" => {
++                request.model = "different-model".into();
++                request.encoded_body = br#"{"model":"different-model","input":"explicit command","max_output_tokens":10}"#.to_vec();
++            }
++            "settings" => request.binding.settings_revision.push('2'),
++            _ => unreachable!(),
++        }
++        let next = measure_sample(&runtime, "changed-setting", &request).await;
++        let refused = match path {
++            "native" => runtime.consume_prepared_request(&next.preparation_id, &request, "witness").await.is_err(),
++            "sql" => sqlx::query("UPDATE prepared_requests SET consumed = 1, consumption_nonce = '00000000-0000-0000-0000-000000000000' WHERE preparation_id = ?")
++                .bind(&next.preparation_id).execute(runtime.pool.as_ref()).await.is_err(),
++            _ => unreachable!(),
++        };
++        rejected.push(refused);
++        runtime.close().await;
++    }
++    assert_eq!(
++        rejected,
++        vec![true, true],
++        "{field} must remain frozen for native and SQL consumption"
++    );
++}
++
++#[tokio::test]
++async fn prepared_request_sampling_command_model_stays_frozen() {
++    frozen_command_setting("model").await;
++}
++
++#[tokio::test]
++async fn prepared_request_sampling_command_settings_stay_frozen() {
++    frozen_command_setting("settings").await;
++}
++
++#[tokio::test]
++async fn prepared_request_sampling_storage_guards_reject_self_cycles_and_owner_mutation() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    for (id, parent) in [
++        ("self", "self"),
++        ("cycle-a", "cycle-b"),
++        ("cycle-b", "cycle-a"),
++    ] {
++        let request = sampling_request(id, Some(parent));
++        sqlx::query("INSERT INTO prepared_requests (preparation_id, operation_id, scope, binding_json, request_identity, model, encoded_body, max_output_tokens, measurement_json, created_at) VALUES (?, ?, 'command', ?, ?, ?, ?, ?, ?, 1)")
++            .bind(id).bind(id).bind(serde_json::to_string(&request.binding).unwrap()).bind(&request.request_identity).bind(&request.model).bind(&request.encoded_body).bind(10_i64).bind(serde_json::to_string(&measurement()).unwrap()).execute(runtime.pool.as_ref()).await.unwrap();
++        assert!(
++            runtime
++                .consume_prepared_request(id, &request, "witness")
++                .await
++                .is_err()
++        );
++        assert!(sqlx::query("UPDATE prepared_requests SET consumed = 1, consumption_nonce = '00000000-0000-0000-0000-000000000000' WHERE preparation_id = ?")
++            .bind(id).execute(runtime.pool.as_ref()).await.is_err());
++    }
++    let (root, turn) = accepted_root(&runtime).await;
++    let next = measure_sample(
++        &runtime,
++        "next",
++        &sampling_request("next", Some(&root.preparation_id)),
++    )
++    .await;
++    commit_sample(&runtime, &next).await;
++    let mut unrelated_request = sampling_request("other-root", /*predecessor*/ None);
++    unrelated_request.binding.command_id = Some("other-command".into());
++    let unrelated = measure_sample(&runtime, "other-root", &unrelated_request).await;
++    commit_sample(&runtime, &unrelated).await;
++    acknowledge_sample(
++        &runtime,
++        &unrelated,
++        &PreparedTurnReceipt {
++            thread_id: "other-thread".into(),
++            turn_id: "other-turn".into(),
++        },
++        "other-response",
++    )
++    .await;
++    assert!(sqlx::query("UPDATE prepared_requests SET native_turn_owner_preparation_id = ? WHERE preparation_id = ?")
++        .bind(&unrelated.preparation_id).bind(&next.preparation_id).execute(runtime.pool.as_ref()).await.is_err());
++    assert_eq!(
++        runtime.read_prepared_request("next").await.unwrap(),
++        Some({
++            let mut expected = next.clone();
++            expected.consumed = true;
++            expected.attempt_state = PreparedRequestAttemptState::Committed;
++            expected
++        })
++    );
++    assert!(sqlx::query("UPDATE prepared_requests SET native_thread_id = 'other', native_turn_id = 'other' WHERE preparation_id = ?")
++        .bind(&next.preparation_id).execute(runtime.pool.as_ref()).await.is_err());
++    acknowledge_sample(&runtime, &next, &turn, "next-response").await;
++    assert!(sqlx::query("UPDATE prepared_requests SET native_turn_owner_preparation_id = NULL WHERE preparation_id = ?")
++        .bind(&next.preparation_id).execute(runtime.pool.as_ref()).await.is_err());
++    runtime.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_sampling_migration_preserves_legacy_command_and_turn_tombstones() {
++    let home = unique_temp_dir();
++    std::fs::create_dir_all(&home).unwrap();
++    let sqlite = crate::SqliteConfig::new_for_testing(home.abs());
++    let mut before = crate::migrations::runtime_state_migrator();
++    before.migrations = std::borrow::Cow::Owned(
++        before
++            .migrations
++            .iter()
++            .filter(|migration| migration.version < 60)
++            .cloned()
++            .collect(),
++    );
++    let pool = sqlite
++        .open_state_db(&before, /*telemetry_override*/ None)
++        .await
++        .unwrap();
++    let request = request();
++    let binding_json = serde_json::to_string(&request.binding).unwrap();
++    sqlx::query("INSERT INTO prepared_requests (preparation_id, operation_id, scope, binding_json, request_identity, model, encoded_body, max_output_tokens, measurement_json, consumed, native_thread_id, native_turn_id, provider_response_id, created_at) VALUES ('legacy', 'legacy', 'command', ?, ?, ?, ?, 10, ?, 1, 'legacy-thread', 'legacy-turn', 'legacy-response', 1)")
++        .bind(&binding_json).bind(&request.request_identity).bind(&request.model).bind(&request.encoded_body).bind(serde_json::to_string(&measurement()).unwrap()).execute(&pool).await.unwrap();
++    pool.close().await;
++    let runtime = open(&home).await;
++    let retained = runtime
++        .read_prepared_request("legacy")
++        .await
++        .unwrap()
++        .unwrap();
++    assert_eq!(retained.request, request);
++    assert_eq!(
++        retained.attempt_state,
++        PreparedRequestAttemptState::LegacyConsumedUncertain
++    );
++    assert_eq!(retained.reply_origin_preparation_id(), Some("legacy"));
++    assert_eq!(
++        retained
++            .provider_receipt
++            .as_ref()
++            .unwrap()
++            .provider_response_id,
++        "legacy-response"
++    );
++    assert_eq!(
++        sqlx::query_scalar::<_, String>(
++            "SELECT binding_json FROM prepared_requests WHERE preparation_id = 'legacy'"
++        )
++        .fetch_one(runtime.pool.as_ref())
++        .await
++        .unwrap(),
++        binding_json
++    );
++    assert_eq!(sqlx::query_scalar::<_, Option<String>>("SELECT native_turn_owner_preparation_id FROM prepared_requests WHERE preparation_id = 'legacy'").fetch_one(runtime.pool.as_ref()).await.unwrap(), None);
++    for (operation, predecessor) in [("new-root", None), ("legacy-continuation", Some("legacy"))] {
++        let mut replacement = sampling_request(operation, predecessor);
++        replacement.binding.account_id.push('2');
++        let candidate = measure_sample(&runtime, operation, &replacement).await;
++        assert!(
++            runtime
++                .consume_prepared_request(&candidate.preparation_id, &replacement, "witness")
++                .await
++                .is_err()
++        );
++    }
++    assert_eq!(
++        runtime.read_prepared_request("legacy").await.unwrap(),
++        Some(retained)
++    );
++    runtime.close().await;
++}
+diff --git a/codex-rs/state/src/runtime/prepared_requests.rs b/codex-rs/state/src/runtime/prepared_requests.rs
+index b6eafcd..fa12c63 100644
+--- a/codex-rs/state/src/runtime/prepared_requests.rs
++++ b/codex-rs/state/src/runtime/prepared_requests.rs
+@@ -3,6 +3,9 @@
+ //! Callers are trusted native owners. They must capture authority and serialize
+ //! consumption with ordinary execution. Request identities label frozen bytes;
+ //! storage compares the complete immutable request rather than trusting a digest.
++//! Live handles remain local to their originating pool. Stale database copies,
++//! loss or replacement still require the host's existing lifecycle custody fence;
++//! copied state alone cannot establish current admission authority.
+ 
+ use super::StateRuntime;
+ use serde::Deserialize;
+@@ -26,6 +29,12 @@ pub use attempts::PreparedRequestAttemptState;
+ pub use attempts::PreparedRequestClosure;
+ pub use attempts::PreparedRequestConsumption;
+ 
++#[path = "prepared_request_sampling.rs"]
++mod sampling;
++pub use sampling::PreparedRequestSampling;
++use sampling::REQUEST_BY_OPERATION_ID;
++use sampling::REQUEST_BY_PREPARATION_ID;
++
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+ pub enum PreparedRequestScope {
+     ReviewContext,
+@@ -44,6 +53,8 @@ pub struct PreparedRequestBinding {
+     pub tools_revision: String,
+     pub runtime_revision: String,
+     pub command_id: Option<String>,
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub sampling: Option<PreparedRequestSampling>,
+ }
+ 
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+@@ -93,6 +104,7 @@ pub struct PreparedRequestRecord {
+     pub attempt_state: PreparedRequestAttemptState,
+     pub exact_turn: Option<PreparedTurnReceipt>,
+     pub provider_receipt: Option<PreparedProviderReceipt>,
++    native_turn_owner_preparation_id: Option<String>,
+ }
+ 
+ impl StateRuntime {
+@@ -112,7 +124,7 @@ impl StateRuntime {
+             .bind(serde_json::to_string(&request.binding)?).bind(&request.request_identity)
+             .bind(&request.model).bind(&request.encoded_body).bind(i64::try_from(request.max_output_tokens)?)
+             .bind(chrono::Utc::now().timestamp_millis()).execute(&mut *transaction).await?;
+-        let row = sqlx::query("SELECT * FROM prepared_requests WHERE operation_id = ?")
++        let row = sqlx::query(REQUEST_BY_OPERATION_ID)
+             .bind(operation_id)
+             .fetch_one(&mut *transaction)
+             .await?;
+@@ -131,7 +143,7 @@ impl StateRuntime {
+         operation_id: &str,
+     ) -> anyhow::Result<Option<PreparedRequestRecord>> {
+         validate_text(operation_id)?;
+-        sqlx::query("SELECT * FROM prepared_requests WHERE operation_id = ?")
++        sqlx::query(REQUEST_BY_OPERATION_ID)
+             .bind(operation_id)
+             .fetch_optional(self.pool.as_ref())
+             .await?
+@@ -152,7 +164,7 @@ impl StateRuntime {
+         validate_measurement(request, measurement)?;
+         let mut connection = self.prepared_request_connection().await?;
+         let mut transaction = connection.begin_with("BEGIN IMMEDIATE").await?;
+-        let row = sqlx::query("SELECT * FROM prepared_requests WHERE preparation_id = ?")
++        let row = sqlx::query(REQUEST_BY_PREPARATION_ID)
+             .bind(preparation_id)
+             .fetch_one(&mut *transaction)
+             .await?;
+@@ -195,7 +207,7 @@ impl StateRuntime {
+         );
+         let mut connection = self.prepared_request_connection().await?;
+         let mut transaction = connection.begin_with("BEGIN IMMEDIATE").await?;
+-        let row = sqlx::query("SELECT * FROM prepared_requests WHERE preparation_id = ?")
++        let row = sqlx::query(REQUEST_BY_PREPARATION_ID)
+             .bind(preparation_id)
+             .fetch_one(&mut *transaction)
+             .await?;
+@@ -216,6 +228,7 @@ impl StateRuntime {
+             record.attempt_state == PreparedRequestAttemptState::Open,
+             "prepared request is closed"
+         );
++        sampling::validate_consumption(&mut transaction, &record).await?;
+         let nonce = Uuid::now_v7().to_string();
+         let result = sqlx::query("UPDATE prepared_requests SET consumed = 1, consumed_at = ?, consumption_nonce = ? WHERE preparation_id = ? AND consumed = 0 AND attempt_state = 'open' AND measurement_json IS NOT NULL")
+             .bind(chrono::Utc::now().timestamp_millis()).bind(&nonce).bind(preparation_id)
+@@ -262,7 +275,7 @@ impl StateRuntime {
+         validate_text(preparation_id)?;
+         let mut connection = self.prepared_request_connection().await?;
+         let mut transaction = connection.begin_with("BEGIN IMMEDIATE").await?;
+-        let row = sqlx::query("SELECT * FROM prepared_requests WHERE preparation_id = ?")
++        let row = sqlx::query(REQUEST_BY_PREPARATION_ID)
+             .bind(preparation_id)
+             .fetch_one(&mut *transaction)
+             .await?;
+@@ -270,9 +283,11 @@ impl StateRuntime {
+         anyhow::ensure!(record.consumed, "unconsumed request cannot have a receipt");
+         match receipt {
+             Receipt::Turn(receipt) => {
+-                if let Some(existing) = record.exact_turn {
+-                    anyhow::ensure!(existing == *receipt, "native turn receipt conflicts");
+-                } else {
++                if let Some(existing) = &record.exact_turn {
++                    anyhow::ensure!(existing == receipt, "native turn receipt conflicts");
++                } else if !sampling::acknowledge_continuation(&mut transaction, &record, receipt)
++                    .await?
++                {
+                     sqlx::query("UPDATE prepared_requests SET native_thread_id = ?, native_turn_id = ? WHERE preparation_id = ? AND consumed = 1 AND native_turn_id IS NULL")
+                         .bind(&receipt.thread_id).bind(&receipt.turn_id).bind(preparation_id)
+                         .execute(&mut *transaction).await?;
+@@ -338,6 +353,7 @@ fn validate_identity(value: &str) -> anyhow::Result<()> {
+ }
+ 
+ fn validate_request(request: &NewPreparedRequest) -> anyhow::Result<()> {
++    sampling::validate_sampling(request)?;
+     let binding = &request.binding;
+     for value in [
+         &binding.application_scope_id,
+@@ -435,8 +451,28 @@ fn record_from_row(row: &SqliteRow) -> anyhow::Result<PreparedRequestRecord> {
+     if let Some(measurement) = &measurement {
+         validate_measurement(&request, measurement)?;
+     }
+-    let native_thread_id: Option<String> = row.try_get("native_thread_id")?;
+-    let native_turn_id: Option<String> = row.try_get("native_turn_id")?;
++    let native_turn_owner_preparation_id: Option<String> =
++        row.try_get("native_turn_owner_preparation_id")?;
++    let mut native_thread_id: Option<String> = row.try_get("native_thread_id")?;
++    let mut native_turn_id: Option<String> = row.try_get("native_turn_id")?;
++    if native_turn_owner_preparation_id.is_some() {
++        anyhow::ensure!(
++            native_thread_id.is_none()
++                && native_turn_id.is_none()
++                && request
++                    .binding
++                    .sampling
++                    .as_ref()
++                    .is_some_and(|sampling| sampling.previous_preparation_id.is_some()),
++            "invalid stored sampling turn owner"
++        );
++        native_thread_id = row.try_get("owner_native_thread_id")?;
++        native_turn_id = row.try_get("owner_native_turn_id")?;
++        anyhow::ensure!(
++            native_turn_id.is_some(),
++            "stored sampling turn owner missing"
++        );
++    }
+     let exact_turn = match (native_thread_id, native_turn_id) {
+         (Some(thread_id), Some(turn_id)) => Some(PreparedTurnReceipt { thread_id, turn_id }),
+         (None, None) => None,
+@@ -463,6 +499,7 @@ fn record_from_row(row: &SqliteRow) -> anyhow::Result<PreparedRequestRecord> {
+         },
+         exact_turn,
+         provider_receipt,
++        native_turn_owner_preparation_id,
+     })
+ }
+ 
+diff --git a/codex-rs/state/src/runtime/prepared_requests_tests.rs b/codex-rs/state/src/runtime/prepared_requests_tests.rs
+index aa8750e..b6742db 100644
+--- a/codex-rs/state/src/runtime/prepared_requests_tests.rs
++++ b/codex-rs/state/src/runtime/prepared_requests_tests.rs
+@@ -8,6 +8,9 @@ use std::sync::Arc;
+ #[path = "prepared_request_attempts_tests.rs"]
+ mod attempts;
+ 
++#[path = "prepared_request_sampling_tests.rs"]
++mod sampling;
++
+ async fn open(home: &Path) -> Arc<StateRuntime> {
+     StateRuntime::init(
+         crate::SqliteConfig::new_for_testing(home.abs()),
+@@ -30,6 +33,7 @@ fn request() -> NewPreparedRequest {
+             tools_revision: "tools".into(),
+             runtime_revision: "runtime".into(),
+             command_id: Some("command".into()),
++            sampling: None,
+         },
+         request_identity: "a".repeat(/*n*/ 64),
+         model: "test-model".into(),

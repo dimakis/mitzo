@@ -1,0 +1,127 @@
+diff --git a/codex-rs/core/src/tools/runtimes/unified_exec.rs b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+index 8ad0e8d..393e14f 100644
+--- a/codex-rs/core/src/tools/runtimes/unified_exec.rs
++++ b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+@@ -163,12 +163,14 @@ impl InitialParentApprovalCandidate {
+ // predicate cannot create approval evidence; it only narrows an existing receipt.
+ fn restricted_parent_approval_permissions(
+     raw_permissions: SandboxPermissions,
++    selected: &codex_protocol::models::PermissionProfile,
+     requested: &codex_protocol::models::PermissionProfile,
+     canonical: &codex_protocol::models::PermissionProfile,
+     transformed: &codex_protocol::models::PermissionProfile,
+ ) -> bool {
+     use codex_protocol::permissions::NetworkSandboxPolicy;
+     raw_permissions == SandboxPermissions::RequireEscalated
++        && selected.network_sandbox_policy() == NetworkSandboxPolicy::Restricted
+         && requested.network_sandbox_policy() == NetworkSandboxPolicy::Restricted
+         && canonical.network_sandbox_policy() == NetworkSandboxPolicy::Restricted
+         && transformed.network_sandbox_policy() == NetworkSandboxPolicy::Restricted
+@@ -741,6 +743,7 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecAttempt> for UnifiedExecRunt
+             let parent_approval = parent_approval.and_then(|(approval, initial_active)| {
+                 if !restricted_parent_approval_permissions(
+                     req.sandbox_permissions,
++                    req.turn_environment.permission_profile(),
+                     attempt.permissions,
+                     attempt.exec_server_permissions,
+                     &exec_env.permission_profile,
+@@ -752,13 +755,6 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecAttempt> for UnifiedExecRunt
+                     || ctx.step_context.turn.allow_prefix_rules()
+                         != crate::exec_policy::AllowPrefixRules::Honor
+                     || req.turn_environment.config().network_policy.is_some()
+-                    || req
+-                        .turn_environment
+-                        .config()
+-                        .permissions
+-                        .network
+-                        .as_ref()
+-                        .is_some_and(|network| network.enabled())
+                     || req.network.is_some()
+                     || attempt.network_proxy.is_some()
+                     || managed_network.is_some()
+@@ -980,6 +976,7 @@ mod tests {
+             SandboxPermissions::RequireEscalated,
+             &restricted,
+             &restricted,
++            &restricted,
+             &restricted
+         ));
+         for raw_permissions in [
+@@ -990,16 +987,19 @@ mod tests {
+                 raw_permissions,
+                 &restricted,
+                 &restricted,
++                &restricted,
+                 &restricted
+             ));
+         }
+-        for (requested, canonical, transformed) in [
+-            (&enabled, &restricted, &restricted),
+-            (&restricted, &enabled, &restricted),
+-            (&restricted, &restricted, &enabled),
++        for (selected, requested, canonical, transformed) in [
++            (&enabled, &restricted, &restricted, &restricted),
++            (&restricted, &enabled, &restricted, &restricted),
++            (&restricted, &restricted, &enabled, &restricted),
++            (&restricted, &restricted, &restricted, &enabled),
+         ] {
+             assert!(!restricted_parent_approval_permissions(
+                 SandboxPermissions::RequireEscalated,
++                selected,
+                 requested,
+                 canonical,
+                 transformed
+@@ -1016,11 +1016,53 @@ mod tests {
+                 SandboxPermissions::RequireEscalated,
+                 &restricted,
+                 &restricted,
++                &restricted,
+                 &transformed
+             ));
+         }
+     }
+ 
++    #[test]
++    fn selected_attachment_network_is_an_independent_parent_approval_fence() -> anyhow::Result<()> {
++        use codex_protocol::permissions::FileSystemAccessMode;
++        use codex_protocol::permissions::FileSystemPath;
++        use codex_protocol::permissions::FileSystemSandboxEntry;
++        use codex_protocol::permissions::FileSystemSandboxPolicy;
++        use codex_protocol::permissions::NetworkSandboxPolicy;
++
++        let denied = FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
++            path: FileSystemPath::GlobPattern {
++                pattern: "**/selected-secret.env".into(),
++            },
++            access: FileSystemAccessMode::Deny,
++            missing_path_behavior: None,
++        }]);
++        let restricted =
++            PermissionProfile::from_runtime_permissions(&denied, NetworkSandboxPolicy::Restricted);
++        let enabled =
++            PermissionProfile::from_runtime_permissions(&denied, NetworkSandboxPolicy::Enabled);
++        let cwd = AbsolutePathBuf::try_from(std::env::current_dir()?)?;
++        let mut environment = test_turn_environment(cwd.into());
++        environment.config_mut().permission_profile =
++            PermissionProfileSnapshot::legacy(restricted.clone());
++        assert!(restricted_parent_approval_permissions(
++            SandboxPermissions::RequireEscalated,
++            environment.permission_profile(),
++            &restricted,
++            &restricted,
++            &restricted
++        ));
++        environment.config_mut().permission_profile = PermissionProfileSnapshot::legacy(enabled);
++        assert!(!restricted_parent_approval_permissions(
++            SandboxPermissions::RequireEscalated,
++            environment.permission_profile(),
++            &restricted,
++            &restricted,
++            &restricted
++        ));
++        Ok(())
++    }
++
+     #[test]
+     fn unified_exec_options_combines_default_timeout_with_network_denial_cancellation() {
+         let cancellation = CancellationToken::new();

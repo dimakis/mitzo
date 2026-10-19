@@ -1,0 +1,72 @@
+diff --git a/codex-rs/core/tests/suite/remote_env.rs b/codex-rs/core/tests/suite/remote_env.rs
+index e3cfd43..eee0b2e 100644
+--- a/codex-rs/core/tests/suite/remote_env.rs
++++ b/codex-rs/core/tests/suite/remote_env.rs
+@@ -25,6 +25,7 @@ use codex_exec_server::CreateDirectoryOptions;
+ use codex_exec_server::EnvironmentReadyInfo;
+ use codex_exec_server::ExecServerError;
+ use codex_exec_server::ExecServerRuntimeOptions;
++use codex_exec_server::FILE_READ_CHUNK_SIZE;
+ use codex_exec_server::FileSystemSandboxContext;
+ use codex_exec_server::LOCAL_ENVIRONMENT_ID;
+ use codex_exec_server::NoiseChannelPublicKey;
+@@ -1451,6 +1452,7 @@ async fn serve_environment_with_agents_md(
+     send_environment_info(&mut websocket).await;
+ 
+     let mut agents_md_reads = 0;
++    let mut agents_md_handles = HashMap::new();
+     loop {
+         let request = tokio::select! {
+             request = read_exec_server_json(&mut websocket) => request,
+@@ -1496,6 +1498,51 @@ async fn serve_environment_with_agents_md(
+                     "result": { "dataBase64": BASE64_STANDARD.encode(contents) }
+                 })
+             }
++            Some("fs/open") if is_agents_md => {
++                let handle_id = request["params"]["handleId"]
++                    .as_str()
++                    .expect("file handle ID");
++                assert!(agents_md_handles.insert(handle_id.to_owned(), 0).is_none());
++                agents_md_reads += 1;
++                json!({
++                    "id": request["id"],
++                    "result": { "handleId": handle_id }
++                })
++            }
++            Some("fs/open") => json!({
++                "id": request["id"],
++                "error": { "code": -32004, "message": "not found" }
++            }),
++            Some("fs/readBlock") => {
++                let handle_id = request["params"]["handleId"]
++                    .as_str()
++                    .expect("file handle ID");
++                let offset = agents_md_handles
++                    .get_mut(handle_id)
++                    .expect("open AGENTS.md handle");
++                assert_eq!(request["params"]["offset"].as_u64(), Some(*offset as u64));
++                let len = request["params"]["len"]
++                    .as_u64()
++                    .expect("requested block length") as usize;
++                assert!((1..=FILE_READ_CHUNK_SIZE).contains(&len));
++                let end = (*offset + len).min(contents.len());
++                let chunk = &contents.as_bytes()[*offset..end];
++                *offset = end;
++                json!({
++                    "id": request["id"],
++                    "result": {
++                        "chunk": BASE64_STANDARD.encode(chunk),
++                        "eof": chunk.len() < len,
++                    }
++                })
++            }
++            Some("fs/close") => {
++                let handle_id = request["params"]["handleId"]
++                    .as_str()
++                    .expect("file handle ID");
++                agents_md_handles.remove(handle_id);
++                json!({ "id": request["id"], "result": {} })
++            }
+             method => panic!("unexpected exec-server request: {method:?}"),
+         };
+         websocket

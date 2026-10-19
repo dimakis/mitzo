@@ -55,7 +55,9 @@ import {
   type SymposiumPersonalConnectionService,
 } from './symposium-personal-connection-router.js';
 import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
+import { canonicalRepositorySelection } from './github-repository-source.js';
 import {
+  closeIdleRepositoryWorkspaces,
   getRepositoryWorkspaces,
   repositoryWorkspaceBinding,
   repositoryWorkspaceCatalog,
@@ -178,8 +180,8 @@ import { AccountAliases } from './account-aliases.js';
 import { SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
 import { authorizeSymposiumSeat } from './symposium-seat-authorization.js';
-import { getAgentLibrary } from './agent-library-runtime.js';
-import { getAgentTasks } from './agent-task-runtime.js';
+import { closeAgentLibrary, getAgentLibrary } from './agent-library-runtime.js';
+import { closeAgentTasks, getAgentTasks } from './agent-task-runtime.js';
 import { createAgentTaskRouter } from './agent-task-router.js';
 import { createAgentLibraryRouter } from './agent-library-router.js';
 import { createContextPackRouter } from './context-pack-router.js';
@@ -198,6 +200,7 @@ import { createSessionOutputRouter } from './session-output-routes.js';
 import { createOutputContributors } from './output-contributors.js';
 import { createOutputContributorRouter } from './output-contributor-routes.js';
 import { createSessionCollaborationRouter } from './session-collaboration-router.js';
+import { CollaborationApplicationReview } from './collaboration-application-review.js';
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
@@ -455,11 +458,30 @@ export function invalidateSkillRegistries(): void {
 }
 
 const app = express();
+let idleApplicationClosing = false;
+let idleApplicationClose: Promise<void> | undefined;
+let activeApplicationRequests = 0;
 app.use(requestPerformance((message, fields) => log.warn(message, fields)));
 
 const codexReattachments = new Map<string, Promise<void>>();
 
 app.use(createAppSecurityHeaders());
+app.use((_req, res, next) => {
+  if (idleApplicationClosing) {
+    res.status(503).json({ error: 'Application resources are unavailable' });
+    return;
+  }
+  activeApplicationRequests++;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeApplicationRequests--;
+  };
+  res.once('finish', release);
+  res.once('close', release);
+  next();
+});
 
 // --- CORS for non-same-origin clients (Capacitor iOS, etc.) ---
 // Mounted before yapper proxy so cross-origin voice requests get CORS headers.
@@ -2742,7 +2764,12 @@ app.post(
   ),
 );
 
-app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
+app.get('/api/auth/check', (_req, res) => {
+  // Public correlation only: authentication and revocation retain the actual token.
+  const session = res.locals.authSession as import('./auth.js').AuthSession | undefined;
+  res.set('Cache-Control', 'private, no-store');
+  res.json({ ok: true, ...(session ? { authSessionId: session.id } : {}) });
+});
 
 const accountAliases = new AccountAliases(join(BASE_REPO || '.', '.mitzo', 'account-aliases.json'));
 
@@ -3089,6 +3116,7 @@ app.get('/api/sessions/:id/context', (req, res) => {
 app.get(
   '/api/sessions/:id/messages',
   createSessionMessagesHandler({
+    getDurableSessionTranscript: (sessionId) => eventStore.getDurableSessionTranscript(sessionId),
     getMessages: (sessionId) => getMessages(sessionId),
     getSessionTranscript: (sessionId) => getSessionTranscript(sessionId),
     getReconnectTranscript: (sessionId, cursor) => getReconnectTranscript(sessionId, cursor),
@@ -3098,7 +3126,14 @@ app.get(
 app.use(
   '/api/session-collaborations',
   operatorAuthMiddleware,
-  createSessionCollaborationRouter({ store: eventStore }),
+  createSessionCollaborationRouter({
+    store: eventStore,
+    review: () =>
+      new CollaborationApplicationReview({
+        store: eventStore,
+        workspaces: getRepositoryWorkspaces(true),
+      }),
+  }),
 );
 
 app.use(
@@ -3305,8 +3340,38 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     res.status(503).json({ error: 'Work conversation context unavailable' });
     return;
   }
+  let repositoryContext: { workspaceId: string; repository: string } | undefined;
+  if (
+    meta.sessionId === req.params.id &&
+    typeof meta.repositoryWorkspaceId === 'string' &&
+    /^\S{1,200}$/.test(meta.repositoryWorkspaceId) &&
+    meta.accountBinding
+  ) {
+    try {
+      const current = eventStore.getSession(meta.sessionId);
+      const workspace = getRepositoryWorkspaces(true).get(meta.repositoryWorkspaceId);
+      if (
+        current?.repositoryWorkspaceId === meta.repositoryWorkspaceId &&
+        isDeepStrictEqual(current.accountBinding, meta.accountBinding) &&
+        workspace.id === meta.repositoryWorkspaceId &&
+        workspace.state === 'claimed' &&
+        workspace.conversationId === meta.sessionId &&
+        isDeepStrictEqual(workspace.binding, meta.accountBinding) &&
+        typeof workspace.repository === 'string' &&
+        workspace.repository.length <= 201 &&
+        canonicalRepositorySelection(workspace.repository) === workspace.repository
+      )
+        repositoryContext = {
+          workspaceId: workspace.id,
+          repository: workspace.repository,
+        };
+    } catch {
+      // Repository presentation is optional; preserve ordinary metadata on read failure.
+    }
+  }
   res.json({
     sessionId: meta.sessionId,
+    ...(repositoryContext ? { repositoryContext } : {}),
     ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
     ...(telosWorkRolePresentation ? { telosWorkRolePresentation } : {}),
     ...runtimeMetadata,
@@ -4941,5 +5006,56 @@ app.get('*', (_req, res, next) => {
     if (err) next();
   });
 });
+
+/** Release an idle, unbootstrapped application without starting or draining work.
+ * A configured host or active owner requires its existing shutdown protocol.
+ * Once release begins, HTTP admission stays fenced even if an owner refuses;
+ * this is not a general server shutdown or a runtime cleanup fallback.
+ */
+export function closeIdleApplicationResources(): Promise<void> {
+  if (idleApplicationClose) return idleApplicationClose;
+  if (
+    activeApplicationRequests ||
+    !registry.entries(true).next().done ||
+    codexReattachments.size ||
+    symposiumSessionRuntimes.size ||
+    symposiumProductionHost ||
+    custodianControllerClient ||
+    connectionsRouter ||
+    capabilityOperationsRouter ||
+    credentialConnectionsRouter ||
+    getCredentialConnectionsRuntime() ||
+    getConnectionRegistry() ||
+    orchestrator ||
+    templateStore ||
+    signalProcessor ||
+    overviewEmitter ||
+    healthMonitor ||
+    openShellLifecycleService ||
+    skillWatcher
+  )
+    return Promise.reject(new Error('Application resource owners are active'));
+  idleApplicationClosing = true;
+  idleApplicationClose = (async () => {
+    await terminalService.closeIdle();
+    notificationCenter.closeIdle();
+    symposiumAccessRequests.closeIdle();
+    closeIdleRepositoryWorkspaces();
+    sseRegistry.destroy();
+    chatSseRegistry.destroy();
+    registry.dispose();
+    closeAgentTasks();
+    closeAgentLibrary();
+    symposiumProfileStore.close();
+    symposiumAgentContextStore.close();
+    symposiumProfileProposalStore.close();
+    symposiumHostGrants.close();
+    symposiumReviewStore.close();
+    notificationCenter.store.close();
+    taskStore.close();
+    eventStore.close();
+  })();
+  return idleApplicationClose;
+}
 
 export { app };
