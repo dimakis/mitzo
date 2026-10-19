@@ -185,6 +185,7 @@ jobs:
             test-results/offline/telos-outcomes-workspace*/output-return-*.png
             test-results/offline/telos-outcomes-workspace*/coordinator-labels-*.png
             test-results/offline/telos-outcomes-workspace*/saved-reference-return-*.png
+            test-results/offline/telos-outcomes-workspace*/priority-handoff-*.png
           retention-days: 7
           if-no-files-found: ignore
 
