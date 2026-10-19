@@ -1,3 +1,9 @@
+.conversation-participants-container {
+  container-type: inline-size;
+  container-name: conversation-participants;
+  flex: none;
+  min-width: 0;
+}
 .conversation-participants,
 .conversation-agents-entry,
 .conversation-participants-trigger,
@@ -256,6 +262,12 @@
   color: var(--color-text);
   background: var(--color-bg);
 }
+.conversation-agents-footer > small {
+  flex: 1;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
 .conversation-agents-footer .conversation-agents-primary {
   color: var(--color-on-accent);
   background: var(--color-accent);
@@ -338,6 +350,23 @@
   flex-wrap: wrap;
 }
 
+.conversation-participants-trigger strong {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+/* Preserve the readable four-rem name track across serif fallback metrics;
+   the remaining-person count stays adjacent and never shrinks. */
+.conversation-participant-names {
+  min-width: min(100%, calc(2 * var(--space-6)));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conversation-participant-wide-count {
+  flex: none;
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
 .conversation-participant-count {
   display: none;
 }
@@ -410,15 +439,13 @@
   .conversation-participants-trigger small {
     display: none;
   }
-  .conversation-participants-trigger strong {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-  }
-  .conversation-participant-names {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
+}
+
+/* The frozen reference collapses names at 360px of conversation width. */
+@container conversation-participants (max-width: 360px) {
+  .conversation-participant-additional-name,
+  .conversation-participant-wide-count {
+    display: none;
   }
   .conversation-participant-count {
     display: inline;

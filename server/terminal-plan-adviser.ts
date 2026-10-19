@@ -2,7 +2,10 @@ import { createServer, type Server } from 'node:http';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { ResponsesSession, type ModelSessionConfig, type ModelSession } from '@mitzo/harness';
-import { ChatGptPlanAdviserAccounts } from './chatgpt-plan-adviser.js';
+import {
+  ChatGptPlanAdviserAccounts,
+  ChatGptPlanAdviserCatalogError,
+} from './chatgpt-plan-adviser.js';
 import { FilePlanAdviserStore } from './chatgpt-plan-adviser-store.js';
 import { registerAuthSession } from './auth.js';
 import type { AdviserRequest } from './terminal-adviser.js';
@@ -31,6 +34,9 @@ export class TerminalPlanAdviserHost {
   }
   catalog() {
     return this.options.accounts.catalog();
+  }
+  retryConnection(id: string, signal: AbortSignal) {
+    return this.options.accounts.retryConnection(id, signal);
   }
   async session(config: ModelSessionConfig, request: AdviserRequest): Promise<ModelSession> {
     if (
@@ -149,7 +155,7 @@ export class TerminalPlanAdviserHost {
               current.state = 'connected';
               res.end('ChatGPT adviser connected. Return to Mitzo and refresh accounts.');
             },
-            () => {
+            (error: unknown) => {
               if (!controller.signal.aborted) {
                 current.state = 'failed';
                 controller.abort();
@@ -157,7 +163,11 @@ export class TerminalPlanAdviserHost {
                 // pending attempt. Release it before a human retries sign-in.
                 this.options.accounts.cancel(owner);
                 res.writeHead(400);
-                res.end('ChatGPT adviser sign-in did not complete. Return to Mitzo and retry.');
+                res.end(
+                  error instanceof ChatGptPlanAdviserCatalogError
+                    ? error.message
+                    : 'ChatGPT adviser sign-in did not complete. Return to Mitzo and retry.',
+                );
               }
             },
           )

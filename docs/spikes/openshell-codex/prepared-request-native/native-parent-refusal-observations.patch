@@ -1,0 +1,823 @@
+diff --git a/codex-rs/core/src/session/parent_approval.rs b/codex-rs/core/src/session/parent_approval.rs
+index 516b1d2..1c2b61e 100644
+--- a/codex-rs/core/src/session/parent_approval.rs
++++ b/codex-rs/core/src/session/parent_approval.rs
+@@ -8,6 +8,7 @@ use crate::config::Config;
+ use crate::environment_selection::TurnEnvironmentSnapshot;
+ use crate::guardian::GuardianReviewContext;
+ use crate::tools::ApprovalContext;
++use crate::tools::approvals::parent_approval_gate;
+ use crate::tools::sandboxing::ApprovalAction;
+ use crate::tools::sandboxing::ToolError;
+ use codex_execpolicy::Policy;
+@@ -336,73 +337,167 @@ impl Session {
+             .auto_review
+             .as_ref()
+             .and_then(|review| review.ignore_rules.as_ref());
+-        if parent_id != id
+-            || id != &selected.context.call_id
+-            || parent_env != environment_id
+-            || environment_id != &selected.environment_id
+-            || approval_id.is_empty()
+-            || *source != codex_protocol::protocol::GuardianCommandSource::UnifiedExec
+-            || *command != normalized
+-            || additional_permissions.is_some()
+-            || ![&issuer.session, &selected.session]
+-                .into_iter()
+-                .all(|owner| {
+-                    owner
+-                        .upgrade()
+-                        .is_some_and(|owner| Arc::ptr_eq(&owner, self))
+-                })
+-            || !Arc::ptr_eq(&task.done, &issuer.task_done)
+-            || !Arc::ptr_eq(&task.done, &selected.task_done)
+-            || !Arc::ptr_eq(&task.turn_context, &issuer.turn)
+-            || !Arc::ptr_eq(&task.turn_context, selected.context.review_context.turn())
+-            || !Arc::ptr_eq(&settings, &issuer.settings)
+-            || !Arc::ptr_eq(&settings, &selected.settings)
+-            || settings.approval_policy() != AskForApproval::OnRequest
+-            || settings.approvals_reviewer() != ApprovalsReviewer::User
+-            || selected.context.review_context.approval_policy != AskForApproval::OnRequest
+-            || selected.context.review_context.approvals_reviewer != ApprovalsReviewer::User
+-            || !Arc::ptr_eq(&settings.model_info, task.turn_context.model_info())
+-            || !Arc::ptr_eq(
+-                &settings.model_info,
+-                &selected.context.review_context.model_info,
+-            )
+-            || live_ignore != frozen_ignore
+-            || task.turn_context.allow_prefix_rules() != crate::exec_policy::AllowPrefixRules::Honor
+-            || turn_state.strict_auto_review_enabled()
+-            || selected.context.strict_auto_review
+-            || task.cancellation_token.is_cancelled()
+-            || issuer.task_cancellation.is_cancelled()
+-            || issuer.call_cancellation.is_cancelled()
+-            || selected.task_cancellation.is_cancelled()
+-            || selected
+-                .context
+-                .cancellation_token
+-                .as_ref()
+-                .is_some_and(CancellationToken::is_cancelled)
+-            || ![&issuer.live_config, &selected.config, used_config]
++        if parent_approval_gate("final.owner-refusal.01", parent_id != id)
++            || parent_approval_gate("final.owner-refusal.02", id != &selected.context.call_id)
++            || parent_approval_gate("final.owner-refusal.03", parent_env != environment_id)
++            || parent_approval_gate(
++                "final.owner-refusal.04",
++                environment_id != &selected.environment_id,
++            )
++            || parent_approval_gate("final.owner-refusal.05", approval_id.is_empty())
++            || parent_approval_gate(
++                "final.owner-refusal.06",
++                *source != codex_protocol::protocol::GuardianCommandSource::UnifiedExec,
++            )
++            || parent_approval_gate("final.owner-refusal.07", *command != normalized)
++            || parent_approval_gate("final.owner-refusal.08", additional_permissions.is_some())
++            || parent_approval_gate(
++                "final.owner-refusal.09",
++                ![&issuer.session, &selected.session]
++                    .into_iter()
++                    .all(|owner| {
++                        owner
++                            .upgrade()
++                            .is_some_and(|owner| Arc::ptr_eq(&owner, self))
++                    }),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.10",
++                !Arc::ptr_eq(&task.done, &issuer.task_done),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.11",
++                !Arc::ptr_eq(&task.done, &selected.task_done),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.12",
++                !Arc::ptr_eq(&task.turn_context, &issuer.turn),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.13",
++                !Arc::ptr_eq(&task.turn_context, selected.context.review_context.turn()),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.14",
++                !Arc::ptr_eq(&settings, &issuer.settings),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.15",
++                !Arc::ptr_eq(&settings, &selected.settings),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.16",
++                settings.approval_policy() != AskForApproval::OnRequest,
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.17",
++                settings.approvals_reviewer() != ApprovalsReviewer::User,
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.18",
++                selected.context.review_context.approval_policy != AskForApproval::OnRequest,
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.19",
++                selected.context.review_context.approvals_reviewer != ApprovalsReviewer::User,
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.20",
++                !Arc::ptr_eq(&settings.model_info, task.turn_context.model_info()),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.21",
++                !Arc::ptr_eq(
++                    &settings.model_info,
++                    &selected.context.review_context.model_info,
++                ),
++            )
++            || parent_approval_gate("final.owner-refusal.22", live_ignore != frozen_ignore)
++            || parent_approval_gate(
++                "final.owner-refusal.23",
++                task.turn_context.allow_prefix_rules()
++                    != crate::exec_policy::AllowPrefixRules::Honor,
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.24",
++                turn_state.strict_auto_review_enabled(),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.25",
++                selected.context.strict_auto_review,
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.26",
++                task.cancellation_token.is_cancelled(),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.27",
++                issuer.task_cancellation.is_cancelled(),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.28",
++                issuer.call_cancellation.is_cancelled(),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.29",
++                selected.task_cancellation.is_cancelled(),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.30",
++                selected
++                    .context
++                    .cancellation_token
++                    .as_ref()
++                    .is_some_and(CancellationToken::is_cancelled),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.31",
++                ![&issuer.live_config, &selected.config, used_config]
++                    .into_iter()
++                    .all(|expected| Arc::ptr_eq(expected, config)),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.32",
++                ![
++                    &issuer.base_exec_policy,
++                    &selected.manager_policy,
++                    &selected._evaluated_policy,
++                ]
+                 .into_iter()
+-                .all(|expected| Arc::ptr_eq(expected, config))
+-            || ![
+-                &issuer.base_exec_policy,
+-                &selected.manager_policy,
+-                &selected._evaluated_policy,
+-            ]
+-            .into_iter()
+-            .all(|expected| Arc::ptr_eq(expected, evaluated_policy))
+-            || !same_ready_parent_environments(
+-                &issuer.environments,
+-                selected.environments.snapshot(),
+-            )
+-            || issuer
+-                .environments
+-                .turn_environments()
+-                .filter(|ready| ready.selection.environment_id == *environment_id)
+-                .count()
+-                != 1
+-            || session_state.granted_permissions(environment_id).is_some()
+-            || turn_state.granted_permissions(environment_id).is_some()
+-            || hooks.matching_handler_count() != 0
+-            || !hooks.matches_current(&self.hooks())
++                .all(|expected| Arc::ptr_eq(expected, evaluated_policy)),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.33",
++                !same_ready_parent_environments(
++                    &issuer.environments,
++                    selected.environments.snapshot(),
++                ),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.34",
++                issuer
++                    .environments
++                    .turn_environments()
++                    .filter(|ready| ready.selection.environment_id == *environment_id)
++                    .count()
++                    != 1,
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.35",
++                session_state.granted_permissions(environment_id).is_some(),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.36",
++                turn_state.granted_permissions(environment_id).is_some(),
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.37",
++                hooks.matching_handler_count() != 0,
++            )
++            || parent_approval_gate(
++                "final.owner-refusal.38",
++                !hooks.matches_current(&self.hooks()),
++            )
+         {
+             return None;
+         }
+diff --git a/codex-rs/core/src/tools/approvals.rs b/codex-rs/core/src/tools/approvals.rs
+index fc5baef..eeccbff 100644
+--- a/codex-rs/core/src/tools/approvals.rs
++++ b/codex-rs/core/src/tools/approvals.rs
+@@ -56,6 +56,7 @@ use tracing::warn;
+ mod parent_approval;
+ pub(crate) use parent_approval::FreshParentApproval;
+ pub(crate) use parent_approval::InitialExecApproval;
++pub(crate) use parent_approval::parent_approval_gate;
+ 
+ #[derive(Clone)]
+ pub(crate) struct ApprovalContext {
+@@ -668,6 +669,7 @@ impl Session {
+         } else {
+             None
+         };
++        parent_approval_gate("issuance.fresh-present", parent_approval.is_some());
+         Ok(InitialExecApproval {
+             decision,
+             parent_approval,
+@@ -715,15 +717,20 @@ impl Session {
+             self.validate_intercepted_user_prompt(selected, used)
+                 .await?;
+             #[cfg(unix)]
+-            if matches!(
+-                routing.disposition(),
+-                codex_guardian_reviewer::ReviewDisposition::UserPrompt(
+-                    codex_guardian_reviewer::UserPromptDisposition::NoContributorDefaultUser {
+-                        fresh_review_required: false,
+-                    }
+-                )
+-            ) && hooks.matching_handler_count() == 0
+-                && let Some(parent) = parent
++            if parent_approval_gate(
++                "routing.default-user-without-fresh-review",
++                matches!(
++                    routing.disposition(),
++                    codex_guardian_reviewer::ReviewDisposition::UserPrompt(
++                        codex_guardian_reviewer::UserPromptDisposition::NoContributorDefaultUser {
++                            fresh_review_required: false,
++                        }
++                    )
++                ),
++            ) && parent_approval_gate(
++                "routing.no-matching-hooks",
++                hooks.matching_handler_count() == 0,
++            ) && let Some(parent) = parent
+             {
+                 if let Some(resolution) = parent
+                     .try_resolve(selected, used, hooks, || {
+diff --git a/codex-rs/core/src/tools/approvals/parent_approval.rs b/codex-rs/core/src/tools/approvals/parent_approval.rs
+index 37d1ab8..5140387 100644
+--- a/codex-rs/core/src/tools/approvals/parent_approval.rs
++++ b/codex-rs/core/src/tools/approvals/parent_approval.rs
+@@ -76,3 +76,9 @@ impl FreshParentApproval {
+         }
+     }
+ }
++
++/// Fixed-name boolean diagnostics only. Never supplies or changes approval evidence.
++pub(crate) fn parent_approval_gate(gate: &'static str, value: bool) -> bool {
++    tracing::debug!(target: "codex_core::parent_approval", gate, value);
++    value
++}
+diff --git a/codex-rs/core/src/tools/runtimes/unified_exec.rs b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+index d687e69..245f95c 100644
+--- a/codex-rs/core/src/tools/runtimes/unified_exec.rs
++++ b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+@@ -18,6 +18,7 @@ use crate::shell::ShellType;
+ use crate::shell_snapshot::ShellSnapshotSandbox;
+ use crate::shell_snapshot::snapshot_read_permissions;
+ use crate::tools::approvals::FreshParentApproval;
++use crate::tools::approvals::parent_approval_gate;
+ use crate::tools::flat_tool_name;
+ use crate::tools::network_approval::NetworkApprovalSpec;
+ use crate::tools::runtimes::RuntimePathPrepends;
+@@ -240,6 +241,7 @@ impl InitialParentApprovalCandidate {
+                             },
+                         );
+                     }
++                    parent_approval_gate("final.original-initial-window-open", admission.is_ok());
+                     admission.ok()?;
+                     finish()
+                 },
+@@ -446,6 +448,10 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecAttempt> for UnifiedExecRunt
+             .parent_approval
+             .take()
+             .zip(self.initial_exec_command_active.clone());
++        parent_approval_gate(
++            "runtime.fresh-and-initial-flag-present",
++            parent_approval.is_some(),
++        );
+         let base_command = &req.command;
+         let windows_sandbox_proxy_settings_mode = ctx.session.windows_sandbox_proxy_settings_mode;
+         let session_shell = ctx.session.user_shell();
+@@ -839,55 +845,103 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecAttempt> for UnifiedExecRunt
+             // Resolve only the actual first restricted launch. This is inert custody,
+             // not child admission or a globally atomic policy snapshot.
+             let parent_approval = parent_approval.and_then(|(approval, initial_active)| {
+-                if !matches!(
+-                    &req.exec_approval_requirement,
+-                    ExecApprovalRequirement::NeedsApproval { .. }
++                if !parent_approval_gate(
++                    "candidate.needs-approval",
++                    matches!(
++                        &req.exec_approval_requirement,
++                        ExecApprovalRequirement::NeedsApproval { .. }
++                    ),
+                 ) {
+                     return None;
+                 }
+                 let action = self.approval_action(req, &ctx.call_id).ok()?;
+-                if !approval.matches_original_launch(
+-                    &action,
+-                    &ctx.session,
+-                    &ctx.step_context,
+-                    &req.turn_environment,
++                if !parent_approval_gate(
++                    "candidate.original-launch-matches",
++                    approval.matches_original_launch(
++                        &action,
++                        &ctx.session,
++                        &ctx.step_context,
++                        &req.turn_environment,
++                    ),
+                 ) {
+                     return None;
+                 }
+-                if !restricted_parent_approval_permissions(
+-                    req.sandbox_permissions,
+-                    req.turn_environment.permission_profile(),
+-                    attempt.permissions,
+-                    attempt.exec_server_permissions,
+-                    &exec_env.permission_profile,
+-                ) || !attempt.sandbox_requested
+-                    || attempt.sandbox == codex_sandboxing::SandboxType::None
+-                    || exec_env.sandbox != attempt.sandbox
+-                    || environment_is_remote
+-                    || req.turn_environment.config().exec_policy.is_some()
+-                    || ctx.step_context.turn.allow_prefix_rules()
+-                        != crate::exec_policy::AllowPrefixRules::Honor
+-                    || req.turn_environment.config().network_policy.is_some()
+-                    || req.network.is_some()
+-                    || attempt.network_proxy.is_some()
+-                    || managed_network.is_some()
+-                    || managed_network_context.is_some()
+-                    || network_proxy_launch.is_some()
+-                    || attempt.enforce_managed_network
+-                    || attempt.network_denial_cancellation_token.is_some()
+-                    || shell_snapshot.is_some()
+-                    || req.shell_snapshot.is_some()
+-                    || has_snapshot_credential_context
+-                    || req.additional_permissions.is_some()
+-                    || additional_permissions_preapproved
+-                    || internal_permissions.is_some()
+-                    || metrics_sidecar.is_some()
+-                    || exec_env.exec_server_shell_snapshot.is_some()
+-                    || exec_env.network.is_some()
+-                    || exec_env.exec_server_enforce_managed_network
+-                    || exec_env.exec_server_managed_network.is_some()
+-                    || exec_env.exec_server_network_proxy.is_some()
+-                    || exec_env.exec_server_sandbox.is_some()
++                if parent_approval_gate(
++                    "candidate.refusal.01",
++                    !restricted_parent_approval_permissions(
++                        req.sandbox_permissions,
++                        req.turn_environment.permission_profile(),
++                        attempt.permissions,
++                        attempt.exec_server_permissions,
++                        &exec_env.permission_profile,
++                    ) || !attempt.sandbox_requested,
++                ) || parent_approval_gate(
++                    "candidate.refusal.02",
++                    attempt.sandbox == codex_sandboxing::SandboxType::None,
++                ) || parent_approval_gate(
++                    "candidate.refusal.03",
++                    exec_env.sandbox != attempt.sandbox,
++                ) || parent_approval_gate("candidate.refusal.04", environment_is_remote)
++                    || parent_approval_gate(
++                        "candidate.refusal.05",
++                        req.turn_environment.config().exec_policy.is_some(),
++                    )
++                    || parent_approval_gate(
++                        "candidate.refusal.06",
++                        ctx.step_context.turn.allow_prefix_rules()
++                            != crate::exec_policy::AllowPrefixRules::Honor,
++                    )
++                    || parent_approval_gate(
++                        "candidate.refusal.07",
++                        req.turn_environment.config().network_policy.is_some(),
++                    )
++                    || parent_approval_gate("candidate.refusal.08", req.network.is_some())
++                    || parent_approval_gate("candidate.refusal.09", attempt.network_proxy.is_some())
++                    || parent_approval_gate("candidate.refusal.10", managed_network.is_some())
++                    || parent_approval_gate(
++                        "candidate.refusal.11",
++                        managed_network_context.is_some(),
++                    )
++                    || parent_approval_gate("candidate.refusal.12", network_proxy_launch.is_some())
++                    || parent_approval_gate("candidate.refusal.13", attempt.enforce_managed_network)
++                    || parent_approval_gate(
++                        "candidate.refusal.14",
++                        attempt.network_denial_cancellation_token.is_some(),
++                    )
++                    || parent_approval_gate("candidate.refusal.15", shell_snapshot.is_some())
++                    || parent_approval_gate("candidate.refusal.16", req.shell_snapshot.is_some())
++                    || parent_approval_gate("candidate.refusal.17", has_snapshot_credential_context)
++                    || parent_approval_gate(
++                        "candidate.refusal.18",
++                        req.additional_permissions.is_some(),
++                    )
++                    || parent_approval_gate(
++                        "candidate.refusal.19",
++                        additional_permissions_preapproved,
++                    )
++                    || parent_approval_gate("candidate.refusal.20", internal_permissions.is_some())
++                    || parent_approval_gate("candidate.refusal.21", metrics_sidecar.is_some())
++                    || parent_approval_gate(
++                        "candidate.refusal.22",
++                        exec_env.exec_server_shell_snapshot.is_some(),
++                    )
++                    || parent_approval_gate("candidate.refusal.23", exec_env.network.is_some())
++                    || parent_approval_gate(
++                        "candidate.refusal.24",
++                        exec_env.exec_server_enforce_managed_network,
++                    )
++                    || parent_approval_gate(
++                        "candidate.refusal.25",
++                        exec_env.exec_server_managed_network.is_some(),
++                    )
++                    || parent_approval_gate(
++                        "candidate.refusal.26",
++                        exec_env.exec_server_network_proxy.is_some(),
++                    )
++                    || parent_approval_gate(
++                        "candidate.refusal.27",
++                        exec_env.exec_server_sandbox.is_some(),
++                    )
+                 {
+                     return None;
+                 }
+diff --git a/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs b/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
+index 5078763..b40536d 100644
+--- a/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
++++ b/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
+@@ -3,6 +3,7 @@ use super::UnifiedExecRequest;
+ use crate::sandboxing::ExecRequest;
+ #[cfg(unix)]
+ use crate::tools::approvals::FreshParentApproval;
++use crate::tools::approvals::parent_approval_gate;
+ use crate::tools::sandboxing::SandboxAttempt;
+ use codex_protocol::config_types::WindowsSandboxLevel;
+ use codex_protocol::models::PermissionProfile;
+@@ -93,10 +94,16 @@ pub(in crate::tools::runtimes) fn same_parent_child_context(
+     original: ParentChildContext<'_>,
+     child: ParentChildContext<'_>,
+ ) -> bool {
+-    original.permission_profile == child.permission_profile
+-        && original.windows_sandbox_level == child.windows_sandbox_level
+-        && original.environment_id == child.environment_id
+-        && original.cwd == child.cwd
++    parent_approval_gate(
++        "child-context.profile-matches",
++        original.permission_profile == child.permission_profile,
++    ) && parent_approval_gate(
++        "child-context.windows-level-matches",
++        original.windows_sandbox_level == child.windows_sandbox_level,
++    ) && parent_approval_gate(
++        "child-context.environment-matches",
++        original.environment_id == child.environment_id,
++    ) && parent_approval_gate("child-context.cwd-matches", original.cwd == child.cwd)
+ }
+ 
+ impl InitialParentRestrictedLaunch {
+@@ -168,51 +175,117 @@ impl InitialParentRestrictedLaunch {
+         executor: ParentExecutorView<'_>,
+         policy: &std::sync::Arc<codex_execpolicy::Policy>,
+     ) -> bool {
+-        approval.matches_original_exec_policy(policy)
+-            && self == &Self::capture(req, attempt, exec)
+-            && super::restricted_parent_approval_permissions(
++        parent_approval_gate(
++            "executor.matches.01",
++            approval.matches_original_exec_policy(policy),
++        ) && parent_approval_gate(
++            "executor.matches.02",
++            self == &Self::capture(req, attempt, exec),
++        ) && parent_approval_gate(
++            "executor.matches.03",
++            super::restricted_parent_approval_permissions(
+                 req.sandbox_permissions,
+                 req.turn_environment.permission_profile(),
+                 attempt.permissions,
+                 attempt.exec_server_permissions,
+                 &exec.permission_profile,
++            ),
++        ) && parent_approval_gate("executor.matches.04", attempt.sandbox_requested)
++            && parent_approval_gate("executor.matches.05", attempt.sandbox != SandboxType::None)
++            && parent_approval_gate("executor.matches.06", exec.sandbox == attempt.sandbox)
++            && parent_approval_gate(
++                "executor.matches.07",
++                !req.turn_environment.environment.is_remote(),
++            )
++            && parent_approval_gate(
++                "executor.matches.08",
++                req.turn_environment.config().exec_policy.is_none(),
++            )
++            && parent_approval_gate(
++                "executor.matches.09",
++                req.turn_environment.config().network_policy.is_none(),
+             )
+-            && attempt.sandbox_requested
+-            && attempt.sandbox != SandboxType::None
+-            && exec.sandbox == attempt.sandbox
+-            && !req.turn_environment.environment.is_remote()
+-            && req.turn_environment.config().exec_policy.is_none()
+-            && req.turn_environment.config().network_policy.is_none()
+             // The supported local, snapshot-free spawn uses the bound concrete env.
+             // Preserve the descriptor intact; exec-server/snapshot routes remain refused.
+-            && self.request_exec_server_env_config == self.transformed_exec_server_env_config
+-            && req.shell_snapshot.is_none()
+-            && req.network.is_none()
+-            && req.additional_permissions.is_none()
+-            && !req.additional_permissions_preapproved
+-            && attempt.network_proxy.is_none()
+-            && !attempt.enforce_managed_network
+-            && attempt.network_denial_cancellation_token.is_none()
+-            && exec.exec_server_shell_snapshot.is_none()
+-            && exec.windows_sandbox_filesystem_overrides.is_none()
+-            && exec.network.is_none()
+-            && !exec.exec_server_enforce_managed_network
+-            && exec.exec_server_managed_network.is_none()
+-            && exec.exec_server_network_proxy.is_none()
+-            && exec.exec_server_sandbox.is_none()
+-            && executor.command == exec.command.as_slice()
+-            && PathUri::from_abs_path(executor.cwd) == exec.cwd
+-            && executor.permission_profile == &exec.permission_profile
+-            && executor.sandbox == exec.sandbox
+-            && executor.env == &exec.env
+-            && executor.network.is_none()
+-            && executor.network_environment_id == &exec.network_environment_id
+-            && executor.windows_sandbox_level == exec.windows_sandbox_level
+-            && executor.arg0 == &exec.arg0
+-            && PathUri::from_abs_path(executor.sandbox_policy_cwd)
+-                == exec.windows_sandbox_policy_cwd
+-            && executor.windows_workspace_roots == exec.windows_sandbox_workspace_roots.as_slice()
+-            && executor.sandbox_exe == attempt.sandbox_exe
+-            && executor.use_legacy_landlock == attempt.use_legacy_landlock
++            && parent_approval_gate(
++                "executor.matches.10",
++                self.request_exec_server_env_config == self.transformed_exec_server_env_config,
++            )
++            && parent_approval_gate("executor.matches.11", req.shell_snapshot.is_none())
++            && parent_approval_gate("executor.matches.12", req.network.is_none())
++            && parent_approval_gate("executor.matches.13", req.additional_permissions.is_none())
++            && parent_approval_gate(
++                "executor.matches.14",
++                !req.additional_permissions_preapproved,
++            )
++            && parent_approval_gate("executor.matches.15", attempt.network_proxy.is_none())
++            && parent_approval_gate("executor.matches.16", !attempt.enforce_managed_network)
++            && parent_approval_gate(
++                "executor.matches.17",
++                attempt.network_denial_cancellation_token.is_none(),
++            )
++            && parent_approval_gate(
++                "executor.matches.18",
++                exec.exec_server_shell_snapshot.is_none(),
++            )
++            && parent_approval_gate(
++                "executor.matches.19",
++                exec.windows_sandbox_filesystem_overrides.is_none(),
++            )
++            && parent_approval_gate("executor.matches.20", exec.network.is_none())
++            && parent_approval_gate(
++                "executor.matches.21",
++                !exec.exec_server_enforce_managed_network,
++            )
++            && parent_approval_gate(
++                "executor.matches.22",
++                exec.exec_server_managed_network.is_none(),
++            )
++            && parent_approval_gate(
++                "executor.matches.23",
++                exec.exec_server_network_proxy.is_none(),
++            )
++            && parent_approval_gate("executor.matches.24", exec.exec_server_sandbox.is_none())
++            && parent_approval_gate(
++                "executor.matches.25",
++                executor.command == exec.command.as_slice(),
++            )
++            && parent_approval_gate(
++                "executor.matches.26",
++                PathUri::from_abs_path(executor.cwd) == exec.cwd,
++            )
++            && parent_approval_gate(
++                "executor.matches.27",
++                executor.permission_profile == &exec.permission_profile,
++            )
++            && parent_approval_gate("executor.matches.28", executor.sandbox == exec.sandbox)
++            && parent_approval_gate("executor.matches.29", executor.env == &exec.env)
++            && parent_approval_gate("executor.matches.30", executor.network.is_none())
++            && parent_approval_gate(
++                "executor.matches.31",
++                executor.network_environment_id == &exec.network_environment_id,
++            )
++            && parent_approval_gate(
++                "executor.matches.32",
++                executor.windows_sandbox_level == exec.windows_sandbox_level,
++            )
++            && parent_approval_gate("executor.matches.33", executor.arg0 == &exec.arg0)
++            && parent_approval_gate(
++                "executor.matches.34",
++                PathUri::from_abs_path(executor.sandbox_policy_cwd)
++                    == exec.windows_sandbox_policy_cwd,
++            )
++            && parent_approval_gate(
++                "executor.matches.35",
++                executor.windows_workspace_roots == exec.windows_sandbox_workspace_roots.as_slice(),
++            )
++            && parent_approval_gate(
++                "executor.matches.36",
++                executor.sandbox_exe == attempt.sandbox_exe,
++            )
++            && parent_approval_gate(
++                "executor.matches.37",
++                executor.use_legacy_landlock == attempt.use_legacy_landlock,
++            )
+     }
+ }
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+index 05d703b..d6d538a 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+@@ -5,6 +5,7 @@ use crate::sandboxing::ExecOptions;
+ use crate::sandboxing::ExecRequest;
+ use crate::sandboxing::SandboxPermissions;
+ use crate::tools::approvals::ApprovalAction;
++use crate::tools::approvals::parent_approval_gate;
+ use crate::tools::runtimes::exec_env_for_sandbox_permissions;
+ use crate::tools::runtimes::unified_exec::InitialParentApprovalCandidate;
+ use crate::tools::runtimes::unified_exec::parent_binding::ParentExecutorView;
+@@ -116,10 +117,17 @@ pub(crate) async fn prepare_unified_exec_zsh_fork(
+     // A later provider snapshot must match the policy retained before approval;
+     // never relabel an old user response with a replacement policy.
+     let parent_approval = parent_approval.filter(|candidate| {
+-        req.turn_environment.config().exec_policy.is_none()
+-            && ctx.step_context.turn.allow_prefix_rules()
+-                == crate::exec_policy::AllowPrefixRules::Honor
+-            && candidate.matches_original_exec_policy(&parent_exec_policy)
++        parent_approval_gate(
++            "provider.matches.01",
++            req.turn_environment.config().exec_policy.is_none(),
++        ) && parent_approval_gate(
++            "provider.matches.02",
++            ctx.step_context.turn.allow_prefix_rules()
++                == crate::exec_policy::AllowPrefixRules::Honor,
++        ) && parent_approval_gate(
++            "provider.matches.03",
++            candidate.matches_original_exec_policy(&parent_exec_policy),
++        )
+     });
+     let exec_policy = Arc::new(RwLock::new(Arc::clone(&parent_exec_policy)));
+     let command_executor =
+@@ -134,6 +142,7 @@ pub(crate) async fn prepare_unified_exec_zsh_fork(
+             Arc::clone(&parent_exec_policy),
+         )
+     });
++    parent_approval_gate("executor.bound-present", parent_approval.is_some());
+     #[cfg(test)]
+     crate::tools::runtimes::unified_exec::record_parent_binding_phase(
+         &ctx.session,
+@@ -243,24 +252,42 @@ impl<'a> InterceptedParentAdmission<'a> {
+             enable_shell_wrapper_parsing: ENABLE_INTERCEPTED_EXEC_POLICY_SHELL_WRAPPER_PARSING,
+         };
+         let cwd = PathUri::from_abs_path(&cwd);
+-        if id != provider.call_id
+-            || context.call_id != provider.call_id
+-            || context.tool_name != provider.tool_name
+-            || environment_id != provider.environment_id
+-            || source != provider.source
+-            || provider.sandbox_permissions != SandboxPermissions::RequireEscalated
+-            || provider.prompt_permissions.is_some()
+-            || additional_permissions.is_some()
+-            || !captured.matches_parent_prompt(&expected_context, &command)
+-            || !Arc::ptr_eq(&captured.evaluated_policy, &bound.provider_policy)
+-            || !Arc::ptr_eq(&provider.parent_exec_policy, &bound.provider_policy)
+-            || !bound.candidate.matches_child_context(
+-                crate::tools::runtimes::unified_exec::parent_binding::ParentChildContext {
+-                    permission_profile: &captured.context.permission_profile,
+-                    windows_sandbox_level: captured.context.windows_sandbox_level,
+-                    environment_id: &environment_id,
+-                    cwd: &cwd,
+-                },
++        if parent_approval_gate("child.refusal.01", id != provider.call_id)
++            || parent_approval_gate("child.refusal.02", context.call_id != provider.call_id)
++            || parent_approval_gate("child.refusal.03", context.tool_name != provider.tool_name)
++            || parent_approval_gate(
++                "child.refusal.04",
++                environment_id != provider.environment_id,
++            )
++            || parent_approval_gate("child.refusal.05", source != provider.source)
++            || parent_approval_gate(
++                "child.refusal.06",
++                provider.sandbox_permissions != SandboxPermissions::RequireEscalated,
++            )
++            || parent_approval_gate("child.refusal.07", provider.prompt_permissions.is_some())
++            || parent_approval_gate("child.refusal.08", additional_permissions.is_some())
++            || parent_approval_gate(
++                "child.refusal.09",
++                !captured.matches_parent_prompt(&expected_context, &command),
++            )
++            || parent_approval_gate(
++                "child.refusal.10",
++                !Arc::ptr_eq(&captured.evaluated_policy, &bound.provider_policy),
++            )
++            || parent_approval_gate(
++                "child.refusal.11",
++                !Arc::ptr_eq(&provider.parent_exec_policy, &bound.provider_policy),
++            )
++            || parent_approval_gate(
++                "child.refusal.12",
++                !bound.candidate.matches_child_context(
++                    crate::tools::runtimes::unified_exec::parent_binding::ParentChildContext {
++                        permission_profile: &captured.context.permission_profile,
++                        windows_sandbox_level: captured.context.windows_sandbox_level,
++                        environment_id: &environment_id,
++                        cwd: &cwd,
++                    },
++                ),
+             )
+         {
+             return None;
+@@ -284,9 +311,13 @@ impl<'a> InterceptedParentAdmission<'a> {
+             return None;
+         }
+         let policy = self.provider.policy.read().await;
+-        if !Arc::ptr_eq(&policy, &self.captured.evaluated_policy)
+-            || !Arc::ptr_eq(&policy, &self.bound.provider_policy)
+-        {
++        if parent_approval_gate(
++            "final.provider-refusal.01",
++            !Arc::ptr_eq(&policy, &self.captured.evaluated_policy),
++        ) || parent_approval_gate(
++            "final.provider-refusal.02",
++            !Arc::ptr_eq(&policy, &self.bound.provider_policy),
++        ) {
+             return None;
+         }
+         // Retain the actual provider read guard across Fresh's held-owner check and finish.
+diff --git a/codex-rs/core/tests/suite/unified_exec_zsh_fork_approvals.rs b/codex-rs/core/tests/suite/unified_exec_zsh_fork_approvals.rs
+index 8d77612..c063818 100644
+--- a/codex-rs/core/tests/suite/unified_exec_zsh_fork_approvals.rs
++++ b/codex-rs/core/tests/suite/unified_exec_zsh_fork_approvals.rs
+@@ -63,6 +63,22 @@ mod persistent_terminal_refusal_tests;
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+ async fn unified_exec_zsh_fork_parent_approval_preserves_denied_reads() -> Result<()> {
+     skip_if_no_network!(Ok(()));
++    use tracing_subscriber::layer::SubscriberExt;
++    use tracing_subscriber::util::SubscriberInitExt;
++    // nextest isolates this test in its own process. A process subscriber also
++    // observes the ordinary task and escalation server spawned on other threads.
++    tracing_subscriber::registry()
++        .with(
++            tracing_subscriber::filter::Targets::new()
++                .with_target("codex_core::parent_approval", tracing::Level::DEBUG),
++        )
++        .with(
++            tracing_subscriber::fmt::layer()
++                .with_ansi(false)
++                .with_test_writer(),
++        )
++        .try_init()
++        .map_err(|error| anyhow::anyhow!("install fixed-name parent diagnostics: {error}"))?;
+ 
+     let denied_dir = tempfile::tempdir_in(std::env::current_dir()?)?;
+     let denied_path = denied_dir.path().join("secret.env");

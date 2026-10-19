@@ -184,7 +184,16 @@ export class OrdinaryCollaborationDelivery {
           !isDeepStrictEqual(message.settings[sessionId], settings)
         )
           conflict();
+        this.store.collaborationConversation.assertCurrentDeliveryRecipient(
+          ref.collaborationId,
+          ref.messageId,
+          ref.deliveryId,
+          sessionId,
+        );
         if (delivery.purpose === 'reply' && ++replyOrigins > 1) conflict();
+        // Retained forwarding has no ordinary input adapter yet. Never ACK its
+        // context receipt after projecting only the optional operator note.
+        if (message.forward) throw new CollaborationContractError('execution_unavailable');
         let snapshot: Snapshot | null = null;
         if (message.snapshot) {
           snapshot = this.store.collaborationConversation.getSnapshot(

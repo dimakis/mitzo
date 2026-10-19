@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { closeSync, constants, lstatSync, mkdirSync, openSync } from 'node:fs';
 import { dirname, isAbsolute } from 'node:path';
 import { z } from 'zod';
+import { isDeepStrictEqual } from 'node:util';
 import type { CredentialReference } from './credentials.js';
 import type { CatalogModel } from './model-catalog.js';
 import {
@@ -304,6 +305,18 @@ export interface OpenAIEnrollmentGateway {
   ): Promise<OpenAIEnrollmentProvider>;
   inspect(operationId: string, signal: AbortSignal): Promise<OpenAIEnrollmentProvider | undefined>;
 }
+/** Server-private custody evidence only. Never persist in public replay or return
+ * through an API. This observation contains no key, model limits or dispatch grant.
+ */
+export type OpenAIEnrollmentCredentialObservation = Readonly<{
+  version: 1;
+  accountId: string;
+  enrollmentOperationId: string;
+  controllerBinding: string;
+  credentialVersion: string;
+  provider: Readonly<OpenAIEnrollmentProvider>;
+  credentialFingerprint: string;
+}>;
 export class OpenAIAccountEnrollment {
   constructor(
     private readonly options: {
@@ -403,7 +416,7 @@ export class OpenAIAccountEnrollment {
       return publicAccount(row);
     });
   }
-  private async verifiedKey(id: string, signal: AbortSignal) {
+  private async verifiedCredential(id: string, signal: AbortSignal) {
     const row = this.options.store.account(id);
     if (
       !row ||
@@ -423,23 +436,62 @@ export class OpenAIAccountEnrollment {
         keychain.version !== row.operationId ||
         keychain.managed !== true ||
         !keychain.value ||
-        JSON.stringify(provider) !== JSON.stringify(row.provider)
+        !isDeepStrictEqual(provider, row.provider) ||
+        !isDeepStrictEqual(this.options.store.account(id), row)
       )
         throw new Error();
       signal.throwIfAborted();
-      return keychain.value;
+      const observation: OpenAIEnrollmentCredentialObservation = Object.freeze({
+        version: 1,
+        accountId: row.accountId,
+        enrollmentOperationId: row.operationId,
+        controllerBinding: row.controllerBinding,
+        credentialVersion: keychain.version,
+        provider: Object.freeze({ ...row.provider }),
+        credentialFingerprint: createHash('sha256')
+          .update('openai-enrollment-credential-v1\0')
+          .update(keychain.value)
+          .digest('hex'),
+      });
+      return { key: keychain.value, observation };
     } catch {
       throw new Error('OpenAI enrolled account needs attention');
     }
   }
   async assertReady(id: string, signal: AbortSignal) {
     // The runtime caller already holds the Connections admission gate.
-    await this.verifiedKey(id, signal);
+    await this.verifiedCredential(id, signal);
+  }
+  private withVerifiedCredential<T>(
+    id: string,
+    signal: AbortSignal,
+    work: (key: string, observation: OpenAIEnrollmentCredentialObservation) => Promise<T>,
+  ): Promise<T> {
+    return this.options.gate(async () => {
+      const captured = await this.verifiedCredential(id, signal);
+      // Callback failures belong to their caller and must retain their identity.
+      const result = await work(captured.key, captured.observation);
+      const renewed = await this.verifiedCredential(id, signal);
+      if (!isDeepStrictEqual(captured.observation, renewed.observation))
+        throw new Error('OpenAI enrolled account needs attention');
+      return result;
+    });
+  }
+  /** Hold the existing enrollment/Connections gate for a private custody read.
+   * The callback must not reacquire that non-reentrant gate. Renewal checks drift
+   * after the callback; it cannot undo callback effects or order native dispatch.
+   */
+  withCredentialCustody<T>(
+    id: string,
+    signal: AbortSignal,
+    work: (observation: OpenAIEnrollmentCredentialObservation) => Promise<T>,
+  ): Promise<T> {
+    return this.withVerifiedCredential(id, signal, (_key, observation) => work(observation));
   }
   close() {
     this.options.store.close();
   }
   resolveKey(id: string, signal: AbortSignal) {
-    return this.options.gate(() => this.verifiedKey(id, signal));
+    return this.withVerifiedCredential(id, signal, async (key) => key);
   }
 }
