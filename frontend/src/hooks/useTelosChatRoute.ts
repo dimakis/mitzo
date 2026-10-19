@@ -111,7 +111,7 @@ export function useTelosChatRoute(conversationId: string | null) {
         row.conversation.namespace === 'mitzo' &&
         row.conversation.conversationId === conversationId,
     )
-      ? { itemId, work: work.work, record }
+      ? { itemId, work: work.work, record, refreshKey }
       : null;
   const retained = location.state?.telosChatReturn;
   const backState =

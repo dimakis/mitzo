@@ -25,7 +25,7 @@ export function TelosChatWorkTree({
     }
   }
   collect(collection.items);
-  const canonical = useTelosRecords(ids);
+  const canonical = useTelosRecords(ids, data.refreshKey);
   const records = canonical.records.length ? canonical.records : [data.record];
   let root = records.find((r) => r.itemId === data.itemId) ?? data.record;
   const visited = new Set([root.itemId]);

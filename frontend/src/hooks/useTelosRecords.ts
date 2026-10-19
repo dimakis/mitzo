@@ -101,7 +101,7 @@ export function useTelosRecords(ids: string[], refreshKey: string | number = 0) 
   const current = result?.key === key ? result : undefined;
   return {
     // Conversation controls share this owner’s manual/event/resume invalidation.
-    refreshKey: JSON.stringify([key, retry]),
+    refreshKey: JSON.stringify([key, retry, refreshKey]),
     loading: !current,
     records: current?.records ?? [],
     unavailable: current?.unavailable ?? [],
