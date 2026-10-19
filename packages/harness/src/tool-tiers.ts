@@ -6,6 +6,8 @@ export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 // tools fail closed in Ask, even when project settings label them "safe".
 const READ_ONLY_TOOLS = new Set([
   'Read',
+  'ReadKnowledge',
+  'mcp__mitzo-connections__ReadKnowledge',
   'Glob',
   'Grep',
   'WebSearch',
@@ -30,6 +32,10 @@ export function isReadOnlyTool(toolName: string): boolean {
 
 const DEFAULT_TOOL_TIERS: Record<string, ToolTier> = {
   Read: 'safe',
+  ReadKnowledge: 'safe',
+  'mcp__mitzo-connections__ReadKnowledge': 'safe',
+  SaveKnowledgeDraft: 'standard',
+  'mcp__mitzo-connections__SaveKnowledgeDraft': 'standard',
   Glob: 'safe',
   Grep: 'safe',
   WebSearch: 'safe',

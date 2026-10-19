@@ -37,6 +37,13 @@ export class KnowledgeDraftStore {
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS knowledge_drafts (id TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS knowledge_draft_leases (id TEXT PRIMARY KEY, token TEXT NOT NULL, expires INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS knowledge_draft_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL)',
     );
+    if (
+      !(this.db.pragma('table_info(knowledge_draft_requests)') as { name: string }[]).some(
+        (column) => column.name === 'proposal_fingerprint',
+      )
+    ) {
+      this.db.exec('ALTER TABLE knowledge_draft_requests ADD COLUMN proposal_fingerprint TEXT');
+    }
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS knowledge_draft_recovery (id TEXT PRIMARY KEY, head TEXT NOT NULL, bundle BLOB NOT NULL)',
     );
@@ -172,6 +179,56 @@ export class KnowledgeDraftStore {
       .run(draft.id, JSON.stringify(draft), JSON.stringify(summary));
     return draft;
   }
+  private proposalFingerprint(
+    title: string,
+    baseRevision: string,
+    documents: Omit<KnowledgeDraftDocument, 'base'>[],
+    directories: string[] = [],
+  ) {
+    return createHash('sha256')
+      .update(
+        JSON.stringify({
+          title: title.trim(),
+          baseRevision,
+          documents: documents.map(({ path, sourcePath, content }) => ({
+            path,
+            ...(sourcePath ? { sourcePath } : {}),
+            content,
+          })),
+          ...(directories.length ? { directories } : {}),
+        }),
+      )
+      .digest('hex');
+  }
+  /** Recover the original proposal's current receipt without consulting mutable source history. */
+  recoverRequest(
+    id: string,
+    title: string,
+    baseRevision: string,
+    documents: Omit<KnowledgeDraftDocument, 'base'>[],
+    directories: string[] = [],
+  ): KnowledgeDraft | undefined {
+    const row = this.db
+      .prepare('SELECT proposal_fingerprint FROM knowledge_draft_requests WHERE id=?')
+      .get(id) as { proposal_fingerprint: string | null } | undefined;
+    if (!row) {
+      if (this.db.prepare('SELECT id FROM knowledge_drafts WHERE id=?').get(id))
+        throw new KnowledgeDraftConflict(
+          'This save request identity belongs to an existing draft. Reload its saved draft before continuing.',
+        );
+      return undefined;
+    }
+    // Older requests have no provable original proposal; never infer it from a later edited draft.
+    if (
+      !row.proposal_fingerprint ||
+      row.proposal_fingerprint !==
+        this.proposalFingerprint(title, baseRevision, documents, directories)
+    )
+      throw new KnowledgeDraftConflict(
+        'This save request cannot be verified with this content. Reload its saved draft before continuing.',
+      );
+    return this.get(id);
+  }
   create(
     title: string,
     baseRevision: string,
@@ -224,8 +281,14 @@ export class KnowledgeDraftStore {
         updatedAt: new Date().toISOString(),
       });
       this.db
-        .prepare('INSERT INTO knowledge_draft_requests(id,fingerprint) VALUES(?,?)')
-        .run(id, fingerprint);
+        .prepare(
+          'INSERT INTO knowledge_draft_requests(id,fingerprint,proposal_fingerprint) VALUES(?,?,?)',
+        )
+        .run(
+          id,
+          fingerprint,
+          this.proposalFingerprint(title, baseRevision, documents, directories),
+        );
       return draft;
     })();
   }
