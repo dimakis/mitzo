@@ -6,10 +6,10 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 49 patches
+## Current composed source: 50 patches
 
-The 49 ordered patches reconstruct native tree
-`58f83c08f2df67c830fe6cf1ee435a03a8b3f6f0` (local source `9710104802944987fbd017baf39706c535665922`).
+The 50 ordered patches reconstruct native tree
+`606bfc1df61d145907415220bea96dfd6d3415a9` (local source `ff92b351fbc3ae89a9e0a57d3268975b2347ce92`).
 The current source adds the actual ordinary child-approval consumer to the retained
 immutable-request foundation. It reuses only a genuine fresh user approval from
 the same still-active initial invocation. The original runtime lifetime flag is
@@ -90,6 +90,34 @@ No local Rust compilation or execution occurred; new-source CI remains required.
 The existing macOS job budget increases to 120 minutes because cold setup and
 compilation used about 59 minutes before fixtures. Linux remains at 90 minutes;
 package coverage, one test thread, zero retries and failure propagation remain.
+
+The 49-patch run `39184386351` completed both native platforms. Linux passed
+all 5,821 selected tests (11 skipped), including formatting. macOS completed
+5,599 selected tests: 5,598 passed, one failed and 27 skipped. Its sole failure
+is the original `unified_exec_zsh_fork_parent_approval_preserves_denied_reads`
+integration: the real intercepted `/bin/cat` requested another approval after
+the initial User approval. All new manager/boundary fixtures passed. This is a
+real integration invariant failure, not a compilation error or timeout; it is
+not waived as a flake. Platform counts overlap.
+
+Patch 50 is strictly diagnostic. A crate-private helper emits only a fixed gate
+name and boolean and returns that same boolean. Existing short-circuit order,
+all permission/currentness/hook/contributor/physical/lifetime checks, the CAS and
+all original integration inputs and assertions remain. The failing integration
+installs a filter for that target alone. The prescribed nextest run isolates it
+in one process; process scope is needed to observe spawned ordinary/escalation
+tasks that do not propagate a scoped subscriber. Other multi-test harnesses must
+account for process-wide subscriber initialization. No paths, command text,
+environment values, owner identifiers, pointers or receipts are emitted.
+
+Root and the existing independent reviewer checked all seven files. Source-only
+parser/token comparison proves that removing the added diagnostics restores the
+original tokens, including the integration fixture, observer and assertions.
+No local Rust compilation/execution occurred. Diagnostics add synchronous work
+and may affect timing; a passing diagnostic run alone cannot identify the prior
+refusal or establish a fix. The actual refusal and its repair remain pending.
+The first candidate-refusal label combines two checks, and some early `?`
+returns remain unlabeled. No guard is broadened and no test is removed or retried.
 
 ## Immutable request foundation
 
