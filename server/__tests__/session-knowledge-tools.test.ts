@@ -156,6 +156,26 @@ it('preserves a saved draft when the same request is retried with different cont
   expect(store.list()[0].documents[0].content).toBe(input().documents[0].content);
 });
 
+it('recovers the same draft after a model change on the same account', async () => {
+  const api = tools();
+  const first = await api.execute(
+    'SaveKnowledgeDraft',
+    input(),
+    new AbortController().signal,
+    identity,
+  );
+  const session = registry.get('client')!;
+  session.accountBinding = { ...session.accountBinding!, model: 'another-offline-model' };
+  const retry = await api.execute(
+    'SaveKnowledgeDraft',
+    input(),
+    new AbortController().signal,
+    identity,
+  );
+  expect(retry).toEqual(first);
+  expect(store.list()).toHaveLength(1);
+});
+
 it('recovers a receipt without overwriting later human edits or requiring the old accepted tip', async () => {
   const api = tools();
   const first = await api.execute(

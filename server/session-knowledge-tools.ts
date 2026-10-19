@@ -177,7 +177,14 @@ export function sessionKnowledgeTools(
           );
         // The retry key belongs to this conversation/account and exact enrolled source.
         const hash = createHash('sha256')
-          .update(JSON.stringify([sessionId, account, runtime.sourceIdentity, request.requestId]))
+          .update(
+            JSON.stringify([
+              sessionId,
+              account?.accountId ?? null,
+              runtime.sourceIdentity,
+              request.requestId,
+            ]),
+          )
           .digest('hex');
         const draftId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
         let retry = false;
