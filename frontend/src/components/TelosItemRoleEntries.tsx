@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TelosWorkApiClient } from '@mitzo/client';
-import { useMitzoStore } from '@mitzo/client/hooks';
 import type { TelosWorkView } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
-import { createChatDraft, saveChatDraft } from '../lib/chat-drafts';
+import { useTelosChatSetup } from '../hooks/useTelosChatSetup';
 
 const api = new TelosWorkApiClient(apiFetch);
 /** Narrow ordinary setup entry. Role selection does not allocate or send. */
@@ -16,9 +15,8 @@ export function TelosItemRoleEntries({
   onOrdinaryRoles?(itemId: string, available: boolean): void;
 }) {
   const navigate = useNavigate();
-  const newSession = useMitzoStore((s) => s.newSession);
   const [result, setResult] = useState<{ itemId: string; work?: TelosWorkView; error?: string }>();
-  const [saveError, setSaveError] = useState('');
+  const { configure, error: saveError } = useTelosChatSetup(itemId);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
@@ -62,27 +60,6 @@ export function TelosItemRoleEntries({
         link.conversation.conversationId === assignment.conversation.conversationId &&
         link.availability === 'available',
     );
-  function configure(
-    selectedRole: 'lead' | 'worker' | 'advisor',
-    mode: 'assign' | 'additional',
-    purpose?: 'refine' | 'child',
-  ) {
-    const draft = createChatDraft();
-    const params = new URLSearchParams({
-      telosRoleItem: itemId,
-      telosRole: selectedRole,
-      telosRoleMode: mode,
-    });
-    if (purpose) params.set('telosAdvisor', purpose);
-    draft.settings = { ...draft.settings, search: params.toString(), retainRuntimeIntent: true };
-    if (!saveChatDraft(draft)) {
-      setSaveError('Chat setup could not be saved on this device.');
-      return;
-    }
-    params.set('draft', draft.id);
-    newSession();
-    navigate(`/chat?${params}`);
-  }
   return (
     <section
       className="todo-detail-contract"
