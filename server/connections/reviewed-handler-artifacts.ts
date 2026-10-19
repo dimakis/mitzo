@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.334-telos-chat-routes';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.335-telos-coordinator-entry';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Explicit coordinator kind uses the reviewed ordinary lead role.
+  '../../frontend/src/lib/telos-work-entry-role.ts':
+    '1116a555e86fbd95a99c4addd1d00c55480928d4d277d9c33bb11e7b430465af',
   // Shared S7 item trail imported by S8 route navigation.
   '../../frontend/src/lib/telos-item-navigation.ts':
     '194170adf8cfc918b5b6d0482a413646641bce1de086616fb1a0ac32fa30b6f2',
@@ -1060,7 +1063,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosLinkedContext.tsx':
     'f4aad8cea312fd01d303d76470d752c93f8741458a829b8323522682ac5c8c49',
   '../../frontend/src/components/TelosItemRoleEntries.tsx':
-    '380b4e7ebd8c1f35a01395651817c4f3e60e70c6742e3d28a33fcf5d45309c5e',
+    'd19a53f26f66a44a47520475e2c9f3ff69c1ae8801253767f0ad88045bb7a819',
   '../../frontend/src/components/TelosAdvisorDraft.tsx':
     '13ce94112aab43de64fb22b139d2508cd30bc02cea5d337bb21d0e89c2c6b1f3',
   '../../frontend/src/hooks/useTelosRoleSetup.ts':
@@ -1096,7 +1099,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '2e140e2951102ec82f2c5919b8db8132d4e29b5363fc2b5b1a37926942f2452a',
   '../task-mcp-server.ts': '79180e917cd7acd3680df90607c8e480e7349297bf7fb890418d650b79d46b9a',
   '../../frontend/src/components/TelosTreeConversationEntry.tsx':
-    'e8311cc22e369d1f9c4d8db26e2f3da54c58a654bd2c8becdf8429504d81502a',
+    'f5f6128d4539e61d7fc3e18144a8826f34949dee7d91b43bf6a3e06d07d015bf',
   '../../frontend/src/lib/telos-kind-label.ts':
     'a89a6bff28e8ac2fed83ac9bd19305185f6ee6d7a4f7efad196e3e5571a114b8',
   '../../frontend/src/hooks/useTelosRecords.ts':

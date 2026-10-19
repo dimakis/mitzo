@@ -139,6 +139,41 @@ function fixture() {
   };
   return { api, onBound, options };
 }
+it.each([
+  ['assign', 0, 0],
+  ['assign', 3, 3],
+  ['additional', 3, null],
+] as const)(
+  'retains coordinator mode %s at revision %s with assignment selector %s',
+  async (mode, currentRevision, expected) => {
+    const f = fixture();
+    const work = await f.api.read('item');
+    work.kind = 'coordinator';
+    if (currentRevision)
+      work.assignments = [
+        {
+          itemId: 'item',
+          role: 'lead',
+          conversation: { namespace: 'mitzo', conversationId: 'current-coordinator' },
+          revision: currentRevision,
+          assignedAt: null,
+          assignedBy: null,
+        },
+      ];
+    f.api.read.mockResolvedValue(work);
+    const options: TelosRoleSetupOptions = { ...f.options, intent: { ...f.options.intent, mode } };
+    const { result } = renderHook(() => useTelosRoleSetup(options));
+    await act(async () => result.current.review());
+    expect(f.api.setupRole).not.toHaveBeenCalled();
+    await act(async () => result.current.confirm());
+    expect(f.api.setupRole.mock.calls[0][0]).toMatchObject({
+      role: 'lead',
+      expectedAssignmentRevision: expected,
+    });
+    expect(work.assignments[0]?.revision ?? 0).toBe(currentRevision);
+    expect(f.onBound).not.toHaveBeenCalled();
+  },
+);
 it('reviews explicit role context without starting setup or a turn', async () => {
   const f = fixture();
   const { result } = renderHook(() => useTelosRoleSetup(f.options));

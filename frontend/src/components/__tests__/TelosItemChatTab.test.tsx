@@ -150,3 +150,37 @@ it('opens an external origin explicitly and retains distinct ordinary additional
   expect(params.get('telosRoleMode')).toBe('additional');
   expect(work.assignments).toEqual([]);
 });
+it.each([
+  ['Choose lead collaborator', 'assign', false],
+  ['New chat', 'additional', false],
+  ['Change lead collaborator', 'assign', true],
+  ['New chat', 'additional', true],
+] as const)(
+  'routes coordinator action %s with mode %s and current assignment %s',
+  async (action, mode, assigned) => {
+    const work = view(['origin', 'lead']);
+    work.kind = 'coordinator';
+    if (assigned)
+      work.assignments = [
+        {
+          itemId: 'slice',
+          role: 'lead',
+          conversation: { namespace: 'mitzo', conversationId: 'lead' },
+          revision: 3,
+          assignedAt: null,
+          assignedBy: null,
+        },
+      ];
+    const before = structuredClone(work.assignments);
+    const { newSession } = mount(work);
+    await screen.findByRole('heading', { name: 'Chats · 2' });
+    expect(newSession).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: action }));
+    await screen.findByTestId('setup');
+    const params = new URLSearchParams(listChatDrafts()[0].settings.search);
+    expect(params.get('telosRoleItem')).toBe('slice');
+    expect(params.get('telosRole')).toBe('lead');
+    expect(params.get('telosRoleMode')).toBe(mode);
+    expect(work.assignments).toEqual(before);
+  },
+);

@@ -6,6 +6,7 @@ import { useTelosChatSetup } from '../hooks/useTelosChatSetup';
 import { useTelosChatOpen } from '../hooks/useTelosChatOpen';
 import { telosDirectChat } from '../lib/telos-chat-rows';
 import { useTelosChatDetails } from '../hooks/useTelosChatDetails';
+import { telosWorkEntryRole } from '../lib/telos-work-entry-role';
 
 export function TelosItemChatTab({
   itemId,
@@ -41,7 +42,7 @@ export function TelosItemChatTab({
       </div>
     );
   if (!work) return <p role="status">Loading conversations…</p>;
-  const role = work.kind === 'work_item' ? 'worker' : work.kind === 'outcome' ? 'lead' : null;
+  const role = telosWorkEntryRole(work.kind);
   return (
     <>
       <TelosChatList

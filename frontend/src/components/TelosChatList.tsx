@@ -1,6 +1,7 @@
 import { TelosSourceConversationReferenceSchema, type TelosWorkView } from '@mitzo/protocol';
 import { telosChatRows, type TelosChatRow } from '../lib/telos-chat-rows';
 import { UiIcon } from './UiIcon';
+import { telosWorkEntryRole } from '../lib/telos-work-entry-role';
 import './TelosChat.css';
 export type TelosChatDetails = Record<string, { title?: string; description?: string }>;
 
@@ -22,7 +23,7 @@ export function TelosChatList({
   details?: TelosChatDetails;
 }) {
   const rows = telosChatRows(work);
-  const role = work.kind === 'work_item' ? 'worker' : work.kind === 'outcome' ? 'lead' : null;
+  const role = telosWorkEntryRole(work.kind);
   const assigned = work.assignments.some((assignment) => assignment.role === role);
   return (
     <section className="telos-chat-list" aria-label={`Chats for ${title}`}>

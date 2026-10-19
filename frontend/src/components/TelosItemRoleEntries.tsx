@@ -4,6 +4,7 @@ import { TelosWorkApiClient } from '@mitzo/client';
 import type { TelosWorkView } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import { useTelosChatSetup } from '../hooks/useTelosChatSetup';
+import { telosWorkEntryRole } from '../lib/telos-work-entry-role';
 
 const api = new TelosWorkApiClient(apiFetch);
 /** Narrow ordinary setup entry. Role selection does not allocate or send. */
@@ -24,7 +25,7 @@ export function TelosItemRoleEntries({
       (work) => {
         if (!controller.signal.aborted) {
           setResult({ itemId, work });
-          onOrdinaryRoles?.(itemId, work.kind === 'outcome' || work.kind === 'work_item');
+          onOrdinaryRoles?.(itemId, telosWorkEntryRole(work.kind) !== null);
         }
       },
       () => {
@@ -45,9 +46,9 @@ export function TelosItemRoleEntries({
       </div>
     );
   const work = result.work!;
-  // Kind is explicit. Legacy null kinds and coordinator setup belong to their owners.
-  if (work.kind !== 'outcome' && work.kind !== 'work_item') return null;
-  const role = work.kind === 'outcome' ? 'lead' : 'worker';
+  // Explicit item kind selects the existing setup role; it grants no authority.
+  const role = telosWorkEntryRole(work.kind);
+  if (!role) return null;
   const hasOrigin =
     work.links.some((link) => link.role === 'origin') ||
     work.sources.some((source) => source.source !== null);
@@ -110,7 +111,7 @@ export function TelosItemRoleEntries({
         >
           Refine item
         </button>
-        {work.kind === 'outcome' && (
+        {(work.kind === 'outcome' || work.kind === 'coordinator') && (
           <button
             className="todo-detail-chat-btn"
             onClick={() => configure('advisor', 'additional', 'child')}
