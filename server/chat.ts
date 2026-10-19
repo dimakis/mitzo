@@ -3590,6 +3590,15 @@ export async function prepareOwnedCodexChat(
         }
       };
       try {
+        if (localAdmission) {
+          // openCodexChat can enqueue and attempt a pump while the owning
+          // admission is uncertain. Consumption does not itself wake that
+          // native FIFO: release the original queue here, exactly once, after
+          // this owner's consumed/identity checks. Never resume paused work.
+          const native = getCodexRuntime(session);
+          if (!native) throw unavailable();
+          await native.startQueued();
+        }
         await runQueryLoop(
           safeEvents(),
           currentClientId,

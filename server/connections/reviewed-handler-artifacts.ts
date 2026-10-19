@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.340-telos-s6-native-peer-messages';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.341-telos-s6-peer-host-wake';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-communication-tools.ts':
-    'e83338bc3943bfdd1c521ffe243903187036c1fe1a0aae71f4da72589ef01ba8',
+    'c51e6848c27f385f87b978b69637ff7034bbb86f3cabb56f02e8054417488415',
   '../../packages/protocol/src/agent-communication.ts':
     '17f1b3fa8a92b16421bc93217c8ba381561627f87a1b1222cbd6fd6bf96b28e5',
   '../knowledge-adapter-cache.ts':
@@ -585,7 +584,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '4a1ee3d54d477e275a9a18ba328a54b8597a845a14f859d500582f0239541517',
+  '../chat.ts': '333220a2029b0c6df5c366da7bf4ab1f147d76aefb2415395909a8e348d5632b',
   '../../packages/harness/src/session-registry.ts':
     'a356f9fe321fa35e13aea28ec8480dfa63766e96a0f8a861dcd2cba533e5c118',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',

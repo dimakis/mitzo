@@ -7,6 +7,9 @@ operator. Inbox/read expose only retained peer messages involving the calling
 conversation. They do not share private transcripts, reasoning, tools, account
 details or filesystem paths. Other runtimes are explicitly unsupported by this
 entry; no provider fallback, enrollment or new conversation is attempted.
+An authorized sender's retained receipt stays readable when its recipient is
+hidden or loses new-send eligibility. That read preserves the last confirmed
+facts and uncertainty; it grants no new delivery or recipient recovery.
 
 The native driver supplies sender and verified turn/call identity. Request JSON
 cannot select an actor, operator, receipt status or host evidence. Send requires
@@ -50,6 +53,9 @@ The physical first-command boundary also distinguishes enqueue from dispatch:
 enqueue requires the owning uncertain receipt, while claiming/dispatch requires
 consumed. An early pump leaves the same head queued. The original host starts
 that queue after coordinator completion, without a new command or reattach.
+The production-host regression calls `startOwnedLocalCodexCommand` and observes
+one actual native turn/start after consumption. The test never pumps the queue;
+an exact repeated start acknowledges the original command without another turn.
 
 Offline evidence uses actual signed login/revocation, physical host/login
 custody, repository owner, command admission, permission handler and native

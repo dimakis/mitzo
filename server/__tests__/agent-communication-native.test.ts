@@ -340,6 +340,14 @@ it('routes a verified agent send through real approval/admission into a busy nat
   const changed = await f.a.call({ ...input, text: 'Different message under an old request' });
   expect(changed.response.success).toBe(false);
   expect(f.b.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
+  f.f.events.hideSession(f.b.sessionId);
+  expect(
+    (await f.a.call({ operation: 'read', messageId: sent.value.messageId })).value.status,
+  ).toBe('delivered');
+  expect(
+    (await f.a.call({ operation: 'lookup', requestId: input.requestId })).value.messageId,
+  ).toBe(sent.value.messageId);
+  expect((await f.a.call({ ...input, requestId: randomUUID() })).response.success).toBe(false);
 }, 20000);
 
 it('wakes an idle native queue once while leaving paused recovery and later cancellation with their existing owners', async () => {
@@ -438,6 +446,10 @@ it('retains uncertainty after recipient replacement during guarded admission and
   expect((await f.a.call(request)).value.messageId).toBe(result.value.messageId);
   expect(f.b.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
   expect(f.f.events.getLatestOrdinaryCommandAdmission(f.b.sessionId)).toEqual(initialRequest);
+  f.f.events.hideSession(f.b.sessionId);
+  const retained = await f.a.call({ operation: 'lookup', requestId: request.requestId });
+  expect(retained.value).toMatchObject({ messageId: result.value.messageId, status: 'uncertain' });
+  expect(f.b.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 }, 20000);
 
 it('repairs receipt projection from its exact durable native ACK without rerunning a delivered turn', async () => {

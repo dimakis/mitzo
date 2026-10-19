@@ -144,7 +144,14 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         const retained = owners.events.agentCommunication.forHost(message.messageId);
         if (retained.operatorAuthSessionId !== captured.auth.id)
           throw Error('Original signed operator required');
-        const target = eligible(message.recipientConversationId);
+        // Current sender/participant/operator authority protects retained facts.
+        // Losing a recipient's new-send eligibility cannot erase that history.
+        let target;
+        try {
+          target = eligible(message.recipientConversationId);
+        } catch {
+          return owners.events.agentCommunication.read(owners.conversationId, message.messageId);
+        }
         const ack = owners.native.acceptedProviderTurnForCommand(
           target.sessionId,
           target.accountBinding!,
