@@ -13,6 +13,18 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
+it('offers an existing configured API account locally without managed re-enrollment', async () => {
+  const f = await ownedResponsesRuntimeFixture(cleanups, { dual: true });
+  const profiles = loadAccountProfiles();
+  expect(profiles.isEnrolledOpenAIAccount('personal')).toBe(false);
+  const local = localResponsesCapabilities(
+    profiles,
+    new OrdinaryLocalResponsesTarget(f.dependencies.env),
+  ).inventory();
+  expect(local.accounts).toHaveLength(1);
+  expect(local.routes).toHaveLength(1);
+  expect(local.accounts[0].account).toMatchObject({ accountId: 'personal', provider: 'openai' });
+});
 it('projects one enrolled API account through actual owning catalog resolvers for Local Responses and OpenShell Codex', async () => {
   vi.spyOn(AccountProfiles.prototype, 'isEnrolledOpenAIAccount').mockReturnValue(true);
   const f = await ownedResponsesRuntimeFixture(cleanups, { dual: true });
