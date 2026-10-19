@@ -1,3 +1,4 @@
+import { agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import type { AgentToolCatalogEntry } from '@mitzo/protocol';
 import { nativeToolDefinitions } from './native-tool-executor.js';
 import { credentialConnectionToolDefinitions } from './credential-connection-tools.js';
@@ -5,9 +6,10 @@ import { repositoryChatToolDefinitions } from './repository-chat-tools.js';
 import { profileToolDefinitions } from './session-profile-tools.js';
 import { webAccessDefinition } from './request-web-access.js';
 import { githubPublishingDefinition } from './github-publishing-tool.js';
-import { telosCreateOutcomeDefinition } from './telos-tool.js';
+import { telosCreateOutcomeDefinition, telosAdoptSourceDefinition } from './telos-tool.js';
 import { telosItemDefinitions } from './telos-item-tools.js';
 import { telosArtifactDefinitions } from './telos-artifact-tools.js';
+import { telosWorkDefinitions } from './telos-work-tools.js';
 
 const reads = new Set([
   'Read',
@@ -18,6 +20,7 @@ const reads = new Set([
   'ListRepositories',
   'GetRepositoryChatPreparation',
   'SymposiumReadProfiles',
+  'AgentReadTasks',
   'TelosGetItem',
   'TelosFindArtifacts',
   'TelosReadArtifact',
@@ -29,15 +32,20 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
     { source: 'Workspace', definitions: nativeToolDefinitions },
     { source: 'Connections', definitions: credentialConnectionToolDefinitions },
     { source: 'Repositories', definitions: repositoryChatToolDefinitions },
-    { source: 'Agent Library', definitions: profileToolDefinitions },
+    {
+      source: 'Agent Library',
+      definitions: [...profileToolDefinitions, ...agentTaskToolDefinitions],
+    },
     { source: 'Web', definitions: [webAccessDefinition] },
     { source: 'GitHub publishing', definitions: [githubPublishingDefinition] },
     {
       source: 'Telos',
       definitions: [
         telosCreateOutcomeDefinition,
+        telosAdoptSourceDefinition,
         ...telosItemDefinitions,
         ...telosArtifactDefinitions,
+        ...telosWorkDefinitions,
       ],
     },
   ];
@@ -57,7 +65,18 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
             : mixed.has(tool.name)
               ? ('mixed' as const)
               : ('write' as const),
-      routes: source === 'Telos' ? [] : ['local-api'],
+      routes:
+        source === 'Telos'
+          ? []
+          : source === 'Agent Library'
+            ? ['local-api', 'codex-owned-local']
+            : source === 'GitHub publishing'
+              ? ['local-api', 'codex', 'codex-owned-local']
+              : source === 'Workspace'
+                ? ['local-api', 'codex', 'codex-owned-local']
+                : source === 'Connections' || source === 'Web'
+                  ? ['local-api', 'codex']
+                  : ['local-api'],
       requirement:
         source === 'Telos'
           ? 'Explicit profile selection is not supported on this native OpenShell route.'

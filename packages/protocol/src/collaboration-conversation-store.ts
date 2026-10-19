@@ -12,11 +12,15 @@ import {
   CollaborationPolicyUpdateSchema,
   CollaborationPolicySchema,
   CollaborationSettingsSchema,
+  collaborationCapacityOperationKey,
+  CollaborationNativeCapacityWitnessSchema,
   CollaborationMessageInputSchema,
+  CollaborationReplyInputSchema,
   CollaborationMessageSchema,
   CollaborationDeliverySchema,
   CollaborationDeliveryReceiptInputSchema,
   CollaborationSnapshotDraftSchema,
+  CollaborationSnapshotSelectionSchema,
   CollaborationSnapshotSchema,
   CollaborationJoinInputSchema,
   CollaborationJoinSchema,
@@ -30,6 +34,7 @@ import {
   type CollaborationDelivery,
   type CollaborationJoin,
   type CollaborationEvent,
+  type CollaborationMessageSource,
 } from './collaboration-conversation.js';
 
 /** Stable key ordering makes exact semantic retries independent of JSON object key order. */
@@ -57,6 +62,60 @@ interface Owners {
   ): { sessionId: string; settings: CollaborationSettings } | undefined;
 }
 type Row = { body: string };
+const ReviewCompilationInput = z.strictObject({
+  operatorId: z.string().min(1).max(200),
+  selection: CollaborationSnapshotSelectionSchema,
+  settings: z.array(CollaborationSettingsSchema).min(1).max(16),
+});
+const ReviewCompilation = ReviewCompilationInput.extend({
+  snapshotRequestId: z.uuid(),
+  snapshotId: z.uuid().nullable(),
+});
+const ReviewCapacityWitnesses = z.strictObject({
+  snapshotSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  reviewRequestId: z.uuid(),
+  witnesses: z.array(CollaborationNativeCapacityWitnessSchema).min(1).max(16),
+});
+function reviewContextSha(draft: z.infer<typeof CollaborationSnapshotDraftSchema>) {
+  const context = {
+    sourceConversationId: draft.sourceConversationId,
+    boundary: draft.boundary,
+    mode: draft.mode,
+    purpose: draft.purpose,
+    joiningBrief: draft.joiningBrief,
+    messages: draft.messages,
+    artifacts: draft.artifacts,
+  };
+  return createHash('sha256').update(JSON.stringify(context)).digest('hex');
+}
+function validateCapacityWitnesses(
+  draft: z.infer<typeof CollaborationSnapshotDraftSchema>,
+  raw: unknown,
+  identity: { collaborationId: string; operatorId: string; requestId: string },
+) {
+  const witnesses = z.array(CollaborationNativeCapacityWitnessSchema).max(16).parse(raw);
+  if (Buffer.byteLength(JSON.stringify(witnesses)) > 512 * 1024)
+    throw new ContractError('capacity_refused');
+  const native =
+    draft.capacity.status === 'ready'
+      ? draft.capacity.assessments.filter(
+          (assessment) => 'kind' in assessment && assessment.kind === 'nativePreparedRequest',
+        )
+      : [];
+  if (
+    native.length !== witnesses.length ||
+    new Set(witnesses.map((w) => w.assessment.measurementId)).size !== witnesses.length ||
+    witnesses.some(
+      (w) =>
+        w.contextSha256 !== reviewContextSha(draft) ||
+        w.nativeOperationId !==
+          `collaboration-review:${createHash('sha256').update(collaborationCapacityOperationKey(identity, w.assessment.settings)).digest('hex')}` ||
+        !native.some((a) => sha(a) === sha(w.assessment)),
+    )
+  )
+    throw new ContractError('snapshot_changed');
+  return witnesses;
+}
 /** Slice-2 metadata only. Existing EventStore connection/backup owner; no dispatcher or scheduler.
  * saveSnapshot/acceptMessage/recordDelivery/recordAllocation are trusted host ports, not HTTP writes.
  */
@@ -76,6 +135,8 @@ export class CollaborationConversationStore {
       CREATE TABLE IF NOT EXISTS collaboration_requests (
         collaboration_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
         result TEXT NOT NULL, PRIMARY KEY(collaboration_id,request_id));
+      CREATE INDEX IF NOT EXISTS idx_collaboration_message_heads
+        ON collaboration_records(collaboration_id,record_id,revision DESC) WHERE kind='message';
     `);
   }
   private group(id: string) {
@@ -408,6 +469,22 @@ export class CollaborationConversationStore {
           (['failed', 'unavailable', 'uncertain'].includes(input.status) && !input.reason)
         )
           throw new ContractError('invalid_transition');
+        if (
+          delivery.purpose === 'reply' &&
+          input.commandId &&
+          this.db
+            .prepare(
+              `SELECT 1 FROM collaboration_records r, json_each(r.body,'$.deliveries') d
+           WHERE r.kind='message' AND NOT EXISTS (
+             SELECT 1 FROM collaboration_records newer WHERE newer.collaboration_id=r.collaboration_id
+             AND newer.kind=r.kind AND newer.record_id=r.record_id AND newer.revision>r.revision)
+           AND json_extract(d.value,'$.commandId')=?
+           AND json_extract(d.value,'$.purpose')='reply'
+           AND json_extract(d.value,'$.deliveryId')<>? LIMIT 1`,
+            )
+            .get(input.commandId, deliveryId)
+        )
+          throw new ContractError('reply_conflict');
         const next = CollaborationDeliverySchema.parse({
           ...delivery,
           status: input.status,
@@ -424,9 +501,214 @@ export class CollaborationConversationStore {
       },
     );
   }
-  /** Trusted source compiler only: source authorization, completeness and token estimates belong to that owner.
-   * No public route accepts these bytes. Hashes are recomputed before the review object is saved.
+  /** Host-only attributed projection. The trusted source port must verify the exact ordinary
+   * command/message mapping and finalized visible blocks. Attribution never dispatches or fans out.
    */
+  recordReply(
+    group: string,
+    raw: unknown,
+    readSource: (
+      source: CollaborationMessageSource,
+    ) => { text: string; settings: CollaborationSettings } | undefined,
+  ) {
+    const input = CollaborationReplyInputSchema.parse(raw);
+    return this.mutation(
+      group,
+      input.requestId,
+      { kind: 'reply', input },
+      CollaborationMessageSchema,
+      () => {
+        // A driver may replay the same finalized message with a fresh callback receipt.
+        // Its entire source identity and delivery must still match the original projection.
+        const key = sha([input.source.conversationId, input.source.messageId]);
+        const previous = this.current(group, 'reply-source', key, CollaborationMessageSchema);
+        if (previous) {
+          if (
+            sha(previous.source) !== sha(input.source) ||
+            previous.replyToDeliveryId !== input.deliveryId
+          )
+            throw new ContractError('reply_conflict');
+          const origin = this.current(
+            group,
+            'message',
+            input.messageId,
+            CollaborationMessageSchema,
+          );
+          if (!origin?.deliveries.some((delivery) => delivery.deliveryId === input.deliveryId))
+            throw new ContractError('reply_conflict');
+          return previous;
+        }
+        const message = this.current(group, 'message', input.messageId, CollaborationMessageSchema);
+        const delivery = message?.deliveries.find((row) => row.deliveryId === input.deliveryId);
+        if (
+          !message ||
+          !delivery ||
+          delivery.purpose !== 'reply' ||
+          !['queued', 'uncertain', 'delivered'].includes(delivery.status) ||
+          delivery.sessionId !== input.source.conversationId ||
+          delivery.commandId !== input.source.commandId ||
+          !message.responders.includes(delivery.sessionId)
+        )
+          throw new ContractError('reply_conflict');
+        this.requireRecipients(this.group(group), [delivery.sessionId]);
+        const verified = readSource(structuredClone(input.source));
+        if (!verified) throw new ContractError('reply_unavailable');
+        if (sha(verified.settings) !== sha(message.settings[delivery.sessionId]))
+          throw new ContractError('reply_conflict');
+        const reply = CollaborationMessageSchema.parse({
+          version: 1,
+          messageId: randomUUID(),
+          projectionId: randomUUID(),
+          sequence: this.cursor(group) + 1,
+          author: { sessionId: delivery.sessionId },
+          text: verified.text,
+          source: input.source,
+          replyToDeliveryId: delivery.deliveryId,
+          membershipRevision: message.membershipRevision,
+          policySequence: message.policySequence,
+          policyRevisions: message.policyRevisions,
+          responders: [],
+          readers: [],
+          settings: {},
+          deliveries: [],
+          snapshot: null,
+        });
+        this.put(group, 'message', reply.messageId, reply);
+        this.put(group, 'reply-source', key, reply);
+        this.event(group, { kind: 'message', message: reply });
+        return reply;
+      },
+    );
+  }
+  /** Persist exact host review intent before asynchronous compilation. */
+  reserveReviewCompilation(group: string, raw: unknown) {
+    const input = ReviewCompilationInput.parse(raw);
+    const reservation = this.mutation(
+      group,
+      input.selection.requestId,
+      { kind: 'review-compilation', input },
+      ReviewCompilation,
+      () => {
+        const membership = this.membership(group, input.selection.expectedMembershipRevision);
+        if (!membership.participantSessionIds.includes(input.selection.sourceConversationId))
+          throw new ContractError('unknown_recipient');
+        const record = ReviewCompilation.parse({
+          ...input,
+          snapshotRequestId: randomUUID(),
+          snapshotId: null,
+        });
+        this.put(group, 'review-compilation', input.selection.requestId, record);
+        return record;
+      },
+    );
+    // The immutable request receipt predates compilation. Read its latest result,
+    // so exact retries recover before source/capacity owners are invoked again.
+    return (
+      this.current(group, 'review-compilation', input.selection.requestId, ReviewCompilation) ??
+      reservation
+    );
+  }
+  completeReviewCompilation(
+    group: string,
+    requestId: string,
+    raw: unknown,
+    rawWitnesses: unknown = [],
+  ) {
+    z.uuid().parse(requestId);
+    return this.db
+      .transaction(() => {
+        this.group(group);
+        const record = this.current(group, 'review-compilation', requestId, ReviewCompilation);
+        if (!record) throw new ContractError('not_found');
+        if (record.snapshotId) {
+          const completed = this.getSnapshot(group, record.snapshotId);
+          if (!completed) throw new ContractError('snapshot_changed');
+          return completed;
+        }
+        this.membership(group, record.selection.expectedMembershipRevision);
+        const draft = CollaborationSnapshotDraftSchema.parse(raw);
+        const witnesses = validateCapacityWitnesses(draft, rawWitnesses, {
+          collaborationId: group,
+          operatorId: record.operatorId,
+          requestId: record.selection.requestId,
+        });
+        if (
+          draft.capacity.status === 'ready' &&
+          draft.capacity.assessments.some(
+            (assessment) =>
+              !record.settings.some((selected) => sha(selected) === sha(assessment.settings)),
+          )
+        )
+          throw new ContractError('snapshot_changed');
+        const { selection } = record;
+        if (
+          draft.requestId !== requestId ||
+          draft.sourceConversationId !== selection.sourceConversationId ||
+          sha(draft.boundary) !== sha(selection.boundary) ||
+          draft.mode !== selection.mode ||
+          draft.purpose !== selection.purpose ||
+          draft.joiningBrief !== selection.joiningBrief
+        )
+          throw new ContractError('snapshot_changed');
+        const snapshot = this.saveSnapshot(group, {
+          ...draft,
+          requestId: record.snapshotRequestId,
+        });
+        if (witnesses.length)
+          this.put(group, 'review-capacity-witnesses', snapshot.snapshotId, {
+            snapshotSha256: snapshot.sha256,
+            reviewRequestId: record.selection.requestId,
+            witnesses,
+          });
+        this.put(group, 'review-compilation', requestId, {
+          ...record,
+          snapshotId: snapshot.snapshotId,
+        });
+        return snapshot;
+      })
+      .immediate();
+  }
+  /** Trusted ordinary review/confirmation owners only. Never project native capability
+   * identities into snapshots, events or HTTP. Missing historical records confer no proof. */
+  getReviewCapacityWitnesses(group: string, snapshotId: string) {
+    const snapshot = this.getSnapshot(group, snapshotId);
+    if (!snapshot) throw new ContractError('not_found');
+    const retained = this.current(
+      group,
+      'review-capacity-witnesses',
+      snapshotId,
+      ReviewCapacityWitnesses,
+    );
+    if (!retained) return [];
+    if (retained.snapshotSha256 !== snapshot.sha256) throw new ContractError('snapshot_changed');
+    const record = this.current(
+      group,
+      'review-compilation',
+      retained.reviewRequestId,
+      ReviewCompilation,
+    );
+    if (
+      !record ||
+      record.snapshotId !== snapshotId ||
+      record.selection.requestId !== retained.reviewRequestId ||
+      retained.witnesses.some(
+        (witness) =>
+          !record.settings.some((selected) => sha(selected) === sha(witness.assessment.settings)),
+      )
+    )
+      throw new ContractError('snapshot_changed');
+    const { version: _version, snapshotId: _snapshotId, sha256: _sha256, ...draft } = snapshot;
+    return validateCapacityWitnesses(
+      { ...draft, requestId: record.selection.requestId },
+      retained.witnesses,
+      {
+        collaborationId: group,
+        operatorId: record.operatorId,
+        requestId: record.selection.requestId,
+      },
+    );
+  }
+  /** Trusted source compiler only. No public route accepts these bytes. */
   saveSnapshot(group: string, raw: unknown) {
     const draft = structuredClone(raw) as z.infer<typeof CollaborationSnapshotDraftSchema>;
     if (Array.isArray(draft?.messages))
@@ -438,6 +720,16 @@ export class CollaborationConversationStore {
           }
       }
     const input = CollaborationSnapshotDraftSchema.parse(draft);
+    for (const artifact of input.artifacts) {
+      if (artifact.contentBase64 === undefined) continue;
+      const bytes = Buffer.from(artifact.contentBase64, 'base64');
+      if (
+        bytes.toString('base64') !== artifact.contentBase64 ||
+        bytes.byteLength !== artifact.sizeBytes ||
+        createHash('sha256').update(bytes).digest('hex') !== artifact.sha256
+      )
+        throw new ContractError('snapshot_changed');
+    }
     if (Buffer.byteLength(JSON.stringify(input)) > 512 * 1024)
       throw new ContractError('capacity_refused');
     return this.mutation(
@@ -659,6 +951,12 @@ export class CollaborationConversationStore {
         hasMore: rows.length > 50,
       };
     })();
+  }
+  /** Exact host delivery lookup, independent of the bounded recent-message view. */
+  getMessage(group: string, messageId: string) {
+    this.group(group);
+    z.uuid().parse(messageId);
+    return this.current(group, 'message', messageId, CollaborationMessageSchema);
   }
   view(group: string) {
     return this.db.transaction(() => {

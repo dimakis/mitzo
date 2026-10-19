@@ -326,3 +326,30 @@ it('does not execute a public read approved after its origin was revoked', async
   expect(await result).toMatchObject({ isError: true });
   expect(fetchPublicPage).not.toHaveBeenCalled();
 });
+
+it('binds full-content reads to the same exact approval request', async () => {
+  const session = {
+    clientId: 'owner',
+    sessionId: 'conversation',
+    mode: 'agent',
+    activeSkillPolicy: null,
+    accountBinding: { accountId: 'a', provider: 'openai', model: 'm', profileRevision: '1' },
+  } as unknown as ManagedSession;
+  const registry = {
+    findBySessionId: () => ({ clientId: 'owner', session }),
+    get: () => session,
+  } as unknown as SessionRegistry;
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  const execute = createWebAccessTool('conversation', registry, vi.fn());
+  const input = {
+    operation: 'fetch',
+    url: 'https://api.github.com/repos/example/project/issues',
+    reason: 'Read omitted evidence',
+    view: 'full',
+  };
+  await expect(execute(input, new AbortController().signal)).resolves.toMatchObject({
+    isError: false,
+  });
+  expect(approve.mock.calls.at(-1)?.[1]).toEqual(input);
+  expect(vi.mocked(fetchPublicPage).mock.calls.at(-1)?.[4]).toBe('full');
+});

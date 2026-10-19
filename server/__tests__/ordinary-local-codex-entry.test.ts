@@ -14,7 +14,11 @@ import { join } from 'node:path';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
 import { contextDigest } from '../agent-context-compiler.js';
-import { LocalCodexFirstCommandSchema, PROFILE_BUILDER_ID } from '@mitzo/protocol';
+import {
+  LocalCodexFirstCommandSchema,
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+} from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import { AccountProfiles } from '../account-profiles.js';
@@ -142,6 +146,49 @@ const publishedProfile = {
   definition: publishedDefinition,
   contentHash: contextDigest(publishedDefinition),
 };
+
+it.each([
+  { tools: [] },
+  { tools: [{ id: 'mitzo:Read', version: 1 }] },
+  {
+    tools: [
+      {
+        id: `mcp:11111111-1111-4111-8111-111111111111:${'a'.repeat(64)}`,
+        version: 1,
+        revision: '33333333-3333-4333-8333-333333333333',
+      },
+    ],
+  },
+])(
+  'advertises supported explicit tool profiles on the actual Local Codex route: %j',
+  async ({ tools }) => {
+    const definition = { ...publishedDefinition, tools };
+    const profile = { ...publishedProfile, definition, contentHash: contextDigest(definition) };
+    fixtures.library.mockReturnValue({
+      version: () => profile,
+      list: () => ({ versions: [profile] }),
+    });
+    const response = await invoke('GET', '/capabilities', undefined);
+    expect(response.status).toBe(200);
+    const route = (
+      response.body as {
+        routes: Array<{
+          location?: string;
+          harness: string;
+          agentProfiles: unknown[];
+          agentProfileRejections: unknown[];
+        }>;
+      }
+    ).routes.find(
+      (entry: { location?: string; harness: string }) =>
+        (entry.location ?? 'local') === 'local' && entry.harness === 'codex',
+    );
+    expect(route?.agentProfiles).toContainEqual({ profileId: 'published', revision: 1 });
+    expect(route?.agentProfileRejections).not.toContainEqual(
+      expect.objectContaining({ agent: { profileId: 'published', revision: 1 } }),
+    );
+  },
+);
 const target = new OrdinaryLocalCodexTarget({
   version: 1,
   targetId: 'host',
@@ -525,7 +572,13 @@ it('projects configuration-only eligible account tuples and published profiles w
     authority: 'configuration-only',
     defaultLocation: 'openshell',
     agentProfiles: [
-      expect.objectContaining({ kind: 'builtin', profileId: PROFILE_BUILDER_ID }),
+      expect.objectContaining({
+        kind: 'builtin',
+        profileId: PROFILE_BUILDER_ID,
+        revision: PROFILE_BUILDER_REVISION,
+      }),
+      expect.objectContaining({ kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 2 }),
+      expect.objectContaining({ kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 }),
       eligible,
     ],
   });

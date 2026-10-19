@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "owner": {
+    "repository": "dimakis/mgmt",
+    "revision": "3077b7b4dcdf0ef097062794b2ab93d33c1d89ad",
+    "files": {
+      "command_center/lib/todo/store.py": "5d3c950b0c5f8c8e9233530c2d7fb170c65f271ff48d78727187d2baf9899a9e",
+      "command_center/lib/todo/models.py": "82638fb8d9b955b311468a84d09524be4ed22e64f4727b30ed312fbf76ddccd0",
+      "command_center/todo_api.py": "08754d32a44a9773ecb1aac64cbbfc4bde9f468565475f931221918ca494cb48"
+    }
+  },
+  "legacy": {
+    "revision": "8d667f1cf9cddbd756d916bfcf50b2a936f7daff",
+    "storeSha256": "3a45ce62fb84132a8479fd9a5eb61fa8a486e2e998e91ae8edc88b82b8fde9a9"
+  },
+  "schemas": {
+    "fresh": "22b7c3804c8af317d0ea35d44af1913ff209fe6d8108bdecb7ff622cb388d403",
+    "upgraded": "17eaa515cf553427ae82b017ced5fc877c3116a7590414c7afcb8f7c18606de6"
+  },
+  "upgrade": {
+    "priority": 10,
+    "firstSeenPreserved": true,
+    "historyPreserved": true
+  },
+  "defaultDatabaseUntouched": true
+}

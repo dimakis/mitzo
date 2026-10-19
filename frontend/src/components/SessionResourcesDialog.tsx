@@ -1,3 +1,5 @@
+import { AgentLibrarySourceContext } from './AgentLibraryChatSource';
+import { ConversationWorkLinks } from './SessionWorkLink';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { SessionOutputReference } from '@mitzo/protocol';
 import type { SessionTrayProps } from './SessionTray';
@@ -242,7 +244,6 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
         }}
       >
         <UiIcon name="files" />
-        <span className="composer-toolbar-label">Resources</span>
         {draftImages.length + selectedContextBlocks.length > 0 && (
           <span className="composer-resource-count">
             {draftImages.length + selectedContextBlocks.length}
@@ -366,6 +367,13 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
             >
               {tab === 'Sources' && (
                 <>
+                  <AgentLibrarySourceContext
+                    sources={[
+                      ...(props.sourceSnapshots ?? []),
+                      ...messages.flatMap((message) => message.sourceSnapshots ?? []),
+                    ]}
+                  />
+                  {sessionId && <ConversationWorkLinks conversationId={sessionId} />}
                   <h3>Next prompt</h3>
                   {draftImages.map((image, index) => (
                     <div

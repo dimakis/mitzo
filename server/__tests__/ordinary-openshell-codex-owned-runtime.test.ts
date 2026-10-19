@@ -1,5 +1,6 @@
-import { AgentLibraryVersionSchema } from '@mitzo/protocol';
+import { AgentLibraryVersionSchema, CollaborationSettingsSchema } from '@mitzo/protocol';
 import { contextDigest } from '../agent-context-compiler.js';
+import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -186,7 +187,8 @@ function fixture() {
         binding: input.account,
         profile: input.profile,
         session: { cwd: config.workdir, mode: 'agent' },
-        prompt: input.payload.text,
+        prompt: assembleSourceSnapshots(input.payload.text, input.payload.sourceSnapshots),
+        intent: input.payload.intent ?? input.payload.text,
         systemPrompt: input.payload.systemPrompt,
         model: input.expected.selection.model,
         reasoningEffort: input.expected.selection.thinking,
@@ -201,13 +203,15 @@ function fixture() {
     }
     input.admission.assertBeforeEnqueue({
       id: input.commandId,
-      prompt: input.payload.text,
+      prompt: assembleSourceSnapshots(input.payload.text, input.payload.sourceSnapshots),
+      intent: input.payload.intent ?? input.payload.text,
       model: input.expected.selection.model,
       reasoningEffort: input.expected.selection.thinking,
     });
     native.enqueue('session', account, {
       id: input.commandId,
-      prompt: input.payload.text,
+      prompt: assembleSourceSnapshots(input.payload.text, input.payload.sourceSnapshots),
+      intent: input.payload.intent ?? input.payload.text,
       model: input.expected.selection.model,
       reasoningEffort: input.expected.selection.thinking,
     });
@@ -577,4 +581,149 @@ it('acknowledges a retained consumed OpenShell command after catalog retirement 
   expect(f.dispatch).toHaveBeenCalledTimes(calls);
   expect(f.claim).toHaveBeenCalledTimes(claims);
   vi.restoreAllMocks();
+});
+
+it('admits the first explicit OpenShell prompt from a silent allocation without adopting continuation', async () => {
+  const f = fixture();
+  const command = f.command('first');
+  const binding = {
+    version: 2 as const,
+    account: command.runtime.account,
+    harness: { implementation: 'codex' as const },
+    execution: {
+      location: 'openshell' as const,
+      targetId: f.owners.target.targetId,
+      targetRevision: f.owners.target.targetRevision,
+    },
+  };
+  f.events.prepareOrdinarySession(f.meta, {
+    allocationOperationId: 'allocation',
+    preparationFingerprint: 'a'.repeat(64),
+    settings: CollaborationSettingsSchema.parse({
+      binding,
+      selection: command.selection,
+      repositoryWorkspaceId: 'repo',
+    }),
+  });
+  expect(f.dispatch).not.toHaveBeenCalled();
+  await expect(f.driver.admitPreparedFirst('allocation', f.meta, command)).resolves.toMatchObject({
+    dispatched: true,
+  });
+  expect(f.dispatch).toHaveBeenCalledOnce();
+  expect(f.events.getOrdinarySessionPreparation('allocation')?.firstCommandId).toBe('first');
+  await expect(f.driver.admitPreparedFirst('allocation', f.meta, command)).resolves.toMatchObject({
+    dispatched: false,
+  });
+  expect(f.dispatch).toHaveBeenCalledOnce();
+});
+
+it('keeps prepared-first retries bound after OpenShell origin is installed', async () => {
+  const f = fixture();
+  const command = f.command('first');
+  const binding = {
+    version: 2 as const,
+    account: command.runtime.account,
+    harness: { implementation: 'codex' as const },
+    execution: {
+      location: 'openshell' as const,
+      targetId: f.owners.target.targetId,
+      targetRevision: f.owners.target.targetRevision,
+    },
+  };
+  f.events.prepareOrdinarySession(f.meta, {
+    allocationOperationId: 'allocation',
+    preparationFingerprint: 'a'.repeat(64),
+    settings: CollaborationSettingsSchema.parse({
+      binding,
+      selection: command.selection,
+      repositoryWorkspaceId: 'repo',
+    }),
+  });
+  await f.driver.admitPreparedFirst('allocation', f.meta, command);
+  await expect(f.driver.admitPreparedFirst('other-operation', f.meta, command)).rejects.toThrow();
+  await expect(
+    f.driver.admitPreparedFirst('allocation', f.meta, f.command('other-command')),
+  ).rejects.toThrow();
+  expect(f.dispatch).toHaveBeenCalledOnce();
+  expect(f.events.getSendCommand('other-command')).toBeUndefined();
+});
+
+it('delivers reviewed Library context through the ordinary OpenShell owner without rewriting visible input or duplicating a retry', async () => {
+  const f = fixture();
+  const raw = f.command('library-first');
+  const content = JSON.stringify({
+    version: 1,
+    source: {
+      kind: 'draft',
+      profileId: 'editing-agent',
+      baseRevision: 3,
+      draftVersion: null,
+      expectedVersion: 2,
+    },
+    definition: {
+      ...f.meta.agentProfile.definition,
+      instructions: 'Preserve this exact unsaved instruction.',
+    },
+  });
+  const source = {
+    kind: 'agent-library' as const,
+    revision: contextDigest(JSON.parse(content)),
+    content,
+  };
+  const request = { ...raw, payload: { ...raw.payload, sourceSnapshots: [source] } };
+  await expect(f.driver.admit(f.meta, request)).resolves.toMatchObject({ dispatched: true });
+  expect(f.events.getSendCommand(raw.clientMsgId)?.payload).toMatchObject({
+    text: raw.payload.text,
+    sourceSnapshots: [source],
+  });
+  const native = f.native.commands('session', f.account);
+  expect(native).toHaveLength(1);
+  expect(native[0].prompt).toBe(assembleSourceSnapshots(raw.payload.text, [source]));
+  expect(native[0].prompt).toContain('Preserve this exact unsaved instruction.');
+  expect(f.dispatch.mock.calls[0][0].payload.text).toBe(raw.payload.text);
+  await expect(f.driver.admit(f.meta, request)).resolves.toMatchObject({ dispatched: false });
+  expect(f.native.commands('session', f.account)).toEqual(native);
+  expect(f.dispatch).toHaveBeenCalledOnce();
+  const changed = JSON.stringify({ ...JSON.parse(content), reviewedContext: 'Changed review' });
+  await expect(
+    f.driver.admit(f.meta, {
+      ...request,
+      payload: {
+        ...request.payload,
+        sourceSnapshots: [
+          { ...source, content: changed, revision: contextDigest(JSON.parse(changed)) },
+        ],
+      },
+    }),
+  ).rejects.toThrow();
+  expect(f.native.commands('session', f.account)).toEqual(native);
+  expect(f.dispatch).toHaveBeenCalledOnce();
+});
+
+it('rejects changed Library source bytes before claiming the ordinary OpenShell workspace or dispatching', async () => {
+  const f = fixture();
+  const content = JSON.stringify({
+    version: 1,
+    source: {
+      kind: 'draft',
+      profileId: 'editing-agent',
+      baseRevision: 0,
+      draftVersion: null,
+      expectedVersion: 0,
+    },
+    definition: f.meta.agentProfile.definition,
+  });
+  const request = f.command('invalid-library');
+  await expect(
+    f.driver.admit(f.meta, {
+      ...request,
+      payload: {
+        ...request.payload,
+        sourceSnapshots: [{ kind: 'agent-library', revision: 'a'.repeat(64), content }],
+      },
+    }),
+  ).rejects.toThrow();
+  expect(f.claim).not.toHaveBeenCalled();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  expect(f.events.getSendCommand(request.clientMsgId)).toBeUndefined();
 });

@@ -13,6 +13,34 @@ const provenance = {
 };
 
 describe('stored Symposium event wire envelope', () => {
+  it.each([true, false])(
+    'keeps only the cursor envelope for private reply provenance (durable type %s)',
+    (durableType) => {
+      const event = {
+        seq: 7,
+        prevSessionSeq: 3,
+        sessionId: 'conversation',
+        ...(durableType ? { type: 'ordinary_reply_source' } : {}),
+        payload: {
+          type: 'ordinary_reply_source',
+          version: 1,
+          commandId: 'command',
+          messageId: 'message',
+          providerThreadId: 'private-thread',
+          providerTurnId: 'private-turn',
+          futurePrivateValue: { secret: 'private-future' },
+        },
+      };
+      expect(storedEventToClientMessage(event)).toEqual({
+        type: 'ordinary_reply_source',
+        sessionId: 'conversation',
+        seq: 7,
+        prevSessionSeq: 3,
+      });
+      expect(event.payload.providerThreadId).toBe('private-thread');
+    },
+  );
+
   it('carries durable seat attribution and sequence alongside original content', () => {
     const event: StoredEvent = {
       seq: 7,

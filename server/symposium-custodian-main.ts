@@ -84,6 +84,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   process.env.MITZO_SYMPOSIUM_CUSTODIAN_OWNER = '1';
   // Mode is established before importing any store, recovery or app module.
   const engine = await import('./app.js');
+  engine.configureCredentialConnectionsRuntime();
   const { bootstrapConfiguredSymposiumHost } = await import('./symposium-owned-config.js');
   const { revokeAuthSession, registerAuthSession } = await import('./auth.js');
   const host = await bootstrapConfiguredSymposiumHost(

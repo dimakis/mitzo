@@ -13,6 +13,14 @@ import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { getChatDraft } from '../../lib/chat-drafts';
 import '@testing-library/jest-dom/vitest';
 import userEvent from '@testing-library/user-event';
+// Route wiring tests exercise the existing controls directly. The real sheet
+// navigation, retained editors and summary layout are covered by QuickChatSettings
+// unit tests and the all-intercept local-first/multi-runtime browser suites.
+vi.mock('../../lib/quick-settings-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/quick-settings-context')>()),
+  useQuickSettings: () => null,
+}));
+
 vi.mock('../../components/DesktopShell', () => ({
   DesktopShell: ({ center }: { center: React.ReactNode }) => <div>{center}</div>,
 }));
@@ -122,12 +130,15 @@ vi.mock('../../components/ChatArea', () => ({
   ChatArea: ({
     messages,
     currentByMessage,
+    afterMessages,
   }: {
+    afterMessages?: React.ReactNode;
     messages: unknown[];
     currentByMessage?: Record<string, unknown>;
   }) => (
     <div>
       <span data-testid="chat-message-count">Messages: {messages.length}</span>
+      {afterMessages}
       <span data-testid="active-seats">
         Active seats: {Object.keys(currentByMessage ?? {}).length}
       </span>
@@ -320,7 +331,7 @@ for (const [name, Screen] of [
     const agent = screen.getByRole('combobox', { name: 'Agent' });
     const account = screen.getByRole('combobox', { name: 'Account' });
     expect(account.compareDocumentPosition(agent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    fireEvent.click(screen.getByText('Advanced', { exact: true }));
+    expect(screen.getByRole('group', { name: 'Run on' }).closest('details')).toBeNull();
     expect(account.closest('.workspace-controls')).toBeTruthy();
     expect(screen.getByRole('group', { name: 'Run on' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Local Mac' })).toHaveAttribute(
@@ -370,6 +381,12 @@ for (const [name, Screen] of [
     expect(legacySend).not.toHaveBeenCalled();
   });
   it(`${name}: retains known Symposium classification through picker remount and guards the next unknown session`, async () => {
+    HTMLDialogElement.prototype.showModal = function () {
+      this.open = true;
+    };
+    HTMLDialogElement.prototype.close = function () {
+      this.open = false;
+    };
     const { store, localSend, legacySend } = setup(Screen);
     vi.mocked(apiFetch).mockImplementation(async (url) => {
       if (String(url).includes('unknown-session')) return new Promise<Response>(() => {});
@@ -386,10 +403,13 @@ for (const [name, Screen] of [
     );
     await screen.findByText('Agent chat');
     await waitFor(() => expect(document.querySelector('.agent-settings-picker')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Chat settings' }));
     const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
     if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
     expect((await screen.findByText('Symposium')).closest('.workspace-controls')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Test send' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Close Agents' }));
     act(() => store.setState({ switchSession: async () => {} }));
     fireEvent.click(screen.getByRole('button', { name: 'Navigate before assignment' }));
     expect(store.getState().sessions.active).toBe('symposium-session');
@@ -569,7 +589,7 @@ for (const [name, Screen] of [
     expect(screen.queryByRole('button', { name: 'Add agent' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Reusable profile drafts' })).toBeNull();
     expect(screen.queryByTestId('web-search-connection')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Open review findings' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Open review findings' })).toBeNull();
     const setMode = vi.spyOn(store.getState(), 'setMode');
     const agentMode = screen.queryByRole('button', { name: /^Agent$/ });
     if (agentMode) {
@@ -584,7 +604,9 @@ for (const [name, Screen] of [
     recoverMetadata();
     fireEvent.click(retry);
     await screen.findByText('Fixed for this conversation');
-    expect(workspace.querySelector('.conversation-state')).toHaveTextContent('First command');
+    expect(
+      workspace.closest('.workspace-controls')?.querySelector('.conversation-state'),
+    ).toHaveTextContent('First command');
     expect(workspace).toHaveAccessibleDescription('First command');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
   });
@@ -708,7 +730,9 @@ for (const [name, Screen] of [
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await screen.findByText('Fixed for this conversation');
     expect(workspace).toHaveAccessibleName(/Personal ChatGPT, Luna fixture, low, local/);
-    expect(workspace.querySelector('.conversation-state')).toHaveTextContent('Conversation');
+    expect(
+      workspace.closest('.workspace-controls')?.querySelector('.conversation-state'),
+    ).toHaveTextContent('Conversation');
     expect(workspace).toHaveAccessibleDescription('Conversation');
     expect(screen.getByRole('combobox', { name: 'Account' })).toBeDisabled();
     expect(screen.getByRole('combobox', { name: 'Thinking level' })).toBeEnabled();
@@ -738,7 +762,9 @@ for (const [name, Screen] of [
     const settingsTrigger = screen.getByRole('button', { name: /^Workspace controls/ });
     if (settingsTrigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(settingsTrigger);
     await screen.findByText('Fixed for this conversation');
-    expect(workspace.querySelector('.conversation-state')).toHaveTextContent('First command');
+    expect(
+      workspace.closest('.workspace-controls')?.querySelector('.conversation-state'),
+    ).toHaveTextContent('First command');
     expect(workspace).toHaveAccessibleDescription('First command');
     expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
     await waitFor(() => expect(screen.getByRole('button', { name: /^Agent$/ })).toBeDisabled());
@@ -954,5 +980,48 @@ for (const [name, Screen] of [
       expect.anything(),
     );
     expect(legacySend).not.toHaveBeenCalled();
+  });
+}
+
+for (const Screen of [ChatView, DesktopChatView]) {
+  it(`${Screen.name}: reviews platform proposals in first-command-only history while runtime send stays blocked`, async () => {
+    const { localSend, legacySend, store } = setup(Screen, false, false, true, false, false);
+    const original = vi.mocked(apiFetch).getMockImplementation()!;
+    const proposal = {
+      proposalId: 'first-only-proposal',
+      suggestedProfileId: 'reviewed-agent',
+      state: 'pending',
+      definition: {
+        name: 'Reviewed Agent',
+        role: 'agent',
+        instructions: 'Review first-command history',
+        expectedOutput: 'Report',
+        acceptanceCriteria: ['Cite evidence'],
+        modelPolicyRole: 'agent',
+      },
+    };
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).includes('/profile-proposals') && !init?.method)
+        return new Response(JSON.stringify([proposal]));
+      if (String(url) === '/api/symposium/profiles') return new Response('[]');
+      if (String(url).endsWith('/first-only-proposal/save') && init?.method === 'POST')
+        return new Response(JSON.stringify({ profileId: 'reviewed-agent', revision: 1 }));
+      return original(url, init);
+    });
+    await screen.findByDisplayValue('Reviewed Agent');
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    const save = screen.getByRole('button', { name: 'Save reusable profile' });
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await screen.findByText('Saved Reviewed Agent to your Agent Library.');
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    act(() =>
+      store.setState({ sessions: { ...store.getState().sessions, active: 'other-session' } }),
+    );
+    // The old review remains available to read but loses write authorization.
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
   });
 }

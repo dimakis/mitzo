@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionRegistry } from '../src/session-registry.js';
+import { ConnectionRegistry } from '../src/connection-registry.js';
 import { buildPermissionHandler, permissionDisplayInput } from '../src/permission-handler.js';
 import {
   resolvePending,
@@ -9,6 +10,7 @@ import {
 import { setSkillPolicy } from '../src/skill-policy.js';
 import { applyTierOverrides } from '../src/tool-tiers.js';
 import type { SessionTransport } from '../src/session-transport.js';
+import type { TelosOutcomeProposal } from '@mitzo/protocol';
 
 function fakeTransport(): SessionTransport & { sent: Record<string, unknown>[] } {
   const sent: Record<string, unknown>[] = [];
@@ -158,8 +160,7 @@ describe('buildPermissionHandler', () => {
       },
     );
 
-    expect(result.behavior).toBe('deny');
-    expect(result.message).toBe('Session not found');
+    expect(result).toMatchObject({ behavior: 'deny', message: 'Session not found' });
   });
 
   it('denies tools blocked by skill policy', async () => {
@@ -183,8 +184,10 @@ describe('buildPermissionHandler', () => {
       },
     );
 
-    expect(result.behavior).toBe('deny');
-    expect(result.message).toBe('Tool not allowed by active skill policy');
+    expect(result).toMatchObject({
+      behavior: 'deny',
+      message: 'Tool not allowed by active skill policy',
+    });
   });
 
   it('uses session allow list for permanent allows', async () => {
@@ -429,15 +432,10 @@ describe('buildPermissionHandler', () => {
   });
 
   it.each([
-    ['TelosCreateOutcome', 'TelosSaveArtifact'],
-    ['TelosSaveArtifact', 'mcp__telos__TelosCreateOutcome'],
-    ['mcp__telos__TelosSaveArtifact', 'TelosCreateOutcome'],
-    ['TelosCreateOutcome', 'TelosUpdateItem'],
     ['TelosSaveArtifact', 'TelosUpdateItem'],
     ['TelosUpdateItem', 'TelosSaveArtifact'],
     ['mcp__telos__TelosUpdateItem', 'TelosUpdateItem'],
-    ['TelosUpdateItem', 'mcp__telos__TelosCreateOutcome'],
-    ['TelosCreateOutcome', 'TelosGetItem'],
+    ['TelosSaveArtifact', 'TelosGetItem'],
   ])('shares the advertised Telos session scope between %s and %s', async (initial, next) => {
     const transport = fakeTransport();
     const allowList = new Set<string>();
@@ -480,6 +478,65 @@ describe('buildPermissionHandler', () => {
       abort.abort();
     }
   });
+
+  it.each(
+    [
+      'TelosCreateOutcome',
+      'mcp__telos__TelosCreateOutcome',
+      'TelosAdoptSource',
+      'mcp__telos__TelosAdoptSource',
+    ].flatMap((toolName) => (['agent', 'auto'] as const).map((mode) => ({ toolName, mode }))),
+  )(
+    'requires fresh source review for $toolName in $mode despite prior Telos grants',
+    async ({ toolName, mode }) => {
+      const transport = fakeTransport();
+      const allowList = new Set(['mcp__telos__', toolName]);
+      const abort = new AbortController();
+      registry.register('client-1', {
+        transport,
+        abortController: abort,
+        mode,
+        sessionId: 'planning',
+        sessionAllowList: allowList,
+      });
+      const handler = buildPermissionHandler('client-1', registry);
+      const input = toolName.endsWith('TelosCreateOutcome')
+        ? ({
+            summary: 'Retain the reviewed planning outcome',
+            intent: 'The original exchange remains available with the outcome.',
+            rationale: 'Exact source consent must precede each new capture.',
+            acceptanceCriteria: ['The reviewed exchange is retained without a worker turn'],
+            milestones: ['Save the operator-approved source'],
+            profile: 'work',
+          } satisfies TelosOutcomeProposal)
+        : { itemId: 'item' };
+      try {
+        for (let invocation = 0; invocation < 2; invocation++) {
+          const result = handler(toolName, input, {
+            signal: abort.signal,
+            toolUseID: `review-${invocation}`,
+            allowSessionGrant: true,
+          });
+          await Promise.resolve();
+          const cards = transport.sent.filter((event) => event.type === 'permission_request');
+          expect(cards).toHaveLength(invocation + 1);
+          const card = cards.at(-1)!;
+          expect(card).toMatchObject({ reviewKind: 'telos_source', approvalScope: 'request' });
+          const permId = card.permId as string;
+          expect(resolvePending(permId, 'always')).toBe(false);
+          expect(resolvePending(permId, 'once')).toBe(false);
+          expect(getPendingRequestsBySession('planning')).toEqual([
+            expect.objectContaining({ permId }),
+          ]);
+          expect(resolvePending(permId, 'deny')).toBe(true);
+          expect(await result).toMatchObject({ behavior: 'deny' });
+          expect(allowList).toEqual(new Set(['mcp__telos__', toolName]));
+        }
+      } finally {
+        abort.abort();
+      }
+    },
+  );
 
   it.each(['GitCommit', 'Bash', 'mcp__gws__gmail_write'])(
     'honors the user session choice for a forced %s approval',
@@ -655,6 +712,137 @@ describe('buildPermissionHandler', () => {
     expect(await pending).toMatchObject({ behavior: 'allow', updatedInput: {} });
   });
 
+  it.each(['once', 'deny'] as const)(
+    'shares requests and %s resolutions across a device handoff without duplicate delivery',
+    async (decision) => {
+      const connections = new ConnectionRegistry();
+      registry = new SessionRegistry((sessionId) =>
+        connections.getConnectionsWatching(sessionId, true).map(({ transport }) => transport),
+      );
+      const web = fakeTransport();
+      const phone = fakeTransport();
+      const unrelated = fakeTransport();
+      const closed = { send: vi.fn(), isOpen: () => false };
+      connections.register('web', web);
+      connections.register('broken', {
+        isOpen: () => true,
+        send() {
+          throw Error('closed during delivery');
+        },
+      });
+      connections.register('phone', phone);
+      connections.register('unrelated', unrelated);
+      connections.register('closed', closed);
+      for (const id of ['web', 'broken', 'phone', 'closed']) connections.watch(id, 'shared');
+      connections.watch('unrelated', 'different-chat');
+      const abort = new AbortController();
+      registry.register('stable-client', {
+        transport: { attachmentIdentity: web, isOpen: web.isOpen, send: web.send },
+        sessionId: 'shared',
+        ownerConnectionId: 'web',
+        abortController: abort,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+      // A legacy observer may also be the same physical v2 socket.
+      registry.get('stable-client')!.observers.add(web);
+      const handler = buildPermissionHandler('stable-client', registry);
+      try {
+        const first = handler(
+          'mcp__custom__operation',
+          {},
+          { signal: abort.signal, toolUseID: 'first' },
+        );
+        await Promise.resolve();
+        expect(web.sent).toHaveLength(1);
+        expect(phone.sent).toEqual(web.sent);
+        const permId = web.sent[0].permId as string;
+        const joining = fakeTransport();
+        connections.register('joining', joining);
+        connections.watch('joining', 'shared');
+        registry.reattach('stable-client', phone);
+        registry.get('stable-client')!.ownerConnectionId = 'phone';
+        expect(resolvePending(permId, decision, undefined, 'shared')).toBe(true);
+        expect(await first).toMatchObject({ behavior: decision === 'once' ? 'allow' : 'deny' });
+        const resolved = { type: 'permission_resolved', sessionId: 'shared', permId };
+        expect(web.sent).toEqual([
+          expect.objectContaining({ type: 'permission_request', permId }),
+          resolved,
+        ]);
+        expect(phone.sent).toEqual(web.sent);
+        expect(joining.sent).toEqual([resolved]);
+        connections.unwatch('joining', 'shared');
+
+        const second = handler(
+          'mcp__custom__operation',
+          { next: true },
+          { signal: abort.signal, toolUseID: 'second' },
+        );
+        await Promise.resolve();
+        expect(web.sent).toHaveLength(3);
+        expect(phone.sent).toEqual(web.sent);
+        const nextId = web.sent[2].permId as string;
+        expect(nextId).not.toBe(permId);
+        resolvePending(nextId, 'deny', undefined, 'shared');
+        await second;
+        expect(phone.sent).toEqual(web.sent);
+        expect(web.sent).toHaveLength(4);
+        expect(joining.sent).toEqual([resolved]);
+        expect(unrelated.sent).toEqual([]);
+        expect(closed.send).not.toHaveBeenCalled();
+      } finally {
+        abort.abort();
+        connections.dispose();
+      }
+    },
+  );
+
+  it.each(['timeout', 'abort'] as const)(
+    'shares %s with both v2 subscribers after handoff',
+    async (cause) => {
+      vi.useFakeTimers();
+      const connections = new ConnectionRegistry();
+      registry = new SessionRegistry((sessionId) =>
+        connections.getConnectionsWatching(sessionId, true).map(({ transport }) => transport),
+      );
+      const web = fakeTransport();
+      const phone = fakeTransport();
+      const abort = new AbortController();
+      connections.register('web', web);
+      connections.register('phone', phone);
+      connections.watch('web', 'shared');
+      connections.watch('phone', 'shared');
+      registry.register('stable-client', {
+        transport: web,
+        sessionId: 'shared',
+        abortController: abort,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+      try {
+        const pending = buildPermissionHandler('stable-client', registry)(
+          'mcp__custom__operation',
+          {},
+          { signal: abort.signal, toolUseID: 'operation' },
+        );
+        await Promise.resolve();
+        registry.reattach('stable-client', phone);
+        if (cause === 'abort') abort.abort();
+        else await vi.advanceTimersByTimeAsync(120_000);
+        expect(await pending).toMatchObject({ behavior: 'deny' });
+        expect(web.sent.map(({ type }) => type)).toEqual([
+          'permission_request',
+          'permission_timeout',
+        ]);
+        expect(phone.sent).toEqual(web.sent);
+      } finally {
+        abort.abort();
+        connections.dispose();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it.each(['timeout', 'abort'])('does not report %s as a user denial', async (cause) => {
     vi.useFakeTimers();
     const transport = fakeTransport();
@@ -723,8 +911,7 @@ describe('buildPermissionHandler', () => {
       },
     );
 
-    expect(result.behavior).toBe('deny');
-    expect(result.message).toBe('Aborted');
+    expect(result).toMatchObject({ behavior: 'deny', message: 'Aborted' });
   });
   it.each([
     'Write',

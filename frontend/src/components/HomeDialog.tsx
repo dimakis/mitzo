@@ -28,20 +28,31 @@ export function HomeDialog({
   children,
   className,
   inactive = false,
+  open = true,
   ariaLabel,
   closeLabel = 'Close',
+  onBack,
+  backLabel = 'Back',
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   className?: string;
   inactive?: boolean;
+  /** Retain a form between openings without keeping a modal/scroll lock active. */
+  open?: boolean;
   ariaLabel?: string;
   closeLabel?: string;
+  onBack?(): void;
+  backLabel?: string;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocus = useRef(document.activeElement);
   useEffect(() => {
+    if (!open) {
+      restoreFocus.current = document.activeElement;
+      return;
+    }
     const dialog = dialogRef.current!;
     const focus = restoreFocus.current;
     dialog.showModal();
@@ -50,23 +61,34 @@ export function HomeDialog({
       dialog.close();
       releaseScroll();
       if (focus instanceof HTMLElement && focus.isConnected) {
-        const concealed = focus.closest('[inert], [hidden]');
-        const trigger = concealed?.id
-          ? Array.from(document.querySelectorAll<HTMLElement>('[aria-controls]')).find(
-              (element) => element.getAttribute('aria-controls') === concealed.id,
-            )
-          : null;
-        (trigger ?? focus).focus({ preventScroll: true });
+        let concealed = focus.closest('[inert], [hidden]');
+        if (!concealed) focus.focus({ preventScroll: true });
+        while (concealed) {
+          const id = concealed.id;
+          const trigger = id
+            ? Array.from(document.querySelectorAll<HTMLElement>('[aria-controls]')).find(
+                (element) =>
+                  element.getAttribute('aria-controls') === id &&
+                  !element.closest('[inert], [hidden]'),
+              )
+            : null;
+          if (trigger) {
+            trigger.focus({ preventScroll: true });
+            break;
+          }
+          concealed = concealed.parentElement?.closest('[inert], [hidden]') ?? null;
+        }
       }
     };
-  }, []);
+  }, [open]);
   return createPortal(
     <dialog
       ref={dialogRef}
       className={['home-dialog', className].filter(Boolean).join(' ')}
       aria-label={ariaLabel ?? title}
-      inert={inactive || undefined}
-      aria-hidden={inactive || undefined}
+      hidden={!open}
+      inert={!open || inactive || undefined}
+      aria-hidden={!open || inactive || undefined}
       onKeyDown={(event) => event.stopPropagation()}
       onCancel={(event) => {
         event.preventDefault();
@@ -78,7 +100,17 @@ export function HomeDialog({
       }}
     >
       <div className="home-dialog-content">
-        <header>
+        <header className={onBack ? 'home-dialog-header--back' : undefined}>
+          {onBack && (
+            <button
+              type="button"
+              className="home-secondary"
+              aria-label={backLabel}
+              onClick={onBack}
+            >
+              <UiIcon name="back" size={16} />
+            </button>
+          )}
           <h2>{title}</h2>
           <button
             type="button"

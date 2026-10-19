@@ -1,0 +1,139 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/mitzo
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts (37 tests | 2 failed) 611ms
+   × refuses a promise retained material custody callback 20ms
+   × refuses a value retained material custody callback 16ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > refuses a promise retained material custody callback
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "assertLocalMaterialCurrent": [Function assertLocalCustody],
++   "packet": {
++     "artifacts": [
++       {
++         "artifactId": "fb2b7d301dd3f3ead21848c3be43dd5f",
++         "contentBase64": "RVhBQ1QgTUFURVJJQUw=",
++         "filename": "retained.md",
++         "itemId": "2f0ee9d71059523d",
++         "kind": "retained_artifact",
++         "mediaType": "application/octet-stream",
++         "provenance": {
++           "sessionId": "gone",
++           "sourceKind": "session_artifact",
++           "sourcePath": null,
++         },
++         "retention": "independent",
++         "revision": 1,
++         "sha256": "85adce5ee4e7fc13c1e41c96e655c595e49d47c91f52c6ec9b3a3d49231f5493",
++         "sizeBytes": 14,
++         "title": "Retained",
++       },
++     ],
++     "boundary": null,
++     "messages": [],
++     "mode": "context_only",
++     "requestId": "3b24cb3a-44c5-4afe-852c-abc07ed2cda7",
++     "sourceConversationId": null,
++     "sourceIdentity": null,
++     "target": {
++       "collaborationId": "f0d2b177-6ddf-4014-8a7f-6fb41d7a180c",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "b7ff9f95891fac1384255e380bc50dfd28b26140a48c8ce79c99af037a94aefe",
++   "serialized": "{\"version\":1,\"requestId\":\"3b24cb3a-44c5-4afe-852c-abc07ed2cda7\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"f0d2b177-6ddf-4014-8a7f-6fb41d7a180c\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":null,\"sourceIdentity\":null,\"boundary\":null,\"messages\":[],\"artifacts\":[{\"artifactId\":\"fb2b7d301dd3f3ead21848c3be43dd5f\",\"revision\":1,\"sha256\":\"85adce5ee4e7fc13c1e41c96e655c595e49d47c91f52c6ec9b3a3d49231f5493\",\"kind\":\"retained_artifact\",\"retention\":\"independent\",\"itemId\":\"2f0ee9d71059523d\",\"filename\":\"retained.md\",\"title\":\"Retained\",\"mediaType\":\"application/octet-stream\",\"provenance\":{\"sessionId\":\"gone\",\"sourceKind\":\"session_artifact\",\"sourcePath\":null},\"sizeBytes\":14,\"contentBase64\":\"RVhBQ1QgTUFURVJJQUw=\"}]}",
++   "sha256": "35b798a0d2c6d46e02bb326c5165619a23d963040c5100a14e5b6248f789462e",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:818:7
+    816|           { authorizeTarget, retainedArtifacts },
+    817|         ),
+    818|       ).rejects.toMatchObject({ code: 'snapshot_changed' });
+       |       ^
+    819|     } finally {
+    820|       f.close();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  server/__tests__/collaboration-forwarding.test.ts > refuses a value retained material custody callback
+AssertionError: promise resolved "{ packet: { version: 1, …(8) }, …(5) }" instead of rejecting
+
+- Expected
++ Received
+
+- Error {
+-   "message": "rejected promise",
++ {
++   "assertCurrent": [Function assertCurrent],
++   "assertLocalMaterialCurrent": [Function assertLocalCustody],
++   "packet": {
++     "artifacts": [
++       {
++         "artifactId": "fb2b7d301dd3f3ead21848c3be43dd5f",
++         "contentBase64": "RVhBQ1QgTUFURVJJQUw=",
++         "filename": "retained.md",
++         "itemId": "2f0ee9d71059523d",
++         "kind": "retained_artifact",
++         "mediaType": "application/octet-stream",
++         "provenance": {
++           "sessionId": "gone",
++           "sourceKind": "session_artifact",
++           "sourcePath": null,
++         },
++         "retention": "independent",
++         "revision": 1,
++         "sha256": "85adce5ee4e7fc13c1e41c96e655c595e49d47c91f52c6ec9b3a3d49231f5493",
++         "sizeBytes": 14,
++         "title": "Retained",
++       },
++     ],
++     "boundary": null,
++     "messages": [],
++     "mode": "context_only",
++     "requestId": "d6171b80-4e34-482d-89a1-0967e0342b3b",
++     "sourceConversationId": null,
++     "sourceIdentity": null,
++     "target": {
++       "collaborationId": "14a22ad5-f108-494c-901f-06cd8d8766df",
++       "expectedMembershipRevision": 1,
++       "sessionIds": [
++         "target",
++       ],
++     },
++     "version": 1,
++   },
++   "requestFingerprint": "8d685e682ab6173c3681cd3626ca92bcc90513a589b8bd4b4a7a16b389bd68d9",
++   "serialized": "{\"version\":1,\"requestId\":\"d6171b80-4e34-482d-89a1-0967e0342b3b\",\"mode\":\"context_only\",\"target\":{\"collaborationId\":\"14a22ad5-f108-494c-901f-06cd8d8766df\",\"expectedMembershipRevision\":1,\"sessionIds\":[\"target\"]},\"sourceConversationId\":null,\"sourceIdentity\":null,\"boundary\":null,\"messages\":[],\"artifacts\":[{\"artifactId\":\"fb2b7d301dd3f3ead21848c3be43dd5f\",\"revision\":1,\"sha256\":\"85adce5ee4e7fc13c1e41c96e655c595e49d47c91f52c6ec9b3a3d49231f5493\",\"kind\":\"retained_artifact\",\"retention\":\"independent\",\"itemId\":\"2f0ee9d71059523d\",\"filename\":\"retained.md\",\"title\":\"Retained\",\"mediaType\":\"application/octet-stream\",\"provenance\":{\"sessionId\":\"gone\",\"sourceKind\":\"session_artifact\",\"sourcePath\":null},\"sizeBytes\":14,\"contentBase64\":\"RVhBQ1QgTUFURVJJQUw=\"}]}",
++   "sha256": "bce22ebf28e61a968d3af542692deb91d529d6499b17a8fc573c1cc2d964af26",
+  }
+
+ ❯ server/__tests__/collaboration-forwarding.test.ts:818:7
+    816|           { authorizeTarget, retainedArtifacts },
+    817|         ),
+    818|       ).rejects.toMatchObject({ code: 'snapshot_changed' });
+       |       ^
+    819|     } finally {
+    820|       f.close();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 35 passed (37)
+   Start at  00:04:07
+   Duration  1.14s (transform 283ms, setup 0ms, import 423ms, tests 611ms, environment 0ms)
+

@@ -383,6 +383,32 @@ describe('v2 content events', () => {
 // ─── Permission events ───────────────────────────────────────────────────────
 
 describe('permission events', () => {
+  it('forwards only the explicit host reviewed-source marker', () => {
+    for (const marker of ['telos_source', 'other', undefined]) {
+      const result = parseServerMessage(
+        {
+          type: 'permission_request',
+          permId: 'source-review',
+          sessionId: 'chat',
+          toolName: 'TelosCreateOutcome',
+          toolInput: '{}',
+          reviewKind: marker,
+          recoveryOnly: marker === 'telos_source' ? true : 'true',
+        },
+        makeState(),
+        makeCallbacks(),
+        POOL_KEY,
+      );
+      const action = result.messagesActions[0];
+      expect(action).toMatchObject({ type: 'PERMISSION_REQUEST', payload: { sessionId: 'chat' } });
+      expect('payload' in action && (action.payload as { reviewKind?: string }).reviewKind).toBe(
+        marker === 'telos_source' ? marker : undefined,
+      );
+      expect(
+        'payload' in action && (action.payload as { recoveryOnly?: boolean }).recoveryOnly,
+      ).toBe(marker === 'telos_source' ? true : undefined);
+    }
+  });
   it('permission_request dispatches PERMISSION_REQUEST', () => {
     const r = parseServerMessage(
       {
@@ -731,42 +757,18 @@ describe('misc', () => {
 // ─── session_takeover ────────────────────────────────────────────────────────
 
 describe('session_takeover', () => {
-  it('clears running and pending approvals and produces ERROR', () => {
-    const cb = makeCallbacks();
-    const r = parseServerMessage(
-      { type: 'session_takeover', sessionId: 'sess-1' },
-      makeState({ currentSessionId: 'sess-1' }),
-      cb,
-      POOL_KEY,
-    );
-    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
-    expect(r.messagesActions).toContainEqual({ type: 'CLEAR_PERMISSIONS' });
-    expect(r.messagesActions).toContainEqual(
-      expect.objectContaining({ type: 'ERROR', error: expect.stringContaining('another device') }),
-    );
-  });
-
-  it('honors a sequenced live takeover from an older server', () => {
-    const r = parseServerMessage(
-      { type: 'session_takeover', sessionId: 'sess-1', seq: 42 },
-      makeState({ currentSessionId: 'sess-1' }),
-      makeCallbacks(),
-      POOL_KEY,
-    );
-    expect(r.messagesActions).toContainEqual({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
-    expect(r.messagesActions).toContainEqual({ type: 'CLEAR_PERMISSIONS' });
-  });
-
-  it('ignores a takeover notice replayed from durable session history', () => {
-    const r = parseServerMessage(
-      { type: 'session_takeover', sessionId: 'sess-1', seq: 42, replayed: true },
-      makeState({ currentSessionId: 'sess-1' }),
-      makeCallbacks(),
-      POOL_KEY,
-    );
-
-    expect(r.messagesActions).toEqual([]);
-  });
+  it.each([{}, { seq: 42 }, { seq: 42, replayed: true }])(
+    'keeps shared conversation state intact for a legacy handoff notice %j',
+    (extra) => {
+      const r = parseServerMessage(
+        { type: 'session_takeover', sessionId: 'sess-1', ...extra },
+        makeState({ currentSessionId: 'sess-1' }),
+        makeCallbacks(),
+        POOL_KEY,
+      );
+      expect(r.messagesActions).toEqual([]);
+    },
+  );
 });
 
 // ─── reconnected callback ────────────────────────────────────────────────────

@@ -29,7 +29,9 @@ function FileViewerDocument() {
   const [searchParams, setSearchParams] = useSearchParams();
   const routerNavigate = useNavigate();
   const location = useLocation();
-  const nav = useFileNavigation(searchParams, setSearchParams);
+  const nav = useFileNavigation(searchParams, (next, options) =>
+    setSearchParams(next, { ...options, state: location.state }),
+  );
   const { state } = nav;
   const rawFrom = searchParams.get('from');
   // Validate fromRoute: must be a relative path, no protocol-relative URLs
@@ -41,6 +43,7 @@ function FileViewerDocument() {
     state.filePath,
     nav.setError,
     state.sessionId || undefined,
+    state.artifactRevision,
   );
   const reader = useDocumentReader();
 
@@ -48,7 +51,9 @@ function FileViewerDocument() {
   const artifactCapability = findArtifactCapabilityByExtension(state.ext);
   const isHtml = artifactCapability?.artifact?.renderer === 'html';
   const telos = isTelosArtifactUrl(state.filePath);
-  const isEditable = !telos && (isMarkdown || artifactCapability?.artifact?.editable === true);
+  const isEditable = telos
+    ? state.artifactEditable === true
+    : isMarkdown || artifactCapability?.artifact?.editable === true;
   const fileName = state.displayName || (telos ? 'File' : state.filePath.split('/').pop() || '');
   const dirName = state.currentDir.split('/').pop() || 'Files';
   const displayBranch =
@@ -110,7 +115,7 @@ function FileViewerDocument() {
               if (editor.dirty && !confirm('Discard unsaved changes?')) return;
               editor.resetEditor();
               if (fromRoute) {
-                routerNavigate(fromRoute);
+                routerNavigate(fromRoute, { state: location.state });
               } else {
                 nav.handleBack(false); // dirty already checked above
               }
@@ -193,7 +198,7 @@ function FileViewerDocument() {
               <button
                 type="button"
                 className={`viewer-header-action${editor.dirty ? ' viewer-header-action--danger' : ''}`}
-                onClick={editor.cancelEditing}
+                onClick={() => editor.cancelEditing(nav.setContent)}
                 disabled={editor.saving}
               >
                 {editor.dirty ? 'Discard' : 'Done'}
@@ -206,7 +211,7 @@ function FileViewerDocument() {
                 aria-busy={editor.saving}
               >
                 <UiIcon name={editor.saving ? 'loading' : 'check'} size={16} />
-                {editor.saving ? 'Saving...' : 'Save'}
+                {editor.saving ? 'Saving...' : telos ? 'Save new revision' : 'Save'}
               </button>
             </>
           )}
@@ -264,6 +269,12 @@ function FileViewerDocument() {
 
       {state.worktreesError && <p role="alert">{state.worktreesError}</p>}
 
+      {telos && state.artifactRevision && !state.loading && (
+        <div className="document-editor-status" role="status">
+          Revision {state.artifactRevision}
+          {isEditable && ' · Edits save as a new revision'}
+        </div>
+      )}
       {editor.editing && editorFeedback}
       <div className={`viewer-content${editor.editing ? ' viewer-content--editing' : ''}`}>
         {state.loading && <p className="viewer-status">Loading...</p>}
@@ -271,11 +282,12 @@ function FileViewerDocument() {
 
         {!state.loading && !state.error && state.isViewing && editor.editing && (
           <DocumentEditor
+            saveLabel={telos ? 'Save new revision' : undefined}
             markdownComponents={artifactMarkdownComponents(
               state.filePath,
               state.sessionId || undefined,
               location.pathname + location.search,
-              routerNavigate,
+              (url) => routerNavigate(url, { state: location.state }),
             )}
             urlTransform={artifactUrlTransform}
             fullscreenStatus={editorFeedback}
@@ -302,7 +314,7 @@ function FileViewerDocument() {
                 state.filePath,
                 state.sessionId || undefined,
                 location.pathname + location.search,
-                routerNavigate,
+                (url) => routerNavigate(url, { state: location.state }),
               )}
             >
               {state.content}

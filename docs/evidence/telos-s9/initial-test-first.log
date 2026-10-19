@@ -1,0 +1,23 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9
+
+ ❯ tests/integration/telos-s9/accepted-boundaries.test.ts (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/telos-s9/accepted-boundaries.test.ts [ tests/integration/telos-s9/accepted-boundaries.test.ts ]
+Error: Cannot find module './fixture.js' imported from /Users/dsaridak/Documents/Codex/2026-10-17/read-and-execute-this-handover-users-3/mitzo-s9/tests/integration/telos-s9/accepted-boundaries.test.ts
+ ❯ tests/integration/telos-s9/accepted-boundaries.test.ts:2:1
+      1| import { afterEach, expect, it } from 'vitest';
+      2| import { createS9Fixture, cleanupS9Fixtures } from './fixture.js';
+       | ^
+      3| import { resolveTelosWorkRoleContext } from '../../../server/telos-wor…
+      4|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  no tests
+   Start at  22:48:30
+   Duration  143ms (transform 17ms, setup 0ms, import 0ms, tests 0ms, environment 0ms)

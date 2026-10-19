@@ -408,6 +408,94 @@ it('recovers an expired retained grant through one signed refresh using its orig
   expect(forms[0].get('client_id')).toBe(account.clientId);
 });
 
+it('retains rotated recovery credentials when the caller cancels during signed verification', async () => {
+  const f = fixture(),
+    signal = new AbortController().signal;
+  const account = await f.service.complete('operator', f.callback(f.begin()), signal);
+  f.advance();
+  const original = f.fetcher.getMockImplementation()!;
+  f.fetcher.mockImplementation(async (url, init) => {
+    const response = await original(url, init);
+    if (!String(url).endsWith('/oauth/token')) return response;
+    return Response.json({
+      ...(await response.json()),
+      access_token: 'rotated-recovery-access',
+      refresh_token: 'rotated-recovery-refresh',
+    });
+  });
+  let release!: () => void;
+  const verification = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let started!: () => void;
+  const verifying = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let verificationCancelled: boolean | undefined;
+  f.verify.mockImplementationOnce(async (_token, _client, _nonce, currentSignal) => {
+    started();
+    await verification;
+    verificationCancelled = currentSignal.aborted;
+    currentSignal.throwIfAborted();
+    return { sub: 'signed-user', email: 'user@example.test' };
+  });
+  const caller = new AbortController();
+  const recovery = f.service.retryConnection(account.id, caller.signal);
+  const rejected = expect(recovery).rejects.toThrow();
+  await verifying;
+  caller.abort();
+  release();
+  await rejected;
+  expect(verificationCancelled).toBe(false);
+  expect(f.state().accounts[0]).toMatchObject({
+    accessToken: 'rotated-recovery-access',
+    refreshToken: 'rotated-recovery-refresh',
+    state: 'reauth_required',
+  });
+  expect(f.service.catalog()).toEqual([]);
+  await expect(f.service.retryConnection(account.id, signal)).resolves.toMatchObject({
+    state: 'connected',
+  });
+  await f.service.close();
+});
+
+it('requires a signed refresh after restoring a retained catalogue-failure grant', async () => {
+  const f = fixture(),
+    original = f.fetcher.getMockImplementation()!,
+    signal = new AbortController().signal;
+  f.fetcher.mockImplementation(async (url, init) =>
+    String(url).endsWith('/models') ? new Response(null, { status: 503 }) : original(url, init),
+  );
+  await expect(f.service.complete('operator', f.callback(f.begin()), signal)).rejects.toThrow();
+  const saved = f.state().accounts[0];
+  expect(saved.expiresAt).toBeGreaterThan(f.time());
+  await f.service.close();
+  f.fetcher.mockImplementation(original);
+  f.fetcher.mockClear();
+  const restored = new ChatGptPlanAdviserAccounts({
+    store: { load: () => structuredClone(f.state()), save: f.save },
+    fetch: f.fetcher,
+    verifyIdToken: f.verify,
+    now: f.time,
+  });
+  await expect(restored.retryConnection(saved.id, signal)).resolves.toMatchObject({
+    state: 'connected',
+  });
+  const forms = f.fetcher.mock.calls
+    .filter(([url]) => String(url).endsWith('/oauth/token'))
+    .map(([, init]) => new URLSearchParams(init!.body as string));
+  expect(forms).toHaveLength(1);
+  expect(forms[0].get('grant_type')).toBe('refresh_token');
+  expect(forms[0].get('refresh_token')).toBe(saved.refreshToken);
+  expect(f.verify).toHaveBeenLastCalledWith(
+    'synthetic-id',
+    saved.clientId,
+    undefined,
+    expect.any(AbortSignal),
+  );
+  await restored.close();
+});
+
 it('serializes recovery and refuses identity changes, cancellation and disconnected accounts', async () => {
   const f = fixture(),
     signal = new AbortController().signal;

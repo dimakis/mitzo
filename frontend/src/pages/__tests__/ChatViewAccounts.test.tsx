@@ -8,6 +8,15 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
 
+// Isolate route authority and callback wiring from sheet navigation. Keep the
+// original editors directly accessible here, as in DesktopChatView.test.tsx.
+// QuickChatSettings unit tests and the offline settings/account/runtime journeys
+// exercise the actual retained editors, navigation and approved row layout.
+vi.mock('../../lib/quick-settings-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/quick-settings-context')>()),
+  useQuickSettings: () => null,
+}));
+
 function openAgentSettings() {
   const trigger = screen.getByRole('button', { name: /^Workspace controls,/ });
   if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
@@ -600,9 +609,7 @@ it('keeps account and permission controls in one top panel with no composer pick
   expect(within(panel).getByRole('combobox', { name: 'Model' })).toBeTruthy();
   expect(screen.getAllByRole('region', { name: 'Agent settings' })).toHaveLength(1);
   const advanced = screen.getByTestId('web-search-connection');
-  expect(advanced.closest('details')?.open).toBe(false);
-  fireEvent.click(screen.getByText('More options'));
-  expect(advanced.closest('details')?.open).toBe(true);
+  expect(advanced.closest('[aria-label="Agent settings"]')).toBe(panel);
   expect(
     within(workspace.parentElement!.parentElement!).queryByRole('combobox', { name: 'Account' }),
   ).toBeTruthy();
@@ -701,7 +708,9 @@ it('shows the profile, model and thinking in the collapsed top chat settings sum
   await waitFor(() =>
     expect(toggle.getAttribute('aria-label')).toContain('Work Vertex, Luna, Thinking: high'),
   );
-  expect(toggle.querySelector('.workspace-controls-profile')).toBeTruthy();
+  expect(
+    toggle.closest('.workspace-controls')?.querySelector('.workspace-controls-context'),
+  ).toBeTruthy();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox')).toBeNull();
 });
@@ -753,7 +762,8 @@ it('hides ordinary suspend and permission controls on the mobile Symposium surfa
       </MitzoStoreProvider>
     </MemoryRouter>,
   );
-  await screen.findByText('Symposium');
+  await screen.findByRole('button', { name: 'Agents' });
+  expect(screen.queryByText('Accounts and models per agent')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Auto' })).toBeNull();
   expect(screen.queryByTitle('Close session')).toBeNull();
@@ -930,3 +940,44 @@ vi.mock('../../hooks/useExplicitLocalChat', async () => {
   const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
   return { useExplicitLocalChat: disabledLocalChat };
 });
+it('keeps a Telos lead draft in ordinary setup without allowing a first model send', () => {
+  const store = createTestStore();
+  const sendMessage = vi.fn();
+  store.setState({ sendMessage });
+  render(
+    <MemoryRouter initialEntries={['/chat?telosRoleItem=item&telosRole=lead&telosRoleMode=assign']}>
+      <MitzoStoreProvider value={store}>
+        <ChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  expect(
+    (screen.getByRole('button', { name: 'Assign lead & open chat' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+it.each(['unknown', 'advisor'])(
+  'refuses unsupported role setup %s without falling back to ordinary sending',
+  (role) => {
+    const store = createTestStore();
+    const sendMessage = vi.fn();
+    store.setState({ sendMessage });
+    render(
+      <MemoryRouter
+        initialEntries={[`/chat?telosRoleItem=item&telosRole=${role}&telosRoleMode=assign`]}
+      >
+        <MitzoStoreProvider value={store}>
+          <ChatView />
+        </MitzoStoreProvider>
+      </MemoryRouter>,
+    );
+    expect(
+      screen.getByText(
+        'This work conversation setup is unavailable. Return to the work item and choose a supported role.',
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(sendMessage).not.toHaveBeenCalled();
+  },
+);

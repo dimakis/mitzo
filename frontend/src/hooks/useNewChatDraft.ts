@@ -55,6 +55,7 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
       );
       const next = {
         ...settings,
+        sourceSnapshots: saved.settings.sourceSnapshots,
         selection,
         summary: settings.summary ?? saved.settings.summary,
         ...(runtimeSelection !== undefined ? { runtimeSelection } : {}),

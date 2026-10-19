@@ -79,7 +79,18 @@ export class NativeResponsesStore {
   bindAgentTools(
     id: string,
     binding: AccountBinding,
-    input: { profileHash: string; tools: ToolDefinition[] },
+    input: {
+      profileHash: string;
+      tools: ToolDefinition[];
+      apiTools?: { wireName: string; reference: import('@mitzo/protocol').AgentToolReference }[];
+      customTools?: { wireName: string; reference: import('@mitzo/protocol').AgentToolReference }[];
+      configuredTools?: {
+        wireName: string;
+        reference: import('@mitzo/protocol').AgentToolReference;
+        sourceId: string;
+        tool: string;
+      }[];
+    },
     resume: boolean,
   ): void {
     if (

@@ -1,0 +1,64 @@
+{
+  "priorGreenHead": "64afaaafa0f9520d453d0bc424aa089f18b160bb",
+  "acceptedBase": "fdd95797499a3a6dcad3322af303e958fdbfed19",
+  "actualConflicts": [
+    "server/connections/reviewed-handler-artifacts.ts",
+    "docs/design/ui-design-system.md"
+  ],
+  "incomingFiles": 73,
+  "allIncomingFilesByteIdenticalExceptManifestAndAdditiveDesignUnion": true,
+  "manifestEntries": 588,
+  "noDuplicatesOrRehash": true,
+  "allActualSourcePinsMatch": true,
+  "allChangedAcceptedAndExistingBPinsPreserved": true,
+  "unchangedBSourceAndUi": [
+    "server/collaboration-forwarding.ts",
+    "server/__tests__/collaboration-forwarding.test.ts",
+    "server/collaboration-retained-artifact-source.ts",
+    "server/collaboration-context-source.ts",
+    "server/collaboration-context-compiler.ts",
+    "server/telos-artifact-store.ts",
+    "server/telos-artifact-routes.ts",
+    "frontend/src/components/SavedArtifactDialog.tsx",
+    "frontend/src/components/SavedArtifactDialog.css",
+    "frontend/src/components/WorkOutputs.tsx",
+    "frontend/src/components/SavedArtifactRouteDialog.tsx",
+    "frontend/src/lib/saved-artifact-location.ts"
+  ],
+  "bothRawApprovedDesignSectionsPreserved": true,
+  "priorCi": {
+    "run": 39116813314,
+    "attempt": 1,
+    "successfulJobs": 8,
+    "mainTestsPassed": 17746,
+    "mainTestsExistingSkipped": 31
+  },
+  "old64afFinalPacket": "superseded, unsubmitted; no duplicate/current-review authority inferred",
+  "requestOrCredentialOrQueueMutation": false,
+  "checks": {
+    "forwardingAndArtifacts": {
+      "passed": 194,
+      "files": 7,
+      "skipped": 0
+    },
+    "acceptedS5ProtocolAndReceipt": {
+      "passed": 5,
+      "files": 2,
+      "skipped": 0
+    },
+    "design": {
+      "passed": 108,
+      "existingSkipped": 1
+    },
+    "protocolBuild": "pass",
+    "officialSourceClosure": "pass"
+  },
+  "evidenceSha256": {
+    "accepted-s5-source-closure.log": "d931a4dc165474f6c017cf2f017800dfb778b2d35bf876f7f37fe7f136c22953",
+    "accepted-s5-focused.log": "f081b05162d12dbb62320c2b15d2f9b80f0fb1ee6cc52d91aa7481bdba6a0773",
+    "accepted-s5-protocol-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "accepted-s5-boundaries.log": "c194ce06940ad413e591362a067011dc53f7dbd9e28977d08c28cf4d18eb42d0",
+    "accepted-s5-design.log": "24561664dc1ead8b2a2e150ad658db20106b5676735c68a046930ad125d3509c",
+    "accepted-s5-manifest-red.log": "5dcf868cde43ab59af5667ea53f3d66b78360b818ac748adcf4d163dbead7663"
+  }
+}

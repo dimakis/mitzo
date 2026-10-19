@@ -1,0 +1,695 @@
+diff --git a/codex-rs/codex-api/src/endpoint/frozen_responses.rs b/codex-rs/codex-api/src/endpoint/frozen_responses.rs
+new file mode 100644
+index 0000000..d897a4e
+--- /dev/null
++++ b/codex-rs/codex-api/src/endpoint/frozen_responses.rs
+@@ -0,0 +1,97 @@
++use super::ResponsesClient;
++use super::ResponsesOptions;
++use crate::ApiError;
++use crate::Compression;
++use crate::FrozenResponsesRequest;
++use crate::ResponseStream;
++use crate::requests::headers::build_session_headers;
++use crate::requests::headers::insert_header;
++use crate::requests::headers::subagent_header;
++use crate::sse::spawn_response_stream;
++use codex_client::HttpTransport;
++use codex_client::RequestCompression;
++use http::HeaderValue;
++use serde::Deserialize;
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct InputTokenCount {
++    object: String,
++    input_tokens: u64,
++}
++
++impl<T: HttpTransport> ResponsesClient<T> {
++    /// Count only the retained public-schema projection using this client's
++    /// selected provider/auth. This method never starts a response or a turn.
++    pub async fn count_input_tokens(
++        &self,
++        request: &FrozenResponsesRequest,
++    ) -> Result<u64, ApiError> {
++        let response = self
++            .session
++            .execute_frozen_json("/responses/input_tokens", request.count_encoded())
++            .await?;
++        let count: InputTokenCount =
++            serde_json::from_slice(&response.body).map_err(|_| ApiError::InvalidRequest {
++                message: "unsupported Responses input token count".to_string(),
++            })?;
++        if !response.status.is_success()
++            || count.object != "response.input_tokens"
++            || count.input_tokens > 9_007_199_254_740_991
++        {
++            return Err(ApiError::InvalidRequest {
++                message: "unsupported Responses input token count".to_string(),
++            });
++        }
++        Ok(count.input_tokens)
++    }
++
++    /// Issue exactly one transport attempt with the retained generation bytes.
++    /// The caller must already own a durable, current one-use consumption permit.
++    /// Calling this method again is not an authorized recovery strategy.
++    pub async fn stream_frozen_request(
++        &self,
++        request: &FrozenResponsesRequest,
++        options: ResponsesOptions,
++    ) -> Result<ResponseStream, ApiError> {
++        let ResponsesOptions {
++            session_id,
++            thread_id,
++            session_source,
++            mut extra_headers,
++            compression,
++            turn_state,
++        } = options;
++        if let Some(ref thread_id) = thread_id {
++            insert_header(&mut extra_headers, "x-client-request-id", thread_id);
++        }
++        extra_headers.extend(build_session_headers(session_id, thread_id));
++        if let Some(subagent) = subagent_header(&session_source) {
++            insert_header(&mut extra_headers, "x-openai-subagent", &subagent);
++        }
++        extra_headers.insert(
++            http::header::ACCEPT,
++            HeaderValue::from_static("text/event-stream"),
++        );
++        let compression = match compression {
++            Compression::None => RequestCompression::None,
++            Compression::Zstd => RequestCompression::Zstd,
++        };
++        let response = self
++            .session
++            .stream_frozen_json(request.encoded(), extra_headers, compression)
++            .await?;
++        if !response.status.is_success() {
++            return Err(ApiError::Api {
++                status: response.status,
++                message: "frozen Responses generation refused".to_string(),
++            });
++        }
++        Ok(spawn_response_stream(
++            response,
++            self.session.provider().stream_idle_timeout,
++            self.sse_telemetry.clone(),
++            turn_state,
++        ))
++    }
++}
+diff --git a/codex-rs/codex-api/src/endpoint/frozen_responses_tests.rs b/codex-rs/codex-api/src/endpoint/frozen_responses_tests.rs
+new file mode 100644
+index 0000000..4bac434
+--- /dev/null
++++ b/codex-rs/codex-api/src/endpoint/frozen_responses_tests.rs
+@@ -0,0 +1,385 @@
++use super::*;
++use crate::AuthProvider;
++use crate::AuthProviderFuture;
++use crate::FrozenResponsesRequest;
++use crate::RetryConfig;
++use codex_client::Request;
++use codex_client::Response;
++use codex_client::StreamResponse;
++use codex_client::TransportError;
++use http::StatusCode;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++use std::sync::Mutex;
++use std::time::Duration;
++
++#[derive(Clone)]
++struct RecordingTransport {
++    requests: Arc<Mutex<Vec<Request>>>,
++    response: Value,
++}
++
++impl HttpTransport for RecordingTransport {
++    async fn execute(&self, request: Request) -> Result<Response, TransportError> {
++        self.requests.lock().unwrap().push(request);
++        Err(TransportError::Build(
++            "legacy execute must not run".to_string(),
++        ))
++    }
++
++    async fn execute_once(&self, request: Request) -> Result<Response, TransportError> {
++        self.requests.lock().unwrap().push(request);
++        Ok(Response {
++            status: StatusCode::OK,
++            headers: HeaderMap::new(),
++            body: serde_json::to_vec(&self.response).unwrap().into(),
++        })
++    }
++
++    async fn stream(&self, request: Request) -> Result<StreamResponse, TransportError> {
++        self.requests.lock().unwrap().push(request);
++        Err(TransportError::Build(
++            "legacy stream must not run".to_string(),
++        ))
++    }
++
++    async fn stream_once(&self, request: Request) -> Result<StreamResponse, TransportError> {
++        self.requests.lock().unwrap().push(request);
++        Err(TransportError::Timeout)
++    }
++}
++
++struct Auth;
++impl AuthProvider for Auth {
++    fn add_auth_headers(&self, headers: &mut HeaderMap) {
++        headers.insert("authorization", HeaderValue::from_static("Bearer fixture"));
++    }
++}
++
++fn provider() -> Provider {
++    Provider {
++        name: "openai".to_string(),
++        base_url: "https://api.openai.com/v1".to_string(),
++        query_params: None,
++        headers: HeaderMap::new(),
++        retry: RetryConfig {
++            max_attempts: 3,
++            base_delay: Duration::ZERO,
++            retry_429: true,
++            retry_5xx: true,
++            retry_transport: true,
++        },
++        stream_idle_timeout: Duration::from_secs(1),
++    }
++}
++
++fn frozen() -> FrozenResponsesRequest {
++    FrozenResponsesRequest::new(
++        json!({
++            "model":"fixture-model", "instructions":"retained instructions",
++            "input":[{"role":"user", "content":[
++                {"type":"input_text", "text":"retained"},
++                {"type":"input_image", "image_url":"data:image/png;base64,aGVsbG8=", "detail":"high"}
++            ]}],
++            "tools":[{"type":"function", "name":"fixture_tool", "parameters":{"type":"object"}, "strict":true}],
++            "text":{"format":{"type":"json_schema", "name":"result", "schema":{"type":"object"}, "strict":true}},
++            "tool_choice":"auto", "parallel_tool_calls":false,
++            "stream":true, "max_output_tokens":16, "truncation":"disabled"
++        }),
++        16,
++    )
++    .unwrap()
++}
++
++fn transport(response: Value) -> RecordingTransport {
++    RecordingTransport {
++        requests: Arc::default(),
++        response,
++    }
++}
++
++#[tokio::test]
++async fn frozen_count_uses_only_count_endpoint_and_selected_auth() {
++    let transport = transport(json!({"object":"response.input_tokens", "input_tokens":0}));
++    let client = ResponsesClient::new(transport.clone(), provider(), Arc::new(Auth));
++    let frozen = frozen();
++    assert_eq!(client.count_input_tokens(&frozen).await.unwrap(), 0);
++    let requests = transport.requests.lock().unwrap();
++    assert_eq!(requests.len(), 1);
++    assert_eq!(
++        requests[0].url,
++        "https://api.openai.com/v1/responses/input_tokens"
++    );
++    assert_eq!(requests[0].headers["authorization"], "Bearer fixture");
++    assert_eq!(
++        requests[0].headers.get(http::header::ACCEPT),
++        Some(&HeaderValue::from_static("application/json"))
++    );
++    assert_eq!(
++        serde_json::from_slice::<Value>(&requests[0].prepare_body_for_send().unwrap().body_bytes())
++            .unwrap(),
++        *frozen.count_body()
++    );
++}
++
++#[tokio::test]
++async fn frozen_count_refuses_invalid_counter_responses() {
++    for response in [
++        json!({"object":"response", "input_tokens":1}),
++        json!({"object":"response.input_tokens", "input_tokens":-1}),
++        json!({"object":"response.input_tokens", "input_tokens":1.5}),
++        json!({"object":"response.input_tokens", "input_tokens":9007199254740992_u64}),
++        json!({"object":"response.input_tokens"}),
++    ] {
++        let client = ResponsesClient::new(transport(response), provider(), Arc::new(Auth));
++        assert!(client.count_input_tokens(&frozen()).await.is_err());
++    }
++}
++
++#[tokio::test]
++async fn frozen_stream_retains_bytes_and_never_retries_transport_failure() {
++    let transport = transport(json!({}));
++    let client = ResponsesClient::new(transport.clone(), provider(), Arc::new(Auth));
++    let frozen = frozen();
++    assert!(
++        client
++            .stream_frozen_request(&frozen, ResponsesOptions::default())
++            .await
++            .is_err()
++    );
++    let requests = transport.requests.lock().unwrap();
++    assert_eq!(requests.len(), 1);
++    assert_eq!(requests[0].url, "https://api.openai.com/v1/responses");
++    assert_eq!(
++        requests[0].prepare_body_for_send().unwrap().body_bytes(),
++        frozen.encoded_body()
++    );
++}
++
++#[tokio::test]
++async fn frozen_rejects_unsupported_routes_before_transport() {
++    for base_url in [
++        "https://chatgpt.com/backend-api/codex",
++        "https://proxy.example/v1",
++        "https://api.openai.com/v1/responses",
++    ] {
++        let transport = transport(json!({}));
++        let mut provider = provider();
++        provider.base_url = base_url.to_string();
++        let client = ResponsesClient::new(transport.clone(), provider, Arc::new(Auth));
++        assert!(client.count_input_tokens(&frozen()).await.is_err());
++        assert!(
++            client
++                .stream_frozen_request(&frozen(), ResponsesOptions::default())
++                .await
++                .is_err()
++        );
++        assert!(transport.requests.lock().unwrap().is_empty());
++    }
++}
++
++struct MutatingAuth;
++impl AuthProvider for MutatingAuth {
++    fn add_auth_headers(&self, _headers: &mut HeaderMap) {}
++
++    fn apply_auth(&self, mut request: Request) -> AuthProviderFuture<'_> {
++        Box::pin(async move {
++            request.body = None;
++            Ok(request)
++        })
++    }
++}
++
++#[tokio::test]
++async fn frozen_refuses_auth_body_mutation_before_count_or_generation() {
++    let transport = transport(json!({}));
++    let client = ResponsesClient::new(transport.clone(), provider(), Arc::new(MutatingAuth));
++    assert!(client.count_input_tokens(&frozen()).await.is_err());
++    assert!(
++        client
++            .stream_frozen_request(&frozen(), ResponsesOptions::default())
++            .await
++            .is_err()
++    );
++    assert!(transport.requests.lock().unwrap().is_empty());
++}
++
++struct LegacyTransport(RecordingTransport);
++impl HttpTransport for LegacyTransport {
++    async fn execute(&self, request: Request) -> Result<Response, TransportError> {
++        self.0.execute(request).await
++    }
++
++    async fn stream(&self, request: Request) -> Result<StreamResponse, TransportError> {
++        self.0.stream(request).await
++    }
++}
++
++#[tokio::test]
++async fn frozen_refuses_transport_without_explicit_single_attempt_support() {
++    let transport = transport(json!({}));
++    let client = ResponsesClient::new(
++        LegacyTransport(transport.clone()),
++        provider(),
++        Arc::new(Auth),
++    );
++    assert!(client.count_input_tokens(&frozen()).await.is_err());
++    assert!(
++        client
++            .stream_frozen_request(&frozen(), ResponsesOptions::default())
++            .await
++            .is_err()
++    );
++    assert!(transport.requests.lock().unwrap().is_empty());
++}
++
++struct AppendingHeaderAuth(http::HeaderName, HeaderValue);
++impl AuthProvider for AppendingHeaderAuth {
++    fn add_auth_headers(&self, _headers: &mut HeaderMap) {}
++
++    fn apply_auth(&self, mut request: Request) -> AuthProviderFuture<'_> {
++        Box::pin(async move {
++            request.headers.append(self.0.clone(), self.1.clone());
++            Ok(request)
++        })
++    }
++}
++
++#[tokio::test]
++async fn frozen_refuses_auth_appending_a_second_content_type() {
++    let transport = transport(json!({"object":"response.input_tokens", "input_tokens":0}));
++    let auth = AppendingHeaderAuth(
++        http::header::CONTENT_TYPE,
++        HeaderValue::from_static("text/plain"),
++    );
++    let client = ResponsesClient::new(transport.clone(), provider(), Arc::new(auth));
++    assert!(client.count_input_tokens(&frozen()).await.is_err());
++    assert!(
++        client
++            .stream_frozen_request(&frozen(), ResponsesOptions::default())
++            .await
++            .is_err()
++    );
++    assert!(transport.requests.lock().unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn frozen_refuses_auth_appending_a_second_compression_header() {
++    let transport = transport(json!({}));
++    let auth = AppendingHeaderAuth(
++        http::header::CONTENT_ENCODING,
++        HeaderValue::from_static("gzip"),
++    );
++    let client = ResponsesClient::new(transport.clone(), provider(), Arc::new(auth));
++    let options = ResponsesOptions {
++        compression: Compression::Zstd,
++        ..Default::default()
++    };
++    assert!(
++        client
++            .stream_frozen_request(&frozen(), options)
++            .await
++            .is_err()
++    );
++    assert!(transport.requests.lock().unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn frozen_refuses_non_json_content_type_before_generation() {
++    let transport = transport(json!({}));
++    let client = ResponsesClient::new(transport.clone(), provider(), Arc::new(Auth));
++    let mut options = ResponsesOptions::default();
++    options.extra_headers.insert(
++        http::header::CONTENT_TYPE,
++        HeaderValue::from_static("application/cbor"),
++    );
++    assert!(
++        client
++            .stream_frozen_request(&frozen(), options)
++            .await
++            .is_err()
++    );
++    assert!(transport.requests.lock().unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn frozen_refuses_semantic_headers_from_provider_options_or_auth() {
++    for header in [
++        "x-openai-internal-codex-responses-lite",
++        "x-codex-beta-features",
++        "x-codex-routing-hint",
++    ] {
++        let transport = transport(json!({"object":"response.input_tokens", "input_tokens":0}));
++        let header = http::HeaderName::from_static(header);
++        let mut selected = provider();
++        selected
++            .headers
++            .insert(header.clone(), HeaderValue::from_static("true"));
++        let client = ResponsesClient::new(transport.clone(), selected, Arc::new(Auth));
++        assert!(client.count_input_tokens(&frozen()).await.is_err());
++        assert!(
++            client
++                .stream_frozen_request(&frozen(), ResponsesOptions::default())
++                .await
++                .is_err()
++        );
++        let client = ResponsesClient::new(transport.clone(), provider(), Arc::new(Auth));
++        let mut options = ResponsesOptions::default();
++        options
++            .extra_headers
++            .insert(header.clone(), HeaderValue::from_static("true"));
++        assert!(
++            client
++                .stream_frozen_request(&frozen(), options)
++                .await
++                .is_err()
++        );
++        let auth = AppendingHeaderAuth(header, HeaderValue::from_static("true"));
++        let client = ResponsesClient::new(transport.clone(), provider(), Arc::new(auth));
++        assert!(client.count_input_tokens(&frozen()).await.is_err());
++        assert!(
++            client
++                .stream_frozen_request(&frozen(), ResponsesOptions::default())
++                .await
++                .is_err()
++        );
++        assert!(transport.requests.lock().unwrap().is_empty());
++    }
++}
++
++#[tokio::test]
++async fn frozen_refuses_ambiguous_account_headers() {
++    for header in ["authorization", "openai-project", "openai-organization"] {
++        let transport = transport(json!({"object":"response.input_tokens", "input_tokens":0}));
++        let header = http::HeaderName::from_static(header);
++        let mut selected = provider();
++        selected
++            .headers
++            .insert(header.clone(), HeaderValue::from_static("original"));
++        let auth = AppendingHeaderAuth(header, HeaderValue::from_static("other"));
++        let client = ResponsesClient::new(transport.clone(), selected, Arc::new(auth));
++        assert!(client.count_input_tokens(&frozen()).await.is_err());
++        assert!(
++            client
++                .stream_frozen_request(&frozen(), ResponsesOptions::default())
++                .await
++                .is_err()
++        );
++        assert!(transport.requests.lock().unwrap().is_empty());
++    }
++}
++
++#[tokio::test]
++async fn frozen_refuses_auth_changing_accept_semantics() {
++    let transport = transport(json!({"object":"response.input_tokens", "input_tokens":0}));
++    let auth = AppendingHeaderAuth(http::header::ACCEPT, HeaderValue::from_static("text/html"));
++    let client = ResponsesClient::new(transport.clone(), provider(), Arc::new(auth));
++    assert!(client.count_input_tokens(&frozen()).await.is_err());
++    assert!(
++        client
++            .stream_frozen_request(&frozen(), ResponsesOptions::default())
++            .await
++            .is_err()
++    );
++    assert!(transport.requests.lock().unwrap().is_empty());
++}
+diff --git a/codex-rs/codex-api/src/endpoint/responses.rs b/codex-rs/codex-api/src/endpoint/responses.rs
+index 9c41a80..ade0dc2 100644
+--- a/codex-rs/codex-api/src/endpoint/responses.rs
++++ b/codex-rs/codex-api/src/endpoint/responses.rs
+@@ -23,6 +23,13 @@ use std::sync::Arc;
+ use std::sync::OnceLock;
+ use tracing::instrument;
+ 
++#[path = "frozen_responses.rs"]
++mod frozen;
++
++#[cfg(test)]
++#[path = "frozen_responses_tests.rs"]
++mod frozen_tests;
++
+ pub struct ResponsesClient<T: HttpTransport> {
+     session: EndpointSession<T>,
+     sse_telemetry: Option<Arc<dyn SseTelemetry>>,
+diff --git a/codex-rs/codex-api/src/endpoint/session.rs b/codex-rs/codex-api/src/endpoint/session.rs
+index 7849225..4d1c38f 100644
+--- a/codex-rs/codex-api/src/endpoint/session.rs
++++ b/codex-rs/codex-api/src/endpoint/session.rs
+@@ -6,6 +6,7 @@ use codex_client::EncodedJsonBody;
+ use codex_client::HttpTransport;
+ use codex_client::Request;
+ use codex_client::RequestBody;
++use codex_client::RequestCompression;
+ use codex_client::RequestTelemetry;
+ use codex_client::Response;
+ use codex_client::StreamResponse;
+@@ -23,7 +24,170 @@ pub(crate) struct EndpointSession<T: HttpTransport> {
+     request_telemetry: Option<Arc<dyn RequestTelemetry>>,
+ }
+ 
++fn validate_frozen_headers(headers: &HeaderMap) -> Result<(), ApiError> {
++    // First public API scope: account headers belong to the selected provider/
++    // pinned auth owner; the remaining allowed headers are explicit framing or
++    // tracing/session observations. Internal routing/framing flags remain unsupported.
++    if headers.keys().any(|key| {
++        !matches!(
++            key.as_str(),
++            "authorization"
++                | "openai-project"
++                | "openai-organization"
++                | "content-type"
++                | "content-encoding"
++                | "accept"
++                | "user-agent"
++                | "x-client-request-id"
++                | "session-id"
++                | "thread-id"
++                | "traceparent"
++                | "tracestate"
++        ) || headers.get_all(key).iter().count() != 1
++    }) {
++        return Err(ApiError::InvalidRequest {
++            message: "unsupported frozen Responses headers".to_string(),
++        });
++    }
++    Ok(())
++}
++
+ impl<T: HttpTransport> EndpointSession<T> {
++    /// Use the selected provider/auth owner, but refuse route/body rewriting and
++    /// endpoint retries. The native consumption owner supplies pinned credentials.
++    async fn frozen_request(
++        &self,
++        path: &str,
++        body: EncodedJsonBody,
++        headers: HeaderMap,
++        compression: RequestCompression,
++    ) -> Result<Request, ApiError> {
++        if self.provider.base_url.trim_end_matches('/') != "https://api.openai.com/v1"
++            || self
++                .provider
++                .query_params
++                .as_ref()
++                .is_some_and(|p| !p.is_empty())
++        {
++            return Err(ApiError::InvalidRequest {
++                message: "unsupported frozen Responses route".to_string(),
++            });
++        }
++        if ["authorization", "openai-project", "openai-organization"]
++            .iter()
++            .any(|key| headers.contains_key(*key))
++        {
++            return Err(ApiError::InvalidRequest {
++                message: "frozen Responses account headers require selected auth".to_string(),
++            });
++        }
++        let mut request = self.make_request(
++            &Method::POST,
++            path,
++            &headers,
++            Some(&RequestBody::EncodedJson(body)),
++        );
++        validate_frozen_headers(&request.headers)?;
++        if [
++            http::header::HOST,
++            http::header::CONTENT_ENCODING,
++            http::header::CONTENT_LENGTH,
++        ]
++        .iter()
++        .any(|key| request.headers.contains_key(key))
++            || request
++                .headers
++                .get(http::header::CONTENT_TYPE)
++                .is_some_and(|v| v != "application/json")
++        {
++            return Err(ApiError::InvalidRequest {
++                message: "unsupported frozen Responses headers".to_string(),
++            });
++        }
++        request.compression = compression;
++        request.response_body_limit_bytes =
++            (path == "/responses/input_tokens").then_some(64 * 1024);
++        let expected = request.into_prepared().map_err(TransportError::Build)?;
++        let request = self
++            .auth
++            .apply_auth(expected.clone())
++            .await
++            .map_err(TransportError::from)?;
++        validate_frozen_headers(&request.headers)?;
++        if request.method != expected.method
++            || request.url != expected.url
++            || request.body != expected.body
++            || request.compression != expected.compression
++            || request.response_body_limit_bytes != expected.response_body_limit_bytes
++            || [
++                http::header::CONTENT_TYPE,
++                http::header::CONTENT_ENCODING,
++                http::header::CONTENT_LENGTH,
++                http::header::HOST,
++                http::header::ACCEPT,
++            ]
++            .iter()
++            .any(|key| {
++                !request
++                    .headers
++                    .get_all(key)
++                    .iter()
++                    .eq(expected.headers.get_all(key).iter())
++            })
++        {
++            return Err(ApiError::InvalidRequest {
++                message: "authentication changed frozen Responses request".to_string(),
++            });
++        }
++        Ok(request)
++    }
++
++    pub(crate) async fn execute_frozen_json(
++        &self,
++        path: &str,
++        body: EncodedJsonBody,
++    ) -> Result<Response, ApiError> {
++        let mut headers = HeaderMap::new();
++        headers.insert(
++            http::header::ACCEPT,
++            http::HeaderValue::from_static("application/json"),
++        );
++        let request = self
++            .frozen_request(path, body, headers, RequestCompression::None)
++            .await?;
++        let mut policy = self.provider.retry.to_policy();
++        policy.max_attempts = 0;
++        Ok(run_with_request_telemetry(
++            policy,
++            self.request_telemetry.clone(),
++            || request.clone(),
++            |req| self.transport.execute_once(req),
++        )
++        .await?)
++    }
++
++    pub(crate) async fn stream_frozen_json(
++        &self,
++        body: EncodedJsonBody,
++        headers: HeaderMap,
++        compression: RequestCompression,
++    ) -> Result<StreamResponse, ApiError> {
++        let request = self
++            .frozen_request("/responses", body, headers, compression)
++            .await?;
++        let mut policy = self.provider.retry.to_policy();
++        policy.max_attempts = 0;
++        // stream_once must fail closed for transports unable to disable internal
++        // retries, redirects and fallback. It is not the durable consumption fence.
++        Ok(run_with_request_telemetry(
++            policy,
++            self.request_telemetry.clone(),
++            || request.clone(),
++            |req| self.transport.stream_once(req),
++        )
++        .await?)
++    }
++
+     pub(crate) fn new(transport: T, provider: Provider, auth: SharedAuthProvider) -> Self {
+         Self {
+             transport,

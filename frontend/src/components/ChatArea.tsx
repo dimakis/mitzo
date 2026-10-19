@@ -1,4 +1,6 @@
+import { useTelosSourceNavigation } from '../hooks/useTelosSourceNavigation';
 import { SeatLabel } from './SeatLabel';
+import { UiIcon } from './UiIcon';
 import { CompactionMarker } from './CompactionMarker';
 import type { ContextCompaction } from '@mitzo/protocol';
 import { seatAccentColor } from '../lib/seat-color';
@@ -6,7 +8,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type React
 import { UserBubble, TextBubble } from './MessageBubble';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
+import { telosWorkerReceipt } from './TelosWorkerReceiptCard';
 import { AgentActivity } from './AgentActivity';
+import { completedWebsiteRead } from '../lib/web-access-outcome';
 import { PermissionBanner } from './PermissionBanner';
 import { ProgressWidget } from './ProgressWidget';
 import { groupActivityRows, type ActivityRow } from '../lib/groupActivityRows';
@@ -44,6 +48,9 @@ export interface ChatAreaProps {
   /** Additional transcript cards inside the same scroll area. */
   afterMessages?: ReactNode;
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
+  canShareMessage?: (message: FinishedMessage) => boolean;
+  shareInActions?: boolean;
+  compactAttribution?: boolean;
   running: boolean;
   permission: PermissionRequest | null;
   onPermissionExpire?: (permId: string) => void;
@@ -61,7 +68,13 @@ export interface ChatAreaProps {
   voice?: ChatAreaVoice;
 }
 
-function SeatAttribution({ provenance }: { provenance?: SymposiumProvenance }) {
+function SeatAttribution({
+  provenance,
+  compact = false,
+}: {
+  provenance?: SymposiumProvenance;
+  compact?: boolean;
+}) {
   if (!provenance) return null;
   if (!('version' in provenance) || (provenance.version !== 2 && provenance.version !== 3)) {
     return (
@@ -73,6 +86,28 @@ function SeatAttribution({ provenance }: { provenance?: SymposiumProvenance }) {
       </div>
     );
   }
+  if (compact)
+    return (
+      <details className="conversation-message-provenance">
+        <summary
+          className="chat-seat-attribution"
+          aria-label={`Message details for ${provenance.seatLabel}`}
+        >
+          <strong>
+            <SeatLabel seatId={provenance.seatId} name={provenance.seatLabel} />
+          </strong>
+          <span>{provenance.seatRole}</span>
+        </summary>
+        <div className="conversation-message-provenance-details">
+          <span>{provenance.accountBinding.accountLabel}</span>
+          <span>{provenance.accountBinding.model}</span>
+          <span>{provenance.reasoningEffort ?? 'effort unspecified'}</span>
+          {provenance.version === 3 && (
+            <span>Artifact {provenance.artifact.artifactGenerationId}</span>
+          )}
+        </div>
+      </details>
+    );
   return (
     <div className="chat-seat-attribution" aria-label={`Seat ${provenance.seatLabel}`}>
       <strong>
@@ -102,6 +137,9 @@ export function ChatArea({
   contextItems = [],
   afterMessages,
   onShareMessage,
+  canShareMessage,
+  shareInActions = false,
+  compactAttribution = false,
   running,
   permission,
   onPermissionRespond,
@@ -113,6 +151,50 @@ export function ChatArea({
   const internalScrollRef = useRef<HTMLDivElement>(null);
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const prevMessageCount = useRef(0);
+  const source = useTelosSourceNavigation();
+  const sourceAnchor = (message: FinishedMessage) => {
+    if (source?.status !== 'ready' || source.conversationId !== sessionId) return false;
+    const id = source.packet!.context.boundary.messageId;
+    if (!id) return false;
+    const attribution = source.packet!.attributions[id];
+    return (
+      message.messageId === id &&
+      !!attribution &&
+      (attribution.provenance === null
+        ? !message.symposiumProvenance
+        : message.symposiumProvenance?.seatId === attribution.provenance.seatId &&
+          message.symposiumProvenance?.membershipGeneration ===
+            attribution.provenance.membershipGeneration &&
+          message.symposiumProvenance?.configRevision === attribution.provenance.configRevision)
+    );
+  };
+  const restoredBoundary = messages.find(sourceAnchor);
+  // Only visible public text can anchor a finished assistant. Historical blank
+  // or activity-only boundaries retain their normal rendering without owning
+  // ordinary scrolling. A pending or not-yet-restored boundary still owns it.
+  const unanchorableBoundary =
+    restoredBoundary?.role === 'assistant' &&
+    !restoredBoundary.blocks.some((block) => block.blockType === 'text' && block.content?.trim());
+  const sourceKey =
+    source && source.status !== 'unavailable' && !unanchorableBoundary
+      ? JSON.stringify([source.conversationId, source.itemId, source.snapshotId])
+      : '';
+  const prevSourceKey = useRef(sourceKey);
+  const jumpedSource = useRef('');
+  useEffect(() => {
+    if (!sourceKey) {
+      jumpedSource.current = '';
+      return;
+    }
+    if (source?.status !== 'ready' || jumpedSource.current === sourceKey) return;
+    const anchor = scrollRef.current?.querySelector<HTMLElement>(
+      '[data-telos-source-anchor="true"]',
+    );
+    if (!anchor) return;
+    shouldFollowStreamRef.current = false;
+    anchor.scrollIntoView({ block: 'start' });
+    jumpedSource.current = sourceKey;
+  }, [sourceKey, source, messages, scrollRef]);
   // Keep the reader's intent independently of the DOM height. By the time an
   // effect runs for a streamed chunk, the new content is already in the DOM,
   // so measuring then can incorrectly decide that a reader who scrolled up is
@@ -162,22 +244,37 @@ export function ChatArea({
   // Scroll to bottom on session restore (messages jump from 0 to N)
   useEffect(() => {
     const wasEmpty = prevMessageCount.current === 0;
+    const releasedSource = !!prevSourceKey.current && !sourceKey;
     prevMessageCount.current = messages.length;
-    if (wasEmpty && messages.length > 0) {
+    prevSourceKey.current = sourceKey;
+    if (
+      messages.length > 0 &&
+      !sourceKey &&
+      (wasEmpty || (releasedSource && shouldFollowStreamRef.current))
+    ) {
       shouldFollowStreamRef.current = true;
-      requestAnimationFrame(() => {
+      let frame = requestAnimationFrame(() => {
+        if (!shouldFollowStreamRef.current) return;
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+        // Restoring a deferred source can reveal the existing scroll controls.
+        // Settle their viewport change without overriding newer reader intent.
+        if (releasedSource)
+          frame = requestAnimationFrame(() => {
+            if (shouldFollowStreamRef.current)
+              scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+          });
       });
+      return () => cancelAnimationFrame(frame);
     }
-  }, [messages, scrollRef]);
+  }, [messages, scrollRef, sourceKey]);
 
   // Auto-scroll during streaming only while the reader has chosen to follow it.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el && shouldFollowStreamRef.current) {
+    if (el && (!sourceKey || jumpedSource.current === sourceKey) && shouldFollowStreamRef.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, current, currentByMessage, scrollRef]);
+  }, [messages, current, currentByMessage, scrollRef, sourceKey]);
 
   const progressFor = useCallback(
     (messageId: string, provenance: SymposiumProvenance | undefined, toolId?: string) =>
@@ -274,6 +371,7 @@ export function ChatArea({
               value: (
                 <UserBubble
                   key={turnKey(msg.messageId, msg.symposiumProvenance)}
+                  sourceAnchor={sourceAnchor(msg)}
                   text={textBlock?.content}
                   images={msg.images}
                   contextBlocks={msg.contextBlocks}
@@ -314,15 +412,20 @@ export function ChatArea({
       ]);
       // Filter non-visible text before assigning first/last-row controls so
       // speaker attribution and sharing stay attached to retained content.
+      const firstVisibleText = blocks.find(
+        (block) => block.blockType === 'text' && block.content?.trim(),
+      );
       const rows = blocks
         .filter((block) => block.blockType !== 'text' || block.content?.trim())
         .map((block, index): ActivityRow<ReactNode> => {
           const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
           const keepVisible =
             Boolean(progress) ||
-            ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
-              block.toolName ?? '',
-            );
+            Boolean(telosWorkerReceipt(block, sessionId)) ||
+            (!completedWebsiteRead(block) &&
+              ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
+                block.toolName ?? '',
+              ));
           const bid = block.blockId || `text-${index}`;
           let content: ReactNode;
           if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
@@ -330,7 +433,7 @@ export function ChatArea({
               <ThinkingBlock
                 block={block}
                 streaming={streaming}
-                defaultExpanded
+                defaultExpanded={false}
                 autoCollapse={false}
               />
             );
@@ -343,6 +446,12 @@ export function ChatArea({
           } else {
             content = (
               <TextBubble
+                sourceAnchor={
+                  !streaming &&
+                  turn.kind === 'finished' &&
+                  block === firstVisibleText &&
+                  sourceAnchor(turn.value)
+                }
                 content={block.content ?? ''}
                 streaming={streaming}
                 timestamp={turn.kind === 'finished' ? turn.value.timestamp : undefined}
@@ -362,29 +471,65 @@ export function ChatArea({
           return {
             key: `${ownerKey}:${bid}`,
             scope,
-            attribution: <SeatAttribution provenance={msg.symposiumProvenance} />,
+            attribution: (
+              <SeatAttribution provenance={msg.symposiumProvenance} compact={compactAttribution} />
+            ),
             block,
             streaming,
             keepVisible,
             value: (
               <div className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}>
                 {index === 0 && (keepVisible || block.blockType === 'text') && (
-                  <SeatAttribution provenance={msg.symposiumProvenance} />
+                  <SeatAttribution
+                    provenance={msg.symposiumProvenance}
+                    compact={compactAttribution}
+                  />
                 )}
                 {content}
               </div>
             ),
           };
         });
-      if (!streaming && onShareMessage) {
-        const share = (
+      if (
+        !streaming &&
+        'role' in msg &&
+        onShareMessage &&
+        (!canShareMessage || canShareMessage(msg))
+      ) {
+        const shareButton = (
           <button
             type="button"
             className="symposium-share-action"
-            onClick={() => onShareMessage(msg.messageId, msg.symposiumProvenance)}
+            onClick={(event) => {
+              const disclosure = event.currentTarget.closest('details');
+              if (disclosure) {
+                disclosure.open = false;
+                disclosure.querySelector('summary')?.focus();
+              }
+              onShareMessage(msg.messageId, msg.symposiumProvenance);
+            }}
           >
             Share excerpt
           </button>
+        );
+        const share = shareInActions ? (
+          <details
+            className="conversation-message-actions"
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                event.currentTarget.open = false;
+                event.currentTarget.querySelector('summary')?.focus();
+              }
+            }}
+          >
+            <summary aria-label="Message actions">
+              <UiIcon name="more" />
+            </summary>
+            {shareButton}
+          </details>
+        ) : (
+          shareButton
         );
         const last = rows.at(-1);
         if (last)
@@ -401,7 +546,10 @@ export function ChatArea({
             activityControl: true,
             value: (
               <div className="msg-turn">
-                <SeatAttribution provenance={msg.symposiumProvenance} />
+                <SeatAttribution
+                  provenance={msg.symposiumProvenance}
+                  compact={compactAttribution}
+                />
                 {share}
               </div>
             ),
@@ -463,6 +611,9 @@ export function ChatArea({
         <PermissionBanner
           key={permission.permId}
           permId={permission.permId}
+          sessionId={sessionId ?? permission.sessionId}
+          reviewKind={permission.reviewKind}
+          recoveryOnly={permission.recoveryOnly}
           questions={permission.questions}
           expiresAt={permission.expiresAt}
           toolName={permission.toolName}

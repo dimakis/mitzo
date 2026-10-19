@@ -1,3 +1,11 @@
+import { TelosAdvisorDraft } from '../components/TelosAdvisorDraft';
+import { bindChatDraftToSession, getSessionChatDraft } from '../lib/chat-drafts';
+import { TelosRoleSetup } from '../components/TelosRoleSetup';
+import { readTelosRoleIntent } from '../hooks/useTelosRoleSetup';
+import { AgentLibraryChatLink } from '../components/AgentLibraryChatSource';
+import { markAgentBuilderAssigned } from '../lib/agent-builder-chat';
+import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
+import { ConversationAgents } from '../components/ConversationAgents';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
 import {
@@ -16,6 +24,7 @@ import {
 import { createBrowserId } from '../lib/browser-crypto';
 import { useNewChatDraft, useChatDraftSearch } from '../hooks/useNewChatDraft';
 import {
+  newChatPathWithDraft,
   CHAT_DRAFTS_CHANGED,
   getChatDraft,
   chatDraftStorageKey,
@@ -24,7 +33,11 @@ import {
 import { useBriefingChat } from '../hooks/useBriefingChat';
 import { BriefingChatBanner } from '../components/BriefingChatBanner';
 import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
-import type { AgentProfileSelection } from '@mitzo/protocol';
+import {
+  PROFILE_BUILDER_ID,
+  profileBuilderDefinitionForRevision,
+  type AgentProfileSelection,
+} from '@mitzo/protocol';
 import { UiIcon } from '../components/UiIcon';
 import {
   savedRepositoryDraft,
@@ -94,6 +107,9 @@ export function DesktopChatView() {
   const connection = useConnection();
   const tokens = useTokens();
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const conversationTitle = useMitzoStore(
+    (s) => s.sessions.list?.find((item) => item.id === s.sessions.active)?.summary,
+  );
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
   const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
@@ -152,16 +168,47 @@ export function DesktopChatView() {
     activeSessionId,
     !launch && !repositoryHandoff.present,
     searchParams.toString(),
+    newChatDraft.restored ? newChatDraft.draft.settings.selection : undefined,
   );
   const explicitNew = localRuntime.visible && !activeSessionId;
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew;
+  const roleSearch = searchParams.toString();
+  const roleIntent = useMemo(
+    () => (!sessionId ? readTelosRoleIntent(new URLSearchParams(roleSearch)) : null),
+    [sessionId, roleSearch],
+  );
+  const roleSetupRequested = !sessionId && searchParams.has('telosRoleItem');
+  const invalidRoleSetup = roleSetupRequested && !roleIntent;
+  const [roleSetupLocked, setRoleSetupLocked] = useState(false);
+  const [roleDraftError, setRoleDraftError] = useState<string | null>(null);
+  const flushRoleDraft = useCallback(() => {
+    if (repositoryDraftControl.current?.flush?.() !== true) {
+      setRoleDraftError('Could not preserve this draft. Keep this chat open and retry.');
+      return false;
+    }
+    setRoleDraftError(null);
+    return true;
+  }, []);
   const controlsBlocked =
+    roleSetupLocked ||
     (localBound && !localRuntime.continuation) ||
     localRuntime.metadataPending ||
     (!!sessionId && sessionId !== activeSessionId);
 
+  const [builderLinkError, setBuilderLinkError] = useState('');
+  const builderSources = activeSessionId
+    ? messages.messages.flatMap((message) => message.sourceSnapshots ?? [])
+    : newChatDraft.draft.settings.sourceSnapshots;
+  const builderSourceReason =
+    !activeSessionId && builderSources?.some((source) => source.kind === 'agent-library')
+      ? searchParams.get('agentProfile') !== PROFILE_BUILDER_ID ||
+        searchParams.get('agentProfileKind') !== 'builtin' ||
+        !profileBuilderDefinitionForRevision(Number(searchParams.get('profileRevision')))
+        ? 'Choose Agent Builder to use this reviewed Library context, or start a new chat.'
+        : undefined
+      : undefined;
   const missingDraftReason = newChatDraft.missing
     ? 'This draft is unavailable. Open Drafts or start a new chat.'
     : undefined;
@@ -427,12 +474,30 @@ export function DesktopChatView() {
     modeChangeReady,
     storeSetMode,
   ]);
+  const [boundDraftOwner, setBoundDraftOwner] = useState<{
+    sessionId: string | null;
+    draftId: string | null;
+  }>({ sessionId: null, draftId: null });
+  useEffect(() => {
+    const refresh = () => {
+      const draftId = activeSessionId ? (getSessionChatDraft(activeSessionId)?.id ?? null) : null;
+      setBoundDraftOwner((previous) =>
+        previous.sessionId === activeSessionId && previous.draftId === draftId
+          ? previous
+          : { sessionId: activeSessionId, draftId },
+      );
+    };
+    refresh();
+    window.addEventListener(CHAT_DRAFTS_CHANGED, refresh);
+    return () => window.removeEventListener(CHAT_DRAFTS_CHANGED, refresh);
+  }, [activeSessionId]);
   const savedChatDraft = useMemo(
     () =>
       draftEnabled && !newChatDraft.missing
         ? {
             ...newChatDraft.draft,
             settings: {
+              sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
               retainRuntimeIntent: newChatDraft.draft.settings.retainRuntimeIntent,
               runtimeSelection: explicitNew
                 ? localRuntime.intent
@@ -447,8 +512,13 @@ export function DesktopChatView() {
               search: settingsSearch,
             },
           }
-        : undefined,
+        : activeSessionId &&
+            (boundDraftOwner.sessionId !== activeSessionId || boundDraftOwner.draftId !== null)
+          ? (getSessionChatDraft(activeSessionId) ?? undefined)
+          : undefined,
     [
+      activeSessionId,
+      boundDraftOwner,
       draftEnabled,
       newChatDraft.draft,
       newChatDraft.missing,
@@ -584,7 +654,7 @@ export function DesktopChatView() {
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
-    if (controlsBlocked) return false;
+    if (roleSetupRequested || controlsBlocked || builderSourceReason) return false;
     if (localRuntime.continuation && activeSessionId) {
       if (
         ctxBlocks?.length ||
@@ -624,6 +694,7 @@ export function DesktopChatView() {
         repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId,
         mode,
         text,
+        sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
         images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
       });
       if (!command) return false;
@@ -631,6 +702,13 @@ export function DesktopChatView() {
         draftId: newChatDraft.draft.id,
         onDelivery,
         onSessionAssigned: (assignedId) => {
+          try {
+            markAgentBuilderAssigned(newChatDraft.draft, assignedId);
+          } catch {
+            setBuilderLinkError(
+              'The conversation opened, but its Agent Library return link could not be saved. Keep this conversation open.',
+            );
+          }
           if (accountSelection?.accountId)
             consumeRepositoryDraft(
               repositoryDraftKey(accountSelection.accountId, accountSelection.model),
@@ -658,6 +736,7 @@ export function DesktopChatView() {
     const options = {
       images,
       contextBlocks: ctxBlocks,
+      ...(!activeSessionId ? { sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots } : {}),
       ...(onDelivery ? { onDelivery } : {}),
       ...(accountSelection ?? {}),
       ...(!activeSessionId && repositorySelection?.repositoryWorkspaceId
@@ -691,11 +770,18 @@ export function DesktopChatView() {
       ...(!activeSessionId && agentProfile ? { agentProfile } : {}),
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     };
-    if (onSessionAssigned) {
+    if (onSessionAssigned || newChatDraft.draft.settings.sourceSnapshots?.length) {
       const originalAssignment = options.onSessionAssigned;
       options.onSessionAssigned = (assignedId: string) => {
         originalAssignment?.(assignedId);
-        onSessionAssigned(assignedId);
+        try {
+          markAgentBuilderAssigned(newChatDraft.draft, assignedId);
+        } catch {
+          setBuilderLinkError(
+            'The conversation opened, but its Agent Library return link could not be saved. Keep this conversation open.',
+          );
+        }
+        onSessionAssigned?.(assignedId);
       };
     }
     try {
@@ -772,6 +858,7 @@ export function DesktopChatView() {
             ? {
                 accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
+                onRefresh: localRuntime.refresh,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>
                   localRuntime.update(
@@ -897,6 +984,7 @@ export function DesktopChatView() {
         repositoryAccountSelection.accountId === repositoryHandoff.preparation.accountId &&
         repositoryAccountSelection.model === repositoryHandoff.preparation.model)) && (
       <RepositoryChatPicker
+        presentation="settings"
         key={repositoryScope}
         accountId={repositoryAccountSelection.accountId}
         model={repositoryAccountSelection.model}
@@ -937,7 +1025,7 @@ export function DesktopChatView() {
       execution={executionControl}
       details={
         activeSessionId ? (
-          <details className="composer-session-details">
+          <details className="composer-session-details" open>
             <summary>Session details</summary>
             <dl>
               <dt>Account</dt>
@@ -987,10 +1075,223 @@ export function DesktopChatView() {
     />
   ) : undefined;
 
+  const workspaceControls = (
+    <WorkspaceControls
+      title={
+        !activeSessionId
+          ? 'New chat'
+          : briefingChat.isBriefing
+            ? briefingChat.name
+            : conversationTitle || 'Chat'
+      }
+      settings={settings}
+      agent={!isSymposium ? (agentLabel ?? 'Mitzo') : undefined}
+      scopeKey={activeSessionId ?? newChatDraft.draft.id}
+      onDone={explicitNew || localRuntime.continuation ? localRuntime.review : undefined}
+      actions={
+        <>
+          {activeSessionId && !isSymposium && !controlsBlocked && (
+            <ConversationAgents
+              compact
+              scope={activeSessionId}
+              agents={[
+                {
+                  id: activeSessionId,
+                  name: agentLabel ?? 'Mitzo',
+                  account: workspaceSummary?.profile,
+                  model: workspaceSummary?.model,
+                  thinking: workspaceSummary?.thinking,
+                  state: 'Current conversation',
+                },
+              ]}
+              messages={messages.messages}
+            />
+          )}
+          <SessionAccess
+            sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
+            selection={accountSelection}
+            connected={connected}
+          />
+        </>
+      }
+      attention={!!roleIntent || !!launch || repositoryHandoff.present || !!localRuntime.reason}
+      summary={
+        explicitNew || localRuntime.continuation
+          ? {
+              profile:
+                localRuntime.inventory?.accounts.find(
+                  (a) => a.account.accountId === localRuntime.intent.account?.accountId,
+                )?.label ?? 'Choose account',
+              model: runtimeModelLabel,
+              thinking: localRuntime.intent.account?.reasoningEffort ?? undefined,
+              location: localRuntime.intent.execution.location,
+            }
+          : workspaceSummary
+      }
+      status={
+        explicitNew
+          ? localRuntime.reason
+            ? 'Needs review'
+            : 'First command'
+          : localBound
+            ? localRuntime.continuation
+              ? 'Conversation'
+              : 'First command'
+            : localRuntime.metadataPending
+              ? localRuntime.metadataUnavailable
+                ? 'Needs review'
+                : 'Loading conversation settings'
+              : isSymposium
+                ? 'Agent chat'
+                : activeSessionId && !ordinaryControls
+                  ? 'Loading conversation settings'
+                  : !connected
+                    ? 'Reconnecting'
+                    : messages.running
+                      ? 'Working'
+                      : activeSessionId
+                        ? 'Ready'
+                        : 'New chat'
+      }
+    >
+      <header className="desktop-chat-header">
+        {!connected && (
+          <span
+            className="chat-header-offline"
+            title={messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'}
+          >
+            !
+          </span>
+        )}
+        {isSymposium && accountModelControl}
+        {ordinaryControls && (
+          <>
+            <PermissionModePicker
+              mode={mode}
+              onChange={handleModeChange}
+              disabled={controlsBlocked || localBound || modeChangeReady === false}
+            />
+            {!activeSessionId && !explicitNew && (
+              <button
+                className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
+                onClick={() => setIsolation((v) => !v)}
+                title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
+              >
+                {isolation ? '\u{1f512}' : '\u{1f513}'}
+              </button>
+            )}
+            {activeSessionId && !controlsBlocked && (
+              <button
+                className="session-close-btn"
+                onClick={() => {
+                  if (ordinaryControls && !controlsBlocked) storeCloseSession();
+                }}
+                title="Close session"
+              >
+                <UiIcon name="close" size={16} />
+              </button>
+            )}
+            <VoiceSettings
+              ttsAvailable={voice.ttsAvailable}
+              voices={voice.voices}
+              selectedVoice={voice.selectedVoice}
+              onVoiceChange={voice.setVoice}
+            />
+          </>
+        )}
+      </header>
+
+      <div className="workspace-session-settings">
+        {isSymposium && agentControl}
+        {isSymposium && executionControl}
+        {localCommand && (
+          <div className="chat-agent-profile" role="status">
+            <span>
+              {localCommand.state === 'consumed'
+                ? localRuntime.continuation
+                  ? 'Conversation connected.'
+                  : `Original ${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command dispatched.`
+                : `${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command retained. Review its original choices before recovery.`}
+            </span>
+            {localCommand.request && (
+              <span>
+                {localRuntime.continuation && localCommand.state === 'consumed'
+                  ? 'Last submitted command: '
+                  : ''}
+                Account: {localCommand.request.runtime.account.accountId} · Model:{' '}
+                {localCommand.request.selection.model} · Thinking:{' '}
+                {localCommand.request.selection.thinking ?? 'not configurable'} · Agent revision:{' '}
+                {localCommand.request.selection.agent.revision} · Execution target:{' '}
+                {localCommand.request.runtime.targetId}
+              </span>
+            )}
+            {localCommand.originDraftId && (
+              <Link to={`/chat?draft=${encodeURIComponent(localCommand.originDraftId)}`}>
+                Open original draft
+              </Link>
+            )}
+            {localCommand.sessionId && (
+              <Link to={`/chat/${localCommand.sessionId}`}>Open retained conversation</Link>
+            )}
+            <button
+              type="button"
+              disabled={
+                !connected ||
+                localCommand.state === 'consumed' ||
+                localCommand.state === 'blocked' ||
+                localCommand.state === 'pending'
+              }
+              onClick={() => recoverLocalCommand()}
+            >
+              Recover original {localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'}{' '}
+              command
+            </button>
+          </div>
+        )}
+
+        {ordinaryControls && !explicitNew && !controlsBlocked && !localBound && (
+          <WebSearchConsent
+            key={activeSessionId ?? 'new'}
+            sessionId={activeSessionId}
+            mode={mode}
+            connected={connected}
+            connectionId={connectionId}
+            running={messages.running}
+          />
+        )}
+        <div className="workspace-session-actions">
+          {activeSessionId &&
+            !controlsBlocked &&
+            !localBound &&
+            (ordinaryControls ? null : isSymposium ? (
+              <AddAgentSheet sessionId={activeSessionId} />
+            ) : null)}
+          {activeSessionId && isSymposium && (
+            <SymposiumReviewEntry
+              key={activeSessionId}
+              sessionId={activeSessionId}
+              readOnly={controlsBlocked || localBound}
+            />
+          )}
+        </div>
+        {activeSessionId && isSymposium && !controlsBlocked && !localBound && (
+          <SymposiumDirectorPanel sessionId={activeSessionId} />
+        )}
+        <div ref={setProfileToolsTarget} />
+      </div>
+    </WorkspaceControls>
+  );
+
   return (
     <DesktopShell
-      leftDefaultCollapsed
-      left={<CommandCenter />}
+      rightDefaultCollapsed
+      left={
+        <SessionPanel
+          activeSessionId={activeSessionId ?? undefined}
+          onSelectSession={handleSelectSession}
+          onNewChat={handleNewChat}
+        />
+      }
       center={
         <div
           className={`desktop-chat-center workspace-chat${!activeSessionId ? ' chat-page--new' : ''}`}
@@ -1013,186 +1314,11 @@ export function DesktopChatView() {
             retryLookup={briefingChat.retry}
             lookupLoading={briefingChat.loading}
           />
-          <WorkspaceControls
-            settings={settings}
-            agent={!isSymposium ? (agentLabel ?? 'Mitzo') : undefined}
-            scopeKey={activeSessionId ?? newChatDraft.draft.id}
-            onDone={explicitNew || localRuntime.continuation ? localRuntime.review : undefined}
-            actions={
-              <SessionAccess
-                sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
-                selection={accountSelection}
-                connected={connected}
-              />
-            }
-            attention={!!launch || repositoryHandoff.present || !!localRuntime.reason}
-            summary={
-              explicitNew || localRuntime.continuation
-                ? {
-                    profile:
-                      localRuntime.inventory?.accounts.find(
-                        (a) => a.account.accountId === localRuntime.intent.account?.accountId,
-                      )?.label ?? 'Choose account',
-                    model: runtimeModelLabel,
-                    thinking: localRuntime.intent.account?.reasoningEffort ?? undefined,
-                    location: localRuntime.intent.execution.location,
-                  }
-                : workspaceSummary
-            }
-            status={
-              explicitNew
-                ? localRuntime.reason
-                  ? 'Needs review'
-                  : 'First command'
-                : localBound
-                  ? localRuntime.continuation
-                    ? 'Conversation'
-                    : 'First command'
-                  : localRuntime.metadataPending
-                    ? localRuntime.metadataUnavailable
-                      ? 'Needs review'
-                      : 'Loading conversation settings'
-                    : isSymposium
-                      ? 'Agent chat'
-                      : activeSessionId && !ordinaryControls
-                        ? 'Loading conversation settings'
-                        : !connected
-                          ? 'Reconnecting'
-                          : messages.running
-                            ? 'Working'
-                            : activeSessionId
-                              ? 'Ready'
-                              : 'New chat'
-            }
-          >
-            <header className="desktop-chat-header">
-              {!connected && (
-                <span
-                  className="chat-header-offline"
-                  title={
-                    messages.running ? 'Reconnecting — session still active' : 'Reconnecting...'
-                  }
-                >
-                  !
-                </span>
-              )}
-              {isSymposium && accountModelControl}
-              {ordinaryControls && (
-                <>
-                  <PermissionModePicker
-                    mode={mode}
-                    onChange={handleModeChange}
-                    disabled={controlsBlocked || localBound || modeChangeReady === false}
-                  />
-                  {!activeSessionId && !explicitNew && (
-                    <button
-                      className={`isolation-toggle${isolation ? ' isolation-toggle--active' : ''}`}
-                      onClick={() => setIsolation((v) => !v)}
-                      title={isolation ? 'Worktree isolation: ON' : 'Worktree isolation: OFF'}
-                    >
-                      {isolation ? '\u{1f512}' : '\u{1f513}'}
-                    </button>
-                  )}
-                  {activeSessionId && !controlsBlocked && (
-                    <button
-                      className="session-close-btn"
-                      onClick={() => {
-                        if (ordinaryControls && !controlsBlocked) storeCloseSession();
-                      }}
-                      title="Close session"
-                    >
-                      <UiIcon name="close" size={16} />
-                    </button>
-                  )}
-                  <VoiceSettings
-                    ttsAvailable={voice.ttsAvailable}
-                    voices={voice.voices}
-                    selectedVoice={voice.selectedVoice}
-                    onVoiceChange={voice.setVoice}
-                  />
-                </>
-              )}
-            </header>
+          {!isSymposium && workspaceControls}
 
-            <div className="workspace-session-settings">
-              {isSymposium && agentControl}
-              {isSymposium && executionControl}
-              {localCommand && (
-                <div className="chat-agent-profile" role="status">
-                  <span>
-                    {localCommand.state === 'consumed'
-                      ? localRuntime.continuation
-                        ? 'Conversation connected.'
-                        : `Original ${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command dispatched.`
-                      : `${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command retained. Review its original choices before recovery.`}
-                  </span>
-                  {localCommand.request && (
-                    <span>
-                      {localRuntime.continuation && localCommand.state === 'consumed'
-                        ? 'Last submitted command: '
-                        : ''}
-                      Account: {localCommand.request.runtime.account.accountId} · Model:{' '}
-                      {localCommand.request.selection.model} · Thinking:{' '}
-                      {localCommand.request.selection.thinking ?? 'not configurable'} · Agent
-                      revision: {localCommand.request.selection.agent.revision} · Execution target:{' '}
-                      {localCommand.request.runtime.targetId}
-                    </span>
-                  )}
-                  {localCommand.originDraftId && (
-                    <Link to={`/chat?draft=${encodeURIComponent(localCommand.originDraftId)}`}>
-                      Open original draft
-                    </Link>
-                  )}
-                  {localCommand.sessionId && (
-                    <Link to={`/chat/${localCommand.sessionId}`}>Open retained conversation</Link>
-                  )}
-                  <button
-                    type="button"
-                    disabled={
-                      !connected ||
-                      localCommand.state === 'consumed' ||
-                      localCommand.state === 'blocked' ||
-                      localCommand.state === 'pending'
-                    }
-                    onClick={() => recoverLocalCommand()}
-                  >
-                    Recover original{' '}
-                    {localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command
-                  </button>
-                </div>
-              )}
-
-              {ordinaryControls && !explicitNew && !controlsBlocked && !localBound && (
-                <WebSearchConsent
-                  key={activeSessionId ?? 'new'}
-                  sessionId={activeSessionId}
-                  mode={mode}
-                  connected={connected}
-                  connectionId={connectionId}
-                  running={messages.running}
-                />
-              )}
-              <div className="workspace-session-actions">
-                {activeSessionId &&
-                  !controlsBlocked &&
-                  !localBound &&
-                  (ordinaryControls ? null : isSymposium ? (
-                    <AddAgentSheet sessionId={activeSessionId} />
-                  ) : null)}
-                {activeSessionId && (
-                  <SymposiumReviewEntry
-                    key={activeSessionId}
-                    sessionId={activeSessionId}
-                    readOnly={controlsBlocked || localBound}
-                  />
-                )}
-              </div>
-              {activeSessionId && !controlsBlocked && !localBound && (
-                <SymposiumDirectorPanel sessionId={activeSessionId} />
-              )}
-              <div ref={setProfileToolsTarget} />
-            </div>
-          </WorkspaceControls>
+          <TelosSourceWorkLink conversationId={activeSessionId ?? undefined} />
+          <AgentLibraryChatLink sources={builderSources} />
+          {builderLinkError && <p role="alert">{builderLinkError}</p>}
 
           {(sendError || sendStatus) && (
             <div role={sendError ? 'alert' : 'status'}>{sendError || sendStatus}</div>
@@ -1214,24 +1340,51 @@ export function DesktopChatView() {
             </div>
           )}
           <ScrollFab scrollRef={scrollRef} />
-          <ChatWelcome
-            active={
-              !activeSessionId &&
-              !briefingChat.isBriefing &&
-              !messages.running &&
-              messages.messages.length === 0 &&
-              !messages.current
-            }
-          />
+          {!roleIntent && (
+            <ChatWelcome
+              active={
+                !activeSessionId &&
+                !briefingChat.isBriefing &&
+                !messages.running &&
+                messages.messages.length === 0 &&
+                !messages.current
+              }
+            />
+          )}
           <SymposiumConversation
+            onContinueInNewChat={(text) => {
+              const path = newChatPathWithDraft(text);
+              storeNewSession();
+              navigate(path);
+            }}
+            conversationLayout={{
+              settings: workspaceControls,
+              showHeader: isSymposium,
+              actions: (
+                <SessionAccess
+                  sessionId={activeSessionId ?? undefined}
+                  selection={accountSelection}
+                  connected={connected}
+                />
+              ),
+            }}
             ordinaryConfirmed={
               (!sessionId || sessionId === activeSessionId) && !isSymposium && localRuntime.bound
             }
             ordinaryExcluded={isSymposium}
+            ordinaryProfileProposalReview={
+              localRuntime.bound &&
+              !localRuntime.metadataPending &&
+              (!sessionId || sessionId === activeSessionId) &&
+              !isSymposium
+            }
             profileToolsTarget={profileToolsTarget}
             readOnly={controlsBlocked || localBound}
             sessionId={sessionId ?? activeSessionId}
             chat={{
+              afterMessages: !isSymposium ? (
+                <TelosAdvisorDraft conversationId={activeSessionId ?? undefined} />
+              ) : undefined,
               compactions: compactionHistory.records,
               sessionId: sessionId || activeSessionId || undefined,
               messages: sessionId && sessionId !== activeSessionId ? [] : messages.messages,
@@ -1288,6 +1441,40 @@ export function DesktopChatView() {
                 )}
 
                 {!controlsBlocked && <CodexQueueStatus sessionId={activeSessionId} />}
+                {invalidRoleSetup && (
+                  <p role="alert">
+                    This work conversation setup is unavailable. Return to the work item and choose
+                    a supported role.
+                  </p>
+                )}
+                {roleIntent && roleDraftError && <p role="alert">{roleDraftError}</p>}
+                {roleIntent && (
+                  <TelosRoleSetup
+                    intent={roleIntent}
+                    runtime={localRuntime}
+                    repositoryWorkspaceId={repositorySelection?.repositoryWorkspaceId}
+                    mode={mode}
+                    draftId={newChatDraft.draft.id}
+                    onLocked={setRoleSetupLocked}
+                    beforeConfirm={flushRoleDraft}
+                    onBound={(id) => {
+                      if (!flushRoleDraft()) return;
+                      if (getSessionChatDraft(id)) {
+                        navigate(`/chat/${encodeURIComponent(id)}`);
+                        return;
+                      }
+                      const result = bindChatDraftToSession(newChatDraft.draft.id, id);
+                      if (result === 'failed') {
+                        setRoleDraftError(
+                          'Could not preserve this draft. Keep this chat open and retry.',
+                        );
+                        return;
+                      }
+                      setRoleDraftError(null);
+                      navigate(`/chat/${encodeURIComponent(id)}`);
+                    }}
+                  />
+                )}
                 <ChatInput
                   collaboration={
                     activeSessionId && !controlsBlocked && !localBound && ordinaryControls ? (
@@ -1327,6 +1514,7 @@ export function DesktopChatView() {
                               repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId!,
                               mode,
                               text,
+                              sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
                               images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
                             }).reason
                         : undefined
@@ -1339,6 +1527,12 @@ export function DesktopChatView() {
                       : undefined
                   }
                   sendDisabledReason={
+                    (invalidRoleSetup
+                      ? 'This work conversation setup is unavailable. Return to the work item and choose a supported role.'
+                      : roleIntent
+                        ? 'Open the bound work chat before sending a message.'
+                        : undefined) ??
+                    builderSourceReason ??
                     localRuntime.reason ??
                     (controlsBlocked ? 'Loading conversation settings…' : undefined) ??
                     (localRuntime.continuation && localCommand && localCommand.state !== 'consumed'
@@ -1376,7 +1570,9 @@ export function DesktopChatView() {
                   onStop={handleStop}
                   onInterrupt={localBound ? undefined : handleInterrupt}
                   running={repositoryHandoff.present ? false : messages.running}
-                  draftControl={repositoryHandoff.present ? repositoryDraftControl : undefined}
+                  draftControl={
+                    repositoryHandoff.present || roleIntent ? repositoryDraftControl : undefined
+                  }
                   draftStorageKey={
                     repositoryHandoff.present
                       ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')
@@ -1409,13 +1605,7 @@ export function DesktopChatView() {
           />
         </div>
       }
-      right={
-        <SessionPanel
-          activeSessionId={activeSessionId ?? undefined}
-          onSelectSession={handleSelectSession}
-          onNewChat={handleNewChat}
-        />
-      }
+      right={<CommandCenter />}
       statusBar={
         <StatusBar
           connected={connected}

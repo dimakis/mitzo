@@ -2001,3 +2001,177 @@
 .conversation-composer--new {
   overflow: visible;
 }
+
+/* Approved compact settings: one opaque popover, independent of transcript width. */
+.workspace-controls--compact .workspace-controls-heading {
+  padding: var(--space-2) var(--page-gutter);
+  gap: var(--space-2);
+}
+.workspace-controls-context {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.workspace-controls-context > strong,
+.workspace-controls-context > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-controls-context > strong {
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.workspace-controls-context > span {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+.workspace-controls--compact .workspace-controls-heading .workspace-controls-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  min-height: var(--control-height);
+  gap: var(--space-2);
+  background: var(--color-panel);
+}
+.workspace-chat
+  .workspace-controls.workspace-controls--compact
+  > .workspace-controls-settings:not([hidden]) {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: auto;
+  right: var(--page-gutter);
+  width: min(24rem, calc(100% - 2 * var(--page-gutter)));
+  max-height: var(--workspace-popover-space, 60dvh);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: 0 var(--space-2) var(--space-6) var(--color-shadow);
+  z-index: 20;
+}
+.workspace-controls--compact .agent-settings-header,
+.workspace-controls--compact .workspace-controls-footer {
+  background: var(--color-surface);
+}
+.workspace-controls--compact .agent-settings-header > strong {
+  color: var(--color-accent);
+}
+.workspace-controls--compact
+  .workspace-controls-settings[data-constrained]
+  > :is(.agent-settings-header, .workspace-controls-footer) {
+  padding-block: var(--space-1);
+}
+.workspace-controls--compact .workspace-controls-options > summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--color-text);
+}
+.workspace-controls--compact .workspace-controls-options[open] > summary > svg {
+  transform: rotate(180deg);
+}
+.workspace-controls--compact .agent-settings-panel--embedded .agent-settings-scroll {
+  gap: var(--space-3);
+}
+.workspace-controls--compact .agent-execution-settings {
+  padding-top: 0;
+  border: 0;
+  gap: var(--space-2);
+}
+.workspace-controls--compact
+  .agent-execution-settings:not([data-bound])
+  .agent-execution-heading
+  > span,
+.workspace-controls--compact .agent-execution-description,
+.workspace-controls--compact .agent-execution-card-heading > .ui-icon:last-child:not(:first-child) {
+  display: none;
+}
+.workspace-controls--compact .agent-execution-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.workspace-controls--compact .agent-execution-card {
+  padding: var(--space-2);
+  justify-content: center;
+  align-items: center;
+}
+.workspace-controls--compact .agent-execution-card-heading {
+  font-size: var(--text-sm);
+  gap: var(--space-2);
+}
+.workspace-controls--compact .agent-settings-account-model .account-model-settings-pair {
+  gap: var(--space-3);
+}
+.conversation-composer--new {
+  max-width: none;
+}
+/* The rounded row owns focus feedback; the textarea never draws a second box. */
+.workspace-chat .chat-input--compact .chat-input-field:is(:focus, :focus-visible) {
+  border: 0;
+  outline: none;
+  box-shadow: none;
+}
+.workspace-chat .chat-input--compact .chat-input-row:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 1px var(--color-accent);
+}
+@media (max-width: 767px) {
+  .workspace-controls--compact .workspace-controls-label {
+    display: none;
+  }
+  .workspace-controls--compact .workspace-controls-heading {
+    padding-inline: var(--space-2);
+    gap: var(--space-1);
+  }
+  .workspace-controls--compact .workspace-controls-heading .workspace-controls-toggle {
+    min-width: var(--control-height);
+    padding: var(--space-2);
+  }
+  .workspace-chat
+    .workspace-controls.workspace-controls--compact
+    > .workspace-controls-settings:not([hidden]) {
+    left: var(--space-2);
+    right: var(--space-2);
+    width: auto;
+  }
+}
+
+/* Both new and existing messages use the full chat pane, with shared gutters. */
+.desktop-chat-center .chat-input {
+  padding-inline: var(--page-gutter);
+}
+.workspace-controls--compact .account-model-settings-utilities > button {
+  width: fit-content;
+}
+.workspace-controls--compact .agent-settings-account-model {
+  gap: var(--space-3);
+}
+@media (min-width: 768px) {
+  .workspace-controls--compact .agent-settings-account-model,
+  .workspace-controls--compact .account-model-settings-pair {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* One compact contextual backlink; ordinary controls and transcript stay intact. */
+.telos-chat-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--space-2);
+  padding-inline: var(--page-gutter);
+  min-height: var(--control-height);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+.telos-chat-context > details {
+  flex: 1 1 100%;
+  min-width: 0;
+  max-height: 35vh;
+  overflow: auto;
+}

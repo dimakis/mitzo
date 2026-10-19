@@ -180,7 +180,7 @@ export class ChatGptPlanAdviserAccounts {
     this.now = options.now ?? Date.now;
     // A saved row is not live proof. Restore through a serialized signed refresh.
     for (const account of this.state.accounts)
-      if (account.state === 'connected') account.expiresAt = 1;
+      if (account.state !== 'disconnected') account.expiresAt = 1;
   }
   private persist(next: PlanAdviserState) {
     try {
@@ -431,7 +431,12 @@ export class ChatGptPlanAdviserAccounts {
       throw Error('Adviser model catalog unavailable');
     return models;
   }
-  private async refresh(account: Account, signal: AbortSignal, recovery = false): Promise<Account> {
+  private async refresh(
+    account: Account,
+    signal: AbortSignal,
+    recovery = false,
+    assertRecoveryCurrent?: () => void,
+  ): Promise<Account> {
     let refreshOwner = account;
     const originalState = account.state;
     try {
@@ -447,6 +452,7 @@ export class ChatGptPlanAdviserAccounts {
       const identity = identitySchema.parse(
         await this.verify(tokens.id_token, account.clientId, undefined, signal),
       );
+      this.assertOwnership();
       if (
         identity.sub !== account.subject ||
         this.closed ||
@@ -470,8 +476,13 @@ export class ChatGptPlanAdviserAccounts {
         accounts: this.state.accounts.map((row) => (row === account ? next : row)),
       });
       refreshOwner = next;
+      // A cancelled HTTP request cannot discard a verified rotating token pair.
+      // It still cannot publish a connected account, even after shared refresh work.
+      assertRecoveryCurrent?.();
       next.models = await this.models(next.accessToken, signal);
       signal.throwIfAborted();
+      this.assertOwnership();
+      assertRecoveryCurrent?.();
       if (this.closed || !this.state.accounts.includes(next) || next.state !== originalState)
         throw Error('Adviser registration changed');
       next.state = 'connected';
@@ -505,21 +516,23 @@ export class ChatGptPlanAdviserAccounts {
         this.controllers.set(id, controller);
       }
       const generation = this.generation;
-      const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30000)]);
-      const assertCurrent = () => {
+      const refreshSignal = AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]);
+      const combined = AbortSignal.any([signal, refreshSignal]);
+      const assertRecoveryCurrent = () => {
         this.assertOwnership();
         combined.throwIfAborted();
-        if (
-          generation !== this.generation ||
-          !this.state.accounts.includes(account) ||
-          account.state === 'disconnected'
-        )
+        if (generation !== this.generation) throw Error('Saved adviser connection changed');
+      };
+      const assertCurrent = () => {
+        assertRecoveryCurrent();
+        if (!this.state.accounts.includes(account) || account.state === 'disconnected')
           throw Error('Saved adviser connection changed');
       };
       pending = (async () => {
         assertCurrent();
         permitted(account.grantedScopes.join(' '));
-        if (account.expiresAt <= this.now() + 60000) return this.refresh(account, combined, true);
+        if (account.expiresAt <= this.now() + 60000)
+          return this.refresh(account, refreshSignal, true, assertRecoveryCurrent);
         const identity = identitySchema.parse(
           await this.verify(account.idToken, account.clientId, undefined, combined),
         );

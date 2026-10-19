@@ -1,3 +1,4 @@
+import { TelosArtifactStore } from '../telos-artifact-store.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
@@ -32,6 +33,14 @@ function setup() {
   app.use(
     createTelosArtifactRouter({
       dbPath: () => path,
+      operatorAuth: (req, res, next) => {
+        if (req.headers['x-fixture-operator'] !== 'yes') {
+          res.status(403).json({ error: 'Operator required' });
+          return;
+        }
+        res.locals.authSession = { id: 'fixture-user' };
+        next();
+      },
       verifyInternal: (req) => req.headers['x-internal-token'] === 'token',
       sessionId: (client) => (client === 'active' ? 'session-original' : undefined),
       readFile,
@@ -46,6 +55,26 @@ function setup() {
   return { app, call, readFile, path };
 }
 describe('Telos host artifact routes', () => {
+  it('keeps reviewed source packets outside generic outputs and conversation artifact authority', async () => {
+    const { app, path, call } = setup();
+    const store = new TelosArtifactStore(path);
+    const packet = store.save({
+      itemId: 't',
+      filename: 'origin.json',
+      title: 'Reviewed source',
+      bytes: Buffer.from('SOURCE-CAPTURE-BYTES'),
+      sessionId: 'source-capture:fixture',
+    });
+    store.close();
+    expect((await request(app).get('/api/telos/items/t/artifacts')).body.artifacts).toEqual([]);
+    expect((await call('find', { itemId: 't' })).body.artifacts).toEqual([]);
+    expect((await call('read', { id: packet.id, revision: 1 })).status).toBe(403);
+    expect((await request(app).get(packet.url).set('X-Internal-Token', 'token')).status).toBe(403);
+    const authorized = await request(app).get(packet.url).set('X-Fixture-Operator', 'yes');
+    expect(authorized.status).toBe(200);
+    expect(authorized.body.toString()).toBe('SOURCE-CAPTURE-BYTES');
+  });
+
   it('reads the authenticated session workspace, persists bytes, then recovers from another request', async () => {
     const { call, readFile, app } = setup();
     const saved = await call('save', {

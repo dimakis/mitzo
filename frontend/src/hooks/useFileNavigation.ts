@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import type { SetURLSearchParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
-import { fetchFile } from '../lib/share-file';
-import { artifactApiUrl, isTelosArtifactUrl } from '../lib/file-paths';
+import { artifactApiUrl, isTelosArtifactUrl, telosDocumentUrl } from '../lib/file-paths';
 
 interface DirEntry {
   name: string;
@@ -45,6 +44,8 @@ export interface FileNavState {
   filePath: string;
   displayName?: string;
   previewUnavailable?: boolean;
+  artifactRevision?: number;
+  artifactEditable?: boolean;
   dirPath: string;
   sessionId: string;
 }
@@ -57,6 +58,8 @@ export function useFileNavigation(
   const telos = isTelosArtifactUrl(filePath);
   const [displayName, setDisplayName] = useState('');
   const [previewUnavailable, setPreviewUnavailable] = useState(false);
+  const [artifactRevision, setArtifactRevision] = useState<number>();
+  const [artifactEditable, setArtifactEditable] = useState(false);
   const dirPath = searchParams.get('dir') || '';
   const rootParam = searchParams.get('root') || '';
   const sessionId = searchParams.get('sessionId') || '';
@@ -125,26 +128,17 @@ export function useFileNavigation(
     if (sessionId) directoryParams.set('sessionId', sessionId);
 
     if (isViewing) {
-      const read = telos
-        ? fetchFile(filePath).then(async (file) => {
-            const text = file.type.startsWith('text/') || /(?:json|xml|yaml)$/.test(file.type);
-            return {
-              path: filePath,
-              name: file.name,
-              ext: file.name.includes('.') ? '.' + file.name.split('.').pop()!.toLowerCase() : '',
-              previewUnavailable: !text,
-              content: text
-                ? await file.text()
-                : 'This file has no in-app preview. Use the file options to share or save it.',
-            };
-          })
-        : apiFetch(artifactApiUrl('read', filePath, sessionId || undefined)).then(async (r) => {
-            if (!r.ok) {
-              const body = await r.json().catch(() => null);
-              throw new Error(body?.error || 'Failed to load file');
-            }
-            return r.json();
-          });
+      const read = apiFetch(
+        telos
+          ? telosDocumentUrl(filePath)
+          : artifactApiUrl('read', filePath, sessionId || undefined),
+      ).then(async (r) => {
+        if (!r.ok) {
+          const body = await r.json().catch(() => null);
+          throw new Error(body?.error || 'Failed to load file');
+        }
+        return r.json();
+      });
       read
         .then((data) => {
           if (disposed) return;
@@ -154,6 +148,8 @@ export function useFileNavigation(
           });
           setDisplayName(typeof data.name === 'string' ? data.name : '');
           setPreviewUnavailable(Boolean(data.previewUnavailable));
+          setArtifactRevision(telos ? data.revision : undefined);
+          setArtifactEditable(telos && data.editable === true);
           setContent(data.content);
           setExt(data.ext);
         })
@@ -289,13 +285,22 @@ export function useFileNavigation(
     filePath: openedPath,
     displayName,
     previewUnavailable,
+    artifactRevision,
+    artifactEditable,
     dirPath,
     sessionId,
   };
 
   return {
     state,
-    setContent,
+    setContent: (content: string, savedPath?: string) => {
+      setContent(content);
+      if (telos && savedPath) {
+        const params = new URLSearchParams(searchParams);
+        params.set('path', savedPath);
+        setSearchParams(params, { replace: true });
+      }
+    },
     setError,
     openEntry,
     goUp,

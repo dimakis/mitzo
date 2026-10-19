@@ -254,7 +254,15 @@ export function createSubscriptionLoginController(
       cancelLogin = login.cancel;
       allocatedDone();
       void login.completed.catch(() => undefined);
-      if (device && attempt?.state === 'pending' && !cancelling) {
+      // Allocation can outlive the original window before any status request observes it.
+      // Settle the returned handle through the existing cleanup owner before exporting a code.
+      await expire();
+      if (
+        device &&
+        attempt?.attemptId === current.attemptId &&
+        attempt.state === 'pending' &&
+        !cancelling
+      ) {
         const selected = login as DeviceLogin;
         if (
           selected.verificationUrl !== 'https://auth.openai.com/codex/device' ||
@@ -324,7 +332,11 @@ export function createSubscriptionLoginController(
         },
       );
       if (device) {
-        res.json(publicReceipt());
+        res.json(
+          attempt?.attemptId === current.attemptId && owner === authenticatedOwner
+            ? publicReceipt()
+            : retainedReceipt(authenticatedOwner, current.attemptId),
+        );
         return;
       }
       res.json({

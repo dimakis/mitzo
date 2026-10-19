@@ -72,7 +72,7 @@ afterAll(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
-function fixture(withContext = false) {
+function fixture(withContext = false, sessionId = 'session') {
   const profiles = new AccountProfiles(
     [
       {
@@ -180,7 +180,7 @@ function fixture(withContext = false) {
     agentProfile,
   };
   const meta = {
-    sessionId: 'session',
+    sessionId: sessionId,
     repositoryWorkspaceId: 'workspace',
     cwd: config.workdir,
     accountBinding: account,
@@ -212,7 +212,7 @@ function fixture(withContext = false) {
   const owner = {
     events: chat.eventStore,
     nativeStore: native,
-    sessionId: 'session',
+    sessionId: sessionId,
     expected,
     account,
     profiles,
@@ -224,11 +224,11 @@ function fixture(withContext = false) {
     assertCurrentSync: vi.fn(),
     assertSelectionCurrentSync: vi.fn(),
     assertCurrent: vi.fn(async () => {}),
-    readRetained: () => native.readArtifactRuntime('session', account) ?? undefined,
+    readRetained: () => native.readArtifactRuntime(sessionId, account) ?? undefined,
     assertRetainedAuthority: vi.fn(),
     close: vi.fn(),
   };
-  native.create('session', account, config.workdir);
+  native.create(sessionId, account, config.workdir);
   const workspace = {
     seed: '/offline/repository-seed',
     id: 'workspace',
@@ -240,7 +240,7 @@ function fixture(withContext = false) {
     baseOid: 'a'.repeat(40),
     featureBranch: 'branch',
     sourceDigest: 'b'.repeat(64),
-    conversationId: 'session',
+    conversationId: sessionId,
     sandbox: true,
     state: 'claimed' as const,
     createdAt: 1,
@@ -492,5 +492,29 @@ it('uses the shared event consumer for first launch and exact cold continuation 
     f.transport.send.mock.calls.some(
       ([event]) => event.type === 'block_delta' || event.type === 'block_start',
     ),
+  ).toBe(true);
+});
+it('denies retained role corruption arriving during awaited final OpenShell admission validation', async () => {
+  const f = fixture(true, 'role-final-session');
+  chat.eventStore.admitOrdinaryOpenShellCommand(f.meta, f.expected.binding, {
+    clientMsgId: 'role-final',
+    requestFingerprint: 'role-final-fp',
+    selection: f.expected.selection,
+    payload: { text: 'Explicit command', systemPrompt: 'Pinned instructions' },
+  });
+  chat.eventStore.claimOrdinaryOpenShellCommandDispatch('role-final');
+  const admission = OwnedOpenShellCodexChatAdmission.capture(f.owner, 'role-final');
+  f.owner.assertCurrent.mockImplementationOnce(async () => {
+    chat.eventStore.append(f.meta.sessionId, 'telos_work_role_context', {
+      version: 1,
+      selection: { role: 'lead' },
+    });
+  });
+  await expect(admission.assertCurrent()).rejects.toThrow();
+  expect(f.owner.assertCurrent).toHaveBeenCalledOnce();
+  expect(
+    chat.eventStore
+      .getSessionEvents(f.meta.sessionId)
+      .some((event) => event.type === 'telos_work_role_context'),
   ).toBe(true);
 });

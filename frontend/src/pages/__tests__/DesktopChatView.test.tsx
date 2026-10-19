@@ -19,6 +19,14 @@ async function confirmAccount(accountId: string) {
   });
 }
 
+// Route wiring tests exercise the existing controls directly. The real sheet
+// navigation, retained editors and summary layout are covered by QuickChatSettings
+// unit tests and the all-intercept local-first/multi-runtime browser suites.
+vi.mock('../../lib/quick-settings-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/quick-settings-context')>()),
+  useQuickSettings: () => null,
+}));
+
 vi.mock('../../components/RepositoryChatPicker', () => ({
   RepositoryChatPicker: ({
     onChange,
@@ -418,10 +426,10 @@ describe('DesktopChatView', () => {
     expect(screen.getByTestId('command-center')).toBeTruthy();
   });
 
-  it('renders session panel in right slot', () => {
+  it('renders session panel in left slot', () => {
     renderWithRouter();
-    const right = screen.getByTestId('right');
-    expect(right.querySelector('[data-testid="session-panel"]')).toBeTruthy();
+    const left = screen.getByTestId('left');
+    expect(left.querySelector('[data-testid="session-panel"]')).toBeTruthy();
   });
 
   it('renders chat area and input in center slot', () => {
@@ -431,10 +439,10 @@ describe('DesktopChatView', () => {
     expect(center.querySelector('[data-testid="chat-input"]')).toBeTruthy();
   });
 
-  it('renders command center in left slot', () => {
+  it('renders command center in right slot', () => {
     renderWithRouter();
-    const left = screen.getByTestId('left');
-    expect(left.querySelector('[data-testid="command-center"]')).toBeTruthy();
+    const right = screen.getByTestId('right');
+    expect(right.querySelector('[data-testid="command-center"]')).toBeTruthy();
   });
 
   it('renders status bar', () => {
@@ -585,7 +593,9 @@ it('shows reconnecting in collapsed workspace settings when disconnected', () =>
   );
   const toggle = screen.getByRole('button', { name: /^Workspace/ });
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
-  expect(toggle.textContent).toContain('Reconnecting');
+  expect(document.getElementById(toggle.getAttribute('aria-describedby')!)?.textContent).toBe(
+    'Reconnecting',
+  );
 });
 
 it('offers explicit collaboration for an ordinary desktop conversation without automatic work reads', async () => {
@@ -646,7 +656,9 @@ it('shows the profile, model and thinking in the collapsed top chat settings sum
   await waitFor(() =>
     expect(toggle.getAttribute('aria-label')).toContain('Work Vertex, Luna, Thinking: high'),
   );
-  expect(toggle.querySelector('.workspace-controls-profile')).toBeTruthy();
+  expect(
+    toggle.closest('.workspace-controls')?.querySelector('.workspace-controls-context'),
+  ).toBeTruthy();
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByRole('combobox')).toBeNull();
 });
@@ -683,7 +695,8 @@ it('replaces ordinary workspace actions and Ready with per-agent guidance for Sy
       </MitzoStoreProvider>
     </MemoryRouter>,
   );
-  await screen.findByText('Symposium');
+  await screen.findByRole('button', { name: 'Agents' });
+  expect(screen.queryByText('Accounts and models per agent')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Ask' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Auto' })).toBeNull();
   expect(screen.queryByTitle('Close session')).toBeNull();
@@ -746,7 +759,6 @@ it('retains the ordinary Close action after ordinary session metadata loads', as
   fireEvent.click(close);
   expect(store.getState().closeSession).toHaveBeenCalledOnce();
   fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
-  fireEvent.click(screen.getByText('More options'));
   expect(screen.getByRole('button', { name: 'Ask' })).toBeTruthy();
 });
 
@@ -1076,4 +1088,17 @@ it('keeps Stop pending until server state confirms completion', () => {
 vi.mock('../../hooks/useExplicitLocalChat', async () => {
   const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
   return { useExplicitLocalChat: disabledLocalChat };
+});
+it('keeps a Telos lead draft in the ordinary desktop setup with an explicit silent binding action', () => {
+  const store = createTestStore();
+  render(
+    <MemoryRouter initialEntries={['/chat?telosRoleItem=item&telosRole=lead&telosRoleMode=assign']}>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  expect(
+    (screen.getByRole('button', { name: 'Assign lead & open chat' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
 });

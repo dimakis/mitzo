@@ -137,7 +137,26 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
   CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
   CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
+  CREATE TABLE IF NOT EXISTS task_telos_execution_bindings (
+    task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+    attempt_id TEXT NOT NULL UNIQUE,
+    item_id TEXT NOT NULL,
+    lead_conversation_id TEXT NOT NULL,
+    worker_conversation_id TEXT NOT NULL UNIQUE,
+    context_snapshot_id TEXT NOT NULL,
+    context_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
 `;
+
+export interface TelosExecutionTaskBinding {
+  attemptId: string;
+  childItemId: string;
+  leadConversationId: string;
+  workerConversationId: string;
+  contextSnapshotId: string;
+  contextHash: string;
+}
 
 const MIGRATIONS = [
   // Migration 1: Add workflow columns to existing tasks table
@@ -249,6 +268,8 @@ export class TaskStore {
 
     let depth = 0;
     if (input.parentId) {
+      if (this.getTelosExecutionBinding(input.parentId))
+        throw new Error('Exact delegated slices cannot create task children');
       const parentRow = db.prepare('SELECT depth FROM tasks WHERE id = ?').get(input.parentId) as
         { depth: number } | undefined;
       if (!parentRow) {
@@ -283,6 +304,93 @@ export class TaskStore {
     return this.get(id)!;
   }
 
+  /** Create or recover the one Task Board node owned by an exact Telos attempt. */
+  createOrRecoverTelosExecutionTask(
+    input: TaskCreateInput,
+    binding: TelosExecutionTaskBinding,
+  ): Task {
+    if (input.parentId)
+      throw new Error('Exact delegated tasks require an independent execution node');
+    if (!/^[a-f0-9]{64}$/.test(binding.contextHash))
+      throw new Error('Exact reviewed context hash required');
+    for (const [name, value] of Object.entries(binding)) {
+      if (typeof value !== 'string' || !value.trim())
+        throw new Error(`Telos execution binding requires ${name}`);
+    }
+    if (binding.workerConversationId === binding.leadConversationId)
+      throw new Error('Telos lead cannot be the delegated worker');
+    return this.getDb()
+      .transaction(() => {
+        const existing = this.getDb()
+          .prepare('SELECT task_id FROM task_telos_execution_bindings WHERE attempt_id=?')
+          .get(binding.attemptId) as { task_id: string } | undefined;
+        if (existing) {
+          const retained = this.getTelosExecutionBinding(existing.task_id);
+          if (
+            !retained ||
+            !Object.entries(binding).every(
+              ([key, value]) => retained[key as keyof TelosExecutionTaskBinding] === value,
+            )
+          )
+            throw new Error('Telos execution task recovery scope conflict');
+          const task = this.get(existing.task_id);
+          if (!task) throw new Error('Retained Telos execution task is missing');
+          return task;
+        }
+        const task = this.create({ ...input, sessionPolicy: 'reuse' });
+        this.getDb().prepare('UPDATE tasks SET requires_approval=1 WHERE id=?').run(task.id);
+        this.getDb()
+          .prepare(
+            'INSERT INTO task_telos_execution_bindings(task_id,attempt_id,item_id,lead_conversation_id,worker_conversation_id,context_snapshot_id,context_hash,created_at) VALUES(?,?,?,?,?,?,?,?)',
+          )
+          .run(
+            task.id,
+            binding.attemptId,
+            binding.childItemId,
+            binding.leadConversationId,
+            binding.workerConversationId,
+            binding.contextSnapshotId,
+            binding.contextHash,
+            Date.now(),
+          );
+        return this.get(task.id)!;
+      })
+      .immediate();
+  }
+
+  getTelosExecutionBinding(taskId: string): TelosExecutionTaskBinding | null {
+    const row = this.getDb()
+      .prepare(
+        'SELECT attempt_id,item_id,lead_conversation_id,worker_conversation_id,context_snapshot_id,context_hash FROM task_telos_execution_bindings WHERE task_id=?',
+      )
+      .get(taskId) as
+      | {
+          attempt_id: string;
+          item_id: string;
+          lead_conversation_id: string;
+          worker_conversation_id: string;
+          context_snapshot_id: string;
+          context_hash: string;
+        }
+      | undefined;
+    return row
+      ? {
+          attemptId: row.attempt_id,
+          childItemId: row.item_id,
+          leadConversationId: row.lead_conversation_id,
+          workerConversationId: row.worker_conversation_id,
+          contextSnapshotId: row.context_snapshot_id,
+          contextHash: row.context_hash,
+        }
+      : null;
+  }
+  getTelosExecutionTaskForConversation(workerConversationId: string): string | null {
+    const row = this.getDb()
+      .prepare('SELECT task_id FROM task_telos_execution_bindings WHERE worker_conversation_id=?')
+      .get(workerConversationId) as { task_id: string } | undefined;
+    return row?.task_id ?? null;
+  }
+
   get(id: string): Task | null {
     const row = this.getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(id) as
       TaskRow | undefined;
@@ -292,6 +400,20 @@ export class TaskStore {
   update(id: string, fields: TaskUpdateInput): Task | null {
     const existing = this.get(id);
     if (!existing) return null;
+    if (
+      this.getTelosExecutionBinding(id) &&
+      [
+        'title',
+        'description',
+        'sessionPolicy',
+        'stageType',
+        'gateConfig',
+        'maxRetries',
+        'retryCount',
+        'requiresApproval',
+      ].some((key) => Object.hasOwn(fields, key))
+    )
+      throw new Error('Exact delegated task scope is immutable');
 
     const sets: string[] = [];
     const values: unknown[] = [];
@@ -371,6 +493,8 @@ export class TaskStore {
   }
 
   delete(id: string): boolean {
+    if (this.getTelosExecutionBinding(id))
+      throw new Error('Delegated task evidence must be retained');
     const result = this.getDb().prepare('DELETE FROM tasks WHERE id = ?').run(id);
     return result.changes > 0;
   }
@@ -486,6 +610,8 @@ export class TaskStore {
     const candidates = parentId ? this.getChildren(parentId) : this.listRoots();
 
     for (const task of candidates) {
+      // S5 provisions a chat; only an explicit ordinary worker command starts work.
+      if (this.getTelosExecutionBinding(task.id)) continue;
       // Skip terminal or blocked subtrees
       if (TERMINAL_STATUSES.has(task.status) || task.status === 'blocked') continue;
 

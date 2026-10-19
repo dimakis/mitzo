@@ -1,0 +1,645 @@
+{
+  "config": {
+    "argv": [
+      "/opt/homebrew/Cellar/node/24.10.0/bin/node",
+      "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/app-joining-integration/node_modules/.bin/playwright",
+      "test",
+      "--config",
+      "playwright.offline.config.ts",
+      "tests/offline/symposium-approved-design.spec.ts",
+      "tests/offline/symposium-shared-conversation.spec.ts",
+      "--workers=1",
+      "--retries=0",
+      "--reporter=list,json",
+      "--output=/private/tmp/symposium-combined-browser-results"
+    ],
+    "configFile": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/app-joining-integration/playwright.offline.config.ts",
+    "rootDir": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/app-joining-integration/tests/offline",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/private/tmp/symposium-combined-browser-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "browser-startup-0",
+        "name": "browser-startup-0",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/app-joining-integration/tests/support",
+        "testIgnore": [],
+        "testMatch": [
+          "**/browser-startup.setup.ts"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/private/tmp/symposium-combined-browser-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "browser-startup-1",
+        "name": "browser-startup-1",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/app-joining-integration/tests/support",
+        "testIgnore": [],
+        "testMatch": [
+          "**/browser-startup.setup.ts"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/private/tmp/symposium-combined-browser-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "mobile-webkit",
+        "name": "mobile-webkit",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/app-joining-integration/tests/offline",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/private/tmp/symposium-combined-browser-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "mobile-chromium",
+        "name": "mobile-chromium",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/app-joining-integration/tests/offline",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/private/tmp/symposium-combined-browser-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "desktop-chromium",
+        "name": "desktop-chromium",
+        "testDir": "/Users/dsaridak/Documents/Codex/2026-10-17/continue-symposium-native-request-integration-after/app-joining-integration/tests/offline",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list"
+      ],
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.63.0",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "../support/browser-startup.setup.ts",
+      "file": "../support/browser-startup.setup.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "browser startup",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "browser-startup-0",
+              "projectName": "browser-startup-0",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 547,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:42:52.682Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7104cce1e3aa52e2069d-b5579427e806574fb334",
+          "file": "../support/browser-startup.setup.ts",
+          "line": 5,
+          "column": 1
+        },
+        {
+          "title": "browser startup",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "browser-startup-1",
+              "projectName": "browser-startup-1",
+              "results": [
+                {
+                  "workerIndex": 1,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 181,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:42:53.549Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "7104cce1e3aa52e2069d-063175c32e5c0b2bdf50",
+          "file": "../support/browser-startup.setup.ts",
+          "line": 5,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "symposium-approved-design.spec.ts",
+      "file": "symposium-approved-design.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Symposium approved design: real chat, Agents and fresh setup (dark)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-webkit",
+              "projectName": "mobile-webkit",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3908,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:42:54.072Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "d3f1561ed48a8c4e642c-27cac8c25cb8df1a7c19",
+          "file": "symposium-approved-design.spec.ts",
+          "line": 24,
+          "column": 3
+        },
+        {
+          "title": "Symposium approved design: real chat, Agents and fresh setup (light)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-webkit",
+              "projectName": "mobile-webkit",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3747,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:42:58.240Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "d3f1561ed48a8c4e642c-c96e8bff994cfd4caf9f",
+          "file": "symposium-approved-design.spec.ts",
+          "line": 24,
+          "column": 3
+        },
+        {
+          "title": "Symposium approved design: real chat, Agents and fresh setup (dark)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-chromium",
+              "projectName": "mobile-chromium",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3955,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:43:05.967Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "d3f1561ed48a8c4e642c-eb75ee32c9402d0da146",
+          "file": "symposium-approved-design.spec.ts",
+          "line": 24,
+          "column": 3
+        },
+        {
+          "title": "Symposium approved design: real chat, Agents and fresh setup (light)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-chromium",
+              "projectName": "mobile-chromium",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 3822,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:43:10.184Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "d3f1561ed48a8c4e642c-d195d58b89af20717091",
+          "file": "symposium-approved-design.spec.ts",
+          "line": 24,
+          "column": 3
+        },
+        {
+          "title": "Symposium approved design: real chat, Agents and fresh setup (dark)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-chromium",
+              "projectName": "desktop-chromium",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2116,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:43:18.714Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "d3f1561ed48a8c4e642c-b68d7304c65b71bab5d8",
+          "file": "symposium-approved-design.spec.ts",
+          "line": 24,
+          "column": 3
+        },
+        {
+          "title": "Symposium approved design: real chat, Agents and fresh setup (light)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-chromium",
+              "projectName": "desktop-chromium",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1975,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:43:20.945Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "d3f1561ed48a8c4e642c-970ce35156853960fb79",
+          "file": "symposium-approved-design.spec.ts",
+          "line": 24,
+          "column": 3
+        }
+      ]
+    },
+    {
+      "title": "symposium-shared-conversation.spec.ts",
+      "file": "symposium-shared-conversation.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (dark)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-webkit",
+              "projectName": "mobile-webkit",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1793,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:43:02.086Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "386406e59c24a613b8ca-d30409b030fb2f4e1274",
+          "file": "symposium-shared-conversation.spec.ts",
+          "line": 35,
+          "column": 3
+        },
+        {
+          "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (light)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-webkit",
+              "projectName": "mobile-webkit",
+              "results": [
+                {
+                  "workerIndex": 2,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 1717,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:43:03.885Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "386406e59c24a613b8ca-175d142aca9fdfbfd5c7",
+          "file": "symposium-shared-conversation.spec.ts",
+          "line": 35,
+          "column": 3
+        },
+        {
+          "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (dark)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-chromium",
+              "projectName": "mobile-chromium",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2180,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:43:14.100Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "386406e59c24a613b8ca-ebaf5ae7d922dd488a73",
+          "file": "symposium-shared-conversation.spec.ts",
+          "line": 35,
+          "column": 3
+        },
+        {
+          "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (light)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "mobile-chromium",
+              "projectName": "mobile-chromium",
+              "results": [
+                {
+                  "workerIndex": 3,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2044,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:43:16.284Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "386406e59c24a613b8ca-4add558d3b1d3dc75d8c",
+          "file": "symposium-shared-conversation.spec.ts",
+          "line": 35,
+          "column": 3
+        },
+        {
+          "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (dark)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-chromium",
+              "projectName": "desktop-chromium",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2329,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:43:23.003Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "386406e59c24a613b8ca-032e8392d756e1c59d01",
+          "file": "symposium-shared-conversation.spec.ts",
+          "line": 35,
+          "column": 3
+        },
+        {
+          "title": "shared conversation retains partial outcomes, Defaults/@ and drafts (light)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "desktop-chromium",
+              "projectName": "desktop-chromium",
+              "results": [
+                {
+                  "workerIndex": 4,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 2027,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-10-18T00:43:25.336Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "386406e59c24a613b8ca-985bccd8bb39be173601",
+          "file": "symposium-shared-conversation.spec.ts",
+          "line": 35,
+          "column": 3
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-10-18T00:42:52.123Z",
+    "duration": 35291.718,
+    "expected": 14,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

@@ -1,11 +1,19 @@
+import {
+  resolveTelosWorkRoleContext,
+  resolveTelosWorkSystemPrompt,
+} from './telos-work-role-context.js';
+import { SourceSnapshotsSchema } from '@mitzo/protocol';
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
-import { resolveChatAgentProfile } from './agent-library-binding.js';
 import {
   assertOrdinaryCodexContextIdentity,
   assertOrdinaryCodexSnapshotCustody,
 } from './ordinary-codex-agent-context.js';
 import type { AgentContextSnapshot } from '@mitzo/protocol';
-import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
+import {
+  readOrdinaryCodexAgentProfile,
+  resolveOrdinaryCodexAgentProfile,
+} from './ordinary-codex-agent-profile.js';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import type { AgentLibraryStore } from './agent-library-store.js';
@@ -42,6 +50,7 @@ import { hasPersistentRevocationAuthority } from './auth.js';
 
 const unavailable = () => new Error('Owned local Codex runtime unavailable');
 const RawPayload = z.strictObject({
+  sourceSnapshots: SourceSnapshotsSchema.optional(),
   text: z.string().min(1).max(1_000_000),
   intent: z.string().max(1_000_000).optional(),
   images: z
@@ -137,10 +146,18 @@ export class OrdinaryLocalCodexOwnedRuntime {
   async admit(raw: unknown): Promise<{ dispatched: boolean }> {
     return this.admitCommand(raw, false);
   }
+  async admitPreparedFirst(operationId: string, raw: unknown): Promise<{ dispatched: boolean }> {
+    if (!operationId) throw unavailable();
+    return this.admitCommand(raw, false, operationId);
+  }
   async admitResume(raw: unknown): Promise<{ dispatched: boolean }> {
     return this.admitCommand(raw, true);
   }
-  private async admitCommand(raw: unknown, resume: boolean): Promise<{ dispatched: boolean }> {
+  private async admitCommand(
+    raw: unknown,
+    resume: boolean,
+    preparationOperationId?: string,
+  ): Promise<{ dispatched: boolean }> {
     let bootstrap: FrozenHostCodexBootstrapAuthority | undefined;
     const retainedLease = this.#lease;
     try {
@@ -150,6 +167,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
       if (request.clientMsgId !== this.owners.commandId) throw unavailable();
       // Builtins remain code-owned; a matching user Library ID cannot change namespace.
       const rawPayload = RawPayload.parse(request.payload);
+      assembleSourceSnapshots(rawPayload.text, rawPayload.sourceSnapshots);
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
       const accountIdentity = (value: typeof binding) => ({
@@ -210,16 +228,17 @@ export class OrdinaryLocalCodexOwnedRuntime {
         );
         if (!receipt || !['uncertain', 'consumed'].includes(receipt.state)) throw unavailable();
       }
-      const agentProfile = await resolveChatAgentProfile({
+      const agentProfile = await resolveOrdinaryCodexAgentProfile({
         requested: request.selection.agent,
         stored: resume
           ? this.owners.eventStore.getSession(this.#reservation.conversationId)?.agentProfile
           : undefined,
         resume,
         provider: binding.provider,
+        execution: { location: 'local' },
         lookup: async (selected) => readOrdinaryCodexAgentProfile(this.owners.library, selected),
       });
-      assertAgentToolRoute(agentProfile?.definition, 'codex');
+      assertAgentToolRoute(agentProfile?.definition, 'codex-owned-local');
       this.assertCurrent();
       if (!agentProfile || request.selection.permission.revision !== 0) throw unavailable();
       const retainedContext = resume
@@ -230,7 +249,12 @@ export class OrdinaryLocalCodexOwnedRuntime {
       if (resume) assertOrdinaryCodexSnapshotCustody(custody!, agentProfile, retainedContext);
       const payload: Payload = {
         ...rawPayload,
-        systemPrompt: buildAgentProfilePrompt(agentProfile.definition),
+        systemPrompt: resolveTelosWorkSystemPrompt(
+          this.owners.eventStore,
+          this.#reservation.conversationId,
+          this.#reservation.binding,
+          buildAgentProfilePrompt(agentProfile.definition),
+        ),
       };
       const target = this.#runtime.target();
       const catalog = new OrdinaryLocalCodexCapabilityCatalog(profiles, target, 'ordinary');
@@ -243,6 +267,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
         signal: this.#signal,
         commandId: this.owners.commandId,
         continuation: resume,
+        preparationOperationId,
       });
       const bridge = new OwnedCodexLifecycleBridge(() => bootstrap?.currentLease());
       bootstrap = new FrozenHostCodexBootstrapAuthority({
@@ -305,7 +330,11 @@ export class OrdinaryLocalCodexOwnedRuntime {
       let claimedWorkspace: RepositoryWorkspace | undefined;
       let preparedContext: AgentContextSnapshot | undefined;
       const result = await (
-        resume ? coordinator.admitResume.bind(coordinator) : coordinator.admit.bind(coordinator)
+        preparationOperationId
+          ? coordinator.admitPreparedFirst.bind(coordinator, preparationOperationId)
+          : resume
+            ? coordinator.admitResume.bind(coordinator)
+            : coordinator.admit.bind(coordinator)
       )(
         {
           sessionId: this.#reservation.conversationId,
@@ -435,12 +464,18 @@ export class OrdinaryLocalCodexOwnedRuntime {
         throw unavailable();
       const request = OrdinaryLocalCodexCommandRequestSchema.parse(raw);
       const rawPayload = RawPayload.parse(request.payload);
+      assembleSourceSnapshots(rawPayload.text, rawPayload.sourceSnapshots);
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
       profiles.validateModelSelection(binding, request.selection.model, request.selection.thinking);
       const payload: Payload = {
         ...rawPayload,
-        systemPrompt: buildAgentProfilePrompt(original.agentProfile!.definition),
+        systemPrompt: resolveTelosWorkSystemPrompt(
+          this.owners.eventStore,
+          this.#reservation.conversationId,
+          this.#reservation.binding,
+          buildAgentProfilePrompt(original.agentProfile!.definition),
+        ),
       };
       const assertSelection = async (
         expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
@@ -580,6 +615,12 @@ export class OrdinaryLocalCodexOwnedRuntime {
     if (this.#closed) throw unavailable();
     this.#signal.throwIfAborted();
     this.#operator.assertCurrent();
+    resolveTelosWorkRoleContext(
+      this.owners.eventStore,
+      this.#reservation.conversationId,
+      this.owners.eventStore.getSession(this.#reservation.conversationId)?.accountBinding ??
+        undefined,
+    );
   }
 
   close(): void {

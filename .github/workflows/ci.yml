@@ -55,10 +55,9 @@ jobs:
   browser:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
-    name: Connections browser regression
+    name: Browser interaction tests
     runs-on: ubuntu-latest
-    # A measured cold install took 22 minutes; both suites then passed in 12.
-    # Keep a bounded budget that includes installation and both required suites.
+    # Retain room for cold dependency installation and failure diagnostics.
     timeout-minutes: 45
     permissions:
       contents: read
@@ -83,15 +82,37 @@ jobs:
             playwright-report/browser/
           retention-days: 7
           if-no-files-found: warn
+
+  offline:
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
+    name: Offline layouts (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    strategy:
+      # Keep independent coverage and diagnostics even when another project fails.
+      fail-fast: false
+      matrix:
+        project: [mobile-webkit, mobile-chromium, desktop-chromium]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --global npm@11.18.0
+      - run: npm install --no-audit
+      - run: npx playwright install --with-deps webkit chromium
       - name: Verify shared theme and mobile layouts without a backend
         id: offline-tests
-        if: always()
-        run: npm run test:ui
+        run: npm run test:ui -- --project=${{ matrix.project }}
       - name: Retain offline layout failure evidence
         if: ${{ always() && steps.offline-tests.outcome == 'failure' }}
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-offline-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          name: playwright-offline-failure-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/
             playwright-report/offline/
@@ -102,7 +123,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: agent-tool-selection-visuals-${{ github.run_id }}-${{ github.run_attempt }}
+          name: agent-tool-selection-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/**/agent-tools-*.png
             test-results/offline/**/tool-library-*.png
@@ -113,7 +134,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: responsiveness-visuals-${{ github.run_id }}-${{ github.run_attempt }}
+          name: responsiveness-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: test-results/offline/**/responsiveness-*.png
           retention-days: 7
           if-no-files-found: warn
@@ -122,8 +143,23 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: local-first-command-visuals-${{ github.run_id }}-${{ github.run_attempt }}
-          path: test-results/offline/**/local-*.png
+          name: local-first-command-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/offline/**/local-*.png
+            test-results/offline/**/quick-chat-settings-*.png
+            test-results/offline/**/quick-sheet-*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Retain Telos context and setup visual evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: telos-context-and-setup-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/offline/**/role-*.png
+            test-results/offline/**/reviewed-context-*.png
+            test-results/offline/**/linked-context-*.png
           retention-days: 7
           if-no-files-found: ignore
 
@@ -131,12 +167,40 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: artefact-sharing-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          name: artefact-sharing-acceptance-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             test-results/offline/**/artefact-sharing.png
             test-results/offline/**/file-options.png
           retention-days: 7
           if-no-files-found: ignore
+
+      - name: Retain Telos saved-document navigation screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: telos-saved-navigation-visuals-${{ matrix.project }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/offline/telos-outcomes-workspace*/saved-link-*.png
+            test-results/offline/telos-outcomes-workspace*/scroll-restored-*.png
+            test-results/offline/telos-outcomes-workspace*/output-return-*.png
+            test-results/offline/telos-outcomes-workspace*/coordinator-labels-*.png
+            test-results/offline/telos-outcomes-workspace*/saved-reference-return-*.png
+          retention-days: 7
+          if-no-files-found: ignore
+
+  browser-validation:
+    name: Connections browser regression
+    needs: [changes, browser, offline]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Require every selected browser suite
+        env:
+          CI_BROWSER_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-browser-gate.mjs
 
   native:
     needs: changes
@@ -233,8 +297,22 @@ jobs:
           sudo install -d -o "$USER" /sandbox
           python3 -I docs/spikes/openshell-codex/knowledge-write-scope-smoke.py
 
-      - name: Build workspace packages
-        run: npx tsc -b packages/protocol packages/harness packages/client
+      - name: Build server and verify reviewed runtime artifacts
+        run: npm run build:server
+
+      - name: Verify pinned Codex resume without inference
+        id: codex-resume
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(cat docs/spikes/openshell-codex/runtime-codex-version)
+          RUNTIME_DIR="$RUNNER_TEMP/codex-resume-contract"
+          mkdir -p "$RUNTIME_DIR"
+          gh release download "rust-v$VERSION" --repo openai/codex \
+            --pattern codex-x86_64-unknown-linux-musl.tar.gz --dir "$RUNTIME_DIR"
+          tar -xzf "$RUNTIME_DIR/codex-x86_64-unknown-linux-musl.tar.gz" -C "$RUNTIME_DIR"
+          python3 scripts/test-codex-metadata-resume.py \
+            --codex "$RUNTIME_DIR/codex-x86_64-unknown-linux-musl"
 
       - name: Verify reviewed daily quote catalogue
         id: quotes
@@ -324,7 +402,8 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          if [ "${{ steps.lint.outcome }}" = "failure" ] || \
+          if [ "${{ steps.codex-resume.outcome }}" = "failure" ] || \
+             [ "${{ steps.lint.outcome }}" = "failure" ] || \
              [ "${{ steps.quotes.outcome }}" = "failure" ] || \
              [ "${{ steps.format.outcome }}" = "failure" ] || \
              [ "${{ steps.design.outcome }}" = "failure" ] || \

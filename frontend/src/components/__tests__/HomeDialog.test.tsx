@@ -132,3 +132,54 @@ it('keeps scrolling locked until the last sibling or nested owner closes', () =>
   view.unmount();
   expect(document.body.style.overflow).toBe('');
 });
+
+it('can retain editable content while closed without keeping the modal or scroll lock active', () => {
+  const onClose = vi.fn();
+  const view = render(
+    <HomeDialog title="Saved setup" open={false} onClose={onClose}>
+      <input aria-label="Setup guidance" defaultValue="Keep this" />
+    </HomeDialog>,
+  );
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(document.body.style.overflow).toBe('');
+  view.rerender(
+    <HomeDialog title="Saved setup" open onClose={onClose}>
+      <input aria-label="Setup guidance" defaultValue="Keep this" />
+    </HomeDialog>,
+  );
+  const field = screen.getByRole('textbox', { name: 'Setup guidance' });
+  fireEvent.change(field, { target: { value: 'Edited guidance' } });
+  view.rerender(
+    <HomeDialog title="Saved setup" open={false} onClose={onClose}>
+      <input aria-label="Setup guidance" defaultValue="Keep this" />
+    </HomeDialog>,
+  );
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(document.body.style.overflow).toBe('');
+  view.rerender(
+    <HomeDialog title="Saved setup" open onClose={onClose}>
+      <input aria-label="Setup guidance" defaultValue="Keep this" />
+    </HomeDialog>,
+  );
+  expect(screen.getByRole('textbox', { name: 'Setup guidance' })).toBe(field);
+  expect((field as HTMLInputElement).value).toBe('Edited guidance');
+});
+
+it('restores focus beyond a concealed settings editor when its summary is concealed too', () => {
+  const outer = document.createElement('div');
+  outer.innerHTML =
+    '<button aria-controls="outer-settings">Settings</button><div id="outer-settings"><button aria-controls="field-editor">More options</button><div id="field-editor"><button>Review findings</button></div></div>';
+  document.body.append(outer);
+  const buttons = outer.querySelectorAll('button');
+  buttons[2].focus();
+  const view = render(
+    <HomeDialog title="Review" onClose={() => {}}>
+      Details
+    </HomeDialog>,
+  );
+  outer.querySelector('#outer-settings')!.setAttribute('inert', '');
+  outer.querySelector('#field-editor')!.setAttribute('hidden', '');
+  view.unmount();
+  expect(document.activeElement).toBe(buttons[0]);
+  outer.remove();
+});

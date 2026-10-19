@@ -706,7 +706,9 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     throw new Error(
       `OpenShell service provider cannot be both automatic and grantable: ${overlappingProvider}`,
     );
-  const webSearch = env.MITZO_OPENSHELL_WEB_SEARCH || 'disabled';
+  // This is an availability ceiling. Conversation consent and mode still decide
+  // the effective capability at each thread boundary; no new chat starts live.
+  const webSearch = env.MITZO_OPENSHELL_WEB_SEARCH || 'live';
   if (webSearch !== 'disabled' && webSearch !== 'live')
     throw new Error('Invalid OpenShell web search mode');
   const gatewayEndpoint = env.MITZO_OPENSHELL_GATEWAY_ENDPOINT;
@@ -1545,7 +1547,7 @@ export class OpenShellRuntimeManager {
   }
 
   /** Read-only inventory scoped to sandboxes carrying this runtime's provider label. */
-  async inventory(signal: AbortSignal) {
+  async inventory(signal: AbortSignal, allProviders = false) {
     const sandboxes: z.infer<typeof Sandbox>[] = [];
     if (this.config.cliContract === 'v0.1') {
       let token = '';
@@ -1576,11 +1578,14 @@ export class OpenShellRuntimeManager {
         if (token) seen.add(token);
       } while (token);
       return sandboxes
-        .map((sandbox) => projectWarmPoolInventoryOwnership(this.config, sandbox))
+        .map((sandbox) =>
+          allProviders ? sandbox : projectWarmPoolInventoryOwnership(this.config, sandbox),
+        )
         .filter(
           (sandbox) =>
-            sandbox.labels?.['mitzo.conversation'] &&
-            sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
+            (allProviders ||
+              (sandbox.labels?.['mitzo.conversation'] &&
+                sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider)) &&
             sandbox.workspace === this.config.workspace,
         );
     }
@@ -1608,11 +1613,14 @@ export class OpenShellRuntimeManager {
       if (page.length < limit) break;
     }
     return sandboxes
-      .map((sandbox) => projectWarmPoolInventoryOwnership(this.config, sandbox))
+      .map((sandbox) =>
+        allProviders ? sandbox : projectWarmPoolInventoryOwnership(this.config, sandbox),
+      )
       .filter(
         (sandbox) =>
-          sandbox.labels?.['mitzo.conversation'] &&
-          sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider &&
+          (allProviders ||
+            (sandbox.labels?.['mitzo.conversation'] &&
+              sandbox.labels?.['mitzo.account_provider'] === this.config.account.provider)) &&
           (!sandbox.workspace || sandbox.workspace === this.config.workspace),
       );
   }

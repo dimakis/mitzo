@@ -73,9 +73,9 @@ import { withSpan, withSpanAsync } from './tracing.js';
 import { SpanStatusCode } from '@opentelemetry/api';
 import {
   resolvePending,
-  denyPendingBySession,
   getPendingSessionId,
   getPendingRequestsBySession,
+  dismissTelosSourcePermissionRecovery,
 } from './permissions.js';
 import {
   startChat,
@@ -143,14 +143,6 @@ export function isHelloHandshake(msg: unknown): boolean {
 export function getOwnerConnection(clientId: string): string {
   const colonIdx = clientId.indexOf(':');
   return colonIdx === -1 ? clientId : clientId.slice(0, colonIdx);
-}
-
-function notifyPreviousOwner(ctx: V2HandlerContext, connectionId: string, sessionId: string): void {
-  // The session transport may be a REST wrapper that stays "open" to persist
-  // events after its SSE connection closes. A takeover notice is connection-
-  // local and must never pass through that durable session transport.
-  const transport = ctx.connRegistry.get(connectionId)?.transport;
-  if (transport?.isOpen()) transport.send({ type: 'session_takeover', sessionId });
 }
 
 // ─── State mismatch detection (Phase 2) ─────────────────────────────────────
@@ -234,7 +226,10 @@ function sendBootContext(connectionId: string, sessionId: string, ctx: V2Handler
   const conn = ctx.connRegistry.get(connectionId);
   if (!conn) return;
 
-  for (const request of getPendingRequestsBySession(sessionId)) {
+  for (const request of getPendingRequestsBySession(
+    sessionId,
+    liveTransportAuthSessionId(connectionId),
+  )) {
     try {
       conn.transport.send({ type: 'permission_request', ...request });
     } catch (err) {
@@ -349,12 +344,8 @@ export function handleReconnect(
           ctx.connRegistry.enableAppliedCursor(connectionId, entry.sessionId, entry.lastSeq);
         else ctx.connRegistry.resetCursor(connectionId, entry.sessionId, entry.lastSeq);
 
-        // Resolve ownership before replay. A suspended session deliberately
-        // remains in memory through the grace period, and its old transport
-        // can still look attached while the browser creates a new connection.
-        // Replaying to that new connection without taking it over leaves the
-        // old transport as the driver until the next user send, which can
-        // interleave an old error with the new input.
+        // Reconnect restores delivery. Keep a connected driver in place;
+        // only a new user command should move control between live devices.
         const found = ctx.sessionRegistry.findBySessionId(entry.sessionId);
         const storeState = ctx.eventStore.getSessionState(entry.sessionId);
         let running = found ? ctx.sessionRegistry.isActive(found.clientId) : false;
@@ -374,32 +365,9 @@ export function handleReconnect(
         // report it, while EventStore remains the single delivery source.
         let reconciledSuspendEvents = 0;
         if (wasSuspended) {
-          const ownerConnection =
-            found!.session?.ownerConnectionId ?? getOwnerConnection(found!.clientId);
-          if (ownerConnection !== connectionId) {
-            notifyPreviousOwner(ctx, ownerConnection, entry.sessionId);
-            ctx.connRegistry.unwatch(ownerConnection, entry.sessionId);
-          }
-
-          // The durable event replay below covers the same events buffered
-          // during suspension. Do not send this transient buffer again.
+          // Durable replay covers the suspension buffer for each subscriber.
           reconciledSuspendEvents = ctx.sessionRegistry.resume(found!.clientId).length;
-
-          if (ownerConnection !== connectionId) {
-            const conn = ctx.connRegistry.get(connectionId);
-            if (conn) {
-              reattachChat(found!.clientId, conn.transport);
-              if (found!.session) found!.session.ownerConnectionId = connectionId;
-              log.info('took over suspended session on reconnect', {
-                connectionId,
-                sessionId: entry.sessionId,
-                oldOwner: ownerConnection,
-                clientId: found!.clientId,
-              });
-            }
-          } else if (storeState === 'SUSPENDED') {
-            // resume() keeps the already-attached owner transport, so it does
-            // not pass through reattachChat's durable ACTIVE transition.
+          if (storeState === 'SUSPENDED') {
             ctx.eventStore.setSessionState(entry.sessionId, 'ACTIVE', {
               clientId: found!.clientId,
               reason: 'resume',
@@ -413,7 +381,7 @@ export function handleReconnect(
         if (found && running) {
           const ownerConnection =
             found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
-          const ownerGone = !ctx.connRegistry.get(ownerConnection);
+          const ownerGone = ctx.connRegistry.get(ownerConnection)?.transport.isOpen() !== true;
           const isOwner = ownerConnection === connectionId;
           if ((isOwner && !ctx.sessionRegistry.isAttached(found.clientId)) || ownerGone) {
             const conn = ctx.connRegistry.get(connectionId);
@@ -475,7 +443,10 @@ export function handleReconnect(
                 }
               : {}),
             providerAttempts: reconnectState.providerAttempts,
-            pendingPermissions: getPendingRequestsBySession(entry.sessionId),
+            pendingPermissions: getPendingRequestsBySession(
+              entry.sessionId,
+              liveTransportAuthSessionId(connectionId),
+            ),
           });
         }
 
@@ -654,7 +625,6 @@ export async function handleSwitchSession(
           const transport = ctx.connRegistry.get(connectionId)?.transport;
           if (transport && reattachChat(found.clientId, transport)) {
             found.session.ownerConnectionId = connectionId;
-            if (owner !== connectionId) ctx.connRegistry.unwatch(owner, msg.sessionId);
           }
         }
       }
@@ -663,7 +633,10 @@ export async function handleSwitchSession(
       ctx.connRegistry.get(connectionId)?.transport.send({
         type: 'session_switched',
         sessionId: msg.sessionId,
-        pendingPermissions: getPendingRequestsBySession(msg.sessionId),
+        pendingPermissions: getPendingRequestsBySession(
+          msg.sessionId,
+          liveTransportAuthSessionId(connectionId),
+        ),
         mode: ctx.sessionRegistry.findBySessionId(msg.sessionId)?.session.mode ?? sessionMeta.mode,
         cwd: sessionMeta.cwd,
         branch: sessionMeta.branch,
@@ -744,6 +717,10 @@ export function handleSendV2(
       'ws.dispatch_wait_ms': delivery?.dispatchWaitMs ?? 0,
     },
     async (span) => {
+      // Admission rejection and the startup stream describe the same failed
+      // attempt. Whichever reports first owns delivery, including delayed
+      // stream fallout; unrelated runtime errors retain their normal path.
+      let startupFailure: { reported: boolean } | undefined;
       try {
         if (msg.sessionId)
           assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'send');
@@ -772,20 +749,32 @@ export function handleSendV2(
         let emitSkillInvoked = () => {};
         let skillInvoked = false;
         let initialPromptDelivered = false;
+        let startupAdmissionSucceeded = false;
         const onStartupAdmission = (error?: unknown) => {
-          if (error) rejectStartupAdmission?.(error);
-          else {
-            if (!skillInvoked) {
-              emitSkillInvoked();
-              skillInvoked = true;
-            }
+          if (error) {
+            if (startupAdmission && !startupAdmissionSucceeded)
+              startupFailure ??= { reported: false };
+            rejectStartupAdmission?.(error);
+          } else {
+            // Admission is durable execution state; delivering its skill
+            // notification is an observer and must not leave the HTTP waiter
+            // pending if that delivery throws.
+            startupAdmissionSucceeded = true;
             resolveStartupAdmission?.();
+            if (!skillInvoked) {
+              skillInvoked = true;
+              emitSkillInvoked();
+            }
           }
         };
         const startupTransport: SessionTransport = {
           attachmentIdentity: getTransportAttachmentIdentity(transport),
           isOpen: () => transport.isOpen(),
           send: (event) => {
+            if (event.type === 'error' && startupFailure) {
+              if (startupFailure.reported) return;
+              startupFailure.reported = true;
+            }
             if (event.type === 'user_message' && event.messageId === msg.clientMsgId)
               initialPromptDelivered = true;
             const acceptedRuntimeError =
@@ -1104,11 +1093,10 @@ export function handleSendV2(
             const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
             const activeClientId = found.clientId;
-            if (!isOwner) {
-              notifyPreviousOwner(ctx, ownerConnection, sessionId);
-              ctx.connRegistry.unwatch(ownerConnection, sessionId);
-              denyPendingBySession(sessionId);
-
+            // A delayed retry is delivery recovery, not a new control claim.
+            // Keep every subscriber and pending approval on the same session.
+            const ownerOpen = ctx.connRegistry.get(ownerConnection)?.transport.isOpen() === true;
+            if (!isOwner && (!duplicate || !ownerOpen)) {
               reattachChat(found.clientId, transport);
               if (found.session) found.session.ownerConnectionId = connectionId;
               log.info('takeover on send', {
@@ -1118,7 +1106,7 @@ export function handleSendV2(
                 newClientId: activeClientId,
                 storeState,
               });
-            } else if (isDetached) {
+            } else if (isOwner && isDetached) {
               reattachChat(found.clientId, transport);
               if (found.session) found.session.ownerConnectionId = connectionId;
               log.info('reattached own detached session on send', {
@@ -1214,13 +1202,14 @@ export function handleSendV2(
             agentProfile: msg.agentProfile,
             operatorConnectionId: connectionId,
             userIntent,
-          }).catch((err: unknown) =>
-            transport.send({
+          }).catch((err: unknown) => {
+            onStartupAdmission(err);
+            startupTransport.send({
               type: 'error',
               clientMsgId: msg.clientMsgId,
               error: err instanceof Error ? err.message : 'Session startup failed',
-            }),
-          );
+            });
+          });
           applySkillPolicy(sessionClientId);
         } else {
           const startupSessionId = msg.repositoryWorkspaceId
@@ -1286,13 +1275,14 @@ export function handleSendV2(
             agentProfile: msg.agentProfile,
             operatorConnectionId: connectionId,
             userIntent,
-          }).catch((err: unknown) =>
-            transport.send({
+          }).catch((err: unknown) => {
+            onStartupAdmission(err);
+            startupTransport.send({
               type: 'error',
               clientMsgId: msg.clientMsgId,
               error: err instanceof Error ? err.message : 'Session startup failed',
-            }),
-          );
+            });
+          });
           applySkillPolicy(sessionClientId);
         }
         await startupAdmission;
@@ -1301,11 +1291,14 @@ export function handleSendV2(
         const message = err instanceof Error ? err.message : String(err);
         span.recordException(err instanceof Error ? err : new Error(message));
         span.setStatus({ code: SpanStatusCode.ERROR, message });
-        transport.send({
-          type: 'error',
-          clientMsgId: msg.clientMsgId,
-          error: err instanceof Error ? err.message : 'Send failed',
-        });
+        if (!startupFailure?.reported) {
+          if (startupFailure) startupFailure.reported = true;
+          transport.send({
+            type: 'error',
+            clientMsgId: msg.clientMsgId,
+            error: err instanceof Error ? err.message : 'Send failed',
+          });
+        }
         if (
           delivery?.awaitStartupAdmission &&
           (err instanceof ExecutionAdmissionError ||
@@ -1443,11 +1436,8 @@ export function handleInterruptV2(
         const isOwner = ownerConnection === connectionId;
         const isDetached = !ctx.sessionRegistry.isAttached(found.clientId);
 
-        if (!isOwner) {
-          notifyPreviousOwner(ctx, ownerConnection, msg.sessionId);
-          ctx.connRegistry.unwatch(ownerConnection, msg.sessionId);
-          denyPendingBySession(msg.sessionId);
-
+        const ownerOpen = ctx.connRegistry.get(ownerConnection)?.transport.isOpen() === true;
+        if (!isOwner && (!duplicate || !ownerOpen)) {
           reattachChat(found.clientId, transport);
           if (found.session) found.session.ownerConnectionId = connectionId;
           log.info('takeover on interrupt', {
@@ -1457,7 +1447,7 @@ export function handleInterruptV2(
             newClientId: activeClientId,
             storeState,
           });
-        } else if (isDetached) {
+        } else if (isOwner && isDetached) {
           reattachChat(found.clientId, transport);
           if (found.session) found.session.ownerConnectionId = connectionId;
         }
@@ -1576,7 +1566,14 @@ function sendPermissionResponseRejected(
       sessionId,
       permId,
       error: PERMISSION_RESPONSE_REJECTED_MESSAGE,
-      ...(sessionId ? { pendingPermissions: getPendingRequestsBySession(sessionId) } : {}),
+      ...(sessionId
+        ? {
+            pendingPermissions: getPendingRequestsBySession(
+              sessionId,
+              liveTransportAuthSessionId(connectionId),
+            ),
+          }
+        : {}),
     });
   } catch (error) {
     log.warn('permission response error delivery failed', {
@@ -1618,6 +1615,38 @@ export function handlePermissionResponseV2(
         return false;
       }
       const pendingSessionId = getPendingSessionId(msg.permId);
+      const recoveryActor = liveTransportAuthSessionId(connectionId);
+      const recovery =
+        msg.sessionId &&
+        recoveryActor &&
+        getPendingRequestsBySession(msg.sessionId, recoveryActor).some(
+          (request) => request.permId === msg.permId && request.recoveryOnly === true,
+        );
+      if (recovery) {
+        const connection = ctx.connRegistry.get(connectionId);
+        if (
+          !msg.sessionId ||
+          !recoveryActor ||
+          connection?.transport.isOpen() !== true ||
+          !connection.watchedSessions.has(msg.sessionId) ||
+          msg.decision !== 'deny' ||
+          !dismissTelosSourcePermissionRecovery(msg.permId, msg.sessionId, recoveryActor)
+        ) {
+          sendPermissionResponseRejected(
+            connection?.transport,
+            connectionId,
+            msg.permId,
+            msg.sessionId,
+          );
+          return false;
+        }
+        ctx.connRegistry.broadcast(msg.sessionId, {
+          type: 'permission_resolved',
+          permId: msg.permId,
+          sessionId: msg.sessionId,
+        });
+        return true;
+      }
       const ownedSessionId = pendingSessionId ?? msg.sessionId;
       if (ownedSessionId && !allowOwnedLocalControl(connectionId, ownedSessionId, ctx))
         return false;

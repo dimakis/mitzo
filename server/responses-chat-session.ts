@@ -1,7 +1,21 @@
+import { admitApiTools } from './api-tool-execution.js';
+import { getApiToolCatalog } from './api-tool-runtime.js';
+import { getToolBuilderStore } from './tool-builder-runtime.js';
+import { admitCustomTools } from './custom-tool-admission.js';
+import { captureAgentLibraryOperation } from './agent-library-transport.js';
+import type { ToolBuilderStore } from './tool-builder-store.js';
+import type { ApiToolCatalog } from './api-tool-catalog.js';
+import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
+import { checkSkillPolicy } from '@mitzo/harness';
+import { admitConfiguredTools } from './configured-tool-admission.js';
+import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
+import type { ConfiguredToolCatalog, ConfiguredCatalogOptions } from './configured-tool-catalog.js';
+import { loadMcpServers } from './mcp-config.js';
 import {
   assertAgentToolAvailability,
   assertAgentToolRoute,
   bindAgentToolSelection,
+  bindConfiguredAgentTools,
   hasAgentToolSelection,
   filterAgentTools,
   agentToolAllowed,
@@ -116,6 +130,16 @@ export function getNativeResponsesStore() {
 }
 interface Options {
   agentProfile?: AgentLibraryVersion;
+  /** Trusted offline seam, never client input. */
+  apiTools?: { catalog: ApiToolCatalog };
+  /** Trusted owner/test seam; never supplied through session or tool input. */
+  toolBuilder?: { store: ToolBuilderStore };
+  configuredTools?: Pick<
+    ConfiguredCatalogOptions,
+    'readSources' | 'connect' | 'assertRuntimeCurrent'
+  > & { catalog: ConfiguredToolCatalog };
+  /** Server-owned configured-source environment, independent of session variables. */
+  configuredSourceEnv?: Record<string, string>;
   commandAuthority?: ResponsesCommandAuthority;
   /** Server-owned initial/retained command fence before the first active turn exists. */
   assertStartupCurrent?: () => void;
@@ -187,6 +211,7 @@ export async function openResponsesChat(options: Options) {
     undefined,
     assertRuntimeCurrent,
     assertRuntimeCurrentSync,
+    !!options.commandAuthority,
   );
   signal.throwIfAborted();
   const privateStorage = options.store ?? getNativeResponsesStore();
@@ -212,18 +237,158 @@ export async function openResponsesChat(options: Options) {
     dispose();
     throw error;
   }
-  const mcp = await connectCodexMcpTools(
-    hasAgentToolSelection(options.session) ? {} : options.mcpServers,
-    {
-      cwd: options.session.cwd!,
-      env: options.env,
-      signal,
-      assertRuntimeCurrent: assertMcpCurrent,
+  const configuredRefs =
+    agentProfile?.definition.tools?.filter((ref) => ref.id.startsWith('mcp:')) ?? [];
+  const configuredSourceEnv = options.configuredSourceEnv;
+  if (configuredRefs.length && !configuredSourceEnv) {
+    dispose();
+    throw Error('Configured source launch environment is unavailable');
+  }
+  const configuredOptions: ConfiguredCatalogOptions = {
+    cwd: options.session.cwd!,
+    env: { ...(configuredSourceEnv ?? options.env) },
+    signal,
+    readSources: options.configuredTools?.readSources ?? loadMcpServers,
+    connect: options.configuredTools?.connect,
+    assertRuntimeCurrent: () => {
+      signal.throwIfAborted();
+      assertMcpCurrent?.();
+      options.configuredTools?.assertRuntimeCurrent();
+      if (options.registry.findBySessionId(options.conversationId)?.session !== options.session)
+        throw Error('Configured tool session ownership changed');
     },
+  };
+  let configuredAdmissions: Awaited<ReturnType<typeof admitConfiguredTools>>['admitted'] = [];
+  const mcp = await (
+    configuredRefs.length
+      ? admitConfiguredTools(
+          options.configuredTools?.catalog ?? getConfiguredToolCatalog(),
+          configuredRefs,
+          configuredOptions,
+        ).then((result) => {
+          configuredAdmissions = result.admitted;
+          return result;
+        })
+      : connectCodexMcpTools(hasAgentToolSelection(options.session) ? {} : options.mcpServers, {
+          cwd: options.session.cwd!,
+          env: options.env,
+          signal,
+          assertRuntimeCurrent: assertMcpCurrent,
+        })
   ).catch((error) => {
     dispose();
     throw error;
   });
+  let apiTools: ReturnType<typeof admitApiTools> | undefined;
+  let customTools: ReturnType<typeof admitCustomTools> | undefined;
+  try {
+    const apiRefs =
+      agentProfile?.definition.tools?.filter((ref) => ref.id.startsWith('api:')) ?? [];
+    if (apiRefs.length) {
+      const service = getCredentialConnectionsRuntime();
+      if (!service) throw Error('API tools require the existing connection runtime');
+      const assertCurrent = () => {
+        signal.throwIfAborted();
+        assertMcpCurrent?.();
+        if (
+          getCredentialConnectionsRuntime() !== service ||
+          options.registry.findBySessionId(options.conversationId)?.session !== options.session
+        )
+          throw Error('API tool session ownership changed');
+      };
+      apiTools = admitApiTools({
+        catalog: options.apiTools?.catalog ?? getApiToolCatalog(),
+        service,
+        sessionId: options.conversationId,
+        refs: apiRefs,
+        assertCurrent,
+        assertRuntimeCurrent,
+        stillAllowed: (name) => {
+          const owner = options.registry.findBySessionId(options.conversationId);
+          return (
+            !!owner &&
+            (name === 'ConnectionRequest' || agentToolAllowed(options.session, name)) &&
+            checkSkillPolicy(options.registry, owner.clientId, name) !== 'deny'
+          );
+        },
+        approve: async (name, input, opts) => {
+          assertCurrent();
+          const owner = options.registry.findBySessionId(options.conversationId)!;
+          const decision = await buildPermissionHandler(owner.clientId, options.registry)(
+            name,
+            input,
+            opts,
+          );
+          assertCurrent();
+          return decision;
+        },
+      });
+    }
+    const customRefs =
+      agentProfile?.definition.tools?.filter((ref) => ref.id.startsWith('custom:')) ?? [];
+    if (customRefs.length) {
+      const assertCurrent = () => {
+        signal.throwIfAborted();
+        assertMcpCurrent?.();
+        if (options.registry.findBySessionId(options.conversationId)?.session !== options.session)
+          throw Error('Custom tool session ownership changed');
+      };
+      customTools = admitCustomTools({
+        store: options.toolBuilder?.store ?? getToolBuilderStore(),
+        refs: customRefs,
+        assertCurrent,
+        assertRuntimeCurrent,
+        captureAuthority: () => {
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner) throw Error('Custom tool session owner unavailable');
+          const connectionId = options.session.ownerConnectionId ?? owner.clientId.split(':')[0];
+          const operation = captureAgentLibraryOperation(connectionId);
+          return {
+            ...operation,
+            assertCurrent() {
+              operation.assertCurrent();
+              const current = options.registry.findBySessionId(options.conversationId);
+              if (
+                !current ||
+                (options.session.ownerConnectionId ?? current.clientId.split(':')[0]) !==
+                  connectionId
+              )
+                throw Error('Custom invocation owner changed');
+            },
+          };
+        },
+        stillAllowed: (name) => {
+          const owner = options.registry.findBySessionId(options.conversationId);
+          return (
+            !!owner &&
+            agentToolAllowed(options.session, name) &&
+            checkSkillPolicy(options.registry, owner.clientId, name) !== 'deny'
+          );
+        },
+        approve: async (name, input, opts) => {
+          assertCurrent();
+          const owner = options.registry.findBySessionId(options.conversationId)!;
+          const result = await buildPermissionHandler(owner.clientId, options.registry)(
+            name,
+            input,
+            opts,
+          );
+          assertCurrent();
+          return result;
+        },
+      });
+    }
+    if (configuredAdmissions.length || apiTools?.admitted.length || customTools?.admitted.length)
+      bindConfiguredAgentTools(options.session, [
+        ...configuredAdmissions,
+        ...(apiTools?.admitted ?? []),
+        ...(customTools?.admitted ?? []),
+      ]);
+  } catch (error) {
+    dispose();
+    await mcp.close();
+    throw error;
+  }
   initializing = false;
   const githubPublishing = createGithubPublishingTool(
     options.conversationId,
@@ -248,6 +413,8 @@ export async function openResponsesChat(options: Options) {
       ...connectionTools.definitions,
       ...nativeToolDefinitions,
       ...mcp.definitions,
+      ...(apiTools?.definitions ?? []),
+      ...(customTools?.definitions ?? []),
       webAccessDefinition,
       githubPublishingDefinition,
     ]),
@@ -257,7 +424,13 @@ export async function openResponsesChat(options: Options) {
       privateStorage.bindAgentTools(
         options.conversationId,
         options.binding,
-        { profileHash: agentProfile.contentHash, tools: definitions },
+        {
+          profileHash: agentProfile.contentHash,
+          tools: definitions,
+          ...(configuredAdmissions.length ? { configuredTools: configuredAdmissions } : {}),
+          ...(apiTools?.admitted.length ? { apiTools: apiTools.admitted } : {}),
+          ...(customTools?.admitted.length ? { customTools: customTools.admitted } : {}),
+        },
         !!options.resume,
       );
     } catch (error) {
@@ -268,6 +441,7 @@ export async function openResponsesChat(options: Options) {
     }
   }
   const admittedNames = new Set(definitions.map((tool) => tool.name));
+  const customToolNames = new Set(customTools?.definitions.map((tool) => tool.name));
   const runner = new NativeResponsesRunner({
     commandAuthority: options.commandAuthority,
     conversationId: options.conversationId,
@@ -302,6 +476,19 @@ export async function openResponsesChat(options: Options) {
         async (input, forcePrompt) => {
           if (options.commandAuthority)
             await options.commandAuthority.assertEffect(publishingTurnId);
+          const customResult = await customTools?.execute(
+            block.name,
+            input,
+            AbortSignal.any([signal, options.session.abortController.signal]),
+            { callId: block.id, forcePrompt },
+          );
+          if (customResult) return customResult;
+          const apiResult = await apiTools?.execute(
+            block.name,
+            input,
+            AbortSignal.any([signal, options.session.abortController.signal]),
+          );
+          if (apiResult) return apiResult;
           const keychainResult = await connectionTools.execute(block.name, input, signal, {
             turnId: publishingTurnId,
             callId: block.id,
@@ -331,10 +518,10 @@ export async function openResponsesChat(options: Options) {
             const result = await mcp.execute(
               block.name,
               input,
-              async (name, input, signal) => {
+              async (name, input, signal, grant) => {
                 const decision = await buildPermissionHandler(owner.clientId, options.registry, {
                   onDemandCreate: options.onDemandCreate,
-                })(name, input, { signal, toolUseID: randomUUID(), forcePrompt });
+                })(name, input, { ...grant, signal, toolUseID: randomUUID(), forcePrompt });
                 if (options.commandAuthority)
                   await options.commandAuthority.assertEffect(publishingTurnId);
                 return decision;
@@ -356,6 +543,8 @@ export async function openResponsesChat(options: Options) {
           })({ ...block, input }, signal);
           return { content: result.content, isError: !!result.is_error };
         },
+        // A custom contract can use file_path as ordinary computation data.
+        { normalizeFilePath: !customToolNames.has(block.name) },
       );
       return {
         type: 'tool_result',

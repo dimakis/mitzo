@@ -70,19 +70,29 @@ export function resolveSlashCommand(
   // Look up in skill registry
   const skill = skillRegistry.get(parsed.name);
   if (skill) {
-    const body = skillRegistry.getBody(parsed.name);
-    if (!body) {
-      return {
-        type: 'error',
-        message: `Skill "${parsed.name}" has no body content.`,
-        suggestions: [],
-      };
+    // Include instruction dependencies from the same registry, so aliases work
+    // from any session cwd and honor repository/user overrides. The invoked
+    // skill's tool ceiling below remains authoritative.
+    const prompts: string[] = [];
+    const rendered = new Set<string>();
+    function appendInstructions(name: string, chain: string[]): string | undefined {
+      if (chain.includes(name)) {
+        return `Circular skill dependency: ${[...chain, name].join(' -> ')}.`;
+      }
+      if (rendered.has(name)) return;
+      const dependency = skillRegistry.get(name);
+      const body = skillRegistry.getBody(name);
+      if (!dependency || !body) return `Skill "${name}" is missing or has no body content.`;
+      prompts.push(renderSkillPrompt(body, parsed!.arguments, dependency));
+      for (const required of dependency.requiredSkills ?? []) {
+        const error = appendInstructions(required, [...chain, name]);
+        if (error) return error;
+      }
+      rendered.add(name);
     }
-
-    const renderedPrompt = renderSkillPrompt(body, parsed.arguments, {
-      name: skill.name,
-      scope: skill.scope,
-    });
+    const error = appendInstructions(skill.name, []);
+    if (error) return { type: 'error', message: error, suggestions: [] };
+    const renderedPrompt = prompts.join('\n\n');
 
     return {
       type: 'skill',

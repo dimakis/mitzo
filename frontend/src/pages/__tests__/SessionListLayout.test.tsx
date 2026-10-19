@@ -175,7 +175,7 @@ it.each([true, false])(
     try {
       mount();
       fireEvent.click(screen.getByLabelText('Conversation options'));
-      fireEvent.click(screen.getByRole('button', { name: 'Clear conversation history' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Archive all chats' }));
       expect(mocks.search.clear).not.toHaveBeenCalled();
       await act(async () => finish(ok));
       expect(mocks.search.clear).toHaveBeenCalledTimes(ok ? 1 : 0);
@@ -207,7 +207,7 @@ it.each(['delete', 'clear'] as const)(
         act(() => vi.advanceTimersByTime(200));
       } else {
         fireEvent.click(screen.getByLabelText('Conversation options'));
-        fireEvent.click(screen.getByRole('button', { name: 'Clear conversation history' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Archive all chats' }));
       }
       // The hook still supplies these rows until the server confirms deletion.
       fireEvent.click(screen.getByRole('button', { name: /^Active/ }));
@@ -237,3 +237,42 @@ it('opens a conversation when the row padding is clicked', () => {
   fireEvent.click(row!);
   expect(screen.getByText('Selected conversation')).toBeTruthy();
 });
+
+it.each(['double-click', 'Enter'] as const)(
+  'previews a desktop row on click and opens it with %s',
+  (action) => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: true, json: async () => [] })),
+    );
+    try {
+      mount();
+      const row = screen
+        .getByRole('button', { name: 'Preview Older chat' })
+        .closest('.session-item')!;
+      fireEvent.click(row);
+      expect(screen.queryByText('Selected conversation')).toBeNull();
+      expect(
+        screen.getByRole('complementary', { name: 'Conversation preview' }).textContent,
+      ).toContain('Older chat');
+      fireEvent.doubleClick(screen.getByRole('button', { name: 'Actions for Older chat' }));
+      expect(screen.queryByText('Selected conversation')).toBeNull();
+      if (action === 'double-click') fireEvent.doubleClick(row);
+      else
+        fireEvent.keyDown(screen.getByRole('button', { name: 'Preview Older chat' }), {
+          key: 'Enter',
+        });
+      expect(screen.getByText('Selected conversation')).toBeTruthy();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  },
+);

@@ -338,13 +338,21 @@ it('preserves legitimate edits and commits in the same retained checkout and Git
 });
 
 it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
-  'refuses a published selected-tool snapshot before owned runtime bootstrap effects: %j',
+  'admits a published selected-tool snapshot through the existing owned runtime authority: %j',
   async ({ tools }) => {
     const f = fixture(tools);
-    await expect(f.owner.assertCurrent(f.expected)).rejects.toThrow('selection unavailable');
-    expect(f.workspace.reserveHostTask).not.toHaveBeenCalled();
+    await expect(f.owner.assertCurrent(f.expected)).resolves.toBeUndefined();
+    expect(f.workspace.reserveHostTask).toHaveBeenCalledOnce();
+    f.revoke();
+    expect(() => f.owner.assertCurrentSync(f.expected)).toThrow('selection unavailable');
   },
 );
+
+it('refuses a host connection helper that lacks an owned Local Codex executor before workspace effects', async () => {
+  const f = fixture([{ id: 'mitzo:GetConnectionGuide', version: 1 }]);
+  await expect(f.owner.assertCurrent(f.expected)).rejects.toThrow('selection unavailable');
+  expect(f.workspace.reserveHostTask).not.toHaveBeenCalled();
+});
 
 it.each([{ tools: [] }, { tools: [{ id: 'mitzo:Read', version: 1 }] }])(
   'admits a published selected-tool snapshot on the enrolled API owner: %j',

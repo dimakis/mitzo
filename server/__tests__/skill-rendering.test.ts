@@ -233,6 +233,94 @@ describe('resolveSlashCommand', () => {
     expect(result.type).toBe('passthrough');
   });
 
+  it('includes required instructions using registry precedence without expanding tool permissions', () => {
+    const bundledDir = createTempDir();
+    const repoDir = createTempDir();
+    writeSkill(
+      bundledDir,
+      'alias',
+      {
+        description: 'Prepare an existing PR',
+        'allowed-tools': ['Read'],
+        'requires-skills': ['land-pr'],
+      },
+      'Prepare only: $ARGUMENTS',
+    );
+    writeSkill(bundledDir, 'land-pr', { description: 'Bundled landing workflow' }, 'Old workflow');
+    writeSkill(
+      repoDir,
+      'land-pr',
+      {
+        description: 'Repository landing workflow',
+        'allowed-tools': ['Read', 'Edit'],
+      },
+      'Selected workflow: $ARGUMENTS',
+    );
+    const registry = new SkillRegistry({ bundledDir, repoDir });
+
+    const result = resolveSlashCommand(
+      '/alias example/repo#995 --prepare-only',
+      registry,
+      new Set(),
+    );
+
+    expect(result).toMatchObject({ type: 'skill', name: 'alias', allowedTools: ['Read'] });
+    if (result.type !== 'skill') throw Error('Expected the alias');
+    expect(result.renderedPrompt).toContain('Prepare only: example/repo#995 --prepare-only');
+    expect(result.renderedPrompt).toContain('[Skill: /land-pr | source: repo]');
+    expect(result.renderedPrompt).toContain('Selected workflow: example/repo#995 --prepare-only');
+    expect(result.renderedPrompt).not.toContain('Old workflow');
+    expect(result.renderedPrompt).not.toContain('$ARGUMENTS');
+    expect(registry.listPublic().find((s) => s.name === 'alias')).toMatchObject({
+      requiredSkills: ['land-pr'],
+    });
+  });
+
+  it('fails before running an alias when required instructions are missing', () => {
+    const bundledDir = createTempDir();
+    writeSkill(bundledDir, 'alias', {
+      description: 'Prepare a PR',
+      'requires-skills': ['land-pr'],
+    });
+    const result = resolveSlashCommand('/alias 995', new SkillRegistry({ bundledDir }), new Set());
+    expect(result).toMatchObject({ type: 'error' });
+    if (result.type !== 'error') throw Error('Expected a missing dependency error');
+    expect(result.message).toContain('land-pr');
+  });
+
+  it('rejects circular dependencies rather than rendering an incomplete workflow', () => {
+    const bundledDir = createTempDir();
+    writeSkill(bundledDir, 'alias', {
+      description: 'Prepare a PR',
+      'requires-skills': ['land-pr'],
+    });
+    writeSkill(bundledDir, 'land-pr', {
+      description: 'Landing workflow',
+      'requires-skills': ['alias'],
+    });
+    const result = resolveSlashCommand('/alias 995', new SkillRegistry({ bundledDir }), new Set());
+    expect(result).toMatchObject({ type: 'error' });
+    if (result.type !== 'error') throw Error('Expected a dependency cycle error');
+    expect(result.message).toContain('alias -> land-pr -> alias');
+  });
+
+  it('renders a shared transitive dependency once', () => {
+    const bundledDir = createTempDir();
+    writeSkill(bundledDir, 'alias', {
+      description: 'Prepare a PR',
+      'requires-skills': ['land-pr', 'gate'],
+    });
+    writeSkill(bundledDir, 'land-pr', {
+      description: 'Landing workflow',
+      'requires-skills': ['gate'],
+    });
+    writeSkill(bundledDir, 'gate', { description: 'Exact commit gate' }, 'Verify $ARGUMENTS');
+    const result = resolveSlashCommand('/alias 995', new SkillRegistry({ bundledDir }), new Set());
+    if (result.type !== 'skill') throw Error('Expected the alias');
+    expect(result.renderedPrompt.match(/\[Skill: \/gate /g)).toHaveLength(1);
+    expect(result.renderedPrompt).toContain('Verify 995');
+  });
+
   it('includes collision info in skill result', () => {
     const dir1 = createTempDir();
     const dir2 = createTempDir();

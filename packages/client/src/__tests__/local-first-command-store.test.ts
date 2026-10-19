@@ -60,7 +60,10 @@ const request = {
   },
   payload: { text: 'Inspect' },
 };
-function setup(saved: string | null = null) {
+function setup(
+  saved: string | null = null,
+  sendHandoff?: import('../store.js').MitzoStoreOptions['sendHandoff'],
+) {
   let raw: string | null = saved;
   channel.id = null;
   channel.send.mockReset();
@@ -83,6 +86,7 @@ function setup(saved: string | null = null) {
   );
   const store = createMitzoStore({
     transport: { fetch },
+    sendHandoff,
     wsConfig: {
       buildUrl: () => '',
       createWebSocket: () => {
@@ -102,6 +106,46 @@ function setup(saved: string | null = null) {
   });
   return { store, fetch, readStorage: () => JSON.parse(raw ?? '[]') };
 }
+it('binds exact initial Library sources to the durable command owner before admission and acknowledges assignment', async () => {
+  const source = {
+    kind: 'agent-library' as const,
+    revision: 'a'.repeat(64),
+    content: JSON.stringify({
+      version: 1,
+      source: {
+        kind: 'draft',
+        profileId: 'agent',
+        baseRevision: 0,
+        draftVersion: null,
+        expectedVersion: 0,
+      },
+      definition: {
+        name: '',
+        role: 'agent',
+        instructions: '',
+        expectedOutput: '',
+        acceptanceCriteria: [],
+        modelPolicyRole: 'agent',
+      },
+    }),
+  };
+  const handoff = { prepare: vi.fn(() => true), assign: vi.fn(), reject: vi.fn() };
+  const { store, fetch } = setup(null, handoff);
+  channel.id = 'live-sse';
+  const command = { ...request, payload: { ...request.payload, sourceSnapshots: [source] } };
+  expect(store.getState().sendLocalFirstCommand(command)).toBe(true);
+  expect(handoff.prepare).toHaveBeenCalledWith(command);
+  await vi.waitFor(() =>
+    expect(handoff.assign).toHaveBeenCalledWith(command.clientMsgId, 'owned-session', {
+      kind: 'agent-library',
+      revision: source.revision,
+    }),
+  );
+  expect(JSON.parse(fetch.mock.calls.find(([path]) => path === '/local/send')![1].body)).toEqual(
+    command,
+  );
+  expect(store.getState().messages.messages[0].sourceSnapshots).toEqual([source]);
+});
 it('requires authenticated live SSE and then uses only exact dedicated POST with current connection identity', async () => {
   const { store, fetch } = setup();
   expect(store.getState().sendLocalFirstCommand(request)).toBe(false);

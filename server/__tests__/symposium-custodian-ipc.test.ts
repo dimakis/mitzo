@@ -289,3 +289,57 @@ it.each(['abort', 'timeout'] as const)(
     }
   },
 );
+it('cancels configured discovery through IPC while retaining owner drain until real cleanup', async () => {
+  const [parent, child] = pair();
+  let signal: AbortSignal | undefined;
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const controller = new SymposiumCustodianController({
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain: async () => {},
+    invalidate: vi.fn(),
+    dispatch: async (_command, _assert, _approval, requestSignal) => {
+      signal = requestSignal;
+      await waiting;
+      return { status: 200, body: {} };
+    },
+  });
+  const stopped = serveCustodianController(parent, controller);
+  const client = createCustodianIpcClient(child);
+  const abort = new AbortController();
+  const request = client.request(
+    {
+      operation: 'library.toolsRefresh',
+      requestId: 'discovery',
+      body: {},
+      query: {},
+      authorization: { id: 'operator', expiresAt: Date.now() + 60000 },
+    },
+    undefined,
+    abort.signal,
+  );
+  const outcome = request.catch((error) => (error as Error).message);
+  try {
+    await vi.waitFor(() => expect(signal).toBeDefined());
+    abort.abort();
+    expect(await outcome).toMatch(/cancelled/);
+    await vi.waitFor(() => expect(signal!.aborted).toBe(true));
+    let settled = false;
+    void stopped.then(() => {
+      settled = true;
+    });
+    parent.emit('disconnect');
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBe(false);
+    release();
+    await stopped;
+  } finally {
+    release();
+    child.emit('disconnect');
+    parent.emit('disconnect');
+    await stopped;
+  }
+});

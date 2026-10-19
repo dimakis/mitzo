@@ -1,4 +1,4 @@
-import type { SessionTransport } from './session-transport.js';
+import { getTransportAttachmentIdentity, type SessionTransport } from './session-transport.js';
 import {
   DETACHED_TTL_MS,
   CLOSEOUT_LEAD_MS,
@@ -44,6 +44,9 @@ export interface ManagedSession {
     authSessionId: string;
     identity: object;
     initialCommandId: string;
+    /** Frozen server entry identity; absent resume is the ordinary first-command path. */
+    initialPreparationOperationId?: string;
+    initialResume?: boolean;
     admit(command: unknown, preparationSignal?: AbortSignal): Promise<{ dispatched: boolean }>;
     retryInitial(command: unknown): Promise<{ dispatched: boolean }>;
     close(): void;
@@ -153,6 +156,23 @@ export class SessionRegistry {
   private suspended = new Set<string>();
   private suspendBuffers = new Map<string, Record<string, unknown>[]>();
   private suspendTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  constructor(
+    private readonly permissionSubscribers?: (sessionId: string) => Iterable<SessionTransport>,
+  ) {}
+
+  /** Resolve live approval recipients at delivery time, including after handoff. */
+  getPermissionTransports(session: ManagedSession): SessionTransport[] {
+    const transports = new Map<object, SessionTransport>();
+    const subscribers = session.sessionId
+      ? (this.permissionSubscribers?.(session.sessionId) ?? [])
+      : [];
+    for (const transport of [session.transport, ...session.observers, ...subscribers]) {
+      const identity = getTransportAttachmentIdentity(transport);
+      if (!transports.has(identity)) transports.set(identity, transport);
+    }
+    return [...transports.values()];
+  }
 
   /** Register a handler called when a session enters closeout. */
   setCloseoutHandler(handler: CloseoutHandler): void {

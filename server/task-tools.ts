@@ -24,6 +24,9 @@ export function handleTaskSet(
   const current = store.get(currentTaskId);
   if (!current) return `Error: task ${currentTaskId} not found`;
 
+  if (store.getTelosExecutionBinding(currentTaskId))
+    return 'Error: exact delegated slices cannot create or replace task children';
+
   if (tasks.length === 0) return 'Error: at least one subtask is required';
 
   // Delete existing children
@@ -61,7 +64,10 @@ export function handleTaskComplete(
 
   if (!summary.trim()) return 'Error: summary is required';
 
-  const targetStatus: TaskStatus = current.requiresApproval ? 'pending_review' : 'done';
+  const targetStatus: TaskStatus =
+    current.requiresApproval || store.getTelosExecutionBinding(currentTaskId)
+      ? 'pending_review'
+      : 'done';
 
   store.update(currentTaskId, { status: targetStatus, summary });
   store.cascadeStatus(currentTaskId);

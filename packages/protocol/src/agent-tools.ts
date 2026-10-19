@@ -1,10 +1,35 @@
 import { z } from 'zod';
 
 /** Implementation contract IDs, never provider wire aliases or account-specific grants. */
-export const AgentToolReferenceSchema = z.strictObject({
+const BuiltinToolReferenceSchema = z.strictObject({
   id: z.string().regex(/^mitzo:[A-Za-z][A-Za-z0-9]{0,95}$/),
   version: z.number().int().positive(),
 });
+/** Opaque locally verified discovery receipts; never auto-resolved by server/display name. */
+export const ConfiguredToolReferenceSchema = z.strictObject({
+  id: z
+    .string()
+    .regex(/^mcp:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}:[a-f0-9]{64}$/),
+  version: z.number().int().positive(),
+  revision: z.uuid(),
+});
+export const ApiToolReferenceSchema = z.strictObject({
+  id: z.string().regex(/^api:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/),
+  version: z.number().int().positive(),
+  revision: z.uuid(),
+});
+/** Accepted statically installed custom implementations; no source or grants travel in profiles. */
+export const CustomToolReferenceSchema = z.strictObject({
+  id: z.string().regex(/^custom:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/),
+  version: z.number().int().positive(),
+  revision: z.uuid(),
+});
+export const AgentToolReferenceSchema = z.union([
+  CustomToolReferenceSchema,
+  ApiToolReferenceSchema,
+  BuiltinToolReferenceSchema,
+  ConfiguredToolReferenceSchema,
+]);
 export const AgentToolReferencesSchema = z
   .array(AgentToolReferenceSchema)
   .max(100)
@@ -13,7 +38,7 @@ export const AgentToolReferencesSchema = z
       ctx.addIssue({ code: 'custom', message: 'Tool identities must be unique' });
   });
 export type AgentToolReference = z.infer<typeof AgentToolReferenceSchema>;
-export interface AgentToolCatalogEntry extends AgentToolReference {
+export type AgentToolCatalogEntry = AgentToolReference & {
   name: string;
   description: string;
   source: string;
@@ -21,4 +46,5 @@ export interface AgentToolCatalogEntry extends AgentToolReference {
   behavior: 'read' | 'write' | 'mixed' | 'interaction';
   routes: string[];
   requirement: string;
-}
+  implementation?: { template: string; source: string; fingerprint: string };
+};

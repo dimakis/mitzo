@@ -57,6 +57,8 @@ function setHidden(sessionId: string, hidden: boolean) {
 
 export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
   const getTransportConnectionId = useMitzoStore((state) => state.getTransportConnectionId);
+  const queueRevision = useMitzoStore((state) => state.queueRevision);
+  const previousQueueRevision = useRef(queueRevision);
   const [queue, setQueue] = useState<QueueState | null>(null);
   const [commands, setCommands] = useState<QueuedCommand[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -87,6 +89,11 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     let isCodex = false;
     let pending = false;
     let reading = false;
+    let readRequested = false;
+    let detailsVersion = 0;
+    let detailsController: AbortController | undefined;
+    let detailsTimeout: ReturnType<typeof setTimeout> | undefined;
+    let queuedCount = 0;
     let lastRead = 0;
     setQueue(null);
     setCommands([]);
@@ -105,6 +112,51 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     setCollapsed(sessionId ? isHidden(sessionId) : false);
     if (!sessionId) return;
 
+    const clearDetails = () => {
+      if (disposed) return;
+      setCommands([]);
+      setHasMore(false);
+    };
+    const invalidateDetails = () => {
+      ++detailsVersion;
+      clearTimeout(detailsTimeout);
+      detailsTimeout = undefined;
+      detailsController?.abort();
+      detailsController = undefined;
+      clearDetails();
+    };
+    // Details must never hold up the metadata-only count or its next refresh.
+    const readCommands = async () => {
+      if (detailsController) return;
+      const controller = new AbortController();
+      detailsController = controller;
+      const timeout = setTimeout(() => controller.abort(), 15000);
+      detailsTimeout = timeout;
+      const version = detailsVersion;
+      try {
+        const response = await apiFetch(
+          `/api/sessions/${encodeURIComponent(sessionId)}/codex-queue`,
+          { signal: controller.signal },
+        );
+        if (!response.ok) throw new Error('Queue details unavailable');
+        const parsed = QueuedCommands.safeParse(await response.json());
+        if (!parsed.success) throw new Error('Invalid queue details');
+        if (!disposed && version === detailsVersion) {
+          setCommands(parsed.data.queued);
+          setHasMore(parsed.data.hasMore ?? false);
+        }
+      } catch {
+        // The compact status stays useful while the drawer details refresh.
+        if (version === detailsVersion) clearDetails();
+      } finally {
+        clearTimeout(timeout);
+        if (detailsController === controller) {
+          detailsController = undefined;
+          detailsTimeout = undefined;
+        }
+      }
+    };
+
     const read = async () => {
       if (disposed || reading) return;
       reading = true;
@@ -115,7 +167,15 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         });
         if (!response.ok) throw new Error();
         const data = await response.json();
+        // An event during the request invalidated this snapshot. Read again
+        // before displaying it, rather than flashing an obsolete count.
+        if (disposed || readRequested) return;
         const parsed = Queue.safeParse(data.codexQueue);
+        const count = parsed.success ? parsed.data.queued : 0;
+        if (count !== queuedCount) {
+          queuedCount = count;
+          invalidateDetails();
+        }
         isCodex = parsed.success;
         pending =
           parsed.success &&
@@ -123,42 +183,31 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
             parsed.data.queued > 0 ||
             parsed.data.failed > 0 ||
             !!parsed.data.capacityRecovery);
-        let queued: QueuedCommand[] = [];
-        let moreQueued = false;
-        if (parsed.success && parsed.data.queued > 0) {
-          try {
-            const commandResponse = await apiFetch(
-              `/api/sessions/${encodeURIComponent(sessionId)}/codex-queue`,
-              { signal: AbortSignal.timeout(15000) },
-            );
-            if (commandResponse.ok) {
-              const commandData = QueuedCommands.safeParse(await commandResponse.json());
-              if (commandData.success) {
-                queued = commandData.data.queued;
-                moreQueued = commandData.data.hasMore ?? false;
-              }
-            }
-          } catch {
-            // The compact status stays useful while the drawer details refresh.
-          }
-        }
         if (!disposed) {
           setQueue(parsed.success ? parsed.data : null);
-          setCommands(queued);
-          setHasMore(moreQueued);
+          if (!parsed.success || parsed.data.queued === 0) clearDetails();
           setError('');
           if (parsed.success && parsed.data.connected && reattachRequested.current === sessionId)
             setNotice('Provider restarted. The failed turn is ready for review.');
         }
+        if (parsed.success && parsed.data.queued > 0) void readCommands();
       } catch {
         if (!disposed && isCodex)
           setError('Queue status unavailable. Retry to check saved messages.');
       } finally {
         reading = false;
+        if (readRequested && !disposed) {
+          readRequested = false;
+          void read();
+        }
       }
     };
 
-    refresh.current = read;
+    refresh.current = () => {
+      invalidateDetails();
+      if (reading) readRequested = true;
+      return read();
+    };
     void read();
     const timer = setInterval(() => {
       if (
@@ -174,10 +223,17 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     window.addEventListener('focus', focus);
     return () => {
       disposed = true;
+      invalidateDetails();
       clearInterval(timer);
       window.removeEventListener('focus', focus);
     };
   }, [sessionId]);
+
+  useEffect(() => {
+    if (previousQueueRevision.current === queueRevision) return;
+    previousQueueRevision.current = queueRevision;
+    void refresh.current();
+  }, [queueRevision]);
 
   useEffect(() => {
     if (

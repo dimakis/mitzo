@@ -1,9 +1,111 @@
 # Symposium: current direction and source guide
 
-Updated 16 October 2026. Start here for Symposium product work.
+Updated 17 October 2026. Start here for Symposium product work.
 Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
 or a task for every document. Tracker closure and source landing do not prove
 runtime acceptance or authorize deployment.
+
+## Application integration boundary
+
+PRs #987 (ordinary preparation and exact context acknowledgements) and #990
+(authenticated silent joining and durable recovery) are source-accepted at
+`02196e5d8ad7ee0f253c23c831d3fc8540866336`, runtime source v1.0.274. Their
+acceptance does not establish complete application joining, configured runtime
+qualification, native UI acceptance, activation or deployment. The inherited
+source-save findings were repaired in accepted #997 and are not open blockers.
+
+The [native request preparation contract](symposium-native-request-contract.md)
+is the next implementation dependency: immutable expansion through final transport
+transformations, authoritative counting with enforced output reservation, and
+one-use consumption of the same request by ordinary dispatch. It records the
+review-context versus future-command boundary and the native distribution
+dependency. Initial immutable-request, count-transport, durable-consumption and
+private review-witness primitives are retained in the linked source bundle.
+Native pure expansion and actual ordinary dispatch integration remain incomplete;
+these primitives do not qualify a capacity adapter or install application joining.
+The user selected an OpenAI Responses API account as the first route on 17 October,
+with HTTP as the initial transport through the existing ordinary Codex owners.
+This does not select a concrete account or authorize live qualification.
+
+The 16 October source prerequisites landed in PRs #984 (frozen joining review),
+#982 (ordinary visible source/compiler adapter), and #983 (ordinary reply
+attribution/private projection), reconciled at accepted main
+`09f1090fd5be8b1167188a178dca2186eb445795`. Historical checkpoints below do not
+supersede those merged sources or establish complete application joining.
+
+The ordinary Codex host packet constructors are shared with actual thread and
+turn dispatch. This covers resolved guidance, dynamic tools, context fragments,
+replay text, images and RPC policy fields. It does not measure the complete
+native-expanded provider prompt. The pinned native runtime has no authoritative
+nonmutating exact-capacity port; native instructions, discovered project
+documents, tools and provider framing still need an exact measurement contract
+bound to the actual dispatched input. Model ceilings, byte estimates, host-frame
+hashes and post-response usage cannot establish this proof.
+
+The ordinary OpenShell source pin is Codex `0.160.0` (`rust-v0.160.0`, commit
+`a956835d020762cb2b570053af06f643a11c0ecc`). Inspection of that source confirms
+that history token counting uses `approx_token_count`; model metadata provides
+ceilings without an authoritative tokenizer/framing contract, and the native
+Responses request has no enforced output-reservation field. Its HTTP and WebSocket
+paths also transform requests after prompt construction. A preview at the prompt
+builder alone would therefore miss changes before serialization. This is source
+evidence, not inspection or qualification of any installed runtime.
+
+Closing this boundary requires immutable native request preparation through the
+actual final transport transformations, authoritative selected-model measurement
+including provider framing and an enforced output budget, and consumption of that
+same prepared request at dispatch. Missing authority must remain unverified.
+Adding a host adapter or freezing native JSON alone cannot make capacity ready.
+
+OpenAI documents an authoritative
+[Responses input-token counter](https://developers.openai.com/api/docs/guides/token-counting)
+for the same request payload, including structural framing, tools and images.
+That provides a potential measurement path for compatible API accounts; it does
+not establish support on a ChatGPT-backed native route. The pinned native runtime
+still needs to expose and consume the exact immutable request and enforce its
+output budget. No provider endpoint or account was exercised for this source
+investigation, and no configured runtime is qualified by the documentation.
+
+`OrdinaryCollaborationReview` composes the existing source/compiler with durable
+EventStore review requests. It persists the exact operator, source pins, brief and
+ordinary settings before asynchronous reads. Exact completed retries recover the
+original immutable snapshot before recompilation, including after restart.
+Recovery does not reauthorize confirmation or delivery. Missing exact capacity
+remains unverified and cannot confirm a join.
+
+`RepositoryWorkspaces.prepareOrdinarySession` reserves the actual ordinary
+workspace and persists a distinct application session under a stable allocation
+operation. The receipt contains no fabricated initial command or provider thread.
+The first explicitly requested command uses a separate prepared-session admission
+transition in the existing Local/OpenShell Codex owners. Ordinary new-session and
+continuation guards retain their original behavior. Recipe-bearing profiles and
+queue-creating API/SDK preparation remain unavailable for this silent path.
+
+`OrdinaryCollaborationJoining` composes that preparation owner with the existing
+durable join transitions. Confirmation reauthorizes the exact review before
+creating a join; preparation and membership linking have renewed authority
+checks. Recovery uses the original allocation receipt even when preparation
+committed before the join recorded its allocation. Membership conflicts retain
+that session. The optional authenticated router port exposes confirmation and
+explicit recovery, while ordinary GET retrieval remains read-only. The production
+app does not install this port without real source/settings/capacity authority;
+snapshot compilation and message dispatch remain unavailable on the public router.
+
+`OrdinaryCollaborationDelivery` claims exact retained discussion receipts only for
+an explicitly admitted ordinary command. Pending reader context stays pending
+until that command; reading alone does not invoke a send method. The existing
+native preparation and final dispatch barriers recheck source/access authority.
+Only the exact acknowledged combined context creates a durable acceptance record,
+from which individual delivery outcomes can recover after restart. Existing
+knowledge/recipe observers retain their original base-context identity. Reply
+attribution remains with `OrdinaryCollaborationReplies` and the original private
+native command/turn mapping.
+
+Public execution and a production `ConversationJoiningOwner` remain unavailable.
+No configured account/runtime combination is qualified by these host contracts.
+The complete application flow, independent integrated design audit and actual
+web/native-iOS inspection remain acceptance work. Staging remains stood down;
+live target qualification and production activation require separate authorization.
 
 ## Product direction
 
@@ -20,6 +122,15 @@ PR943 membership with policy revisions, durable message/delivery identities,
 immutable review objects, pending fresh allocation, authenticated API reads and
 offline client projection. Public preparation/send routes remain explicitly disabled;
 application wiring and account-by-runtime qualification remain outstanding.
+
+The UI fidelity correction is a separate frontend checkpoint before further backend
+integration. Ordinary chat now exposes one Agents view; retained native conversations
+use the compact participant header and shared ordinary composer instead of a permanent
+All/agent tab bar and recipient form. Native approval, Stop and recovery remain with
+the original native owner. Fresh setup is editable but review/confirmation remains
+unavailable until trusted source, capacity and ordinary preparation are installed.
+This is not acceptance of joining, shared delivery, artifact-version selection or
+all-account/runtime parity. The approved mock remains the product acceptance reference.
 
 Canonical staging and its pipeline were stood down by the user on 15 October.
 Historical staging procedures below do not authorize checks, enqueue, recovery,

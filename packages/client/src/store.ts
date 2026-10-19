@@ -52,7 +52,7 @@ import { MitzoApiClient } from './api-client.js';
 import { MitzoConnection } from './connection.js';
 import type { MitzoConnectionConfig } from './connection.js';
 import { SseConnection } from './sse-connection.js';
-import { SendOutbox } from './send-outbox.js';
+import { SendOutbox, hasReviewedSource } from './send-outbox.js';
 import type { SseConnectionConfig } from './sse-connection.js';
 import type { ChatConnection } from './chat-connection.js';
 import { messageIdentity } from './message-identity.js';
@@ -122,6 +122,8 @@ export interface MitzoStoreState {
   pendingSession: PendingSession | null;
   pendingSessionSending: boolean;
   chatDraftRevision: number;
+  /** Active-session queue metadata invalidation; contains no message content. */
+  queueRevision: number;
 
   // Current server-issued transport identity; never persisted across reconnect.
   getTransportConnectionId(): string | null;
@@ -391,6 +393,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             // Only a validated202 acknowledges this submitted request; a retained409
             // session is an observation and must not consume its launch identity.
             if (sessionId && event.acknowledged === true && !('sessionId' in request)) {
+              const source = request.payload.sourceSnapshots?.find(
+                (source) => source.kind === 'agent-library',
+              );
+              if (source)
+                assignCommand(request.clientMsgId, sessionId, {
+                  kind: 'agent-library',
+                  revision: source.revision,
+                });
               const foreground = bindLaunchAssignment(
                 request.clientMsgId,
                 sessionId,
@@ -812,6 +822,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     pendingSession: null,
     pendingSessionSending: false,
     chatDraftRevision: 0,
+    queueRevision: 0,
 
     // ── Actions ──────────────────────────────────────────────────────────
 
@@ -999,6 +1010,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       )
         return false;
       const frozen = parsed.data;
+      if (frozen.payload.sourceSnapshots?.length && options.sendHandoff?.prepare(frozen) === false)
+        return false;
       observeDelivery(frozen.clientMsgId, opts, 'send', 'local');
       const sent = localOutbox.enqueue(frozen, Date.now(), opts.draftId);
       if (!sent) {
@@ -1016,6 +1029,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           images: frozen.payload.images?.map(
             (image) => `data:${image.mediaType};base64,${image.data}`,
           ),
+          sourceSnapshots: frozen.payload.sourceSnapshots,
         }),
       }));
       return true;
@@ -1103,8 +1117,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       const reviewed =
         !!reviewedOutbox &&
         msg.sessionId === null &&
-        (!!opts?.launchDraftId ||
-          (Array.isArray(msg.sourceSnapshots) && msg.sourceSnapshots[0]?.kind === 'briefing'));
+        (!!opts?.launchDraftId || hasReviewedSource(msg));
       const sent = reviewed
         ? reviewedAuthenticated && reviewedOutbox!.enqueue(msg, reviewedSendScope++)
         : connection.send(msg);
@@ -1162,11 +1175,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
       if (opts?.sourceSnapshots?.length) msg.sourceSnapshots = opts.sourceSnapshots;
 
-      const reviewed =
-        !!reviewedOutbox &&
-        msg.sessionId === null &&
-        Array.isArray(msg.sourceSnapshots) &&
-        msg.sourceSnapshots[0]?.kind === 'briefing';
+      const reviewed = !!reviewedOutbox && msg.sessionId === null && hasReviewedSource(msg);
       const sent = reviewed
         ? reviewedAuthenticated && reviewedOutbox!.enqueue(msg, reviewedSendScope++)
         : connection.send(msg);
@@ -1967,6 +1976,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         }
       }
     }
+
+    if (
+      selectedEventSession &&
+      (msg.type === 'codex_queue' || msg.type === 'user_message' || msg.type === 'session_end')
+    )
+      store.setState((state) => ({ queueRevision: state.queueRevision + 1 }));
 
     if (msg.type === 'error' && msg.sessionId === awaitingModeHydration)
       awaitingModeHydration = undefined;

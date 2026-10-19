@@ -41,6 +41,24 @@ export const CollaborationSettingsSchema = z.strictObject({
   selection: OrdinaryLocalCommandSelectionSchema,
   repositoryWorkspaceId: id,
 });
+/** Trusted existing review reservation identity; not accepted from public routes. */
+export const CollaborationReviewIdentitySchema = z.strictObject({
+  collaborationId: SessionCollaborationIdSchema,
+  operatorId: id,
+  requestId: z.uuid(),
+});
+/** Schema normalization supplies stable key order; source bytes are deliberately
+ * excluded so changed unfinished input conflicts under the original native operation. */
+export function collaborationCapacityOperationKey(rawIdentity: unknown, rawSettings: unknown) {
+  const identity = CollaborationReviewIdentitySchema.parse(rawIdentity);
+  const settings = CollaborationSettingsSchema.parse(rawSettings);
+  return JSON.stringify([
+    identity.collaborationId,
+    identity.operatorId,
+    identity.requestId,
+    settings,
+  ]);
+}
 export const CollaborationPolicyUpdateSchema = z.strictObject({
   ...request,
   expectedRevision: sequence,
@@ -91,6 +109,17 @@ export const CollaborationMessageInputSchema = z.strictObject({
     z.strictObject({ kind: z.literal('selected'), sessionIds: ids }),
   ]),
   snapshot: CollaborationSnapshotReferenceSchema.nullable(),
+});
+/** Trusted ordinary driver/source owner input. Text is read from finalized source events. */
+export const CollaborationReplyInputSchema = z.strictObject({
+  requestId: z.uuid(),
+  messageId: z.uuid(),
+  deliveryId: z.uuid(),
+  source: CollaborationMessageSourceSchema.refine(
+    (source) =>
+      source.blockIds.length > 0 && new Set(source.blockIds).size === source.blockIds.length,
+    'Reply source requires distinct text blocks',
+  ),
 });
 export const CollaborationDeliveryReceiptInputSchema = z.strictObject({
   requestId: z.uuid(),
@@ -167,23 +196,90 @@ const artifact = z.strictObject({
   sourceConversationId: id,
   mediaType: z.string().min(1).max(200),
   sizeBytes: sequence,
+  // Absent on historical reference-only snapshots. Present only after authorized exact-byte reads.
+  contentBase64: z
+    .string()
+    .max(512 * 1024)
+    .optional(),
 });
+/** Public fit evidence only. This review scope can never authorize command consumption. */
+export const CollaborationNativeCapacityAssessmentSchema = z
+  .strictObject({
+    kind: z.literal('nativePreparedRequest'),
+    scope: z.literal('reviewContext'),
+    settings: CollaborationSettingsSchema,
+    measurementId: z.uuid(),
+    inputTokens: z.number().int().nonnegative().safe(),
+    maxOutputTokens: z.number().int().positive().safe(),
+    contextWindowTokens: z.number().int().positive().safe(),
+  })
+  .refine(
+    (value) =>
+      Number.isSafeInteger(value.inputTokens + value.maxOutputTokens) &&
+      value.inputTokens + value.maxOutputTokens <= value.contextWindowTokens,
+    'Native capacity accounting mismatch',
+  );
+/** Trusted host persistence only; never included in a snapshot or public replay. */
+export const CollaborationNativeCapacityWitnessSchema = z.strictObject({
+  assessment: CollaborationNativeCapacityAssessmentSchema,
+  nativeOperationId: z.string().regex(/^collaboration-review:[a-f0-9]{64}$/),
+  contextSha256: digest,
+  nativeWitness: z.strictObject({ preparationId: id, requestIdentity: digest, witnessId: id }),
+});
+export type CollaborationNativeCapacityWitness = z.infer<
+  typeof CollaborationNativeCapacityWitnessSchema
+>;
 const capacity = z.discriminatedUnion('status', [
   z.strictObject({
     status: z.literal('ready'),
     assessments: z
       .array(
-        z
-          .strictObject({
-            settings: CollaborationSettingsSchema,
-            availableTokens: sequence,
-            estimatedTokens: sequence,
-            estimatorRevision: id,
-          })
-          .refine((c) => c.estimatedTokens <= c.availableTokens),
+        z.union([
+          CollaborationNativeCapacityAssessmentSchema,
+          z
+            .strictObject({
+              settings: CollaborationSettingsSchema,
+              availableTokens: sequence,
+              estimatedTokens: sequence,
+              estimatorRevision: id,
+              components: z
+                .strictObject({
+                  contextTokens: sequence,
+                  adapterTokens: sequence,
+                  bootTokens: sequence,
+                  toolTokens: sequence,
+                  reservedOutputTokens: sequence,
+                  contextWindowTokens: sequence,
+                })
+                .optional(),
+            })
+            .refine((c) => c.estimatedTokens <= c.availableTokens)
+            .refine(
+              (c) =>
+                !c.components ||
+                (c.estimatedTokens ===
+                  c.components.contextTokens +
+                    c.components.adapterTokens +
+                    c.components.bootTokens +
+                    c.components.toolTokens &&
+                  c.availableTokens ===
+                    c.components.contextWindowTokens - c.components.reservedOutputTokens),
+              'Capacity accounting mismatch',
+            ),
+        ]),
       )
       .min(1)
-      .max(16),
+      .max(16)
+      .refine((assessments) => {
+        const native = assessments.filter(
+          (assessment) => 'kind' in assessment && assessment.kind === 'nativePreparedRequest',
+        );
+        return (
+          new Set(
+            native.map((assessment) => 'measurementId' in assessment && assessment.measurementId),
+          ).size === native.length
+        );
+      }, 'Duplicate native measurement ID'),
   }),
   z.strictObject({
     status: z.enum(['unverified', 'refused', 'needs_reviewed_summary']),
@@ -312,6 +408,8 @@ export type CollaborationView = z.infer<typeof CollaborationViewSchema>;
 export type CollaborationEvents = z.infer<typeof CollaborationEventsSchema>;
 export type CollaborationPolicyUpdate = z.infer<typeof CollaborationPolicyUpdateSchema>;
 export type CollaborationMessageInput = z.infer<typeof CollaborationMessageInputSchema>;
+export type CollaborationReplyInput = z.infer<typeof CollaborationReplyInputSchema>;
+export type CollaborationMessageSource = z.infer<typeof CollaborationMessageSourceSchema>;
 export type CollaborationJoinInput = z.infer<typeof CollaborationJoinInputSchema>;
 export type CollaborationSnapshotSelection = z.infer<typeof CollaborationSnapshotSelectionSchema>;
 export class CollaborationContractError extends Error {
@@ -327,7 +425,9 @@ export class CollaborationContractError extends Error {
       | 'capacity_refused'
       | 'invalid_transition'
       | 'allocation_conflict'
-      | 'execution_unavailable',
+      | 'execution_unavailable'
+      | 'reply_conflict'
+      | 'reply_unavailable',
   ) {
     super(code);
   }

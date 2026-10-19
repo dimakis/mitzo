@@ -1,44 +1,97 @@
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
-import type { SymposiumProfileDefinition } from '@mitzo/protocol';
+import type { AgentToolReference, SymposiumProfileDefinition } from '@mitzo/protocol';
 import { agentToolCatalog } from './agent-tool-catalog.js';
 
 const selections = new WeakMap<object, string | undefined>();
+const selectionRoutes = new WeakMap<object, string>();
+const configuredSelections = new WeakMap<object, string[]>();
+export function bindConfiguredAgentTools(
+  session: object,
+  admitted: { wireName: string; reference: AgentToolReference }[],
+): void {
+  const refs = JSON.parse(selections.get(session) ?? '[]') as AgentToolReference[];
+  if (
+    admitted.some(
+      (entry) => !refs.some((ref) => JSON.stringify(ref) === JSON.stringify(entry.reference)),
+    )
+  )
+    throw Error('Configured admission differs from published selection');
+  const names = admitted.map((entry) => entry.wireName);
+  const previous = configuredSelections.get(session);
+  if (previous && JSON.stringify(previous) !== JSON.stringify(names))
+    throw Error('Session configured selection is immutable');
+  configuredSelections.set(session, names);
+}
 const sdkPrefix = 'mcp__mitzo-connections__';
 export function assertAgentToolRoute(
   definition: SymposiumProfileDefinition | undefined,
   route: string,
 ): void {
   if (definition?.tools === undefined) return;
-  if (route !== 'local-api')
+  if (!['local-api', 'codex', 'codex-owned-local'].includes(route))
     throw Error(
-      'Agent tool selection is not supported on this runtime route. Choose a local API chat or a profile with legacy tools.',
+      'Agent tool selection is not supported on this runtime route. Choose a compatible route or a profile with legacy tools.',
     );
   const catalog = agentToolCatalog();
   for (const ref of definition.tools) {
+    if (ref.id.startsWith('custom:')) {
+      if (route === 'local-api') continue; // Exact installed publication admission remains mandatory.
+      throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
+    }
+    if (ref.id.startsWith('mcp:')) {
+      if (['local-api', 'codex', 'codex-owned-local'].includes(route)) continue;
+      throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
+    }
+    if (ref.id.startsWith('api:')) {
+      if (['local-api', 'codex'].includes(route)) continue;
+      throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
+    }
     const entry = catalog.find((tool) => tool.id === ref.id && tool.version === ref.version);
     if (!entry?.routes.includes(route))
       throw Error(`Selected tool is unavailable on this route: ${ref.id} v${ref.version}`);
   }
 }
+export function agentToolReferenceSupportsRoute(ref: AgentToolReference, route: string): boolean {
+  if (ref.id.startsWith('custom:')) return route === 'local-api';
+  if (ref.id.startsWith('mcp:')) return ['local-api', 'codex', 'codex-owned-local'].includes(route);
+  if (ref.id.startsWith('api:')) return ['local-api', 'codex'].includes(route);
+  return agentToolCatalog().some(
+    (tool) => tool.id === ref.id && tool.version === ref.version && tool.routes.includes(route),
+  );
+}
 /** Capture once from the verified published snapshot, never a mutable editor or client request. */
 export function bindAgentToolSelection(
   session: object,
   definition?: SymposiumProfileDefinition,
+  route = 'local-api',
 ): void {
   const selection = definition?.tools === undefined ? undefined : JSON.stringify(definition.tools);
-  if (selections.has(session) && selections.get(session) !== selection)
+  if (
+    selections.has(session) &&
+    (selections.get(session) !== selection || selectionRoutes.get(session) !== route)
+  )
     throw Error('Session tool selection is immutable; start a new chat');
   selections.set(session, selection);
+  selectionRoutes.set(session, route);
 }
 export function hasAgentToolSelection(session: object): boolean {
   return selections.get(session) !== undefined;
 }
+/** Explicit profiles start only tool sources whose receipt admission was implemented. */
+export function configuredMcpSourcesForAgentSelection<T>(
+  session: object,
+  configs: Record<string, T>,
+): Record<string, T> {
+  return hasAgentToolSelection(session) ? {} : configs;
+}
 export function agentToolAllowed(session: object, name: string): boolean {
   const selection = selections.get(session);
   if (selection === undefined) return true;
+  if (configuredSelections.get(session)?.includes(name)) return true;
   const canonical = name.startsWith(sdkPrefix) ? name.slice(sdkPrefix.length) : name;
+  const route = selectionRoutes.get(session) ?? 'local-api';
   const entry = agentToolCatalog().find(
-    (tool) => tool.name === canonical && tool.routes.includes('local-api'),
+    (tool) => tool.name === canonical && tool.routes.includes(route),
   );
   return (
     !!entry &&
@@ -71,6 +124,13 @@ export function assertAgentToolAvailability(
   ];
   const selected = operations.filter((name) => names.has(`mitzo:${name}`));
   const service = getCredentialConnectionsRuntime();
+  if (
+    definition.tools.some((ref) => ref.id.startsWith('api:')) &&
+    !names.has('mitzo:RequestConnectionAccess')
+  )
+    throw Error(
+      'Select RequestConnectionAccess alongside API tools for their existing approval flow',
+    );
   if (selected.length) {
     const active =
       service?.catalog(sessionId).filter((connection) => connection.status === 'active') ?? [];

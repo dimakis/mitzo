@@ -1,3 +1,4 @@
+import type { TaskProposal } from '../lib/agent-task-proposal-link';
 import { SymposiumProfileRecipeEditor } from './SymposiumProfileRecipeEditor';
 import './SymposiumProfilePicker.css';
 import { useEffect, useRef, useState } from 'react';
@@ -39,11 +40,13 @@ function ProposalEditor({
   proposal,
   seed,
   onDone,
+  disabled = false,
 }: {
   sessionId: string;
   proposal?: Proposal;
   seed?: SeatProfileSeed;
   onDone(savedName?: string): void;
+  disabled?: boolean;
 }) {
   const [definition, setDefinition] = useState<SymposiumProfileDefinition>(
     proposal?.definition ?? seedDefinition(seed!),
@@ -99,6 +102,7 @@ function ProposalEditor({
     setDefinition((current) => ({ ...current, [key]: value }));
   };
   const save = async () => {
+    if (disabled) return;
     setBusy(true);
     setError('');
     try {
@@ -153,6 +157,7 @@ function ProposalEditor({
     }
   };
   const discard = async () => {
+    if (disabled) return;
     if (!proposal) {
       onDone();
       return;
@@ -276,6 +281,7 @@ function ProposalEditor({
         type="button"
         disabled={
           busy ||
+          disabled ||
           !catalog ||
           !profileId.trim() ||
           !/^[a-z][a-z0-9_-]{0,63}$/.test(definition.role) ||
@@ -288,7 +294,7 @@ function ProposalEditor({
       >
         Save reusable profile
       </button>
-      <button type="button" disabled={busy} onClick={() => void discard()}>
+      <button type="button" disabled={busy || disabled} onClick={() => void discard()}>
         Discard draft
       </button>
     </section>
@@ -303,6 +309,7 @@ export function SymposiumProfileProposals({
   onSeatSeedDone,
   pendingOnly = false,
   refreshKey,
+  disabled = false,
 }: {
   id?: string;
   sessionId: string;
@@ -310,6 +317,7 @@ export function SymposiumProfileProposals({
   onSeatSeedDone?(): void;
   pendingOnly?: boolean;
   refreshKey?: unknown;
+  disabled?: boolean;
 }) {
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [error, setError] = useState('');
@@ -318,13 +326,18 @@ export function SymposiumProfileProposals({
   useEffect(() => {
     let live = true;
     const refresh = () =>
-      readJson<Proposal[]>(
+      readJson<(Proposal | TaskProposal)[]>(
         `/api/symposium/profile-proposals?sessionId=${encodeURIComponent(sessionId)}`,
       )
         .then((rows) => {
           if (!Array.isArray(rows)) throw new Error('Profile proposals response is invalid');
           if (live) {
-            setProposals(rows.filter((row) => !dismissed.current.has(row.proposalId)));
+            setProposals(
+              rows.filter(
+                (row): row is Proposal =>
+                  !('kind' in row && row.kind === 'task') && !dismissed.current.has(row.proposalId),
+              ),
+            );
             setError('');
           }
         })
@@ -364,11 +377,17 @@ export function SymposiumProfileProposals({
         </div>
       )}
       {error && <p role="alert">{error}</p>}
+      {disabled && (
+        <p role="status">
+          Confirming conversation settings before saving or discarding. Your review is retained.
+        </p>
+      )}
       {seatSeed && (
         <ProposalEditor
           key={`seat:${seatSeed.seatId}`}
           sessionId={sessionId}
           seed={seatSeed}
+          disabled={disabled}
           onDone={() => onSeatSeedDone?.()}
         />
       )}
@@ -377,6 +396,7 @@ export function SymposiumProfileProposals({
           key={proposal.proposalId}
           sessionId={sessionId}
           proposal={proposal}
+          disabled={disabled}
           onDone={(name) => remove(proposal.proposalId, name)}
         />
       ))}

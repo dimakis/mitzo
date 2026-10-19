@@ -7,6 +7,8 @@
 <!-- Required for rendered UI changes. Otherwise state "Not applicable" and why.
      Follow docs/design/ui-design-system.md and frontend/AGENTS.md. -->
 
+Approved-design ledger entry/revision: <!-- Preserve it for feature/rebase work; new design revisions require explicit user approval. -->
+
 Shared components/tokens reused:
 
 Intentional design exceptions or new shared patterns:

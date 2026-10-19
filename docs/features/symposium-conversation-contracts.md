@@ -37,8 +37,14 @@ Messages, projection entries, deliveries and ordinary commands have distinct IDs
 Readers get context intents; only responders get reply intents. Reading never
 creates another turn. Attributed reply contracts retain original ordinary
 conversation/command/message/block/event references and the originating delivery.
-Capturing those replies from drivers remains slice 3 work; session activity alone
-does not establish group provenance.
+The guarded ordinary Codex drivers capture private command-to-visible-message
+bindings only after the exact provider turn/start acknowledgement. Output that
+races that response stays unbound until the returned turn ID matches; stale,
+foreign, unidentified and uncertain turns cannot establish provenance. Thinking
+and tool messages are excluded. The host attribution owner reads finalized visible
+text through EventStore and requires the original reply delivery, command, session,
+settings, block IDs and message-end sequence. It never infers provenance from
+session activity. Other drivers and public delivery remain uncomposed.
 
 Each delivery has revisioned outcomes. Queued/uncertain work retains its command ID;
 terminal results cannot be reset to pending. A failed recipient does not change a
@@ -46,6 +52,17 @@ successful recipient. Request IDs are scoped to the collaboration across mutatio
 kinds. A canonical fingerprint and original result commit atomically, so an exact
 retry after later changes or restart returns its original result; conflicting reuse
 is refused. These receipts do not claim exactly-once external tool execution.
+
+`OrdinaryCollaborationReplies` composes the private driver binding, existing ordinary
+command ledger and finalized visible-source reader. `recordReply` persists an
+attributed projection and its request receipt atomically. Exact retries recover
+before current source/access checks; a replayed source message cannot append a
+second projection or change its original command, blocks, end sequence or delivery.
+Reader-only deliveries cannot produce attributed replies. Several context receipts
+may reference one ordinary command while at most one reply delivery can own its
+attributed replies. Attribution creates no new delivery, model turn or fanout and does not resolve an uncertain delivery by
+itself. This owner is host-only; it does not enable the disabled public send route
+or constitute completed application delivery/context acknowledgement.
 
 ## Reviewed context
 
@@ -66,7 +83,62 @@ A summary is a new review object with attribution and the exact original snapsho
 digest and source pins. It never replaces the original evidence in place.
 An artifact pin establishes a version reference, not retained bytes or read access.
 
-The source compiler/access adapter and token estimator are deliberately not wired.
+The host-only compiler is implemented in `server/collaboration-context-compiler.ts`.
+It accepts public selectors and separately supplied trusted source/capacity ports.
+It verifies complete prefix counts/digests, ordered bounded pagination, exact
+selected messages, source/block identities and hashes, authorized artifact
+revision/hash/bytes, and source/artifact authority again before returning a draft.
+Empty selected context reads no messages or artifacts. Overflow refuses rather
+than truncates. A capacity adapter must measure the actual joining packet plus
+ordinary boot, guidance, repository, tools and framing for each exact setting;
+the resulting component counts are inspectable. No registered adapter means
+unverified capacity; an oversized packet requires narrower selection or a separate
+reviewed summary and retains all original pins.
+
+New compiled artifacts include bounded base64 bytes inside the immutable review.
+EventStore checks canonical encoding, byte length and hash before saving them.
+Historical reference-only snapshots remain readable; they do not become byte
+delivery proof. A review copy is not an independently registered durable artifact,
+retention policy or permission to share it later.
+
+The source capability in `server/collaboration-context-source.ts` now composes
+EventStore's bounded ordinary visible-text reader with the existing session access
+and registered inline-output owners. It preserves exact user/completed-assistant
+message and block identities, independently witnesses the complete frozen prefix,
+refuses unfinished/ambiguous turns and overflow, and checks source access again at
+the final fence. It excludes provider history, reasoning, tool I/O and native seat
+streams. Supported artifacts are authorized registered inline outputs at revision
+1 in that source conversation, copied only after exact source/hash checks. Other
+artifact kinds and shared collaboration projection sources remain unavailable.
+Later transcript appends do not change a pinned prefix; loss of access or changed
+source bytes refuses it. Narrow and brief-only review need not load a long prefix.
+Payload attribution fields, including explicit JSON null, cannot establish ordinary
+authorship without the canonical verified provenance. An ambiguous source prefix
+is refused even for selected/brief-only artifact review. Canonical initial-prompt
+metadata is fenced through final authorization; legacy delayed initial prompts
+that the normal renderer hoists into another order are unsupported and refused.
+Ordinary user/new-assistant starts interleaved within an assistant turn are also
+refused across the complete pinned prefix, including artifact-only selections;
+the reader retains exact completion-sequence pins instead of changing canonical
+display order. Text rows are consumed incrementally, SQL identifiers are bounded
+before transfer, and each page, selection, witness and final recheck has a 512 KiB
+serialized-message budget. Retained observations contain bounded identities and
+fingerprints rather than copied transcript text; overflow does not consume a
+later independent narrow selection's budget.
+
+The compiler's source and capacity ports are **not installed in the application**.
+The new source capability is host-only and requires a live operator/session
+authorization callback from its eventual application owner. No review route or
+ordinary execution is enabled by this adapter.
+An ordinary adapter must measure its actual serialized input and overhead; mocked
+counts in tests do not qualify any provider/account/runtime. Public review, join
+and send stay disabled. Orchestration must recover the original operation receipt
+before recompiling a retry, persist the review through EventStore, and reauthorize
+source/artifact delivery at its ordinary admission barrier. This bounded compiler
+does not allocate sessions, dispatch turns, implement a source reader or establish
+ordinary preparation/delivery acknowledgement.
+
+The application source/access composition and token estimator remain unwired.
 `saveSnapshot` is a host-only port; HTTP callers cannot supply source bytes,
 capacity claims or receipt outcomes. Slice 3 must authorize visible source material,
 prove complete Conversation so far selection at the boundary, check exact artifact

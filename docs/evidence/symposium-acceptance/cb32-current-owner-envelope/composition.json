@@ -1,0 +1,13 @@
+{
+  "coreCommit": "cb32e03fda3babb9fe14fd3e486175e5b881f4d6",
+  "coreTree": "9a33fd7693392147f5871ac4dff8ed49fc127d66",
+  "overlayCommit": "713fb30e9e5b499c2466bd821b4c9b41f09e8fdf",
+  "overlayTree": "d5aa7bde9169acc3917ed62defc9752cf3802779",
+  "overlayBranch": "test/symposium-acceptance-core-cb32",
+  "productionChanges": [],
+  "candidateStatus": "?? node_modules",
+  "restoredControlsVerified": true,
+  "ownHarnessMatchesTestedOverlay": true,
+  "resultOutputSha256": "e31835ef4d0b8d8d840d29906d8f3528b5c8797682344de4a384acb5180ee4ca",
+  "scope": "exact core production source plus scoped C tests/evidence; not runtime or full UX qualification"
+}
