@@ -3,7 +3,7 @@
   "parent": "c0851ba23fcc5d04",
   "milestone": "358d56cb7e4352ff",
   "ownerSession": "01a14bdc-6a35-7041-abf2-0f6761daf29a",
-  "integrationOwnerSession": "01a14b49-df1f-7b82-be70-10be0789161c",
+  "integrationOwnerSession": "01a1510b-0f0a-7e52-8021-c5223e696019",
   "acceptanceOwnerSession": "01a14bdc-d152-7912-84d4-c0012e9d5206",
   "capturedSource": "62c89aff166c6133ccc01aa95c8ff7aaa589241d",
   "canonicalRecords": [
@@ -1313,6 +1313,48 @@
       "executionHold": "Denied credential+reviewPOST remains held for valid direct currentchat approval. No credential read, POST retry, review-mode change, continuity action, proxy or duplicated question. Independent source work only.",
       "localExecution": "Static pin/blob/union checks and normal hooks only; no broad/local unit/browser/native run, fresh remote CI required.",
       "landing": "No actualslot or global preparationhold. Final current-main strictalignment/CI/exactheadreview/App required; no merge/runtime claim."
+    },
+    "acceptedPriorityHandoffIntegration": {
+      "source": "7624ebccc1f6983d6972673b4ef8c86a06fa675c",
+      "sourceTree": "8cecdfaf0a2cd68def10f7d9cd4c09c64f534b08",
+      "parents": [
+        "a70f187d209f6f8223f47d48a4e319bbcccc707d",
+        "6537a5d6af5516e94872933205a9bcdd5dadfc29"
+      ],
+      "acceptedMain": "6537a5d6af5516e94872933205a9bcdd5dadfc29",
+      "acceptedTree": "e6069b5444e201c8660efa4bce888275de90eee3",
+      "manifest": {
+        "runtimeRevision": "v1.0.329-telos-s7-priority-handoff-symposium-shared-ui.4",
+        "aPinCount": 604,
+        "acceptedPinCount": 601,
+        "unionPinCount": 605,
+        "mismatches": 0,
+        "resolution": "One actual runtime-revision conflict; accepted priority-handoff revision plusA suffix. Automatic pin merge verified as full605key union, retaining A11 exacthashes and all accepted otherhashes.",
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "acceptedNonManifestFilesByteIdentical": 8,
+        "retainedAcceptedNonManifestExpectedFiles": 355,
+        "postHooksProof": "All605pins/0mismatches;60Aowned source/test/fixture/capture paths,8incomingacceptedpaths,355retainedacceptedpaths and8approvedreference/ledgerpaths match expected blobs after normalhooks."
+      },
+      "normalHooks": "passed ESLint/Prettier/gitleaks/commitlint with1GiBheap",
+      "acceptedBehavior": "Preserves the accepted item-route-owned priority pending/refusal state across legacy-to-canonical workspace hydration. Shared selector default local owner remains, optional external owner supplied by existing item route; no A conversation/auth/draft/projection API changed. Eight incoming source/test/docs/CI paths retained exactly; B/C/S9/S7/privacy and approved references preserved.",
+      "approvedA": "All11A modules, ownfixtures/protectedspec/34captures unchanged, including approved header/count geometry. Proposed1046compactcorrection remains separately owned and is not imported. No old patch replay or source redesign.",
+      "priorValidation": "a70 exactCI39161488348 all8workflowjobs/all10ordinarychecksSUCCESS. Source-bound protecteddesign+sharedconversation light/dark pass on all3projects retained. These do not qualify the new combined source; fresh normalCI required.",
+      "reviewContract": "Retain5563606448@08e/4982r1 thorough baseline and actual targeted integration verification. Manifest resolution/shared caller assumptions need current-head trusted review/App; no full reset solelySHA/acceptedmain/cap.",
+      "executionHold": "New actualhumanapproval01a1541a-ef42-76f2-9ff3-089780cdbd50 independently verified, but automatic execution review again rejected exactcredentialread+normalPOST beforeprocesscreation. No credentialread/POST/queuechange occurred; no retry, proxy, actor/mode workaround or delegated request. Prepared a70request is now obsolete/unsubmitted.",
+      "localExecution": "Static605pin/sourceblobunion checks and normalhooks only. Broad tests/typecheck/design/browser/native run through normal remoteCI for combined head. No model-backed/live tests or staging/deployment.",
+      "ownership": "New sole core01a1510b-0f0a-7e52-8021-c5223e696019 owns native/joining/pageintegration; oldcorestopped. Rootfeature reviewer coordinates any qualified actualmerge; A holds noactualslot/globalhold."
     }
   },
   "integrationHandoff": {
@@ -1344,8 +1386,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "4bac7e8fc0e9582aa56ba3c3583bfffdce76cb21",
-  "acceptedMainMerge": "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23",
+  "latestAcceptedMain": "6537a5d6af5516e94872933205a9bcdd5dadfc29",
+  "acceptedMainMerge": "7624ebccc1f6983d6972673b4ef8c86a06fa675c",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -1479,10 +1521,10 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "4bac7e8fc0e9582aa56ba3c3583bfffdce76cb21",
+  "integratedAcceptedBase": "6537a5d6af5516e94872933205a9bcdd5dadfc29",
   "baseRefresh": "Actual acceptedS7 4bac conflict requires integration.604-pin source union with explicit revision+A4-key resolution,all11 A modules/protected/captures unchanged,352 accepted files includingS7/B/C/S9 preserved after hooks. f66 greenCI/old08e baseline retained scoped; new currentCI and targetedintegrationreview/App required. Deniedreviewcredential action staysheld.",
-  "latestValidation": "checks.acceptedS7BaseIntegration",
-  "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
+  "latestValidation": "checks.acceptedPriorityHandoffIntegration",
+  "priorAcceptedMainMerge": "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23",
   "acceptedMainMergeHistory": [
     "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
     "163f74748e4c9e782e1f27db7179987fdcb903aa",
@@ -1495,6 +1537,8 @@
     "bf604fa061e3414d1e173ca99f0899602bbdd297",
     "4a61e824cd2eb2aa15959cf6a02f3e3f02ed54c9",
     "e4186e5694cb18f27935ae005c9c9c811ad52fe3",
-    "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23"
-  ]
+    "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23",
+    "7624ebccc1f6983d6972673b4ef8c86a06fa675c"
+  ],
+  "priorIntegrationOwnerSessions": ["01a14b49-df1f-7b82-be70-10be0789161c"]
 }
