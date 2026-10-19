@@ -1,4 +1,4 @@
-import type { TelosWorkView } from '@mitzo/protocol';
+import { TelosSourceConversationReferenceSchema, type TelosWorkView } from '@mitzo/protocol';
 import { telosChatRows, type TelosChatRow } from '../lib/telos-chat-rows';
 import { UiIcon } from './UiIcon';
 import './TelosChat.css';
@@ -42,13 +42,18 @@ export function TelosChatList({
             (source) =>
               source.selection.kind === 'selected' && source.source?.namespace === 'mitzo',
           );
-          const available = row.availability === 'available' || reviewedSource;
+          // External origins retain their explicit source opener even though
+          // ordinary Mitzo availability is unknown. This does not admit a chat.
+          const externalOrigin =
+            row.conversation.namespace === 'external_codex' &&
+            TelosSourceConversationReferenceSchema.safeParse(row.conversation).success;
+          const canOpen = row.availability === 'available' || reviewedSource || externalOrigin;
           return (
             <li key={row.key}>
               <button
                 type="button"
                 className="telos-chat-row"
-                disabled={!available}
+                disabled={!canOpen}
                 onClick={() => onOpen(row)}
                 aria-label={`Open ${row.labels.join(' · ')}`}
               >
@@ -61,7 +66,7 @@ export function TelosChatList({
                       : 'Linked date unknown'}{' '}
                     · {row.links[0]?.linkedBy ?? 'Author unknown'}
                   </small>
-                  {!available && (
+                  {!canOpen && (
                     <small>
                       {row.availability === 'unavailable' ? 'Unavailable' : 'Availability unknown'}
                     </small>

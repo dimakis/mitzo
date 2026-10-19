@@ -38,6 +38,76 @@ function work(): TelosWorkView {
   });
 }
 describe('approved S8 conversation selection', () => {
+  it('delegates explicit external-origin inspection without ordinary direct entry or assignment', () => {
+    const view = work();
+    const conversation = {
+      namespace: 'external_codex' as const,
+      conversationId: 'external-planning',
+      url: 'codex://threads/external-planning',
+    };
+    view.links = [{ ...view.links[0], role: 'origin', availability: 'unknown', conversation }];
+    view.assignments = [];
+    const onOpen = vi.fn(),
+      onNewChat = vi.fn(),
+      onChangeAssignment = vi.fn();
+    render(
+      <TelosChatList
+        work={view}
+        title="Home studio"
+        onOpen={onOpen}
+        onNewChat={onNewChat}
+        onChangeAssignment={onChangeAssignment}
+      />,
+    );
+    const opener = screen.getByRole('button', { name: 'Open Originating conversation' });
+    expect((opener as HTMLButtonElement).disabled).toBe(false);
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.click(opener);
+    expect(onOpen).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ conversation, availability: 'unknown' }),
+    );
+    expect(telosDirectChat(view)).toBeNull();
+    expect(view.assignments).toEqual([]);
+    expect(onNewChat).not.toHaveBeenCalled();
+    expect(onChangeAssignment).not.toHaveBeenCalled();
+  });
+  it('allows retained external source snapshots but keeps malformed external URLs disabled', () => {
+    const view = work();
+    view.links = [];
+    view.assignments = [];
+    const conversation = {
+      namespace: 'external_codex' as const,
+      conversationId: 'retained-origin',
+      url: 'codex://threads/retained-origin',
+    };
+    view.sources = [
+      {
+        version: 1,
+        snapshotId: 'retained',
+        itemId: 'slice',
+        source: conversation,
+        selection: { kind: 'unknown' },
+        adoptedBrief: null,
+        artifacts: [],
+        author: null,
+        sourceCreatedAt: null,
+        adoptedAt: null,
+      },
+    ];
+    const props = { title: 'Home studio', onOpen: vi.fn(), onNewChat: vi.fn() };
+    const { rerender } = render(<TelosChatList {...props} work={view} />);
+    expect(
+      (screen.getByRole('button', { name: 'Open Originating conversation' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    expect(telosDirectChat(view)).toBeNull();
+    conversation.url = 'https://unrelated.invalid/chat';
+    rerender(<TelosChatList {...props} work={view} />);
+    expect(
+      (screen.getByRole('button', { name: 'Open Originating conversation' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+  });
   it('lists every unique conversation first with no preselection or navigation', () => {
     const onOpen = vi.fn(),
       onNewChat = vi.fn(),
