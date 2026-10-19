@@ -334,6 +334,13 @@ for (const software of [false, true])
     });
     await page.goto('/todos/slice?view=Chat');
     await expect(page.getByRole('heading', { name: 'Chats · 2' })).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Open Assigned worker(?:\b|:)/ })).toContainText(
+      'worker conversation',
+    );
+    await page.screenshot({
+      path: info.outputPath(`s8-chooser-${software ? 'repository' : 'ordinary'}.png`),
+      fullPage: true,
+    });
     await page.getByRole('button', { name: /^Open Assigned worker(?:\b|:)/ }).click();
     await expect(page).toHaveURL(/\/chat\/worker\?telosChatItem=slice$/);
     await expect(page.getByText('Worker retained transcript', { exact: true })).toBeVisible();
@@ -362,6 +369,10 @@ for (const software of [false, true])
       page.getByRole('region', { name: 'Work tree' }).getByText('P7', { exact: true }),
     ).toBeVisible();
     await expect(page.getByText('Awaiting review', { exact: false })).toBeVisible();
+    await page.screenshot({
+      path: info.outputPath(`s8-work-tree-${software ? 'repository' : 'ordinary'}.png`),
+      fullPage: true,
+    });
     await page.getByRole('button', { name: 'Close work tree' }).click();
     await expect(tree).toBeFocused();
     await expect(input).toHaveValue('Worker independent draft');
