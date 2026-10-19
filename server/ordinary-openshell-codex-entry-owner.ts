@@ -21,7 +21,7 @@ import { hasPersistentRevocationAuthority } from './auth.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
-import { getConnectionsRuntime } from './connections-runtime.js';
+import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import { permissionRevision } from './session-permission-revision.js';
 import {
   ordinaryOpenShellCodexTarget,
@@ -302,14 +302,18 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
       providerExpiresAt = await manager.verifySubscriptionSignIn(signal);
       if (Date.now() >= providerExpiresAt) throw unavailable();
     } else {
-      const runtime = getConnectionsRuntime();
-      if (
-        !profiles.isEnrolledOpenAIAccount(input.account.accountId) ||
-        !runtime?.openAIEnrollmentAuthority?.manages(input.account.accountId) ||
-        !runtime.assertOpenAIKeyReady
-      )
-        throw unavailable();
-      await runtime.assertOpenAIKeyReady(input.account.accountId, signal);
+      const currentProfiles = loadAccountProfiles();
+      const profile = currentProfiles.apiRoutingProfile(input.account);
+      if (!profile.sandboxProviderId) throw unavailable();
+      const authority = openAIAccountKeyAuthority(input.account, currentProfiles);
+      await authority.assertReady(signal);
+      const manager = new OpenShellRuntimeManager({
+        ...configured.config,
+        account: route,
+        connectionAccountId: input.account.accountId,
+      });
+      await manager.verifyAPIAccountProvider(profile.sandboxProviderId, signal);
+      await authority.assertReady(signal);
     }
     const artifact = input.readRetained();
     if (artifact) {
