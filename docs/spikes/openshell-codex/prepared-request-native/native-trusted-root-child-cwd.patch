@@ -1,0 +1,240 @@
+diff --git a/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs b/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
+index 07fef6f..d69f3b1 100644
+--- a/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
++++ b/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
+@@ -106,50 +106,49 @@ pub(in crate::tools::runtimes) fn same_parent_child_context(
+     ) && {
+         let raw_matches =
+             parent_approval_gate("child-context.cwd-matches", original.cwd == child.cwd);
+-        if !raw_matches {
+-            // Diagnostics only. Resolve trusted-root aliases through the existing
+-            // host utility, never mutable descendants, and still return raw equality.
+-            let original_native = original.cwd.to_abs_path();
+-            let child_native = child.cwd.to_abs_path();
+-            parent_approval_gate("child-cwd.original-native-path-ok", original_native.is_ok());
+-            parent_approval_gate("child-cwd.child-native-path-ok", child_native.is_ok());
+-            let original_root = original_native
+-                .as_ref()
+-                .ok()
+-                .and_then(|path| path.normalize_system_aliases().ok());
+-            let child_root = child_native
+-                .as_ref()
+-                .ok()
+-                .and_then(|path| path.normalize_system_aliases().ok());
+-            parent_approval_gate(
+-                "child-cwd.original-root-normalization-ok",
+-                original_root.is_some(),
+-            );
+-            parent_approval_gate(
+-                "child-cwd.child-root-normalization-ok",
+-                child_root.is_some(),
+-            );
+-            let roots_match = matches!(
+-                (original_root.as_ref(), child_root.as_ref()),
+-                (Some(original), Some(child)) if original == child
+-            );
+-            let original_changed = matches!(
+-                (original_native.as_ref(), original_root.as_ref()),
+-                (Ok(original), Some(root)) if original != root
+-            );
+-            let child_changed = matches!(
+-                (child_native.as_ref(), child_root.as_ref()),
+-                (Ok(child), Some(root)) if child != root
+-            );
+-            parent_approval_gate("child-cwd.root-results-match", roots_match);
+-            parent_approval_gate("child-cwd.original-root-spelling-changed", original_changed);
+-            parent_approval_gate("child-cwd.child-root-spelling-changed", child_changed);
+-            parent_approval_gate(
+-                "child-cwd.root-only-alias-accounts-for-mismatch",
+-                roots_match && (original_changed || child_changed),
+-            );
+-        }
+-        raw_matches
++        // This is the already-bound local launch. Compare only host-owned trusted-root
++        // spellings; mutable descendants stay logical. Failed conversions or root
++        // observations cannot match. Raw request/executor custody is unchanged.
++        let original_native = original.cwd.to_abs_path();
++        let child_native = child.cwd.to_abs_path();
++        parent_approval_gate("child-cwd.original-native-path-ok", original_native.is_ok());
++        parent_approval_gate("child-cwd.child-native-path-ok", child_native.is_ok());
++        let original_root = original_native
++            .as_ref()
++            .ok()
++            .and_then(|path| path.normalize_system_aliases().ok());
++        let child_root = child_native
++            .as_ref()
++            .ok()
++            .and_then(|path| path.normalize_system_aliases().ok());
++        parent_approval_gate(
++            "child-cwd.original-root-normalization-ok",
++            original_root.is_some(),
++        );
++        parent_approval_gate(
++            "child-cwd.child-root-normalization-ok",
++            child_root.is_some(),
++        );
++        let roots_match = matches!(
++            (original_root.as_ref(), child_root.as_ref()),
++            (Some(original), Some(child)) if original == child
++        );
++        let original_changed = matches!(
++            (original_native.as_ref(), original_root.as_ref()),
++            (Ok(original), Some(root)) if original != root
++        );
++        let child_changed = matches!(
++            (child_native.as_ref(), child_root.as_ref()),
++            (Ok(child), Some(root)) if child != root
++        );
++        parent_approval_gate("child-cwd.root-results-match", roots_match);
++        parent_approval_gate("child-cwd.original-root-spelling-changed", original_changed);
++        parent_approval_gate("child-cwd.child-root-spelling-changed", child_changed);
++        parent_approval_gate(
++            "child-cwd.root-only-alias-accounts-for-mismatch",
++            !raw_matches && roots_match && (original_changed || child_changed),
++        );
++        parent_approval_gate("child-context.host-cwd-matches", roots_match)
+     }
+ }
+ 
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_admission_scope_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_admission_scope_tests.rs
+index c4d3fd4..a0117e9 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_admission_scope_tests.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_admission_scope_tests.rs
+@@ -50,6 +50,137 @@ fn plain_child_context_matches_all_four_original_facts() -> anyhow::Result<()> {
+     Ok(())
+ }
+ 
++// Exercises the real context-comparison owner with all other facts held equal.
++fn same_child_cwd(original: &PathUri, child: &PathUri) -> bool {
++    let profile = PermissionProfile::read_only();
++    let original = ParentChildContext {
++        permission_profile: &profile,
++        windows_sandbox_level: WindowsSandboxLevel::Disabled,
++        environment_id: "host-owned-local",
++        cwd: original,
++    };
++    same_parent_child_context(
++        original,
++        ParentChildContext {
++            cwd: child,
++            ..original
++        },
++    )
++}
++
++#[cfg(target_os = "macos")]
++#[test]
++fn child_cwd_accepts_real_system_root_alias_with_all_other_facts_equal() -> anyhow::Result<()> {
++    let directory = tempfile::tempdir_in("/tmp")?;
++    let logical = AbsolutePathBuf::from_absolute_path(directory.path())?;
++    let physical = logical.canonicalize()?;
++    assert_ne!(
++        logical, physical,
++        "fixture must exercise the real macOS root alias"
++    );
++    let logical = PathUri::from_abs_path(&logical);
++    let physical = PathUri::from_abs_path(&physical);
++    assert!(same_child_cwd(&logical, &physical));
++    assert!(same_child_cwd(&physical, &logical));
++
++    let profile = PermissionProfile::read_only();
++    let original = ParentChildContext {
++        permission_profile: &profile,
++        windows_sandbox_level: WindowsSandboxLevel::Disabled,
++        environment_id: "host-owned-local",
++        cwd: &logical,
++    };
++    let different_profile = PermissionProfile::workspace_write();
++    for child in [
++        ParentChildContext {
++            permission_profile: &different_profile,
++            cwd: &physical,
++            ..original
++        },
++        ParentChildContext {
++            windows_sandbox_level: WindowsSandboxLevel::RestrictedToken,
++            cwd: &physical,
++            ..original
++        },
++        ParentChildContext {
++            environment_id: "foreign-environment",
++            cwd: &physical,
++            ..original
++        },
++    ] {
++        assert!(!same_parent_child_context(original, child));
++    }
++    Ok(())
++}
++
++#[test]
++fn child_cwd_refuses_different_directory_and_similarly_named_sibling() -> anyhow::Result<()> {
++    let directory = tempfile::tempdir()?;
++    let root = AbsolutePathBuf::from_absolute_path(directory.path())?.canonicalize()?;
++    let original = root.join("cwd");
++    let sibling = root.join("cwd-sibling");
++    let other = root.join("other");
++    for path in [&original, &sibling, &other] {
++        std::fs::create_dir(path)?;
++        std::fs::write(path.join("same-contents"), "identical")?;
++    }
++    let original = PathUri::from_abs_path(&original);
++    for path in [&sibling, &other] {
++        let child = PathUri::from_abs_path(path);
++        assert!(!same_child_cwd(&original, &child));
++        assert!(!same_child_cwd(&child, &original));
++    }
++    Ok(())
++}
++
++#[test]
++fn child_cwd_refuses_mutable_descendant_alias_before_and_after_retarget() -> anyhow::Result<()> {
++    let directory = tempfile::tempdir()?;
++    let root = AbsolutePathBuf::from_absolute_path(directory.path())?.canonicalize()?;
++    let first = root.join("first");
++    let replacement = root.join("replacement");
++    let alias = root.join("mutable");
++    std::fs::create_dir(&first)?;
++    std::fs::create_dir(&replacement)?;
++    std::os::unix::fs::symlink(&first, &alias)?;
++    assert_eq!(alias.canonicalize()?, first);
++    assert_eq!(alias.normalize_system_aliases()?, alias);
++    let alias_uri = PathUri::from_abs_path(&alias);
++    let first_uri = PathUri::from_abs_path(&first);
++    let replacement_uri = PathUri::from_abs_path(&replacement);
++    assert!(!same_child_cwd(&alias_uri, &first_uri));
++    assert!(!same_child_cwd(&first_uri, &alias_uri));
++
++    std::fs::remove_file(&alias)?;
++    std::os::unix::fs::symlink(&replacement, &alias)?;
++    assert_eq!(alias.canonicalize()?, replacement);
++    assert_eq!(alias.normalize_system_aliases()?, alias);
++    for physical in [&first_uri, &replacement_uri] {
++        assert!(!same_child_cwd(&alias_uri, physical));
++        assert!(!same_child_cwd(physical, &alias_uri));
++    }
++    // Identical logical strings do not attest immutable directory identity.
++    Ok(())
++}
++
++#[test]
++fn child_cwd_refuses_foreign_conversion_and_root_io_failure_even_when_raw_equal()
++-> anyhow::Result<()> {
++    for foreign in ["file:///C:/foreign-cwd", "file://foreign-host/share/cwd"] {
++        let foreign = PathUri::parse(foreign)?;
++        assert!(foreign.to_abs_path().is_err());
++        assert!(!same_child_cwd(&foreign, &foreign));
++    }
++    // The URI round trip supports opaque host bytes, but the real filesystem
++    // rejects a NUL in the top-level component. No failed observation may match.
++    let invalid = AbsolutePathBuf::from_absolute_path("/invalid\0-root")?;
++    let invalid_uri = PathUri::from_abs_path(&invalid);
++    assert_eq!(invalid_uri.to_abs_path()?, invalid);
++    assert!(invalid.normalize_system_aliases().is_err());
++    assert!(!same_child_cwd(&invalid_uri, &invalid_uri));
++    Ok(())
++}
++
+ fn context() -> InterceptedExecPolicyContext {
+     InterceptedExecPolicyContext {
+         approval_policy: AskForApproval::OnRequest,

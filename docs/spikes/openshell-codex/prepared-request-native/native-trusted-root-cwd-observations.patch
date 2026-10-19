@@ -1,0 +1,60 @@
+diff --git a/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs b/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
+index b40536d..07fef6f 100644
+--- a/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
++++ b/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
+@@ -103,7 +103,54 @@ pub(in crate::tools::runtimes) fn same_parent_child_context(
+     ) && parent_approval_gate(
+         "child-context.environment-matches",
+         original.environment_id == child.environment_id,
+-    ) && parent_approval_gate("child-context.cwd-matches", original.cwd == child.cwd)
++    ) && {
++        let raw_matches =
++            parent_approval_gate("child-context.cwd-matches", original.cwd == child.cwd);
++        if !raw_matches {
++            // Diagnostics only. Resolve trusted-root aliases through the existing
++            // host utility, never mutable descendants, and still return raw equality.
++            let original_native = original.cwd.to_abs_path();
++            let child_native = child.cwd.to_abs_path();
++            parent_approval_gate("child-cwd.original-native-path-ok", original_native.is_ok());
++            parent_approval_gate("child-cwd.child-native-path-ok", child_native.is_ok());
++            let original_root = original_native
++                .as_ref()
++                .ok()
++                .and_then(|path| path.normalize_system_aliases().ok());
++            let child_root = child_native
++                .as_ref()
++                .ok()
++                .and_then(|path| path.normalize_system_aliases().ok());
++            parent_approval_gate(
++                "child-cwd.original-root-normalization-ok",
++                original_root.is_some(),
++            );
++            parent_approval_gate(
++                "child-cwd.child-root-normalization-ok",
++                child_root.is_some(),
++            );
++            let roots_match = matches!(
++                (original_root.as_ref(), child_root.as_ref()),
++                (Some(original), Some(child)) if original == child
++            );
++            let original_changed = matches!(
++                (original_native.as_ref(), original_root.as_ref()),
++                (Ok(original), Some(root)) if original != root
++            );
++            let child_changed = matches!(
++                (child_native.as_ref(), child_root.as_ref()),
++                (Ok(child), Some(root)) if child != root
++            );
++            parent_approval_gate("child-cwd.root-results-match", roots_match);
++            parent_approval_gate("child-cwd.original-root-spelling-changed", original_changed);
++            parent_approval_gate("child-cwd.child-root-spelling-changed", child_changed);
++            parent_approval_gate(
++                "child-cwd.root-only-alias-accounts-for-mismatch",
++                roots_match && (original_changed || child_changed),
++            );
++        }
++        raw_matches
++    }
+ }
+ 
+ impl InitialParentRestrictedLaunch {

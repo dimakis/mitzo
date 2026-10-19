@@ -1,0 +1,778 @@
+From d59203e961edf8f072fc189c0939bd1dd63ac18d Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 22:17:39 +0100
+Subject: [PATCH] fix(core): scope inherited parent approval to held current
+ owners
+
+---
+ codex-rs/core/src/session/parent_approval.rs  |   8 +
+ codex-rs/core/src/tools/approvals.rs          | 110 +++-
+ .../parent_consumer_routing_tests.rs          | 506 ++++++++++++++++++
+ .../tools/approvals/parent_routing_tests.rs   |   3 +
+ .../runtimes/zsh_fork/unix_escalation.rs      |   6 +-
+ 5 files changed, 615 insertions(+), 18 deletions(-)
+ create mode 100644 codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs
+
+diff --git a/codex-rs/core/src/session/parent_approval.rs b/codex-rs/core/src/session/parent_approval.rs
+index 2dcff0a..516b1d2 100644
+--- a/codex-rs/core/src/session/parent_approval.rs
++++ b/codex-rs/core/src/session/parent_approval.rs
+@@ -583,4 +583,12 @@ impl Session {
+         self.services.hooks.store(hooks);
+         true
+     }
++
++    pub(crate) async fn apply_parent_test_turn_settings(
++        &self,
++        turn_id: &str,
++        update: codex_protocol::protocol::TurnSettingsUpdate,
++    ) -> codex_protocol::protocol::TurnSettingsUpdateOutcome {
++        self.apply_turn_settings(turn_id, update).await
++    }
+ }
+diff --git a/codex-rs/core/src/tools/approvals.rs b/codex-rs/core/src/tools/approvals.rs
+index d7b8869..fc5baef 100644
+--- a/codex-rs/core/src/tools/approvals.rs
++++ b/codex-rs/core/src/tools/approvals.rs
+@@ -16,6 +16,8 @@ use crate::session::session::Session;
+ use crate::tools::hook_names::HookToolName;
+ use crate::tools::runtimes::apply_patch::ApplyPatchApprovalKey;
+ use crate::tools::runtimes::unified_exec::UnifiedExecApprovalKey;
++#[cfg(unix)]
++use crate::tools::runtimes::zsh_fork::InterceptedParentAdmission;
+ use crate::tools::sandboxing::ApprovalRequestReasons;
+ use crate::tools::sandboxing::PermissionRequestPayload;
+ use crate::tools::sandboxing::ToolError;
+@@ -437,6 +439,20 @@ enum ApprovalResolutionSource {
+     Hook,
+     Guardian,
+     User,
++    #[cfg(unix)]
++    InheritedParent,
++}
++
++impl ApprovalResolutionSource {
++    fn telemetry_source(self) -> Option<ToolDecisionSource> {
++        match self {
++            Self::Hook => Some(ToolDecisionSource::Config),
++            Self::Guardian => Some(ToolDecisionSource::AutomatedReviewer),
++            Self::User => Some(ToolDecisionSource::User),
++            #[cfg(unix)]
++            Self::InheritedParent => None,
++        }
++    }
+ }
+ 
+ #[derive(Clone, Debug, PartialEq, Eq)]
+@@ -464,6 +480,10 @@ impl ApprovalResolution {
+                         "automatic approval review denied the action"
+                     }
+                     ApprovalResolutionSource::User => "rejected by user",
++                    // Private inherited resolution is Approved-only; preserve generic refusal
++                    // if an impossible deny ever reaches this defensive conversion.
++                    #[cfg(unix)]
++                    ApprovalResolutionSource::InheritedParent => "Error while requesting approval",
+                 };
+                 Err(ToolError::Rejected(rejection.to_string()))
+             }
+@@ -486,9 +506,15 @@ impl Session {
+         action: ApprovalAction,
+         ctx: ApprovalContext,
+     ) -> Result<ReviewDecision, ToolError> {
+-        self.request_approval_inner(action, ctx, /*issuer*/ None, /*intercepted*/ None)
+-            .await
+-            .map(|result| result.decision)
++        self.request_approval_inner(
++            action,
++            ctx,
++            /*issuer*/ None,
++            /*intercepted*/ None,
++            #[cfg(unix)] /*parent*/ None,
++        )
++        .await
++        .map(|result| result.decision)
+     }
+ 
+     pub(crate) async fn request_initial_exec_approval(
+@@ -512,19 +538,26 @@ impl Session {
+         } else {
+             None
+         };
+-        self.request_approval_inner(action, ctx, issuer, /*intercepted*/ None)
+-            .await
++        self.request_approval_inner(
++            action,
++            ctx,
++            issuer,
++            /*intercepted*/ None,
++            #[cfg(unix)] /*parent*/ None,
++        )
++        .await
+     }
+ 
+     #[cfg(unix)]
+     pub(crate) async fn request_intercepted_approval(
+         self: &Arc<Self>,
+-        selected: crate::session::InterceptedApprovalSelection,
++        selected: &crate::session::InterceptedApprovalSelection,
++        parent: Option<&InterceptedParentAdmission<'_>>,
+     ) -> Result<ReviewDecision, ToolError> {
+-        self.validate_intercepted_approval_selection(&selected)
++        self.validate_intercepted_approval_selection(selected)
+             .await?;
+         let (action, ctx) = selected.approval_request();
+-        self.request_approval_inner(action, ctx, /*issuer*/ None, Some(&selected))
++        self.request_approval_inner(action, ctx, /*issuer*/ None, Some(selected), parent)
+             .await
+             .map(|result| result.decision)
+     }
+@@ -535,6 +568,7 @@ impl Session {
+         ctx: ApprovalContext,
+         issuer: Option<(crate::session::InitialExecApprovalIssuer, ApprovalAction)>,
+         intercepted: Option<&crate::session::InterceptedApprovalSelection>,
++        #[cfg(unix)] parent: Option<&InterceptedParentAdmission<'_>>,
+     ) -> Result<InitialExecApproval, ToolError> {
+         // Stdin that exceeds current permissions needs a fresh sandbox approval.
+         // Strict review of ordinary input follows the same routing as ordinary exec.
+@@ -567,7 +601,8 @@ impl Session {
+             action.permission_request_payload(),
+         )
+         .await;
+-        let resolution = match permission_request_hooks.into_decision() {
++        let (hook_decision, hook_observation) = permission_request_hooks.into_parts();
++        let resolution = match hook_decision {
+             Some(PermissionRequestDecision::Allow) => ApprovalResolution {
+                 decision: ReviewDecision::Approved,
+                 source: ApprovalResolutionSource::Hook,
+@@ -578,8 +613,15 @@ impl Session {
+             },
+             None => match intercepted {
+                 Some(selected) => {
+-                    self.request_intercepted_reviewer_approval(action, &ctx, selected)
+-                        .await?
++                    self.request_intercepted_reviewer_approval(
++                        action,
++                        &ctx,
++                        selected,
++                        &hook_observation,
++                        #[cfg(unix)]
++                        parent,
++                    )
++                    .await?
+                 }
+                 None => self.request_reviewer_approval(action, &ctx).await,
+             },
+@@ -655,6 +697,8 @@ impl Session {
+         action: ApprovalAction,
+         ctx: &ApprovalContext,
+         selected: &crate::session::InterceptedApprovalSelection,
++        hooks: &crate::hook_runtime::PermissionRequestHookObservation,
++        #[cfg(unix)] parent: Option<&InterceptedParentAdmission<'_>>,
+     ) -> Result<ApprovalResolution, ToolError> {
+         let routing = self
+             .request_guardian_approval_with_routing(action.clone(), ctx)
+@@ -670,6 +714,42 @@ impl Session {
+             })?;
+             self.validate_intercepted_user_prompt(selected, used)
+                 .await?;
++            #[cfg(unix)]
++            if matches!(
++                routing.disposition(),
++                codex_guardian_reviewer::ReviewDisposition::UserPrompt(
++                    codex_guardian_reviewer::UserPromptDisposition::NoContributorDefaultUser {
++                        fresh_review_required: false,
++                    }
++                )
++            ) && hooks.matching_handler_count() == 0
++                && let Some(parent) = parent
++            {
++                if let Some(resolution) = parent
++                    .try_resolve(selected, used, hooks, || {
++                        Some(ApprovalResolution {
++                            decision: ReviewDecision::Approved,
++                            source: ApprovalResolutionSource::InheritedParent,
++                        })
++                    })
++                    .await
++                {
++                    return Ok(resolution);
++                }
++                // Test scheduler only, after the ACTUAL scoped None and all held guards.
++                #[cfg(all(test, unix))]
++                if let Some(pause) = self
++                    .services
++                    .session_extension_data
++                    .get::<parent_fallback_test_support::ParentFallbackPause>()
++                {
++                    pause.after_scope_none(selected).await;
++                }
++            }
++            // A failed final attempt may have awaited while current authority changed.
++            // Every scoped User path renews the SAME packet and actual review-used Config.
++            self.validate_intercepted_user_prompt(selected, used)
++                .await?;
+         }
+         Ok(if let Some(decision) = routing.into_legacy_decision() {
+             ApprovalResolution {
+@@ -990,16 +1070,12 @@ impl Session {
+ }
+ 
+ fn record_resolution(ctx: &ApprovalContext, resolution: &ApprovalResolution) {
+-    let source = match resolution.source {
+-        ApprovalResolutionSource::Hook => ToolDecisionSource::Config,
+-        ApprovalResolutionSource::Guardian => ToolDecisionSource::AutomatedReviewer,
+-        ApprovalResolutionSource::User => ToolDecisionSource::User,
+-    };
++    let source = resolution.source.telemetry_source();
+     ctx.review_context.turn().session_telemetry.tool_decision(
+         &ctx.tool_name,
+         &ctx.call_id,
+         &resolution.decision,
+-        Some(source),
++        source,
+     );
+ }
+ 
+diff --git a/codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs b/codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs
+new file mode 100644
+index 0000000..d045b57
+--- /dev/null
++++ b/codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs
+@@ -0,0 +1,506 @@
++//! Future active-wire regressions through the actual scoped approval owner; no parent grant.
++use super::*;
++use crate::session::InterceptedApprovalSelection;
++use crate::tasks::SessionTask;
++use crate::tasks::SessionTaskResult;
++use codex_protocol::protocol::GuardianCommandSource;
++use codex_protocol::protocol::TurnAbortReason;
++use codex_protocol::protocol::TurnSettingsUpdate;
++use codex_protocol::protocol::TurnSettingsUpdateOutcome;
++use pretty_assertions::assert_eq;
++use uuid::Uuid;
++
++struct PendingTask;
++impl SessionTask for PendingTask {
++    fn kind(&self) -> crate::state::TaskKind {
++        crate::state::TaskKind::Regular
++    }
++    fn span_name(&self) -> &'static str {
++        "parent_consumer_routing"
++    }
++    async fn run(
++        self: Arc<Self>,
++        _session: Arc<Session>,
++        _turn: Arc<crate::session::turn_context::TurnContext>,
++        _input: Vec<crate::session::TurnInput>,
++        cancellation: CancellationToken,
++    ) -> SessionTaskResult {
++        cancellation.cancelled().await;
++        Ok(None)
++    }
++}
++struct ActiveCase {
++    fixture: Fixture,
++    entered: Arc<Notify>,
++    release: Arc<Notify>,
++}
++impl Drop for ActiveCase {
++    fn drop(&mut self) {
++        self.release.notify_one();
++        // Panic/setup-timeout fallback only. Ordinary cleanup below is awaited and bounded.
++        if let Ok(active) = self.fixture.session.active_turn.try_lock()
++            && let Some(task) = active.as_ref().and_then(|active| active.task.as_ref())
++        {
++            task.cancellation_token.cancel();
++        }
++    }
++}
++impl ActiveCase {
++    async fn new(decision: Option<ApprovalDecision>, gated: bool) -> anyhow::Result<Self> {
++        let entered = Arc::new(Notify::new());
++        let release = Arc::new(Notify::new());
++        // Existing Fixture creates no active task; timeout cannot strand a pending task here.
++        let fixture = tokio::time::timeout(
++            Duration::from_secs(15),
++            Fixture::new(
++                decision,
++                gated.then(|| (Arc::clone(&entered), Arc::clone(&release))),
++                /*panic*/ false,
++            ),
++        )
++        .await??;
++        let mut case = Self {
++            fixture,
++            entered,
++            release,
++        };
++        let setup = tokio::time::timeout(Duration::from_secs(10), async {
++            assert!(
++                !case
++                    .fixture
++                    .step
++                    .turn
++                    .config
++                    .features
++                    .enabled(codex_features::Feature::GuardianV2)
++            );
++            case.fixture
++                .session
++                .start_task(Arc::clone(&case.fixture.step.turn), Vec::new(), PendingTask)
++                .await;
++            case.fixture
++                .session
++                .services
++                .turn_environments
++                .snapshot()
++                .await;
++            let (turn, settings, environments, strict) = case
++                .fixture
++                .session
++                .active_turn_context_and_strict_auto_review()
++                .await
++                .ok_or_else(|| anyhow::anyhow!("actual active routing task"))?;
++            assert!(!strict);
++            assert!(Arc::ptr_eq(&turn, &case.fixture.step.turn));
++            let step = Arc::get_mut(&mut case.fixture.step).expect("actual fixture owns its Step");
++            step.settings = settings;
++            step.environments = environments;
++            Ok::<_, anyhow::Error>(())
++        })
++        .await
++        .map_err(anyhow::Error::from)
++        .and_then(|result| result);
++        if let Err(error) = setup {
++            let close = tokio::time::timeout(
++                Duration::from_secs(5),
++                case.fixture
++                    .session
++                    .abort_all_tasks(TurnAbortReason::Interrupted),
++            )
++            .await;
++            return Err(error.context(format!("setup close={close:?}")));
++        }
++        Ok(case)
++    }
++    async fn selected(&self) -> anyhow::Result<InterceptedApprovalSelection> {
++        let program = AbsolutePathBuf::current_dir()?.join("actual-scoped-review-program");
++        let context = self.fixture.context(/*cancellation_token*/ None);
++        let action = ApprovalAction::Execve {
++            id: context.call_id.clone(),
++            approval_id: Uuid::new_v4().to_string(),
++            environment_id: self
++                .fixture
++                .step
++                .environments
++                .primary()
++                .unwrap()
++                .selection
++                .environment_id
++                .clone(),
++            source: GuardianCommandSource::UnifiedExec,
++            program: program.clone(),
++            argv: vec!["literal-argv-zero".into(), "argument".into()],
++            command: vec![program.to_string_lossy().into_owned(), "argument".into()],
++            cwd: AbsolutePathBuf::current_dir()?.join("literal-child-cwd"),
++            additional_permissions: None,
++        };
++        Ok(self
++            .fixture
++            .session
++            .capture_intercepted_approval_selection(
++                action,
++                &context.call_id,
++                &context.tool_name,
++                &context.review_context,
++                self.fixture.session.services.exec_policy.current(),
++            )
++            .await
++            .map_err(|error| anyhow::anyhow!("selection: {error:?}"))?)
++    }
++    async fn finish(self, result: anyhow::Result<()>) -> anyhow::Result<()> {
++        self.release.notify_one();
++        let hooks = self.fixture.session.hooks();
++        let hook_close = tokio::time::timeout(Duration::from_secs(5), hooks.shutdown()).await;
++        let close = tokio::time::timeout(
++            Duration::from_secs(5),
++            self.fixture
++                .session
++                .abort_all_tasks(TurnAbortReason::Interrupted),
++        )
++        .await;
++        match (result, hook_close, close) {
++            (Ok(()), Ok(()), Ok(())) => Ok(()),
++            (Err(error), hooks, task) => {
++                Err(error.context(format!("cleanup hooks={hooks:?} task={task:?}")))
++            }
++            (Ok(()), hooks, task) => anyhow::bail!("cleanup hooks={hooks:?} task={task:?}"),
++        }
++    }
++    fn no_manual(&self) {
++        assert!(
++            !std::iter::from_fn(|| self.fixture._events.try_recv().ok())
++                .any(|event| matches!(event.msg, EventMsg::ExecApprovalRequest(_)))
++        );
++    }
++}
++async fn bounded(
++    body: impl std::future::Future<Output = anyhow::Result<()>>,
++) -> anyhow::Result<()> {
++    tokio::time::timeout(Duration::from_secs(15), body).await?
++}
++
++#[tokio::test]
++async fn no_parent_default_and_explicit_ask_user_execute_once_and_preserve_child_bytes()
++-> anyhow::Result<()> {
++    for decision in [None, Some(ApprovalDecision::AskUser)] {
++        let case = ActiveCase::new(decision, /*gated*/ false).await?;
++        let result = bounded(async {
++            let selected = case.selected().await?;
++            let (action, _) = selected.approval_request();
++            let ApprovalAction::Execve { approval_id, command, cwd, .. } = action else { unreachable!() };
++            let request = case.fixture.session.request_intercepted_approval(&selected, /*parent*/ None);
++            tokio::pin!(request);
++            let review = loop {
++                tokio::select! {
++                    result = &mut request => anyhow::bail!("expected real user prompt: {result:?}"),
++                    event = case.fixture._events.recv() => if let EventMsg::ExecApprovalRequest(event) = event?.msg {
++                        assert_eq!(event.call_id, "routing");
++                        assert_eq!(event.approval_id.as_deref(), Some(approval_id.as_str()));
++                        assert_eq!(event.command, command);
++                        assert_eq!(event.cwd, cwd);
++                        case.fixture.session.notify_approval(&approval_id, ReviewDecision::Approved).await;
++                        break request.await;
++                    }
++                }
++            };
++            assert_eq!(review.map_err(|error| anyhow::anyhow!("approval: {error:?}"))?, ReviewDecision::Approved);
++            assert_eq!(case.fixture.calls.load(Ordering::SeqCst), 1);
++            case.no_manual();
++            Ok(())
++        }).await;
++        case.finish(result).await?;
++    }
++    Ok(())
++}
++
++#[derive(Clone, Copy, Debug)]
++enum Drift {
++    Config,
++    Policy,
++    Environment,
++    Settings,
++    Strict,
++    Task,
++    Cancel,
++}
++async fn drift(
++    case: &ActiveCase,
++    kind: Drift,
++) -> anyhow::Result<Option<tokio_util::sync::DropGuard>> {
++    let session = &case.fixture.session;
++    match kind {
++        Drift::Config => {
++            let original = session.get_config().await;
++            session
++                .refresh_runtime_config(original.as_ref().clone())
++                .await;
++            assert!(!Arc::ptr_eq(&original, &session.get_config().await));
++        }
++        Drift::Policy => {
++            let original = session.services.exec_policy.current();
++            let home = tempfile::tempdir()?;
++            session
++                .services
++                .exec_policy
++                .append_amendment_and_update(
++                    home.path(),
++                    &codex_protocol::protocol::ExecPolicyAmendment {
++                        command: vec!["unrelated-scoped-change".into()],
++                    },
++                )
++                .await?;
++            assert!(!Arc::ptr_eq(
++                &original,
++                &session.services.exec_policy.current()
++            ));
++        }
++        Drift::Environment => {
++            let before = session.services.turn_environments.observe_selected();
++            let projected = session.services.turn_environments.selections();
++            let mut changed = before.snapshot().primary().unwrap().config().clone();
++            changed.permission_profile =
++                crate::config::PermissionProfileSnapshot::legacy(PermissionProfile::Disabled);
++            session
++                .services
++                .turn_environments
++                .set_active_thread_defaults(changed);
++            let after = session.services.turn_environments.observe_selected();
++            assert_eq!(session.services.turn_environments.selections(), projected);
++            assert_ne!(
++                before.snapshot().primary().unwrap().selection.config,
++                after.snapshot().primary().unwrap().selection.config
++            );
++            assert!(Arc::ptr_eq(
++                &before.snapshot().primary().unwrap().environment,
++                &after.snapshot().primary().unwrap().environment
++            ));
++        }
++        Drift::Settings => {
++            assert!(matches!(
++                session
++                    .apply_parent_test_turn_settings(
++                        &case.fixture.step.turn.sub_id,
++                        TurnSettingsUpdate {
++                            approvals_reviewer: Some(ApprovalsReviewer::User),
++                            ..Default::default()
++                        }
++                    )
++                    .await,
++                TurnSettingsUpdateOutcome::Applied
++            ));
++        }
++        Drift::Strict => {
++            let state = Arc::clone(
++                &session
++                    .active_turn
++                    .lock()
++                    .await
++                    .as_ref()
++                    .unwrap()
++                    .turn_state,
++            );
++            state.lock().await.enable_strict_auto_review();
++        }
++        Drift::Task => {
++            let before = Arc::clone(
++                &session
++                    .active_turn
++                    .lock()
++                    .await
++                    .as_ref()
++                    .unwrap()
++                    .task
++                    .as_ref()
++                    .unwrap()
++                    .done,
++            );
++            session.abort_all_tasks(TurnAbortReason::Replaced).await;
++            session
++                .start_task(Arc::clone(&case.fixture.step.turn), Vec::new(), PendingTask)
++                .await;
++            let active = session.active_turn.lock().await;
++            let task = active.as_ref().unwrap().task.as_ref().unwrap();
++            assert!(!Arc::ptr_eq(&before, &task.done));
++            assert!(!task.cancellation_token.is_cancelled());
++            return Ok(Some(task.cancellation_token.clone().drop_guard()));
++        }
++        Drift::Cancel => session
++            .active_turn
++            .lock()
++            .await
++            .as_ref()
++            .unwrap()
++            .task
++            .as_ref()
++            .unwrap()
++            .cancellation_token
++            .cancel(),
++    }
++    Ok(None)
++}
++#[tokio::test]
++async fn every_default_or_explicit_user_route_refuses_actual_callback_context_drift()
++-> anyhow::Result<()> {
++    for decision in [None, Some(ApprovalDecision::AskUser)] {
++        for kind in [
++            Drift::Config,
++            Drift::Policy,
++            Drift::Environment,
++            Drift::Settings,
++            Drift::Strict,
++            Drift::Task,
++            Drift::Cancel,
++        ] {
++            let case = ActiveCase::new(decision.clone(), /*gated*/ true).await?;
++            let result = bounded(async {
++                let selected = case.selected().await?;
++                let review = case.fixture.session.request_intercepted_approval(&selected, /*parent*/ None);
++                tokio::pin!(review);
++                tokio::select! {
++                    _ = case.entered.notified() => {},
++                    result = &mut review => anyhow::bail!("expected actual contributor gate: {result:?}"),
++                }
++                let replacement = drift(&case, kind).await?;
++                case.release.notify_one();
++                assert!(matches!(review.await, Err(ToolError::Rejected(message))
++                    if message == "intercepted execution approval context changed during review"), "{kind:?}");
++                assert_eq!(case.fixture.calls.load(Ordering::SeqCst), 1);
++                case.no_manual();
++                drop(replacement); // keep actual replacement task live until after the assertion
++                Ok(())
++            }).await;
++            case.finish(result).await?;
++        }
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn actual_reviewed_results_keep_precedence_and_no_user_prompt() -> anyhow::Result<()> {
++    for decision in [
++        ReviewDecision::Approved,
++        ReviewDecision::denied("actual-contributor-denied"),
++    ] {
++        let case = ActiveCase::new(
++            Some(ApprovalDecision::Reviewed(decision.clone())),
++            /*gated*/ false,
++        )
++        .await?;
++        let result = bounded(async {
++            let selected = case.selected().await?;
++            let result = case
++                .fixture
++                .session
++                .request_intercepted_approval(&selected, /*parent*/ None)
++                .await;
++            match &decision {
++                ReviewDecision::Approved => assert_eq!(
++                    result.map_err(|e| anyhow::anyhow!("{e:?}"))?,
++                    ReviewDecision::Approved
++                ),
++                ReviewDecision::Denied { rejection } => assert!(
++                    matches!(result, Err(ToolError::Rejected(message)) if &message == rejection)
++                ),
++                _ => unreachable!(),
++            }
++            assert_eq!(case.fixture.calls.load(Ordering::SeqCst), 1);
++            case.no_manual();
++            Ok(())
++        })
++        .await;
++        case.finish(result).await?;
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn strict_reviewed_abort_never_enters_a_model_or_manual_fallback() -> anyhow::Result<()> {
++    let case = ActiveCase::new(
++        Some(ApprovalDecision::Reviewed(ReviewDecision::Abort)),
++        /*gated*/ false,
++    )
++    .await?;
++    let result = bounded(async {
++        let state = Arc::clone(
++            &case
++                .fixture
++                .session
++                .active_turn
++                .lock()
++                .await
++                .as_ref()
++                .unwrap()
++                .turn_state,
++        );
++        state.lock().await.enable_strict_auto_review();
++        let selected = case.selected().await?;
++        let (_, context) = selected.approval_request();
++        assert!(context.strict_auto_review);
++        assert!(matches!(
++            case.fixture
++                .session
++                .request_intercepted_approval(&selected, /*parent*/ None)
++                .await,
++            Err(ToolError::Codex(CodexErr::TurnAborted))
++        ));
++        assert_eq!(case.fixture.calls.load(Ordering::SeqCst), 1);
++        case.no_manual();
++        Ok(())
++    })
++    .await;
++    case.finish(result).await
++}
++
++#[tokio::test]
++async fn actual_decisive_hooks_bypass_contributor_and_preserve_allow_deny_precedence()
++-> anyhow::Result<()> {
++    for behavior in ["allow", "deny"] {
++        let case = ActiveCase::new(Some(ApprovalDecision::AskUser), /*gated*/ false).await?;
++        let counter = tempfile::tempdir()?;
++        let hits = counter.path().join("hits");
++        let mut home = None;
++        let result = bounded(async {
++            let command = format!("cat >/dev/null; printf 'hit\\n' >> {}; printf '%s\\n' '{{\"hookSpecificOutput\":{{\"hookEventName\":\"PermissionRequest\",\"decision\":{{\"behavior\":\"{behavior}\",\"message\":\"actual-hook-denied\"}}}}}}'",
++                shlex::try_quote(hits.to_string_lossy().as_ref())?);
++            // Existing C2 fixture setup occurs before any approval starts; no guarded-publication claim.
++            home = Some(case.fixture.trusted_hooks(vec![(command, false)])?);
++            let selected = case.selected().await?;
++            let result = case.fixture.session.request_intercepted_approval(&selected, /*parent*/ None).await;
++            if behavior == "allow" {
++                assert_eq!(result.map_err(|e| anyhow::anyhow!("{e:?}"))?, ReviewDecision::Approved);
++            } else {
++                assert!(matches!(result, Err(ToolError::Rejected(message)) if message == "actual-hook-denied"));
++            }
++            assert_eq!(case.fixture.calls.load(Ordering::SeqCst), 0);
++            assert_eq!(std::fs::read_to_string(&hits)?, "hit\n");
++            case.no_manual();
++            Ok(())
++        }).await;
++        let result = case.finish(result).await;
++        drop(home);
++        result?;
++    }
++    Ok(())
++}
++
++#[test]
++fn optional_resolution_source_keeps_original_labels_and_no_inherited_user_label() {
++    assert!(matches!(
++        ApprovalResolutionSource::Hook.telemetry_source(),
++        Some(ToolDecisionSource::Config)
++    ));
++    assert!(matches!(
++        ApprovalResolutionSource::Guardian.telemetry_source(),
++        Some(ToolDecisionSource::AutomatedReviewer)
++    ));
++    assert!(matches!(
++        ApprovalResolutionSource::User.telemetry_source(),
++        Some(ToolDecisionSource::User)
++    ));
++    assert!(
++        ApprovalResolutionSource::InheritedParent
++            .telemetry_source()
++            .is_none()
++    );
++    // No ApprovalResolution or parent proof is constructed by this pure mapping check.
++}
+diff --git a/codex-rs/core/src/tools/approvals/parent_routing_tests.rs b/codex-rs/core/src/tools/approvals/parent_routing_tests.rs
+index 232f787..e0acf89 100644
+--- a/codex-rs/core/src/tools/approvals/parent_routing_tests.rs
++++ b/codex-rs/core/src/tools/approvals/parent_routing_tests.rs
+@@ -537,3 +537,6 @@ async fn trusted_hook_allow_deny_precedence_bypasses_contributors_once() -> anyh
+ 
+ #[path = "parent_registry_tests.rs"]
+ mod parent_registry_tests;
++
++#[path = "parent_consumer_routing_tests.rs"]
++mod parent_consumer_routing_tests;
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+index 67e00a6..05d703b 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+@@ -428,7 +428,11 @@ impl CoreShellActionProvider {
+                 {
+                     return Err(ToolError::Rejected("Execution forbidden by policy".into()));
+                 }
+-                self.session.request_intercepted_approval(selected).await
++                let parent =
++                    InterceptedParentAdmission::from_actual_prompt(self, &captured, &selected);
++                self.session
++                    .request_intercepted_approval(&selected, parent.as_ref())
++                    .await
+             })
+             .await;
+         // Keep the complete original observation through the existing review path.
+-- 
+2.54.0 (Apple Git-157)
+
