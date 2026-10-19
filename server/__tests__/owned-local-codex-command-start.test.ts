@@ -184,13 +184,18 @@ beforeEach(() => {
       model: options.model,
       reasoningEffort: options.reasoningEffort,
     });
-    options.ownedLocal!.assertBeforeDispatch(options.messageId);
+    // Historical fixture dispatched here while uncertain. The real host runs
+    // this same queued query only after its coordinator commits consumed.
+    expect(options.ownedLocal!.canClaimCommand(options.messageId)).toBe(false);
+    expect(() => options.ownedLocal!.assertBeforeDispatch(options.messageId)).toThrow();
     return {
       [Symbol.asyncIterator]: async function* () {
         runtime.trace.push('loop');
         expect(chat.eventStore.getOrdinaryLocalCommandAdmission(options.messageId)?.state).toBe(
           'consumed',
         );
+        expect(options.ownedLocal!.canClaimCommand(options.messageId)).toBe(true);
+        options.ownedLocal!.assertBeforeDispatch(options.messageId);
         yield { type: 'system', subtype: 'init', session_id: options.conversationId };
         await runtime.queryGate;
       },

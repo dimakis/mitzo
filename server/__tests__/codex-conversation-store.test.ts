@@ -45,6 +45,13 @@ it('retains actual native turn acceptance across restart without treating queue,
   const command = s.claimNext('worker', binding)!;
   expect(s.hasAcceptedProviderTurn('worker', binding)).toBe(false);
   s.recordCapacityAck('worker', binding, command, 'native-thread', 'native-turn');
+  expect(s.acceptedProviderTurnForCommand('worker', binding, 'command', 'continue')).toEqual({
+    threadId: 'native-thread',
+    turnId: 'native-turn',
+  });
+  expect(
+    s.acceptedProviderTurnForCommand('worker', binding, 'command', 'different message'),
+  ).toBeUndefined();
   s.close();
   s = new CodexConversationStore(path);
   expect(s.hasAcceptedProviderTurn('worker', binding)).toBe(true);

@@ -6,6 +6,12 @@ import {
 } from './telos-work-control-tools.js';
 import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import {
+  AGENT_COMMUNICATION_TOOL,
+  agentCommunicationDefinitions,
+  recordAgentMessageAcceptance,
+  sessionAgentCommunicationTools,
+} from './agent-communication-tools.js';
+import {
   assertAgentToolRoute,
   assertAgentToolSelected,
   agentToolAllowed,
@@ -1495,6 +1501,38 @@ async function openCodexChatBound(
         assertHostCurrentSync,
       )
     : undefined;
+  const communicationTools = options.ownedLocal
+    ? sessionAgentCommunicationTools({
+        events: options.eventStore,
+        native: store(),
+        registry: options.registry,
+        conversationId: options.conversationId,
+        session: options.session,
+        assertRuntimeCurrent: assertHostCurrent,
+        assertRuntimeCurrentSync: assertHostCurrentSync,
+        approve: (input, signal) => {
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner || owner.session !== options.session)
+            throw Error('Current native sender required');
+          return buildPermissionHandler(owner.clientId, options.registry, {
+            onDemandCreate: options.onDemandCreate,
+          })(AGENT_COMMUNICATION_TOOL, input, {
+            signal,
+            toolUseID: randomUUID(),
+            forcePrompt: true,
+            allowSessionGrant: false,
+            title: 'Send this peer message?',
+            description:
+              'Approve the exact target and text. This grants no other agent action or merge authority.',
+          });
+        },
+        startQueued: async (session) => {
+          const runtime = runtimes.get(session);
+          if (!runtime) throw Error('Recipient native queue unavailable');
+          await runtime.startQueued();
+        },
+      })
+    : undefined;
   const localProfileTools = options.ownedLocal
     ? sessionProfileTools(
         options.conversationId,
@@ -1512,6 +1550,7 @@ async function openCodexChatBound(
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
+          ...agentCommunicationDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -1689,6 +1728,7 @@ async function openCodexChatBound(
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
+          ...agentCommunicationDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -2061,6 +2101,18 @@ async function openCodexChatBound(
         });
     },
     onProviderAccepted: (messageId, threadId, turnId) => {
+      if (options.ownedLocal) {
+        recordAgentMessageAcceptance(
+          options.eventStore,
+          privateStorage,
+          options.conversationId,
+          options.binding,
+          options.session.ordinaryRuntimeOwner?.authSessionId,
+          messageId,
+          threadId,
+          turnId,
+        );
+      }
       // Thread instructions already contain the retained snapshot. The exact
       // turn/start acknowledgement associates it without duplicating developer context.
       if (agentContext && !agentContext.sandbox)
@@ -2303,6 +2355,25 @@ async function openCodexChatBound(
       }
       const apiResult = await apiTools?.execute(name, input, signal);
       if (apiResult) return apiResult;
+      if (name === AGENT_COMMUNICATION_TOOL) {
+        if (!communicationTools)
+          return {
+            content: 'Agent communication requires an enrolled ordinary Local Codex owner.',
+            isError: true,
+          };
+        try {
+          return {
+            content: JSON.stringify(await communicationTools.execute(input, signal, callContext)),
+            isError: false,
+          };
+        } catch {
+          return {
+            content:
+              'Agent communication is unavailable under the current sender, recipient or exact-message approval. If delivery was uncertain, read the original message/request receipt before sending again.',
+            isError: true,
+          };
+        }
+      }
       const taskResult = await localTaskTools?.execute(name, input, signal, callContext);
       if (taskResult) return taskResult;
       const profileResult = await localProfileTools?.execute(name, input, signal, callContext);

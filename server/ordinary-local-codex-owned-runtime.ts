@@ -2,7 +2,7 @@ import {
   resolveTelosWorkRoleContext,
   resolveTelosWorkSystemPrompt,
 } from './telos-work-role-context.js';
-import { SourceSnapshotsSchema } from '@mitzo/protocol';
+import { SourceSnapshotsSchema, agentMessagePrompt } from '@mitzo/protocol';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import {
@@ -70,6 +70,7 @@ export interface OrdinaryLocalCodexOwnedDispatch {
   commandId: string;
   resume?: boolean;
   preparationSignal?: AbortSignal;
+  agentMessageId?: string;
 }
 interface Owners {
   enabled: boolean;
@@ -449,9 +450,11 @@ export class OrdinaryLocalCodexOwnedRuntime {
   async admitContinuation(
     raw: unknown,
     preparationSignal?: AbortSignal,
+    peer?: { messageId: string; assertCurrent(): void },
   ): Promise<{ dispatched: boolean }> {
     const assertAdmissionCurrent = () => {
       preparationSignal?.throwIfAborted();
+      peer?.assertCurrent();
       this.assertCurrent();
     };
     try {
@@ -600,6 +603,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
               sessionId: this.#reservation.conversationId,
               commandId,
               preparationSignal,
+              ...(peer ? { agentMessageId: peer.messageId } : {}),
             });
             assertAdmissionCurrent();
           },
@@ -609,6 +613,57 @@ export class OrdinaryLocalCodexOwnedRuntime {
       // A rejected future choice must not dispose the original conversation.
       throw unavailable();
     }
+  }
+
+  /** A separately approved native agent tool may enqueue exactly its retained
+   * peer message. The ordinary account/context/workspace/permission coordinator
+   * still owns every effect. No public payload can select this entry point. */
+  async admitAgentMessage(messageId: string, assertSenderCurrent: () => void, signal: AbortSignal) {
+    const assertCurrent = () => {
+      signal.throwIfAborted();
+      assertSenderCurrent();
+      this.assertCurrent();
+      const retained = this.owners.eventStore.agentCommunication.forHost(messageId);
+      if (
+        retained.operatorAuthSessionId !== this.#authSessionId ||
+        retained.message.recipientConversationId !== this.#reservation.conversationId ||
+        retained.message.status !== 'uncertain'
+      )
+        throw unavailable();
+      return retained.message;
+    };
+    const message = assertCurrent();
+    const current = this.owners.eventStore.getLatestOrdinaryCommandAdmission(
+      this.#reservation.conversationId,
+    );
+    if (
+      !current ||
+      current.state !== 'consumed' ||
+      current.binding.harness.implementation !== 'codex' ||
+      !this.#expected
+    )
+      throw unavailable();
+    const catalog = new OrdinaryLocalCodexCapabilityCatalog(
+      loadAccountProfiles(),
+      this.#runtime.target(),
+      'ordinary',
+    );
+    return this.admitContinuation(
+      {
+        clientMsgId: message.commandId,
+        capabilityRevision: catalog.inventory().capabilityRevision,
+        runtime: {
+          account: current.binding.account,
+          harness: 'codex',
+          targetId: current.binding.execution.targetId,
+          mode: current.selection.permission.mode,
+        },
+        selection: current.selection,
+        payload: { text: agentMessagePrompt(message) },
+      },
+      signal,
+      { messageId, assertCurrent },
+    );
   }
 
   private assertCurrent(): void {

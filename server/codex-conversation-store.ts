@@ -436,6 +436,29 @@ export class CodexConversationStore {
         .get(id),
     );
   }
+  acceptedProviderTurnForCommand(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+    expectedPrompt?: string,
+  ) {
+    this.read(id, binding);
+    return this.db
+      .prepare(
+        `SELECT a.thread_id AS threadId,a.turn_id AS turnId FROM codex_capacity_native_acks a
+         JOIN codex_commands c ON c.conversation_id=a.conversation_id AND c.id=a.command_id
+         WHERE a.conversation_id=? AND a.command_id=?
+         AND (? IS NULL OR (json_extract(c.input,'$.prompt')=? AND COALESCE(json_extract(c.input,'$.intent'),json_extract(c.input,'$.prompt'))=?))
+         ORDER BY a.attempt DESC LIMIT 1`,
+      )
+      .get(
+        id,
+        commandId,
+        expectedPrompt ?? null,
+        expectedPrompt ?? null,
+        expectedPrompt ?? null,
+      ) as { threadId: string; turnId: string } | undefined;
+  }
   read(id: string, b: AccountBinding): Conversation {
     const row = this.db
       .prepare(

@@ -375,3 +375,4 @@ export { AgentLibraryEditableDefinitionSchema } from './agent-library-editable.j
 export * from './telos-work-role-presentation.js';
 
 export * from './telos-work-controls.js';
+export * from './agent-communication.js';

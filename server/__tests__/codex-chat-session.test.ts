@@ -3183,6 +3183,7 @@ it('uses the already verified owned client locally regardless of global OpenShel
       reasoningEffort: null,
     });
     expect(f.eventStore.hasProviderDispatchForConversation('owned-session')).toBe(false);
+    f.eventStore.completeOrdinaryLocalCommand('owned-command');
     (config.onProviderDispatch as (id: string) => void)('owned-command');
     expect(f.eventStore.hasProviderDispatchForConversation('owned-session')).toBe(true);
     const source = {
@@ -3335,6 +3336,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         ...profileToolDefinitions.map((tool) => tool.name),
         'AgentReadTasks',
         'AgentProposeTask',
+        'AgentCommunication',
         'RequestGithubPublish',
         mcpDefinition.name,
       ].sort(),

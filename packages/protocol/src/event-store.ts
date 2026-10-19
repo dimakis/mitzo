@@ -60,6 +60,7 @@ import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-ad
 import { isRegisteredConversation } from './conversation-identity.js';
 import { isDeepStrictEqual } from 'node:util';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
+import { AgentCommunicationStore } from './agent-communication.js';
 import { SessionCollaborationStore } from './session-collaboration-store.js';
 import { CollaborationConversationStore } from './collaboration-conversation-store.js';
 import {
@@ -386,6 +387,7 @@ export class EventStore {
   private readonly sessionOutputs: SessionOutputReferenceStore;
   private readonly sessionCollaborations: SessionCollaborationStore;
   readonly collaborationConversation: CollaborationConversationStore;
+  readonly agentCommunication: AgentCommunicationStore;
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
   private readonly sessionLifecycle: SessionLifecycleStore;
@@ -1272,6 +1274,7 @@ export class EventStore {
     this.migrateConversationSource(db);
     this.migrateUserMessageIndex(db);
     this.sessionOutputs = new SessionOutputReferenceStore(db);
+    this.agentCommunication = new AgentCommunicationStore(db);
     this.sessionCollaborations = new SessionCollaborationStore(db, (membership) =>
       this.collaborationConversation.membershipChanged(membership),
     );
@@ -2237,7 +2240,7 @@ export class EventStore {
     return !!this.db
       .prepare(
         `SELECT 1 FROM provider_attempts WHERE session_id=?
-         UNION ALL SELECT 1 FROM events WHERE session_id=? AND type='ordinary_provider_dispatch_started'
+         UNION ALL SELECT 1 FROM events WHERE session_id=? AND type IN ('ordinary_provider_dispatch_started','ordinary_reply_source')
          LIMIT 1`,
       )
       .get(sessionId, sessionId);

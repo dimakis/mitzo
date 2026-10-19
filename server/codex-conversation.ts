@@ -1992,16 +1992,17 @@ export class CodexConversation {
             this.threadId!,
             active.turnId,
           );
-        if (this.opts.enableCapacityRecovery) {
-          active.accepted = true;
-          this.opts.store.recordCapacityAck(
-            this.opts.conversationId,
-            this.binding!,
-            command,
-            this.threadId!,
-            active.turnId,
-          );
-        }
+        // Acceptance is durable for every route, independently of whether the
+        // owning route permits automatic capacity recovery. Peer delivery and
+        // retry fences must not lose a real ACK when recovery is disabled.
+        active.accepted = true;
+        this.opts.store.recordCapacityAck(
+          this.opts.conversationId,
+          this.binding!,
+          command,
+          this.threadId!,
+          active.turnId,
+        );
         // The exact native ACK owns acceptance even if a trusted observer's
         // durable projection fails. Owned routes can disable capacity recovery.
         active.accepted = true;

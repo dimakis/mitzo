@@ -3156,7 +3156,7 @@ export async function startOwnedLocalCodexCommand(
           session.ownedLocalAuthSessionId !== ownerAuthSessionId
         )
           throw unavailable();
-        resolveOwnedTelosWorkCommandScope(sessionId);
+        resolveOwnedTelosWorkCommandScope(sessionId, !!dispatch.agentMessageId);
         await native.admitExplicitSend(
           {
             id: dispatch.commandId,
@@ -3175,19 +3175,20 @@ export async function startOwnedLocalCodexCommand(
         );
         dispatch.preparationSignal?.throwIfAborted();
         resolveOwnedTelosWorkCommandScope(sessionId);
-        storeAndEchoIfNew(
-          sessionId,
-          dispatch.commandId,
-          dispatch.payload.text,
-          current.clientId,
-          session.transport,
-          session.observers,
-          imagePreviews(dispatch.payload.images),
-          undefined,
-          dispatch.payload.sourceSnapshots,
-          'user',
-          false,
-        );
+        if (!dispatch.agentMessageId)
+          storeAndEchoIfNew(
+            sessionId,
+            dispatch.commandId,
+            dispatch.payload.text,
+            current.clientId,
+            session.transport,
+            session.observers,
+            imagePreviews(dispatch.payload.images),
+            undefined,
+            dispatch.payload.sourceSnapshots,
+            'user',
+            false,
+          );
       },
       dispatch: async (dispatch) => {
         if (prepared || released || !driver) throw unavailable();
@@ -3221,6 +3222,8 @@ export async function startOwnedLocalCodexCommand(
       initialPreparationOperationId: preparationOperationId,
       initialResume: resume,
       admit: (command, signal) => retainedDriver.admitContinuation(command, signal),
+      admitAgentMessage: (messageId, assertSenderCurrent, signal) =>
+        retainedDriver.admitAgentMessage(messageId, assertSenderCurrent, signal),
       retryInitial: (command) =>
         preparationOperationId !== undefined
           ? retainedDriver.admitPreparedFirst(preparationOperationId, command)
