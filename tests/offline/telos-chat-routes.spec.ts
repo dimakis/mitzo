@@ -131,6 +131,7 @@ for (const software of [false, true])
       contextHints: record.contextHints,
       goalId: null,
     };
+    let taskDone = false;
     await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
     await page.emulateMedia({
       reducedMotion: 'no-preference',
@@ -256,7 +257,7 @@ for (const software of [false, true])
                 parentId: null,
                 title: 'Review evidence',
                 description: null,
-                status: 'pending_review',
+                status: taskDone ? 'done' : 'pending_review',
                 sessionId: 'worker',
                 sessionPolicy: 'reuse',
                 priority: 7,
@@ -369,6 +370,12 @@ for (const software of [false, true])
       page.getByRole('region', { name: 'Work tree' }).getByText('P7', { exact: true }),
     ).toBeVisible();
     await expect(page.getByText('Awaiting review', { exact: false })).toBeVisible();
+    await page.evaluate(async () => {
+      await Promise.all(
+        document.getAnimations().map((animation) => animation.finished.catch(() => {})),
+      );
+    });
+    await expect(page.locator('.telos-chat-tree-presence')).toHaveCSS('opacity', '1');
     await page.screenshot({
       path: info.outputPath(`s8-work-tree-${software ? 'repository' : 'ordinary'}.png`),
       fullPage: true,
@@ -394,6 +401,21 @@ for (const software of [false, true])
       path: info.outputPath(`s8-route-${software ? 'repository' : 'ordinary'}.png`),
       fullPage: true,
     });
+    await page.getByRole('button', { name: 'Toggle work tree' }).click();
+    taskDone = true;
+    record.priority = 8;
+    await page.evaluate(() => {
+      window.fixtureTodoEvents.dispatchEvent(new MessageEvent('todo_update', { data: '{}' }));
+      window.fixtureTodoEvents.dispatchEvent(new MessageEvent('task_state', { data: '{}' }));
+    });
+    const refreshedTree = page.getByRole('region', { name: 'Work tree' });
+    await expect(refreshedTree.getByText('P8', { exact: true })).toBeVisible();
+    await expect(
+      refreshedTree.getByText('Task done · Review evidence', { exact: true }),
+    ).toBeVisible();
+    await expect(refreshedTree.getByText('active', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Close work tree' }).click();
+    await expect(input).toHaveValue('Worker independent draft');
     expect(writes).toEqual([]);
     expect(errors).toEqual([]);
   });
