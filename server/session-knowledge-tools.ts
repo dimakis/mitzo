@@ -222,7 +222,14 @@ export function sessionKnowledgeTools(
             documents: draft.documents.map((d) => d.path),
             libraryUrl: '/knowledge',
             accepted: draft.state === 'accepted',
-            nextAction: 'Open Knowledge → Drafts and send this draft for review.',
+            nextAction:
+              draft.state === 'accepted'
+                ? 'Source accepted. Publication and chat adoption require their own confirmation.'
+                : draft.state === 'closed'
+                  ? 'This draft is closed. Start a new proposal for further changes.'
+                  : draft.review?.ready && draft.review.version === draft.version
+                    ? 'Open Knowledge → Drafts to inspect this review and its acceptance gates.'
+                    : 'Open Knowledge → Drafts and send this draft for review.',
           }),
           isError: false,
         };

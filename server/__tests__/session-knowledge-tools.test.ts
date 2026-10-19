@@ -156,6 +156,89 @@ it('preserves a saved draft when the same request is retried with different cont
   expect(store.list()[0].documents[0].content).toBe(input().documents[0].content);
 });
 
+it('recovers a receipt without overwriting later human edits or requiring the old accepted tip', async () => {
+  const api = tools();
+  const first = await api.execute(
+    'SaveKnowledgeDraft',
+    input(),
+    new AbortController().signal,
+    identity,
+  );
+  const { draftId } = JSON.parse(first!.content);
+  const saved = store.get(draftId);
+  store.save(
+    saved.id,
+    saved.version,
+    saved.documents.map((d) => ({ ...d, content: 'Later human edit' })),
+  );
+  writeFileSync(join(root, 'direct_reports/person.md'), '# Later accepted version\n');
+  git('add', '.');
+  git('commit', '-qm', 'later accepted');
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const retry = await api.execute(
+    'SaveKnowledgeDraft',
+    input(),
+    new AbortController().signal,
+    identity,
+  );
+  expect(retry?.isError).toBe(false);
+  expect(JSON.parse(retry!.content)).toMatchObject({ draftId, version: 2, status: 'draft-saved' });
+  expect(store.get(draftId).documents[0].content).toBe('Later human edit');
+});
+
+it.each(['accepted', 'closed'] as const)(
+  'reports the current %s state when recovering a finished draft',
+  async (state) => {
+    const api = tools();
+    const first = await api.execute(
+      'SaveKnowledgeDraft',
+      input(),
+      new AbortController().signal,
+      identity,
+    );
+    const { draftId } = JSON.parse(first!.content);
+    store.status(draftId, state);
+    const retry = await api.execute(
+      'SaveKnowledgeDraft',
+      input(),
+      new AbortController().signal,
+      identity,
+    );
+    const receipt = JSON.parse(retry!.content);
+    expect(receipt).toMatchObject({ status: state, accepted: state === 'accepted' });
+    expect(receipt.nextAction).not.toMatch(/send this draft for review/i);
+    expect(receipt).not.toHaveProperty('published');
+    expect(receipt).not.toHaveProperty('adopted');
+  },
+);
+
+it('refuses a no-op proposal', async () => {
+  const request = input();
+  request.documents[0].content = '# Person\nAccepted profile.\n';
+  expect(
+    (await tools().execute('SaveKnowledgeDraft', request, new AbortController().signal, identity))
+      ?.isError,
+  ).toBe(true);
+  expect(store.list()).toEqual([]);
+});
+
+it('rechecks authorization after a private document read before returning its text', async () => {
+  const read = source.read.bind(source);
+  vi.spyOn(source, 'read').mockImplementation(async (...args) => {
+    const result = await read(...args);
+    unbind();
+    return result;
+  });
+  const result = await tools().execute(
+    'ReadKnowledge',
+    { action: 'read', path: 'direct_reports/person.md', revision },
+    new AbortController().signal,
+    identity,
+  );
+  expect(result?.isError).toBe(true);
+  expect(result?.content).not.toContain('Accepted profile.');
+});
+
 it.each([
   'memory/Observations/draft.md',
   '../direct_reports/person.md',
