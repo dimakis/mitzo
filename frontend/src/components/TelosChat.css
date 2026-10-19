@@ -102,6 +102,7 @@
   white-space: nowrap;
 }
 .telos-chat-body {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   min-width: 0;
@@ -113,12 +114,25 @@
 .telos-chat-tree-presence {
   min-width: 0;
 }
+/* MotionPresence retains an inert panel through its shared exit animation.
+   Restore the transcript column without placing that panel in a new grid row. */
+.telos-chat-body[data-tree-open='false'] > .telos-chat-tree-presence {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  width: min(100%, 20rem);
+  max-height: 100%;
+  overflow: hidden;
+}
 .telos-chat-tree {
   border-left: 1px solid var(--color-border);
   padding: var(--page-gutter);
   overflow-wrap: anywhere;
 }
 @container (max-width: 48rem) {
+  .telos-chat-body[data-tree-open='false'] > .telos-chat-tree-presence {
+    width: 100%;
+  }
   .telos-chat-body[data-tree-open='true'] {
     grid-template-columns: minmax(0, 1fr);
   }
