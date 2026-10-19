@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.342-telos-s6-coordinator-context';
+  'v1.0.343-telos-s6-browser-boundary';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,10 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/protocol/src/agent-communication-store.ts':
+    '7a611a0953117b064f89e966c5520dc70598e6856e707ce735e8419acfbb4753',
   '../agent-communication-tools.ts':
     'c51e6848c27f385f87b978b69637ff7034bbb86f3cabb56f02e8054417488415',
   '../../packages/protocol/src/agent-communication.ts':
-    '17f1b3fa8a92b16421bc93217c8ba381561627f87a1b1222cbd6fd6bf96b28e5',
+    '0db8d30742b3ab664708b6a91b5eba2b033979c37c729cad77e598e0418c2409',
   '../knowledge-adapter-cache.ts':
     '72fff2292ec104451c3e18ca896f4eb1648ad8be3d472b9fc5c303bd8be7b199',
   '../knowledge-prewarming.ts': 'd37faec60aa617052fc5db01466aee767e494b3f23ed23529754503d8d33dcdc',
@@ -760,7 +762,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '0b8cd73207cca8d62405b1de64dabb73da47b4d19b6a83801259b24148e9db9f',
   '../../packages/protocol/src/event-store.ts':
-    '2a16f50c5849c2d0ba31ca25cc2735cafff39b13b47d15323c8952d35caa1dda',
+    '16f5e80341c3b4f1efe4c497e8ce9beed1665a8c505500395efd47e07901ca55',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':

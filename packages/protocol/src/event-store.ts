@@ -60,7 +60,7 @@ import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-ad
 import { isRegisteredConversation } from './conversation-identity.js';
 import { isDeepStrictEqual } from 'node:util';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
-import { AgentCommunicationStore } from './agent-communication.js';
+import { AgentCommunicationStore } from './agent-communication-store.js';
 import { SessionCollaborationStore } from './session-collaboration-store.js';
 import { CollaborationConversationStore } from './collaboration-conversation-store.js';
 import {
