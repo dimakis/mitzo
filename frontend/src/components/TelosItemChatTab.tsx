@@ -5,6 +5,7 @@ import { useTelosChatWork } from '../hooks/useTelosChatWork';
 import { useTelosChatSetup } from '../hooks/useTelosChatSetup';
 import { useTelosChatOpen } from '../hooks/useTelosChatOpen';
 import { telosDirectChat } from '../lib/telos-chat-rows';
+import { useTelosChatDetails } from '../hooks/useTelosChatDetails';
 
 export function TelosItemChatTab({
   itemId,
@@ -17,6 +18,7 @@ export function TelosItemChatTab({
 }) {
   const [params] = useSearchParams();
   const { work, error, refresh } = useTelosChatWork(itemId, refreshKey);
+  const details = useTelosChatDetails(work);
   const setup = useTelosChatSetup(itemId),
     navigation = useTelosChatOpen(itemId);
   const entered = useRef(false);
@@ -43,6 +45,7 @@ export function TelosItemChatTab({
   return (
     <>
       <TelosChatList
+        details={details}
         work={work}
         title={title}
         onOpen={(row) => void navigation.open(row)}

@@ -2,6 +2,7 @@ import { TelosSourceConversationReferenceSchema, type TelosWorkView } from '@mit
 import { telosChatRows, type TelosChatRow } from '../lib/telos-chat-rows';
 import { UiIcon } from './UiIcon';
 import './TelosChat.css';
+export type TelosChatDetails = Record<string, { title?: string; description?: string }>;
 
 /** Read-only selection surface. Ordinary role setup and source navigation remain
  * with their existing owners; opening this list never allocates or rebinds. */
@@ -11,12 +12,14 @@ export function TelosChatList({
   onOpen,
   onNewChat,
   onChangeAssignment,
+  details = {},
 }: {
   work: TelosWorkView;
   title: string;
   onOpen(row: TelosChatRow): void;
   onNewChat(): void;
   onChangeAssignment?(): void;
+  details?: TelosChatDetails;
 }) {
   const rows = telosChatRows(work);
   const role = work.kind === 'work_item' ? 'worker' : work.kind === 'outcome' ? 'lead' : null;
@@ -55,11 +58,13 @@ export function TelosChatList({
                 className="telos-chat-row"
                 disabled={!canOpen}
                 onClick={() => onOpen(row)}
-                aria-label={`Open ${row.labels.join(' · ')}`}
+                aria-label={`Open ${row.labels.join(' · ')}${details[row.key]?.title ? ': ' + details[row.key].title : ''}`}
               >
                 <UiIcon name="chats" size={20} />
                 <span className="telos-chat-copy">
-                  <strong>{row.labels.join(' · ')}</strong>
+                  <strong>{details[row.key]?.title ?? row.labels.join(' · ')}</strong>
+                  {details[row.key]?.title && <small>{row.labels.join(' · ')}</small>}
+                  {details[row.key]?.description && <small>{details[row.key].description}</small>}
                   <small>
                     {row.links[0]?.linkedAt
                       ? `Linked ${row.links[0].linkedAt}`
