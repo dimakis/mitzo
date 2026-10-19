@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import {
@@ -161,6 +161,7 @@ export function sessionKnowledgeTools(
           request,
           {
             signal,
+            toolUseID: randomUUID(),
             title: 'Save a Knowledge Library draft',
             description: request.documents.map((d) => d.path).join(', '),
           },

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
 import { SessionRegistry } from '@mitzo/harness';
 import { AcceptedKnowledgeSource } from '../knowledge-library-source.js';
 import { KnowledgeDraftStore } from '../knowledge-draft-store.js';
@@ -18,7 +18,7 @@ let registry: SessionRegistry;
 let release: () => void;
 let unbind: () => void;
 let revision: string;
-let refresh: ReturnType<typeof vi.fn>;
+let refresh: Mock<() => Promise<void>>;
 const identity = { turnId: 'turn', callId: 'call' };
 const input = () => ({
   requestId: 'a186b239-7960-4791-97fb-15c4be27da6d',
