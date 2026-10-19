@@ -1,0 +1,33 @@
+{
+  "baseAcceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+  "componentCandidate": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
+  "implementationCheckpoint": "046fb5f1",
+  "productionAdoption": [
+    "TelosItemWorkspace Chat -> TelosItemChatTab -> ordinary /chat/:sessionId",
+    "ChatView/DesktopChatView -> TelosChatRouteLayout using recorded association and canonical record -> TelosChatFrame",
+    "Existing ordinary header, settings, resources, ChatArea/ChatInput retained; duplicate item links suppressed only after valid frame hydration",
+    "Canonical tree with actual bound attempt/task status; task done does not imply outcome complete",
+    "Original source read uses existing retained source route; external origin inspection explicit; New chat/Change reuse extracted ordinary role setup owner"
+  ],
+  "testFirst": {
+    "routes": "Real item/chat test failed at missing View item button before page adoption",
+    "hydration": "Existing textarea identity changed when async work data resolved; fixed with stable frame structure",
+    "chooserRefresh": "Three-to-one refresh silently navigated to worker; fixed to restrict direct entry to initial entry",
+    "reconnect": "Count/title failed to refresh after connection transition; fixed canonical/work refresh keys"
+  },
+  "checks": {
+    "focusedPassed": 143,
+    "existingSkipped": 1,
+    "fullRouteBrowserCases": 6,
+    "componentMotionCases": 12,
+    "browserStartupChecks": 2,
+    "eslint": "PASS"
+  },
+  "limits": [
+    "Candidate source; not accepted main or full S9 acceptance",
+    "HTTP/event data synthetic; no native provider/real-model turn or real filesystem workspace admitted by UI fixtures",
+    "Exact S5b frontend overlay qualification is separate from backend/main assembly",
+    "Four backend merge conflict owners remain outside S8; full native/peer chain belongs to S5b/S6/S9",
+    "Frozen component PR1050 remains on3f08dd81 with CIgreen and queued Centaur; no redundant FULL request, no merge/deployment"
+  ]
+}

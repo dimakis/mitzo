@@ -1769,6 +1769,25 @@ normal-motion exit retains it, preserving transcript height/width, draft and foc
 Six normal-motion browser scenarios sample that exit in addition to the original
 six reduced-motion scenarios. See the [correction evidence](../evidence/telos-s8-components/review-corrections/checks.json).
 
+## Telos ordinary route adoption
+
+The S8 adoption candidate wires its chooser into the real item Chat tab and its
+slim item/chats/work row into the existing mobile and desktop ordinary headers.
+It retains the approved settings, Access, Resources and composer owners. The
+frame remains structurally stable during async association hydration and refresh,
+so an unsent draft is not remounted. Unlinked chats retain their original layout.
+The tree uses the canonical Telos records/priorities and exact attempt/task
+associations; Awaiting review and Task done remain distinct from outcome completion.
+Role rows, counts and canonical records revalidate after reconnect and resume.
+
+Full-shell intercepted checks cover 320px WebKit/Chromium and desktop Chromium,
+dark Mint/System and light Teal/Georgia, repository/non-code records, distinct
+worker/reviewer settings, Resources, Back, reload and retained drafts. Shared
+tokens, focus rules and MotionPresence remain effective. See the [route adoption
+contract](telos-workspaces/s8-route-adoption.md) and [actual checks/captures](../evidence/telos-s8-adoption/checks.json).
+These are candidate UI results; complete S5b/native/peer and accepted-main
+qualification remain separate.
+
 ## Telos worker creation receipt
 
 `TelosWorkerReceiptCard` renders the frozen Telos mock's worker material row inside
