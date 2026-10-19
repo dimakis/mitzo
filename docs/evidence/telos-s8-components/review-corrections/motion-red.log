@@ -1,0 +1,86 @@
+
+Running 3 tests using 1 worker
+
+(node:60998) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (459ms)
+(node:61006) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  2 [desktop-chromium] › tests/offline/telos-chat-selection.spec.ts:24:3 › S8 tree exit stays outside transcript flow with normal motion (dark) (1.3s)
+(node:61017) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  3 [desktop-chromium] › tests/offline/telos-chat-selection.spec.ts:24:3 › S8 tree exit stays outside transcript flow with normal motion (light) (1.2s)
+
+
+  1) [desktop-chromium] › tests/offline/telos-chat-selection.spec.ts:24:3 › S8 tree exit stays outside transcript flow with normal motion (dark) 
+
+    Error: expect(received).toBeCloseTo(expected, precision)
+
+    Expected: 114
+    Received: 403.984375
+
+    Expected precision:    0
+    Expected difference: < 0.5
+    Received difference:   289.984375
+
+      85 |     expect(exit.active).toBe('true');
+      86 |     for (const frame of exit.frames) {
+    > 87 |       expect(frame.panelTop).toBeCloseTo(frame.bodyTop, 0);
+         |                              ^
+      88 |       expect(frame.bodyHeight).toBeCloseTo(before.height, 0);
+      89 |       expect(frame.transcriptWidth).toBeCloseTo(before.transcriptWidth, 0);
+      90 |       expect(frame.documentHeight).toBeLessThanOrEqual(before.documentHeight + 1);
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8/tests/offline/telos-chat-selection.spec.ts:87:30
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-selection-S8-tr-6156f-ow-with-normal-motion-dark--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-chat-selection-S8-tr-6156f-ow-with-normal-motion-dark--desktop-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-selection-S8-tr-6156f-ow-with-normal-motion-dark--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-chat-selection-S8-tr-6156f-ow-with-normal-motion-dark--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chromium] › tests/offline/telos-chat-selection.spec.ts:24:3 › S8 tree exit stays outside transcript flow with normal motion (light) 
+
+    Error: expect(received).toBeCloseTo(expected, precision)
+
+    Expected: 126
+    Received: 453.90625
+
+    Expected precision:    0
+    Expected difference: < 0.5
+    Received difference:   327.90625
+
+      85 |     expect(exit.active).toBe('true');
+      86 |     for (const frame of exit.frames) {
+    > 87 |       expect(frame.panelTop).toBeCloseTo(frame.bodyTop, 0);
+         |                              ^
+      88 |       expect(frame.bodyHeight).toBeCloseTo(before.height, 0);
+      89 |       expect(frame.transcriptWidth).toBeCloseTo(before.transcriptWidth, 0);
+      90 |       expect(frame.documentHeight).toBeLessThanOrEqual(before.documentHeight + 1);
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8/tests/offline/telos-chat-selection.spec.ts:87:30
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-selection-S8-tr-4d1b7-w-with-normal-motion-light--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-chat-selection-S8-tr-4d1b7-w-with-normal-motion-light--desktop-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-selection-S8-tr-4d1b7-w-with-normal-motion-light--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-chat-selection-S8-tr-4d1b7-w-with-normal-motion-light--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chromium] › tests/offline/telos-chat-selection.spec.ts:24:3 › S8 tree exit stays outside transcript flow with normal motion (dark) 
+    [desktop-chromium] › tests/offline/telos-chat-selection.spec.ts:24:3 › S8 tree exit stays outside transcript flow with normal motion (light) 
+  1 passed (4.6s)

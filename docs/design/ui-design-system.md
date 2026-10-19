@@ -1741,6 +1741,34 @@ and [desktop inspection](assets/symposium-artifact-desktop-light.png). These are
 implementation evidence. The approved full Symposium participant-sharing flow
 still requires the core durable delivery contract and its own acceptance.
 
+## Telos chat chooser and collapsed tree (S8 components)
+
+`TelosChatList` shares unique conversation counting with the direct-entry rule.
+Current assignment labels come only from accepted assignment records; origin,
+advisor, reviewer and other role links remain separately attributable. The list
+has no initial selection and delegates ordinary setup through separate New chat
+and assignment-replacement callbacks. `TelosChatFrame` retains the ordinary
+header/transcript/composer in slots, with one slim item/chats/work row and a
+closed-by-default tree. It uses shared semantic tokens, spacing/type/radius,
+control height, `UiIcon`, focus rules and `MotionPresence`. Tree closing restores
+the full transcript and trigger focus. The 20rem tree column and 48rem available
+width boundary reuse the existing Telos reading geometry.
+
+Six intercepted component-adoption scenarios exercise 320px mobile WebKit/Chromium
+and desktop Chromium in dark Mint/System and light Teal/Georgia with larger text.
+Actual `ChatArea` and `ChatInput` preserve independent worker/reviewer drafts across
+selection, Back and reload. These isolated components are not adopted by the full
+chat pages yet; combined S5b/Symposium integration and CT15/CT16 acceptance remain
+open. See [the adoption contract](telos-workspaces/s8-chat-components.md) and
+[scoped checks](../evidence/telos-s8-components/checks.json). The approved settings
+ledger and frozen Telos reference remain unchanged.
+
+The bounded S8 review correction permits explicit valid external-origin inspection
+without ordinary direct entry. Its closing tree leaves grid flow while shared
+normal-motion exit retains it, preserving transcript height/width, draft and focus.
+Six normal-motion browser scenarios sample that exit in addition to the original
+six reduced-motion scenarios. See the [correction evidence](../evidence/telos-s8-components/review-corrections/checks.json).
+
 ## Telos worker creation receipt
 
 `TelosWorkerReceiptCard` renders the frozen Telos mock's worker material row inside

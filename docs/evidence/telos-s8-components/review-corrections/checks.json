@@ -1,0 +1,38 @@
+{
+  "baseHead": "f21eab110189a210b87b935cf1dbe6a0f3439542",
+  "trustedBaselineReview": {
+    "id": 5565480763,
+    "author": "dimakis",
+    "recommendation": "fix",
+    "blockingIds": ["CEN-7447C79D5768", "CEN-7232A264783B"]
+  },
+  "codeCommits": ["a380ec8b", "e3e30e16"],
+  "red": {
+    "externalOrigin": "2 new assertions failed: disabled true versus false; all 5 prior chooser tests passed",
+    "normalMotion": "2 desktop Chromium scenarios failed at the retained panel top: dark403.984375 vs114, light453.90625 vs126"
+  },
+  "green": {
+    "focusedChecksPassed": 125,
+    "existingSkipped": 1,
+    "browserScenarios": 12,
+    "normalMotionScenarios": 6,
+    "priorReducedMotionScenarios": 6,
+    "browserStartupChecks": 2,
+    "eslint": "pass",
+    "sourceWhitespace": "pass"
+  },
+  "normalMotionProof": "Real shared WAAPI exit is paused and sampled at 0, 50%, 90%; retained panel stays at body top, body/document height and transcript width stay at closed baseline; inert/aria-hidden, real active animation, trigger focus, mounted input marker and unchanged draft asserted. Animation is then finished and unmount asserted.",
+  "sourceInspection": "Valid external_codex source delegates only after explicit click; availability remains unknown, no assignment/setup callbacks and no ordinary direct entry; invalid URL disabled. Existing TelosItemSources external-origin tests remain unchanged.",
+  "preserved": "All prior chooser/direct-entry/replacement/draft/Back/reduced-motion assertions and mocks; frozen approval references and shared motion implementation/tokens unchanged.",
+  "dependencies": {
+    "acceptedSymposium": "3882cd217daad3e61e3642f84f7377c1d2caef52",
+    "inspectionOnly": true,
+    "s5bAnd1052": "Not accepted at handoff; no cherry-pick or rebase",
+    "productionCallSitesChanged": false
+  },
+  "reviewState": "Corrections implemented and locally verified; both findings still require trusted exact-head verification. No duplicate full review requested.",
+  "limits": [
+    "CT15/CT16 and full ordinary integration remain open",
+    "No model/backend/live target/staging/activation/deployment/merge"
+  ]
+}
