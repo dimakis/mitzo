@@ -9,7 +9,12 @@ function fixture() {
   const save = vi.fn((next: PlanAdviserState) => {
     state = structuredClone(next);
   });
-  const verify = vi.fn(async () => ({ sub: 'signed-user', email: 'user@example.test' }));
+  const verify = vi.fn(
+    async (_token: string, _client: string, _nonce: string | undefined, _signal: AbortSignal) => ({
+      sub: 'signed-user',
+      email: 'user@example.test',
+    }),
+  );
   const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     if (String(url).endsWith('/oauth/token'))
       return new Response(
