@@ -17,14 +17,15 @@ import {
 } from '../../frontend/src/preview/conversation-joining-fixture';
 import type { ConversationJoiningOwner } from '../../frontend/src/lib/conversation-joining-review';
 import { createBrowserId, sha256Hex } from '../../frontend/src/lib/browser-crypto';
+import { restoreCookieAuthentication } from '../../frontend/src/lib/api-fetch';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/workspace.css';
 import '../../frontend/src/styles/motion.css';
 import '../../frontend/src/components/ConversationAgents.css';
 
-// Only synthetic callbacks exist in this isolated entry. No client/store/runtime,
-// account lookup, HTTP request or provider invocation is installed.
+// Joining uses synthetic callbacks; the real auth owner reads an intercepted
+// fixture login identity. No account, backend store, runtime or provider is invoked.
 const mode = new URLSearchParams(location.search).get('state');
 const calls = {
   reviews: 0,
@@ -129,4 +130,7 @@ function Fixture() {
     </>
   );
 }
-createRoot(document.getElementById('root')!).render(<Fixture />);
+void restoreCookieAuthentication().then((authenticated) => {
+  if (!authenticated) throw new Error('Offline fixture authentication unavailable');
+  createRoot(document.getElementById('root')!).render(<Fixture />);
+});

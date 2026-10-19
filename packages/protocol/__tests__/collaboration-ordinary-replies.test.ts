@@ -121,9 +121,24 @@ it('projects an exact ordinary reply without allocating a turn or changing recip
     source: input.source,
     replyToDeliveryId: input.deliveryId,
     responders: [],
-    readers: [],
-    deliveries: [],
-    settings: {},
+    readers: ['one', 'reader'],
+    deliveries: [
+      expect.objectContaining({
+        sessionId: 'one',
+        purpose: 'context',
+        status: 'pending',
+        revision: 0,
+        commandId: null,
+      }),
+      expect.objectContaining({
+        sessionId: 'reader',
+        purpose: 'context',
+        status: 'pending',
+        revision: 0,
+        commandId: null,
+      }),
+    ],
+    settings: { one: settings, reader: settings },
   });
   const view = store.collaborationConversation.view(group);
   expect(view.messages).toHaveLength(2);
