@@ -6,10 +6,10 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 50 patches
+## Current composed source: 51 patches
 
-The 50 ordered patches reconstruct native tree
-`606bfc1df61d145907415220bea96dfd6d3415a9` (local source `ff92b351fbc3ae89a9e0a57d3268975b2347ce92`).
+The 51 ordered patches reconstruct native tree
+`2f1cc28e6f03011124d95982ccf41464a06809f8` (local source `3ec49f15814168d9be0553f7bc12e6d78542371a`).
 The current source adds the actual ordinary child-approval consumer to the retained
 immutable-request foundation. It reuses only a genuine fresh user approval from
 the same still-active initial invocation. The original runtime lifetime flag is
@@ -118,6 +118,17 @@ and may affect timing; a passing diagnostic run alone cannot identify the prior
 refusal or establish a fix. The actual refusal and its repair remain pending.
 The first candidate-refusal label combines two checks, and some early `?`
 returns remain unlabeled. No guard is broadened and no test is removed or retried.
+
+The 50-patch run `39194525811` failed helper-build compilation on both platforms
+with `E0603`: Session imported the diagnostic helper through the private
+`tools::approvals` module. No fixtures or diagnostic observations executed.
+Patch 51 adds an existing-style crate-private re-export in `tools` and changes
+Session's import to that facade. It does not widen any module, field or external
+API. The helper, existing guards, diagnostic events, subscriber and assertions
+are unchanged. Root and the existing reviewer explicitly walked every diagnostic
+import and re-export across its crate/module/platform boundaries. Scoped
+formatting and source proof pass; corrected compilation and actual diagnostics
+remain CI work. The original native49 macOS refusal remains unresolved.
 
 ## Immutable request foundation
 

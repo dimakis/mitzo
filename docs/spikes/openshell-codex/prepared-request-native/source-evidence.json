@@ -204,10 +204,14 @@
     {
       "file": "native-parent-refusal-observations.patch",
       "sha256": "b04c504be3e0021469059d1395169f887b0795c17e9e67e37376e894a0062e97"
+    },
+    {
+      "file": "native-parent-diagnostic-import-facade.patch",
+      "sha256": "e3a5529f2ba38766d1b4d027adb001d3d0f0a3816ffaf3792cc63e3b63793d52"
     }
   ],
-  "sourceTree": "606bfc1df61d145907415220bea96dfd6d3415a9",
-  "localSourceCommit": "ff92b351fbc3ae89a9e0a57d3268975b2347ce92",
+  "sourceTree": "2f1cc28e6f03011124d95982ccf41464a06809f8",
+  "localSourceCommit": "3ec49f15814168d9be0553f7bc12e6d78542371a",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -263,7 +267,8 @@
     "ef263974e5dc5ab280003282a8bbfb1a404a5ebf",
     "e9fc12cf08308bce459bc706402f1b61c1f4e965",
     "9710104802944987fbd017baf39706c535665922",
-    "ff92b351fbc3ae89a9e0a57d3268975b2347ce92"
+    "ff92b351fbc3ae89a9e0a57d3268975b2347ce92",
+    "3ec49f15814168d9be0553f7bc12e6d78542371a"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -273,7 +278,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "50-patch diagnostic source. Fixed-name boolean observations preserve exact guard operands/order, approval routing, physical policy and original denied-read integration inputs/assertions. No diagnosed refusal or fix claimed.",
+    "scope": "51-patch diagnostic source: Session imports fixed-name boolean diagnostic helper through existing crate-private tools facade. No guard/diagnostic/test semantics changed; original native49 Mac refusal not yet diagnosed.",
     "localFocused": {
       "status": "source_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -282,7 +287,7 @@
       "allOrderedChecksumsReconstructExactTree": true
     },
     "ci": {
-      "status": "pending_50_patch_diagnostic_source",
+      "status": "pending_51_patch_diagnostic_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -294,29 +299,26 @@
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
       "newCIJobs": 0,
-      "previousRun": 39184386351,
-      "previousSourceTree": "58f83c08f2df67c830fe6cf1ee435a03a8b3f6f0",
+      "previousRun": 39194525811,
+      "previousSourceTree": "606bfc1df61d145907415220bea96dfd6d3415a9",
       "previousObservedResults": {
         "linux": {
-          "conclusion": "success",
-          "testsRun": 5821,
-          "passed": 5821,
-          "failed": 0,
-          "skipped": 11,
-          "job": 117843619216,
-          "formatting": "success"
+          "conclusion": "failure",
+          "job": 117874288040,
+          "stage": "Build standalone native test helpers",
+          "errorCode": "E0603",
+          "diagnostic": "Session imported parent_approval_gate through private tools::approvals",
+          "fixturesExecuted": false,
+          "exitCode": 101
         },
         "macos": {
           "conclusion": "failure",
-          "testsRun": 5599,
-          "passed": 5598,
-          "failed": 1,
-          "skipped": 27,
-          "job": 117843619014,
-          "exitCode": 100,
-          "failure": "suite::unified_exec_zsh_fork_approvals::unified_exec_zsh_fork_parent_approval_preserves_denied_reads",
-          "observed": "Unexpected /bin/cat child approval after actual initial User approval; original no-child-prompt assertion failed. No timeout or compilation failure.",
-          "formatting": "skipped after test failure"
+          "job": 117874287848,
+          "stage": "Build standalone native test helpers",
+          "errorCode": "E0603",
+          "diagnostic": "Session imported parent_approval_gate through private tools::approvals",
+          "fixturesExecuted": false,
+          "exitCode": 101
         }
       },
       "zeroNativeSkipsClaimed": false,
@@ -366,7 +368,34 @@
         "ubuntu-24.04": 90,
         "macos-26": 120
       },
-      "jobTimeBudgetReason": "Actual48 macOS cold setup and compilation used ~59min;90min budget canceled a progressing run at4405/5599 selected results, including the same6 typed-denial failures. Coverage/workers/retries/gates unchanged."
+      "jobTimeBudgetReason": "Actual48 macOS cold setup and compilation used ~59min;90min budget canceled a progressing run at4405/5599 selected results, including the same6 typed-denial failures. Coverage/workers/retries/gates unchanged.",
+      "historical49ExecutedResults": {
+        "run": 39184386351,
+        "sourceTree": "58f83c08f2df67c830fe6cf1ee435a03a8b3f6f0",
+        "results": {
+          "linux": {
+            "conclusion": "success",
+            "testsRun": 5821,
+            "passed": 5821,
+            "failed": 0,
+            "skipped": 11,
+            "job": 117843619216,
+            "formatting": "success"
+          },
+          "macos": {
+            "conclusion": "failure",
+            "testsRun": 5599,
+            "passed": 5598,
+            "failed": 1,
+            "skipped": 27,
+            "job": 117843619014,
+            "exitCode": 100,
+            "failure": "suite::unified_exec_zsh_fork_approvals::unified_exec_zsh_fork_parent_approval_preserves_denied_reads",
+            "observed": "Unexpected /bin/cat child approval after actual initial User approval; original no-child-prompt assertion failed. No timeout or compilation failure.",
+            "formatting": "skipped after test failure"
+          }
+        }
+      }
     },
     "testCountsOverlap": true,
     "ordinaryParentApproval": {
@@ -420,6 +449,17 @@
       "candidateRefusalFirstLabelCombinesProfileAndSandboxRequested": true,
       "someEarlyQuestionMarkReturnsUnlabeled": true,
       "rootAndExistingIndependentSourceReview": true,
+      "compiledOrExecutedLocally": false
+    },
+    "diagnosticImportCorrection": {
+      "sourceCommit": "3ec49f15814168d9be0553f7bc12e6d78542371a",
+      "paths": ["codex-rs/core/src/session/parent_approval.rs", "codex-rs/core/src/tools/mod.rs"],
+      "changes": "crate-private tools facade re-export and Session import through that facade",
+      "allDiagnosticImportsCrateModuleAndCfgBoundariesWalked": true,
+      "noExternalApiOrPrivateModuleVisibilityWidened": true,
+      "rootAndExistingIndependentSourceReview": true,
+      "helperPredicatesDiagnosticsAndTestAssertionsUnchanged": true,
+      "scopedRustfmtPassed": true,
       "compiledOrExecutedLocally": false
     }
   },
@@ -1410,6 +1450,189 @@
         "allNewDirectManagerAndBoundaryFixturesPassedBothPlatforms": true,
         "runtimeQualified": false,
         "noRerunWaiver": true
+      }
+    },
+    {
+      "sourceTree": "606bfc1df61d145907415220bea96dfd6d3415a9",
+      "localSourceCommit": "ff92b351fbc3ae89a9e0a57d3268975b2347ce92",
+      "patchCount": 50,
+      "checks": {
+        "scope": "50-patch diagnostic source. Fixed-name boolean observations preserve exact guard operands/order, approval routing, physical policy and original denied-read integration inputs/assertions. No diagnosed refusal or fix claimed.",
+        "localFocused": {
+          "status": "source_and_scoped_format_only",
+          "rustTestsExecuted": false,
+          "compiled": false,
+          "dynamicGreenClaimed": false,
+          "allOrderedChecksumsReconstructExactTree": true
+        },
+        "ci": {
+          "status": "pending_50_patch_diagnostic_source",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-api",
+            "codex-state",
+            "codex-http-client",
+            "codex-guardian-reviewer"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "newCIJobs": 0,
+          "previousRun": 39184386351,
+          "previousSourceTree": "58f83c08f2df67c830fe6cf1ee435a03a8b3f6f0",
+          "previousObservedResults": {
+            "linux": {
+              "conclusion": "success",
+              "testsRun": 5821,
+              "passed": 5821,
+              "failed": 0,
+              "skipped": 11,
+              "job": 117843619216,
+              "formatting": "success"
+            },
+            "macos": {
+              "conclusion": "failure",
+              "testsRun": 5599,
+              "passed": 5598,
+              "failed": 1,
+              "skipped": 27,
+              "job": 117843619014,
+              "exitCode": 100,
+              "failure": "suite::unified_exec_zsh_fork_approvals::unified_exec_zsh_fork_parent_approval_preserves_denied_reads",
+              "observed": "Unexpected /bin/cat child approval after actual initial User approval; original no-child-prompt assertion failed. No timeout or compilation failure.",
+              "formatting": "skipped after test failure"
+            }
+          },
+          "zeroNativeSkipsClaimed": false,
+          "historical46PatchCompilation": {
+            "previousRun": 39168656856,
+            "previousSourceTree": "5f034709e0a618d7d12ae44cb37c99b493efac41",
+            "previousObservedResults": {
+              "linux": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 3,
+                "testsExecuted": false,
+                "job": 117796904135
+              },
+              "macos": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 3,
+                "testsExecuted": false,
+                "job": 117796904391
+              }
+            }
+          },
+          "historical47PatchCompilation": {
+            "previousRun": 39172947853,
+            "previousSourceTree": "a18caf2a3c076637cd5dc83de174abe21f69d00c",
+            "previousObservedResults": {
+              "linux": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 1,
+                "errorCode": "E0308",
+                "testsExecuted": false,
+                "job": 117809637948
+              },
+              "macos": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 1,
+                "errorCode": "E0308",
+                "testsExecuted": false,
+                "job": 117809637985
+              }
+            }
+          },
+          "jobTimeBudgetMinutes": {
+            "ubuntu-24.04": 90,
+            "macos-26": 120
+          },
+          "jobTimeBudgetReason": "Actual48 macOS cold setup and compilation used ~59min;90min budget canceled a progressing run at4405/5599 selected results, including the same6 typed-denial failures. Coverage/workers/retries/gates unchanged."
+        },
+        "testCountsOverlap": true,
+        "ordinaryParentApproval": {
+          "hasActiveConsumer": true,
+          "sameInitialInvocationLifetimeOnly": true,
+          "originalLifetimeGuardNeverReopened": true,
+          "physicalDeniedReadRestrictionsPreserved": true,
+          "hooksAndContributorsPrecedencePreserved": true,
+          "allUserFallbackRevalidatedAfterAttempt": true,
+          "inheritedApprovalNotFreshUser": true,
+          "allIntegrationSuiteFilesExactPrevious31": false,
+          "originalApprovedGuardianWholeFileBlob": "e22671bcf8033c245745ab680349a332a143ca0d",
+          "testOnlyPostNoneScheduler": true,
+          "knownPrivateStateTestAccessesCorrected": true,
+          "rootAndIndependentSourceReview": true,
+          "rustCompilationAndFixtures": "pending_existing_CI",
+          "originalDeniedReadWholeFileBlobBeforeDiagnostics": "8d7761204a5fd12c7c2d2eb45e36ec187e89769d",
+          "originalDeniedReadInputsObserverAndAssertionsTokenExact49": true,
+          "currentDeniedReadWholeFileBlob": "c063818b5333a4ae95d7605b6c6792792438f4a9"
+        },
+        "preparedRequestAuthority": {
+          "hasActualPurePreSessionCapture": false,
+          "hasAppServerPreparationRPCs": false,
+          "hasOrdinaryPreparedDispatchConsumer": false,
+          "consumableAdmissionAvailable": false,
+          "installedRuntimeQualified": false,
+          "applicationJoiningComplete": false,
+          "liveCallsAuthorized": false
+        },
+        "testCompilationCorrection": {
+          "sourceCommit": "ef263974e5dc5ab280003282a8bbfb1a404a5ebf",
+          "paths": ["codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs"],
+          "changes": "import actual EventMsg and CodexErrorDetails; inspect existing CodexErr.details() for TurnAborted rather than using an associated constant pattern",
+          "productionCodeChanged": false,
+          "semanticCancellationAssertionRetained": true,
+          "scopedRustfmtPassed": true,
+          "compiledOrExecutedLocally": false
+        },
+        "refusalObservation": {
+          "diagnosticOnly": true,
+          "sourceCommit": "ff92b351fbc3ae89a9e0a57d3268975b2347ce92",
+          "scope": "Seven files: diagnostic helper/wrapping and failing integration target-only subscriber",
+          "helperOutput": "Static gate name and boolean only; unchanged boolean returned",
+          "sourceTokenEquivalenceAfterRemovingDiagnostics": true,
+          "originalShortCircuitingAndPredicateOrderPreserved": true,
+          "noExtraLoadsOfMutableAuthority": true,
+          "noPathsCommandsEnvironmentValuesIdentifiersPointersOrReceiptsLogged": true,
+          "subscriber": "Only original failing integration installs process-scoped target-filtered subscriber; prescribed nextest isolates this test process. Ordinary spawned tasks do not all propagate scoped dispatchers.",
+          "timingMayBeAffected": true,
+          "passingRunAloneWouldNotDiagnoseOrFixOriginalFailure": true,
+          "candidateRefusalFirstLabelCombinesProfileAndSandboxRequested": true,
+          "someEarlyQuestionMarkReturnsUnlabeled": true,
+          "rootAndExistingIndependentSourceReview": true,
+          "compiledOrExecutedLocally": false
+        }
+      },
+      "observedResult": {
+        "observedAt": "2026-10-19T03:54:27.043506+00:00",
+        "run": 39194525811,
+        "head": "e43f53dbcb84112db331fe1004e93f8c7a9a4118",
+        "result": "failure",
+        "stage": "Build standalone native test helpers",
+        "fixturesExecuted": false,
+        "compilerError": "E0603 module approvals private in Session import",
+        "originalMac49DeniedReadRefusalDiagnosed": false,
+        "localRustExecuted": false,
+        "linux": {
+          "job": 117874288040,
+          "conclusion": "failure",
+          "exitCode": 101,
+          "testsExecuted": false,
+          "log": "/Users/dsaridak/Documents/Codex/2026-10-18/symposium-continue-where-this-chat-got/evidence/native50-linux-failed.log",
+          "sha256": "d2027cdd31f3ed2cef22c35619921bea5aa3e129c1fa26cdd692bba408b3b2b6"
+        },
+        "macos": {
+          "job": 117874287848,
+          "conclusion": "failure",
+          "exitCode": 101,
+          "testsExecuted": false,
+          "log": "/Users/dsaridak/Documents/Codex/2026-10-18/symposium-continue-where-this-chat-got/evidence/native50-mac-failed.log",
+          "sha256": "1c56053eb7032773f61b59e8539697e4046d5d184a892be4eb6521c3a0ff9439"
+        }
       }
     }
   ]

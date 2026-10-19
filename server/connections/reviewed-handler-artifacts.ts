@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.329-symposium-integration.37';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.329-symposium-integration.38';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-parent-diagnostic-import-facade.patch':
+    'e3a5529f2ba38766d1b4d027adb001d3d0f0a3816ffaf3792cc63e3b63793d52',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-parent-refusal-observations.patch':
     'b04c504be3e0021469059d1395169f887b0795c17e9e67e37376e894a0062e97',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-parent-terminal-denial-fixtures.patch':
