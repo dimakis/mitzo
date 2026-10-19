@@ -5,7 +5,7 @@ import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 const api = new TelosWorkApiClient(apiFetch);
 /** Abort-fenced role history and current assignments; no allocator/settings writes. */
-export function useTelosChatWork(itemId: string, refreshKey: string | number) {
+export function useTelosChatWork(itemId: string | null, refreshKey: string | number) {
   const [revision, setRevision] = useState(0);
   const [result, setResult] = useState<{ itemId: string; work?: TelosWorkView; error?: string }>();
   useEffect(() => {
@@ -23,6 +23,7 @@ export function useTelosChatWork(itemId: string, refreshKey: string | number) {
     };
   }, []);
   useEffect(() => {
+    if (!itemId) return;
     const controller = new AbortController();
     void api.read(itemId, controller.signal).then(
       (work) => {

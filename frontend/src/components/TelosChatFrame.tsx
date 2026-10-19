@@ -6,6 +6,8 @@ import './TelosChat.css';
 /** Layout slots deliberately retain the ordinary header, transcript and composer.
  * The shared chat owners adopt this frame after their integration dependencies. */
 export function TelosChatFrame({
+  className = '',
+  linked = true,
   conversationId,
   itemTitle,
   chatCount,
@@ -15,6 +17,8 @@ export function TelosChatFrame({
   tree,
   children,
 }: {
+  className?: string;
+  linked?: boolean;
   conversationId: string;
   itemTitle: string;
   chatCount: number;
@@ -37,39 +41,45 @@ export function TelosChatFrame({
     trigger.current?.focus();
   }
   return (
-    <section className="telos-chat-frame">
+    <section className={`telos-chat-frame ${className}${linked ? '' : ' telos-chat-unlinked'}`}>
       {header}
-      <div className="telos-chat-context-row">
-        <button
-          type="button"
-          className="telos-chat-item"
-          aria-label={`View item: ${itemTitle}`}
-          onClick={onItem}
-        >
-          <UiIcon name="work" size={16} />
-          <span>{itemTitle}</span>
-          <UiIcon name="arrowUpRight" size={16} />
-        </button>
-        <button type="button" aria-label={`Chats for this item: ${chatCount}`} onClick={onChats}>
-          <UiIcon name="chats" size={16} />
-          <span className="telos-chat-count-label">Chats</span>
-          {chatCount}
-        </button>
-        <button
-          type="button"
-          ref={trigger}
-          aria-label="Toggle work tree"
-          aria-expanded={open}
-          aria-controls={panelId}
-          onClick={() => setOpen(!open)}
-        >
-          <UiIcon name="work" size={16} />
-          Work
-        </button>
-      </div>
+      {linked && (
+        <div className="telos-chat-context-row">
+          <button
+            type="button"
+            className="telos-chat-item"
+            aria-label={`View item: ${itemTitle}`}
+            onClick={onItem}
+          >
+            <UiIcon name="work" size={16} />
+            <span>{itemTitle}</span>
+            <UiIcon name="arrowUpRight" size={16} />
+          </button>
+          <button type="button" aria-label={`Chats for this item: ${chatCount}`} onClick={onChats}>
+            <UiIcon name="chats" size={16} />
+            <span className="telos-chat-count-label">Chats</span>
+            {chatCount}
+          </button>
+          <button
+            type="button"
+            ref={trigger}
+            aria-label="Toggle work tree"
+            aria-expanded={open}
+            aria-controls={panelId}
+            onClick={() => setOpen(!open)}
+          >
+            <UiIcon name="work" size={16} />
+            Work
+          </button>
+        </div>
+      )}
       <div className="telos-chat-body" data-tree-open={open}>
         <div className="telos-chat-transcript">{children}</div>
-        <MotionPresence open={open} kind="disclosure" className="telos-chat-tree-presence">
+        <MotionPresence
+          open={linked && open}
+          kind="disclosure"
+          className="telos-chat-tree-presence"
+        >
           <section
             id={panelId}
             className="telos-chat-tree"

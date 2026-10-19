@@ -129,6 +129,37 @@
   padding: var(--page-gutter);
   overflow-wrap: anywhere;
 }
+.telos-chat-route-frame {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+.telos-chat-route-frame > .telos-chat-body {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.telos-chat-route-frame .telos-chat-transcript {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.telos-chat-route-frame .telos-chat-tree-presence {
+  overflow: auto;
+}
+.telos-chat-execution {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+.telos-chat-unlinked,
+.telos-chat-unlinked > .telos-chat-body,
+.telos-chat-unlinked > .telos-chat-body > .telos-chat-transcript {
+  display: contents;
+}
 @container (max-width: 48rem) {
   .telos-chat-body[data-tree-open='false'] > .telos-chat-tree-presence {
     width: 100%;
