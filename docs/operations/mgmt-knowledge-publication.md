@@ -32,7 +32,7 @@ For K1 select a versioned portable path allowlist:
 
 - Root files: `AGENTS.md`, `CLAUDE.md`, `CONSTITUTION.md`, `KNOWLEDGE.md`, `SERVICES.md`, `README.md`.
 - Memory: `memory/**/*.md`, excluding `memory/scripts/`, `memory/manifest/` and hidden path segments.
-- Eligible spokes: `jira_process`, `slack_observe`, `architecture`, `professional`, `patents`, `music`, `health`, `command_center`, `knowledge_space`, and `okrs/shared_eng_excellence`. Admit only each listed spoke's `CONSTITUTION.md`, `AGENTS.md`, `CLAUDE.md`, and `context/**/*.md`; nested professional blog/linkedin guidance follows the same patterns.
+- Eligible spokes: `jira_process`, `slack_observe`, `architecture`, `professional`, `patents`, `music`, `health`, `home_assistant`, `command_center`, `knowledge_space`, and `okrs/shared_eng_excellence`. Admit only each listed spoke's `CONSTITUTION.md`, `AGENTS.md`, `CLAUDE.md`, and `context/**/*.md`; nested professional blog/linkedin guidance follows the same patterns.
 - Generated retrieval data: exactly `memory/manifest/index.json`, `wikilinks.json`, `by_type.json`, `by_tag.json`, rebuilt deterministically from archived Markdown and validated against the exact source SHA.
 
 Explicitly exclude `career/`, `direct_reports/`, and `okrs/private_eng_excellence/` from portable publication to preserve declared private boundaries. Any future addition is an allowlist/schema contract change with reviewed fixtures, not a new broad traversal wildcard. Runtime tools are a separate declared lane: only files required by the existing sandbox runtime may accompany the knowledge bundle, and their semantics remain bound to the dependency/compiler runtime contract; arbitrary executable scripts are not knowledge.
@@ -295,3 +295,19 @@ report only a fixed state/code, with no paths, configuration values or credentia
 The status writer requires a dedicated GitHub App installed on this repository, with commit-status write, pull-request read and issue read permissions. Set `CENTAUR_STATUS_APP_ID` as a repository variable. Put `CENTAUR_STATUS_APP_PRIVATE_KEY` **only** in the `centaur-status-writer` environment. Restrict that environment's deployment branches to the default branch (`main`); do not allow pull-request refs or feature branches. Do not duplicate the key in repository or organization secrets. Bind the required `Centaur final LGTM` status to this dedicated App's actual numeric application ID, never the GitHub Actions App or any source. Verify these settings and a real status before claiming enforcement. Until provisioned, the workflow fails closed and the guarded CLI remains the manual gate.
 
 The default-branch writer rechecks pushes, review comments and manual dispatches; a five-minute scheduled reconciliation covers review submissions, edits and dismissals without running PR-controlled code with the App credential. All triggers share one non-cancelling repository queue to prevent overlapping verdict writes. This has eventual review freshness; it does not claim an atomic lock between a new review and GitHub's merge operation.
+
+## Home Assistant knowledge spoke
+
+`home_assistant/CONSTITUTION.md` and `home_assistant/context/**/*.md` are explicit
+portable sources. mgmt owns hardware knowledge, including a host-prepared compact
+Markdown inventory with registry observation times and full-device coverage.
+OpenShell searches those files in its selected published knowledge root. No host
+checkout access or new inventory tool is required.
+
+The producer and consumer continue to exclude `home_assistant/private/`, raw JSON
+registries, Python clients/scripts, host credentials, hidden configuration and
+non-allowlisted assets even if tracked. Generated Markdown enters delivery only
+after normal mgmt acceptance; a host refresh alone cannot mutate a publication.
+Reviewed builder and adapter pins must be selected through existing host enrollment
+before claiming availability or adoption. This change does not update production
+configuration or enroll additional runtimes.
