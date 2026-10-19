@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { TelosWorkApiClient } from '@mitzo/client';
 import { TelosWorkViewSchema } from '@mitzo/protocol';
@@ -8,6 +8,7 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { listChatDrafts } from '../../lib/chat-drafts';
 import { TelosItemChatTab } from '../TelosItemChatTab';
+import { eventBus } from '../../lib/event-bus-singleton';
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -104,6 +105,22 @@ it('refreshes a chooser without silently selecting a conversation when only one 
   vi.mocked(TelosWorkApiClient.prototype.read).mockResolvedValue(view(['worker']));
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
   fireEvent(document, new Event('visibilitychange'));
+  await screen.findByRole('heading', { name: 'Chats · 1' });
+  expect(screen.queryByTestId('chat-path')).toBeNull();
+});
+it('refreshes current assignments on foreground SSE reconnect without a synthetic work event', async () => {
+  let connection: (connected: boolean) => void = () => {};
+  vi.spyOn(eventBus, 'onConnectionChange').mockImplementation((callback) => {
+    connection = callback;
+    return () => {};
+  });
+  mount();
+  await screen.findByRole('heading', { name: 'Chats · 3' });
+  vi.mocked(TelosWorkApiClient.prototype.read).mockResolvedValue(view(['worker']));
+  act(() => {
+    connection(false);
+    connection(true);
+  });
   await screen.findByRole('heading', { name: 'Chats · 1' });
   expect(screen.queryByTestId('chat-path')).toBeNull();
 });

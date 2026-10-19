@@ -15,10 +15,14 @@ export function useTelosChatWork(itemId: string | null, refreshKey: string | num
     };
     const off = eventBus.on('todo_update', refresh),
       offSessions = eventBus.on('sessions_changed', refresh);
+    const offConnection = eventBus.onConnectionChange((connected) => {
+      if (connected) refresh();
+    });
     document.addEventListener('visibilitychange', resume);
     return () => {
       off();
       offSessions();
+      offConnection();
       document.removeEventListener('visibilitychange', resume);
     };
   }, []);

@@ -8,18 +8,38 @@ import { telosChatRows } from '../lib/telos-chat-rows';
 import { telosChatListPath } from './useTelosChatOpen';
 import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
+import { useTelosSourceNavigation } from './useTelosSourceNavigation';
 const api = new TelosWorkApiClient(apiFetch);
 
 /** Select an authorized recorded association, never change the bound chat. */
 export function useTelosChatRoute(conversationId: string | null) {
   const location = useLocation(),
     navigate = useNavigate();
-  const requested = new URLSearchParams(location.search).get('telosChatItem');
+  const query = new URLSearchParams(location.search);
+  const sourceItem = query.get('telosItem'),
+    sourceSnapshot = query.get('telosSource');
+  const inspectingSource = !!sourceItem && !!sourceSnapshot;
+  const source = useTelosSourceNavigation();
+  const sourceStatus = inspectingSource
+    ? source?.conversationId === conversationId &&
+      source.itemId === sourceItem &&
+      source.snapshotId === sourceSnapshot
+      ? source.status
+      : 'loading'
+    : null;
+  // The existing source owner validates the retained snapshot and conversation.
+  // Its explicit inspected item takes precedence over any other bound work role.
+  const requested = inspectingSource ? sourceItem : query.get('telosChatItem');
+  const selectorKey = JSON.stringify([
+    requested,
+    inspectingSource ? sourceSnapshot : null,
+    sourceStatus,
+  ]);
   const connectionStatus = useMitzoStore((s) => s.connection.status);
   const [generation, setGeneration] = useState(0);
   const [result, setResult] = useState<{
     conversationId: string;
-    requested: string | null;
+    selectorKey: string;
     itemId: string | null;
     error?: string;
   }>();
@@ -39,6 +59,15 @@ export function useTelosChatRoute(conversationId: string | null) {
   }, []);
   useEffect(() => {
     if (!conversationId) return;
+    if (inspectingSource && sourceStatus !== 'ready') {
+      setResult({
+        conversationId,
+        selectorKey,
+        itemId: null,
+        ...(sourceStatus === 'unavailable' ? { error: 'Original exchange unavailable.' } : {}),
+      });
+      return;
+    }
     const controller = new AbortController();
     let selected: string | null = requested;
     void (async () => {
@@ -54,7 +83,7 @@ export function useTelosChatRoute(conversationId: string | null) {
       // Unrelated ordinary chats keep their existing read path. Source inspection
       // carries its explicit item; ordinary roles retain theirs in owned metadata.
       if (!selected) {
-        setResult({ conversationId, requested, itemId: null });
+        setResult({ conversationId, selectorKey, itemId: null });
         return;
       }
       const links = await api.links({ namespace: 'mitzo', conversationId }, controller.signal);
@@ -67,7 +96,7 @@ export function useTelosChatRoute(conversationId: string | null) {
       );
       setResult({
         conversationId,
-        requested,
+        selectorKey,
         itemId: linked ? selected : null,
         ...(!linked ? { error: 'The selected work item is not linked to this conversation.' } : {}),
       });
@@ -75,15 +104,23 @@ export function useTelosChatRoute(conversationId: string | null) {
       if (!controller.signal.aborted)
         setResult({
           conversationId,
-          requested,
+          selectorKey,
           itemId: null,
           error: selected ? 'Linked work unavailable.' : undefined,
         });
     });
     return () => controller.abort();
-  }, [conversationId, requested, connectionStatus, generation]);
+  }, [
+    conversationId,
+    requested,
+    selectorKey,
+    inspectingSource,
+    sourceStatus,
+    connectionStatus,
+    generation,
+  ]);
   const current =
-    result?.conversationId === conversationId && result.requested === requested
+    result?.conversationId === conversationId && result.selectorKey === selectorKey
       ? result
       : undefined;
   const itemId = current?.itemId ?? null;
