@@ -6,10 +6,10 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 51 patches
+## Current composed source: 52 patches
 
-The 51 ordered patches reconstruct native tree
-`2f1cc28e6f03011124d95982ccf41464a06809f8` (local source `3ec49f15814168d9be0553f7bc12e6d78542371a`).
+The 52 ordered patches reconstruct native tree
+`1452a4d6a69783b77707953ca8cef2df916a75f2` (local source `a69928ec137aafd75d89111ef46c1aadc15e38f1`).
 The current source adds the actual ordinary child-approval consumer to the retained
 immutable-request foundation. It reuses only a genuine fresh user approval from
 the same still-active initial invocation. The original runtime lifetime flag is
@@ -129,6 +129,29 @@ are unchanged. Root and the existing reviewer explicitly walked every diagnostic
 import and re-export across its crate/module/platform boundaries. Scoped
 formatting and source proof pass; corrected compilation and actual diagnostics
 remain CI work. The original native49 macOS refusal remains unresolved.
+
+The 51-patch run `39197029301` completed: Linux passed all 5,821 selected tests
+(11 skipped) and formatting. macOS completed 5,599 selected tests: 5,598 passed,
+one failed and 27 skipped. The same original denied-read integration failed.
+Its actual fixed-name trace proves all candidate/executor checks and the child
+profile/environment comparisons passed, then exact raw cwd equality refused.
+The trusted-root alias explanation is not yet established. Counts overlap.
+
+Patch 52 adds observations only after that exact raw mismatch: native conversion
+success, existing trusted-root normalization success, normalized equality and
+which root spelling changed. The existing `normalize_system_aliases` utility
+resolves only a symlink directly under the trusted root; lower mutable components
+stay logical. The function still returns the original raw equality. It adds no
+alias exception, launch change or directory-identity authority. The original
+integration file, observer and all assertions remain byte-exact source51.
+
+The existing independent reviewer checked this one-file change and actual utility.
+Events remain fixed labels and booleans; no paths, environment values, error text
+or receipts are emitted. Synchronous filesystem reads occur even when the target
+is filtered out and can affect timing. These observations are not immutable
+directory identity or a retargeting proof. A source-only equivalence check restores
+the original source after removing only these observations. No local Rust build
+or execution occurred. A true mismatch must still refuse; this is not a repair.
 
 ## Immutable request foundation
 

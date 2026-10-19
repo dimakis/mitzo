@@ -208,10 +208,14 @@
     {
       "file": "native-parent-diagnostic-import-facade.patch",
       "sha256": "e3a5529f2ba38766d1b4d027adb001d3d0f0a3816ffaf3792cc63e3b63793d52"
+    },
+    {
+      "file": "native-trusted-root-cwd-observations.patch",
+      "sha256": "d9ed9ebf62c3dfa5959c694f603db0f7c740198792d7bc5b37b72a0fc18ff89a"
     }
   ],
-  "sourceTree": "2f1cc28e6f03011124d95982ccf41464a06809f8",
-  "localSourceCommit": "3ec49f15814168d9be0553f7bc12e6d78542371a",
+  "sourceTree": "1452a4d6a69783b77707953ca8cef2df916a75f2",
+  "localSourceCommit": "a69928ec137aafd75d89111ef46c1aadc15e38f1",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -268,7 +272,8 @@
     "e9fc12cf08308bce459bc706402f1b61c1f4e965",
     "9710104802944987fbd017baf39706c535665922",
     "ff92b351fbc3ae89a9e0a57d3268975b2347ce92",
-    "3ec49f15814168d9be0553f7bc12e6d78542371a"
+    "3ec49f15814168d9be0553f7bc12e6d78542371a",
+    "a69928ec137aafd75d89111ef46c1aadc15e38f1"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -278,7 +283,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "51-patch diagnostic source: Session imports fixed-name boolean diagnostic helper through existing crate-private tools facade. No guard/diagnostic/test semantics changed; original native49 Mac refusal not yet diagnosed.",
+    "scope": "52-patch source, diagnostic-only trusted-root cwd observations after actual51 trace identified rawcwd inequality. Exact original equality still returned. No alias exception, descendant canonicalization, authority or launch change.",
     "localFocused": {
       "status": "source_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -287,7 +292,7 @@
       "allOrderedChecksumsReconstructExactTree": true
     },
     "ci": {
-      "status": "pending_51_patch_diagnostic_source",
+      "status": "pending_52_patch_diagnostic_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -299,26 +304,29 @@
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
       "newCIJobs": 0,
-      "previousRun": 39194525811,
-      "previousSourceTree": "606bfc1df61d145907415220bea96dfd6d3415a9",
+      "previousRun": 39197029301,
+      "previousSourceTree": "2f1cc28e6f03011124d95982ccf41464a06809f8",
       "previousObservedResults": {
         "linux": {
-          "conclusion": "failure",
-          "job": 117874288040,
-          "stage": "Build standalone native test helpers",
-          "errorCode": "E0603",
-          "diagnostic": "Session imported parent_approval_gate through private tools::approvals",
-          "fixturesExecuted": false,
-          "exitCode": 101
+          "conclusion": "success",
+          "testsRun": 5821,
+          "passed": 5821,
+          "failed": 0,
+          "skipped": 11,
+          "job": 117881891641,
+          "formatting": "success"
         },
         "macos": {
           "conclusion": "failure",
-          "job": 117874287848,
-          "stage": "Build standalone native test helpers",
-          "errorCode": "E0603",
-          "diagnostic": "Session imported parent_approval_gate through private tools::approvals",
-          "fixturesExecuted": false,
-          "exitCode": 101
+          "testsRun": 5599,
+          "passed": 5598,
+          "failed": 1,
+          "skipped": 27,
+          "job": 117881891840,
+          "formatting": "skipped after test failure",
+          "failure": "original denied-read integration unexpected childcat approval",
+          "actualTraceRefusal": "child-context.cwd-matches=false, child.refusal.12=true; preceding actualcandidate/executor/profile/environment checks pass",
+          "trustedRootAliasCauseEstablished": false
         }
       },
       "zeroNativeSkipsClaimed": false,
@@ -461,6 +469,29 @@
       "helperPredicatesDiagnosticsAndTestAssertionsUnchanged": true,
       "scopedRustfmtPassed": true,
       "compiledOrExecutedLocally": false
+    },
+    "trustedRootCwdObservation": {
+      "sourceCommit": "a69928ec137aafd75d89111ef46c1aadc15e38f1",
+      "paths": ["codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs"],
+      "onlyAfterRawCwdMismatch": true,
+      "originalRawEqualityStillReturned": true,
+      "observations": [
+        "native path conversions succeeded",
+        "existing trusted-root normalizations succeeded",
+        "normalized results match",
+        "original or child spelling changed through root-only utility",
+        "root-only change accounts for raw mismatch"
+      ],
+      "existingUtility": "AbsolutePathBuf::normalize_system_aliases; trusted top-level root only, all lower components remain logical",
+      "noPathsCommandsEnvironmentValuesErrorsOrReceiptsEmitted": true,
+      "noNewCwdAuthorityOrLaunchChange": true,
+      "synchronousFsReadsCanAffectTimingEvenWithoutSubscriber": true,
+      "notImmutableDirectoryIdentityOrRetargetProof": true,
+      "originalIntegrationWholeFileExact51": true,
+      "rootAndExistingIndependentSourceReview": true,
+      "scopedFormatAndSourceEquivalencePassed": true,
+      "localRustCompilationOrExecution": false,
+      "noRepairClaim": true
     }
   },
   "runtimeQualified": false,
@@ -1633,6 +1664,236 @@
           "log": "/Users/dsaridak/Documents/Codex/2026-10-18/symposium-continue-where-this-chat-got/evidence/native50-mac-failed.log",
           "sha256": "1c56053eb7032773f61b59e8539697e4046d5d184a892be4eb6521c3a0ff9439"
         }
+      }
+    },
+    {
+      "sourceTree": "2f1cc28e6f03011124d95982ccf41464a06809f8",
+      "localSourceCommit": "3ec49f15814168d9be0553f7bc12e6d78542371a",
+      "patchCount": 51,
+      "checks": {
+        "scope": "51-patch diagnostic source: Session imports fixed-name boolean diagnostic helper through existing crate-private tools facade. No guard/diagnostic/test semantics changed; original native49 Mac refusal not yet diagnosed.",
+        "localFocused": {
+          "status": "source_and_scoped_format_only",
+          "rustTestsExecuted": false,
+          "compiled": false,
+          "dynamicGreenClaimed": false,
+          "allOrderedChecksumsReconstructExactTree": true
+        },
+        "ci": {
+          "status": "pending_51_patch_diagnostic_source",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-api",
+            "codex-state",
+            "codex-http-client",
+            "codex-guardian-reviewer"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "newCIJobs": 0,
+          "previousRun": 39194525811,
+          "previousSourceTree": "606bfc1df61d145907415220bea96dfd6d3415a9",
+          "previousObservedResults": {
+            "linux": {
+              "conclusion": "failure",
+              "job": 117874288040,
+              "stage": "Build standalone native test helpers",
+              "errorCode": "E0603",
+              "diagnostic": "Session imported parent_approval_gate through private tools::approvals",
+              "fixturesExecuted": false,
+              "exitCode": 101
+            },
+            "macos": {
+              "conclusion": "failure",
+              "job": 117874287848,
+              "stage": "Build standalone native test helpers",
+              "errorCode": "E0603",
+              "diagnostic": "Session imported parent_approval_gate through private tools::approvals",
+              "fixturesExecuted": false,
+              "exitCode": 101
+            }
+          },
+          "zeroNativeSkipsClaimed": false,
+          "historical46PatchCompilation": {
+            "previousRun": 39168656856,
+            "previousSourceTree": "5f034709e0a618d7d12ae44cb37c99b493efac41",
+            "previousObservedResults": {
+              "linux": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 3,
+                "testsExecuted": false,
+                "job": 117796904135
+              },
+              "macos": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 3,
+                "testsExecuted": false,
+                "job": 117796904391
+              }
+            }
+          },
+          "historical47PatchCompilation": {
+            "previousRun": 39172947853,
+            "previousSourceTree": "a18caf2a3c076637cd5dc83de174abe21f69d00c",
+            "previousObservedResults": {
+              "linux": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 1,
+                "errorCode": "E0308",
+                "testsExecuted": false,
+                "job": 117809637948
+              },
+              "macos": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 1,
+                "errorCode": "E0308",
+                "testsExecuted": false,
+                "job": 117809637985
+              }
+            }
+          },
+          "jobTimeBudgetMinutes": {
+            "ubuntu-24.04": 90,
+            "macos-26": 120
+          },
+          "jobTimeBudgetReason": "Actual48 macOS cold setup and compilation used ~59min;90min budget canceled a progressing run at4405/5599 selected results, including the same6 typed-denial failures. Coverage/workers/retries/gates unchanged.",
+          "historical49ExecutedResults": {
+            "run": 39184386351,
+            "sourceTree": "58f83c08f2df67c830fe6cf1ee435a03a8b3f6f0",
+            "results": {
+              "linux": {
+                "conclusion": "success",
+                "testsRun": 5821,
+                "passed": 5821,
+                "failed": 0,
+                "skipped": 11,
+                "job": 117843619216,
+                "formatting": "success"
+              },
+              "macos": {
+                "conclusion": "failure",
+                "testsRun": 5599,
+                "passed": 5598,
+                "failed": 1,
+                "skipped": 27,
+                "job": 117843619014,
+                "exitCode": 100,
+                "failure": "suite::unified_exec_zsh_fork_approvals::unified_exec_zsh_fork_parent_approval_preserves_denied_reads",
+                "observed": "Unexpected /bin/cat child approval after actual initial User approval; original no-child-prompt assertion failed. No timeout or compilation failure.",
+                "formatting": "skipped after test failure"
+              }
+            }
+          }
+        },
+        "testCountsOverlap": true,
+        "ordinaryParentApproval": {
+          "hasActiveConsumer": true,
+          "sameInitialInvocationLifetimeOnly": true,
+          "originalLifetimeGuardNeverReopened": true,
+          "physicalDeniedReadRestrictionsPreserved": true,
+          "hooksAndContributorsPrecedencePreserved": true,
+          "allUserFallbackRevalidatedAfterAttempt": true,
+          "inheritedApprovalNotFreshUser": true,
+          "allIntegrationSuiteFilesExactPrevious31": false,
+          "originalApprovedGuardianWholeFileBlob": "e22671bcf8033c245745ab680349a332a143ca0d",
+          "testOnlyPostNoneScheduler": true,
+          "knownPrivateStateTestAccessesCorrected": true,
+          "rootAndIndependentSourceReview": true,
+          "rustCompilationAndFixtures": "pending_existing_CI",
+          "originalDeniedReadWholeFileBlobBeforeDiagnostics": "8d7761204a5fd12c7c2d2eb45e36ec187e89769d",
+          "originalDeniedReadInputsObserverAndAssertionsTokenExact49": true,
+          "currentDeniedReadWholeFileBlob": "c063818b5333a4ae95d7605b6c6792792438f4a9"
+        },
+        "preparedRequestAuthority": {
+          "hasActualPurePreSessionCapture": false,
+          "hasAppServerPreparationRPCs": false,
+          "hasOrdinaryPreparedDispatchConsumer": false,
+          "consumableAdmissionAvailable": false,
+          "installedRuntimeQualified": false,
+          "applicationJoiningComplete": false,
+          "liveCallsAuthorized": false
+        },
+        "testCompilationCorrection": {
+          "sourceCommit": "ef263974e5dc5ab280003282a8bbfb1a404a5ebf",
+          "paths": ["codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs"],
+          "changes": "import actual EventMsg and CodexErrorDetails; inspect existing CodexErr.details() for TurnAborted rather than using an associated constant pattern",
+          "productionCodeChanged": false,
+          "semanticCancellationAssertionRetained": true,
+          "scopedRustfmtPassed": true,
+          "compiledOrExecutedLocally": false
+        },
+        "refusalObservation": {
+          "diagnosticOnly": true,
+          "sourceCommit": "ff92b351fbc3ae89a9e0a57d3268975b2347ce92",
+          "scope": "Seven files: diagnostic helper/wrapping and failing integration target-only subscriber",
+          "helperOutput": "Static gate name and boolean only; unchanged boolean returned",
+          "sourceTokenEquivalenceAfterRemovingDiagnostics": true,
+          "originalShortCircuitingAndPredicateOrderPreserved": true,
+          "noExtraLoadsOfMutableAuthority": true,
+          "noPathsCommandsEnvironmentValuesIdentifiersPointersOrReceiptsLogged": true,
+          "subscriber": "Only original failing integration installs process-scoped target-filtered subscriber; prescribed nextest isolates this test process. Ordinary spawned tasks do not all propagate scoped dispatchers.",
+          "timingMayBeAffected": true,
+          "passingRunAloneWouldNotDiagnoseOrFixOriginalFailure": true,
+          "candidateRefusalFirstLabelCombinesProfileAndSandboxRequested": true,
+          "someEarlyQuestionMarkReturnsUnlabeled": true,
+          "rootAndExistingIndependentSourceReview": true,
+          "compiledOrExecutedLocally": false
+        },
+        "diagnosticImportCorrection": {
+          "sourceCommit": "3ec49f15814168d9be0553f7bc12e6d78542371a",
+          "paths": [
+            "codex-rs/core/src/session/parent_approval.rs",
+            "codex-rs/core/src/tools/mod.rs"
+          ],
+          "changes": "crate-private tools facade re-export and Session import through that facade",
+          "allDiagnosticImportsCrateModuleAndCfgBoundariesWalked": true,
+          "noExternalApiOrPrivateModuleVisibilityWidened": true,
+          "rootAndExistingIndependentSourceReview": true,
+          "helperPredicatesDiagnosticsAndTestAssertionsUnchanged": true,
+          "scopedRustfmtPassed": true,
+          "compiledOrExecutedLocally": false
+        }
+      },
+      "observedResult": {
+        "observedAt": "2026-10-19T05:37:45.916342+00:00",
+        "run": 39197029301,
+        "head": "b12cf68cd4d3e93f323956c25feae963b962b6a5",
+        "conclusion": "failure",
+        "sourceTree": "2f1cc28e6f03011124d95982ccf41464a06809f8",
+        "linux": {
+          "job": 117881891641,
+          "conclusion": "success",
+          "passed": 5821,
+          "failed": 0,
+          "skipped": 11,
+          "formatting": "success",
+          "log": "/Users/dsaridak/Documents/Codex/2026-10-18/symposium-continue-where-this-chat-got/evidence/native51-linux-final.log",
+          "sha256": "99488daebb08c32d0a546cf1a89a54b4493299bb3c1252fb2f41894bad805d58"
+        },
+        "macos": {
+          "job": 117881891840,
+          "conclusion": "failure",
+          "run": 5599,
+          "passed": 5598,
+          "failed": 1,
+          "skipped": 27,
+          "formatting": "skipped after fixture failure",
+          "failure": "original unified_exec_zsh_fork_parent_approval_preserves_denied_reads: unexpected childcat approval",
+          "log": "/Users/dsaridak/Documents/Codex/2026-10-18/symposium-continue-where-this-chat-got/evidence/native51-mac-final.log",
+          "sha256": "4efa3d920aa4093b2cb649194beb709da6b332ef9b075d3d9afe5090fce8f848"
+        },
+        "observedRefusal": "Raw original cwd PathUri != real child cwd PathUri, after actual fullcandidate/executor/profile/environment checks pass. No final scopedparent admission attempted.",
+        "trustedRootAliasCauseEstablished": false,
+        "repairEstablished": false,
+        "diagnosticReceipt": "/Users/dsaridak/Documents/Codex/2026-10-18/symposium-continue-where-this-chat-got/evidence/native51-mac-refusal-diagnostics.json",
+        "runtimeQualified": false,
+        "localRustExecuted": false,
+        "provenance": "Copied exact completed GitHub CI logs/metadata independently retrieved by existing oversight owner, then independently read and decoded here."
       }
     }
   ]
