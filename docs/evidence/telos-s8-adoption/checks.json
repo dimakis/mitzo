@@ -1,7 +1,7 @@
 {
   "baseAcceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
   "componentCandidate": "3f08dd81ee42c0d5bea752d53ec40c883445dfd1",
-  "implementationCheckpoint": "3c2ec5d3",
+  "implementationCheckpoint": "15ae62ef8594212bda5fcf2da1bfddc4f86c4c40",
   "productionAdoption": [
     "TelosItemWorkspace Chat -> TelosItemChatTab -> ordinary /chat/:sessionId",
     "ChatView/DesktopChatView -> TelosChatRouteLayout using recorded association and canonical record -> TelosChatFrame",
@@ -17,20 +17,24 @@
     "ordinaryReadIsolation": "Original S5b write guard detected unrelated work-link POST; dedicated route regression failed then passed after restricting work lookup"
   },
   "checks": {
-    "focusedPassed": 144,
+    "focusedPassed": 199,
     "existingSkipped": 1,
     "fullRouteBrowserCases": 6,
     "componentMotionCases": 12,
     "browserStartupChecks": 2,
     "eslint": "PASS",
     "s5bFrontendOverlay": "28 focused checks, 12 browser scenarios plus 2 startup; original S5b fixture unchanged",
-    "ci": "Previous a414 CI found unsupported ByRoleOptions.exact in new test; fixed in86f1c9df; current-head CI pending"
+    "ci": "Prior56 CI running when correction prepared; exact correction-head CI/review required",
+    "focusedScope": "21 files: S8/design plus existing S7 route/scroll/output, source/linked-context and runtime artifact checks",
+    "boundedReview": "Three P2s reproduced and corrected; independent targeted closure pending"
   },
   "limits": [
     "Candidate source; not accepted main or full S9 acceptance",
     "HTTP/event data synthetic; no native provider/real-model turn or real filesystem workspace admitted by UI fixtures",
     "Exact S5b frontend overlay qualification is separate from backend/main assembly",
     "Four backend merge conflict owners remain outside S8; full native/peer chain belongs to S5b/S6/S9",
-    "Frozen component PR1050 remains on3f08dd81 with CIgreen and queued Centaur; no redundant FULL request, no merge/deployment"
+    "Frozen component PR1050 remains on3f08dd81 with CIgreen and queued Centaur; no redundant FULL request, no merge/deployment",
+    "Coordinator lead setup UX17/journey6 remains S6 interface plus S8 adapter gap; generic New chat fallback currently advisor",
+    "S5b production owner has resolved backend conflicts in6091; joined corrected route composition and S9 acceptance remain pending"
   ]
 }

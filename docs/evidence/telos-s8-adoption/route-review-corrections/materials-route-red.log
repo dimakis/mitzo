@@ -1,0 +1,375 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-adoption
+
+ ❯ frontend/src/components/__tests__/TelosChatRouteLayout.source.test.tsx (2 tests | 2 failed) 2081ms
+   × adopts Materials readSourceHref without changing its selector, other bound role=false 1065ms
+   × adopts Materials readSourceHref without changing its selector, other bound role=true 1015ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  frontend/src/components/__tests__/TelosChatRouteLayout.source.test.tsx > adopts Materials readSourceHref without changing its selector, other bound role=false
+TestingLibraryElementError: Unable to find role="button" and name "View item: Planning source item"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<output[39m
+      [33mdata-testid[39m=[32m"source-url"[39m
+    [36m>[39m
+      [0m/chat/planning?telosItem=slice&telosSource=reviewed-exchange[0m
+    [36m</output>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[39m
+    [36m>[39m
+      [36m<header />[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"telos-chat-body"[39m
+        [33mdata-tree-open[39m=[32m"false"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"telos-chat-transcript"[39m
+        [36m>[39m
+          [36m<textarea[39m
+            [33maria-label[39m=[32m"Draft"[39m
+          [36m>[39m
+            [0mPlanning draft[0m
+          [36m</textarea>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</section>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<output[39m
+      [33mdata-testid[39m=[32m"source-url"[39m
+    [36m>[39m
+      [0m/chat/planning?telosItem=slice&telosSource=reviewed-exchange[0m
+    [36m</output>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"telos-chat-frame telos-chat-route-frame telos-chat-unlinked"[39m
+    [36m>[39m
+      [36m<header />[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"telos-chat-body"[39m
+        [33mdata-tree-open[39m=[32m"false"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"telos-chat-transcript"[39m
+        [36m>[39m
+          [36m<textarea[39m
+            [33maria-label[39m=[32m"Draft"[39m
+          [36m>[39m
+            [0mPlanning draft[0m
+          [36m</textarea>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</section>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ waitForWrapper ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ frontend/src/components/__tests__/TelosChatRouteLayout.source.test.tsx:37:16
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  frontend/src/components/__tests__/TelosChatRouteLayout.source.test.tsx > adopts Materials readSourceHref without changing its selector, other bound role=true
+TestingLibraryElementError: Unable to find role="button" and name "View item: Planning source item"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<output[39m
+      [33mdata-testid[39m=[32m"source-url"[39m
+    [36m>[39m
+      [0m/chat/planning?telosItem=slice&telosSource=reviewed-exchange[0m
+    [36m</output>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"telos-chat-frame telos-chat-route-frame"[39m
+    [36m>[39m
+      [36m<header>[39m
+        [36m<a[39m
+          [33mdata-discover[39m=[32m"true"[39m
+          [33mhref[39m=[32m"/todos/other?view=Chat&chooseChat=1"[39m
+        [36m>[39m
+          [0mBack[0m
+        [36m</a>[39m
+      [36m</header>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"telos-chat-context-row"[39m
+      [36m>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"View item: Other worker item"[39m
+          [33mclass[39m=[32m"telos-chat-item"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"ui-icon"[39m
+            [33mdata-icon[39m=[32m"work"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mfocusable[39m=[32m"false"[39m
+            [33mheight[39m=[32m"16"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"1.7"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"16"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m4 6 2 2 4-4m3 2h7M4 14l2 2 4-4m3 2h7m-7 6h7"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [36m<span>[39m
+            [0mOther worker item[0m
+          [36m</span>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"ui-icon"[39m
+            [33mdata-icon[39m=[32m"arrowUpRight"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mfocusable[39m=[32m"false"[39m
+            [33mheight[39m=[32m"16"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"1.7"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"16"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M7 7h10v10M7 17 17 7"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</button>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"Chats for this item: 1"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"ui-icon"[39m
+            [33mdata-icon[39m=[32m"chats"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mfocusable[39m=[32m"false"[39m
+            [33mheight[39m=[32m"16"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"1.7"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"16"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M4 4h16v12H9l-5 4Z"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"telos-chat-count-label"[39m
+          [36m>[39m
+            [0mChats[0m
+          [36m</span>[39m
+          [0m1[0m
+        [36m</button>[39m
+        [36m<button[39m
+          [33maria-controls[39m=[32m"_r_1_"[39m
+          [33maria-expanded[39m=[32m"false"[39m
+          [33maria-label[39m=[32m"Toggle work tree"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"ui-icon"[39m
+            [33mdata-icon[39m=[32m"work"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mfocusable[39m=[32m"false"[39m
+            [33mheight[39m=[32m"16"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"1.7"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"16"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m4 6 2 2 4-4m3 2h7M4 14l2 2 4-4m3 2h7m-7 6h7"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0mWork[0m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"telos-chat-body"[39m
+        [33mdata-tree-open[39m=[32m"false"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"telos-chat-transcript"[39m
+        [36m>[39m
+          [36m<textarea[39m
+            [33maria-label[39m=[32m"Draft"[39m
+          [36m>[39m
+            [0mPlanning draft[0m
+          [36m</textarea>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</section>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<output[39m
+      [33mdata-testid[39m=[32m"source-url"[39m
+    [36m>[39m
+      [0m/chat/planning?telosItem=slice&telosSource=reviewed-exchange[0m
+    [36m</output>[39m
+    [36m<section[39m
+      [33mclass[39m=[32m"telos-chat-frame telos-chat-route-frame"[39m
+    [36m>[39m
+      [36m<header>[39m
+        [36m<a[39m
+          [33mdata-discover[39m=[32m"true"[39m
+          [33mhref[39m=[32m"/todos/other?view=Chat&chooseChat=1"[39m
+        [36m>[39m
+          [0mBack[0m
+        [36m</a>[39m
+      [36m</header>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"telos-chat-context-row"[39m
+      [36m>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"View item: Other worker item"[39m
+          [33mclass[39m=[32m"telos-chat-item"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"ui-icon"[39m
+            [33mdata-icon[39m=[32m"work"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mfocusable[39m=[32m"false"[39m
+            [33mheight[39m=[32m"16"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"1.7"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"16"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m4 6 2 2 4-4m3 2h7M4 14l2 2 4-4m3 2h7m-7 6h7"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [36m<span>[39m
+            [0mOther worker item[0m
+          [36m</span>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"ui-icon"[39m
+            [33mdata-icon[39m=[32m"arrowUpRight"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mfocusable[39m=[32m"false"[39m
+            [33mheight[39m=[32m"16"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"1.7"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"16"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M7 7h10v10M7 17 17 7"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+        [36m</button>[39m
+        [36m<button[39m
+          [33maria-label[39m=[32m"Chats for this item: 1"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"ui-icon"[39m
+            [33mdata-icon[39m=[32m"chats"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mfocusable[39m=[32m"false"[39m
+            [33mheight[39m=[32m"16"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"1.7"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"16"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M4 4h16v12H9l-5 4Z"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [36m<span[39m
+            [33mclass[39m=[32m"telos-chat-count-label"[39m
+          [36m>[39m
+            [0mChats[0m
+          [36m</span>[39m
+          [0m1[0m
+        [36m</button>[39m
+        [36m<button[39m
+          [33maria-controls[39m=[32m"_r_1_"[39m
+          [33maria-expanded[39m=[32m"false"[39m
+          [33maria-label[39m=[32m"Toggle work tree"[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"ui-icon"[39m
+            [33mdata-icon[39m=[32m"work"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mfocusable[39m=[32m"false"[39m
+            [33mheight[39m=[32m"16"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"1.7"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"16"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"m4 6 2 2 4-4m3 2h7M4 14l2 2 4-4m3 2h7m-7 6h7"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0mWork[0m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"telos-chat-body"[39m
+        [33mdata-tree-open[39m=[32m"false"[39m
+      [36m>[39m
+        [36m<div[39m
+          [33mclass[39m=[32m"telos-chat-transcript"[39m
+        [36m>[39m
+          [36m<textarea[39m
+            [33maria-label[39m=[32m"Draft"[39m
+          [36m>[39m
+            [0mPlanning draft[0m
+          [36m</textarea>[39m
+        [36m</div>[39m
+      [36m</div>[39m
+    [36m</section>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ waitForWrapper ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ frontend/src/components/__tests__/TelosChatRouteLayout.source.test.tsx:37:16
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed (2)
+   Start at  00:07:12
+   Duration  2.95s (transform 309ms, setup 0ms, import 494ms, tests 2.08s, environment 283ms)
+

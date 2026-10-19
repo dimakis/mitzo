@@ -73,3 +73,47 @@ The frozen Telos mock, priority amendment, approved settings ledger/protections,
 shared tokens and shared motion implementation remain intact. No live model,
 staging, production change, deployment or merge occurs in this work. S8, CT15/CT16
 and parent acceptance stay open until their complete evidence is verified.
+
+## Bounded route review corrections
+
+The independent review of the initial route candidate identified three P2 gaps.
+Materials and linked-context source entry now reuse the existing source owner’s
+validated snapshot selection (`telosItem`/`telosSource`) before validating the
+conversation’s recorded association. The inspected item wins over another bound
+role. The source URL/snapshot/backend contract remains intact; both existing
+source openers carry the original navigation state. Unrelated ordinary chats
+still skip work-link lookup.
+
+The chooser and ordinary route refresh through the existing broadcast-stream
+connection owner on reconnect. No synthetic work event or visibility change is
+needed. Refresh cannot silently select a remaining conversation.
+
+Tree navigation reuses S7’s unchanged history parser/device fallback, extracted
+with its owner’s agreement. It reads the current item’s trail, appends that item,
+carries the full return state and clears the stale item snapshot. Explicit empty
+or invalid trails override device history; only undefined uses the current item’s
+stored trail. Item-keyed persistence, collection preferences and artifact/tab
+owners retain their behavior.
+
+Real red results are retained for the source selector, SSE-only reconnect,
+missing tree return state, and source opener state loss. Final qualification:
+199 checks pass with one existing skip, including the existing S7 route/scroll/
+output-return suites, source/linked-context tests and runtime artifact registry.
+All 18 browser scenarios plus two startup checks pass, including actual filtered
+collection → item → chat → tree child → Back → original item → collection, with
+stale child history, preserved category/query/profile/scroll state, source-only
+Materials entry, retained drafts and broadcast-only reconnect. HTTP, events and
+runtime effects remain deterministic fakes.
+
+The original six stale UI pins, the extracted TodoDetailView owner, and the two
+source openers are explicitly qualified; the new shared history helper is pinned.
+Runtime identity is `v1.0.334-telos-chat-routes`. All other source pins and approved
+references/protected tests remain unchanged. Exact before/after hashes and raw
+logs are under `docs/evidence/telos-s8-adoption/route-review-corrections/`.
+
+S5b’s production owner has resolved the earlier backend conflicts in candidate
+6091 and is composing the frozen route source; that is separate from the earlier
+688 frontend overlay. Its composed page hashes/runtime identity need their own
+qualification, and S9 must verify the joined candidate. UX17/journey6 coordinator
+lead setup/mandate remains an explicit S6 interface and S8 adapter gap: generic
+New chat currently falls back to advisor. No coordinator parity is claimed.
