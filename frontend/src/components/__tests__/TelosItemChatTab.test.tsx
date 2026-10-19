@@ -98,6 +98,15 @@ it('directly enters one available ordinary non-origin conversation, with an expl
   await screen.findByRole('heading', { name: 'Chats · 1' });
   expect(screen.queryByTestId('chat-path')).toBeNull();
 });
+it('refreshes a chooser without silently selecting a conversation when only one remains', async () => {
+  mount();
+  await screen.findByRole('heading', { name: 'Chats · 3' });
+  vi.mocked(TelosWorkApiClient.prototype.read).mockResolvedValue(view(['worker']));
+  vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+  fireEvent(document, new Event('visibilitychange'));
+  await screen.findByRole('heading', { name: 'Chats · 1' });
+  expect(screen.queryByTestId('chat-path')).toBeNull();
+});
 it('opens an external origin explicitly and retains distinct ordinary additional/replacement setup', async () => {
   const work = view(['origin']);
   work.assignments = [];

@@ -23,9 +23,9 @@ export function TelosItemChatTab({
   const forceList = params.get('chooseChat') === '1';
   useEffect(() => {
     if (!work || forceList || entered.current) return;
+    entered.current = true;
     const direct = telosDirectChat(work);
     if (direct) {
-      entered.current = true;
       void navigation.open(direct);
     }
   }, [work, forceList, navigation]);
