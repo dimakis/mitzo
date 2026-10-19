@@ -2,6 +2,7 @@ import { selectedRuntimeRoute } from './chat-runtime-route';
 import { sha256Hex } from './browser-crypto';
 import { z } from 'zod';
 import {
+  createOrdinaryFreshPermission,
   NativeContinuationConstraintSchema,
   type NativeContinuationConstraint,
   AgentLibraryVersionSchema,
@@ -279,7 +280,7 @@ export function prepareLocalFirstCommand(
       model: selection.account!.model,
       thinking: selection.account!.reasoningEffort ?? null,
       context,
-      permission: { mode: input.mode, revision: 0 },
+      permission: createOrdinaryFreshPermission(input.mode),
     },
     payload: {
       text: input.text,

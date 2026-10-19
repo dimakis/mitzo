@@ -14,6 +14,95 @@ afterEach(() => {
   localStorage.clear();
 });
 
+it.each(['valid', 'wrong-workspace', 'wrong-conversation', 'private-path', 'oversized', 'missing'])(
+  'retains only bounded repository presentation for the exact metadata workspace: %s',
+  async (scenario) => {
+    const data = localInventoryFixture();
+    const workspaceId = '11111111-1111-4111-8111-111111111111';
+    const repositoryContext = { workspaceId, repository: 'example/owned-repository' };
+    if (scenario === 'wrong-workspace') repositoryContext.workspaceId = 'other-workspace';
+    if (scenario === 'private-path') repositoryContext.repository = '/private/task';
+    if (scenario === 'oversized') repositoryContext.repository = 'r'.repeat(201);
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      Response.json(
+        String(url).includes('/meta')
+          ? {
+              sessionId: scenario === 'wrong-conversation' ? 'other-chat' : 'current-chat',
+              repositoryWorkspaceId: workspaceId,
+              ...(scenario === 'missing' ? {} : { repositoryContext }),
+            }
+          : data,
+      ),
+    );
+    const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'current-chat', true));
+    await waitFor(() => expect(result.current.metadataPending).toBe(false));
+    expect(result.current.repositoryWorkspaceId).toBe(workspaceId);
+    expect(result.current).toHaveProperty(
+      'repositoryContext',
+      scenario === 'valid' ? repositoryContext : undefined,
+    );
+    expect(result.current.metadataUnavailable).toBe(false);
+  },
+);
+
+it('fences late repository presentation and clears it synchronously when the selected conversation changes', async () => {
+  const data = localInventoryFixture();
+  let finish!: (response: Response) => void;
+  const workspaceId = '11111111-1111-4111-8111-111111111111';
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).includes('/meta')
+      ? new Promise((resolve) => {
+          finish = resolve;
+        })
+      : Response.json(data),
+  );
+  const { result, rerender } = renderHook(
+    ({ sessionId }) => useExplicitLocalChat('draft', null, sessionId, true),
+    { initialProps: { sessionId: 'old-chat' as string | null } },
+  );
+  await waitFor(() => expect(finish).toBeDefined());
+  rerender({ sessionId: null });
+  await act(async () =>
+    finish(
+      Response.json({
+        sessionId: 'old-chat',
+        repositoryWorkspaceId: workspaceId,
+        repositoryContext: { workspaceId, repository: 'example/old-repository' },
+      }),
+    ),
+  );
+  expect(result.current).toHaveProperty('repositoryContext', undefined);
+  expect(result.current.repositoryWorkspaceId).toBeUndefined();
+});
+
+it('withholds repository presentation while metadata refresh is pending or fails', async () => {
+  const data = localInventoryFixture();
+  const workspaceId = '11111111-1111-4111-8111-111111111111';
+  let failRefresh = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (!String(url).includes('/meta')) return Response.json(data);
+    if (failRefresh) throw Error('Metadata read failed');
+    return Response.json({
+      sessionId: 'current-chat',
+      repositoryWorkspaceId: workspaceId,
+      repositoryContext: { workspaceId, repository: 'example/owned-repository' },
+    });
+  });
+  const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'current-chat', true));
+  await waitFor(() =>
+    expect(result.current).toHaveProperty('repositoryContext', {
+      workspaceId,
+      repository: 'example/owned-repository',
+    }),
+  );
+  failRefresh = true;
+  act(() => result.current.refresh());
+  expect(result.current).toHaveProperty('repositoryContext', undefined);
+  await waitFor(() => expect(result.current.metadataUnavailable).toBe(true));
+  expect(result.current).toHaveProperty('repositoryContext', undefined);
+  expect(result.current.repositoryWorkspaceId).toBe(workspaceId);
+});
+
 it.each(['', 'agentProfile=agent&profileRevision=1'])(
   'seeds fresh runtime intent from browser defaults without confirming account identity: %s',
   async (search) => {
