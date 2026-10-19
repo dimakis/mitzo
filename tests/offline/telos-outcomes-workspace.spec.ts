@@ -659,6 +659,13 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(page.getByRole('dialog', { name: 'Saved studio plan' })).toBeVisible();
     expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe(selectedWorkRoute);
+    // Revoke access only after the current returned dialog has finished its read.
+    await expect(page.locator('.telos-item-workspace')).toBeVisible();
+    await expect(
+      page
+        .getByRole('dialog', { name: 'Saved studio plan' })
+        .getByRole('heading', { name: 'Retained studio plan r3' }),
+    ).toBeVisible();
     denyArtifact = true;
     await reload();
     await expect(
