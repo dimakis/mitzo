@@ -1,0 +1,337 @@
+From e38b3cbec1269bf889a1b1773eef111cea11fa21 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 20:03:51 +0100
+Subject: [PATCH] Retain actual permission hook registry observations
+
+---
+ codex-rs/core/src/hook_runtime.rs             |  33 ++-
+ .../tools/approvals/parent_registry_tests.rs  | 246 ++++++++++++++++++
+ .../tools/approvals/parent_routing_tests.rs   |   3 +
+ 3 files changed, 280 insertions(+), 2 deletions(-)
+ create mode 100644 codex-rs/core/src/tools/approvals/parent_registry_tests.rs
+
+diff --git a/codex-rs/core/src/hook_runtime.rs b/codex-rs/core/src/hook_runtime.rs
+index c0b661d..b7f1492 100644
+--- a/codex-rs/core/src/hook_runtime.rs
++++ b/codex-rs/core/src/hook_runtime.rs
+@@ -257,15 +257,41 @@ fn tool_hook_cwd(environments: &TurnEnvironmentSnapshot, turn: &TurnContext) ->
+ // tool input or post-run state.
+ pub(crate) struct PermissionRequestHookResult {
+     decision: Option<PermissionRequestDecision>,
++    observation: PermissionRequestHookObservation,
++}
++
++/// The registry actually used by one hook run, not authority to approve a tool.
++pub(crate) struct PermissionRequestHookObservation {
++    hooks: Arc<codex_hooks::Hooks>,
+     matching_handler_count: usize,
+ }
+-impl PermissionRequestHookResult {
++
++impl PermissionRequestHookObservation {
+     pub(crate) fn matching_handler_count(&self) -> usize {
+         self.matching_handler_count
+     }
++
++    /// Only an observation; final callers must hold the registry publication owner.
++    pub(crate) fn matches_current(&self, hooks: &Arc<codex_hooks::Hooks>) -> bool {
++        Arc::ptr_eq(&self.hooks, hooks)
++    }
++}
++
++impl PermissionRequestHookResult {
++    pub(crate) fn matching_handler_count(&self) -> usize {
++        self.observation.matching_handler_count()
++    }
+     pub(crate) fn into_decision(self) -> Option<PermissionRequestDecision> {
+         self.decision
+     }
++    pub(crate) fn into_parts(
++        self,
++    ) -> (
++        Option<PermissionRequestDecision>,
++        PermissionRequestHookObservation,
++    ) {
++        (self.decision, self.observation)
++    }
+ }
+ 
+ pub(crate) async fn run_permission_request_hooks(
+@@ -312,7 +338,10 @@ pub(crate) async fn run_permission_request_hooks_with_metadata(
+ 
+     PermissionRequestHookResult {
+         decision,
+-        matching_handler_count,
++        observation: PermissionRequestHookObservation {
++            hooks,
++            matching_handler_count,
++        },
+     }
+ }
+ 
+diff --git a/codex-rs/core/src/tools/approvals/parent_registry_tests.rs b/codex-rs/core/src/tools/approvals/parent_registry_tests.rs
+new file mode 100644
+index 0000000..9ac8650
+--- /dev/null
++++ b/codex-rs/core/src/tools/approvals/parent_registry_tests.rs
+@@ -0,0 +1,246 @@
++//! Real permission-request runs retain their selected registry, never a grant.
++use super::*;
++use crate::hook_runtime::PermissionRequestHookResult;
++use codex_protocol::protocol::EventMsg;
++use pretty_assertions::assert_eq;
++
++async fn observed(fixture: &Fixture, run: &str) -> anyhow::Result<PermissionRequestHookResult> {
++    Ok(tokio::time::timeout(
++        Duration::from_secs(5),
++        run_permission_request_hooks_with_metadata(
++            &fixture.session,
++            &GuardianReviewContext::from(&fixture.step),
++            run,
++            fixture.action().permission_request_payload(),
++        ),
++    )
++    .await?)
++}
++
++fn assert_events(fixture: &Fixture, count: usize) {
++    let mut started = Vec::new();
++    let mut completed = Vec::new();
++    while let Ok(event) = fixture._events.try_recv() {
++        match event.msg {
++            EventMsg::HookStarted(event) => started.push(event.run.id),
++            EventMsg::HookCompleted(event) => completed.push(event.run.id),
++            EventMsg::ExecApprovalRequest(_) => panic!("hook projection opened manual approval"),
++            _ => {}
++        }
++    }
++    assert_eq!(started.len(), count);
++    assert_eq!(completed, started);
++}
++
++async fn await_background(fixture: &Fixture) -> anyhow::Result<()> {
++    tokio::time::timeout(
++        Duration::from_secs(5),
++        fixture.session.async_hook_results.recv(),
++    )
++    .await??;
++    Ok(())
++}
++
++#[tokio::test]
++async fn no_matching_handler_retains_actual_registry_and_legacy_projection() -> anyhow::Result<()> {
++    let fixture = Fixture::new(None, /*gate*/ None, /*panic*/ false).await?;
++    let hooks = fixture.session.hooks();
++    let result = observed(&fixture, "no-match").await?;
++    assert_eq!(result.matching_handler_count(), 0);
++    let (decision, observation) = result.into_parts();
++    assert_eq!(decision, None);
++    assert_eq!(observation.matching_handler_count(), 0);
++    assert!(observation.matches_current(&hooks));
++    assert!(observation.matches_current(&fixture.session.hooks()));
++    assert_events(&fixture, 0);
++    assert_eq!(
++        crate::hook_runtime::run_permission_request_hooks(
++            &fixture.session,
++            &GuardianReviewContext::from(&fixture.step),
++            "no-match-legacy",
++            fixture.action().permission_request_payload(),
++        )
++        .await,
++        None
++    );
++    assert_events(&fixture, 0);
++    assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
++    Ok(())
++}
++
++#[tokio::test]
++async fn declining_failing_and_async_runs_keep_actual_registry_and_execute_once()
++-> anyhow::Result<()> {
++    for (output, asynchronous) in [
++        ("printf '{}'", false),
++        ("exit 7", false),
++        ("printf '{}'", true),
++    ] {
++        let fixture = Fixture::new(
++            Some(ApprovalDecision::Reviewed(ReviewDecision::Approved)),
++            /*gate*/ None,
++            /*panic*/ false,
++        )
++        .await?;
++        let counter = tempfile::tempdir()?;
++        let hits = counter.path().join("hits");
++        let quoted = hits.to_string_lossy().replace('\'', "'\\''");
++        let _home = fixture.trusted_hooks(vec![(
++            format!("cat >/dev/null; printf 'hit\\n' >> '{quoted}'; {output}"),
++            asynchronous,
++        )])?;
++        let hooks = fixture.session.hooks();
++        let result = observed(&fixture, "observed-decline").await?;
++        assert_eq!(result.matching_handler_count(), 1);
++        let (decision, observation) = result.into_parts();
++        assert_eq!(decision, None);
++        assert_eq!(observation.matching_handler_count(), 1);
++        assert!(observation.matches_current(&hooks));
++        if asynchronous {
++            await_background(&fixture).await?;
++        }
++        let event_count = usize::from(!asynchronous);
++        assert_events(&fixture, event_count);
++        assert_eq!(std::fs::read_to_string(&hits)?, "hit\n");
++        assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
++        let legacy = crate::hook_runtime::run_permission_request_hooks(
++            &fixture.session,
++            &GuardianReviewContext::from(&fixture.step),
++            "decline-legacy",
++            fixture.action().permission_request_payload(),
++        )
++        .await;
++        assert_eq!(legacy, None);
++        if asynchronous {
++            await_background(&fixture).await?;
++        }
++        assert_events(&fixture, event_count);
++        assert_eq!(std::fs::read_to_string(&hits)?, "hit\nhit\n");
++        assert_eq!(
++            fixture
++                .session
++                .request_approval(
++                    fixture.action(),
++                    fixture.context(/*cancellation_token*/ None),
++                )
++                .await
++                .map_err(|error| anyhow::anyhow!("approval: {error:?}"))?,
++            ReviewDecision::Approved
++        );
++        if asynchronous {
++            await_background(&fixture).await?;
++        }
++        assert_events(&fixture, event_count);
++        assert_eq!(std::fs::read_to_string(&hits)?, "hit\nhit\nhit\n");
++        assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn decisive_results_preserve_registry_count_events_and_hook_precedence() -> anyhow::Result<()>
++{
++    for deny in [false, true] {
++        let fixture = Fixture::new(
++            Some(ApprovalDecision::AskUser),
++            /*gate*/ None,
++            /*panic*/ false,
++        )
++        .await?;
++        let counter = tempfile::tempdir()?;
++        let hits = counter.path().join("hits");
++        let quoted = hits.to_string_lossy().replace('\'', "'\\''");
++        let command = |behavior: &str| {
++            format!(
++                "cat >/dev/null; printf 'hit\\n' >> '{quoted}'; printf '%s\\n' '{{\"hookSpecificOutput\":{{\"hookEventName\":\"PermissionRequest\",\"decision\":{{\"behavior\":\"{behavior}\",\"message\":\"trusted denied\"}}}}}}'"
++            )
++        };
++        let mut commands = vec![(command("allow"), false)];
++        if deny {
++            commands.push((command("deny"), false));
++        }
++        let _home = fixture.trusted_hooks(commands)?;
++        let hooks = fixture.session.hooks();
++        let count = if deny { 2 } else { 1 };
++        let result = observed(&fixture, "observed-verdict").await?;
++        assert_eq!(result.matching_handler_count(), count);
++        let (decision, observation) = result.into_parts();
++        let expected = Some(if deny {
++            PermissionRequestDecision::Deny {
++                message: "trusted denied".into(),
++            }
++        } else {
++            PermissionRequestDecision::Allow
++        });
++        assert_eq!(decision, expected);
++        assert_eq!(observation.matching_handler_count(), count);
++        assert!(observation.matches_current(&hooks));
++        assert_events(&fixture, count);
++        assert_eq!(std::fs::read_to_string(&hits)?.lines().count(), count);
++        let legacy = crate::hook_runtime::run_permission_request_hooks(
++            &fixture.session,
++            &GuardianReviewContext::from(&fixture.step),
++            "verdict-legacy",
++            fixture.action().permission_request_payload(),
++        )
++        .await;
++        assert_eq!(legacy, expected);
++        assert_events(&fixture, count);
++        assert_eq!(std::fs::read_to_string(&hits)?.lines().count(), count * 2);
++        let result = fixture
++            .session
++            .request_approval(
++                fixture.action(),
++                fixture.context(/*cancellation_token*/ None),
++            )
++            .await;
++        if deny {
++            assert!(
++                matches!(result, Err(ToolError::Rejected(message)) if message == "trusted denied")
++            );
++        } else {
++            assert_eq!(
++                result.map_err(|error| anyhow::anyhow!("approval: {error:?}"))?,
++                ReviewDecision::Approved
++            );
++        }
++        assert_events(&fixture, count);
++        assert_eq!(std::fs::read_to_string(&hits)?.lines().count(), count * 3);
++        assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn actual_same_config_refresh_invalidates_only_the_retained_registry_observation()
++-> anyhow::Result<()> {
++    let fixture = Fixture::new(None, /*gate*/ None, /*panic*/ false).await?;
++    let config = Arc::clone(
++        &fixture
++            .session
++            .state
++            .lock()
++            .await
++            .session_configuration
++            .original_config_do_not_use,
++    );
++    let hooks = fixture.session.hooks();
++    let (decision, original) = observed(&fixture, "before-refresh").await?.into_parts();
++    assert_eq!(decision, None);
++    assert_eq!(original.matching_handler_count(), 0);
++    assert!(original.matches_current(&hooks));
++    fixture.session.refresh_hooks(Arc::clone(&config)).await;
++    assert!(Arc::ptr_eq(&config, &fixture.session.get_config().await));
++    let refreshed = fixture.session.hooks();
++    assert!(!Arc::ptr_eq(&hooks, &refreshed));
++    assert!(!original.matches_current(&refreshed));
++    assert!(original.matches_current(&hooks));
++    let (decision, current) = observed(&fixture, "after-refresh").await?.into_parts();
++    assert_eq!(decision, None);
++    assert_eq!(current.matching_handler_count(), 0);
++    assert!(current.matches_current(&refreshed));
++    assert!(!current.matches_current(&hooks));
++    assert_events(&fixture, 0);
++    assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
++    Ok(())
++}
+diff --git a/codex-rs/core/src/tools/approvals/parent_routing_tests.rs b/codex-rs/core/src/tools/approvals/parent_routing_tests.rs
+index a8d798e..232f787 100644
+--- a/codex-rs/core/src/tools/approvals/parent_routing_tests.rs
++++ b/codex-rs/core/src/tools/approvals/parent_routing_tests.rs
+@@ -534,3 +534,6 @@ async fn trusted_hook_allow_deny_precedence_bypasses_contributors_once() -> anyh
+     }
+     Ok(())
+ }
++
++#[path = "parent_registry_tests.rs"]
++mod parent_registry_tests;
+-- 
+2.54.0 (Apple Git-157)
+

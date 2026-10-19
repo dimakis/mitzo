@@ -170,8 +170,50 @@ export class TerminalService {
   private starts = new Map<string, Promise<LiveTerminal>>();
   private opening: Promise<void> = Promise.resolve();
   private reconciliation?: Promise<void>;
+  private reconcilingTerminals = false;
   private ownerObservers = new Map<string, () => void>();
   private maintenance?: ReturnType<typeof setInterval>;
+  private pendingOperations = 0;
+  private releasing = false;
+  private idleRelease?: Promise<void>;
+  private assertAvailable() {
+    if (this.releasing) throw Error('Terminal owner released');
+  }
+  private async runOperation<T>(run: () => Promise<T>): Promise<T> {
+    this.assertAvailable();
+    this.pendingOperations++;
+    try {
+      return await run();
+    } finally {
+      this.pendingOperations--;
+    }
+  }
+  private assertIdle() {
+    if (
+      this.pendingOperations ||
+      this.reconcilingTerminals ||
+      this.live.size ||
+      this.starts.size ||
+      this.ownerObservers.size ||
+      this.store.list().some((record) => record.state === 'running')
+    )
+      throw Error('Terminal owner active');
+  }
+  /** Release only an idle owner. The caller still owns the shared database. */
+  async closeIdle(): Promise<void> {
+    if (this.idleRelease) return this.idleRelease;
+    this.assertIdle();
+    this.releasing = true;
+    if (this.maintenance) clearInterval(this.maintenance);
+    // Do not initiate cleanup or wait for a queued open to create a terminal.
+    // Even an empty startup sweep retains a promise until its finally completes.
+    const reconciliation = this.reconciliation;
+    this.idleRelease = (async () => {
+      await reconciliation;
+      this.assertIdle();
+    })();
+    return this.idleRelease;
+  }
   constructor(
     private store: TerminalStore,
     private deps: {
@@ -181,6 +223,7 @@ export class TerminalService {
     },
   ) {}
   bindOwner(session: AuthSession, observe: ObserveOwner) {
+    this.assertAvailable();
     this.store.owners.bind(session);
     if (this.ownerObservers.has(session.id)) return;
     let invalidated = false;
@@ -206,6 +249,7 @@ export class TerminalService {
     this.ownerObservers.set(session.id, release);
   }
   startOwnerMaintenance(observe: ObserveOwner) {
+    this.assertAvailable();
     // Old unleased records cannot establish a surviving login authority.
     for (const record of this.store.list())
       if (record.state === 'running' && !this.store.owners.read(record.owner))
@@ -219,8 +263,10 @@ export class TerminalService {
     this.maintenance.unref?.();
   }
   reconcileOwners() {
+    this.assertAvailable();
     this.reconciliation ??= this.reconcileOwnersNow().finally(() => {
       this.reconciliation = undefined;
+      this.reconcilingTerminals = false;
     });
     return this.reconciliation;
   }
@@ -247,6 +293,7 @@ export class TerminalService {
           Number(a.kind !== 'host') - Number(b.kind !== 'host') || a.createdAt - b.createdAt,
       )
       .slice(0, 50);
+    this.reconcilingTerminals = candidates.length > 0;
     for (const record of candidates) {
       try {
         await this.starts.get(record.id);
@@ -267,6 +314,7 @@ export class TerminalService {
     }
   }
   private assertOwner(owner: string) {
+    this.assertAvailable();
     const lease = this.store.owners.read(owner);
     if (lease && (lease.revoked || lease.expiresAt <= Date.now()))
       throw Error('Operator session expired');
@@ -280,32 +328,34 @@ export class TerminalService {
     return publicInfo(this.store.read(owner, id));
   }
   open(owner: string, request: { sessionId?: string }): Promise<TerminalInfo> {
-    const operation = this.opening.then(async () => {
-      this.assertOwner(owner);
-      const cleanup = this.reconcileOwners();
-      // Wait briefly only when physical shell capacity is actually exhausted.
-      // A slow unrelated gateway must not stall an otherwise available host shell.
-      if (this.store.list().filter((record) => record.state === 'running').length >= 50) {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try {
-          await Promise.race([
-            cleanup,
-            new Promise<void>((resolve) => {
-              timer = setTimeout(resolve, 2000);
-              timer.unref?.();
-            }),
-          ]);
-        } finally {
-          if (timer) clearTimeout(timer);
-        }
-      } else void cleanup.catch(() => {});
-      return this.openOne(owner, request);
+    return this.runOperation(async () => {
+      const operation = this.opening.then(async () => {
+        this.assertOwner(owner);
+        const cleanup = this.reconcileOwners();
+        // Wait briefly only when physical shell capacity is actually exhausted.
+        // A slow unrelated gateway must not stall an otherwise available host shell.
+        if (this.store.list().filter((record) => record.state === 'running').length >= 50) {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            await Promise.race([
+              cleanup,
+              new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, 2000);
+                timer.unref?.();
+              }),
+            ]);
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
+        } else void cleanup.catch(() => {});
+        return this.openOne(owner, request);
+      });
+      this.opening = operation.then(
+        () => undefined,
+        () => undefined,
+      );
+      return operation;
     });
-    this.opening = operation.then(
-      () => undefined,
-      () => undefined,
-    );
-    return operation;
   }
   private async openOne(owner: string, request: { sessionId?: string }) {
     const target = await this.deps.resolve(request, owner);
@@ -408,13 +458,15 @@ export class TerminalService {
     return start;
   }
   async subscribe(owner: string, id: string, listener: (event: TerminalEvent) => void) {
-    const live = await this.ensure(this.store.read(owner, id));
-    this.assertOwner(owner);
-    listener({ type: 'snapshot', data: live.data, seq: live.seq });
-    live.listeners.add(listener);
-    return () => {
-      live.listeners.delete(listener);
-    };
+    return this.runOperation(async () => {
+      const live = await this.ensure(this.store.read(owner, id));
+      this.assertOwner(owner);
+      listener({ type: 'snapshot', data: live.data, seq: live.seq });
+      live.listeners.add(listener);
+      return () => {
+        live.listeners.delete(listener);
+      };
+    });
   }
   async write(
     owner: string,
@@ -422,26 +474,28 @@ export class TerminalService {
     data: string,
     authority?: { signal: AbortSignal; expiresAt: number },
   ) {
-    const authorize = () => {
-      authority?.signal.throwIfAborted();
-      if (authority && authority.expiresAt <= Date.now()) throw Error('Operator session expired');
-    };
-    authorize();
-    if (!TerminalInputBody.safeParse({ data }).success) throw new Error('Invalid terminal input');
-    const live = await this.ensure(this.store.read(owner, id));
-    authorize();
-    this.assertOwner(owner);
-    await live.process!.scroll?.(
-      null,
-      () => {
-        authorize();
-        this.assertOwner(owner);
-      },
-      authority?.signal,
-    );
-    authorize();
-    this.assertOwner(owner);
-    live.process!.write(data);
+    return this.runOperation(async () => {
+      const authorize = () => {
+        authority?.signal.throwIfAborted();
+        if (authority && authority.expiresAt <= Date.now()) throw Error('Operator session expired');
+      };
+      authorize();
+      if (!TerminalInputBody.safeParse({ data }).success) throw new Error('Invalid terminal input');
+      const live = await this.ensure(this.store.read(owner, id));
+      authorize();
+      this.assertOwner(owner);
+      await live.process!.scroll?.(
+        null,
+        () => {
+          authorize();
+          this.assertOwner(owner);
+        },
+        authority?.signal,
+      );
+      authorize();
+      this.assertOwner(owner);
+      live.process!.write(data);
+    });
   }
   async scroll(
     owner: string,
@@ -449,35 +503,41 @@ export class TerminalService {
     lines: number | null,
     authority: { signal: AbortSignal; expiresAt: number },
   ) {
-    const authorize = () => {
-      authority.signal.throwIfAborted();
-      if (authority.expiresAt <= Date.now()) throw Error('Operator session expired');
-      this.assertOwner(owner);
-    };
-    authorize();
-    if (!TerminalScrollBody.safeParse({ lines }).success) throw Error('Invalid terminal scroll');
-    const live = await this.ensure(this.store.read(owner, id));
-    authorize();
-    if (!live.process?.scroll) throw Error('Terminal history unavailable');
-    await live.process.scroll(lines, authorize, authority.signal);
+    return this.runOperation(async () => {
+      const authorize = () => {
+        authority.signal.throwIfAborted();
+        if (authority.expiresAt <= Date.now()) throw Error('Operator session expired');
+        this.assertOwner(owner);
+      };
+      authorize();
+      if (!TerminalScrollBody.safeParse({ lines }).success) throw Error('Invalid terminal scroll');
+      const live = await this.ensure(this.store.read(owner, id));
+      authorize();
+      if (!live.process?.scroll) throw Error('Terminal history unavailable');
+      await live.process.scroll(lines, authorize, authority.signal);
+    });
   }
   async resize(owner: string, id: string, cols: number, rows: number) {
-    if (!TerminalResizeBody.safeParse({ cols, rows }).success)
-      throw new Error('Invalid terminal size');
-    const live = await this.ensure(this.store.read(owner, id));
-    this.assertOwner(owner);
-    live.process!.resize(cols, rows);
+    return this.runOperation(async () => {
+      if (!TerminalResizeBody.safeParse({ cols, rows }).success)
+        throw new Error('Invalid terminal size');
+      const live = await this.ensure(this.store.read(owner, id));
+      this.assertOwner(owner);
+      live.process!.resize(cols, rows);
+    });
   }
   async end(owner: string, id: string) {
-    const record = await this.verify(this.store.read(owner, id));
-    if (record.state === 'ended') return;
-    await this.deps.backend.end(record);
-    this.store.state(id, 'ended');
-    const live = this.live.get(id);
-    for (const listener of live?.listeners ?? [])
-      listener({ type: 'exit', seq: (live?.seq ?? 0) + 1 });
-    live?.process?.detach();
-    this.live.delete(id);
+    return this.runOperation(async () => {
+      const record = await this.verify(this.store.read(owner, id));
+      if (record.state === 'ended') return;
+      await this.deps.backend.end(record);
+      this.store.state(id, 'ended');
+      const live = this.live.get(id);
+      for (const listener of live?.listeners ?? [])
+        listener({ type: 'exit', seq: (live?.seq ?? 0) + 1 });
+      live?.process?.detach();
+      this.live.delete(id);
+    });
   }
   detachAll() {
     if (this.maintenance) clearInterval(this.maintenance);

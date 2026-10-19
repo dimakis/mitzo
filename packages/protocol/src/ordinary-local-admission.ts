@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { MitzoMode } from './types.js';
 import { AgentProfileSelectionSchema } from './agent-library.js';
 import { SessionRuntimeBindingV2Schema } from './session-runtime-binding.js';
 const reference = z.string().min(1).max(200).regex(/^\S+$/);
@@ -38,6 +39,14 @@ export const OrdinaryLocalCommandAdmissionSchema = z.strictObject({
 });
 export type OrdinaryLocalCommandSelection = z.infer<typeof OrdinaryLocalCommandSelectionSchema>;
 export type OrdinaryLocalCommandAdmission = z.infer<typeof OrdinaryLocalCommandAdmissionSchema>;
+
+/** The existing first-command permission choice; no inherited revision or authorization grant. */
+export function createOrdinaryFreshPermission(mode: MitzoMode) {
+  return {
+    mode: OrdinaryLocalCommandSelectionSchema.shape.permission.shape.mode.parse(mode),
+    revision: 0 as const,
+  };
+}
 
 /** Local API adapter reuses the existing ordinary command ledger. */
 export const OrdinaryLocalResponsesCommandAdmissionSchema =

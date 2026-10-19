@@ -1,0 +1,367 @@
+diff --git a/codex-rs/core/src/environment_selection.rs b/codex-rs/core/src/environment_selection.rs
+index a1b5098..032f3f0 100644
+--- a/codex-rs/core/src/environment_selection.rs
++++ b/codex-rs/core/src/environment_selection.rs
+@@ -282,7 +282,135 @@ struct ThreadEnvironmentsState {
+     environments: Vec<SelectedTurnEnvironment>,
+ }
+ 
++/// A selected-owner observation, not connection liveness or permission to execute.
++pub(crate) struct SelectedEnvironmentObservation {
++    owner: std::sync::Weak<ThreadEnvironments>,
++    entries: Vec<SelectedEnvironmentEntryObservation>,
++    snapshot: TurnEnvironmentSnapshot,
++}
++
++struct SelectedEnvironmentEntryObservation {
++    selection: TurnEnvironmentSelection,
++    config_origin: EnvironmentConfigOrigin,
++    environment: Arc<Environment>,
++    resolution: TurnEnvironmentResolution,
++    cached: CachedEnvironmentResolution,
++}
++
++enum CachedEnvironmentResolution {
++    Starting,
++    Ready(Arc<Environment>),
++    Failed(Arc<ExecServerError>),
++}
++
++impl SelectedEnvironmentObservation {
++    pub(crate) fn snapshot(&self) -> &TurnEnvironmentSnapshot {
++        &self.snapshot
++    }
++}
++
+ impl ThreadEnvironments {
++    /// Copies raw bindings and already cached startup results without polling startup work.
++    pub(crate) fn observe_selected(self: &Arc<Self>) -> SelectedEnvironmentObservation {
++        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
++        let mut entries = Vec::with_capacity(state.environments.len());
++        let mut environments = Vec::with_capacity(state.environments.len());
++        for selected in &state.environments {
++            // Startup can complete independently of the selection mutex. Derive both the
++            // observation and snapshot from this single sample, never a second peek.
++            let resolved = selected.resolution.peek().cloned();
++            let cached = match &resolved {
++                None => CachedEnvironmentResolution::Starting,
++                Some(Ok(resolved)) => {
++                    CachedEnvironmentResolution::Ready(Arc::clone(&resolved.environment))
++                }
++                Some(Err(error)) => CachedEnvironmentResolution::Failed(Arc::clone(error)),
++            };
++            entries.push(SelectedEnvironmentEntryObservation {
++                selection: selected.selection.clone(),
++                config_origin: selected.config_origin,
++                environment: Arc::clone(&selected.environment),
++                resolution: selected.resolution.clone(),
++                cached,
++            });
++            environments.push(TurnEnvironmentState::from_resolution(
++                StartingTurnEnvironment {
++                    selection: selected.selection.clone(),
++                    config_origin: selected.config_origin,
++                    resolution: selected.resolution.clone(),
++                    environment: Arc::clone(&selected.environment),
++                    owner_config_result: selected.owner_config_result.clone(),
++                },
++                resolved,
++            ));
++        }
++        SelectedEnvironmentObservation {
++            owner: Arc::downgrade(self),
++            entries,
++            snapshot: TurnEnvironmentSnapshot { environments },
++        }
++    }
++
++    /// Compares an observation at this owner read; it does not freeze later owner changes.
++    pub(crate) fn selected_observation_is_current(
++        self: &Arc<Self>,
++        observed: &SelectedEnvironmentObservation,
++        environment_id: &str,
++    ) -> bool {
++        if !observed
++            .owner
++            .upgrade()
++            .is_some_and(|owner| Arc::ptr_eq(&owner, self))
++        {
++            return false;
++        }
++        let current = self.observe_selected();
++        let Some(previous_ready) = observed
++            .snapshot
++            .turn_environments()
++            .find(|environment| environment.selection.environment_id == environment_id)
++        else {
++            return false;
++        };
++        let Some(current_ready) = current
++            .snapshot
++            .turn_environments()
++            .find(|environment| environment.selection.environment_id == environment_id)
++        else {
++            return false;
++        };
++        // Compare concrete Ready config, not selection(), which projects Thread config
++        // back to FromThread and would hide changed permissions or network policy.
++        previous_ready.selection == current_ready.selection
++            && Arc::ptr_eq(&previous_ready.environment, &current_ready.environment)
++            && observed.entries.len() == current.entries.len()
++            && observed
++                .entries
++                .iter()
++                .zip(&current.entries)
++                .all(|(previous, current)| {
++                    previous.selection == current.selection
++                        && previous.config_origin == current.config_origin
++                        && Arc::ptr_eq(&previous.environment, &current.environment)
++                        && previous.resolution.ptr_eq(&current.resolution)
++                        && match (&previous.cached, &current.cached) {
++                            (
++                                CachedEnvironmentResolution::Starting,
++                                CachedEnvironmentResolution::Starting,
++                            ) => true,
++                            (
++                                CachedEnvironmentResolution::Ready(previous),
++                                CachedEnvironmentResolution::Ready(current),
++                            ) => Arc::ptr_eq(previous, current),
++                            (
++                                CachedEnvironmentResolution::Failed(previous),
++                                CachedEnvironmentResolution::Failed(current),
++                            ) => Arc::ptr_eq(previous, current),
++                            _ => false,
++                        }
++                })
++    }
++
+     pub(crate) fn new(
+         environment_manager: Arc<EnvironmentManager>,
+         local_shell: Shell,
+@@ -1270,6 +1398,10 @@ impl TurnEnvironmentSnapshot {
+ #[path = "environment_selection_snapshot_tests.rs"]
+ mod snapshot_tests;
+ 
++#[cfg(test)]
++#[path = "environment_selection/intercepted_approval_tests.rs"]
++mod intercepted_approval_tests;
++
+ #[cfg(test)]
+ mod tests {
+     use std::time::Duration;
+diff --git a/codex-rs/core/src/environment_selection/intercepted_approval_tests.rs b/codex-rs/core/src/environment_selection/intercepted_approval_tests.rs
+new file mode 100644
+index 0000000..2f4f85a
+--- /dev/null
++++ b/codex-rs/core/src/environment_selection/intercepted_approval_tests.rs
+@@ -0,0 +1,210 @@
++//! Observations of the actual selected owner, without driving executor startup.
++use super::*;
++use crate::config::PermissionProfileSnapshot;
++use codex_exec_server::LOCAL_ENVIRONMENT_ID;
++use codex_protocol::sandbox::SandboxType;
++use pretty_assertions::assert_eq;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++use std::task::Poll;
++
++async fn ready_owner() -> Arc<ThreadEnvironments> {
++    let owner = Arc::new(ThreadEnvironments::new(
++        Arc::new(EnvironmentManager::default_for_tests()),
++        crate::shell::default_user_shell(),
++        ThreadEnvironmentDefaults::new(tests::test_environment_config(), SandboxType::None),
++        ShellSnapshot::disabled(),
++        TurnEnvironmentSnapshot::default(),
++        /*non_blocking_snapshots*/ false,
++    ));
++    let cwd = PathUri::from_abs_path(&AbsolutePathBuf::current_dir().expect("cwd"));
++    owner.update_selections(&[TurnEnvironmentSelection {
++        environment_id: LOCAL_ENVIRONMENT_ID.to_string(),
++        cwd: cwd.clone(),
++        workspace_roots: vec![cwd],
++        config: EnvironmentConfigState::FromThread,
++    }]);
++    assert!(owner.snapshot().await.primary().is_some());
++    owner
++}
++
++#[tokio::test]
++async fn unchanged_ready_observation_retains_the_same_cached_result() {
++    let owner = ready_owner().await;
++    let observed = owner.observe_selected();
++    assert!(owner.selected_observation_is_current(&observed, LOCAL_ENVIRONMENT_ID));
++    let ready = observed.snapshot().primary().unwrap();
++    let CachedEnvironmentResolution::Ready(cached) = &observed.entries[0].cached else {
++        panic!("ready snapshot must come from the retained cached sample")
++    };
++    assert!(Arc::ptr_eq(&ready.environment, cached));
++    assert_eq!(ready.selection, observed.entries[0].selection);
++    assert!(!owner.selected_observation_is_current(&observed, "missing"));
++}
++
++#[tokio::test]
++async fn thread_config_changes_are_visible_despite_identical_projected_selections() {
++    for profile in [
++        PermissionProfile::workspace_write(),
++        PermissionProfile::Disabled,
++    ] {
++        let owner = ready_owner().await;
++        let observed = owner.observe_selected();
++        let projected = owner.selections();
++        let initial = observed.snapshot().primary().unwrap();
++        let config = EnvironmentConfig {
++            permission_profile: PermissionProfileSnapshot::legacy(profile.clone()),
++            ..tests::test_environment_config()
++        };
++        owner.set_active_thread_defaults(config);
++        let renewed = owner.observe_selected();
++        let current = renewed.snapshot().primary().unwrap();
++        assert_eq!(owner.selections(), projected);
++        assert_eq!(current.selection(), initial.selection());
++        assert!(Arc::ptr_eq(&current.environment, &initial.environment));
++        assert_eq!(current.selection.cwd, initial.selection.cwd);
++        assert_eq!(
++            current.selection.workspace_roots,
++            initial.selection.workspace_roots
++        );
++        assert_ne!(current.selection.config, initial.selection.config);
++        assert_eq!(current.permission_profile(), &profile);
++        assert!(!owner.selected_observation_is_current(&observed, LOCAL_ENVIRONMENT_ID));
++        assert!(owner.selected_observation_is_current(&renewed, LOCAL_ENVIRONMENT_ID));
++    }
++}
++
++#[tokio::test]
++async fn removal_and_foreign_owners_do_not_renew_an_observation() {
++    let owner = ready_owner().await;
++    let observed = owner.observe_selected();
++    let foreign = ready_owner().await;
++    assert!(!foreign.selected_observation_is_current(&observed, LOCAL_ENVIRONMENT_ID));
++    owner.update_selections(&[]);
++    assert!(!owner.selected_observation_is_current(&observed, LOCAL_ENVIRONMENT_ID));
++    assert!(owner.observe_selected().snapshot().environments.is_empty());
++}
++
++#[tokio::test]
++async fn observation_never_polls_and_starting_cannot_be_a_ready_target() {
++    let owner = ready_owner().await;
++    let polls = Arc::new(AtomicUsize::new(0));
++    let counted = Arc::clone(&polls);
++    let resolution = {
++        let mut state = owner.state.lock().unwrap();
++        let selected = &mut state.environments[0];
++        let cached = selected.resolution.peek().cloned().unwrap();
++        selected.resolution = futures::future::poll_fn(move |_| {
++            counted.fetch_add(1, Ordering::SeqCst);
++            Poll::Ready(cached.clone())
++        })
++        .boxed()
++        .shared();
++        selected.resolution.clone()
++    };
++    let starting = owner.observe_selected();
++    assert_eq!(polls.load(Ordering::SeqCst), 0);
++    assert!(matches!(
++        starting.snapshot().environments.as_slice(),
++        [TurnEnvironmentState::Starting(_)]
++    ));
++    assert!(!owner.selected_observation_is_current(&starting, LOCAL_ENVIRONMENT_ID));
++    assert_eq!(polls.load(Ordering::SeqCst), 0);
++    assert!(resolution.await.is_ok());
++    let ready = owner.observe_selected();
++    assert!(owner.selected_observation_is_current(&ready, LOCAL_ENVIRONMENT_ID));
++    assert!(!owner.selected_observation_is_current(&starting, LOCAL_ENVIRONMENT_ID));
++    assert_eq!(polls.load(Ordering::SeqCst), 1);
++}
++
++#[tokio::test]
++async fn failed_cached_resolution_is_retained_but_cannot_be_a_ready_target() {
++    let owner = ready_owner().await;
++    let observed = owner.observe_selected();
++    let resolution = futures::future::ready(Err(Arc::new(ExecServerError::Protocol(
++        "failed fixture".into(),
++    ))))
++    .boxed()
++    .shared();
++    assert!(resolution.clone().await.is_err());
++    owner.state.lock().unwrap().environments[0].resolution = resolution;
++    let failed = owner.observe_selected();
++    assert!(matches!(
++        failed.snapshot().environments.as_slice(),
++        [TurnEnvironmentState::Failed { .. }]
++    ));
++    assert!(!owner.selected_observation_is_current(&observed, LOCAL_ENVIRONMENT_ID));
++    assert!(!owner.selected_observation_is_current(&failed, LOCAL_ENVIRONMENT_ID));
++}
++
++#[tokio::test]
++async fn selected_resolved_and_resolution_identities_are_all_bound() {
++    let owner = ready_owner().await;
++    let original = owner.state.lock().unwrap().environments[0].clone();
++    for change in 0..3 {
++        owner.state.lock().unwrap().environments[0] = original.clone();
++        let observed = owner.observe_selected();
++        let mut replacement = original.clone();
++        if change == 0 {
++            replacement.environment = Arc::new(Environment::default_for_tests());
++        } else {
++            let mut cached = original.resolution.peek().cloned().unwrap();
++            if change == 1 {
++                cached.as_mut().unwrap().environment = Arc::new(Environment::default_for_tests());
++            }
++            let resolution = futures::future::ready(cached).boxed().shared();
++            assert!(resolution.clone().await.is_ok());
++            replacement.resolution = resolution;
++        }
++        owner.state.lock().unwrap().environments[0] = replacement;
++        assert!(!owner.selected_observation_is_current(&observed, LOCAL_ENVIRONMENT_ID));
++    }
++}
++
++#[tokio::test]
++async fn raw_pending_with_cached_installed_config_keeps_existing_ready_mapping() {
++    let owner = ready_owner().await;
++    let installed = tests::test_environment_config();
++    let mut cached = owner.state.lock().unwrap().environments[0]
++        .resolution
++        .peek()
++        .cloned()
++        .unwrap();
++    cached.as_mut().unwrap().installed_config = Some(installed.clone());
++    let resolution = futures::future::ready(cached).boxed().shared();
++    assert!(resolution.clone().await.is_ok());
++    {
++        let mut state = owner.state.lock().unwrap();
++        let selected = &mut state.environments[0];
++        selected.selection.config = EnvironmentConfigState::Pending;
++        selected.config_origin = EnvironmentConfigOrigin::Owner;
++        selected.resolution = resolution;
++    }
++    let observed = owner.observe_selected();
++    assert!(matches!(
++        observed.entries[0].selection.config,
++        EnvironmentConfigState::Pending
++    ));
++    assert_eq!(observed.snapshot().primary().unwrap().config(), &installed);
++    assert!(owner.selected_observation_is_current(&observed, LOCAL_ENVIRONMENT_ID));
++}
++
++#[tokio::test]
++async fn selection_order_and_config_origin_are_not_projected_away() {
++    let owner = ready_owner().await;
++    let mut second = owner.selections()[0].clone();
++    second.environment_id = "second".into();
++    {
++        let mut state = owner.state.lock().unwrap();
++        let mut selected = state.environments[0].clone();
++        selected.selection.environment_id = second.environment_id;
++        state.environments.push(selected);
++    }
++    let observed = owner.observe_selected();
++    owner.state.lock().unwrap().environments.reverse();
++    assert!(!owner.selected_observation_is_current(&observed, LOCAL_ENVIRONMENT_ID));
++    owner.state.lock().unwrap().environments.reverse();
++    assert!(owner.selected_observation_is_current(&observed, LOCAL_ENVIRONMENT_ID));
++    owner.state.lock().unwrap().environments[0].config_origin = EnvironmentConfigOrigin::Owner;
++    assert!(!owner.selected_observation_is_current(&observed, LOCAL_ENVIRONMENT_ID));
++}

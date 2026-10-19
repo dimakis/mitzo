@@ -1,0 +1,181 @@
+diff --git a/codex-rs/codex-api/src/endpoint/frozen_responses.rs b/codex-rs/codex-api/src/endpoint/frozen_responses.rs
+index d897a4e..6cb1460 100644
+--- a/codex-rs/codex-api/src/endpoint/frozen_responses.rs
++++ b/codex-rs/codex-api/src/endpoint/frozen_responses.rs
+@@ -23,6 +23,14 @@ struct InputTokenCount {
+ impl<T: HttpTransport> ResponsesClient<T> {
+     /// Count only the retained public-schema projection using this client's
+     /// selected provider/auth. This method never starts a response or a turn.
++    ///
++    /// The returned scalar is a low-level transport result, not a capacity-ready
++    /// measurement or dispatch permit. It carries no immutable selected-account,
++    /// credential, model-limit or context-ceiling authority. In particular, do not
++    /// infer a ceiling from the request's caller-supplied output bound, model
++    /// catalogue, routing revision, estimates or later response usage. A future
++    /// measurement owner must bind this exact request and final credential/route
++    /// selection to trusted context/output limits before assessing capacity.
+     pub async fn count_input_tokens(
+         &self,
+         request: &FrozenResponsesRequest,
+@@ -49,6 +57,9 @@ impl<T: HttpTransport> ResponsesClient<T> {
+     /// Issue exactly one transport attempt with the retained generation bytes.
+     /// The caller must already own a durable, current one-use consumption permit.
+     /// Calling this method again is not an authorized recovery strategy.
++    /// This low-level method does not consume that permit or bind this client to
++    /// its measured account/credential/runtime. The actual admission owner must
++    /// enforce both before calling; a stored request alone grants no send right.
+     pub async fn stream_frozen_request(
+         &self,
+         request: &FrozenResponsesRequest,
+diff --git a/codex-rs/codex-api/src/endpoint/frozen_responses_tests.rs b/codex-rs/codex-api/src/endpoint/frozen_responses_tests.rs
+index 4bac434..f67b5bc 100644
+--- a/codex-rs/codex-api/src/endpoint/frozen_responses_tests.rs
++++ b/codex-rs/codex-api/src/endpoint/frozen_responses_tests.rs
+@@ -129,6 +129,9 @@ async fn frozen_count_refuses_invalid_counter_responses() {
+         json!({"object":"response.input_tokens", "input_tokens":-1}),
+         json!({"object":"response.input_tokens", "input_tokens":1.5}),
+         json!({"object":"response.input_tokens", "input_tokens":9007199254740992_u64}),
++        json!({"object":"response.input_tokens", "input_tokens":null}),
++        json!({"object":"response.input_tokens", "input_tokens":"16"}),
++        json!({"object":"response.input_tokens", "input_tokens":0, "context_limit":1000}),
+         json!({"object":"response.input_tokens"}),
+     ] {
+         let client = ResponsesClient::new(transport(response), provider(), Arc::new(Auth));
+@@ -136,6 +139,33 @@ async fn frozen_count_refuses_invalid_counter_responses() {
+     }
+ }
+ 
++#[tokio::test]
++async fn frozen_raw_count_does_not_treat_output_limit_as_context_authority() {
++    let transport = transport(json!({
++        "object":"response.input_tokens", "input_tokens":9_007_199_254_740_991_u64
++    }));
++    let client = ResponsesClient::new(transport.clone(), provider(), Arc::new(Auth));
++    let request = frozen();
++    assert_eq!(request.max_output_tokens(), 16);
++    // A raw count is still valid even when it cannot establish any capacity fit.
++    // No selected-account context-limit authority exists in this client.
++    assert_eq!(
++        client.count_input_tokens(&request).await.unwrap(),
++        9_007_199_254_740_991
++    );
++    let requests = transport.requests.lock().unwrap();
++    assert_eq!(requests.len(), 1);
++    assert_eq!(
++        requests[0].url,
++        "https://api.openai.com/v1/responses/input_tokens"
++    );
++    assert_eq!(
++        serde_json::from_slice::<Value>(&requests[0].prepare_body_for_send().unwrap().body_bytes())
++            .unwrap(),
++        *request.count_body()
++    );
++}
++
+ #[tokio::test]
+ async fn frozen_stream_retains_bytes_and_never_retries_transport_failure() {
+     let transport = transport(json!({}));
+diff --git a/codex-rs/codex-api/src/requests/frozen_responses.rs b/codex-rs/codex-api/src/requests/frozen_responses.rs
+index 00a3573..669dae6 100644
+--- a/codex-rs/codex-api/src/requests/frozen_responses.rs
++++ b/codex-rs/codex-api/src/requests/frozen_responses.rs
+@@ -24,8 +24,13 @@ const COUNT_FIELDS: &[&str] = &[
+ /// Final public Responses HTTP body and its documented count projection.
+ ///
+ /// This does not expand native context or confer account/dispatch authority. The
+-/// caller supplies the selected model's authoritative output limit. Unsupported
+-/// public/internal shapes refuse; neither construction nor restoration drops fields.
++/// caller supplies an output-limit bound for validation, not an attested selected
++/// account/model limit. Neither this value nor a successful token count proves
++/// capacity readiness. That requires an immutable selected-account, credential,
++/// route/model/runtime and context/output-limit authority bound to these exact
++/// bytes; no trusted constructor for that authority is installed here.
++/// Unsupported public/internal shapes refuse; neither construction nor restoration
++/// drops fields.
+ #[derive(Clone)]
+ pub struct FrozenResponsesRequest {
+     body: Value,
+diff --git a/codex-rs/codex-api/src/requests/frozen_responses_tests.rs b/codex-rs/codex-api/src/requests/frozen_responses_tests.rs
+index a805a1e..13eaf30 100644
+--- a/codex-rs/codex-api/src/requests/frozen_responses_tests.rs
++++ b/codex-rs/codex-api/src/requests/frozen_responses_tests.rs
+@@ -70,6 +70,79 @@ fn frozen_refuses_invalid_output_limits_and_truncation() {
+     assert!(FrozenResponsesRequest::new(request, 16).is_err());
+ }
+ 
++#[test]
++fn frozen_refuses_missing_output_and_unsupported_model_limits() {
++    let mut request = body();
++    request.as_object_mut().unwrap().remove("max_output_tokens");
++    assert!(FrozenResponsesRequest::new(request, /*model_output_limit*/ 16).is_err());
++    for limit in [0, 15, MAX_SAFE_INTEGER + 1, u64::MAX] {
++        assert!(
++            FrozenResponsesRequest::new(body(), limit).is_err(),
++            "{limit}"
++        );
++        let encoded = serde_json::to_vec(&body()).unwrap();
++        assert!(FrozenResponsesRequest::from_encoded(&encoded, limit).is_err());
++    }
++}
++
++#[test]
++fn frozen_requires_explicit_disabled_truncation_on_create_and_restore() {
++    for truncation in [
++        None,
++        Some(json!(null)),
++        Some(json!("auto")),
++        Some(json!(false)),
++    ] {
++        let mut request = body();
++        match truncation {
++            Some(value) => request["truncation"] = value,
++            None => {
++                request.as_object_mut().unwrap().remove("truncation");
++            }
++        }
++        let encoded = serde_json::to_vec(&request).unwrap();
++        assert!(FrozenResponsesRequest::new(request, /*model_output_limit*/ 16).is_err());
++        assert!(FrozenResponsesRequest::from_encoded(&encoded, /*model_output_limit*/ 16).is_err());
++    }
++}
++
++#[test]
++fn frozen_count_projection_preserves_settings_and_excludes_delivery_controls() {
++    let mut request = body();
++    request["personality"] = json!("retained personality");
++    request["reasoning"] = json!({"effort":"low", "summary":"detailed"});
++    request["include"] = json!(["reasoning.encrypted_content"]);
++    request["metadata"] = json!({"trace":"retained metadata"});
++    request["prompt_cache_key"] = json!("retained cache key");
++    request["service_tier"] = json!("default");
++    request["stream_options"] = json!({"include_obfuscation":false});
++    let frozen = FrozenResponsesRequest::new(request.clone(), /*model_output_limit*/ 16).unwrap();
++    assert_eq!(frozen.body(), &request);
++    assert_eq!(
++        frozen.count_body(),
++        &json!({
++            "model":"fixture-model", "instructions":"retained developer instructions",
++            "input":[{"role":"user", "content":[
++                {"type":"input_text", "text":"retained brief"},
++                {"type":"input_image", "image_url":"data:image/png;base64,aGVsbG8=", "detail":"high"}
++            ]}],
++            "tools":[{"type":"function", "name":"example", "parameters":{"type":"object"}, "strict":true}],
++            "tool_choice":"auto", "parallel_tool_calls":false,
++            "text":{"format":{"type":"json_schema", "name":"result", "schema":{"type":"object"}, "strict":true}},
++            "personality":"retained personality",
++            "reasoning":{"effort":"low", "summary":"detailed"},
++            "truncation":"disabled"
++        })
++    );
++    request["model"] = json!("changed-model");
++    request["instructions"] = json!("changed instructions");
++    let restored =
++        FrozenResponsesRequest::from_encoded(frozen.encoded_body(), /*model_output_limit*/ 16)
++            .unwrap();
++    assert_eq!(restored.body(), frozen.body());
++    assert_eq!(restored.count_body(), frozen.count_body());
++}
++
+ #[test]
+ fn frozen_refuses_unretained_images_and_unsupported_shapes() {
+     for input in [

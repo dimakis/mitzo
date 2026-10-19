@@ -460,3 +460,63 @@ it('preserves a different record inserted while runtime capture is pending', asy
   expect(f.workspaces.get(f.input.allocationOperationId)).toEqual(other!);
   expect(f.prepare).not.toHaveBeenCalled();
 });
+
+it.each(['success', 'failure'])(
+  'retains delegated workspace custody during authorization and releases after %s',
+  async (outcome) => {
+    const f = await fixture();
+    const source = f.workspaces.get(f.input.settings.repositoryWorkspaceId);
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const authorize = f.authorize.getMockImplementation()!;
+    f.authorize.mockImplementationOnce(async (...args) => {
+      entered();
+      await gate;
+      if (outcome === 'failure') throw new Error('delegated authorization refused');
+      return authorize(...args);
+    });
+    const pending = f.workspaces.prepareDelegatedWorkspace(f.input);
+    const settlement = pending.then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    await started;
+    let result: Awaited<typeof settlement> | undefined;
+    try {
+      expect(() => f.workspaces.closeIdle()).toThrow('Repository workspace owner active');
+      expect(f.workspaces.get(source.id)).toEqual(source);
+      expect(f.capture).not.toHaveBeenCalled();
+      expect(f.prepare).not.toHaveBeenCalled();
+    } finally {
+      release();
+      result = await settlement;
+    }
+    if (outcome === 'success') {
+      expect(result).toMatchObject({
+        ok: true,
+        value: { delegation: { sourceWorkspaceId: source.id } },
+      });
+      expect(f.capture).toHaveBeenCalledOnce();
+      expect(f.prepare).toHaveBeenCalledOnce();
+    } else {
+      expect(result).toMatchObject({ ok: false, error: expect.any(Error) });
+      if (result?.ok === false)
+        expect(String(result.error)).toContain('delegated authorization refused');
+      expect(f.capture).not.toHaveBeenCalled();
+      expect(f.prepare).not.toHaveBeenCalled();
+    }
+    expect(f.workspaces.get(source.id)).toEqual(source);
+    expect(() => f.workspaces.closeIdle()).not.toThrow();
+    expect(() => f.workspaces.get(source.id)).toThrow('Repository workspace owner released');
+    const retained = f.db
+      .prepare('SELECT record FROM repository_workspaces WHERE id=?')
+      .get(source.id) as { record: string };
+    expect(JSON.parse(retained.record)).toEqual(source);
+  },
+);
