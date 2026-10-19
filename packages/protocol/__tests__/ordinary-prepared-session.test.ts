@@ -71,6 +71,37 @@ it('allocates durable distinct ordinary identity without a command, execution, o
   expect(() => first.admitOrdinaryLocalCommand(meta, binding, command)).toThrow(/new session/i);
   expect(() => first.admitOrdinaryLocalContinuation(meta, binding, command)).toThrow();
 });
+it.each(['ask', 'agent', 'auto'] as const)(
+  'refuses inherited permission revisions before allocating a fresh %s session',
+  (mode) => {
+    const store = open();
+    const freshMeta = { ...meta, mode };
+    const fresh = {
+      ...preparation,
+      settings: {
+        ...preparation.settings,
+        selection: { ...selection, permission: { mode, revision: 0 } },
+      },
+    };
+    expect(() =>
+      store.prepareOrdinarySession(freshMeta, {
+        ...fresh,
+        settings: {
+          ...fresh.settings,
+          selection: { ...fresh.settings.selection, permission: { mode, revision: 7 } },
+        },
+      }),
+    ).toThrow(/fresh permission/i);
+    expect(store.getSession(meta.sessionId)).toBeNull();
+    expect(store.getSessionRuntimeBinding(meta.sessionId)).toBeUndefined();
+    expect(store.getOrdinarySessionPreparation(preparation.allocationOperationId)).toBeUndefined();
+    expect(store.getSendCommand(preparation.allocationOperationId)).toBeUndefined();
+    expect(store.getEventsAfter(meta.sessionId, 0)).toEqual([]);
+    const receipt = store.prepareOrdinarySession(freshMeta, fresh);
+    expect(receipt.settings.selection.permission).toEqual({ mode, revision: 0 });
+    expect(receipt.firstCommandId).toBeNull();
+  },
+);
 it('explicit first command uses the prepared session once and retains uncertainty without fake continuation', () => {
   const store = open();
   store.prepareOrdinarySession(meta, preparation);

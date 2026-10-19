@@ -23,6 +23,7 @@ import {
 } from './conversation-replay-store.js';
 export type { ConversationTextEvent, ReconnectState } from './conversation-replay-store.js';
 import {
+  createOrdinaryFreshPermission,
   OrdinaryLocalCommandAdmissionSchema,
   OrdinaryLocalResponsesCommandAdmissionSchema,
   type OrdinaryLocalCommandAdmission,
@@ -61,7 +62,10 @@ import { isDeepStrictEqual } from 'node:util';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
 import { SessionCollaborationStore } from './session-collaboration-store.js';
 import { CollaborationConversationStore } from './collaboration-conversation-store.js';
-import { openCollaborationVisibleSource } from './collaboration-visible-source.js';
+import {
+  captureCollaborationDurableTranscript,
+  openCollaborationVisibleSource,
+} from './collaboration-visible-source.js';
 import { CollaborationContractError } from './collaboration-conversation.js';
 import { SessionCollaborationError } from './session-collaboration.js';
 import {
@@ -511,6 +515,13 @@ export class EventStore {
         this.assertPreparedOrdinaryMetadata(previous, meta);
         return previous;
       }
+      if (
+        !isDeepStrictEqual(
+          receipt.settings.selection.permission,
+          createOrdinaryFreshPermission(receipt.settings.selection.permission.mode),
+        )
+      )
+        throw Error('Prepared ordinary allocation requires fresh permission');
       if (this.getSession(meta.sessionId) || this.getSendCommand(input.allocationOperationId))
         throw Error('Prepared ordinary allocation requires a new identity');
       this.createSessionWithRuntimeBinding(meta, receipt.settings.binding);
@@ -1147,10 +1158,10 @@ export class EventStore {
   recoverPendingSendCommands(options: { excludeSymposium?: boolean } = {}): void {
     const rows = this.db!.prepare(
       `SELECT client_msg_id, session_id, payload FROM send_commands c
-      WHERE error IS NULL AND session_id != '' AND NOT EXISTS (
+      WHERE error IS NULL AND session_id != '' AND (c.preparing = 1 OR NOT EXISTS (
         SELECT 1 FROM events e WHERE e.session_id = c.session_id AND e.type = 'user_message'
         AND json_extract(e.payload, '$.messageId') = c.client_msg_id
-      ) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id=c.session_id
+      )) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id=c.session_id
         AND (s.session_type='symposium' OR s.symposium_config IS NOT NULL)))`,
     ).all(options.excludeSymposium ? 1 : 0) as Array<{
       client_msg_id: string;
@@ -1182,6 +1193,14 @@ export class EventStore {
       });
       this.setSessionState(row.session_id, 'ENDED', { force: true, reason: 'server_restart' });
     }
+  }
+
+  /** Retention is acknowledged separately from provider startup admission. */
+  setSendCommandPreparing(clientMsgId: string, preparing: boolean): void {
+    this.db!.prepare('UPDATE send_commands SET preparing=? WHERE client_msg_id=?').run(
+      preparing ? 1 : 0,
+      clientMsgId,
+    );
   }
 
   failSendCommand(clientMsgId: string, error: string): void {
@@ -1242,6 +1261,12 @@ export class EventStore {
       )
     )
       db.exec('ALTER TABLE send_commands ADD COLUMN ordinary_admission TEXT');
+    if (
+      !(db.prepare('PRAGMA table_info(send_commands)').all() as Array<{ name: string }>).some(
+        (c) => c.name === 'preparing',
+      )
+    )
+      db.exec('ALTER TABLE send_commands ADD COLUMN preparing INTEGER NOT NULL DEFAULT 0');
     this.migrateSdkTranscriptVerification(db);
     this.migrateSymposium(db);
     this.migrateConversationSource(db);
@@ -1268,7 +1293,12 @@ export class EventStore {
             .prepare('SELECT metadata FROM ordinary_session_preparations WHERE operation_id=?')
             .get(operationId) as { metadata: string };
           this.assertPreparedOrdinaryMetadata(prepared, JSON.parse(row.metadata));
-          return { sessionId: prepared.sessionId, settings: prepared.settings };
+          return {
+            kind: 'prepared',
+            sessionId: prepared.sessionId,
+            settings: prepared.settings,
+            firstCommandId: prepared.firstCommandId,
+          };
         }
         const command = this.getSendCommand(operationId);
         const admission = this.getOrdinaryCommandAdmission(operationId);
@@ -1280,6 +1310,7 @@ export class EventStore {
           .get(command.sessionId) as { client_msg_id: string } | undefined;
         if (first?.client_msg_id !== operationId) return undefined;
         return {
+          kind: 'first-command',
           sessionId: command.sessionId,
           settings: {
             binding: admission.binding,
@@ -2574,6 +2605,18 @@ export class EventStore {
   /** Read the immutable transcript prefix belonging to a reconnect boundary. */
   getSessionEventsThroughCursor(sessionId: string, cursor: number): StoredEvent[] {
     return this.conversationReplay.getSessionEventsThroughCursor(sessionId, cursor);
+  }
+
+  /** Pure completed visible-text read. The ordinary session/privacy identity and
+   * retained source boundary are observed in one transaction, without recovery. */
+  getDurableSessionTranscript(sessionId: string) {
+    return this.db!.transaction(() => {
+      this.assertConversationIdentity(sessionId);
+      if (!this.isCollaborationParticipantAvailable(sessionId))
+        throw new SessionCollaborationError('not_found');
+      const initialPrompt = this.getSession(sessionId)?.initialPrompt ?? null;
+      return captureCollaborationDurableTranscript(this.db!, sessionId, initialPrompt);
+    })();
   }
 
   /** Host-only visible source capability. The caller retains normal operator/session authorization. */

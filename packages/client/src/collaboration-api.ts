@@ -1,5 +1,8 @@
 import {
   SessionCollaborationIdSchema,
+  SessionCollaborationSchema,
+  SessionCollaborationListQuerySchema,
+  CollaborationBeginSchema,
   CollaborationPolicyUpdateSchema,
   CollaborationPolicySchema,
   CollaborationViewSchema,
@@ -8,15 +11,22 @@ import {
   CollaborationSnapshotSchema,
   CollaborationJoinSchema,
   CollaborationJoinInputSchema,
+  CollaborationJoinReconcileInputSchema,
   CollaborationMessageInputSchema,
   CollaborationMessageSchema,
   CollaborationSnapshotReferenceSchema,
   CollaborationSnapshotSelectionSchema,
+  CollaborationApplicationReviewInputSchema,
+  CollaborationApplicationReviewRequestSchema,
+  CollaborationApplicationReviewResultSchema,
+  type CollaborationApplicationReviewInput,
   type CollaborationSnapshotSelection,
   type CollaborationPolicyUpdate,
   type CollaborationMessageInput,
   type CollaborationJoinInput,
+  type CollaborationJoinReconcileInput,
 } from '@mitzo/protocol';
+import { z } from 'zod';
 import type { ApiFetch } from './api-client.js';
 
 export class CollaborationApiError extends Error {
@@ -61,8 +71,53 @@ export class CollaborationApiClient {
     }
     return schema.parse(await response.json());
   }
+  /** One metadata page only; associations do not confer context access or execution authority. */
+  listForSession(sessionId: string, after?: string, signal?: AbortSignal) {
+    const query = SessionCollaborationListQuerySchema.parse({ sessionId, after });
+    const params = new URLSearchParams({ sessionId: query.sessionId });
+    if (query.after !== undefined) params.set('after', query.after);
+    const schema = z
+      .strictObject({
+        collaborations: z.array(SessionCollaborationSchema).max(50),
+        nextCursor: SessionCollaborationIdSchema.nullable(),
+      })
+      .refine((page) => {
+        let previous = query.after ?? '';
+        for (const row of page.collaborations) {
+          if (
+            row.collaborationId <= previous ||
+            !row.participantSessionIds.includes(query.sessionId)
+          )
+            return false;
+          previous = row.collaborationId;
+        }
+        return (
+          page.nextCursor === null ||
+          (page.collaborations.length === 50 && page.nextCursor === previous)
+        );
+      }, 'Collaboration association page changed');
+    return this.request(`/api/session-collaborations?${params}`, schema, signal);
+  }
   view(id: string, signal?: AbortSignal) {
     return this.request(this.path(id, 'conversation'), CollaborationViewSchema, signal);
+  }
+  /** Relationship preparation only; this does not allocate an agent or start a turn. */
+  begin(id: string, input: z.infer<typeof CollaborationBeginSchema>, signal?: AbortSignal) {
+    const group = SessionCollaborationIdSchema.parse(id);
+    const body = CollaborationBeginSchema.parse(input);
+    return this.request(
+      this.path(group, 'begin'),
+      SessionCollaborationSchema.refine(
+        (receipt) =>
+          receipt.collaborationId === group &&
+          receipt.revision === 1 &&
+          receipt.participantSessionIds.length === 1 &&
+          receipt.participantSessionIds[0] === body.sessionId,
+        'Collaboration preparation identity changed',
+      ),
+      signal,
+      { method: 'POST', body },
+    );
   }
   events(id: string, after: number, signal?: AbortSignal) {
     const cursor = CollaborationCursorSchema.parse({ after });
@@ -93,6 +148,27 @@ export class CollaborationApiClient {
       body: CollaborationSnapshotSelectionSchema.parse(input),
     });
   }
+  /** Observational review only; a successful response need not establish capacity. */
+  review(
+    id: string,
+    clientId: string,
+    input: CollaborationApplicationReviewInput,
+    signal?: AbortSignal,
+  ) {
+    const body = CollaborationApplicationReviewRequestSchema.parse({
+      ...CollaborationApplicationReviewInputSchema.parse(input),
+      clientId,
+    });
+    return this.request(
+      this.path(id, 'reviews'),
+      CollaborationApplicationReviewResultSchema,
+      signal,
+      {
+        method: 'POST',
+        body,
+      },
+    );
+  }
   join(id: string, joinId: string, signal?: AbortSignal) {
     CollaborationJoinSchema.shape.joinId.parse(joinId);
     return this.request(this.path(id, `joins/${joinId}`), CollaborationJoinSchema, signal);
@@ -103,6 +179,30 @@ export class CollaborationApiClient {
       method: 'POST',
       body: CollaborationJoinInputSchema.parse(input),
     });
+  }
+  recoverJoin(id: string, joinId: string, signal?: AbortSignal) {
+    CollaborationJoinSchema.shape.joinId.parse(joinId);
+    return this.request(this.path(id, `joins/${joinId}/recover`), CollaborationJoinSchema, signal, {
+      method: 'POST',
+      body: {},
+    });
+  }
+  reconcileJoin(
+    id: string,
+    joinId: string,
+    input: CollaborationJoinReconcileInput,
+    signal?: AbortSignal,
+  ) {
+    CollaborationJoinSchema.shape.joinId.parse(joinId);
+    return this.request(
+      this.path(id, `joins/${joinId}/reconcile`),
+      CollaborationJoinSchema,
+      signal,
+      {
+        method: 'POST',
+        body: CollaborationJoinReconcileInputSchema.parse(input),
+      },
+    );
   }
   /** No public dispatch until ordinary delivery is wired and qualified. */
   send(id: string, input: CollaborationMessageInput) {

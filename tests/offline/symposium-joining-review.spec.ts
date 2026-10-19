@@ -9,7 +9,7 @@ const bundle = build({
   outfile: '/tmp/mitzo-joining-review.js',
   jsx: 'automatic',
   minify: true,
-  define: { 'process.env.NODE_ENV': '"production"' },
+  define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
   alias: { '@mitzo/protocol': resolve('packages/protocol/src/index.ts') },
 });
 for (const theme of ['dark', 'light']) {
@@ -19,12 +19,19 @@ for (const theme of ['dark', 'light']) {
   }, info) => {
     const files = (await bundle).outputFiles!;
     const errors: string[] = [];
+    let renderedLogin = 0;
     page.on('pageerror', (error) => errors.push(error.message));
     await page.routeWebSocket('**/*', (socket) => socket.close());
     await page.route('**/*', (route) => {
       const url = new URL(route.request().url());
       if (url.hostname !== 'mitzo-ui.test' || route.request().method() !== 'GET')
         return route.abort();
+      // Each presentation case has its own verified fixture login. Durable
+      // same-login reload recovery is exercised by the actual recovery owner tests.
+      if (url.pathname === '/api/auth/check')
+        return route.fulfill({
+          json: { ok: true, authSessionId: `offline-render-${++renderedLogin}` },
+        });
       const file = files.find((f) =>
         url.pathname.endsWith(f.path.endsWith('.css') ? '.css' : '.js'),
       );
