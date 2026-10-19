@@ -350,5 +350,16 @@
     "behavior": "write",
     "routes": [],
     "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+  },
+  {
+    "id": "mitzo:TelosWorkControl",
+    "version": 1,
+    "name": "TelosWorkControl",
+    "description": "Inspect your current scoped coordination inbox, acknowledge receipt, or (as the current coordinator) request/release an exact hold through attached outcome leads. Publication, new worker dispatch and safe point are distinct. Acknowledgement is not application. Preserve requestId on uncertain delivery. This sends no model turn, interrupt or abort; host evidence and publication revalidation cannot be supplied by this tool.",
+    "source": "Telos",
+    "required": false,
+    "behavior": "write",
+    "routes": [],
+    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
   }
 ]
