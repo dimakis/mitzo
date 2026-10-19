@@ -93,11 +93,14 @@ export function TelosItemWorkspace({
   }));
   const artifactLinks = record.links.filter((l) => l.type === 'artifact');
   const links = record.links.filter((l) => l.type !== 'artifact');
+  const sourceReturnParams = new URLSearchParams(location.search);
+  sourceReturnParams.set('view', current);
   const sources = (
     <TelosItemSources
       itemId={record.itemId}
       legacySources={originalSources}
       onOpenExternal={(url) => window.open(url, '_blank', 'noopener,noreferrer')}
+      returnPath={`${location.pathname}?${sourceReturnParams}`}
     />
   );
   const materials = (

@@ -15,10 +15,12 @@ export function TelosItemSources({
   itemId,
   legacySources,
   onOpenExternal,
+  returnPath,
 }: {
   itemId: string;
   legacySources: TodoSource[];
   onOpenExternal: (url: string) => void;
+  returnPath?: string;
 }) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -94,7 +96,7 @@ export function TelosItemSources({
                 location.state,
                 itemId,
                 source.source.conversationId,
-                `/todos/${encodeURIComponent(itemId)}?view=Materials`,
+                returnPath ?? location.pathname + location.search,
               )
             : location.state,
       });

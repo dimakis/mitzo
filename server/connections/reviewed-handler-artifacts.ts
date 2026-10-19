@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.336-telos-chat-return';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.337-telos-source-viewport';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -193,7 +193,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosSourceWorkLink.tsx':
     'c1390c9b009c2aef271379608f667ffa6d520bcb87c4ce6bb1ae12a57aed8bc8',
   '../../frontend/src/components/TelosItemSources.tsx':
-    'c055de32814ff93f5d870b5193275be305023bbf83e92ae98fc9fdc54e209ad3',
+    '03abba949c3cc42c377a136c268f049d74fc2a858821af07fb7ef26f59271ebc',
   '../../frontend/src/components/SessionWorkLink.tsx':
     '2f8f334d977d32d40d2226831cfef7ecd2f06a755b3240c2f0cf4e27095f28e4',
   '../../frontend/src/components/MessageBubble.tsx':
@@ -373,7 +373,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TokenBar.tsx':
     '25c80275d287086e2e893a12634435470b38358cc17969d4905e1b4bddcdf354',
   '../../frontend/src/components/ChatArea.tsx':
-    '7bf3ed3548c6e7d4bc2700a035897427e44d96cd3ec31e1ec87d911503fc6e80',
+    '6265d9ba5bd3f684f0956b100a0b4eeffd421e9dcde7f2a9535818f9f14b06e3',
   '../../frontend/src/components/SlashPicker.tsx':
     'f4df78552197d0add98192e11e6d1014f9067c9686837132d954989c4a31bac3',
   '../../frontend/src/hooks/useCompactionHistory.ts':
@@ -1110,7 +1110,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosWorkspace.css':
     '490357c449ee469fb662f4722f187f9ad4922e1f04c23d1b7b37fc74874ba3e2',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
-    '3dcb068e00437dd93304e63de8c740bfbcbcab88af215caf291c24831db041e1',
+    'd2f3d3e96a0d74a044dd01aad1df4fe99d2fb76a8af563fe2880ee5a730674c8',
   '../../frontend/src/components/TelosOutcomesTree.tsx':
     '8887547994e8428bba3ac664407601535c8dfc3bc619725fd2e598671bf1f54f',
   '../../frontend/src/pages/TodoWorkspace.tsx':
