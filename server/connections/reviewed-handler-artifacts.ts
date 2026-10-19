@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-knowledge-tools.ts':
-    '9ce8395c092175c0bf01c9fdd65c4225f156388eb4749dbd134bfc81c7e7741b',
+    'b059fa4996e80e77fda4d54d77b9fd9de0cf3bb18be90c1f8b15ca0bf8c02721',
   '../../frontend/src/components/AgentTaskProposal.tsx':
     'c431e4b77b6349b5f6f2b8d2d0040a5c970a2440c222d93577e0848451499f2a',
   '../../frontend/src/components/SymposiumProfilePicker.css':

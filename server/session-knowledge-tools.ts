@@ -50,12 +50,11 @@ export const knowledgeToolDefinitions = [
   {
     name: 'SaveKnowledgeDraft',
     description:
-      'Save proposed updates to existing accepted documents in the visible Knowledge Library Drafts tab. Supply the exact paths and accepted revision from ReadKnowledge, with complete revised document text. Retry with the same requestId and payload. This saves a draft only; it does not submit review, merge, publish shared knowledge or refresh other chats. Never substitute a local commit for this receipt.',
+      'Save proposed updates to existing accepted documents in Knowledge → Drafts. First use ReadKnowledge to identify and read the intended document and exact accepted revision. Clarify ambiguous destinations; do not substitute an observations note. Supply complete revised text and preserve existing material. Retry with the same requestId and payload. Link the returned Library location and name the exact documents and current receipt status. Draft saved, sent for review, accepted, published and adopted by a chat are distinct states; claim only what the receipt proves. This tool only saves a visible draft. The user sends it for review in Knowledge; this tool does not submit review, merge, publish or refresh other chats. A local file or commit cannot substitute for a Library receipt. If saving fails, explain that no Library update was confirmed and preserve local work.',
     input_schema: z.toJSONSchema(knowledgeToolSchemas.SaveKnowledgeDraft),
   },
 ];
-export const KNOWLEDGE_TOOL_INSTRUCTIONS =
-  '\nFor requests to update shared knowledge, use ReadKnowledge to find and read the intended accepted document, then SaveKnowledgeDraft to save the proposed change in Knowledge → Drafts. Preserve the document’s existing material. If the intended document is ambiguous, clarify its destination before saving; do not substitute a new observations note. Link the returned Library location and name the exact document and draft status. A local file or commit is not a Library update. Draft saved, sent for review, accepted, published and adopted by a chat are distinct states; claim only what a verified receipt proves. The user sends the saved draft for review in Knowledge. If these tools are unavailable or fail, explain that no Library update was confirmed and preserve any local work.\n';
+export const KNOWLEDGE_TOOL_INSTRUCTIONS = '\nKnowledge: ReadKnowledge → SaveKnowledgeDraft.\n';
 
 type Runtime = Pick<KnowledgeLibraryRuntime, 'source' | 'store' | 'sourceIdentity' | 'refresh'>;
 let loader: (() => Promise<Runtime | undefined>) | undefined;
