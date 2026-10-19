@@ -1,0 +1,560 @@
+From 5e8dbebdcf8e1b763af3ff454d838d2191d3c208 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 19:25:23 +0100
+Subject: [PATCH] feat: add held parent resolution owner seams
+
+---
+ codex-rs/core/src/environment_selection.rs    |  90 ++++++
+ .../parent_resolution_tests.rs                | 263 ++++++++++++++++++
+ codex-rs/core/src/exec_policy.rs              |  17 ++
+ .../exec_policy/parent_resolution_tests.rs    |  94 +++++++
+ codex-rs/core/src/tools/approvals.rs          |   2 +-
+ codex-rs/core/src/tools/mod.rs                |   1 +
+ 6 files changed, 466 insertions(+), 1 deletion(-)
+ create mode 100644 codex-rs/core/src/environment_selection/parent_resolution_tests.rs
+ create mode 100644 codex-rs/core/src/exec_policy/parent_resolution_tests.rs
+
+diff --git a/codex-rs/core/src/environment_selection.rs b/codex-rs/core/src/environment_selection.rs
+index 032f3f0..fb49d5a 100644
+--- a/codex-rs/core/src/environment_selection.rs
++++ b/codex-rs/core/src/environment_selection.rs
+@@ -313,6 +313,13 @@ impl ThreadEnvironments {
+     /// Copies raw bindings and already cached startup results without polling startup work.
+     pub(crate) fn observe_selected(self: &Arc<Self>) -> SelectedEnvironmentObservation {
+         let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
++        self.observe_selected_locked(&state)
++    }
++
++    fn observe_selected_locked(
++        self: &Arc<Self>,
++        state: &ThreadEnvironmentsState,
++    ) -> SelectedEnvironmentObservation {
+         let mut entries = Vec::with_capacity(state.environments.len());
+         let mut environments = Vec::with_capacity(state.environments.len());
+         for selected in &state.environments {
+@@ -411,6 +418,85 @@ impl ThreadEnvironments {
+                 })
+     }
+ 
++    /// Keeps selected bindings held through an optional parent resolution, without polling.
++    /// Cached startup must be complete for every entry; connection liveness is not fenced.
++    pub(crate) fn with_current_parent_environment(
++        self: &Arc<Self>,
++        observed: &SelectedEnvironmentObservation,
++        target: &str,
++        finish: impl FnOnce() -> Option<crate::tools::ApprovalResolution>,
++    ) -> Option<crate::tools::ApprovalResolution> {
++        let state = self.state.try_lock().ok()?;
++        if !observed
++            .owner
++            .upgrade()
++            .is_some_and(|owner| Arc::ptr_eq(&owner, self))
++        {
++            return None;
++        }
++        // One peek per current entry supplies both cache status and the derived state.
++        let current = self.observe_selected_locked(&state);
++        let matching_entries =
++            observed
++                .entries
++                .iter()
++                .zip(&current.entries)
++                .all(|(previous, current)| {
++                    previous.selection == current.selection
++                        && previous.config_origin == current.config_origin
++                        && Arc::ptr_eq(&previous.environment, &current.environment)
++                        && previous.resolution.ptr_eq(&current.resolution)
++                        && matches!(
++                            (&previous.cached, &current.cached),
++                            (
++                                CachedEnvironmentResolution::Ready(previous),
++                                CachedEnvironmentResolution::Ready(current)
++                            ) if Arc::ptr_eq(previous, current)
++                        )
++                });
++        let matching_ready = observed
++            .snapshot
++            .environments
++            .iter()
++            .zip(&current.snapshot.environments)
++            .all(|(previous, current)| {
++                let (TurnEnvironmentState::Ready(previous), TurnEnvironmentState::Ready(current)) =
++                    (previous, current)
++                else {
++                    return false;
++                };
++                matches!(previous.selection.config, EnvironmentConfigState::Ready(_))
++                    && matches!(current.selection.config, EnvironmentConfigState::Ready(_))
++                    && previous.selection == current.selection
++                    && previous.config_origin == current.config_origin
++                    && Arc::ptr_eq(&previous.environment, &current.environment)
++                    && previous.executor_platform_os == current.executor_platform_os
++                    && previous.user_home_dir == current.user_home_dir
++                    && previous.temporary_directories == current.temporary_directories
++            });
++        if observed.entries.len() != current.entries.len()
++            || observed.snapshot.environments.len() != observed.entries.len()
++            || current.snapshot.environments.len() != current.entries.len()
++            || observed
++                .snapshot
++                .turn_environments()
++                .filter(|ready| ready.selection.environment_id == target)
++                .count()
++                != 1
++            || current
++                .snapshot
++                .turn_environments()
++                .filter(|ready| ready.selection.environment_id == target)
++                .count()
++                != 1
++            || !matching_entries
++            || !matching_ready
++        {
++            return None;
++        }
++        finish()
++    }
++
+     pub(crate) fn new(
+         environment_manager: Arc<EnvironmentManager>,
+         local_shell: Shell,
+@@ -1402,6 +1488,10 @@ mod snapshot_tests;
+ #[path = "environment_selection/intercepted_approval_tests.rs"]
+ mod intercepted_approval_tests;
+ 
++#[cfg(test)]
++#[path = "environment_selection/parent_resolution_tests.rs"]
++mod parent_resolution_tests;
++
+ #[cfg(test)]
+ mod tests {
+     use std::time::Duration;
+diff --git a/codex-rs/core/src/environment_selection/parent_resolution_tests.rs b/codex-rs/core/src/environment_selection/parent_resolution_tests.rs
+new file mode 100644
+index 0000000..102bacd
+--- /dev/null
++++ b/codex-rs/core/src/environment_selection/parent_resolution_tests.rs
+@@ -0,0 +1,263 @@
++//! Nonpolling held-owner observations; no approval or provenance constructors.
++use super::*;
++use crate::config::PermissionProfileSnapshot;
++use crate::exec_policy::ExecPolicyManager;
++use codex_exec_server::LOCAL_ENVIRONMENT_ID;
++use codex_protocol::permissions::NetworkSandboxPolicy;
++use codex_protocol::sandbox::SandboxType;
++use pretty_assertions::assert_eq;
++use std::cell::Cell;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++use std::task::Poll;
++
++async fn ready_owner() -> Arc<ThreadEnvironments> {
++    let owner = Arc::new(ThreadEnvironments::new(
++        Arc::new(EnvironmentManager::default_for_tests()),
++        crate::shell::default_user_shell(),
++        ThreadEnvironmentDefaults::new(tests::test_environment_config(), SandboxType::None),
++        ShellSnapshot::disabled(),
++        TurnEnvironmentSnapshot::default(),
++        /*non_blocking_snapshots*/ false,
++    ));
++    let cwd = PathUri::from_abs_path(&AbsolutePathBuf::current_dir().expect("cwd"));
++    owner.update_selections(&[TurnEnvironmentSelection {
++        environment_id: LOCAL_ENVIRONMENT_ID.into(),
++        cwd: cwd.clone(),
++        workspace_roots: vec![cwd],
++        config: EnvironmentConfigState::FromThread,
++    }]);
++    assert!(owner.snapshot().await.primary().is_some());
++    owner
++}
++
++fn entries(
++    owner: &Arc<ThreadEnvironments>,
++    observed: &SelectedEnvironmentObservation,
++    target: &str,
++) -> usize {
++    let count = Cell::new(0);
++    assert!(
++        owner
++            .with_current_parent_environment(observed, target, || {
++                count.set(count.get() + 1);
++                assert!(owner.state.try_lock().is_err());
++                None
++            })
++            .is_none()
++    );
++    count.get()
++}
++
++#[tokio::test]
++async fn current_ready_and_nested_policy_callback_retain_both_actual_guards() {
++    let owner = ready_owner().await;
++    let observed = owner.observe_selected();
++    assert_eq!(entries(&owner, &observed, LOCAL_ENVIRONMENT_ID), 1);
++    let manager = ExecPolicyManager::default();
++    let policy = manager.current();
++    let outer = Cell::new(0);
++    let inner = Cell::new(0);
++    let _ = manager.with_matching_parent_policy(&policy, || {
++        outer.set(outer.get() + 1);
++        owner.with_current_parent_environment(&observed, LOCAL_ENVIRONMENT_ID, || {
++            inner.set(inner.get() + 1);
++            assert!(owner.state.try_lock().is_err());
++            let reentered = Cell::new(0);
++            let _ = manager.with_matching_parent_policy(&policy, || {
++                reentered.set(reentered.get() + 1);
++                None
++            });
++            assert_eq!(reentered.get(), 0);
++            None
++        })
++    });
++    assert_eq!((outer.get(), inner.get()), (1, 1));
++}
++
++#[tokio::test]
++async fn foreign_missing_removed_duplicate_and_ordered_entries_refuse() {
++    let owner = ready_owner().await;
++    let observed = owner.observe_selected();
++    let foreign = ready_owner().await;
++    assert_eq!(entries(&foreign, &observed, LOCAL_ENVIRONMENT_ID), 0);
++    assert_eq!(entries(&owner, &observed, "missing"), 0);
++    let original = owner.state.lock().unwrap().environments[0].clone();
++    owner.state.lock().unwrap().environments.clear();
++    assert_eq!(entries(&owner, &observed, LOCAL_ENVIRONMENT_ID), 0);
++    owner.state.lock().unwrap().environments = vec![original.clone(), original.clone()];
++    let duplicate = owner.observe_selected();
++    assert_eq!(entries(&owner, &duplicate, LOCAL_ENVIRONMENT_ID), 0);
++    owner.state.lock().unwrap().environments[1]
++        .selection
++        .environment_id = "secondary".into();
++    let two = owner.observe_selected();
++    assert_eq!(entries(&owner, &two, LOCAL_ENVIRONMENT_ID), 1);
++    assert_eq!(entries(&owner, &observed, LOCAL_ENVIRONMENT_ID), 0);
++    owner.state.lock().unwrap().environments.reverse();
++    assert_eq!(entries(&owner, &two, LOCAL_ENVIRONMENT_ID), 0);
++}
++
++#[tokio::test]
++async fn raw_ready_config_origin_cwd_roots_and_environment_identity_drift_refuse() {
++    let owner = ready_owner().await;
++    let original = owner.state.lock().unwrap().environments[0].clone();
++    for change in [
++        "origin", "profile", "network", "cwd", "roots", "selected", "resolved", "shared",
++    ] {
++        owner.state.lock().unwrap().environments[0] = original.clone();
++        let observed = owner.observe_selected();
++        let mut replacement = original.clone();
++        match change {
++            "origin" => replacement.config_origin = EnvironmentConfigOrigin::Owner,
++            "profile" | "network" => {
++                let EnvironmentConfigState::Ready(config) = &mut replacement.selection.config
++                else {
++                    panic!("ready fixture")
++                };
++                let profile = if change == "profile" {
++                    PermissionProfile::workspace_write()
++                } else {
++                    PermissionProfile::from_runtime_permissions(
++                        &PermissionProfile::read_only().file_system_sandbox_policy(),
++                        NetworkSandboxPolicy::Enabled,
++                    )
++                };
++                config.permission_profile = PermissionProfileSnapshot::legacy(profile);
++            }
++            "cwd" => {
++                replacement.selection.cwd = PathUri::from_abs_path(
++                    &AbsolutePathBuf::current_dir()
++                        .unwrap()
++                        .join("different-cwd"),
++                )
++            }
++            "roots" => replacement.selection.workspace_roots.clear(),
++            "selected" => replacement.environment = Arc::new(Environment::default_for_tests()),
++            "resolved" | "shared" => {
++                let mut cached = original.resolution.peek().cloned().unwrap();
++                if change == "resolved" {
++                    cached.as_mut().unwrap().environment =
++                        Arc::new(Environment::default_for_tests());
++                }
++                let resolution = futures::future::ready(cached).boxed().shared();
++                assert!(resolution.clone().await.is_ok());
++                replacement.resolution = resolution;
++            }
++            _ => unreachable!(),
++        }
++        owner.state.lock().unwrap().environments[0] = replacement;
++        assert_eq!(
++            entries(&owner, &observed, LOCAL_ENVIRONMENT_ID),
++            0,
++            "{change}"
++        );
++    }
++}
++
++#[tokio::test]
++async fn same_projected_thread_identity_cannot_hide_resolved_network_change() {
++    let owner = ready_owner().await;
++    let observed = owner.observe_selected();
++    let projected = owner.selections();
++    let original = observed.snapshot().primary().unwrap();
++    let config = EnvironmentConfig {
++        permission_profile: PermissionProfileSnapshot::legacy(
++            PermissionProfile::from_runtime_permissions(
++                &PermissionProfile::read_only().file_system_sandbox_policy(),
++                NetworkSandboxPolicy::Enabled,
++            ),
++        ),
++        ..tests::test_environment_config()
++    };
++    owner.set_active_thread_defaults(config);
++    let current = owner.observe_selected();
++    let ready = current.snapshot().primary().unwrap();
++    assert_eq!(owner.selections(), projected);
++    assert_eq!(ready.selection(), original.selection());
++    assert!(Arc::ptr_eq(&ready.environment, &original.environment));
++    assert_eq!(entries(&owner, &observed, LOCAL_ENVIRONMENT_ID), 0);
++    assert_eq!(entries(&owner, &current, LOCAL_ENVIRONMENT_ID), 1);
++}
++
++#[tokio::test]
++async fn every_selected_startup_must_already_be_successfully_cached_without_polling() {
++    let owner = ready_owner().await;
++    let original = owner.state.lock().unwrap().environments[0].clone();
++    let polls = Arc::new(AtomicUsize::new(0));
++    let counted = Arc::clone(&polls);
++    let cached = original.resolution.peek().cloned().unwrap();
++    let resolution = futures::future::poll_fn(move |_| {
++        counted.fetch_add(1, Ordering::SeqCst);
++        Poll::Ready(cached.clone())
++    })
++    .boxed()
++    .shared();
++    let mut secondary = original.clone();
++    secondary.selection.environment_id = "secondary".into();
++    secondary.resolution = resolution.clone();
++    owner.state.lock().unwrap().environments.push(secondary);
++    let starting = owner.observe_selected();
++    assert_eq!(entries(&owner, &starting, LOCAL_ENVIRONMENT_ID), 0);
++    assert_eq!(polls.load(Ordering::SeqCst), 0);
++    assert!(resolution.await.is_ok());
++    let ready = owner.observe_selected();
++    assert_eq!(entries(&owner, &starting, LOCAL_ENVIRONMENT_ID), 0);
++    assert_eq!(entries(&owner, &ready, LOCAL_ENVIRONMENT_ID), 1);
++    assert_eq!(polls.load(Ordering::SeqCst), 1);
++    let failed = futures::future::ready(Err(Arc::new(ExecServerError::Protocol("failure".into()))))
++        .boxed()
++        .shared();
++    assert!(failed.clone().await.is_err());
++    owner.state.lock().unwrap().environments[1].resolution = failed;
++    let observed = owner.observe_selected();
++    assert_eq!(entries(&owner, &observed, LOCAL_ENVIRONMENT_ID), 0);
++    assert_eq!(entries(&owner, &observed, "secondary"), 0);
++}
++
++#[tokio::test]
++async fn pending_installed_ready_is_supported_but_nonready_derivations_refuse() {
++    let owner = ready_owner().await;
++    let original = owner.state.lock().unwrap().environments[0].clone();
++    for configuration in ["installed", "pending", "failed"] {
++        let mut selected = original.clone();
++        selected.config_origin = EnvironmentConfigOrigin::Owner;
++        selected.selection.config = if configuration == "failed" {
++            EnvironmentConfigState::Failed("raw failure".into())
++        } else {
++            EnvironmentConfigState::Pending
++        };
++        let mut cached = original.resolution.peek().cloned().unwrap();
++        cached.as_mut().unwrap().installed_config = if configuration == "installed" {
++            Some(tests::test_environment_config())
++        } else {
++            None
++        };
++        let resolution = futures::future::ready(cached).boxed().shared();
++        assert!(resolution.clone().await.is_ok());
++        selected.resolution = resolution;
++        owner.state.lock().unwrap().environments[0] = selected;
++        let observed = owner.observe_selected();
++        assert_eq!(
++            entries(&owner, &observed, LOCAL_ENVIRONMENT_ID),
++            usize::from(configuration == "installed"),
++            "{configuration}"
++        );
++    }
++}
++
++#[tokio::test]
++async fn busy_and_poisoned_environment_owner_never_enters_callback() {
++    let owner = ready_owner().await;
++    let observed = owner.observe_selected();
++    {
++        let _held = owner.state.lock().unwrap();
++        assert_eq!(entries(&owner, &observed, LOCAL_ENVIRONMENT_ID), 0);
++    }
++    let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
++        let _held = owner.state.lock().unwrap();
++        panic!("poison actual selected owner");
++    }));
++    assert!(caught.is_err());
++    assert_eq!(entries(&owner, &observed, LOCAL_ENVIRONMENT_ID), 0);
++}
+diff --git a/codex-rs/core/src/exec_policy.rs b/codex-rs/core/src/exec_policy.rs
+index 21e414e..fc9eddc 100644
+--- a/codex-rs/core/src/exec_policy.rs
++++ b/codex-rs/core/src/exec_policy.rs
+@@ -312,6 +312,19 @@ impl ExecPolicyManager {
+         self.policy.load_full()
+     }
+ 
++    /// Orders an optional parent resolution with the existing Policy Arc stores only.
++    pub(crate) fn with_matching_parent_policy(
++        &self,
++        expected: &Arc<Policy>,
++        finish: impl FnOnce() -> Option<crate::tools::ApprovalResolution>,
++    ) -> Option<crate::tools::ApprovalResolution> {
++        let _permit = self.update_lock.try_acquire().ok()?;
++        if !Arc::ptr_eq(expected, &self.current()) {
++            return None;
++        }
++        finish()
++    }
++
+     #[cfg(test)]
+     pub(crate) async fn create_exec_approval_requirement_for_command(
+         &self,
+@@ -1173,3 +1186,7 @@ async fn collect_policy_files(dir: impl AsRef<Path>) -> Result<Vec<PathBuf>, Exe
+ #[cfg(test)]
+ #[path = "exec_policy_tests.rs"]
+ mod tests;
++
++#[cfg(test)]
++#[path = "exec_policy/parent_resolution_tests.rs"]
++mod parent_resolution_tests;
+diff --git a/codex-rs/core/src/exec_policy/parent_resolution_tests.rs b/codex-rs/core/src/exec_policy/parent_resolution_tests.rs
+new file mode 100644
+index 0000000..a05a4c7
+--- /dev/null
++++ b/codex-rs/core/src/exec_policy/parent_resolution_tests.rs
+@@ -0,0 +1,94 @@
++//! Observe actual updater ordering; callbacks cannot construct an approval.
++use super::*;
++use pretty_assertions::assert_eq;
++use std::cell::Cell;
++
++#[tokio::test]
++async fn matching_policy_callback_holds_the_existing_permit() {
++    let manager = ExecPolicyManager::default();
++    let expected = manager.current();
++    let calls = Cell::new(0);
++    assert!(
++        manager
++            .with_matching_parent_policy(&expected, || {
++                calls.set(calls.get() + 1);
++                assert!(manager.update_lock.try_acquire().is_err());
++                None
++            })
++            .is_none()
++    );
++    assert_eq!(calls.get(), 1);
++    assert!(manager.update_lock.try_acquire().is_ok());
++    let foreign = Arc::new(expected.as_ref().clone());
++    let _ = manager.with_matching_parent_policy(&foreign, || {
++        calls.set(calls.get() + 1);
++        None
++    });
++    assert_eq!(calls.get(), 1);
++}
++
++#[tokio::test]
++async fn busy_and_closed_policy_owner_never_enters_the_callback() {
++    let manager = ExecPolicyManager::default();
++    let expected = manager.current();
++    let calls = Cell::new(0);
++    let held = manager.update_lock.acquire().await.unwrap();
++    let _ = manager.with_matching_parent_policy(&expected, || {
++        calls.set(calls.get() + 1);
++        None
++    });
++    assert_eq!(calls.get(), 0);
++    drop(held);
++    manager.update_lock.close();
++    let _ = manager.with_matching_parent_policy(&expected, || {
++        calls.set(calls.get() + 1);
++        None
++    });
++    assert_eq!(calls.get(), 0);
++}
++
++#[tokio::test]
++async fn both_real_policy_updaters_invalidate_the_original_arc() -> anyhow::Result<()> {
++    for update in ["command", "network"] {
++        let home = tempfile::tempdir()?;
++        let manager = ExecPolicyManager::default();
++        let original = manager.current();
++        match update {
++            "command" => {
++                manager
++                    .append_amendment_and_update(
++                        home.path(),
++                        &ExecPolicyAmendment::new(vec!["q2-offline-command".into()]),
++                    )
++                    .await?
++            }
++            "network" => {
++                manager
++                    .append_network_rule_and_update(
++                        home.path(),
++                        "q2.invalid",
++                        NetworkRuleProtocol::Https,
++                        Decision::Forbidden,
++                        /*justification*/ None,
++                    )
++                    .await?
++            }
++            _ => unreachable!(),
++        }
++        let calls = Cell::new(0);
++        let _ = manager.with_matching_parent_policy(&original, || {
++            calls.set(calls.get() + 1);
++            None
++        });
++        assert_eq!(calls.get(), 0, "stale {update} snapshot");
++        let current = manager.current();
++        assert!(!Arc::ptr_eq(&original, &current));
++        let _ = manager.with_matching_parent_policy(&current, || {
++            calls.set(calls.get() + 1);
++            assert!(manager.update_lock.try_acquire().is_err());
++            None
++        });
++        assert_eq!(calls.get(), 1, "renewed {update} snapshot");
++    }
++    Ok(())
++}
+diff --git a/codex-rs/core/src/tools/approvals.rs b/codex-rs/core/src/tools/approvals.rs
+index 4daf357..f930395 100644
+--- a/codex-rs/core/src/tools/approvals.rs
++++ b/codex-rs/core/src/tools/approvals.rs
+@@ -440,7 +440,7 @@ enum ApprovalResolutionSource {
+ }
+ 
+ #[derive(Clone, Debug, PartialEq, Eq)]
+-struct ApprovalResolution {
++pub(crate) struct ApprovalResolution {
+     decision: ReviewDecision,
+     source: ApprovalResolutionSource,
+ }
+diff --git a/codex-rs/core/src/tools/mod.rs b/codex-rs/core/src/tools/mod.rs
+index 41ed018..ef3d3f3 100644
+--- a/codex-rs/core/src/tools/mod.rs
++++ b/codex-rs/core/src/tools/mod.rs
+@@ -29,6 +29,7 @@ use std::borrow::Cow;
+ 
+ use crate::session::turn_context::TurnContext;
+ pub(crate) use approvals::ApprovalContext;
++pub(crate) use approvals::ApprovalResolution;
+ use codex_features::Feature;
+ use codex_protocol::exec_output::ExecToolCallOutput;
+ use codex_protocol::openai_models::ModelInfo;
+-- 
+2.54.0 (Apple Git-157)
+
