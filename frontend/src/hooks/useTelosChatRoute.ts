@@ -40,57 +40,46 @@ export function useTelosChatRoute(conversationId: string | null) {
   useEffect(() => {
     if (!conversationId) return;
     const controller = new AbortController();
-    void Promise.all([
-      api.links({ namespace: 'mitzo', conversationId }, controller.signal),
-      apiFetch(`/api/sessions/${encodeURIComponent(conversationId)}/meta`, {
+    let selected: string | null = requested;
+    void (async () => {
+      const metadata = await apiFetch(`/api/sessions/${encodeURIComponent(conversationId)}/meta`, {
         signal: controller.signal,
       })
         .then(async (response) => (response.ok ? response.json() : null))
-        .catch(() => null),
-    ]).then(
-      ([links, metadata]) => {
-        if (controller.signal.aborted) return;
-        const ids = [
-          ...new Set(
-            links
-              .filter(
-                (link) =>
-                  link.conversation.namespace === 'mitzo' &&
-                  link.conversation.conversationId === conversationId,
-              )
-              .map((link) => link.itemId),
-          ),
-        ];
-        const boundItem =
-          metadata?.sessionId === conversationId
-            ? metadata?.telosWorkRoleContext?.itemId
-            : undefined;
-        const selected =
-          requested ??
-          (typeof boundItem === 'string' && ids.includes(boundItem)
-            ? boundItem
-            : ids.length === 1
-              ? ids[0]
-              : null);
+        .catch(() => null);
+      if (controller.signal.aborted) return;
+      const boundItem =
+        metadata?.sessionId === conversationId ? metadata?.telosWorkRoleContext?.itemId : undefined;
+      if (!selected && typeof boundItem === 'string' && boundItem.length > 0) selected = boundItem;
+      // Unrelated ordinary chats keep their existing read path. Source inspection
+      // carries its explicit item; ordinary roles retain theirs in owned metadata.
+      if (!selected) {
+        setResult({ conversationId, requested, itemId: null });
+        return;
+      }
+      const links = await api.links({ namespace: 'mitzo', conversationId }, controller.signal);
+      if (controller.signal.aborted) return;
+      const linked = links.some(
+        (link) =>
+          link.itemId === selected &&
+          link.conversation.namespace === 'mitzo' &&
+          link.conversation.conversationId === conversationId,
+      );
+      setResult({
+        conversationId,
+        requested,
+        itemId: linked ? selected : null,
+        ...(!linked ? { error: 'The selected work item is not linked to this conversation.' } : {}),
+      });
+    })().catch(() => {
+      if (!controller.signal.aborted)
         setResult({
           conversationId,
           requested,
-          itemId: selected && ids.includes(selected) ? selected : null,
-          ...(selected && !ids.includes(selected)
-            ? { error: 'The selected work item is not linked to this conversation.' }
-            : {}),
+          itemId: null,
+          error: selected ? 'Linked work unavailable.' : undefined,
         });
-      },
-      () => {
-        if (!controller.signal.aborted)
-          setResult({
-            conversationId,
-            requested,
-            itemId: null,
-            error: requested ? 'Linked work unavailable.' : undefined,
-          });
-      },
-    );
+    });
     return () => controller.abort();
   }, [conversationId, requested, connectionStatus, generation]);
   const current =

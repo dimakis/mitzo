@@ -115,6 +115,15 @@ it('does not attach an unrelated explicit item to an ordinary conversation', asy
   expect(screen.queryByRole('button', { name: /View item:/ })).toBeNull();
   expect(screen.getByRole('textbox', { name: 'Draft' })).toBeTruthy();
 });
+it('leaves an ordinary chat without a work route or bound role on its existing read path', async () => {
+  mount('', false);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(TelosWorkApiClient.prototype.links).not.toHaveBeenCalled();
+  expect(screen.queryByRole('button', { name: /View item:/ })).toBeNull();
+  expect(screen.getByRole('textbox', { name: 'Draft' })).toBeTruthy();
+});
 it('rechecks current work and canonical record projections after transport reconnect without remounting the composer', async () => {
   const store = mount();
   await screen.findByRole('button', { name: 'View item: Recording plan' });
