@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
@@ -10,6 +10,10 @@ import { bindAgentLibraryTransport } from '../agent-library-transport.js';
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { sessionCredentialTools } from '../session-credential-tools.js';
 import { installKnowledgeDraftRuntime } from '../session-knowledge-tools.js';
+import {
+  reviewedHandlerSourceArtifacts,
+  reviewedHandlerSourceFingerprint,
+} from '../connections/reviewed-handler-artifacts.js';
 
 let root: string;
 let store: KnowledgeDraftStore;
@@ -32,6 +36,21 @@ function git(...args: string[]) {
 function tools() {
   return sessionCredentialTools('chat', registry.get('client')!, registry);
 }
+
+it('includes Knowledge draft execution and its registrations in the reviewed runtime integrity check', () => {
+  const artifacts: Readonly<Record<string, string>> = reviewedHandlerSourceArtifacts;
+  for (const file of [
+    '../session-knowledge-tools.ts',
+    '../session-credential-tools.ts',
+    '../credential-sdk-tools.ts',
+    '../agent-tool-catalog.ts',
+    '../app.ts',
+    '../../packages/harness/src/tool-tiers.ts',
+  ]) {
+    const source = readFileSync(new URL('../connections/' + file, import.meta.url), 'utf8');
+    expect(artifacts[file], file).toBe(reviewedHandlerSourceFingerprint(source));
+  }
+});
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-chat-knowledge-'));
   git('init', '-b', 'main');
