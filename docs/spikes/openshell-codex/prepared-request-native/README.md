@@ -6,10 +6,10 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 52 patches
+## Current composed source: 53 patches
 
-The 52 ordered patches reconstruct native tree
-`1452a4d6a69783b77707953ca8cef2df916a75f2` (local source `a69928ec137aafd75d89111ef46c1aadc15e38f1`).
+The 53 ordered patches reconstruct native tree
+`098b7933552a6fd2120010f38fa8a71aa4df7990` (local source `4cea83bbbf2330e7ffc22389eafcc6dc6f18d8a2`).
 The current source adds the actual ordinary child-approval consumer to the retained
 immutable-request foundation. It reuses only a genuine fresh user approval from
 the same still-active initial invocation. The original runtime lifetime flag is
@@ -152,6 +152,38 @@ is filtered out and can affect timing. These observations are not immutable
 directory identity or a retargeting proof. A source-only equivalence check restores
 the original source after removing only these observations. No local Rust build
 or execution occurred. A true mismatch must still refuse; this is not a repair.
+
+The 52-patch run `39205754915` completed: Linux passed all 5,821 selected tests
+(11 skipped) and formatting. macOS completed 5,599 selected tests: 5,598 passed,
+one failed and 27 skipped. The original denied-read integration still failed.
+Its actual trace now establishes the representation cause: raw cwd equality is
+false, both native conversions and trusted-root normalizations succeed, and
+normalizing only the original root spelling makes both results equal. Counts
+overlap. This establishes the observed mismatch, not a passing repair.
+
+Patch 53 uses that existing host utility at the already-bound local child cwd
+comparison. Both native conversions and both normalizations must succeed, and
+the normalized paths must match exactly. Equal raw foreign or invalid paths
+cannot bypass a failed observation. It resolves only the trusted root component;
+mutable descendants remain logical. Raw candidate/request/executor custody,
+profile/environment checks, downstream owner/currentness/policy/hook/lifetime
+gates, launch cwd and commands are unchanged. No full-path canonicalization or
+new prepared-request authority is introduced.
+
+New tests exercise the real comparison owner: real macOS root aliases in both
+directions; different profiles, sandbox levels and environments; distinct and
+similarly named directories; nested mutable aliases before and after retarget;
+foreign conversions; and a real filesystem IO failure even with equal raw paths.
+Identical logical strings still do not attest immutable directory identity or
+same-spelling directory replacement. The complete original denied-read and
+Guardian integration file remains byte-exact source52, including every assertion.
+
+Root and the existing independent reviewer checked the exact two-file delta,
+affected callers and API/type/privacy/platform boundaries. Scoped formatting and
+source checks pass. No local Rust compilation/execution or model tests occurred.
+Actual compilation, these regressions and the original denied-read outcome are
+required CI evidence before any repair or qualification claim. The separate full
+permission review and accepted-base requirements still apply.
 
 ## Immutable request foundation
 
