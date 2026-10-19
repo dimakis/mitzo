@@ -8,6 +8,7 @@ import type {
 } from '@mitzo/protocol';
 import { shareTelosArtifact } from '../lib/share-file';
 import { readTelosRolePresentation } from '../lib/telos-role-presentation';
+import { telosChatReturnState } from '../lib/telos-chat-return';
 
 const BriefFields = z.strictObject({
   summary: z.string(),
@@ -145,7 +146,12 @@ export function TelosLinkedContext({
               <Link
                 className="session-work-link"
                 to={`/chat/${encodeURIComponent(source.source.conversationId)}?${new URLSearchParams({ telosItem: context.itemId, telosSource: source.snapshotId }).toString()}`}
-                state={location.state}
+                state={telosChatReturnState(
+                  location.state,
+                  context.itemId,
+                  source.source.conversationId,
+                  location.pathname + location.search,
+                )}
               >
                 Open original chat
               </Link>

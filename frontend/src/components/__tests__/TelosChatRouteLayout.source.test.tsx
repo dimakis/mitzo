@@ -9,6 +9,7 @@ import { TelosSourceNavigationProvider } from '../../hooks/TelosSourceNavigation
 import { useTelosChatRoute } from '../../hooks/useTelosChatRoute';
 import { TelosChatRouteLayout } from '../TelosChatRouteLayout';
 import { TelosItemSources } from '../TelosItemSources';
+import { TelosLinkedContext } from '../TelosLinkedContext';
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -56,9 +57,13 @@ function SourceChat() {
     </TelosSourceNavigationProvider>
   );
 }
-it.each([false, true])(
-  'adopts Materials readSourceHref without changing its selector, other bound role=%s',
-  async (boundElsewhere) => {
+it.each([
+  [false, false],
+  [true, false],
+  [true, true],
+])(
+  'adopts retained source selection, other bound role=%s, linked-context entry=%s',
+  async (boundElsewhere, linkedEntry) => {
     const links = ['slice', 'other'].map((itemId) => ({
       version: 1,
       linkId: itemId,
@@ -99,19 +104,21 @@ it.each([false, true])(
     } as never);
     vi.stubGlobal(
       'fetch',
-      vi
-        .fn()
-        .mockResolvedValue({
-          ok: true,
-          json: async () => ({
-            sessionId: 'planning',
-            ...(boundElsewhere ? { telosWorkRoleContext: { itemId: 'other' } } : {}),
-          }),
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          sessionId: 'planning',
+          ...(boundElsewhere ? { telosWorkRoleContext: { itemId: 'other' } } : {}),
         }),
+      }),
     );
     render(
       <MitzoStoreProvider value={createTestStore()}>
-        <MemoryRouter initialEntries={['/todos/slice?view=Materials']}>
+        <MemoryRouter
+          initialEntries={[
+            linkedEntry ? '/chat/lead?telosChatItem=other' : '/todos/slice?view=Materials',
+          ]}
+        >
           <Routes>
             <Route
               path="/todos/slice"
@@ -119,15 +126,35 @@ it.each([false, true])(
                 <TelosItemSources itemId="slice" legacySources={[]} onOpenExternal={() => {}} />
               }
             />
+            <Route
+              path="/chat/lead"
+              element={
+                <TelosLinkedContext
+                  context={
+                    {
+                      itemId: 'slice',
+                      overallGoal: { itemId: 'goal', text: 'Goal' },
+                      parentCriteria: [],
+                      brief: { text: 'Plan' },
+                      sources: [snapshot],
+                      artifacts: [],
+                    } as never
+                  }
+                />
+              }
+            />
             <Route path="/chat/:id" element={<SourceChat />} />
           </Routes>
         </MemoryRouter>
       </MitzoStoreProvider>,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Open original chat' }));
+    if (linkedEntry) {
+      fireEvent.click(screen.getByText('Linked brief · goal & parent context'));
+      fireEvent.click(screen.getByRole('link', { name: 'Open original chat' }));
+    } else fireEvent.click(await screen.findByRole('button', { name: 'Open original chat' }));
     await screen.findByRole('button', { name: 'View item: Planning source item' });
     expect(screen.getByRole('link', { name: 'Back' }).getAttribute('href')).toBe(
-      '/todos/slice?view=Chat&chooseChat=1',
+      linkedEntry ? '/chat/lead?telosChatItem=other' : '/todos/slice?view=Materials',
     );
     expect(screen.getByTestId('source-url').textContent).toBe(
       '/chat/planning?telosItem=slice&telosSource=reviewed-exchange',

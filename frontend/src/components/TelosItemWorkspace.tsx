@@ -18,7 +18,8 @@ import './TelosWorkspace.css';
 
 type Tab = 'Overview' | 'Chat' | 'Work' | 'Materials';
 function initialTab(key: string, search: string): Tab {
-  if (new URLSearchParams(search).get('view') === 'Chat') return 'Chat';
+  const requested = new URLSearchParams(search).get('view');
+  if (['Overview', 'Chat', 'Work', 'Materials'].includes(requested ?? '')) return requested as Tab;
   try {
     const saved = sessionStorage.getItem(key);
     if (['Overview', 'Chat', 'Work', 'Materials'].includes(saved ?? '')) return saved as Tab;

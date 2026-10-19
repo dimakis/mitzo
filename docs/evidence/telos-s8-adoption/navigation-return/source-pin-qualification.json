@@ -1,0 +1,28 @@
+{
+  "baseProduction": "81af292f0a54730d03b7f84500b919612704b380",
+  "runtimeBefore": "v1.0.335-telos-coordinator-entry",
+  "runtimeAfter": "v1.0.336-telos-chat-return",
+  "updatedExistingPaths": [
+    {
+      "path": "../../frontend/src/components/TelosItemWorkspace.tsx",
+      "before": "2298b75ba2ef32a6e86fc1adfdb8e96bd5983d619c0564c76b00b809f8b2f89d",
+      "after": "3dcb068e00437dd93304e63de8c740bfbcbcab88af215caf291c24831db041e1"
+    },
+    {
+      "path": "../../frontend/src/components/TelosLinkedContext.tsx",
+      "before": "f4aad8cea312fd01d303d76470d752c93f8741458a829b8323522682ac5c8c49",
+      "after": "56770d51e35ff86f92876d5542749f399235e6a6ba6cd2a7fd046929f58f575a"
+    },
+    {
+      "path": "../../frontend/src/components/TelosItemSources.tsx",
+      "before": "5de770a510b65ea6764d59b171b8e4181aaab9b10b4dc4dd656697fa5b037fae",
+      "after": "c055de32814ff93f5d870b5193275be305023bbf83e92ae98fc9fdc54e209ad3"
+    }
+  ],
+  "newHelper": {
+    "path": "../../frontend/src/lib/telos-chat-return.ts",
+    "sha256": "82a93d73cc17247366037d16e0909473fbbb8f64b73a1730f1456bbadf701077"
+  },
+  "allOtherPinsPreserved": true,
+  "authority": "Return intent supplies only local navigation. Work/source association, current assignments and tools remain separately validated; sourceHref/backend packet contract unchanged."
+}

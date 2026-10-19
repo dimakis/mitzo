@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { TelosWorkApiClient } from '@mitzo/client';
 import type { TelosChatRow } from '../lib/telos-chat-rows';
 import { apiFetch } from '../lib/api-fetch';
+import { telosChatReturnState } from '../lib/telos-chat-return';
 const api = new TelosWorkApiClient(apiFetch);
 export const telosChatListPath = (id: string) =>
   `/todos/${encodeURIComponent(id)}?view=Chat&chooseChat=1`;
@@ -37,10 +38,12 @@ export function useTelosChatOpen(itemId: string) {
       const params = new URLSearchParams(query);
       params.set('telosChatItem', itemId);
       navigate(`${path}?${params}`, {
-        state: {
-          ...location.state,
-          telosChatReturn: { path: telosChatListPath(itemId), state: location.state },
-        },
+        state: telosChatReturnState(
+          location.state,
+          itemId,
+          row.conversation.conversationId,
+          telosChatListPath(itemId),
+        ),
       });
     } catch (cause) {
       if (!controller.signal.aborted)

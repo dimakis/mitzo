@@ -22,6 +22,25 @@ afterEach(() => {
   sessionStorage.clear();
 });
 const records = createTelosWorkFixtures().homeStudio.items;
+it('restores an explicit Materials navigation snapshot over a later stored Chat preference', () => {
+  const record = records[0];
+  sessionStorage.setItem('telos.item.tab.' + record.itemId, 'Chat');
+  render(
+    <MemoryRouter initialEntries={[`/todos/${record.itemId}?view=Materials`]}>
+      <TelosItemWorkspace
+        refreshKey={0}
+        record={record}
+        records={records}
+        onOpen={vi.fn()}
+        onBack={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('button', { name: 'Materials' }).getAttribute('aria-pressed')).toBe(
+    'true',
+  );
+  expect(screen.getByText('Retained source exchange')).toBeTruthy();
+});
 it('retains the brief, original fields, exact dates, context and parent-only Work entry', () => {
   const onOpen = vi.fn();
   render(

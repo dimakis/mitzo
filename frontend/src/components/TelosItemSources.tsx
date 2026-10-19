@@ -6,6 +6,7 @@ import type { TodoSource } from '../types/todo';
 import { apiFetch } from '../lib/api-fetch';
 import { sourceIcon } from '../lib/todo-utils';
 import { UiIcon } from './UiIcon';
+import { telosChatReturnState } from '../lib/telos-chat-return';
 const api = new TelosWorkApiClient(apiFetch);
 
 /** Original evidence is separate from output files and collaborator assignment.
@@ -86,7 +87,17 @@ export function TelosItemSources({
       if (controller.signal.aborted || currentItem.current !== itemId) return;
       if (!view.available)
         throw Error('Original conversation unavailable. Retained sources are preserved.');
-      navigate(view.sourceHref, { state: location.state });
+      navigate(view.sourceHref, {
+        state:
+          source.source?.namespace === 'mitzo'
+            ? telosChatReturnState(
+                location.state,
+                itemId,
+                source.source.conversationId,
+                `/todos/${encodeURIComponent(itemId)}?view=Materials`,
+              )
+            : location.state,
+      });
     } catch {
       if (!controller.signal.aborted && currentItem.current === itemId)
         setError('Original conversation unavailable. Retained sources are preserved.');

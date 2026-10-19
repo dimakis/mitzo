@@ -10,6 +10,7 @@ import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 import { useTelosSourceNavigation } from './useTelosSourceNavigation';
 import { readTelosItemHistory } from '../lib/telos-item-navigation';
+import { readTelosChatReturn } from '../lib/telos-chat-return';
 const api = new TelosWorkApiClient(apiFetch);
 
 /** Select an authorized recorded association, never change the bound chat. */
@@ -145,12 +146,16 @@ export function useTelosChatRoute(conversationId: string | null) {
       ? { itemId, work: work.work, record, refreshKey }
       : null;
   const retained = location.state?.telosChatReturn;
-  const backState =
-    retained?.path === telosChatListPath(itemId ?? '') ? retained.state : location.state;
+  const localReturn = readTelosChatReturn(location.state, requested, location.pathname);
+  const backState = localReturn
+    ? localReturn.state
+    : retained?.path === telosChatListPath(itemId ?? '')
+      ? retained.state
+      : location.state;
   return {
     data,
     error: current?.error ?? (itemId ? work.error : undefined),
-    back: itemId ? { path: telosChatListPath(itemId), state: backState } : null,
+    back: localReturn ?? (itemId ? { path: telosChatListPath(itemId), state: backState } : null),
     onChats: () => {
       if (itemId) navigate(telosChatListPath(itemId), { state: backState });
     },

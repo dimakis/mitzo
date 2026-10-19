@@ -194,6 +194,11 @@ for (const software of [false, true])
       },
     });
     let taskDone = false;
+    let holdMetadata = false;
+    let releaseMetadata!: () => void;
+    const metadataHeld = new Promise<void>((resolve) => {
+      releaseMetadata = resolve;
+    });
     await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
     await page.emulateMedia({
       reducedMotion: 'no-preference',
@@ -266,7 +271,8 @@ for (const software of [false, true])
       );
       if (session) {
         const id = session[1];
-        if (session[2] === 'meta')
+        if (session[2] === 'meta') {
+          if (holdMetadata && id === 'worker') await metadataHeld;
           return route.fulfill({
             json: {
               sessionId: id,
@@ -296,6 +302,7 @@ for (const software of [false, true])
                 : { ordinaryWorkspaceId: '11111111-1111-4111-8111-111111111111' }),
             },
           });
+        }
         if (session[2] === 'messages')
           return route.fulfill({
             json: [
@@ -435,6 +442,20 @@ for (const software of [false, true])
       path: info.outputPath(`s8-chooser-${software ? 'repository' : 'ordinary'}.png`),
       fullPage: true,
     });
+    holdMetadata = true;
+    await page.getByRole('button', { name: /^Open Assigned worker(?:\b|:)/ }).click();
+    try {
+      const immediateBack = page.getByRole('link', { name: 'Back', exact: true });
+      await expect(immediateBack).toHaveAttribute('href', '/todos/slice?view=Chat&chooseChat=1');
+      await expect(page.getByRole('button', { name: 'View item: ' + record.summary })).toHaveCount(
+        0,
+      );
+      await immediateBack.click();
+      await expect(page.getByRole('heading', { name: 'Chats · 2' })).toBeVisible();
+    } finally {
+      holdMetadata = false;
+      releaseMetadata();
+    }
     await page.getByRole('button', { name: /^Open Assigned worker(?:\b|:)/ }).click();
     await expect(page).toHaveURL(/\/chat\/worker\?telosChatItem=slice$/);
     await expect(page.getByText('Worker retained transcript', { exact: true })).toBeVisible();
@@ -548,9 +569,23 @@ for (const software of [false, true])
     await page.getByRole('button', { name: 'Open original chat', exact: true }).click();
     await expect(page).toHaveURL(/\/chat\/worker\?telosItem=slice&telosSource=source-review$/);
     await expect(page.getByRole('button', { name: 'View item: ' + record.summary })).toBeVisible();
-    expect(await page.evaluate(() => history.state.usr)).toEqual(sourceReturnState);
+    expect(await page.evaluate(() => history.state.usr.telosChatReturn.state)).toEqual(
+      sourceReturnState,
+    );
     await expect(input).toHaveValue('Worker independent draft');
+    await page.evaluate(() => sessionStorage.setItem('telos.item.tab.slice', 'Chat'));
     await page.getByRole('link', { name: 'Back', exact: true }).click();
+    await expect(page).toHaveURL(/\/todos\/slice\?view=Materials$/);
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Item views' })
+        .getByRole('button', { name: 'Materials', exact: true }),
+    ).toHaveAttribute('aria-pressed', 'true');
+    expect(await page.evaluate(() => history.state.usr)).toEqual(sourceReturnState);
+    await page
+      .getByRole('navigation', { name: 'Item views' })
+      .getByRole('button', { name: 'Chat', exact: true })
+      .click();
     await expect(page.getByRole('heading', { name: 'Chats · 2' })).toBeVisible();
     work.links = work.links.filter((link) => link.role !== 'reviewer');
     await page.evaluate(() => {
@@ -562,7 +597,7 @@ for (const software of [false, true])
       events.onopen?.();
     });
     await expect(page.getByRole('heading', { name: 'Chats · 1' })).toBeVisible();
-    await expect(page).toHaveURL(/\/todos\/slice\?view=Chat&chooseChat=1$/);
+    await expect(page).toHaveURL(/\/todos\/slice$/);
     expect(writes).toEqual([]);
     expect(errors).toEqual([]);
   });

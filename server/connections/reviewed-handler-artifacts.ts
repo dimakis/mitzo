@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.335-telos-coordinator-entry';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.336-telos-chat-return';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Navigation-only return intent cannot confer work/access authority.
+  '../../frontend/src/lib/telos-chat-return.ts':
+    '82a93d73cc17247366037d16e0909473fbbb8f64b73a1730f1456bbadf701077',
   // Explicit coordinator kind uses the reviewed ordinary lead role.
   '../../frontend/src/lib/telos-work-entry-role.ts':
     '1116a555e86fbd95a99c4addd1d00c55480928d4d277d9c33bb11e7b430465af',
@@ -190,7 +193,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosSourceWorkLink.tsx':
     'c1390c9b009c2aef271379608f667ffa6d520bcb87c4ce6bb1ae12a57aed8bc8',
   '../../frontend/src/components/TelosItemSources.tsx':
-    '5de770a510b65ea6764d59b171b8e4181aaab9b10b4dc4dd656697fa5b037fae',
+    'c055de32814ff93f5d870b5193275be305023bbf83e92ae98fc9fdc54e209ad3',
   '../../frontend/src/components/SessionWorkLink.tsx':
     '2f8f334d977d32d40d2226831cfef7ecd2f06a755b3240c2f0cf4e27095f28e4',
   '../../frontend/src/components/MessageBubble.tsx':
@@ -1061,7 +1064,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosRoleSetup.tsx':
     '554843478653c6cbdbcb6d72a36e85a90573707a45381a78dc0c389cef13ba9e',
   '../../frontend/src/components/TelosLinkedContext.tsx':
-    'f4aad8cea312fd01d303d76470d752c93f8741458a829b8323522682ac5c8c49',
+    '56770d51e35ff86f92876d5542749f399235e6a6ba6cd2a7fd046929f58f575a',
   '../../frontend/src/components/TelosItemRoleEntries.tsx':
     'd19a53f26f66a44a47520475e2c9f3ff69c1ae8801253767f0ad88045bb7a819',
   '../../frontend/src/components/TelosAdvisorDraft.tsx':
@@ -1107,7 +1110,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosWorkspace.css':
     '490357c449ee469fb662f4722f187f9ad4922e1f04c23d1b7b37fc74874ba3e2',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
-    '2298b75ba2ef32a6e86fc1adfdb8e96bd5983d619c0564c76b00b809f8b2f89d',
+    '3dcb068e00437dd93304e63de8c740bfbcbcab88af215caf291c24831db041e1',
   '../../frontend/src/components/TelosOutcomesTree.tsx':
     '8887547994e8428bba3ac664407601535c8dfc3bc619725fd2e598671bf1f54f',
   '../../frontend/src/pages/TodoWorkspace.tsx':
