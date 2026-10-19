@@ -6,10 +6,10 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 48 patches
+## Current composed source: 49 patches
 
-The 48 ordered patches reconstruct native tree
-`e635e99946f7517c2dce54158d8f4241b718f56a` (local source `e9fc12cf08308bce459bc706402f1b61c1f4e965`).
+The 49 ordered patches reconstruct native tree
+`58f83c08f2df67c830fe6cf1ee435a03a8b3f6f0` (local source `9710104802944987fbd017baf39706c535665922`).
 The current source adds the actual ordinary child-approval consumer to the retained
 immutable-request foundation. It reuses only a genuine fresh user approval from
 the same still-active initial invocation. The original runtime lifetime flag is
@@ -69,6 +69,27 @@ representation. It preserves exact path equality, all other assertions and
 production source. Root and the existing independent reviewer inspected the
 complete routing-test module and actual type/owner contracts; scoped formatting
 passes. Compilation and fixture execution for this new tree remain CI work.
+
+The 48-patch run `39177320936` executed Linux native fixtures: 5,821 ran,
+5,815 passed, six failed and 11 skipped. The six new direct-manager tests stopped
+at a real terminal `SandboxDenied` result before checking their retained approval,
+hook, admission and nonleak invariants. macOS was canceled by GitHub at the
+90-minute job limit after 4,405 of 5,599 selected results were observed: 4,399
+passes and the same six failures. It has no final suite summary or completed
+Mac pass count. Platform counts overlap.
+
+Patch 49 retains the complete actual manager result and recognizes only its
+specific terminal-denial variant; other errors and join failures remain fatal.
+It checks the actual exit status and process-store absence before cleanup, then
+uses the original output bytes for marker/nonleak checks. Yielded cases still
+require a real live successful result. It creates no tool output or lifetime
+fields. All approval/hook/private admission/secret assertions and the original
+polling owner remain. Production source is unchanged. The existing independent
+reviewer inspected all three test files and callers; scoped formatting passes.
+No local Rust compilation or execution occurred; new-source CI remains required.
+The existing macOS job budget increases to 120 minutes because cold setup and
+compilation used about 59 minutes before fixtures. Linux remains at 90 minutes;
+package coverage, one test thread, zero retries and failure propagation remain.
 
 ## Immutable request foundation
 

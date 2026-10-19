@@ -22,7 +22,8 @@ jobs:
   source:
     name: Native offline fixtures (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # Cold macOS setup and compilation consumed ~59 minutes before fixtures.
+    timeout-minutes: ${{ matrix.os == 'macos-26' && 120 || 90 }}
     strategy:
       fail-fast: false
       matrix:
