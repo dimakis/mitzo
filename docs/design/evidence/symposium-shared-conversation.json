@@ -1437,6 +1437,46 @@
       "priorValidation": "56c90af9 CI39252560430 all8workflowjobs/10ordinarychecksSUCCESS remainssourcebound. FreshcombinedCIrequired; localstaticchecks/hooks do notqualifycombinedtests/UX/runtime.",
       "coverageBounds": "No localbroad/native/browser/realmodel/live/staging/deployment operation. Nativepayload byteidentity reuses acceptedfoundation evidence as sourcebound support, not a claim of physicaliOS orlive runtimequalification.",
       "landing": "A isnextconditional1021 only; noactualmergeturn until reviewer verifiescurrentbase/head/CI/exactheadtrustedLGTM/App/threads and assignsactualturn. Sourceonlyacceptance, no runtimeactivation."
+    },
+    "acceptedAccountRecoveryBaseIntegration": {
+      "source": "96407df9fa217c5df7a256cf9a921c32634c357d",
+      "sourceTree": "f134c8ecbce47a580da5027f01f6538832c03402",
+      "parents": [
+        "b9fb7d895f1f03d61f0931e1d067b65fdb7181fb",
+        "8ea88ce604105879731b0037becc92b49718189a"
+      ],
+      "acceptedMain": "8ea88ce604105879731b0037becc92b49718189a",
+      "acceptedTree": "5f34e9cf5957a8e7a7e648fd4a556244b70d9708",
+      "manifest": {
+        "runtimeRevision": "v1.0.332-account-runtime-recovery-symposium-shared-ui.4",
+        "aPinCount": 613,
+        "acceptedPinCount": 614,
+        "unionPinCount": 618,
+        "mismatches": 0,
+        "resolution": "One actual runtime-revision conflict resolved explicitly; all accepted pin updates/additions retained with 11 A overrides, four A unique additions. No blanket parent/file selection.",
+        "postHooksProof": {
+          "aOwned": 60,
+          "accepted": 454,
+          "incoming": 30,
+          "protected": 8,
+          "pins": 618,
+          "mismatches": 0
+        }
+      },
+      "acceptedSource": "Actual merged #970 retained through history:30nonmanifest files exact,454knownacceptedsource/evidencepaths exact, A60owned including11modules/34captures and8approvedreference/ledgerpaths unchanged. No A implementation/UI behavior change.",
+      "integrationAssessment": {
+        "scope": "All31 acceptedpaths;30nonmanifest payloads retained exact after hooks. The sole actual conflict is runtime revision.",
+        "accountAuthority": "apiRoutingProfile/profileRevision remains current identity; existing configured API accounts become selectable without new enrollment. Central openAIAccountKeyAuthority retains controller/journal custody and rechecks binding/runtime/cancellation; enrolled/managed failure cannot fall back to raw keys. OpenShell API preflight additionally validates pinned provider ID/name/type/workspace without resolving host key.",
+        "codexPreflight": "Host model-discovery metadata launches the owning runtime-selected absolute executable with no lifecycle/thread/turn ability; asserts runtime identity after models.",
+        "adviserRecovery": "Saved signed grant retry is serialized with refresh, scope/subject/ownership/generation/cancellation gated and retains verified rotating credentials without publishing connected state on failed/cancelled discovery. Operator auth + same-origin empty-body retry endpoint; UI uses existing dialog and returns focus to Refresh. No implicit turn or sign-in.",
+        "AInterfaces": "A11 modules/all60owned paths unchanged; draft/auth getter/projection/policy/receipt contracts unchanged. Account availability metadata does not grant joining/dispatch; core still supplies actual authority. All inherited native boundaries remain exact to accepted main.",
+        "manifest": "614accepted pins plus A4 additions,11A overrides; all618 source fingerprints verified with0mismatches. Runtime revision names both accepted recovery and existing A behavior. No other merge edits."
+      },
+      "normalHooks": "passed ESLint/Prettier/gitleaks/commitlint with1GiB heap; commitlint rejected initial merge type, corrected to allowed chore type and normal hooks passed",
+      "reviewContract": "Fresh combined CI (full main suite/build/typechecks/design, three offline layout projects including A/shared/protected/S7 and accepted terminal retry, Swift/browser/Connections) and focused current-head integration follow-up covering manifest resolution plus affected account/native/adviser/auth assumptions. Reuse completed full08 + acceptedb9 follow-up; accepted upstream security changes retained exact, no second full reset solely base/SHA/cap.",
+      "authority": "Human origin merge approval remains; previous credential execution hold resolved. No actual merge turn until reviewer verifies new current gates and assigns turn.",
+      "priorValidation": "b9 CI39295994674 all8workflowjobs/10ordinarychecksSUCCESS; actual trusted followup5575670389 exactb9LGTMmerge0blockers and dedicatedApp56717249212SUCCESS. Retain source-bound history, not green evidence for this new combined head.",
+      "coverageBounds": "No live/model test, native runtime adoption, physicaliOS qualification, staging/deployment or global acceptance closure."
     }
   },
   "integrationHandoff": {
@@ -1468,8 +1508,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "18ec14ed577970e3d430d94bbf93bc99f7ee9565",
-  "acceptedMainMerge": "7ae9230617d05e218399b069e0e6aa9533b15bc6",
+  "latestAcceptedMain": "8ea88ce604105879731b0037becc92b49718189a",
+  "acceptedMainMerge": "96407df9fa217c5df7a256cf9a921c32634c357d",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -1603,10 +1643,10 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "18ec14ed577970e3d430d94bbf93bc99f7ee9565",
+  "integratedAcceptedBase": "8ea88ce604105879731b0037becc92b49718189a",
   "baseRefresh": "Actual acceptedS7 4bac conflict requires integration.604-pin source union with explicit revision+A4-key resolution,all11 A modules/protected/captures unchanged,352 accepted files includingS7/B/C/S9 preserved after hooks. f66 greenCI/old08e baseline retained scoped; new currentCI and targetedintegrationreview/App required. Deniedreviewcredential action staysheld.",
-  "latestValidation": "checks.acceptedFoundationBaseIntegration",
-  "priorAcceptedMainMerge": "482b4f1ad5d994880641b78c67f040a8dbac4521",
+  "latestValidation": "checks.acceptedAccountRecoveryBaseIntegration",
+  "priorAcceptedMainMerge": "7ae9230617d05e218399b069e0e6aa9533b15bc6",
   "acceptedMainMergeHistory": [
     "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
     "163f74748e4c9e782e1f27db7179987fdcb903aa",
@@ -1622,7 +1662,8 @@
     "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23",
     "7624ebccc1f6983d6972673b4ef8c86a06fa675c",
     "482b4f1ad5d994880641b78c67f040a8dbac4521",
-    "7ae9230617d05e218399b069e0e6aa9533b15bc6"
+    "7ae9230617d05e218399b069e0e6aa9533b15bc6",
+    "96407df9fa217c5df7a256cf9a921c32634c357d"
   ],
   "priorIntegrationOwnerSessions": ["01a14b49-df1f-7b82-be70-10be0789161c"]
 }
