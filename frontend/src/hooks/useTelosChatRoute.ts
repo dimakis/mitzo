@@ -9,6 +9,7 @@ import { telosChatListPath } from './useTelosChatOpen';
 import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 import { useTelosSourceNavigation } from './useTelosSourceNavigation';
+import { readTelosItemHistory } from '../lib/telos-item-navigation';
 const api = new TelosWorkApiClient(apiFetch);
 
 /** Select an authorized recorded association, never change the bound chat. */
@@ -50,10 +51,14 @@ export function useTelosChatRoute(conversationId: string | null) {
     };
     const off = eventBus.on('todo_update', refresh),
       offSessions = eventBus.on('sessions_changed', refresh);
+    const offConnection = eventBus.onConnectionChange((connected) => {
+      if (connected) refresh();
+    });
     document.addEventListener('visibilitychange', resume);
     return () => {
       off();
       offSessions();
+      offConnection();
       document.removeEventListener('visibilitychange', resume);
     };
   }, []);
@@ -151,6 +156,17 @@ export function useTelosChatRoute(conversationId: string | null) {
     },
     onItem: () => {
       if (itemId) navigate(`/todos/${encodeURIComponent(itemId)}`, { state: backState });
+    },
+    onOpen: (targetId: string, view?: 'Chat') => {
+      if (!itemId) return;
+      const history = readTelosItemHistory(itemId, backState?.telosHistory);
+      navigate(`/todos/${encodeURIComponent(targetId)}${view ? '?view=Chat' : ''}`, {
+        state: {
+          ...backState,
+          item: undefined,
+          telosHistory: targetId === itemId ? history : [...history, itemId],
+        },
+      });
     },
   };
 }

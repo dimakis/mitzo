@@ -3,7 +3,11 @@ import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
-import { TelosWorkItemSchema, TelosWorkViewSchema } from '@mitzo/protocol';
+import {
+  TelosReviewedSourceViewSchema,
+  TelosWorkItemSchema,
+  TelosWorkViewSchema,
+} from '@mitzo/protocol';
 import { localInventoryFixture } from '../../frontend/src/test-utils/local-inventory-fixture';
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const bundle = build({
@@ -131,6 +135,64 @@ for (const software of [false, true])
       contextHints: record.contextHints,
       goalId: null,
     };
+    const child = TelosWorkItemSchema.parse({
+      ...record,
+      itemId: 'child',
+      parentId: 'slice',
+      summary: 'Check the retained plan',
+    });
+    const childLegacy = { ...legacy, id: 'child', parentId: 'slice', summary: child.summary };
+    const snapshot = {
+      version: 1,
+      snapshotId: 'source-review',
+      itemId: 'slice',
+      source: { namespace: 'mitzo', conversationId: 'worker' },
+      selection: { kind: 'selected', messageIds: ['worker'], blockIds: [], throughSequence: 2 },
+      author: null,
+      sourceCreatedAt: null,
+      adoptedAt: null,
+      artifacts: [],
+      adoptedBrief: null,
+    };
+    const sourceSelection = {
+      requestId: '11111111-1111-4111-8111-111111111111',
+      expectedMembershipRevision: 0,
+      sourceConversationId: 'worker',
+      boundary: { sequence: 2, messageId: 'worker' },
+      mode: 'selected',
+      messageIds: ['worker'],
+      artifacts: [],
+      purpose: 'Retain plan',
+      joiningBrief: '',
+    };
+    const sourceView = TelosReviewedSourceViewSchema.parse({
+      available: true,
+      snapshot,
+      sourceHref: '/chat/worker?telosItem=slice&telosSource=source-review',
+      packet: {
+        version: 1,
+        actorId: 'offline',
+        itemId: 'slice',
+        workRevision: work.revision,
+        selection: sourceSelection,
+        brief: { sha256: 'b'.repeat(64), text: 'Retain the plan' },
+        context: {
+          requestId: sourceSelection.requestId,
+          sourceConversationId: 'worker',
+          boundary: sourceSelection.boundary,
+          mode: 'selected',
+          purpose: 'Retain plan',
+          joiningBrief: '',
+          messages: [],
+          artifacts: [],
+          capacity: { status: 'unverified', reason: 'Offline source inspection' },
+          summary: null,
+        },
+        attributions: {},
+        sourceTitle: 'Worker plan',
+        sourceCreatedAt: null,
+      },
+    });
     let taskDone = false;
     await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
     await page.emulateMedia({
@@ -168,7 +230,27 @@ for (const software of [false, true])
         return route.fulfill({ status: 405, json: { error: 'No implicit writes allowed' } });
       }
       if (path === '/api/todos')
-        return route.fulfill({ json: { profiles: ['manual'], items: [legacy] } });
+        return route.fulfill({
+          json: {
+            profiles: ['manual'],
+            items: [{ ...legacy, children: [childLegacy], childCount: 1 }],
+          },
+        });
+      if (path === '/api/telos/work/items/child/record') return route.fulfill({ json: child });
+      if (path === '/api/telos/work/items/child')
+        return route.fulfill({
+          json: {
+            ...work,
+            itemId: 'child',
+            parentId: 'slice',
+            links: [],
+            assignments: [],
+            sources: [],
+            attempts: [],
+          },
+        });
+      if (path === '/api/telos/work/items/slice/sources/source-review')
+        return route.fulfill({ json: sourceView });
       if (path === '/api/telos/work/items/slice') return route.fulfill({ json: work });
       if (path === '/api/telos/work/items/slice/record') return route.fulfill({ json: record });
       if (path === '/api/telos/work/conversations/links')
@@ -333,7 +415,18 @@ for (const software of [false, true])
             : {},
       });
     });
-    await page.goto('/todos/slice?view=Chat');
+    await page.goto('/todos');
+    await page.getByRole('button', { name: 'Browse categories' }).click();
+    await page
+      .getByLabel('Discover categories')
+      .getByRole('button', { name: 'Job', exact: true })
+      .click();
+    await page.getByRole('searchbox', { name: 'Search Telos tree' }).fill(record.summary);
+    await page.getByRole('button', { name: record.summary, exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Item views' })
+      .getByRole('button', { name: 'Chat', exact: true })
+      .click();
     await expect(page.getByRole('heading', { name: 'Chats · 2' })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Open Assigned worker(?:\b|:)/ })).toContainText(
       'worker conversation',
@@ -416,6 +509,60 @@ for (const software of [false, true])
     await expect(refreshedTree.getByText('active', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Close work tree' }).click();
     await expect(input).toHaveValue('Worker independent draft');
+    await page.evaluate(() =>
+      sessionStorage.setItem('telos.item.history.child', JSON.stringify(['stale-item'])),
+    );
+    const retainedState = await page.evaluate(() => history.state.usr.telosChatReturn.state);
+    await page.getByRole('button', { name: 'Toggle work tree' }).click();
+    await page
+      .getByRole('region', { name: 'Work tree' })
+      .getByRole('button', { name: 'Expand all' })
+      .click();
+    await page
+      .getByRole('region', { name: 'Work tree' })
+      .getByRole('button', { name: child.summary, exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/todos\/child$/);
+    expect(await page.evaluate(() => history.state.usr.activeProfile)).toBe(
+      retainedState.activeProfile,
+    );
+    expect(await page.evaluate(() => history.state.usr.scrollTop)).toBe(retainedState.scrollTop);
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page).toHaveURL(/\/todos\/slice$/);
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page).toHaveURL(/\/todos$/);
+    await expect(page.getByRole('searchbox', { name: 'Search Telos tree' })).toHaveValue(
+      record.summary,
+    );
+    await expect(page.getByRole('button', { name: 'Job', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await page.getByRole('button', { name: record.summary, exact: true }).click();
+    work.sources = [sourceView.snapshot];
+    await page
+      .getByRole('navigation', { name: 'Item views' })
+      .getByRole('button', { name: 'Materials', exact: true })
+      .click();
+    const sourceReturnState = await page.evaluate(() => history.state.usr);
+    await page.getByRole('button', { name: 'Open original chat', exact: true }).click();
+    await expect(page).toHaveURL(/\/chat\/worker\?telosItem=slice&telosSource=source-review$/);
+    await expect(page.getByRole('button', { name: 'View item: ' + record.summary })).toBeVisible();
+    expect(await page.evaluate(() => history.state.usr)).toEqual(sourceReturnState);
+    await expect(input).toHaveValue('Worker independent draft');
+    await page.getByRole('link', { name: 'Back', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Chats · 2' })).toBeVisible();
+    work.links = work.links.filter((link) => link.role !== 'reviewer');
+    await page.evaluate(() => {
+      const events = window.fixtureTodoEvents as EventTarget & {
+        onerror: (() => void) | null;
+        onopen: (() => void) | null;
+      };
+      events.onerror?.();
+      events.onopen?.();
+    });
+    await expect(page.getByRole('heading', { name: 'Chats · 1' })).toBeVisible();
+    await expect(page).toHaveURL(/\/todos\/slice\?view=Chat&chooseChat=1$/);
     expect(writes).toEqual([]);
     expect(errors).toEqual([]);
   });

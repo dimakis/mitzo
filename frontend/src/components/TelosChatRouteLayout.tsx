@@ -27,7 +27,11 @@ export function TelosChatRouteLayout({
       header={header}
       tree={
         route.data && conversationId ? (
-          <TelosChatWorkTree conversationId={conversationId} data={route.data} />
+          <TelosChatWorkTree
+            conversationId={conversationId}
+            data={route.data}
+            onOpen={route.onOpen}
+          />
         ) : null
       }
     >

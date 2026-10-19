@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { z } from 'zod';
 import type {
   TelosWorkRoleContextSelection,
@@ -35,6 +35,7 @@ export function TelosLinkedContext({
   presentationRef?: TelosWorkRolePresentationRef;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const location = useLocation();
   let labels: TelosWorkRolePresentation | undefined;
   if (presentation !== undefined || presentationRef !== undefined) {
     try {
@@ -144,6 +145,7 @@ export function TelosLinkedContext({
               <Link
                 className="session-work-link"
                 to={`/chat/${encodeURIComponent(source.source.conversationId)}?${new URLSearchParams({ telosItem: context.itemId, telosSource: source.snapshotId }).toString()}`}
+                state={location.state}
               >
                 Open original chat
               </Link>

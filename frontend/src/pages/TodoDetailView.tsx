@@ -17,16 +17,13 @@ import { apiFetch } from '../lib/api-fetch';
 import { shareTelosArtifact } from '../lib/share-file';
 import { HomePinButton } from '../components/HomePinButton';
 import { recordTitle } from '../lib/record-title';
+import { parseItemHistory, readTelosItemHistory } from '../lib/telos-item-navigation';
 
 function urgencyLabel(urgency: number): string {
   if (urgency >= 0.8) return 'high';
   if (urgency >= 0.5) return 'medium';
   if (urgency >= 0.2) return 'low';
   return 'minimal';
-}
-
-function parseItemHistory(value: unknown): string[] {
-  return Array.isArray(value) && value.every((id) => typeof id === 'string') ? value : [];
 }
 
 export function TodoDetailView() {
@@ -55,12 +52,7 @@ export function TodoDetailView() {
     }
   }, [historyKey, navigationHistory]);
   function itemHistory() {
-    if (navigationHistory !== undefined) return parseItemHistory(navigationHistory);
-    try {
-      return parseItemHistory(JSON.parse(sessionStorage.getItem(historyKey) ?? '[]'));
-    } catch {
-      return [];
-    }
+    return readTelosItemHistory(id ?? '', navigationHistory);
   }
 
   const navigationItem = (location.state as { item?: TodoItem } | null)?.item;

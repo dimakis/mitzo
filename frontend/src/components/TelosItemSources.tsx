@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { TelosWorkApiClient } from '@mitzo/client';
 import type { TelosWorkSourceSnapshot, TelosWorkSessionLink } from '@mitzo/protocol';
 import type { TodoSource } from '../types/todo';
@@ -20,6 +20,7 @@ export function TelosItemSources({
   onOpenExternal: (url: string) => void;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [result, setResult] = useState<{
     itemId: string;
     sources: TelosWorkSourceSnapshot[];
@@ -85,7 +86,7 @@ export function TelosItemSources({
       if (controller.signal.aborted || currentItem.current !== itemId) return;
       if (!view.available)
         throw Error('Original conversation unavailable. Retained sources are preserved.');
-      navigate(view.sourceHref);
+      navigate(view.sourceHref, { state: location.state });
     } catch {
       if (!controller.signal.aborted && currentItem.current === itemId)
         setError('Original conversation unavailable. Retained sources are preserved.');

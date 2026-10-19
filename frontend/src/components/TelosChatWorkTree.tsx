@@ -1,4 +1,3 @@
-import { useNavigate } from 'react-router-dom';
 import type { TelosChatRoute } from '../hooks/useTelosChatRoute';
 import { useTodoData } from '../hooks/useTodoData';
 import { useTelosRecords } from '../hooks/useTelosRecords';
@@ -11,11 +10,12 @@ import type { Task } from '../types/task';
 export function TelosChatWorkTree({
   conversationId,
   data,
+  onOpen,
 }: {
   conversationId: string;
   data: NonNullable<TelosChatRoute['data']>;
+  onOpen: TelosChatRoute['onOpen'];
 }) {
-  const navigate = useNavigate();
   const collection = useTodoData();
   const ids = [data.itemId];
   function collect(items: typeof collection.items) {
@@ -65,9 +65,7 @@ export function TelosChatWorkTree({
         selectedId={data.itemId}
         storageKey={`telos.chat.tree.${data.itemId}`}
         refreshKey={canonical.refreshKey}
-        onOpen={(id, view) =>
-          navigate(`/todos/${encodeURIComponent(id)}${view ? '?view=Chat' : ''}`)
-        }
+        onOpen={onOpen}
       />
       {tasks.map((task) => (
         <p key={task.id} className="telos-chat-execution">
