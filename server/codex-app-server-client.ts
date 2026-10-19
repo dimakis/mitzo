@@ -497,6 +497,26 @@ export class CodexAppServerClient {
     return this.launchHost(credentialRef, base, lifecycle, false);
   }
 
+  /** Metadata only, using the native executable selected by the owning runtime.
+   * No lifecycle means this transport cannot start threads or model turns.
+   */
+  static launchPreflight(
+    credentialRef: string,
+    executablePath: string,
+    base: NodeJS.ProcessEnv = process.env,
+  ) {
+    if (!isAbsolute(executablePath)) throw new Error('Codex executable must be absolute');
+    return this.launchHost(
+      credentialRef,
+      base,
+      undefined,
+      false,
+      undefined,
+      'chatgpt',
+      executablePath,
+    );
+  }
+
   /** Only the private bootstrap owner supplies this home, after durable effect
    * admission. File-only custody prevents a shared keychain login from replacing
    * the frozen account. The original configured profile remains routing identity.
@@ -597,13 +617,15 @@ export class CodexAppServerClient {
     isolated: boolean,
     executable?: FrozenHostCodexExecutable,
     authentication: 'chatgpt' | 'api' = 'chatgpt',
+    preflightExecutable?: string,
   ) {
     const env = codexEnvironment(credentialRef, base);
-    assertHostCodexRuntimeVersion(isolated ? env : base, executable?.path);
+    const executablePath = executable?.path ?? preflightExecutable;
+    assertHostCodexRuntimeVersion(isolated ? env : base, executablePath);
     executable?.assertCurrent();
     return new CodexAppServerClient(
       spawn(
-        executable?.path ?? 'codex',
+        executablePath ?? 'codex',
         [
           'app-server',
           '--stdio',

@@ -3,7 +3,7 @@
   "parent": "c0851ba23fcc5d04",
   "milestone": "358d56cb7e4352ff",
   "ownerSession": "01a14bdc-6a35-7041-abf2-0f6761daf29a",
-  "integrationOwnerSession": "01a14b49-df1f-7b82-be70-10be0789161c",
+  "integrationOwnerSession": "01a1510b-0f0a-7e52-8021-c5223e696019",
   "acceptanceOwnerSession": "01a14bdc-d152-7912-84d4-c0012e9d5206",
   "capturedSource": "62c89aff166c6133ccc01aa95c8ff7aaa589241d",
   "canonicalRecords": [
@@ -135,7 +135,9 @@
       "HTTP408 originally cleared pending policy identity; genuine RED now passes with408/429/5xx retaining the original request.",
       "The initial final batch was pushed before inspecting completed ancestor CI; its stale manifest failures required a second narrow pin-only push. Normal hooks and required gates were retained.",
       "Core source audit found successful policy PUT followed by failed GET could strand Saving. Four real-hook regression cases reproduced it; final suite includes six cases with superseded reads.",
-      "Intermediate recovery browser matrix6failed/2startup passed because deferred React state publication replaced the actual read diagnostic with generic copy. Internal read now returns the error directly; final matrix6UI+2startup passes without weakening assertions."
+      "Intermediate recovery browser matrix6failed/2startup passed because deferred React state publication replaced the actual read diagnostic with generic copy. Internal read now returns the error directly; final matrix6UI+2startup passes without weakening assertions.",
+      "CI77ce exposed a63.671875px serif intrinsic name width below protected64px minimum. macOS Georgia protected test passed; exact Times New Roman fallback RED reproduced on both mobile engines. Shared-token name-track floor repairs production layout; protected tests unchanged;12UI+2startup final matrix passes.",
+      "Accepted Tool Builder main9767 caused only generated runtime version conflict. Full accepted+A pin union verified553/zero mismatch; first focused run hit two sandboxed disposable-listener EPERM errors, then same27 files/323 tests passed outside Seatbelt with zero errors. No UI rerender for byte-identical base/manifest merge."
     ],
     "retainedComposerRegression": {
       "files": 5,
@@ -444,6 +446,1037 @@
       "captureClosure": "git diff153fbe4d..163f747 across all A UI/API/controller/draft/projection/fixture/spec files is empty. Every retained capture hash verified unchanged; existing captures retain their exact recorded source bounds.",
       "gates": "Prior153fbe4d had no exact-head check/status and a cancelled status-writer workflow. Existing Centaur queue independently inspected read-only:153 job4760 and2ae job4753 queued, no published reviews; do not submit duplicate review or count old gate success as approval. Exact resulting-head CI/job scheduling must be verified after push, outside this commit.",
       "remaining": "Draft; exact-head full CI and two qualifying trusted review rounds/final LGTM still required. Combined actual app and physical iOS acceptance remain open."
+    },
+    "serifNameFloor": {
+      "source": "fe4f811b0245f5911cd45a74939c8b855d095830",
+      "previousHead": "77ce9a27037c737066b83eeb229b6dc5bf6de09b",
+      "ciFinding": {
+        "run": "https://github.com/dimakis/mitzo/actions/runs/39078550433",
+        "mobileWebkitJob": 117531561854,
+        "mobileChromiumJob": 117531561864,
+        "failure": "Unchanged symposium-approved-design.spec.ts participant-name width assertion >=64 failed at63.671875 in dark Georgia/serif fallback.",
+        "otherChecks": "That head passed ci, Browser interaction tests, desktop offline and Native Swift tests/builds. Connections browser regression was only the aggregate rejecting the mobile offline failures, not a separate connections defect.",
+        "retainedArtifact": {
+          "id": 12118467741,
+          "name": "playwright-offline-failure-mobile-webkit-39078550433-1",
+          "inspection": "CI screenshot shows complete Architect glyphs with remaining count and adjacent controls; narrowed box is font intrinsic width, not clipping. Screenshot/trace retained in task ci-header-red."
+        }
+      },
+      "red": "Existing protected dark journeys passed on macOS Georgia. Selecting CI-equivalent Times New Roman/serif in the owned real-component fixture reproduced exact63.671875 width and failed unchanged >=64 behavior on both mobile engines; traces retained in task serif-name-floor-red. No protected assertion or reference was changed.",
+      "repair": "ConversationAgents.css names track reserves min(100%, calc(2 * var(--space-6))) using existing spacing scale:64px at16px root type. Count remains nonshrinking, adjacent, and inside the trigger. No font substitution, viewport/container threshold, name count formula, or joining change in production.",
+      "protectedTest": {
+        "path": "tests/offline/symposium-approved-design.spec.ts",
+        "sha256": "9ac87c581b795a899a5d137d56ae0f0ba3cdd196b3369987b93dfe1dd084aea1",
+        "unchanged": true
+      },
+      "referenceSha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+      "unit": {
+        "files": 5,
+        "passed": 36,
+        "failed": 0,
+        "seconds": 3.03,
+        "suites": [
+          "ConversationAgentsHeader",
+          "ConversationAgents",
+          "ConversationPolicyFeedback",
+          "collaboration-conversation-artifacts",
+          "connection-template-registry"
+        ],
+        "bounds": "Focused post-CSS checks; earlier285/24 accepted-base run retained separately, not claimed as a fresh rerun."
+      },
+      "design": {
+        "passed": 108,
+        "existingCiBaseRefSkip": 1
+      },
+      "types": "Focused TypeScript including browser spec passed",
+      "lint": "Changed spec/manifest ESLint and normal hooks pass",
+      "browser": {
+        "passedUiCases": 12,
+        "startupDependencies": 2,
+        "failed": 0,
+        "retries": 0,
+        "seconds": 35.9,
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 npx playwright test --config playwright.offline.config.ts tests/offline/symposium-approved-design.spec.ts tests/offline/symposium-shared-conversation.spec.ts --workers=1",
+        "projects": ["mobile-webkit", "mobile-chromium", "desktop-chromium"],
+        "coverage": "Both untouched protected approved-design journeys and owned shared-conversation journeys in light/dark. Protected mobile320/390 + desktop1280 and large text20px remain. Owned serif fallback metrics at320/390 retain >=64 names area, adjacent count <=8px and contained count, with original body font restored before interaction tests."
+      },
+      "measurements": [
+        {
+          "project": "mobile-webkit",
+          "theme": "dark",
+          "measurements": [
+            {
+              "width": 320,
+              "nameTrackWidth": 64,
+              "countGap": 4,
+              "fontFamily": "Times New Roman, serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            },
+            {
+              "width": 390,
+              "nameTrackWidth": 140.96875,
+              "countGap": 4,
+              "fontFamily": "Times New Roman, serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            }
+          ]
+        },
+        {
+          "project": "mobile-webkit",
+          "theme": "light",
+          "measurements": [
+            {
+              "width": 320,
+              "nameTrackWidth": 64,
+              "countGap": 4,
+              "fontFamily": "Times New Roman, serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            },
+            {
+              "width": 390,
+              "nameTrackWidth": 140.96875,
+              "countGap": 4,
+              "fontFamily": "Times New Roman, serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            }
+          ]
+        },
+        {
+          "project": "mobile-chromium",
+          "theme": "dark",
+          "measurements": [
+            {
+              "width": 320,
+              "nameTrackWidth": 64,
+              "countGap": 4,
+              "fontFamily": "\"Times New Roman\", serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            },
+            {
+              "width": 390,
+              "nameTrackWidth": 140.984375,
+              "countGap": 4,
+              "fontFamily": "\"Times New Roman\", serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            }
+          ]
+        },
+        {
+          "project": "mobile-chromium",
+          "theme": "light",
+          "measurements": [
+            {
+              "width": 320,
+              "nameTrackWidth": 64,
+              "countGap": 4,
+              "fontFamily": "\"Times New Roman\", serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            },
+            {
+              "width": 390,
+              "nameTrackWidth": 140.984375,
+              "countGap": 4,
+              "fontFamily": "\"Times New Roman\", serif",
+              "fontSize": "16px",
+              "glyphWidth": 63.671875
+            }
+          ]
+        }
+      ],
+      "runtimeManifest": {
+        "file": "server/connections/reviewed-handler-artifacts.ts",
+        "changedEntry": "../../frontend/src/components/ConversationAgents.css",
+        "sha256": "11987888ab05191634c9bc7044f4907f57f3f6e8a91bf1f271af046f1f676022",
+        "revision": "v1.0.286-codex-agent-tools-sandbox-review.1-symposium-shared-ui.4",
+        "sourcePins": 547,
+        "mismatches": 0,
+        "bounds": "Only owned CSS hash and distinct suffix changed; unrelated accepted/core entries retained."
+      },
+      "captures": [
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-webkit-320-dark.png",
+          "sha256": "ae6c35c3b62c55c95c394f614d432bfb6442af149c4c6f2e07ea3948e92963a3",
+          "kind": "actual header, 320px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-webkit-390-dark.png",
+          "sha256": "b9042d6408f18ff93f15d7280af6aabb3a357a8af1c6e51ec91ca5575b949a0e",
+          "kind": "actual header, 390px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-webkit-320-light.png",
+          "sha256": "ff9ea6cf6441e463e22892faed30f9f8d83990bb0ee34344074dceb17ded9df4",
+          "kind": "actual header, 320px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-webkit-390-light.png",
+          "sha256": "bf9ffdc366a8b283434a2a95a31953a4c12cec2a30d0544a94a6f61680f590b3",
+          "kind": "actual header, 390px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-chromium-320-dark.png",
+          "sha256": "aec8b23ee8421c7070b56e632832dc150a48574e62908f83d9a22f8e5f29a9dc",
+          "kind": "actual header, 320px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-chromium-390-dark.png",
+          "sha256": "61f49b7a6ae6604f08ac674d97694ea8671114463a2ff384dd4a6df7d47229bf",
+          "kind": "actual header, 390px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-chromium-320-light.png",
+          "sha256": "04d2d1a89692b77ceacee111d5f8707a20e832f8a76a1f061b36c30b2083fefe",
+          "kind": "actual header, 320px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        },
+        {
+          "path": "docs/design/assets/symposium-serif-header-mobile-chromium-390-light.png",
+          "sha256": "2cd896b5c9dfcf359391fb969a5c101dbec0db0b9403f08b508f227ef51a593f",
+          "kind": "actual header, 390px viewport, Times New Roman/serif fallback at16px; count remains adjacent"
+        }
+      ],
+      "visualInspection": [
+        "Retained failing CI320px mobile WebKit screenshot: full first name/count, no ellipsis, ordinary adjacent controls present.",
+        "Fixed Times New Roman header mobile WebKit320dark: first name+2, readable area64px vs63.671875 glyph;4px count gap.",
+        "Fixed mobile Chromium390light: first two names+1, complete text,4px count gap."
+      ],
+      "remaining": "Fresh exact-head CI and trusted review required; C independent new-crop inspection and core combined app/native iOS acceptance remain separate. Core alone repairs its combined AUTH_LOST_EVENT mock/header fixture issues.",
+      "latestAcceptedInspection": {
+        "main": "95ead865732f0351e8aaa64af5e387e9deea76e5",
+        "change": "Accepted#1017 adds Telos canonical foundation fixtures/docs and a narrow draft browser fixture correction; no production sources or A-owned files changed.",
+        "mergeTree": "e389fb9daa65ed9b56797d6803e8bded620d9871",
+        "conflicts": 0,
+        "action": "Retain integrated13669901 base because no dependency/conflict requires another merge; final normal CI validates the proposed merge."
+      },
+      "independentStaticInspection": {
+        "owner": "C",
+        "source": "80231b039682b912f3ea6ea43b52293e3e30e37a",
+        "renderSource": "fe4f811b0245f5911cd45a74939c8b855d095830",
+        "renderTree": "49b30c2045e6204cd6e3752e92c04d2f98c99287",
+        "publishedCHead": "3bc38d04a779b3d81543349513faa8f698f48169",
+        "images": 8,
+        "result": "C viewed/retained/hash-verified all eight320/390 mobile WebKit/Chromium light/dark crops: readable adjacent names/counts, no visible ellipsis/overlap/duplicate, distinct right chevron. Protected spec byte equality to77 and frozen HTML hash independently verified.",
+        "bounds": "That static inspection did not establish DOM dimensions, interaction behavior or exact-head CI."
+      },
+      "independentCombinedBrowser": {
+        "owner": "C",
+        "coreSource": "c534",
+        "cOverlay": "b580",
+        "publishedCHead": "6b8f9f97",
+        "receipt": "C single map and c534-browser-independent evidence in draftPR1022",
+        "passedUiCases": 12,
+        "startupDependencies": 2,
+        "failed": 0,
+        "skipped": 0,
+        "retries": 0,
+        "seconds": 37.18,
+        "execution": "One worker/1GiB, approved outside Seatbelt, unchanged protected+shared specs, three projects/both themes.",
+        "measurements": "Six raw DOM files/twelve rows independently measure320px name track64px and gap4px. Eight selected C-run captures viewed/retained, including serif320/390, setup/footer/large text, policy GET-confirmation recovery/refusal and retained partial success.",
+        "bounds": "No protected assertion/reference/tolerance/CSS change. Original static receipts retain original source bounds. Bounded DOM/interaction advancement does not qualify full backend joining/native iOS; actual join503 persists."
+      }
+    },
+    "toolBuilderAcceptedBaseIntegration": {
+      "source": "ae4ec0b1eb1eac06a786bd7bff82f280b0d0f1dc",
+      "acceptedMain": "9767edf8c1b8f220627ed30837ae65ab9cc45a85",
+      "previousHead": "80231b039682b912f3ea6ea43b52293e3e30e37a",
+      "manifest": {
+        "acceptedMain": "9767edf8c1b8f220627ed30837ae65ab9cc45a85",
+        "previousHead": "80231b039682b912f3ea6ea43b52293e3e30e37a",
+        "acceptedPinCount": 549,
+        "aPinCount": 547,
+        "unionPinCount": 553,
+        "mismatches": 0,
+        "aOwnedPreserved": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "aOwnedBytesVerifiedUnchanged": [
+          "docs/design/assets/symposium-corrected-desktop-chromium-header-390-dark.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-header-390-light.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-header-desktop-column-320-dark.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-header-desktop-column-320-light.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-policy-pending-dark.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-policy-pending-light.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-policy-refusal-dark.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-policy-refusal-light.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-shared-dark.png",
+          "docs/design/assets/symposium-corrected-desktop-chromium-shared-light.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-header-390-dark.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-header-390-light.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-policy-pending-dark.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-policy-pending-light.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-policy-refusal-dark.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-policy-refusal-light.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-shared-dark.png",
+          "docs/design/assets/symposium-corrected-mobile-webkit-shared-light.png",
+          "docs/design/assets/symposium-policy-refresh-needed-desktop-chromium-dark.png",
+          "docs/design/assets/symposium-policy-refresh-needed-desktop-chromium-light.png",
+          "docs/design/assets/symposium-policy-refresh-needed-mobile-webkit-dark.png",
+          "docs/design/assets/symposium-policy-refresh-needed-mobile-webkit-light.png",
+          "docs/design/assets/symposium-serif-header-mobile-chromium-320-dark.png",
+          "docs/design/assets/symposium-serif-header-mobile-chromium-320-light.png",
+          "docs/design/assets/symposium-serif-header-mobile-chromium-390-dark.png",
+          "docs/design/assets/symposium-serif-header-mobile-chromium-390-light.png",
+          "docs/design/assets/symposium-serif-header-mobile-webkit-320-dark.png",
+          "docs/design/assets/symposium-serif-header-mobile-webkit-320-light.png",
+          "docs/design/assets/symposium-serif-header-mobile-webkit-390-dark.png",
+          "docs/design/assets/symposium-serif-header-mobile-webkit-390-light.png",
+          "docs/design/assets/symposium-shared-desktop-chromium-dark.png",
+          "docs/design/assets/symposium-shared-desktop-chromium-light.png",
+          "docs/design/assets/symposium-shared-mobile-webkit-dark.png",
+          "docs/design/assets/symposium-shared-mobile-webkit-light.png",
+          "frontend/src/components/ChatArea.tsx",
+          "frontend/src/components/ChatInput.tsx",
+          "frontend/src/components/CollaborationTranscript.css",
+          "frontend/src/components/CollaborationTranscript.tsx",
+          "frontend/src/components/ComposerResponders.tsx",
+          "frontend/src/components/ConversationAgents.css",
+          "frontend/src/components/ConversationAgents.tsx",
+          "frontend/src/components/__tests__/ChatAreaMetadata.test.tsx",
+          "frontend/src/components/__tests__/ChatInputResponders.test.tsx",
+          "frontend/src/components/__tests__/CollaborationTranscript.test.tsx",
+          "frontend/src/components/__tests__/ComposerRespondersPolicy.test.tsx",
+          "frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx",
+          "frontend/src/components/__tests__/ConversationPolicyFeedback.test.tsx",
+          "frontend/src/hooks/__tests__/useConversationPresentation.test.tsx",
+          "frontend/src/hooks/useConversationPresentation.ts",
+          "frontend/src/lib/__tests__/conversation-draft-intent.test.ts",
+          "frontend/src/lib/__tests__/conversation-presentation.test.ts",
+          "frontend/src/lib/chat-drafts.ts",
+          "frontend/src/lib/conversation-presentation.ts",
+          "packages/client/src/__tests__/collaboration-projection-replay.test.ts",
+          "packages/client/src/collaboration-projection.ts",
+          "tests/fixtures/symposium-shared-conversation-data.ts",
+          "tests/fixtures/symposium-shared-conversation.tsconfig.json",
+          "tests/fixtures/symposium-shared-conversation.tsx",
+          "tests/offline/symposium-shared-conversation.spec.ts"
+        ],
+        "runtimeRevision": "v1.0.304-tool-builder-review.1-symposium-shared-ui.4",
+        "conflict": "Generated runtime version only"
+      },
+      "unit": {
+        "passed": 323,
+        "files": 27,
+        "failed": 0,
+        "unhandledErrors": 0,
+        "seconds": 26.75,
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 npx vitest run <original21 A files plus collaboration-conversation-artifacts, connection-template-registry, sandbox-ownership-artifacts, tool-builder, tool-builder-review, symposium-access-tools> --maxWorkers=1",
+        "execution": "Approved outside Seatbelt for disposable Supertest listeners; synthetic offline transport, zero model calls.",
+        "history": "First sandboxed run:321 passed/2 failed/2 unhandled listener EPERM errors, not product failures. Re-ran the same complete27 suites outside Seatbelt:323 passed/zero errors. Both logs retained in task root; no tests weakened."
+      },
+      "types": "Focused source/fixture TypeScript passed",
+      "lint": "Focused manifest and normal merge eslint/prettier/gitleaks hooks passed",
+      "renders": "Not re-run solely for base/manifest merge. Every A UI/component/controller/fixture/spec and retained capture byte is unchanged from80231; source-specific C render/DOM receipts retain original bounds. Normal final CI still exercises proposed merged source.",
+      "reviewHistory": {
+        "id": "PRR_kwDOR2Rn9s8AAAABS3R8WA",
+        "author": "dimakis",
+        "commit": "80231b039682b912f3ea6ea43b52293e3e30e37a",
+        "state": "COMMENTED",
+        "submittedAt": "2026-10-18T01:09:59Z",
+        "report": "Centaur LGTM, recommendation merge, zero new/unresolved blockers and no follow-ups.",
+        "ciRun": 39082899577,
+        "ci": "All listed unit/server/browser/mobile/desktop/native/aggregate jobs passed on80231.",
+        "appStatus": "Centaur final LGTM was still pending when refreshed; old writer success does not substitute for current App status.",
+        "bounds": "One actual clean historical report retained. New combined head requires current CI and a full final exact-head trusted review; no human merge authority."
+      },
+      "remaining": "After push verify normal exact-head CI and review queue; request the missing full final whole-PR review through the existing authenticated service without duplicate job/model configuration changes. Draft remains unqualified for landing."
+    },
+    "priorityAcceptedBaseIntegration": {
+      "source": "209385f5c988abfc524b59812053ac15eae40f57",
+      "previousHead": "b98ff330481b6224e31a6b02714c50ade7855f49",
+      "acceptedMain": "0a048b5b0ef096e181a7ddb09b088c956870aab8",
+      "manifest": {
+        "previousHead": "b98ff330481b6224e31a6b02714c50ade7855f49",
+        "acceptedMain": "0a048b5b0ef096e181a7ddb09b088c956870aab8",
+        "acceptedPins": 558,
+        "aPins": 553,
+        "unionPins": 562,
+        "mismatches": 0,
+        "aOwnedPreserved": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "runtime": "v1.0.306-telos-priority-tool-development-symposium-shared-ui.4",
+        "protectedTestUnchanged": true,
+        "acceptedLedgerPreservedExactly": true,
+        "allPriorLedgerEntriesPreserved": true,
+        "globalStyles": "Incoming global.css adds only scoped .todo priority controls/badges/error classes; A component/fixture bytes unchanged."
+      },
+      "unit": {
+        "passed": 358,
+        "files": 33,
+        "skipped": 2,
+        "failed": 0,
+        "unhandledErrors": 0,
+        "seconds": 29.12,
+        "command": "NODE_OPTIONS=--max-old-space-size=1024 npx vitest run <prior27 files plus tool-builder-installation, tool-builder-test-runner, tool-builder-workspace, todo-priority-schema, TodoPrioritySelect, todo-priority> --maxWorkers=1",
+        "execution": "Outside Seatbelt for disposable Supertest listeners; one worker/1GiB.",
+        "skipReason": "Two accepted OS-development-runner cases use existing MITZO_SANDBOX_INTEGRATION opt-in; that mode was not selected or enabled. No test/condition changed.",
+        "counts": "Historical323/27 and earlier totals overlap; do not add."
+      },
+      "design": {
+        "passed": 108,
+        "existingCiBaseRefSkip": 1,
+        "seconds": 3.04
+      },
+      "types": "Focused source/fixture TypeScript passed",
+      "lint": "Focused manifest ESLint plus all accepted merge sources through normal hooks passed",
+      "renderBounds": "No additional rerender solely for accepted-base merge. A UI/fixture/spec bytes unchanged. Incoming global.css adds only .todo priority classes; no A selectors/type/spacing tokens altered. Earlier producer/C actual renders/DOM evidence retain their exact source bounds; normal new-head CI validates current composition.",
+      "protectedEvidence": "Accepted ledger matches0a048b5b exactly, including newly approved priority surface; every prior ledger entry equal to old source. Symposium protected test/reference/capture bytes retained; no approval or assertion amendment by A.",
+      "cleanHistoricalReports": [
+        {
+          "id": "PRR_kwDOR2Rn9s8AAAABS3R8WA",
+          "commit": "80231b039682b912f3ea6ea43b52293e3e30e37a",
+          "submittedAt": "2026-10-18T01:09:59Z",
+          "state": "COMMENTED",
+          "recommendation": "merge",
+          "newBlocking": 0,
+          "unresolvedBlocking": 0
+        },
+        {
+          "id": "PRR_kwDOR2Rn9s8AAAABS3cUvA",
+          "commit": "b98ff330481b6224e31a6b02714c50ade7855f49",
+          "submittedAt": "2026-10-18T02:09:46Z",
+          "state": "COMMENTED",
+          "recommendation": "merge",
+          "newBlocking": 0,
+          "unresolvedBlocking": 0,
+          "job": 4863,
+          "jobState": "complete/succeeded/attempt1/revision0/force0",
+          "ci": "All10 listed ordinary/workflow checks succeeded; final LGTM context pending."
+        }
+      ],
+      "reviewBounds": "Two actual clean reports retained as historical source evidence. Neither approves the forthcoming head. A full final current-head trusted report/App gate and current CI remain required.",
+      "authorization": "One earlier human approval question for credential-backed full-review queue update remains pending after automatic approval rejection. That rejected command never executed; no credential read, queue mutation, retry, bypass or duplicate/obsolete review request. Completed old4863 is not a target for another obsolete b98 review. Normal automatic scheduling may proceed on new head; no manual upgrade is performed.",
+      "remaining": "Verify fresh exact-head CI/automatic queue after push; preserve full final review/approval gate. No merge/live/runtime/staging/deployment authority."
+    },
+    "catalogContextAcceptedBaseIntegration": {
+      "source": "383caf4e5323d9b9641f10613666bc98117a9fbd",
+      "sourceTree": "01934fdbd56e2012aa8f3e3fa8c41086e43eeb06",
+      "parents": [
+        "e28a48013b264d3331ef7e5f6a97c87662424bf6",
+        "09276da4ac8f21ff748d2d80ecf136cc47ce0d5b"
+      ],
+      "manifest": {
+        "previousHead": "e28a48013b264d3331ef7e5f6a97c87662424bf6",
+        "acceptedMain": "09276da4ac8f21ff748d2d80ecf136cc47ce0d5b",
+        "acceptedPins": 566,
+        "aPins": 562,
+        "unionPins": 570,
+        "mismatches": 0,
+        "aOwnedPreserved": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "runtime": "v1.0.314-custom-tool-catalog.1-telos-context.1-symposium-shared-ui.4",
+        "aComponentFixtureAndProtectedBytesUnchanged": true,
+        "ledgerUnchanged": true,
+        "localTests": "Not launched under observed host load102.25/105.03/88.06; fresh remote CI required.",
+        "newManualReviewRequest": false
+      },
+      "staticChecks": "Full source-pin union and every selected A/protected/reference/capture byte verified before and after normal merge hooks. All accepted non-A pins match accepted parent; all11 A-owned pins match A parent.",
+      "hooks": "Normal ESLint/prettier on accepted merge sources and gitleaks passed; one-GiB Node heap.",
+      "localExecution": "No local test suite, typecheck or browser launched for this merge under directly observed host load102.25/105.03/88.06. This is not a current-head test pass; normal remote CI is required.",
+      "priorValidationBounds": "e28 ordinary CI jobs all succeeded. Earlier358/33 local source results,2 existing opt-in skips, and source-specific producer/C render/DOM receipts retain exact historical bounds; none is relabelled as a new-head result.",
+      "dependencies": "Accepted ChatView/DesktopChatView, Agent Builder/task/profile-picker, ToolPill, native/catalog/custom-tool and TelosLinkedContext dependency changes retained. A direct component/fixture bytes unchanged does not prove the entire accepted dependency graph renders identically; no new UX acceptance claim.",
+      "reviewState": "Actual80231 and b98 clean reports remain historical. Existing normal jobs may resume after Centaur recovery. No manual enqueue/replacement, credential read/retry, forced upgrade, duplicate or obsolete review request. One existing specific approval question stays separate and pending.",
+      "nextGate": "After push verify current-head mergeability/normal CI/automatic queue. New head still requires current CI, full final exact-head trusted report and App gate; no merge authority."
+    },
+    "rootCombinedVisualReadonlyInspection": {
+      "source": "5ee4962e43895f0e823ba4ff1129246f9049fce9",
+      "rawReport": "/private/tmp/symposium-0a048-browser.json",
+      "taskReceipt": "root-0a048-browser-readonly-inspection.json",
+      "status": "Failed/incomplete:5 timeouts,1 interrupted,6 unrun,2 startup pass.",
+      "finding": "Read-only trace/source inspection isolated no concrete selector/rendering defect. Broad slow page/goto/screenshot operations; Chromium Cancel error recorded after teardown starts. Hostload plausibility is not causality or a flake exception.",
+      "bounds": "No new test/browser/source/reference/timeout action; root and owning reviewer received report. Root actual joining/native qualification remains independent; native permission-fixture failures belong to core owners."
+    },
+    "s5AcceptedBaseIntegration": {
+      "source": "23f29466835d9288505f5948549d7222d58ca0aa",
+      "sourceTree": "bf1444440cdbbbdb05f0551104587c46f89cd7bd",
+      "parents": [
+        "c55295c523d579ef1df015db75b9b110255eab08",
+        "fdd95797499a3a6dcad3322af303e958fdbfed19"
+      ],
+      "manifest": {
+        "acceptedMain": "fdd95797499a3a6dcad3322af303e958fdbfed19",
+        "previousHead": "c55295c523d579ef1df015db75b9b110255eab08",
+        "acceptedPinCount": 580,
+        "aPinCount": 570,
+        "unionPinCount": 584,
+        "mismatches": 0,
+        "runtimeRevision": "v1.0.317-telos-s5.1-symposium-shared-ui.4",
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "chatAreaDelta": "Exactly accepted S5 import and Boolean(telosWorkerReceipt(block, sessionId)) keepVisible check; all original A code retained. Pin recomputed from merged module.",
+        "chatAreaSha256": "7bf3ed3548c6e7d4bc2700a035897427e44d96cd3ec31e1ec87d911503fc6e80",
+        "acceptedChangedFilesVerified": 71,
+        "protectedSpecUnchanged": true,
+        "ledger": "Accepted S5 ledger preserved byte-for-byte; approved prior entries retained.",
+        "localTests": "Not launched under directly observed load149.10/155.72/156.00; current remote CI required.",
+        "postHooksProof": "All584 pins match; unchanged A bytes and all71 accepted non-overlap changed files verified after normal hooks."
+      },
+      "staticChecks": "Exact accepted S5 two-line ChatArea addition composed with A unchanged behavior; other10 A modules/fixtures/protected/captures unchanged. Accepted worker receipt/custody sources and updated design ledger byte-identical. All584 combined source pins match after normal hooks.",
+      "hooks": "Normal ESLint/prettier/gitleaks and commitlint passed with one-GiB Node heap.",
+      "localExecution": "Not launched under directly observed load149.10/155.72/156.00; current remote CI required.",
+      "priorValidationBounds": "All c552 ordinary CI jobs succeeded (CI39117095065), final Centaur LGTM pending. Historical unit/design/browser counts and80231/b98 trusted clean reports retain their original source bounds, with no new UX acceptance or current-head test-pass claim.",
+      "integration": "Core receives ancestry/manifest delta and exact accepted ChatArea addition only. No A/header patch replay; core owns mounting/joining/native/reader composition.",
+      "reviewState": "Fresh exact-head CI, full final trusted review and App gate required. Normal automatic scheduling only. Existing credential-action approval question remains separate; no credential read, manual enqueue/replacement/upgrade/retry or new permission question.",
+      "authorization": "No merge, runtime, model-call, staging, activation or deployment authority."
+    },
+    "canonicalAdvisorAcceptedBaseIntegration": {
+      "source": "8c291a207760fce5fd436ccfcb47f9e6a8dabcfe",
+      "sourceTree": "3851fb1620b7177da987e01bb1f8fa94ce0f2efe",
+      "parents": [
+        "976750b775fc346babb96b9e34cf1a249eec417e",
+        "117783fdf920f13e5e3b710d04d17f9cd46f5782"
+      ],
+      "manifest": {
+        "previousHead": "976750b775fc346babb96b9e34cf1a249eec417e",
+        "acceptedMain": "117783fdf920f13e5e3b710d04d17f9cd46f5782",
+        "acceptedMainTree": "22fd17ffdc936f0aec570cd726bae9e5711870dd",
+        "acceptedMainParents": ["fdd95797499a3a6dcad3322af303e958fdbfed19"],
+        "aPinCount": 584,
+        "acceptedPinCount": 580,
+        "unionPinCount": 584,
+        "mismatches": 0,
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "protectedSpecAndLedgerUnchanged": true,
+        "acceptedChangedNonManifestFilesByteIdentical": 10,
+        "runtimeRevision": "v1.0.318-telos-canonical-advisor.1-symposium-shared-ui.4",
+        "conflict": "Generated runtime revision only",
+        "localExecution": "No local test/typecheck/browser under observed hostload138.62/150.51/132.40; fresh remote CI required.",
+        "postHooksProof": "All584 pins match;11 A modules/fixtures/protected/ref/captures and10 accepted non-manifest changed files verified byte-identical after normal hooks."
+      },
+      "staticChecks": "All584 pins match;11 A modules/fixtures/protected/ref/captures and10 accepted non-manifest changed files verified byte-identical after normal hooks.",
+      "hooks": "Normal ESLint/prettier/gitleaks/commitlint passed with one-GiB Node heap. Initial hook caught duplicate manifest declaration introduced during resolution; removed before successful commit.",
+      "localExecution": "No local test/typecheck/browser under observed hostload138.62/150.51/132.40; fresh remote CI required.",
+      "priorValidationBounds": "All10 ordinary checks at976750b7 succeeded (CI39119662531). Actual full-final job4949r1 completed/succeeded and trusted report5562752163 LGTM/merge zero new+unresolved blockers; final LGTM App context was still pending. Source-specific prior UI/DOM and unit receipts stay historical; no new-head test/UX approval claim.",
+      "actualPriorFullFinalReview": {
+        "id": 5562752163,
+        "nodeId": "PRR_kwDOR2Rn9s8AAAABS5Dcow",
+        "commit": "976750b775fc346babb96b9e34cf1a249eec417e",
+        "submittedAt": "2026-10-18T11:33:53Z",
+        "author": "dimakis",
+        "state": "COMMENTED",
+        "recommendation": "merge",
+        "newBlocking": 0,
+        "unresolvedBlocking": 0,
+        "job": {
+          "id": 4949,
+          "head_sha": "976750b775fc346babb96b9e34cf1a249eec417e",
+          "status": "succeeded",
+          "stage": "complete",
+          "attempts": 1,
+          "revision": 1,
+          "force_review": 1,
+          "force_follow_up": 0,
+          "auto_fix": 0
+        },
+        "bounds": "Actual clean full-final history at976750b7, not approval of the new changed head."
+      },
+      "authorization": "Directly verified human user message01a14eb9-9c08-7681-8108-466c4a5d1634 resolves credential use for genuinely missing qualifying final reviews. No duplicate or obsoletehead request, model/config/cap/row/status change or new approval question. No merge/runtime/live/staging authority.",
+      "nextGate": "Fresh exact-head CI then current whole-PR full final normal admission after live job/review/head guards, preserving all actual clean history. Final App5169606 gate still required.",
+      "integration": "Core receives ancestry/manifest delta only. No originalA/header replay; A source and evidence unchanged, accepted canonical advisor store/schema/fixture repair intact."
+    },
+    "roleRecoveryAcceptedBaseIntegration": {
+      "source": "2b7340791b7894716615a744d68cf9094fc13682",
+      "sourceTree": "43c056cbb2b78a5ab47b929d42624af027148f32",
+      "parents": [
+        "5a3f0037b8c642b2b1e56fdc5d79ed35f1f1f55b",
+        "2b22bade2b1e612cc564661bf1e69b45a317e5eb"
+      ],
+      "manifest": {
+        "previousHead": "5a3f0037b8c642b2b1e56fdc5d79ed35f1f1f55b",
+        "acceptedMain": "2b22bade2b1e612cc564661bf1e69b45a317e5eb",
+        "aPinCount": 584,
+        "acceptedPinCount": 580,
+        "unionPinCount": 584,
+        "mismatches": 0,
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "acceptedNonManifestFileCount": 17,
+        "ledger": "Accepted8-line role-recovery addition preserved byte-for-byte; prior A approved rules unchanged.",
+        "runtimeRevision": "v1.0.319-telos-role-recovery.1-symposium-shared-ui.4",
+        "conflict": "Generated runtime revision only",
+        "localExecution": "No local test/typecheck/browser at observed load138.62/150.51/132.40; normal hooks plus fresh remote CI.",
+        "postHooksProof": "All584 pins,11 A modules/fixtures/protected/captures and17 accepted non-manifest blob identities verified after normal hooks. Accepted ledger8-line addition retained."
+      },
+      "hooks": "Normal ESLint/prettier/gitleaks/commitlint passed; one-GiB Node heap.",
+      "localExecution": "No local test/typecheck/browser at observed load138.62/150.51/132.40; normal hooks plus fresh remote CI.",
+      "priorValidationBounds": "Intermediate5a3f0037 exact CI39132069545 completed SUCCESS (all8 workflow jobs). Its full-final packet was never submitted because actual accepted#1029 introduced a real conflict during CI. That green history does not approve this changed head.",
+      "priorFullReviewAndStatus": {
+        "head": "976750b775fc346babb96b9e34cf1a249eec417e",
+        "review": 5562752163,
+        "nodeId": "PRR_kwDOR2Rn9s8AAAABS5Dcow",
+        "job": 4949,
+        "revision": 1,
+        "mode": "whole-PR full final,force1/followup0/autofix0",
+        "result": "Actual LGTM/merge,zero new+unresolved blockers",
+        "finalStatus": 56631308268,
+        "statusState": "success",
+        "statusCreatedAt": "2026-10-18T13:30:55Z",
+        "statusPublisher": "dimakis-mitzo-centaur-status[bot]",
+        "appId": 5169606,
+        "appIdEvidence": "Owning reviewer independent App verification; worker independently verified exact REST status and dedicated publisher.",
+        "bounds": "Meaningful clean full+App history at976 only; not current-head approval.80231/b98 actual clean reports retained."
+      },
+      "design": "Accepted8-line role-recovery ledger addition retained byte-identically. A frozen header policy/recovery, protected spec and captures unchanged; no design-reference or assertion changes.",
+      "authorization": "Existing explicit human permission covers genuinely missing further Centaur rounds; no additional question. No new review until current head/CI/live jobs/published reports verified. No duplicate oldhead review, model/config/cap/row/status mutation or merge/runtime grant.",
+      "nextGate": "Publish source/evidence once, verify exact current CI/normal automatic job. Current whole-PR full final normal API admission may be needed after CI; final trusted report and App5169606 gate required.",
+      "integration": "Core consumes ancestry/manifest delta only, no originalA/header replay or core checkout edits."
+    },
+    "codexResumeAcceptedBaseIntegration": {
+      "source": "bf604fa061e3414d1e173ca99f0899602bbdd297",
+      "sourceTree": "0d6262add76af64b90fafee36269107037c74a6c",
+      "parents": [
+        "08e1ede2027416019df141e60fef633649455900",
+        "f39cbfdfa31f5e4c0d3413737827de2c8640d34e"
+      ],
+      "manifest": {
+        "previousHead": "08e1ede2027416019df141e60fef633649455900",
+        "acceptedMain": "f39cbfdfa31f5e4c0d3413737827de2c8640d34e",
+        "aPinCount": 584,
+        "acceptedPinCount": 581,
+        "unionPinCount": 585,
+        "mismatches": 0,
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "acceptedNonManifestFileCount": 14,
+        "approvedUxProtectedFixturesLedgerAndCapturesUnchanged": true,
+        "runtimeRevision": "v1.0.320-codex-resume-symposium-shared-ui.4",
+        "conflict": "Generated runtime revision only",
+        "acceptedCi": "Server build/full reviewed-source verification and pinned native metadata-only resume without inference retained byte-identically.",
+        "localExecution": "No local suite/typecheck/browser/native test under observed hostload79.99/95.40/92.16; normal hooks and fresh remote CI.",
+        "postHooksProof": "All585 pins,11 A modules/fixtures/protected/ledger/34captures and14 accepted non-manifest blob identities verified after recovered normal hooks.",
+        "restartRecovery": "Power loss interrupted pre-commit command before any commit. Staged merge/MERGE_HEAD and source proof survived; no index lock, no reset/clean/raw-lock removal. Verified bytes before retrying normal commit.",
+        "restartHostLoad": "35.03/48.25/35.56"
+      },
+      "hooks": "Normal ESLint/prettier/gitleaks/commitlint passed after recovery, one-GiB Node heap.",
+      "localExecution": "No local suite/typecheck/browser/native test. Hostload79.99/95.40/92.16 before outage and35.03/48.25/35.56 after restart; accepted source and A bytes verified statically, new remote CI required.",
+      "preservedAcceptedContract": "Pinned native metadata-only resume/fork, bounded framing, one startup-error/admission outcome, identity-fenced cleanup, migration validation and accepted offline CI without model inference unchanged. No runtime/credential adoption.",
+      "priorValidationBounds": "08e exactCI39133791333 passed all10 ordinary checks. Its actual full-final report completed after restart and is retained as meaningful source-specific clean history, not approval of this changed head.",
+      "priorActualFullFinalReview": {
+        "id": 5563606448,
+        "nodeId": "PRR_kwDOR2Rn9s8AAAABS53lsA",
+        "head": "08e1ede2027416019df141e60fef633649455900",
+        "author": "dimakis",
+        "state": "COMMENTED",
+        "submittedAt": "2026-10-18T15:09:24Z",
+        "url": "https://github.com/dimakis/mitzo/pull/1021#pullrequestreview-5563606448",
+        "recommendation": "merge",
+        "newBlocking": 0,
+        "unresolvedBlocking": 0,
+        "nonBlockingFollowups": 0,
+        "job": {
+          "id": 4982,
+          "head_sha": "08e1ede2027416019df141e60fef633649455900",
+          "status": "succeeded",
+          "stage": "complete",
+          "attempts": 1,
+          "revision": 1,
+          "force_review": 1,
+          "force_follow_up": 0,
+          "auto_fix": 0,
+          "last_error": null
+        },
+        "finalAppAtInspection": "PENDING; no success transferred or invented."
+      },
+      "history": "Retain actual80231/b98 clean reports and976 whole-PR full5562752163 with dedicated App success56631308268. No duplicate08e review request or queue-row/cap/cancellation action.",
+      "nextGate": "Publish once after latest accepted-source check; qualify exact new head with normal CI, genuinely missing whole-PR full-final review under standing human authorization, and real App5169606 final gate. No repeat approval question.",
+      "integration": "Core consumes ancestry/manifest delta only; no old A/header replay or core checkout edits. All11 A modules, approved UX/protected specs/captures and ledger remain byte-identical."
+    },
+    "reviewedPresentationAcceptedBaseIntegration": {
+      "source": "4a61e824cd2eb2aa15959cf6a02f3e3f02ed54c9",
+      "sourceTree": "c593d871c3195d2391b78ceb9c20e4084b2c1246",
+      "parents": [
+        "42ad7a4c1120528d87e34c8fb50519be1b4fe6d0",
+        "634048b1c7309a411dcfbf39dd2ae4e0308bdcfb"
+      ],
+      "manifest": {
+        "previousHead": "42ad7a4c1120528d87e34c8fb50519be1b4fe6d0",
+        "acceptedMain": "634048b1c7309a411dcfbf39dd2ae4e0308bdcfb",
+        "aPinCount": 585,
+        "acceptedPinCount": 584,
+        "unionPinCount": 588,
+        "mismatches": 0,
+        "runtimeRevision": "v1.0.321-telos-reviewed-presentation.1-symposium-shared-ui.4",
+        "conflict": "Generated runtime revision only",
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "acceptedNonManifestFilesByteIdentical": 39,
+        "acceptedPageGuard": "ChatWelcome mounts only when!roleIntent in both ChatView/DesktopChatView, accepted bytes retained.",
+        "ledger": "Accepted18-line reviewed-label/role-welcome additions retained; existing ledger text unchanged.",
+        "reviewExecution": "Credential+POST action remains held for direct current-chat technical approval. No retry, secret read, queue mutation or delegation around guard.",
+        "localExecution": "No local suite/typecheck/browser/native test; normal hooks plus fresh remote CI. Previous source/CI remains source-bound.",
+        "postHooksProof": "All588 pins,11 A modules/fixtures/protected/34captures and39 accepted non-manifest blob identities verified after normal hooks. Accepted ledger18-line additions and both ChatWelcome!roleIntent guards retained."
+      },
+      "hooks": "Normal ESLint/prettier/gitleaks/commitlint passed, one-GiB Node heap.",
+      "localExecution": "No local suite/typecheck/browser/native execution. Fresh remote CI required; prior42ad CI39139846164 passed all10 ordinary checks including accepted server build and no-inference native resume. No old result transferred.",
+      "acceptedOwnership": "Both ChatView/DesktopChatView accepted ChatWelcome!roleIntent conditional mount and all reviewed metadata/role/store/client/protocol/workflow changes retained byte-identically. Core owns composition of its overlapping pages and backend; no core checkout edits or originalA/header replay.",
+      "design": "All11 A modules/protected spec/fixtures/34captures byte-identical. Accepted18-line reviewed-label/role-welcome ledger additions retained; previous ledger text unchanged. No frozen reference/assertion/tolerance edits or new full-app/native acceptance claim.",
+      "reviewExecutionBlock": "Independent source work only. Automatic approval rejected the configured-credential plus reviewPOST command before execution, even after fresh other-chat human approval evidence; it classified that evidence as untrusted tool history. Direct current-A-chat technical approval is pending. No credential read, queue mutation, retry or delegated workaround. Old42ad request will not be issued against an obsolete head.",
+      "meaningfulHistory": "Actual80231/b98 clean rounds;976 full5562752163/4949r1+App56631308268success;08e whole-PRfull5563606448/4982r1LGTMmerge0new+unresolved blockers/followups all retained as source-scoped history. No review qualifies this new changed head yet.",
+      "prior42adAtExecutionCheck": "CI39139846164 all10 ordinary checks passed. At15:42:34Z,4994 was terminalSKIPPEDr0/cyclecap4/2 with no current report/AppPENDING. No manual request executed; approval remains held.",
+      "nextGate": "Publish latest accepted source once; qualify exact new head with normal CI and genuinely missing full-final/App gates. Credential action stays held pending valid direct execution approval; actual merge also requires coordinated slot."
+    },
+    "acceptedArtifactBaseIntegration": {
+      "source": "e4186e5694cb18f27935ae005c9c9c811ad52fe3",
+      "sourceTree": "72c0af6899a65402a04f8cee29343525f8bf9a1c",
+      "parents": [
+        "a8c3a22ab161363fb91e572ac2ae431014d2a29d",
+        "a7cef26f4de2050412e978e7c311107d5505ed5e"
+      ],
+      "manifest": {
+        "previousHead": "a8c3a22ab161363fb91e572ac2ae431014d2a29d",
+        "acceptedMain": "a7cef26f4de2050412e978e7c311107d5505ed5e",
+        "acceptedTree": "145ac383cd379ca27aedc7f860da9ed38683b728",
+        "acceptedParents": ["634048b1c7309a411dcfbf39dd2ae4e0308bdcfb"],
+        "acceptedRuntimeRevision": "v1.0.321-telos-reviewed-presentation-symposium-forwarding.1",
+        "runtimeRevision": "v1.0.321-telos-reviewed-presentation-symposium-forwarding.1-symposium-shared-ui.4",
+        "aPinCount": 588,
+        "acceptedPinCount": 592,
+        "unionPinCount": 596,
+        "mismatches": 0,
+        "conflict": "Generated runtime revision only",
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "acceptedNonManifestFilesByteIdentical": 157,
+        "ledger": "Accepted20-line artifact inspection addition retained, all previous ledger text unchanged.",
+        "privacyCurrentnessExactRevision": "All accepted B source/evidence bytes retained, including SavedArtifactDialog/Files bridge and forwarding/artifact ownership. No old B or A patch replay.",
+        "reviewExecution": "Denied credential/reviewPOST remains held for valid direct current-chat approval; no retry/delegation around guard. Source/CI work only.",
+        "localExecution": "No local suite/typecheck/browser/native run; normal hooks and fresh remote CI, prior results source-bound.",
+        "postHooksProof": "All596 pins,11 A modules/fixtures/protected/34captures and157 accepted non-manifest source/evidence blobs verified after normal hooks. B approved dialog/Files bridge/privacy/currentness/exact revisions and all accepted audit/capture records retained."
+      },
+      "hooks": "Normal ESLint/prettier/gitleaks/commitlint passed with one-GiB Node heap, preserving accepted B bytes.",
+      "sourceOwnership": "Actual accepted Bmain a7cef26f tree145ac383cd379ca27aedc7f860da9ed38683b728 verified. No A-owned file changed. B12 owner modules and all source/audit/evidence retained through complete157-file nonmanifest blob checks and592 accepted pins. No superseded/pending B or A patch replay.",
+      "design": "Accepted20-line retained-artifact ledger section added without changing old text. All11 A modules, own fixtures/protected spec/34captures unchanged. B dialog and Files bridge accepted bytes/captures retained; no new full-app/native acceptance claimed.",
+      "localExecution": "No local suite/typecheck/browser/native run; normal hooks/static closure checks and new remote CI.",
+      "priorValidationBounds": "a8c3a22a exactCI39143653559 completedSUCCESS, all8 workflow jobs passed. Older42ad all10ordinary CI and actual08e whole-PRfull5563606448/4982r1 clean remain scoped. No old CI/report transferred to new head.",
+      "reviewExecutionBlock": "Denied credential/reviewPOST remains held pending valid direct current-chat technical approval; no retry/delegation around guard, secret read or manual queue mutation. This accepted-source integration is independent necessary work, not a workaround. Obsolete prepared42ad request remains unsubmitted.",
+      "meaningfulHistory": "Retain actual80231/b98 clean rounds;976 full5562752163/4949r1 and App56631308268success;08e full5563606448/4982r1LGTMmerge0new+unresolved/followups. No current changed-head fullfinal/App qualification yet.",
+      "nextGate": "Verify latest actualmain then publish once; new exact-head CI/fullfinal/App and coordinated slot required. No actual merge slot held. Source/API execution guards remain intact."
+    },
+    "acceptedS7BaseIntegration": {
+      "source": "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23",
+      "sourceTree": "23c3dea508772c93555890518347fe697d4d5f5d",
+      "parents": [
+        "f66b78e2cb7a98452ced4036b61bcf74d4f20c15",
+        "4bac7e8fc0e9582aa56ba3c3583bfffdce76cb21"
+      ],
+      "manifest": {
+        "previousHead": "f66b78e2cb7a98452ced4036b61bcf74d4f20c15",
+        "acceptedMain": "4bac7e8fc0e9582aa56ba3c3583bfffdce76cb21",
+        "acceptedTree": "dc0faf268d2862b6e003b8197553924c7429f584",
+        "acceptedParents": ["9ec6ccd3e003e38895fefb5263048910ed47f0ef"],
+        "acceptedRuntimeRevision": "v1.0.328-telos-s7-saved-reference-return",
+        "runtimeRevision": "v1.0.328-telos-s7-saved-reference-return-symposium-shared-ui.4",
+        "aPinCount": 596,
+        "acceptedPinCount": 600,
+        "unionPinCount": 604,
+        "mismatches": 0,
+        "conflict": "Two manifest hunks: runtime revision and A-only4-key block; no production source-file conflict",
+        "resolution": [
+          "accepted runtime revision plusA suffix",
+          "all4 A-only source pins retained; accepted removal of unrelated neutral-spares comment preserved"
+        ],
+        "aOnlyKeysRetained": [
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/conversation-presentation.ts"
+        ],
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "acceptedNonManifestFilesByteIdentical": 352,
+        "acceptedSource": "All accepted S7 UX/saved-reference-return state, Bprivacy/currentness/exactrevision backend, Csinglemap/protectedLibraryjourneys and S9harness/evidence retained byte-for-byte. No old patch replay.",
+        "reviewContract": "Retain thorough08e baseline plus actual targeted integration verification/current exactheadLGTM/App, not full solelySHA/cap.",
+        "reviewExecution": "HELD for valid direct current-chat approval. No credential read/reviewPOSTretry/modechange/continuityaction/proxy or duplicated question.",
+        "localExecution": "Focused source/blob/pin checks and normal hooks only; fresh remote CI for actual combined head.",
+        "postHooksProof": "All604 pins,all11 A modules/fixtures/protected/34captures,and352 accepted nonmanifest source/evidence blobs verified after normal hooks."
+      },
+      "hooks": "Normal ESLint/prettier/gitleaks/commitlint passed with one-GiB Node heap.",
+      "actualConflict": "Actual accepted4bac S7 merge-tree conflicted in two generated-manifest hunks. The revision uses acceptedS7+Asuffix; all4 A-only module pins retained and all accepted keys/hashes preserved. Initial single-hunk guard stopped before writing/staging a resolution; explicit hunk/key union used. No blanket parent selection.",
+      "preservedAcceptedUi": "All accepted S7 workspace/tree/discovery, SavedArtifactDialog/RouteDialog/WorkOutputs/FileViewer location.state/return behavior and scoped workspace styles retained. Bbackendprivacy/currentness/exactrevision, Csinglemap/unchangedprotectedLibraryjourneys and S9tests/evidence all imported byte-identically.",
+      "approvedA": "All11 A modules and owned fixtures/protected spec/34captures remain byte-identical to precedingf66; earlier direct baseline08 equality proof retained. No A redesign/reference/assertion change.",
+      "priorValidation": "f66 exactCI39146013202 all8 workflowjobsSUCCESS and source596pins/11A proof remain source-bound. PriorC/S9 clean simulations do not describe currentS7 union. New combined source needs its own CI.",
+      "reviewContract": "Current land-pr retains actual thorough08e report5563606448/4982r1 baseline plus verified integration followup or applicable trusted continuity. Generated resolutions and shared S7/Bnavigation/style/caller assumptions need real targeted review, currentexactheadLGTM/App; no full merelySHA/cap and no own inference from greenCI/disjointpaths.",
+      "executionHold": "Denied credential+reviewPOST remains held for valid direct currentchat approval. No credential read, POST retry, review-mode change, continuity action, proxy or duplicated question. Independent source work only.",
+      "localExecution": "Static pin/blob/union checks and normal hooks only; no broad/local unit/browser/native run, fresh remote CI required.",
+      "landing": "No actualslot or global preparationhold. Final current-main strictalignment/CI/exactheadreview/App required; no merge/runtime claim."
+    },
+    "acceptedPriorityHandoffIntegration": {
+      "source": "7624ebccc1f6983d6972673b4ef8c86a06fa675c",
+      "sourceTree": "8cecdfaf0a2cd68def10f7d9cd4c09c64f534b08",
+      "parents": [
+        "a70f187d209f6f8223f47d48a4e319bbcccc707d",
+        "6537a5d6af5516e94872933205a9bcdd5dadfc29"
+      ],
+      "acceptedMain": "6537a5d6af5516e94872933205a9bcdd5dadfc29",
+      "acceptedTree": "e6069b5444e201c8660efa4bce888275de90eee3",
+      "manifest": {
+        "runtimeRevision": "v1.0.329-telos-s7-priority-handoff-symposium-shared-ui.4",
+        "aPinCount": 604,
+        "acceptedPinCount": 601,
+        "unionPinCount": 605,
+        "mismatches": 0,
+        "resolution": "One actual runtime-revision conflict; accepted priority-handoff revision plusA suffix. Automatic pin merge verified as full605key union, retaining A11 exacthashes and all accepted otherhashes.",
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "acceptedNonManifestFilesByteIdentical": 8,
+        "retainedAcceptedNonManifestExpectedFiles": 355,
+        "postHooksProof": "All605pins/0mismatches;60Aowned source/test/fixture/capture paths,8incomingacceptedpaths,355retainedacceptedpaths and8approvedreference/ledgerpaths match expected blobs after normalhooks."
+      },
+      "normalHooks": "passed ESLint/Prettier/gitleaks/commitlint with1GiBheap",
+      "acceptedBehavior": "Preserves the accepted item-route-owned priority pending/refusal state across legacy-to-canonical workspace hydration. Shared selector default local owner remains, optional external owner supplied by existing item route; no A conversation/auth/draft/projection API changed. Eight incoming source/test/docs/CI paths retained exactly; B/C/S9/S7/privacy and approved references preserved.",
+      "approvedA": "All11A modules, ownfixtures/protectedspec/34captures unchanged, including approved header/count geometry. Proposed1046compactcorrection remains separately owned and is not imported. No old patch replay or source redesign.",
+      "priorValidation": "a70 exactCI39161488348 all8workflowjobs/all10ordinarychecksSUCCESS. Source-bound protecteddesign+sharedconversation light/dark pass on all3projects retained. These do not qualify the new combined source; fresh normalCI required.",
+      "reviewContract": "Retain5563606448@08e/4982r1 thorough baseline and actual targeted integration verification. Manifest resolution/shared caller assumptions need current-head trusted review/App; no full reset solelySHA/acceptedmain/cap.",
+      "executionHold": "New actualhumanapproval01a1541a-ef42-76f2-9ff3-089780cdbd50 independently verified, but automatic execution review again rejected exactcredentialread+normalPOST beforeprocesscreation. No credentialread/POST/queuechange occurred; no retry, proxy, actor/mode workaround or delegated request. Prepared a70request is now obsolete/unsubmitted.",
+      "localExecution": "Static605pin/sourceblobunion checks and normalhooks only. Broad tests/typecheck/design/browser/native run through normal remoteCI for combined head. No model-backed/live tests or staging/deployment.",
+      "ownership": "New sole core01a1510b-0f0a-7e52-8021-c5223e696019 owns native/joining/pageintegration; oldcorestopped. Rootfeature reviewer coordinates any qualified actualmerge; A holds noactualslot/globalhold."
+    },
+    "acceptedLibraryBaseIntegration": {
+      "source": "482b4f1ad5d994880641b78c67f040a8dbac4521",
+      "sourceTree": "69b685dae603dcf1b4ee599c293fbc37f7d93249",
+      "parents": [
+        "56c90af96ac5c3d19d63c6e0f34b614c36599b86",
+        "1c300bdb8a0aba9ab87c5a7dd0bd34c7aa686fca"
+      ],
+      "acceptedMain": "1c300bdb8a0aba9ab87c5a7dd0bd34c7aa686fca",
+      "acceptedTree": "d1af2ff30897e847af708dabc0e4f63878402efd",
+      "manifest": {
+        "runtimeRevision": "v1.0.330-knowledge-chat-drafts-symposium-shared-ui.4",
+        "aPinCount": 605,
+        "acceptedPinCount": 603,
+        "unionPinCount": 607,
+        "mismatches": 0,
+        "resolution": "One actual revision conflict including declaration formatting; one complete declaration with accepted330+A suffix. Automatic607pin union checked exactly, no blanket parent selection.",
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "postHooksProof": "607pins/0mismatches; all60Aownedpaths including11modules/34captures,19incomingacceptedpaths,374retainedacceptedpaths and8approvedreference/ledgerpaths matchexpectedblobs afterhooks."
+      },
+      "acceptedBehavior": "1031 writerownership kernel fence/restart fixture;1054 acceptedknowledge tools require interactive authorization/runtimecurrent checks, ask mode draftsave denied; no Atypedcollaboration/auth/draft API or frontendproduction change. Accepted Library/toolcatalog fixture adapts new accepted tool names. Preserved source, no implementation replay.",
+      "approvedA": "All11A modules and all60ownedsource/test/fixture/capture paths (34captures) unchanged.19incomingacceptedsource/test/docs paths,374retainedacceptedpaths and8approvedreference/ledgerpaths exact. No Aheader/approvedreference/assertion or proposedcompact1046 edit. No oldpatchreplay.",
+      "normalHooks": "passed ESLint/Prettier/gitleaks/commitlint with1GiBheap",
+      "priorValidation": "56c90af9 exactCI39252560430 all8workflowjobs/10ordinarychecksSUCCESS;18139passed31skipped; design109separate. Light/dark shared/protected/S7 tests passall3projects. Retain exactsourcebounds, no newcombinedCIclaim until freshcurrenthead checks.",
+      "reviewContract": "Retain thorough08e review5563606448/4982r1 and priorapprovedhistory. Target verification of all subsequent manifestresolutions and affected ordinary startup/forwarding/privacy/metadata/S7/knowledge-tool assumptions; acceptedmainsecurity changes inspected, not selfapproved. No wholePRrestart merelySHA/cap/acceptedbase.",
+      "authority": "Newactualhumaninstruction monitor01a15537-a6a9-72a1-b719-1dd50268d96c: Let\u2019s get em all merged. Verifiedhumancontext grants existingowners necessaryscopedreview/preparation/guardedmerges withnormalgates/reviewercoordination. No deployment/live/stagingauthority.",
+      "executionHold": "Existing credentialread+normalPOST executionguard requiresoriginchat answer. No such answer hasarrivedhere; retainexistingprompt, no duplicatequestion, no credentialrequestretry/secretread/POST/queuechange/actorproxy/modeworkaround. Alloldheadpayloads remainunsubmitted.",
+      "localExecution": "Staticpin/blobverification andnormalhooks only. Fresh combined normalremoteCI required; no localbroad/browser/native or realmodeltest/live/runtime/staging operation.",
+      "ownership": "At the privateLibrarymerge, foundation1012 was stillunaccepted. Its owner subsequentlyreceiveddirectoriginmergeapproval and accepted18ec14ed; latestFoundationcheck records that next sourceintegration before any publication. No concurrentactualmerge taken byA."
+    },
+    "acceptedFoundationBaseIntegration": {
+      "source": "7ae9230617d05e218399b069e0e6aa9533b15bc6",
+      "sourceTree": "481eaee47e01fda3194dac5377a6d3bf061e0fab",
+      "parents": [
+        "d4e795061f881be5dd43f4fed0e922097d3c6b24",
+        "18ec14ed577970e3d430d94bbf93bc99f7ee9565"
+      ],
+      "acceptedMain": "18ec14ed577970e3d430d94bbf93bc99f7ee9565",
+      "acceptedTree": "330d2dce9f545cf936689f20a9c3e843c9894108",
+      "manifest": {
+        "runtimeRevision": "v1.0.330-symposium-native-request.31-symposium-shared-ui.4",
+        "aPinCount": 607,
+        "acceptedPinCount": 609,
+        "unionPinCount": 613,
+        "mismatches": 0,
+        "resolution": "One actual runtime-revision conflict: acceptednative31+A suffix. Entire613pin union verified against609accepted+allA11overrides/A4unique additions; accepted pin ordering preserved by auto merge, no blanket parent/file selection.",
+        "aOwnedPinsByteIdentical": [
+          "../../frontend/src/components/ChatArea.tsx",
+          "../../frontend/src/components/ChatInput.tsx",
+          "../../frontend/src/components/CollaborationTranscript.css",
+          "../../frontend/src/components/CollaborationTranscript.tsx",
+          "../../frontend/src/components/ComposerResponders.tsx",
+          "../../frontend/src/components/ConversationAgents.css",
+          "../../frontend/src/components/ConversationAgents.tsx",
+          "../../frontend/src/hooks/useConversationPresentation.ts",
+          "../../frontend/src/lib/chat-drafts.ts",
+          "../../frontend/src/lib/conversation-presentation.ts",
+          "../../packages/client/src/collaboration-projection.ts"
+        ],
+        "postHooksProof": "All613pins/0mismatches,60Aownedpaths including11modules/34captures,52incomingfoundationpaths,426retainedacceptedpaths and8approvedreference/ledgerpaths exact afternormalhooks."
+      },
+      "acceptedSource": "Actualmerged1012 at18ec14ed,tree330d2dce9f545cf936689f20a9c3e843c9894108,soleparent1c300. All52nativefoundation nonmanifestpaths retainedexact; no nativepatchreplay, rewrite, installation orruntimeadoption. Privatecredentialobservation remainsserverprivate; count/consume/sampling/permission contracts retain nativeowner authority.",
+      "approvedA": "A11modules/all60ownedsource/test/fixture/34capturepaths unchanged. All426knownaccepted source/evidence paths and8approvedreference/ledgerpaths exact. No header/countgeometry orapprovedreference/protectedassertion change.",
+      "batchedPublication": "PrivateLibrarymerge482b4f1a andevidenced4e79506 were not published separately; actualfoundation arrived beforepublication and wasintegrated into same normalCIhead. Two necessaryactualconflict resolutions, no intermediate CIhead or modelreviewrequest.",
+      "normalHooks": "passed ESLint/Prettier/gitleaks/commitlint with1GiBheap",
+      "reviewContract": "Retainapproved08e report5563606448/4982r1 and earlierqualifyinghistory. Acceptedfoundation was independentlyreviewed and accepted, notAownednewnativecode. Need currenthead targetedverification of PRownedmanifestresolutions and affected auth/draft/policy/forwarding/knowledge/nativeinterface assumptions. No wholefullreset merelySHA/base/cap; unchangedAfilenames/greenCIalone insufficient.",
+      "executionHold": "Renewedhumanmerge/reviewintent verified in monitor01a15537-a6a9-72a1-b719-1dd50268d96c. Existingcredential+POST executionguard stillrequiresoriginresponse; nonearrivedhere. Retainexistingprompt, no duplicatequestion, retry, secretread, POST, queuechange, actorproxy ormodeworkaround.",
+      "priorValidation": "56c90af9 CI39252560430 all8workflowjobs/10ordinarychecksSUCCESS remainssourcebound. FreshcombinedCIrequired; localstaticchecks/hooks do notqualifycombinedtests/UX/runtime.",
+      "coverageBounds": "No localbroad/native/browser/realmodel/live/staging/deployment operation. Nativepayload byteidentity reuses acceptedfoundation evidence as sourcebound support, not a claim of physicaliOS orlive runtimequalification.",
+      "landing": "A isnextconditional1021 only; noactualmergeturn until reviewer verifiescurrentbase/head/CI/exactheadtrustedLGTM/App/threads and assignsactualturn. Sourceonlyacceptance, no runtimeactivation."
+    },
+    "acceptedAccountRecoveryBaseIntegration": {
+      "source": "96407df9fa217c5df7a256cf9a921c32634c357d",
+      "sourceTree": "f134c8ecbce47a580da5027f01f6538832c03402",
+      "parents": [
+        "b9fb7d895f1f03d61f0931e1d067b65fdb7181fb",
+        "8ea88ce604105879731b0037becc92b49718189a"
+      ],
+      "acceptedMain": "8ea88ce604105879731b0037becc92b49718189a",
+      "acceptedTree": "5f34e9cf5957a8e7a7e648fd4a556244b70d9708",
+      "manifest": {
+        "runtimeRevision": "v1.0.332-account-runtime-recovery-symposium-shared-ui.4",
+        "aPinCount": 613,
+        "acceptedPinCount": 614,
+        "unionPinCount": 618,
+        "mismatches": 0,
+        "resolution": "One actual runtime-revision conflict resolved explicitly; all accepted pin updates/additions retained with 11 A overrides, four A unique additions. No blanket parent/file selection.",
+        "postHooksProof": {
+          "aOwned": 60,
+          "accepted": 454,
+          "incoming": 30,
+          "protected": 8,
+          "pins": 618,
+          "mismatches": 0
+        }
+      },
+      "acceptedSource": "Actual merged #970 retained through history:30nonmanifest files exact,454knownacceptedsource/evidencepaths exact, A60owned including11modules/34captures and8approvedreference/ledgerpaths unchanged. No A implementation/UI behavior change.",
+      "integrationAssessment": {
+        "scope": "All31 acceptedpaths;30nonmanifest payloads retained exact after hooks. The sole actual conflict is runtime revision.",
+        "accountAuthority": "apiRoutingProfile/profileRevision remains current identity; existing configured API accounts become selectable without new enrollment. Central openAIAccountKeyAuthority retains controller/journal custody and rechecks binding/runtime/cancellation; enrolled/managed failure cannot fall back to raw keys. OpenShell API preflight additionally validates pinned provider ID/name/type/workspace without resolving host key.",
+        "codexPreflight": "Host model-discovery metadata launches the owning runtime-selected absolute executable with no lifecycle/thread/turn ability; asserts runtime identity after models.",
+        "adviserRecovery": "Saved signed grant retry is serialized with refresh, scope/subject/ownership/generation/cancellation gated and retains verified rotating credentials without publishing connected state on failed/cancelled discovery. Operator auth + same-origin empty-body retry endpoint; UI uses existing dialog and returns focus to Refresh. No implicit turn or sign-in.",
+        "AInterfaces": "A11 modules/all60owned paths unchanged; draft/auth getter/projection/policy/receipt contracts unchanged. Account availability metadata does not grant joining/dispatch; core still supplies actual authority. All inherited native boundaries remain exact to accepted main.",
+        "manifest": "614accepted pins plus A4 additions,11A overrides; all618 source fingerprints verified with0mismatches. Runtime revision names both accepted recovery and existing A behavior. No other merge edits."
+      },
+      "normalHooks": "passed ESLint/Prettier/gitleaks/commitlint with1GiB heap; commitlint rejected initial merge type, corrected to allowed chore type and normal hooks passed",
+      "reviewContract": "Fresh combined CI (full main suite/build/typechecks/design, three offline layout projects including A/shared/protected/S7 and accepted terminal retry, Swift/browser/Connections) and focused current-head integration follow-up covering manifest resolution plus affected account/native/adviser/auth assumptions. Reuse completed full08 + acceptedb9 follow-up; accepted upstream security changes retained exact, no second full reset solely base/SHA/cap.",
+      "authority": "Human origin merge approval remains; previous credential execution hold resolved. No actual merge turn until reviewer verifies new current gates and assigns turn.",
+      "priorValidation": "b9 CI39295994674 all8workflowjobs/10ordinarychecksSUCCESS; actual trusted followup5575670389 exactb9LGTMmerge0blockers and dedicatedApp56717249212SUCCESS. Retain source-bound history, not green evidence for this new combined head.",
+      "coverageBounds": "No live/model test, native runtime adoption, physicaliOS qualification, staging/deployment or global acceptance closure."
     }
   },
   "integrationHandoff": {
@@ -457,11 +1490,11 @@
     "controller": "useConversationPresentation({collaborationId,api,authScope,getVerifiedAuthScope,draftId,names}) reuses existing real typed view/events/setPolicy, projection and ordinary draft owner. Core supplies its existing currentVerifiedAuthSessionId getter; missing or mismatched current proof fails closed. AUTH_LOST clears private state and fences late results; restore checks after existing auth owner synchronous publication.",
     "policy": "Confirmed server view drives checkboxes. In-memory pending request retains requestId, membership/revision fences and values on network/408/429/5xx ambiguity. retryPolicy reuses exact original body. Unchanged read cannot clear uncertainty; newer authoritative revision fences it. Known definite400/401/403/404/409/422 refusal clears pending but retains error until refresh. No optimistic success. Matching receipt confirmation recovery: pendingPolicy.receipt proves mutation committed; needsRefresh=true and uncertain=false expose failed view confirmation. Preserve original input/receipt and old confirmed projection. retryPolicy with receipt performs read-only refresh; core must render this state before unknown-outcome uncertainty.",
     "agentsSlots": "ConversationAgents adds optional policyFeedback:ReactNode and policyUnavailableReason:string; feedback appears once inside existing Agents dialog. Core wires pending/refusal/retry/refresh via these slots. No new joining lifecycle or auth owner.",
-    "header": "Core df7aaa markup is integrated as93ab42f6 and extended by A container/count corrections a24bd063+844d5ddb. Consume final A once; do not independently reapply core header patch.",
+    "header": "Core df7aaa markup is integrated as93ab42f6 and extended by A container/count corrections a24bd063+844d5ddb. Consume final A once; do not independently reapply core header patch. Serif follow-up fe4f811b retains existing4rem readable name-track floor across CI serif metrics; sole production edit is ConversationAgents.css min-width. Protected approved-design test and reference bytes unchanged.",
     "acceptanceMap": "Single combined map remains C docs/evidence/symposium-integration-acceptance.md, PR1022; latest reported signed2ce97499 includes independent four-image recovery receipt. A does not duplicate global acceptance; full application journey remains core/C."
   },
   "remaining": [
-    "Core must mount the final hook/slots in actual application pages and connect its existing verified auth getter and dispatch/reader owners.",
+    "Core and C retain final application composition, native authority, actual joining/dispatch and combined recovery qualification.",
     "C must independently inspect these final corrected captures and rerun on final combined accepted backend/UI source; full app review/join/send remains open.",
     "Exact-head CI and trusted Centaur review remain required; this draft is not ready-for-landing evidence.",
     "Full account/runtime matrix and physical iOS behavior remain unqualified."
@@ -475,8 +1508,8 @@
     "modelCalls": 0,
     "stagingOperations": 0
   },
-  "latestAcceptedMain": "136699011e63ae154f6a6bb8b7e46225fbb3dd29",
-  "acceptedMainMerge": "163f74748e4c9e782e1f27db7179987fdcb903aa",
+  "latestAcceptedMain": "8ea88ce604105879731b0037becc92b49718189a",
+  "acceptedMainMerge": "96407df9fa217c5df7a256cf9a921c32634c357d",
   "captureClosureUnchangedAfterMainMerge": true,
   "headerConformance": {
     "source": "9365d41dd222069a9b279bea474c73cf2d154096",
@@ -610,8 +1643,27 @@
     }
   },
   "acceptedBaseAtStart": "189289da78d971497deaa9cc4ca29365ba9c6e56",
-  "integratedAcceptedBase": "136699011e63ae154f6a6bb8b7e46225fbb3dd29",
-  "baseRefresh": "Integrated accepted13669901 after GitHub reported the153fbe4d PR conflicting and omitted its normal pull_request CI. Sole conflict was generated runtime revision; preserved accepted sandbox pins and A pins, combined distinct suffix, no A UI/API/controller/fixture byte changes. No rebase or force push.",
-  "latestValidation": "checks.acceptedBaseIntegration",
-  "priorAcceptedMainMerge": "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f"
+  "integratedAcceptedBase": "8ea88ce604105879731b0037becc92b49718189a",
+  "baseRefresh": "Actual acceptedS7 4bac conflict requires integration.604-pin source union with explicit revision+A4-key resolution,all11 A modules/protected/captures unchanged,352 accepted files includingS7/B/C/S9 preserved after hooks. f66 greenCI/old08e baseline retained scoped; new currentCI and targetedintegrationreview/App required. Deniedreviewcredential action staysheld.",
+  "latestValidation": "checks.acceptedAccountRecoveryBaseIntegration",
+  "priorAcceptedMainMerge": "7ae9230617d05e218399b069e0e6aa9533b15bc6",
+  "acceptedMainMergeHistory": [
+    "cb5eeaf2d5f4663e80ae93f6fbbf905601583f5f",
+    "163f74748e4c9e782e1f27db7179987fdcb903aa",
+    "ae4ec0b1eb1eac06a786bd7bff82f280b0d0f1dc",
+    "209385f5c988abfc524b59812053ac15eae40f57",
+    "383caf4e5323d9b9641f10613666bc98117a9fbd",
+    "23f29466835d9288505f5948549d7222d58ca0aa",
+    "8c291a207760fce5fd436ccfcb47f9e6a8dabcfe",
+    "2b7340791b7894716615a744d68cf9094fc13682",
+    "bf604fa061e3414d1e173ca99f0899602bbdd297",
+    "4a61e824cd2eb2aa15959cf6a02f3e3f02ed54c9",
+    "e4186e5694cb18f27935ae005c9c9c811ad52fe3",
+    "dd201c2a57a084b3afcfb8cf7e531e278d9b4e23",
+    "7624ebccc1f6983d6972673b4ef8c86a06fa675c",
+    "482b4f1ad5d994880641b78c67f040a8dbac4521",
+    "7ae9230617d05e218399b069e0e6aa9533b15bc6",
+    "96407df9fa217c5df7a256cf9a921c32634c357d"
+  ],
+  "priorIntegrationOwnerSessions": ["01a14b49-df1f-7b82-be70-10be0789161c"]
 }

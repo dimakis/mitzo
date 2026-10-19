@@ -1,14 +1,10 @@
-import { join } from 'node:path';
 import { GoogleAuth } from 'google-auth-library';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import { ResponsesSession, type ModelSession, type ModelSessionConfig } from '@mitzo/harness';
 import { GeminiSession } from './gemini-session.js';
 import { geminiThinkingConfig } from './gemini-thinking.js';
 import { loadAccountProfiles } from './account-profiles.js';
-import { credentials } from './credentials.js';
-import { getConnectionsRuntime } from './connections-runtime.js';
-import { assertOpenAIKeyController } from './openai-key-controller.js';
-import { openAIKeyResourceBindings } from './openai-key-operation-store.js';
+import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import type { AdviserRequest } from './terminal-adviser.js';
 import { getTerminalPlanAdviserHost } from './terminal-plan-adviser.js';
 
@@ -28,37 +24,11 @@ export async function createTerminalAdviserSession(
   if (binding.provider === 'openai-codex')
     throw Error('ChatGPT subscription adviser requires an isolated inference-only runtime');
   if (binding.provider === 'openai') {
-    const profile = profiles.apiProfile(binding),
-      runtime = getConnectionsRuntime();
-    if (
-      profiles.isEnrolledOpenAIAccount(binding.accountId) &&
-      !runtime?.openAIEnrollmentAuthority?.manages(binding.accountId)
-    )
-      throw Error('Enrolled account controller unavailable');
-    assertOpenAIKeyController(
-      binding.accountId,
-      join(process.env.REPO_PATH ?? process.cwd(), '.mitzo'),
-      !!runtime?.assertOpenAIKeyReady,
-      openAIKeyResourceBindings({
-        credentialRef: profile.credentialRef,
-        providerName: profile.sandboxProvider,
-        providerId: profile.sandboxProviderId,
-      }),
-    );
-    const manager = runtime?.openAIEnrollmentAuthority?.manages(binding.accountId)
-      ? runtime.openAIEnrollmentAuthority
-      : runtime?.openAIKeys?.manages(binding.accountId)
-        ? runtime.openAIKeys
-        : undefined;
     const signal = config.signal ?? AbortSignal.timeout(60000);
-    const apiKey = manager
-      ? await manager.resolveKey(binding.accountId, signal)
-      : runtime?.assertOpenAIKeyReady
-        ? await runtime.service.withCredentialMutation(async () => {
-            await runtime.assertOpenAIKeyReady!(binding.accountId, signal);
-            return credentials.resolve(profile.credentialRef);
-          })
-        : await credentials.resolve(profile.credentialRef);
+    const apiKey = await openAIAccountKeyAuthority(binding, profiles).resolveKey(
+      binding.accountId,
+      signal,
+    );
     return new ResponsesSession(
       { ...config, tools: [] },
       { accountId: binding.accountId, apiKey, textTranscript: true },
