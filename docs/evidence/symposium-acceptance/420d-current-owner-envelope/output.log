@@ -1,0 +1,33 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/artifact-candidate
+
+{"level":30,"time":1792290873615,"pid":75170,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+{"level":30,"time":1792290874008,"pid":75170,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+{"level":30,"time":1792290874231,"pid":75170,"hostname":"Dimitris-MacBook-Pro","module":"sse","clients":0,"msg":"Destroying SSE registry"}
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts (2 tests | 1 failed) 4419ms
+   × requires actual joining and finalized reply owners after the observational review 3ms
+{"level":40,"time":1792290881336,"pid":75619,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792290881497,"pid":75619,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792290881660,"pid":75619,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/acceptance/symposium-application-wiring.repro.ts > requires actual joining and finalized reply owners after the observational review
+Error: Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.
+ ❯ CollaborationApiClient.request packages/client/src/collaboration-api.ts:66:13
+     64|     if (!response.ok) {
+     65|       const body = await response.json().catch(() => null);
+     66|       throw new CollaborationApiError(
+       |             ^
+     67|         response.status,
+     68|         typeof body?.code === 'string' ? body.code : 'unavailable',
+ ❯ tests/acceptance/symposium-application-wiring.repro.ts:454:18
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 22 passed (23)
+      Tests  1 failed | 296 passed (297)
+   Start at  03:34:29
+   Duration  26.34s (transform 2.42s, setup 0ms, import 5.88s, tests 18.00s, environment 1ms)
+

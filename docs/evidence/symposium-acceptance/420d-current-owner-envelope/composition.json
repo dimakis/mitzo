@@ -1,0 +1,78 @@
+{
+  "coreCommit": "420d2570a759859699809e036f551b1cb496efb6",
+  "coreTree": "e5c3e74a52def5f5266e549713262c3233b7f4f4",
+  "overlayCommit": "0c9a4704cbe2b4aa74c6cc3ac98b6788f6b6f64f",
+  "overlayTree": "f2e6f146a834179950fee6b67d173c86264d21d9",
+  "overlayBranch": "test/symposium-acceptance-core-420d",
+  "candidateStatus": "?? node_modules",
+  "changesAreOnlyScopedTestsAndEvidence": true,
+  "productionChanges": [],
+  "ownChangedHarnessMatchesTestedOverlay": true,
+  "actualOwnerResult": {
+    "passed": 296,
+    "failed": 1,
+    "skipped": 0,
+    "cases": 297,
+    "files": 23,
+    "seconds": 26.34,
+    "options": ["--required", "--artifacts", "--owners"],
+    "failure": "actual typed joining503; linked-agent and finalized-reply success assertions unchanged"
+  },
+  "newIntegration": "Typed listForSession through actual auth/GET app mount after begin and after same-cookie/root restart; anonymous401, exact metadata/cursor/no-autopagination request counts, unchanged source events/session count/no command. Original actual source/auth/workspace/review/recovery owners retained. Original9 owner/client/protocol suites reused, including new association reader tests.",
+  "omissionControl": {
+    "result": "8pass2fail0skip/10cases6files,6.28s",
+    "receipt": "../420d-association-route-omission/result.json",
+    "restoration": "../420d-association-route-omission/control.json",
+    "meaning": "Omitting only actual GET collection mount makes new typed actual-app read fail; next required case fails its review prerequisite. Exact route bytes restored; no product change published."
+  },
+  "priorControls": {
+    "sourceSpecificChecks": [
+      {
+        "path": "server/app.ts",
+        "priorSha256": "d6f3a19c9ff8ac166ac7818f4054f8150e0427e6c9ab07886ccf4d52313bcae7",
+        "currentSha256": "d6f3a19c9ff8ac166ac7818f4054f8150e0427e6c9ab07886ccf4d52313bcae7",
+        "unchanged": true
+      },
+      {
+        "path": "server/session-collaboration-router.ts",
+        "priorSha256": "32e8788aa3c8c932d4f2641bec8889e7c6dd742e51cde56c6fc7cf9a79eef7ab",
+        "currentSha256": "32e8788aa3c8c932d4f2641bec8889e7c6dd742e51cde56c6fc7cf9a79eef7ab",
+        "unchanged": true
+      },
+      {
+        "path": "server/collaboration-review-owner.ts",
+        "priorSha256": "43048f38b48cb2ca5cd007f129d640c13f966766060c1a45355dfa0bb099bde2",
+        "currentSha256": "43048f38b48cb2ca5cd007f129d640c13f966766060c1a45355dfa0bb099bde2",
+        "unchanged": true
+      }
+    ],
+    "journeyChange": "C journey has additions only relative to fb585 overlay; existing assertions unchanged. Historical cb32 begin/review controls keep original source/count bounds; whole journey bytes now differ. Fresh GET omission control is separate."
+  },
+  "browserReuse": {
+    "priorIndependentSource": "c534f3d717a34198fbd0639643b027d2c67879b4",
+    "priorIndependentResult": "../c534-browser-independent/result.json",
+    "frontendAndBrowserPathsChangedFromFb585": [],
+    "scope": "No new browser execution/capture inspection. Selected source unchanged; original C c534 report/DOM/captures retain original execution bounds."
+  },
+  "sourcePinResult": "../420d-source-pins/result.json",
+  "validation": {
+    "typecheck": {
+      "exitCode": 0,
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 node node_modules/typescript/bin/tsc --noEmit --incremental false -p /tmp/symposium-artifact-typecheck.json",
+      "scope": "source aliases; C default/repro/candidate tests; actual core source"
+    },
+    "eslint": {
+      "exitCode": 0,
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 node node_modules/eslint/bin/eslint.js tests/acceptance/symposium-application-wiring.repro.ts vitest.symposium-acceptance.config.ts"
+    },
+    "format": {
+      "exitCode": 0,
+      "command": "NODE_OPTIONS=--max-old-space-size=1024 node node_modules/prettier/bin/prettier.cjs --check .",
+      "scope": "full repository; no exclusions changed; subsequent metadata/map edits formatted and checked separately"
+    }
+  },
+  "modelCalls": 0,
+  "liveQualification": "not performed",
+  "fullJoiningAcceptance": false,
+  "nativeIosQualification": false
+}

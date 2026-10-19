@@ -1,0 +1,75 @@
+{
+  "inspectedAt": "2026-10-17T22:52:33.344267+00:00",
+  "inspectorSession": "01a14bdc-d152-7912-84d4-c0012e9d5206",
+  "ownerHead": "d127103bdb9c9de2215d27b643959168b7300813",
+  "ownerTree": "e205b262791b0163b1670baae8a5790380d3f09f",
+  "ownerStatus": "",
+  "ownerMetadataSha256": "76cf182d39c6e3ebdafff705788686e188a5bc0a21ee1058294b8f594d8758cc",
+  "referenceSha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+  "captures": [
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-mobile-webkit-header-390-light.png",
+      "retainedPath": "symposium-corrected-mobile-webkit-header-390-light.png",
+      "sha256": "41a1c96078080d6464b9045010e837fd45286deaed1874dfb1b7e4ea0c2ed0ad",
+      "bytes": 12435,
+      "inspection": "view_image; copied bytes unchanged"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-desktop-chromium-header-desktop-column-320-dark.png",
+      "retainedPath": "symposium-corrected-desktop-chromium-header-desktop-column-320-dark.png",
+      "sha256": "4a5ca4e9f0533713f86f3527c58b80d95b1ce45308e4de8c1da827d89e74c427",
+      "bytes": 4246,
+      "inspection": "view_image; copied bytes unchanged"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-mobile-webkit-policy-refusal-dark.png",
+      "retainedPath": "symposium-corrected-mobile-webkit-policy-refusal-dark.png",
+      "sha256": "5cdb435c1b9d934ebe8db6a5ea414e38e6cf001a3f0dc7d6da7cea6129ff5b9d",
+      "bytes": 234670,
+      "inspection": "view_image; copied bytes unchanged"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-desktop-chromium-shared-light.png",
+      "retainedPath": "symposium-corrected-desktop-chromium-shared-light.png",
+      "sha256": "d515e57aad9da7d45dd65e53a17ca2b419e13bf75e5f06ce8e3771d86ed33bab",
+      "bytes": 59601,
+      "inspection": "view_image; copied bytes unchanged"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-mobile-webkit-shared-dark.png",
+      "retainedPath": "symposium-corrected-mobile-webkit-shared-dark.png",
+      "sha256": "c9d734b01b2d37d306483e1741febdac5748351cd9218c5bbb1acf9a74167090",
+      "bytes": 198777,
+      "inspection": "view_image; copied bytes unchanged"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-mobile-webkit-policy-pending-light.png",
+      "retainedPath": "symposium-corrected-mobile-webkit-policy-pending-light.png",
+      "sha256": "e7589896f5ee13e6b43357a7dad3f200490c97388ba9aa8375d8002ccf12031c",
+      "bytes": 253484,
+      "inspection": "view_image; copied bytes unchanged"
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-corrected-desktop-chromium-policy-refusal-light.png",
+      "retainedPath": "symposium-corrected-desktop-chromium-policy-refusal-light.png",
+      "sha256": "1d45cc0ec542c9a3ae6e6e37f6e98a444b84e68b51e204d6f31b2de350b32bef",
+      "bytes": 98784,
+      "inspection": "view_image; copied bytes unchanged"
+    }
+  ],
+  "observations": [
+    "At 320px mobile and 320px desktop conversation container, header shows Architect +2.",
+    "At 390px header shows Architect \u00b7 Reviewer +1, consistent with three participants and two visible names.",
+    "Independent accepted, uncertain and pending receipt text stays visible with the retained successful reply.",
+    "Policy pending and membership-refusal feedback appears inside the Agents dialog; footer remains visible in inspected states."
+  ],
+  "limits": [
+    "Capture bytes verified against clean owner commit d127103bdb9c9de2215d27b643959168b7300813; final combined-source application capture closure remains open.",
+    "Actual component and presentation-hook fixture; no complete Add agent/join/dispatch application UX acceptance.",
+    "No browser was launched by this inspection; no physical iOS/device behavior was inspected.",
+    "Static screenshots do not independently prove keyboard behavior, policy persistence or network request counts."
+  ],
+  "fullCombinedUxAccepted": false,
+  "committedCaptureBytesVerified": true,
+  "alsoVerifiedAtPushedOwnerHead": "2ae799a9992d05fe74e97589a2e2c4d2a420483a"
+}

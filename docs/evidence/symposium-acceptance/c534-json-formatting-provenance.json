@@ -1,0 +1,137 @@
+{
+  "kind": "formatting-only derived evidence; no execution rerun",
+  "originalPublicationCommit": "6b8f9f974bb0224fba51fa0bbf0d2c9dc2c2ba76",
+  "transformedAtUtc": "2026-10-18T01:45:31.529319+00:00",
+  "formatter": "Prettier 3.9.6",
+  "command": [
+    "node",
+    "node_modules/prettier/bin/prettier.cjs",
+    "--write",
+    "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/desktop-chromium-dark.json",
+    "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/desktop-chromium-light.json",
+    "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-chromium-dark.json",
+    "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-chromium-light.json",
+    "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-webkit-dark.json",
+    "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-webkit-light.json",
+    "docs/evidence/symposium-acceptance/c534-browser-independent/report.json",
+    "docs/evidence/symposium-acceptance/c534-core-render-inspection/producer-browser.json",
+    "docs/evidence/symposium-acceptance/c534-core-render-inspection/producer-receipt.json"
+  ],
+  "entries": [
+    {
+      "originalPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/desktop-chromium-dark.json",
+      "rawPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/raw/desktop-chromium-dark.json.raw",
+      "formattedPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/desktop-chromium-dark.json",
+      "originalRawSha256": "845474b44eb4f200dbfe986f793c6364b49c55257491c80425283fe2b04bf748",
+      "originalRawBytes": 354,
+      "canonicalJsonSha256": "91c344dcc58dd61124621f164d08c7d53092285b1b616734984786f31ce3dd3a",
+      "formattedSha256": "1fd8901d4a184d46e14ba598fac318170c85766cf34ff0856a572677e7904940",
+      "formattedBytes": 355,
+      "semanticallyEquivalent": true
+    },
+    {
+      "originalPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/desktop-chromium-light.json",
+      "rawPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/raw/desktop-chromium-light.json.raw",
+      "formattedPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/desktop-chromium-light.json",
+      "originalRawSha256": "845474b44eb4f200dbfe986f793c6364b49c55257491c80425283fe2b04bf748",
+      "originalRawBytes": 354,
+      "canonicalJsonSha256": "91c344dcc58dd61124621f164d08c7d53092285b1b616734984786f31ce3dd3a",
+      "formattedSha256": "1fd8901d4a184d46e14ba598fac318170c85766cf34ff0856a572677e7904940",
+      "formattedBytes": 355,
+      "semanticallyEquivalent": true
+    },
+    {
+      "originalPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-chromium-dark.json",
+      "rawPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/raw/mobile-chromium-dark.json.raw",
+      "formattedPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-chromium-dark.json",
+      "originalRawSha256": "845474b44eb4f200dbfe986f793c6364b49c55257491c80425283fe2b04bf748",
+      "originalRawBytes": 354,
+      "canonicalJsonSha256": "91c344dcc58dd61124621f164d08c7d53092285b1b616734984786f31ce3dd3a",
+      "formattedSha256": "1fd8901d4a184d46e14ba598fac318170c85766cf34ff0856a572677e7904940",
+      "formattedBytes": 355,
+      "semanticallyEquivalent": true
+    },
+    {
+      "originalPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-chromium-light.json",
+      "rawPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/raw/mobile-chromium-light.json.raw",
+      "formattedPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-chromium-light.json",
+      "originalRawSha256": "845474b44eb4f200dbfe986f793c6364b49c55257491c80425283fe2b04bf748",
+      "originalRawBytes": 354,
+      "canonicalJsonSha256": "91c344dcc58dd61124621f164d08c7d53092285b1b616734984786f31ce3dd3a",
+      "formattedSha256": "1fd8901d4a184d46e14ba598fac318170c85766cf34ff0856a572677e7904940",
+      "formattedBytes": 355,
+      "semanticallyEquivalent": true
+    },
+    {
+      "originalPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-webkit-dark.json",
+      "rawPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/raw/mobile-webkit-dark.json.raw",
+      "formattedPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-webkit-dark.json",
+      "originalRawSha256": "b7aea44d3202f36d96716b14c40aadabd2ec210ec8d7984d801d688ffe421c39",
+      "originalRawBytes": 345,
+      "canonicalJsonSha256": "c7f1e7dcf9172cfacee3f31136d2b644519391970fbc6ce516c251499a03bff1",
+      "formattedSha256": "7e919f11541d8eb46b0ab068c359fd196cf01d4b1241e6799eef887d9d5c7fb8",
+      "formattedBytes": 346,
+      "semanticallyEquivalent": true
+    },
+    {
+      "originalPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-webkit-light.json",
+      "rawPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/raw/mobile-webkit-light.json.raw",
+      "formattedPath": "docs/evidence/symposium-acceptance/c534-browser-independent/metrics/mobile-webkit-light.json",
+      "originalRawSha256": "b7aea44d3202f36d96716b14c40aadabd2ec210ec8d7984d801d688ffe421c39",
+      "originalRawBytes": 345,
+      "canonicalJsonSha256": "c7f1e7dcf9172cfacee3f31136d2b644519391970fbc6ce516c251499a03bff1",
+      "formattedSha256": "7e919f11541d8eb46b0ab068c359fd196cf01d4b1241e6799eef887d9d5c7fb8",
+      "formattedBytes": 346,
+      "semanticallyEquivalent": true
+    },
+    {
+      "originalPath": "docs/evidence/symposium-acceptance/c534-browser-independent/report.json",
+      "rawPath": "docs/evidence/symposium-acceptance/c534-browser-independent/raw/report.json.raw",
+      "formattedPath": "docs/evidence/symposium-acceptance/c534-browser-independent/report.json",
+      "originalRawSha256": "4a9659ac5f964a3edbc071f9eaff951c3b25c5ce54e618bee7565d4d22b4ec04",
+      "originalRawBytes": 20348,
+      "canonicalJsonSha256": "d4f3913b4db1aed176d1b7ed0051279db0136c2abb3186326130e63d3822cac0",
+      "formattedSha256": "bc1667d0d1ff8c1c456206c6318294526728feffffcd549ac6c4e7cc1e23bb31",
+      "formattedBytes": 20220,
+      "semanticallyEquivalent": true
+    },
+    {
+      "originalPath": "docs/evidence/symposium-acceptance/c534-core-render-inspection/producer-browser.json",
+      "rawPath": "docs/evidence/symposium-acceptance/c534-core-render-inspection/raw/producer-browser.json.raw",
+      "formattedPath": "docs/evidence/symposium-acceptance/c534-core-render-inspection/producer-browser.json",
+      "originalRawSha256": "6b216815b794638039502dda028e228ea5c1e15667bd52615fa12efb8637bc8d",
+      "originalRawBytes": 20422,
+      "canonicalJsonSha256": "b3e231ad7a41c84089e87a88ea0382b9e646dda92349257cc271291c70ee6da9",
+      "formattedSha256": "de4534d74c1cb3243b36952bdbd255d23d9576e1e521e4684d59d2d4114c7e44",
+      "formattedBytes": 20273,
+      "semanticallyEquivalent": true
+    },
+    {
+      "originalPath": "docs/evidence/symposium-acceptance/c534-core-render-inspection/producer-receipt.json",
+      "rawPath": "docs/evidence/symposium-acceptance/c534-core-render-inspection/raw/producer-receipt.json.raw",
+      "formattedPath": "docs/evidence/symposium-acceptance/c534-core-render-inspection/producer-receipt.json",
+      "originalRawSha256": "146d2eca9fe83b9a189398d41e026e061b7bac52accf4c78a0a366ce10b09b23",
+      "originalRawBytes": 3598,
+      "canonicalJsonSha256": "9a0dd8c6416ca17ebcb789f36c6809e3e2d7e663a98c3835c19a5d8faea6ddf8",
+      "formattedSha256": "a44ddfe5f9a5282c6cb9dafa76ee09068713b7f95b33ca316169e2b4fd62f055",
+      "formattedBytes": 3566,
+      "semanticallyEquivalent": true
+    }
+  ],
+  "originalRawBytesRetained": true,
+  "jsonDataUnchanged": true,
+  "testsRerun": false,
+  "sourceAndExecutionMetadataUnchanged": true,
+  "referenceOrFormatterExclusionsChanged": false,
+  "fullJoiningAcceptance": false,
+  "ciFailure": {
+    "runId": 39084737528,
+    "jobId": 117548826624,
+    "sourceCommit": "6b8f9f974bb0224fba51fa0bbf0d2c9dc2c2ba76",
+    "failedSteps": ["Format check", "Summary"],
+    "jobMetadataFile": "c534-json-formatting-ci-failure.json",
+    "originalRawLogPath": "/private/tmp/symposium-job-117548826624.log",
+    "originalRawLogSha256": "355556cb21219090a47116dded679b786ee9a56a1f16eb27385f7915be3af77b"
+  },
+  "verificationRecord": "c534-json-formatting-verification.json"
+}

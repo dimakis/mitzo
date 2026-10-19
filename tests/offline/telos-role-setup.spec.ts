@@ -77,6 +77,25 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       let selectedReview: ReturnType<typeof offlineRoleReview> | undefined;
       const retainedReviews = new Map<string, ReturnType<typeof offlineRoleReview>>();
       let setupUnavailable = false;
+      let healthCompletion: { status: number; failure: string | null } | undefined;
+      page.on('response', (response) => {
+        if (new URL(response.url()).pathname === '/api/service-health') {
+          void response.finished().then(
+            (error) => {
+              healthCompletion = { status: response.status(), failure: error?.message ?? null };
+            },
+            (error: unknown) => {
+              healthCompletion = { status: response.status(), failure: String(error) };
+            },
+          );
+        }
+      });
+      async function reloadAfterHealth() {
+        // Settle this document's fallback before WebKit starts tearing it down.
+        await expect.poll(() => healthCompletion).toEqual({ status: 200, failure: null });
+        healthCompletion = undefined;
+        await page.reload();
+      }
       let rejectBeforeAllocation = false;
       let contextReviews = 0;
       page.on('pageerror', (e) => errors.push(e.message));
@@ -108,6 +127,19 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
             contentType: path.endsWith('.png') ? 'image/png' : 'image/svg+xml',
           });
         if (path === '/api/telos/work/items/studio/record') return route.fulfill({ json: record });
+        if (path === '/api/telos/work/items/advisor-child/record')
+          return route.fulfill({
+            json: {
+              ...record,
+              itemId: 'advisor-child',
+              parentId: 'studio',
+              kind: 'work_item',
+              summary: 'Reviewed studio slice',
+              intent: 'Record the reviewed first session',
+              rationale: '',
+              acceptanceCriteria: [],
+            },
+          });
         if (path === '/api/telos/work/items/advisor-child')
           return route.fulfill({ json: savedWork });
         if (path === '/api/telos/work/items/studio') return route.fulfill({ json: work });
@@ -543,8 +575,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         },
         { inventory, preparationId },
       );
-      await page.waitForLoadState('networkidle');
-      await page.reload();
+      await reloadAfterHealth();
       const assign = page.getByRole('button', { name: actionLabel });
       await expect(assign).toBeEnabled();
       // The welcome animation belongs to an empty chat. Its absolute logo must
@@ -672,8 +703,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       ).toBeVisible();
       await expect(welcome).toBeHidden();
       setupUnavailable = false;
-      await page.waitForLoadState('networkidle');
-      await page.reload();
+      await reloadAfterHealth();
       await page.getByRole('button', { name: actionLabel }).click();
       await expect(page).toHaveURL(new RegExp(`/chat/${boundId}$`));
       expect(calls).toHaveLength(journey === 'lead' ? 3 : 2);
