@@ -1796,6 +1796,26 @@ export class OpenShellRuntimeManager {
     return expiresAt;
   }
 
+  /** Read-only qualification of an existing API provider, before any sandbox effect. */
+  async verifyAPIAccountProvider(providerId: string, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    if (this.config.account.kind !== 'api' || !providerId)
+      throw new Error('OpenShell API provider binding unavailable');
+    const matches = (await this.accountProviderInventory(signal)).filter(
+      (provider) => provider.name === this.config.account.provider,
+    );
+    signal.throwIfAborted();
+    const provider = matches[0];
+    if (
+      matches.length !== 1 ||
+      !provider ||
+      provider.id !== providerId ||
+      provider.type !== 'mitzo-openai-keychain-spike' ||
+      provider.workspace !== this.config.workspace
+    )
+      throw new Error('OpenShell API provider binding changed');
+  }
+
   private async verifyAccountProvider(signal: AbortSignal) {
     const account = this.config.account;
     if (this.config.accountProviderBindings) {
