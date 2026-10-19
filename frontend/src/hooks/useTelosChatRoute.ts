@@ -15,7 +15,7 @@ export function useTelosChatRoute(conversationId: string | null) {
   const location = useLocation(),
     navigate = useNavigate();
   const requested = new URLSearchParams(location.search).get('telosChatItem');
-  const connected = useMitzoStore((s) => s.connected);
+  const connectionStatus = useMitzoStore((s) => s.connection.status);
   const [generation, setGeneration] = useState(0);
   const [result, setResult] = useState<{
     conversationId: string;
@@ -92,7 +92,7 @@ export function useTelosChatRoute(conversationId: string | null) {
       },
     );
     return () => controller.abort();
-  }, [conversationId, requested, connected, generation]);
+  }, [conversationId, requested, connectionStatus, generation]);
   const current =
     result?.conversationId === conversationId && result.requested === requested
       ? result

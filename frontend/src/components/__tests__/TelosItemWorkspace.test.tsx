@@ -7,6 +7,11 @@ import { TelosItemWorkspace } from '../TelosItemWorkspace';
 vi.mock('../TelosItemRoleEntries', () => ({
   TelosItemRoleEntries: () => <div>Ordinary role entry</div>,
 }));
+// Workspace tab persistence stays isolated from the ordinary store/router owner;
+// TelosItemChatTab and the actual route chain have dedicated integration tests.
+vi.mock('../TelosItemChatTab', () => ({
+  TelosItemChatTab: () => <div>Ordinary role entry</div>,
+}));
 vi.mock('../WorkOutputs', () => ({ WorkOutputs: () => <div>Retained output revisions</div> }));
 vi.mock('../TelosItemSources', () => ({
   TelosItemSources: () => <div>Retained source exchange</div>,
