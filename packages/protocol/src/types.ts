@@ -437,6 +437,8 @@ export interface SessionMeta {
   branch: string | null;
   /** Controller-owned source identity; absence never permits a repository resume fallback. */
   repositoryWorkspaceId?: string | null;
+  /** Private ordinary custody identity; exclusive with repositoryWorkspaceId. */
+  ordinaryWorkspaceId?: string | null;
   cwd: string | null;
   mode: MitzoMode;
   isActive: boolean;
