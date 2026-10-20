@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.398-symposium-source-api-public-base';
+  'v1.0.399-symposium-source-api-final-base';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -239,7 +239,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8747b800cf069cad636dc5ae6e92a347e55b59c9f01fe64af84587e047af1567',
   '../telos-work-conversation.ts':
     '6abc340f3236812d9e9875e8a60944590575d991e95ccaf3f2b61aff323c5175',
-  '../telos-work-routes.ts': '8443a0b9bcb0babed4cd301483a67009c814f2c5f17fe8e15eb5ac3eff6d49b5',
+  '../telos-work-routes.ts': 'ee2488cfb4d65b5012253e564cf820b5f472b8c4d31025046d5402eae40960aa',
   '../../packages/client/src/telos-work-api.ts':
     'c96657c94f4328dbea81bdf8ec5fd16cf76cae9810c238ce91561a814cd97523',
   '../telos-work-schema.ts': '51d23d7e4e2f6af0076901a5e5748b203d4f07238f60b69755a79c8c9671a24e',
@@ -620,7 +620,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': '38da69ff0f60195856a24920aee31373d42568396ef4fb5c6d77e02645dbd938',
+  '../app.ts': '2fbb80340aea23601950ce7187317d53b21d556af4f825c83e9eb443a0fadad1',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -1105,7 +1105,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-context.ts': '12de60337242e138d161b29de87fe4132204e7cf4b1547b6e0e52e48ae910f35',
   '../telos-work-delegation.ts': '7010abd60bcf10dcc051d1cc982b9fea4e9c0cb72aee6c77aec54eac3e72c78a',
   '../telos-work-delegation-host.ts':
-    'cdda7dc57cf51c6980f4d444da7325bf94a766d1c911c3d5053b1ffd97b8c946',
+    'f80204bc86526b806ae42d144bcffacc07aba609925698d300a6ebeeb20aa9ee',
   '../telos-work-command-scope.ts':
     'ee4418309938ce4f14d62d08f051b2fcd7cfeefed51812defea067fcdcc8079c',
   '../telos-work-execution-authority.ts':
