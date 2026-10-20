@@ -229,7 +229,7 @@ export function TelosOutcomesTree({
           <MotionPresence
             open={browse}
             kind="disclosure"
-            className="telos-category-browser"
+            className="telos-category-presence"
             aria-label="Discover categories"
             onKeyDown={(event) => {
               if (event.key === 'Escape') {
@@ -238,31 +238,33 @@ export function TelosOutcomesTree({
               }
             }}
           >
-            {categories.length === 0 && <p>No categories available.</p>}
-            {[...new Set([...categories, ...state.pins])].map((category) => (
-              <div key={category}>
-                <button
-                  onClick={() => {
-                    update({ category });
-                    closeBrowse();
-                  }}
-                >
-                  {category}
-                </button>
-                <button
-                  aria-label={`${state.pins.includes(category) ? 'Unpin' : 'Pin'} ${category}`}
-                  onClick={() =>
-                    update({
-                      pins: state.pins.includes(category)
-                        ? state.pins.filter((p) => p !== category)
-                        : [...state.pins, category],
-                    })
-                  }
-                >
-                  {state.pins.includes(category) ? 'Unpin' : 'Pin'}
-                </button>
-              </div>
-            ))}
+            <div className="telos-category-browser">
+              {categories.length === 0 && <p>No categories available.</p>}
+              {[...new Set([...categories, ...state.pins])].map((category) => (
+                <div key={category}>
+                  <button
+                    onClick={() => {
+                      update({ category });
+                      closeBrowse();
+                    }}
+                  >
+                    {category}
+                  </button>
+                  <button
+                    aria-label={`${state.pins.includes(category) ? 'Unpin' : 'Pin'} ${category}`}
+                    onClick={() =>
+                      update({
+                        pins: state.pins.includes(category)
+                          ? state.pins.filter((p) => p !== category)
+                          : [...state.pins, category],
+                      })
+                    }
+                  >
+                    {state.pins.includes(category) ? 'Unpin' : 'Pin'}
+                  </button>
+                </div>
+              ))}
+            </div>
           </MotionPresence>
         </>
       )}
