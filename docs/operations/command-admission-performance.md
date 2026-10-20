@@ -16,14 +16,14 @@ adoption is recorded only after the provider accepts the exact context.
 
 With tracing enabled, inspect these fixed span names under the send trace:
 
-| Span | Boundary |
-| --- | --- |
-| `codex.admission.lifecycle_wait` | Waiting for the existing lifecycle coordinator to admit work |
-| `codex.admission.retained_migration` | Retained-runtime migration and its fresh contract/image observations |
-| `codex.admission.provider_environment` | Fresh provider contract and required environment preparation |
-| `codex.admission.agent_context` | Saved agent-context runtime verification, when selected |
-| `codex.admission.knowledge` | Fresh knowledge selection, verification, delivery and compilation |
-| `codex.admission.task_capabilities` | Fixed read-only inventory of task entrypoint presence |
+| Span                                   | Boundary                                                             |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| `codex.admission.lifecycle_wait`       | Waiting for the existing lifecycle coordinator to admit work         |
+| `codex.admission.retained_migration`   | Retained-runtime migration and its fresh contract/image observations |
+| `codex.admission.provider_environment` | Fresh provider contract and required environment preparation         |
+| `codex.admission.agent_context`        | Saved agent-context runtime verification, when selected              |
+| `codex.admission.knowledge`            | Fresh knowledge selection, verification, delivery and compilation    |
+| `codex.admission.task_capabilities`    | Fixed read-only inventory of task entrypoint presence                |
 
 Existing `knowledge.*` spans provide more detail inside knowledge preparation.
 Admission spans record status without error messages, exception details, prompts,
