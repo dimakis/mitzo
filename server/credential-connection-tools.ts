@@ -1,3 +1,4 @@
+import { ConnectionRequestError } from './connection-request-error.js';
 import { WebSocketRequestSchema, ConnectionWebSocketError } from './credential-websocket.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -293,6 +294,8 @@ export function createCredentialConnectionTools(
         );
         return { content: JSON.stringify(response), isError: false };
       } catch (error) {
+        if (error instanceof ConnectionRequestError)
+          return { content: JSON.stringify(error.toResult()), isError: true };
         if (error instanceof ConnectionWebSocketError)
           return {
             content: error.mayHaveApplied
