@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 const output = build({
   entryPoints: [resolve('tests/fixtures/queue-status.tsx')],
   bundle: true,
+  external: ['/*.png', '/*.svg'],
   format: 'esm',
   write: false,
   outfile: '/tmp/mitzo-queue-status.js',
@@ -83,7 +84,7 @@ for (const theme of ['dark', 'light']) {
 
     queued = 1;
     await emit.click();
-    await expect(page.getByRole('status')).toContainText('1 message is waiting', { timeout: 1000 });
+    await expect(page.getByRole('status')).toContainText('1 message queued', { timeout: 1000 });
     await page.getByRole('button', { name: 'Review queue' }).click();
     await expect(page.getByText('Checking queued messages…')).toBeVisible();
     await page.screenshot({ path: info.outputPath(`queue-${theme}.png`) });
@@ -101,7 +102,7 @@ for (const theme of ['dark', 'light']) {
     await expect(page.getByRole('status')).toHaveCount(0);
     await tab.focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('status')).toContainText('2 messages are waiting');
+    await expect(page.getByRole('status')).toContainText('2 messages queued');
     await expect(page.getByRole('button', { name: 'Hide status' })).toBeFocused();
 
     details = 'loaded';
@@ -110,7 +111,7 @@ for (const theme of ['dark', 'light']) {
     details = 'failed';
     queued = 1;
     await emit.click();
-    await expect(page.getByRole('status')).toContainText('1 message is waiting', { timeout: 1000 });
+    await expect(page.getByRole('status')).toContainText('1 message queued', { timeout: 1000 });
     await expect(page.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0);
     await expect(page.getByText('Synthetic first preview')).toHaveCount(0);
     await expect(page.getByText('Synthetic second preview')).toHaveCount(0);
@@ -181,7 +182,7 @@ for (const theme of ['dark', 'light']) {
       height: 844,
     });
     await page.goto('/');
-    await expect(page.getByRole('status')).toContainText('Reconnecting… Your message is saved.');
+    await expect(page.getByRole('status')).toContainText('Reconnecting…');
     await expect(page.getByRole('button', { name: 'Reconnect and continue' })).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`recovering-${theme}.png`) });
     // A sustained failure keeps the explicit fallback; success must remove its old warning.
@@ -195,5 +196,21 @@ for (const theme of ['dark', 'light']) {
     await expect(page.getByText('An earlier step may be incomplete.')).toHaveCount(0);
     await expect(page.getByText('Reconnected. Continuing saved messages.')).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`recovered-${theme}.png`) });
+    await page.getByRole('button', { name: 'Show delivery progress' }).click();
+    const progress = page.getByRole('status');
+    await expect(progress).toContainText('Preparing response…');
+    await expect(page.locator('.codex-queue-status--attention')).toHaveCount(0);
+    expect(
+      await progress.evaluate((element) => parseFloat(getComputedStyle(element).fontSize)),
+    ).toBeLessThanOrEqual(14);
+    const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+    await input.fill('Synthetic unsent draft');
+    await page.screenshot({ path: info.outputPath(`delivery-progress-${theme}.png`) });
+    await page
+      .locator('.queue-status-composer')
+      .screenshot({ path: info.outputPath(`composer-progress-${theme}.png`) });
+    await page.getByRole('button', { name: 'Clear delivery progress' }).click();
+    await expect(page.getByText('Preparing response…')).toHaveCount(0);
+    await expect(input).toHaveValue('Synthetic unsent draft');
   });
 }

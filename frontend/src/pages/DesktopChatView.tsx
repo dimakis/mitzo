@@ -1,3 +1,4 @@
+import { ChatStatusMessage } from '../components/ChatStatusMessage';
 import { TelosAdvisorDraft } from '../components/TelosAdvisorDraft';
 import { bindChatDraftToSession, getSessionChatDraft } from '../lib/chat-drafts';
 import { TelosRoleSetup } from '../components/TelosRoleSetup';
@@ -1413,12 +1414,10 @@ export function DesktopChatView() {
           <TelosSourceWorkLink conversationId={activeSessionId ?? undefined} />
           <AgentLibraryChatLink sources={builderSources} />
           {builderLinkError && <p role="alert">{builderLinkError}</p>}
+          {isSymposium && <ChatStatusMessage status={sendStatus} error={sendError} busy />}
 
-          {(sendError || sendStatus) && (
-            <div role={sendError ? 'alert' : 'status'}>{sendError || sendStatus}</div>
-          )}
           {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
-            <div role="status">Loading conversation…</div>
+            <ChatStatusMessage status="Loading conversation…" busy />
           )}
           {historyError && (
             <div role="alert">
@@ -1535,7 +1534,11 @@ export function DesktopChatView() {
                   </div>
                 )}
 
-                {!controlsBlocked && <CodexQueueStatus sessionId={activeSessionId} />}
+                <CodexQueueStatus
+                  sessionId={controlsBlocked ? null : activeSessionId}
+                  deliveryStatus={sendStatus}
+                  deliveryError={sendError}
+                />
                 {invalidRoleSetup && (
                   <p role="alert">
                     This work conversation setup is unavailable. Return to the work item and choose

@@ -1799,11 +1799,24 @@ focus rules remain effective.
 
 ## Queue recovery status
 
-The existing compact queue strip follows current recovery metadata. Successful
-Reconnect and continue / Retry saved turn actions refresh that metadata without
-leaving a success notice that reopens the generic attention warning after pending
-work clears. Real failed actions retain their error and fallback controls. No
-styles, geometry, palette, motion or approved surfaces change. The intercepted
-queue-status browser fixture checks recovery, fallback keyboard activation and
-warning removal on mobile WebKit/Chromium and desktop Chromium in dark Mint/System
-and light Teal/Georgia. It uses synthetic metadata and no backend or model calls.
+`ChatStatusMessage` gives send progress, conversation loading and composer-blocking
+reasons one shared quiet treatment: semantic muted text, UiIcon, UI font and shared
+spacing/type tokens. Both chat pages place delivery feedback beside the composer;
+the queue owner gives active recovery priority over duplicate delivery progress.
+Normal progress has no bordered warning panel. The queue uses its existing actions
+with shared control-height targets and a close icon. Only current action failures,
+failed turns ready for review and exhausted/inspection-required recovery get the
+quiet outlined attention treatment. No generic earlier-step warning or successful
+restart/continue notice outlives the work it describes. Transient background
+reattach failures remain represented by current recovery metadata.
+
+A newer assistant snapshot clears preparation progress even if its message_start
+was lost during reconnect; foreign and older snapshots do not. This changes only
+UI progress, never a delivery receipt or permission decision. Drafts, queue review,
+cancellation, keyboard focus and genuine errors remain available.
+
+The intercepted actual-composer queue-status fixture covers mobile
+WebKit/Chromium and desktop Chromium in dark Mint/System and light Teal/Georgia,
+recovery, keyboard fallback activation, cleared status, quiet preparing progress
+and retained drafts. Shared motion supplies the loading icon and reduced-motion
+fallback. These checks use synthetic metadata, no backend and no model calls.

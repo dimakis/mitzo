@@ -1,0 +1,20 @@
+.chat-status-message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  color: var(--color-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.chat-status-message > .ui-icon {
+  flex-shrink: 0;
+}
+
+.chat-status-message--error {
+  color: var(--color-danger);
+}
