@@ -15,12 +15,25 @@ export async function repositoryPreparedCommandStatus(options: {
   try {
     const read = () => {
       signal.throwIfAborted();
-      options.assertCurrent();
+      // Started or uncertain commands belong to the existing continuation owner.
       if (
         events.getOrdinaryInitialCommandId(sessionId) ||
         events.hasUncertainOrdinaryCommand(sessionId)
       )
         return null;
+      const current = events.getSession(sessionId);
+      const route = events.getSessionRuntimeBinding(sessionId);
+      if (
+        (route &&
+          (route.harness.implementation !== 'codex' ||
+            route.execution.location !== 'local' ||
+            route.account.provider !== 'openai-codex')) ||
+        (!route && current?.accountBinding?.provider !== 'openai-codex')
+      )
+        return null;
+      // Missing binding for an apparent Local Codex preparation still refuses.
+      // Re-read after the original operator check; classification is no grant.
+      options.assertCurrent();
       const meta = events.getSession(sessionId);
       const receipt = events.getOrdinarySessionPreparationForConversation(sessionId);
       const binding = events.getSessionRuntimeBinding(sessionId);

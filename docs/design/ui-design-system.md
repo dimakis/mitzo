@@ -1465,6 +1465,27 @@ scroll strip. Existing semantic tokens, type, focus, control geometry and appear
 preferences remain effective. The ordinary draft owner retains text/images/context
 through silent role binding and first-send consumption.
 
+On the supported Local Mac OAuth Codex route, Repository None prepares an ordinary
+workspace from the server’s readiness receipt. Other execution choices retain their
+selected intent and an actionable refusal. The existing primary control confirms
+role setup after review; readiness and rendering never start a command. Draft storage
+retains the exact preparation, immutable reviewed settings, presentation and request
+identity across reload and unknown outcomes. Device-storage failures keep replacement
+locked. Only an exact durable pre-allocation rejection permits explicit re-review and
+a fresh confirmation. This reuses the existing setup card, status/alert text, composer
+and controls, with no new style or motion pattern.
+
+A bound ordinary workspace uses the same chat settings, transcript and composer.
+Its prepared first command keeps the original account, model, thinking, agent and
+execution choices fixed. A matching consumed receipt refreshes its command phase;
+future model/thinking choices then use the existing continuation controls. Unknown
+delivery keeps the original command and draft for explicit recovery in More options.
+Workspace details say Conversation files and show that a Git branch does not apply.
+No new settings, storage owner or motion pattern is introduced.
+The shared compact Agents control clips its flex label with the existing ellipsis
+pattern, preserving its full accessible name, fixed icon space and shared control
+height at narrow widths and large text sizes.
+
 The scoped offline role fixture checks source-only lead setup, full refinement/child
 advisor chat, uncertain setup/reload recovery, normal settings, retained unsent draft,
 expanded context pins and proposal saves at 320px WebKit/Chromium and desktop Chromium,
