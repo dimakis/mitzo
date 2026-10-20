@@ -13,11 +13,15 @@ import {
   CollaborationApplicationReviewRequestSchema,
   CollaborationApplicationReviewResultSchema,
   CollaborationBeginSchema,
+  CollaborationSourceSetupQuerySchema,
+  CollaborationSourceSetupSchema,
   COLLABORATION_EXECUTION_DISABLED,
 } from '@mitzo/protocol';
 import { z } from 'zod';
 import { registerAuthSession, isAuthSessionCurrent } from './auth.js';
 import { custodianRequestSignal } from './symposium-custodian-authority.js';
+import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
+import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import type { OrdinaryCollaborationJoiningPort } from './collaboration-joining-owner.js';
 import type { CollaborationApplicationReview } from './collaboration-application-review.js';
 import type { EventStore } from './event-store.js';
@@ -59,6 +63,30 @@ export function createSessionCollaborationRouter({
     res.set('Cache-Control', 'private, no-store');
     if (!recentAuthorizationSession(res)) return;
     next();
+  });
+  /** Observational selection under the existing real interactive source owner. */
+  router.get('/source-setup', (req, res) => {
+    const query = CollaborationSourceSetupQuerySchema.safeParse(req.query);
+    if (!query.success) return res.status(400).json({ error: 'Invalid source setup query' });
+    try {
+      const auth = recentAuthorizationSession(res)!;
+      const operator = captureAgentLibraryAuthorization(query.data.clientId);
+      const assertCurrent = () => {
+        operator.assertCurrent();
+        if (
+          !isAuthSessionCurrent(auth) ||
+          operator.auth.id !== auth.id ||
+          liveTransportAuthSessionId(query.data.clientId) !== auth.id
+        )
+          throw new CollaborationContractError('execution_unavailable');
+      };
+      assertCurrent();
+      const result = store.collaborationConversation.sourceSetup(query.data.sourceConversationId);
+      assertCurrent();
+      return res.json(CollaborationSourceSetupSchema.parse(result));
+    } catch (error) {
+      return failure(res, error);
+    }
   });
   /** First Add agent retains relationship identity only. The existing owner
    * arbitrates exact retries and one source enrollment without creating a chat. */
