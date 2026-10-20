@@ -1,12 +1,20 @@
+import { useOrdinaryWorkspacePreparation } from '../hooks/useOrdinaryWorkspacePreparation';
 import './RepositoryChatPicker.css';
 import { TelosLinkedContext } from './TelosLinkedContext';
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { CollaborationSettingsSchema } from '@mitzo/protocol';
+import {
+  CollaborationSettingsSchema,
+  OrdinaryWorkspaceSettingsSchema,
+  OrdinaryWorkspacePreparationRequestSchema,
+} from '@mitzo/protocol';
 import { TelosWorkApiClient } from '@mitzo/client';
 import { useTelosRoleSetup, type TelosRoleRouteIntent } from '../hooks/useTelosRoleSetup';
 import type { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
-import { prepareLocalFirstCommand } from '../lib/explicit-local-chat';
+import {
+  prepareLocalFirstCommand,
+  prepareOrdinaryWorkspaceSelection,
+} from '../lib/explicit-local-chat';
 import { apiFetch } from '../lib/api-fetch';
 import { createBrowserId } from '../lib/browser-crypto';
 
@@ -32,8 +40,55 @@ export function TelosRoleSetup({
   const validationId = useRef<string | null>(null);
   validationId.current ??= createBrowserId();
   const api = useMemo(() => new TelosWorkApiClient(apiFetch), []);
+  const [preparationLocked, setPreparationLocked] = useState(true);
+  const ordinarySelection = useMemo(
+    () =>
+      repositoryWorkspaceId || runtime.reason
+        ? null
+        : prepareOrdinaryWorkspaceSelection(runtime.intent, runtime.inventory, {
+            clientMsgId: validationId.current!,
+            mode,
+            text: 'Review role chat settings',
+          }),
+    [repositoryWorkspaceId, runtime.reason, runtime.intent, runtime.inventory, mode],
+  );
+  const ordinaryRequest = ordinarySelection?.request
+    ? OrdinaryWorkspacePreparationRequestSchema.parse({
+        version: 1,
+        model: ordinarySelection.request.selection.model,
+        runOn: ordinarySelection.request.runOn,
+        runtime: {
+          account: ordinarySelection.request.runtime.account,
+          harness: ordinarySelection.request.runtime.harness,
+          targetId: ordinarySelection.request.runtime.targetId,
+        },
+      })
+    : null;
+  const ordinaryKey = JSON.stringify({
+    request: ordinaryRequest,
+    selection: ordinarySelection?.request?.selection,
+    capabilityRevision: ordinarySelection?.request?.capabilityRevision,
+    targets: runtime.inventory?.targets,
+  });
+  const ordinary = useOrdinaryWorkspacePreparation({
+    draftId,
+    enabled: !repositoryWorkspaceId && !!ordinaryRequest,
+    request: ordinaryRequest,
+    selectionKey: ordinaryKey,
+    blocked: preparationLocked,
+  });
   const settings = useMemo(() => {
-    if (!repositoryWorkspaceId || runtime.reason) return null;
+    if (runtime.reason) return null;
+    if (!repositoryWorkspaceId) {
+      if (!ordinary.receipt || !ordinarySelection?.request) return null;
+      const parsed = OrdinaryWorkspaceSettingsSchema.safeParse({
+        version: 2,
+        binding: ordinary.receipt.runtimeBinding,
+        selection: ordinarySelection.request.selection,
+        workspace: { kind: 'ordinary', preparationId: ordinary.receipt.preparationId },
+      });
+      return parsed.success ? parsed.data : null;
+    }
     const prepared = prepareLocalFirstCommand(runtime.intent, runtime.inventory, {
       clientMsgId: validationId.current!,
       repositoryWorkspaceId,
@@ -64,15 +119,23 @@ export function TelosRoleSetup({
       repositoryWorkspaceId,
     });
     return parsed.success ? parsed.data : null;
-  }, [runtime.intent, runtime.inventory, runtime.reason, repositoryWorkspaceId, mode]);
+  }, [
+    runtime.intent,
+    runtime.inventory,
+    runtime.reason,
+    repositoryWorkspaceId,
+    mode,
+    ordinary.receipt,
+    ordinarySelection,
+  ]);
   const setup = useTelosRoleSetup({ draftId, intent, settings, api, onBound });
+  useEffect(() => setPreparationLocked(setup.locked), [setup.locked]);
   const reopened = useRef<string | null>(null);
   useEffect(() => {
-    if (!setup.boundConversationId) return;
-    const key = `${draftId}:${setup.boundConversationId}`;
+    const key = setup.boundConversationId ? `${draftId}:${setup.boundConversationId}` : null;
     if (reopened.current === key) return;
     reopened.current = key;
-    onBound(setup.boundConversationId);
+    if (setup.boundConversationId) onBound(setup.boundConversationId);
   }, [setup.boundConversationId, draftId, onBound]);
   const { pending, locked, uncertain, rejectedBeforeAllocation, review } = setup;
   const reviewKey = JSON.stringify({ intent, settings });
@@ -140,8 +203,15 @@ export function TelosRoleSetup({
         />
       )}
       {setup.error && <p role="alert">{setup.error}</p>}
+      {ordinary.error && <p role="alert">{ordinary.error}</p>}
       {!settings && (
-        <p role="status">Choose supported chat settings and a repository to continue.</p>
+        <p role="status">
+          {ordinary.pending
+            ? 'Checking workspace readiness…'
+            : (runtime.reason ??
+              ordinarySelection?.reason ??
+              'Choose supported chat settings to continue.')}
+        </p>
       )}
       {setup.pending && (
         <p role="status">
@@ -153,13 +223,17 @@ export function TelosRoleSetup({
         type="button"
         disabled={
           !!setup.pending ||
+          ordinary.pending ||
           (!setup.boundConversationId &&
             !setup.uncertain &&
             !setup.canConfirm &&
-            !(setup.error && settings))
+            !(setup.error && settings) &&
+            !(ordinary.error && ordinaryRequest && !setup.locked))
         }
         onClick={() => {
           if (setup.boundConversationId) onBound(setup.boundConversationId);
+          else if (!settings && ordinary.error && ordinaryRequest && !setup.locked)
+            ordinary.retry();
           else if (beforeConfirm()) {
             // Explicit review already owns this settings key. Do not immediately
             // repeat it when the terminal-rejection state becomes reviewed.
@@ -168,7 +242,11 @@ export function TelosRoleSetup({
           }
         }}
       >
-        {setup.rejectedBeforeAllocation ? 'Review updated brief' : label}
+        {setup.rejectedBeforeAllocation
+          ? 'Review updated brief'
+          : ordinary.error && !settings
+            ? 'Check chat settings'
+            : label}
       </button>
     </section>
   );

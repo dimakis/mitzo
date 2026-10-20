@@ -1,11 +1,13 @@
-import {
-  V2SendMessage,
-  OrdinaryRuntimeFirstCommandSchema,
-  OrdinaryRuntimeContinuationCommandSchema,
-} from '@mitzo/protocol';
+import { V2SendMessage } from '@mitzo/protocol';
+import { parseLocalCommandDelivery } from '@mitzo/client';
 
 type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'>;
-type Entry = { body: Record<string, unknown>; scope: number; uncertain?: boolean };
+type Entry = {
+  body: Record<string, unknown>;
+  scope: number;
+  uncertain?: boolean;
+  ordinaryDelivery?: unknown;
+};
 const MAX_ENTRY_BYTES = 16 * 1024 * 1024;
 const MAX_TOTAL_BYTES = 32 * 1024 * 1024;
 /** Per-command launch persistence survives tab and native WebView recreation.
@@ -31,12 +33,7 @@ export function createReviewedOutboxStorage(
     )
       throw new Error('Invalid reviewed command envelope');
     if (route === 'local') {
-      if (
-        !OrdinaryRuntimeFirstCommandSchema.or(OrdinaryRuntimeContinuationCommandSchema).safeParse(
-          value.body,
-        ).success
-      )
-        throw Error('Invalid Local command');
+      parseLocalCommandDelivery(value.body, value.ordinaryDelivery);
       return value;
     }
     const parsed = V2SendMessage.safeParse(value.body);

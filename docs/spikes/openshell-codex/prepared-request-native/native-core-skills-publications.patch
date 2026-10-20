@@ -1,0 +1,1329 @@
+diff --git a/codex-rs/core/src/mcp/pre_session.rs b/codex-rs/core/src/mcp/pre_session.rs
+index 4e1a7f7..4beb60f 100644
+--- a/codex-rs/core/src/mcp/pre_session.rs
++++ b/codex-rs/core/src/mcp/pre_session.rs
+@@ -39,6 +39,20 @@ enum SelectionOrigin {
+ }
+ 
+ impl PreSessionMcpSources {
++    pub(crate) fn captured_environment_handles(&self) -> &[(String, Arc<Environment>)] {
++        &self.environments
++    }
++
++    /// Original primary environment filesystem in retained selection order.
++    /// This is a source handle, not a filesystem/configuration currentness lease.
++    pub(crate) fn primary_filesystem(
++        &self,
++    ) -> Option<Arc<dyn codex_exec_server::ExecutorFileSystem>> {
++        self.environments
++            .first()
++            .map(|(_, environment)| environment.get_filesystem())
++    }
++
+     /// The actual retained ordinary inputs, including dynamic Tools/Knowledge.
+     pub fn start_options(&self) -> &StartThreadOptions {
+         &self.options
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index da54da1..b7187ea 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -244,6 +244,8 @@ pub struct ThreadManager {
+ mod pre_session_global_instructions;
+ #[path = "thread_manager/pre_session_inputs.rs"]
+ mod pre_session_inputs;
++#[path = "thread_manager/pre_session_skills.rs"]
++mod pre_session_skills;
+ 
+ /// Captured parent identity for an internal child, including inline parents that
+ /// do not have a public entry in the thread manager. Authentication and the shared
+diff --git a/codex-rs/core/src/thread_manager/pre_session_skills.rs b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+new file mode 100644
+index 0000000..f10abe8
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+@@ -0,0 +1,151 @@
++//! Genuine fresh Skills observations through the original ThreadManager owners.
++//! This is one source partition. It cannot count, commit, create a Session or
++//! grant complete context/tool/account/source-currentness authority.
++#![cfg_attr(
++    not(test),
++    allow(dead_code, reason = "Fresh prepared factory is being connected.")
++)]
++
++use std::collections::HashMap;
++
++use codex_exec_server::SelectedEnvironmentPublicationObservation;
++use codex_features::Feature;
++use codex_models_manager::model_limits::UnverifiedModelLimitCandidate;
++use codex_protocol::error::CodexErr;
++use codex_protocol::error::Result as CodexResult;
++use codex_protocol::user_input::UserInput;
++use codex_skills_extension::SkillsContextObservation;
++use codex_skills_extension::registered_skills_sources;
++
++use super::ThreadManager;
++use crate::PreSessionMcpSources;
++use crate::config::Config;
++
++#[cfg(test)]
++#[path = "pre_session_skills_tests.rs"]
++mod tests;
++
++pub(crate) struct PreSessionSkillsObservation<'a> {
++    model: UnverifiedModelLimitCandidate,
++    skills: SkillsContextObservation<'a, Config>,
++    environment_publication: SelectedEnvironmentPublicationObservation<'a>,
++}
++
++impl PreSessionSkillsObservation<'_> {
++    pub(crate) fn model_candidate(&self) -> &UnverifiedModelLimitCandidate {
++        &self.model
++    }
++
++    pub(crate) fn skills(&self) -> &SkillsContextObservation<'_, Config> {
++        &self.skills
++    }
++
++    pub(crate) fn environment_publication(&self) -> &SelectedEnvironmentPublicationObservation<'_> {
++        &self.environment_publication
++    }
++}
++
++fn unavailable() -> CodexErr {
++    CodexErr::InvalidRequest("fresh native Skills source is unavailable".into())
++}
++
++impl ThreadManager {
++    /// Requires this manager's genuine inherited, fresh MCP-absence packet.
++    /// Configured Apps/plugins/root inventories remain refused by that source
++    /// rather than being dropped to construct a successful Skills observation.
++    /// Model metadata is captured passively from the original catalog; it is
++    /// explicitly unverified for selected-account/provider access.
++    pub(crate) async fn observe_pre_session_skills<'a>(
++        &'a self,
++        sources: &PreSessionMcpSources,
++        input: &[UserInput],
++    ) -> CodexResult<PreSessionSkillsObservation<'a>> {
++        self.validate_pre_session_mcp_sources(sources)
++            .map_err(|_| unavailable())?;
++        let config = &sources.start_options().config;
++        let environment_publication = self
++            .state
++            .environment_manager
++            .observe_selected_environment_handles(sources.captured_environment_handles())
++            .map_err(|_| unavailable())?;
++        if config.features.enabled(Feature::SkipHostSkillDiscovery) {
++            return Err(unavailable());
++        }
++        let registered = registered_skills_sources(&self.state.extensions);
++        let [source] = registered.as_slice() else {
++            return Err(unavailable());
++        };
++        let model_id = config.model.as_deref().ok_or_else(unavailable)?;
++        let model = self
++            .state
++            .models_manager
++            .capture_model_limit_candidate(model_id, &config.to_models_manager_config())
++            .await
++            .ok_or_else(unavailable)?;
++        // Apps/plugins/selected roots have already been excluded by the actual
++        // MCP source, so their connector counts and effective plugin roots are
++        // genuinely empty for this supported partition. Other configurations
++        // need their original source collectors before this path can support them.
++        let input = source
++            .observe_first_input(
++                &self.state.extensions,
++                config,
++                model.model_info(),
++                input,
++                &HashMap::new(),
++            )
++            .map_err(|_| unavailable())?;
++        let executor = source
++            .observe_executor_source(
++                &self.state.extensions,
++                &[],
++                &HashMap::new(),
++                /*selected_plugins*/ None,
++            )
++            .await
++            .map_err(|_| unavailable())?;
++        let host = self
++            .state
++            .skills_service
++            .observe_pre_session_for_config(
++                &crate::skills_load_input_from_config(config, Vec::new()),
++                sources.primary_filesystem(),
++            )
++            .await
++            .map_err(|_| unavailable())?;
++        self.state
++            .skills_service
++            .assert_pre_session_observation_owner(&host)
++            .map_err(|_| unavailable())?;
++        let skills = source
++            .observe_first_context(input, host, executor)
++            .await
++            .map_err(|_| unavailable())?;
++        self.validate_pre_session_mcp_sources(sources)
++            .map_err(|_| unavailable())?;
++        self.state
++            .skills_service
++            .assert_pre_session_prompt_observation_owner(skills.host_observation())
++            .map_err(|_| unavailable())?;
++        self.state
++            .skills_service
++            .with_current_pre_session_prompt_roots(skills.host_observation(), || ())
++            .map_err(|_| unavailable())?;
++        let catalog = self
++            .state
++            .models_manager
++            .pin_model_limit_candidate(&model)
++            .await
++            .ok_or_else(unavailable)?;
++        drop(catalog);
++        self.state
++            .environment_manager
++            .with_current_selected_environment_publications(&environment_publication, || ())
++            .map_err(|_| unavailable())?;
++        Ok(PreSessionSkillsObservation {
++            model,
++            skills,
++            environment_publication,
++        })
++    }
++}
+diff --git a/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs b/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
+new file mode 100644
+index 0000000..43168b7
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
+@@ -0,0 +1,173 @@
++use std::collections::HashMap;
++use std::sync::Arc;
++
++use codex_config::Constrained;
++use codex_config::config_toml::ConfigToml;
++use codex_exec_server::EnvironmentManager;
++use codex_extension_api::ExtensionRegistryBuilder;
++use codex_login::CodexAuth;
++use codex_skills_extension::ExecutorSkillProvider;
++use codex_skills_extension::HostSkillProvider;
++use codex_skills_extension::SkillProviders;
++use codex_skills_extension::SkillsExtensionConfig;
++use codex_utils_absolute_path::AbsolutePathBuf;
++use pretty_assertions::assert_eq;
++
++use super::*;
++use crate::McpManager;
++use crate::config::ConfigOverrides;
++use crate::thread_manager::StartThreadOptions;
++
++async fn config(home: &tempfile::TempDir) -> Config {
++    let toml: ConfigToml =
++        toml::from_str("model='gpt-6-luna'\n[skills.bundled]\nenabled=false\n").unwrap();
++    let mut config = Config::load_from_base_config_with_overrides(
++        toml,
++        ConfigOverrides {
++            cwd: Some(home.path().to_path_buf()),
++            ..Default::default()
++        },
++        AbsolutePathBuf::from_absolute_path(home.path()).unwrap(),
++    )
++    .await
++    .unwrap();
++    config.features.disable(Feature::Apps).unwrap();
++    config.features.disable(Feature::Plugins).unwrap();
++    config
++        .features
++        .disable(Feature::SkipHostSkillDiscovery)
++        .unwrap();
++    config.mcp_servers = Constrained::allow_any(HashMap::new());
++    config
++}
++
++fn manager(config: &Config) -> ThreadManager {
++    let environment_manager = Arc::new(EnvironmentManager::default_for_tests());
++    let mut manager = ThreadManager::with_models_provider_and_home_for_tests(
++        CodexAuth::from_api_key("offline-no-model-call"),
++        config.model_provider.clone(),
++        config.codex_home.to_path_buf(),
++        Arc::clone(&environment_manager),
++    );
++    let mut registry = ExtensionRegistryBuilder::<Config>::new();
++    let providers = SkillProviders::new()
++        .with_native_host_provider(Arc::new(HostSkillProvider::new()))
++        .with_native_executor_provider(Arc::new(
++            ExecutorSkillProvider::new_with_restriction_product(
++                environment_manager,
++                /*restriction_product*/ None,
++            ),
++        ));
++    codex_skills_extension::install_with_providers(&mut registry, providers, |config| {
++        SkillsExtensionConfig {
++            include_instructions: false,
++            max_context_tokens: None,
++            bundled_skills_enabled: config.bundled_skills_enabled(),
++            cloud_skill_enabled: false,
++            shadow_selection_enabled: false,
++        }
++    });
++    let state = Arc::get_mut(&mut manager.state).unwrap();
++    state.extensions = Arc::new(registry.build());
++    state.mcp_manager = Arc::new(McpManager::new_with_extensions(
++        Arc::clone(&state.plugins_manager),
++        Arc::clone(&state.extensions),
++        state.mcp_manager.codex_apps_tools_cache(),
++    ));
++    manager
++}
++
++#[tokio::test]
++async fn original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup() {
++    let home = tempfile::tempdir().unwrap();
++    let config = config(&home).await;
++    let skill = home.path().join("skills/original-knowledge");
++    std::fs::create_dir_all(&skill).unwrap();
++    let text = "---\nname: original-knowledge\ndescription: Original host Knowledge\n---\nCORE_SELECTED_KNOWLEDGE_BYTES\n";
++    std::fs::write(skill.join("SKILL.md"), text).unwrap();
++    let manager = manager(&config);
++    let mut created = manager.state.thread_created_tx.subscribe();
++    let sources = manager
++        .capture_pre_session_mcp_sources(StartThreadOptions::new(config.clone()))
++        .unwrap();
++    let input = vec![UserInput::Text {
++        text: "$original-knowledge".into(),
++        text_elements: Vec::new(),
++    }];
++    let observed = manager
++        .observe_pre_session_skills(&sources, &input)
++        .await
++        .unwrap();
++    assert_eq!(
++        observed
++            .skills()
++            .host_observation()
++            .source_bytes()
++            .map(|(_, bytes)| bytes)
++            .collect::<Vec<_>>(),
++        vec![text]
++    );
++    assert_eq!(observed.skills().user_input(), input.as_slice());
++    assert_eq!(
++        serde_json::to_value(observed.skills().model()).unwrap(),
++        serde_json::to_value(observed.model_candidate().model_info()).unwrap()
++    );
++    assert_eq!(observed.skills().model().slug, "gpt-6-luna");
++    assert_eq!(
++        manager
++            .state
++            .environment_manager
++            .with_current_selected_environment_publications(
++                observed.environment_publication(),
++                || 41,
++            ),
++        Ok(41)
++    );
++    assert!(observed.skills().initial_world_state().is_empty());
++    assert!(!observed.skills().host_items().is_empty());
++    assert!(observed.skills().tool_specs().is_empty());
++    assert!(
++        manager
++            .state
++            .extensions
++            .capture_pre_session_tools()
++            .is_err()
++    );
++    assert!(manager.state.threads.read().await.is_empty());
++    assert!(matches!(
++        created.try_recv(),
++        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
++    ));
++    std::fs::remove_file(skill.join("SKILL.md")).unwrap();
++    assert_eq!(
++        observed
++            .skills()
++            .host_observation()
++            .source_bytes()
++            .next()
++            .unwrap()
++            .1,
++        text
++    );
++    // Retained bytes are data, not a file-currentness/admission grant.
++    assert!(!observed.skills().host_items().is_empty());
++}
++
++#[tokio::test]
++async fn foreign_fresh_source_packet_refuses_before_source_capture_or_session_creation() {
++    let home = tempfile::tempdir().unwrap();
++    let config = config(&home).await;
++    let original = manager(&config);
++    let foreign = manager(&config);
++    let sources = foreign
++        .capture_pre_session_mcp_sources(StartThreadOptions::new(config))
++        .unwrap();
++    assert!(
++        original
++            .observe_pre_session_skills(&sources, &[])
++            .await
++            .is_err()
++    );
++    assert!(original.state.threads.read().await.is_empty());
++    assert!(foreign.state.threads.read().await.is_empty());
++}
+diff --git a/codex-rs/exec-server/src/environment_publication.rs b/codex-rs/exec-server/src/environment_publication.rs
+new file mode 100644
+index 0000000..6d1b3b6
+--- /dev/null
++++ b/codex-rs/exec-server/src/environment_publication.rs
+@@ -0,0 +1,166 @@
++use std::sync::Arc;
++
++use codex_protocol::capabilities::CapabilityRootLocation;
++use codex_protocol::capabilities::SelectedCapabilityRoot;
++
++use crate::Environment;
++use crate::EnvironmentManager;
++use crate::EnvironmentReadyInfo;
++use crate::ResolvedSelectedCapabilityRoot;
++
++#[cfg(test)]
++#[path = "environment_publication_tests.rs"]
++mod tests;
++
++/// Original manager entries and accepted Ready-report allocations captured under
++/// their actual publisher lock. This does not grant connection, filesystem,
++/// permission, configuration or selected-root authority.
++pub struct SelectedEnvironmentPublicationObservation<'a> {
++    manager: &'a EnvironmentManager,
++    entries: Vec<SelectedEnvironmentPublication>,
++}
++
++struct SelectedEnvironmentPublication {
++    environment_id: String,
++    selected_root: Option<SelectedCapabilityRoot>,
++    environment: Arc<Environment>,
++    ready_report: Option<Arc<EnvironmentReadyInfo>>,
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub enum SelectedEnvironmentPublicationError {
++    MissingEnvironment,
++    ForeignManager,
++    ChangedEnvironment,
++    ChangedReadyReport,
++    DifferentResolvedRoots,
++}
++
++impl EnvironmentManager {
++    /// Passive observation only. Pending environments can be observed; this
++    /// operation never starts, waits for or probes a connection.
++    pub fn observe_selected_environment_publications(
++        &self,
++        selected_roots: &[SelectedCapabilityRoot],
++    ) -> Result<SelectedEnvironmentPublicationObservation<'_>, SelectedEnvironmentPublicationError>
++    {
++        let environments = self
++            .environments
++            .read()
++            .unwrap_or_else(std::sync::PoisonError::into_inner);
++        let mut entries = Vec::with_capacity(selected_roots.len());
++        for selected_root in selected_roots {
++            let CapabilityRootLocation::Environment { environment_id, .. } =
++                &selected_root.location;
++            let environment = environments
++                .get(environment_id)
++                .ok_or(SelectedEnvironmentPublicationError::MissingEnvironment)?;
++            entries.push(SelectedEnvironmentPublication {
++                environment_id: environment_id.clone(),
++                selected_root: Some(selected_root.clone()),
++                environment: Arc::clone(environment),
++                ready_report: environment.last_ready_info(),
++            });
++        }
++        Ok(SelectedEnvironmentPublicationObservation {
++            manager: self,
++            entries,
++        })
++    }
++
++    /// Captures original selection-owned environment handles without inventing
++    /// capability roots. Every supplied handle must still be the actual map
++    /// entry under the original publisher lock before its report is captured.
++    pub fn observe_selected_environment_handles(
++        &self,
++        handles: &[(String, Arc<Environment>)],
++    ) -> Result<SelectedEnvironmentPublicationObservation<'_>, SelectedEnvironmentPublicationError>
++    {
++        let environments = self
++            .environments
++            .read()
++            .unwrap_or_else(std::sync::PoisonError::into_inner);
++        let mut entries = Vec::with_capacity(handles.len());
++        for (environment_id, captured) in handles {
++            let current = environments
++                .get(environment_id)
++                .ok_or(SelectedEnvironmentPublicationError::MissingEnvironment)?;
++            if !Arc::ptr_eq(current, captured) {
++                return Err(SelectedEnvironmentPublicationError::ChangedEnvironment);
++            }
++            entries.push(SelectedEnvironmentPublication {
++                environment_id: environment_id.clone(),
++                selected_root: None,
++                environment: Arc::clone(current),
++                ready_report: current.last_ready_info(),
++            });
++        }
++        Ok(SelectedEnvironmentPublicationObservation {
++            manager: self,
++            entries,
++        })
++    }
++
++    /// Runs a bounded synchronous action while the ORIGINAL manager read lock
++    /// excludes entry replacement and accepted Ready-report publication. Equal
++    /// report contents republished on the same Environment still invalidate.
++    /// Async work returned by the action is outside this fence; callers must
++    /// perform their actual synchronous commit before the action returns.
++    /// Connection retirement and external filesystem writes use other owners
++    /// and are deliberately not covered by this publication fence.
++    pub fn with_current_selected_environment_publications<R>(
++        &self,
++        observation: &SelectedEnvironmentPublicationObservation<'_>,
++        action: impl FnOnce() -> R,
++    ) -> Result<R, SelectedEnvironmentPublicationError> {
++        if !std::ptr::eq(self, observation.manager) {
++            return Err(SelectedEnvironmentPublicationError::ForeignManager);
++        }
++        let environments = self
++            .environments
++            .read()
++            .unwrap_or_else(std::sync::PoisonError::into_inner);
++        for entry in &observation.entries {
++            let current = environments
++                .get(&entry.environment_id)
++                .ok_or(SelectedEnvironmentPublicationError::ChangedEnvironment)?;
++            if !Arc::ptr_eq(current, &entry.environment) {
++                return Err(SelectedEnvironmentPublicationError::ChangedEnvironment);
++            }
++            let same_report = match (&entry.ready_report, current.last_ready_info()) {
++                (None, None) => true,
++                (Some(captured), Some(current)) => Arc::ptr_eq(captured, &current),
++                (None, Some(_)) | (Some(_), None) => false,
++            };
++            if !same_report {
++                return Err(SelectedEnvironmentPublicationError::ChangedReadyReport);
++            }
++        }
++        let result = action();
++        drop(environments);
++        Ok(result)
++    }
++}
++
++impl SelectedEnvironmentPublicationObservation<'_> {
++    /// Binds the actual passive resolver output to the captured entries before
++    /// discovery. ID or equal root data cannot substitute a different handle.
++    pub fn assert_resolved_roots(
++        &self,
++        resolved_roots: &[ResolvedSelectedCapabilityRoot],
++    ) -> Result<(), SelectedEnvironmentPublicationError> {
++        if self.entries.len() != resolved_roots.len()
++            || self
++                .entries
++                .iter()
++                .zip(resolved_roots)
++                .any(|(entry, root)| {
++                    entry.selected_root.as_ref() != Some(root.selected_root())
++                        || !Arc::ptr_eq(&entry.environment, root.environment())
++                })
++        {
++            return Err(SelectedEnvironmentPublicationError::DifferentResolvedRoots);
++        }
++        Ok(())
++    }
++}
+diff --git a/codex-rs/exec-server/src/environment_publication_tests.rs b/codex-rs/exec-server/src/environment_publication_tests.rs
+new file mode 100644
+index 0000000..fd4d46c
+--- /dev/null
++++ b/codex-rs/exec-server/src/environment_publication_tests.rs
+@@ -0,0 +1,185 @@
++use std::cell::Cell;
++use std::sync::Arc;
++
++use codex_protocol::capabilities::CapabilityRootLocation;
++use codex_protocol::capabilities::SelectedCapabilityRoot;
++use codex_utils_path_uri::PathUri;
++use futures::FutureExt;
++use futures::future::BoxFuture;
++use pretty_assertions::assert_eq;
++
++use crate::EnvironmentManager;
++use crate::EnvironmentReadyInfo;
++use crate::ExecServerError;
++use crate::NoiseChannelPublicKey;
++use crate::NoiseRendezvousConnectBundle;
++use crate::NoiseRendezvousConnectProvider;
++use crate::SelectedEnvironmentPublicationError;
++
++struct UnusedProvider;
++
++impl NoiseRendezvousConnectProvider for UnusedProvider {
++    fn connect_bundle(
++        &self,
++        _: NoiseChannelPublicKey,
++    ) -> BoxFuture<'_, Result<NoiseRendezvousConnectBundle, ExecServerError>> {
++        async { panic!("publication observation must never start a connection") }.boxed()
++    }
++}
++
++fn root(environment_id: &str) -> SelectedCapabilityRoot {
++    SelectedCapabilityRoot {
++        id: "publication-root".into(),
++        location: CapabilityRootLocation::Environment {
++            environment_id: environment_id.into(),
++            path: PathUri::parse("file:///publication-root").unwrap(),
++        },
++    }
++}
++
++#[tokio::test]
++async fn publication_action_holds_original_writer_lock_and_rejects_foreign_manager() {
++    let manager = EnvironmentManager::default_for_tests();
++    let foreign = EnvironmentManager::default_for_tests();
++    let observation = manager
++        .observe_selected_environment_publications(&[root("local")])
++        .unwrap();
++    let invoked = Cell::new(false);
++    let result = manager.with_current_selected_environment_publications(&observation, || {
++        assert!(manager.environments.try_write().is_err());
++        invoked.set(true);
++        17
++    });
++    assert_eq!(result, Ok(17));
++    assert!(invoked.get());
++    assert!(manager.environments.try_write().is_ok());
++    assert_eq!(
++        foreign.with_current_selected_environment_publications(&observation, || {
++            panic!("foreign manager cannot commit")
++        }),
++        Err::<(), _>(SelectedEnvironmentPublicationError::ForeignManager)
++    );
++}
++
++#[tokio::test]
++async fn every_ready_report_republication_invalidates_even_identical_contents_and_same_environment()
++{
++    let manager = EnvironmentManager::default_for_tests();
++    let provider = Arc::new(UnusedProvider);
++    let original = manager
++        .materialize_pending_noise_environment("tools".into(), provider.clone())
++        .unwrap();
++    let pending = manager
++        .observe_selected_environment_publications(&[root("tools")])
++        .unwrap();
++    assert!(original.last_ready_info().is_none());
++    manager
++        .report_environment_provisioning_status(
++            "tools".into(),
++            Ok(EnvironmentReadyInfo::default()),
++            provider.clone(),
++        )
++        .unwrap();
++    assert_eq!(
++        manager.with_current_selected_environment_publications(&pending, || {
++            panic!("None and Some(empty report) are different publications")
++        }),
++        Err::<(), _>(SelectedEnvironmentPublicationError::ChangedReadyReport)
++    );
++    let ready = manager
++        .observe_selected_environment_publications(&[root("tools")])
++        .unwrap();
++    let handles = manager
++        .observe_selected_environment_handles(&[("tools".into(), Arc::clone(&original))])
++        .unwrap();
++    manager
++        .report_environment_provisioning_status(
++            "tools".into(),
++            Ok(EnvironmentReadyInfo::default()),
++            provider,
++        )
++        .unwrap();
++    assert!(Arc::ptr_eq(
++        &original,
++        &manager.get_environment("tools").unwrap()
++    ));
++    assert_eq!(
++        manager.with_current_selected_environment_publications(&ready, || {
++            panic!("equal-data Ready-to-Ready publication must invalidate")
++        }),
++        Err::<(), _>(SelectedEnvironmentPublicationError::ChangedReadyReport)
++    );
++    assert_eq!(
++        manager.with_current_selected_environment_publications(&handles, || {
++            panic!("selection handles must retain the actual Ready publication too")
++        }),
++        Err::<(), _>(SelectedEnvironmentPublicationError::ChangedReadyReport)
++    );
++    let a = manager
++        .observe_selected_environment_publications(&[root("tools")])
++        .unwrap();
++    for ready_info in [
++        EnvironmentReadyInfo {
++            selected_capability_roots: vec![root("tools")],
++        },
++        EnvironmentReadyInfo::default(),
++    ] {
++        manager
++            .report_environment_provisioning_status(
++                "tools".into(),
++                Ok(ready_info),
++                Arc::new(UnusedProvider),
++            )
++            .unwrap();
++    }
++    assert_eq!(
++        manager.with_current_selected_environment_publications(&a, || {
++            panic!("report A-to-B-to-A must not revive an old capture")
++        }),
++        Err::<(), _>(SelectedEnvironmentPublicationError::ChangedReadyReport)
++    );
++}
++
++#[tokio::test]
++async fn original_selected_handles_are_fenced_without_fabricating_capability_roots() {
++    let manager = EnvironmentManager::default_for_tests();
++    let foreign = EnvironmentManager::default_for_tests();
++    let original = manager.get_environment("local").unwrap();
++    let selected = manager
++        .observe_selected_environment_handles(&[("local".into(), original)])
++        .unwrap();
++    assert_eq!(
++        manager.with_current_selected_environment_publications(&selected, || 43),
++        Ok(43)
++    );
++    assert!(matches!(
++        manager.observe_selected_environment_handles(&[(
++            "local".into(),
++            foreign.get_environment("local").unwrap()
++        )]),
++        Err(SelectedEnvironmentPublicationError::ChangedEnvironment)
++    ));
++    let resolved = manager.observe_ready_selected_capability_roots(&[root("local")]);
++    assert_eq!(
++        selected.assert_resolved_roots(&resolved),
++        Err(SelectedEnvironmentPublicationError::DifferentResolvedRoots)
++    );
++}
++
++#[tokio::test]
++async fn empty_selection_still_binds_original_manager_and_missing_selection_never_creates_environment()
++ {
++    let manager = EnvironmentManager::default_for_tests();
++    let observation = manager
++        .observe_selected_environment_publications(&[])
++        .unwrap();
++    assert_eq!(
++        manager.with_current_selected_environment_publications(&observation, || 31),
++        Ok(31)
++    );
++    assert!(matches!(
++        manager.observe_selected_environment_publications(&[root("absent")]),
++        Err(SelectedEnvironmentPublicationError::MissingEnvironment)
++    ));
++    assert!(manager.get_environment("absent").is_none());
++}
+diff --git a/codex-rs/exec-server/src/lib.rs b/codex-rs/exec-server/src/lib.rs
+index e121026..c6d8384 100644
+--- a/codex-rs/exec-server/src/lib.rs
++++ b/codex-rs/exec-server/src/lib.rs
+@@ -13,6 +13,7 @@ mod environment;
+ mod environment_bootstrap;
+ mod environment_config;
+ mod environment_provider;
++mod environment_publication;
+ mod environment_registry;
+ mod environment_toml;
+ mod file_read;
+@@ -121,6 +122,8 @@ pub use environment_bootstrap::PreparedEnvironmentManager;
+ pub use environment_provider::DefaultEnvironmentProvider;
+ pub use environment_provider::EnvironmentProvider;
+ pub use environment_provider::EnvironmentProviderFuture;
++pub use environment_publication::SelectedEnvironmentPublicationError;
++pub use environment_publication::SelectedEnvironmentPublicationObservation;
+ pub use environment_registry::EnvironmentRegistryConnectRequest;
+ pub use environment_registry::EnvironmentRegistryConnectResponse;
+ pub use environment_registry::EnvironmentRegistryHarnessKeyValidationRequest;
+diff --git a/codex-rs/exec-server/tests/selected_capability_roots.rs b/codex-rs/exec-server/tests/selected_capability_roots.rs
+index 18eba1d..efeb968 100644
+--- a/codex-rs/exec-server/tests/selected_capability_roots.rs
++++ b/codex-rs/exec-server/tests/selected_capability_roots.rs
+@@ -33,6 +33,9 @@ async fn selected_capability_roots_use_captured_handle_after_replacement() -> an
+         .get_environment("tools")
+         .expect("executor A should be registered");
+     environment_a.wait_until_ready().await?;
++    let original_publication = manager
++        .observe_selected_environment_publications(std::slice::from_ref(&selected_root))
++        .unwrap();
+ 
+     let unavailable = manager
+         .resolve_selected_capability_roots(
+@@ -63,6 +66,15 @@ async fn selected_capability_roots_use_captured_handle_after_replacement() -> an
+ 
+     assert_eq!(resolved.selected_root(), &selected_root);
+     assert!(Arc::ptr_eq(resolved.environment(), &environment_a));
++    original_publication
++        .assert_resolved_roots(&available)
++        .unwrap();
++    assert_eq!(
++        manager.with_current_selected_environment_publications(&original_publication, || {
++            panic!("a replaced original registry handle cannot commit")
++        }),
++        Err::<(), _>(codex_exec_server::SelectedEnvironmentPublicationError::ChangedEnvironment)
++    );
+ 
+     executor.shutdown().await?;
+     Ok(())
+@@ -73,8 +85,8 @@ async fn passive_root_observation_retains_ready_local_handle_without_creating_mi
+ {
+     let manager = codex_exec_server::EnvironmentManager::default_for_tests();
+     let local = manager
+-        .try_local_environment()
+-        .expect("original local environment");
++        .get_environment("local")
++        .expect("original registered local environment");
+     let local_root = SelectedCapabilityRoot {
+         id: "passive-local".into(),
+         location: CapabilityRootLocation::Environment {
+diff --git a/codex-rs/ext/extension-api/src/registry/context_sources.rs b/codex-rs/ext/extension-api/src/registry/context_sources.rs
+index eafbf95..dd7d799 100644
+--- a/codex-rs/ext/extension-api/src/registry/context_sources.rs
++++ b/codex-rs/ext/extension-api/src/registry/context_sources.rs
+@@ -65,6 +65,29 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
+ }
+ 
+ impl<C: Sync> ExtensionRegistry<C> {
++    /// Borrows the actual registry-owned allocation after validating the retained
++    /// registration. The returned lifetime belongs to this registry, so a
++    /// temporary lookup wrapper need not outlive a captured source observation.
++    pub fn borrow_context_source<T>(
++        &self,
++        registration: &RegisteredContextSource<T>,
++    ) -> Result<&T, ContextSourceRegistrationError>
++    where
++        T: ContextContributor + TurnInputContributor + ToolContributor + 'static,
++    {
++        self.assert_context_source_registration(registration)?;
++        self.coupled_context_sources
++            .iter()
++            .find(|source| {
++                source.context_index == registration.context_index
++                    && source.turn_input_index == registration.turn_input_index
++                    && source.tool_index == registration.tool_index
++            })
++            .and_then(|source| source.source.as_ref().downcast_ref::<T>())
++            .filter(|source| std::ptr::eq(*source, registration.source()))
++            .ok_or(ContextSourceRegistrationError::ContributorsChanged)
++    }
++
+     /// Finds only actual coupled owners of this concrete type, in registration
+     /// order. An empty result proves no absence for other contributor sources.
+     pub fn registered_context_sources<T>(&self) -> Vec<RegisteredContextSource<T>>
+diff --git a/codex-rs/ext/extension-api/tests/registry.rs b/codex-rs/ext/extension-api/tests/registry.rs
+index 70f61bc..e191665 100644
+--- a/codex-rs/ext/extension-api/tests/registry.rs
++++ b/codex-rs/ext/extension-api/tests/registry.rs
+@@ -448,6 +448,11 @@ fn coupled_context_registration_retains_original_owner_without_settling_tools()
+     assert_eq!(sources.len(), 1);
+     assert!(std::ptr::eq(sources[0].source(), source.as_ref()));
+     assert_eq!(sources[0].registration_indexes(), (0, 0, 0));
++    let borrowed = {
++        let temporary = registry.registered_context_sources::<AllContributors>();
++        registry.borrow_context_source(&temporary[0]).unwrap()
++    };
++    assert!(std::ptr::eq(borrowed, source.as_ref()));
+     assert_eq!(
+         registry.assert_context_source_registration(&sources[0]),
+         Ok(())
+@@ -470,6 +475,10 @@ fn copied_registry_requires_its_own_context_registration_packet() {
+     let original = builder.build();
+     let sources = original.registered_context_sources::<AllContributors>();
+     let copied = original.to_builder().build();
++    assert_eq!(
++        copied.borrow_context_source(&sources[0]).err(),
++        Some(codex_extension_api::ContextSourceRegistrationError::RegistryChanged)
++    );
+     assert_eq!(
+         copied.assert_context_source_registration(&sources[0]),
+         Err(codex_extension_api::ContextSourceRegistrationError::RegistryChanged),
+diff --git a/codex-rs/ext/skills/src/first_context_observation.rs b/codex-rs/ext/skills/src/first_context_observation.rs
+index ecb643f..a115cb6 100644
+--- a/codex-rs/ext/skills/src/first_context_observation.rs
++++ b/codex-rs/ext/skills/src/first_context_observation.rs
+@@ -15,6 +15,7 @@ use crate::ExecutorSkillsObservation;
+ use crate::HostSkillPromptObservation;
+ use crate::HostSkillsObservation;
+ use crate::InjectedHostSkillPrompts;
++use crate::SkillsExtension;
+ use crate::SkillsExtensionConfig;
+ use crate::fragments::main_prompt_truncation_warning;
+ use crate::fragments::render_selected_skill_instructions;
+@@ -27,7 +28,7 @@ use crate::world_state_catalogs::render_initial_filesystem_catalogs;
+ /// Original source projection and exact first input facts. Private construction
+ /// keeps them paired; selected config/model/connector currency is not a lease.
+ pub struct SkillsInputObservation<'a, C: Sync> {
+-    source: &'a RegisteredSkillsSource<C>,
++    source: &'a SkillsExtension<C>,
+     registry: &'a ExtensionRegistry<C>,
+     config: SkillsExtensionConfig,
+     model: ModelInfo,
+@@ -57,7 +58,7 @@ where
+     /// Projects only this original source. All native providers are preflighted
+     /// before discovery; unknown/extra providers stay explicitly unresolved.
+     pub fn observe_first_input<'a>(
+-        &'a self,
++        &self,
+         registry: &'a ExtensionRegistry<C>,
+         config: &C,
+         model: &ModelInfo,
+@@ -67,9 +68,10 @@ where
+         let projected = self
+             .project_configuration(registry, config)
+             .map_err(RegisteredSkillsSourceError::Registration)?;
+-        let providers = self
+-            .registration
+-            .source()
++        let source = registry
++            .borrow_context_source(&self.registration)
++            .map_err(RegisteredSkillsSourceError::Registration)?;
++        let providers = source
+             .providers
+             .native_pre_session_sources()
+             .map_err(RegisteredSkillsSourceError::UnresolvedProviders)?;
+@@ -90,7 +92,7 @@ where
+             return Err(RegisteredSkillsSourceError::MissingOrAmbiguousExecutorProvider);
+         }
+         Ok(SkillsInputObservation {
+-            source: self,
++            source,
+             registry,
+             config: projected,
+             model: model.clone(),
+@@ -103,7 +105,7 @@ where
+     /// The caller still owns selected HostSkillsService/config/model/permission
+     /// currentness; these data cannot be used as a later transaction guard.
+     pub async fn observe_first_context<'a>(
+-        &'a self,
++        &self,
+         input: SkillsInputObservation<'a, C>,
+         host: HostSkillsObservation,
+         executor: ExecutorSkillsObservation<'a>,
+@@ -112,15 +114,11 @@ where
+             .registry
+             .assert_context_source_registration(&self.registration)
+             .map_err(RegisteredSkillsSourceError::Registration)?;
+-        if !std::ptr::eq(
+-            self.registration.source(),
+-            input.source.registration.source(),
+-        ) {
++        if !std::ptr::eq(self.registration.source(), input.source) {
+             return Err(RegisteredSkillsSourceError::InputSourceChanged);
+         }
+-        let providers = self
+-            .registration
+-            .source()
++        let providers = input
++            .source
+             .providers
+             .native_pre_session_sources()
+             .map_err(RegisteredSkillsSourceError::UnresolvedProviders)?;
+diff --git a/codex-rs/ext/skills/src/host_pre_session.rs b/codex-rs/ext/skills/src/host_pre_session.rs
+index 930c569..d8e2149 100644
+--- a/codex-rs/ext/skills/src/host_pre_session.rs
++++ b/codex-rs/ext/skills/src/host_pre_session.rs
+@@ -4,6 +4,7 @@ use codex_config::bundled_skills_enabled_from_stack;
+ use codex_config::skill_config_rules_from_stack;
+ use codex_exec_server::ExecutorFileSystem;
+ use codex_skills::system_skills_installation_is_current;
++use codex_utils_absolute_path::AbsolutePathBuf;
+ 
+ use super::HostSkillsLoadInput;
+ use super::HostSkillsService;
+@@ -21,6 +22,7 @@ pub use prompt_observation::HostSkillPromptObservation;
+ pub struct HostSkillsObservation {
+     service: Arc<HostSkillsService>,
+     snapshot: HostSkillsSnapshot,
++    extra_roots: Arc<Vec<AbsolutePathBuf>>,
+ }
+ 
+ impl HostSkillsObservation {
+@@ -51,9 +53,14 @@ impl HostSkillsService {
+         if bundled && !system_skills_installation_is_current(&self.codex_home) {
+             return Err(HostSkillsObservationError::BundledSkillsRequireInstallation);
+         }
+-        let extra_roots = self.extra_roots();
++        let extra_roots = Arc::clone(
++            &self
++                .extra_roots
++                .read()
++                .unwrap_or_else(std::sync::PoisonError::into_inner),
++        );
+         let roots = self
+-            .resolve_skill_roots_for_config(input, fs, extra_roots.clone())
++            .resolve_skill_roots_for_config(input, fs, extra_roots.as_ref().clone())
+             .await;
+         let rules = skill_config_rules_from_stack(&input.config_layer_stack);
+         let outcome = observe_and_merge_host_skill_roots(
+@@ -64,7 +71,13 @@ impl HostSkillsService {
+         )
+         .await;
+         let outcome = apply_skill_config_rules(outcome, &rules);
+-        if extra_roots != self.extra_roots() {
++        if !Arc::ptr_eq(
++            &extra_roots,
++            &self
++                .extra_roots
++                .read()
++                .unwrap_or_else(std::sync::PoisonError::into_inner),
++        ) {
+             return Err(HostSkillsObservationError::ExtraRootsChanged);
+         }
+         if bundled && !system_skills_installation_is_current(&self.codex_home) {
+@@ -82,6 +95,7 @@ impl HostSkillsService {
+         Ok(HostSkillsObservation {
+             service: Arc::clone(self),
+             snapshot: HostSkillsSnapshot::new(Arc::new(outcome)),
++            extra_roots,
+         })
+     }
+ 
+@@ -96,4 +110,26 @@ impl HostSkillsService {
+         }
+         Ok(())
+     }
++
++    /// Fences ONLY this service's original extra-root publisher through a
++    /// bounded synchronous action. File bytes, bundled installation, plugin
++    /// sources and selected configuration require their separate owner guards.
++    /// Returned async work is outside this fence; no reentrant root writes.
++    pub fn with_current_pre_session_roots<R>(
++        &self,
++        observation: &HostSkillsObservation,
++        action: impl FnOnce() -> R,
++    ) -> Result<R, HostSkillsObservationError> {
++        self.assert_pre_session_observation_owner(observation)?;
++        let roots = self
++            .extra_roots
++            .read()
++            .unwrap_or_else(std::sync::PoisonError::into_inner);
++        if !Arc::ptr_eq(&roots, &observation.extra_roots) {
++            return Err(HostSkillsObservationError::ExtraRootsChanged);
++        }
++        let result = action();
++        drop(roots);
++        Ok(result)
++    }
+ }
+diff --git a/codex-rs/ext/skills/src/host_pre_session_tests.rs b/codex-rs/ext/skills/src/host_pre_session_tests.rs
+index b62ed6a..6020c54 100644
+--- a/codex-rs/ext/skills/src/host_pre_session_tests.rs
++++ b/codex-rs/ext/skills/src/host_pre_session_tests.rs
+@@ -1,6 +1,51 @@
+ use super::*;
+ use pretty_assertions::assert_eq;
+ 
++#[tokio::test]
++async fn original_extra_root_publications_are_fenced_and_equal_data_or_aba_cannot_revive_capture() {
++    let home = tempfile::tempdir().unwrap();
++    let cwd = tempfile::tempdir().unwrap();
++    let service = Arc::new(HostSkillsService::new(
++        home.path().abs(),
++        /*bundled_skills_enabled*/ false,
++    ));
++    let input = HostSkillsLoadInput::new(
++        cwd.path().abs(),
++        Vec::new(),
++        config_stack(&home, "[skills.bundled]\nenabled=false\n"),
++    );
++    let observed = service
++        .observe_pre_session_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await
++        .unwrap();
++    assert_eq!(
++        service.with_current_pre_session_roots(&observed, || {
++            assert!(service.extra_roots.try_write().is_err());
++            37
++        }),
++        Ok(37)
++    );
++    service.set_extra_roots(Vec::new());
++    assert_eq!(
++        service.with_current_pre_session_roots(&observed, || {
++            panic!("equal-data original root publication invalidates capture")
++        }),
++        Err::<(), _>(HostSkillsObservationError::ExtraRootsChanged)
++    );
++    let a = service
++        .observe_pre_session_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await
++        .unwrap();
++    service.set_extra_roots(vec![cwd.path().abs()]);
++    service.set_extra_roots(Vec::new());
++    assert_eq!(
++        service.with_current_pre_session_roots(&a, || {
++            panic!("original root A-to-B-to-A cannot revive a capture")
++        }),
++        Err::<(), _>(HostSkillsObservationError::ExtraRootsChanged)
++    );
++}
++
+ #[tokio::test]
+ async fn observation_refuses_missing_bundled_materialization_without_installing() {
+     let home = tempfile::tempdir().unwrap();
+diff --git a/codex-rs/ext/skills/src/host_prompt_observation.rs b/codex-rs/ext/skills/src/host_prompt_observation.rs
+index 15d98f9..7228a96 100644
+--- a/codex-rs/ext/skills/src/host_prompt_observation.rs
++++ b/codex-rs/ext/skills/src/host_prompt_observation.rs
+@@ -86,6 +86,16 @@ impl HostSkillPromptObservation {
+ }
+ 
+ impl HostSkillsService {
++    /// Only original extra-root publication is fenced. The selected prompt
++    /// byte/configuration/permission source leases remain separate requirements.
++    pub fn with_current_pre_session_prompt_roots<R>(
++        &self,
++        observation: &HostSkillPromptObservation,
++        action: impl FnOnce() -> R,
++    ) -> Result<R, HostSkillsObservationError> {
++        self.with_current_pre_session_roots(&observation.host, action)
++    }
++
+     pub fn assert_pre_session_prompt_observation_owner(
+         &self,
+         observation: &HostSkillPromptObservation,
+diff --git a/codex-rs/ext/skills/src/host_service.rs b/codex-rs/ext/skills/src/host_service.rs
+index b4cfe94..c7aba25 100644
+--- a/codex-rs/ext/skills/src/host_service.rs
++++ b/codex-rs/ext/skills/src/host_service.rs
+@@ -89,7 +89,7 @@ impl HostSkillsLoadInput {
+ pub struct HostSkillsService {
+     codex_home: AbsolutePathBuf,
+     restriction_product: Option<Product>,
+-    extra_roots: RwLock<Vec<AbsolutePathBuf>>,
++    extra_roots: RwLock<Arc<Vec<AbsolutePathBuf>>>,
+     cache_by_cwd: RwLock<HashMap<AbsolutePathBuf, HostSkillsSnapshot>>,
+     cache_by_config: RwLock<VecDeque<ConfigSkillsCacheEntry>>,
+     // Shared across cwds so root scheduling cannot multiply per-root I/O fanout.
+@@ -136,7 +136,7 @@ impl HostSkillsService {
+         let service = Self {
+             codex_home,
+             restriction_product,
+-            extra_roots: RwLock::new(Vec::new()),
++            extra_roots: RwLock::new(Arc::new(Vec::new())),
+             cache_by_cwd: RwLock::new(HashMap::new()),
+             cache_by_config: RwLock::new(VecDeque::new()),
+             root_scan_slots: Arc::new(Semaphore::new(MAX_CONCURRENT_ROOT_SCANS)),
+@@ -163,7 +163,7 @@ impl HostSkillsService {
+                 .extra_roots
+                 .write()
+                 .unwrap_or_else(std::sync::PoisonError::into_inner);
+-            *roots = extra_roots;
++            *roots = Arc::new(extra_roots);
+         }
+         self.clear_cache();
+     }
+@@ -415,8 +415,8 @@ impl HostSkillsService {
+ 
+     fn extra_roots(&self) -> Vec<AbsolutePathBuf> {
+         match self.extra_roots.read() {
+-            Ok(roots) => roots.clone(),
+-            Err(err) => err.into_inner().clone(),
++            Ok(roots) => roots.as_ref().clone(),
++            Err(err) => err.into_inner().as_ref().clone(),
+         }
+     }
+ 
+diff --git a/codex-rs/ext/skills/src/provider/executor_pre_session.rs b/codex-rs/ext/skills/src/provider/executor_pre_session.rs
+index 7a31759..d1f3027 100644
+--- a/codex-rs/ext/skills/src/provider/executor_pre_session.rs
++++ b/codex-rs/ext/skills/src/provider/executor_pre_session.rs
+@@ -4,6 +4,8 @@ use std::sync::Arc;
+ use codex_exec_server::ExecutorCapabilityDiscoverySnapshot;
+ use codex_exec_server::FileSystemSandboxContext;
+ use codex_exec_server::ResolvedSelectedCapabilityRoot;
++use codex_exec_server::SelectedEnvironmentPublicationError;
++use codex_exec_server::SelectedEnvironmentPublicationObservation;
+ use codex_exec_server::discover_resolved_capability_roots;
+ use codex_extension_api::SelectedPluginSnapshot;
+ use codex_extension_api::ToolSpec;
+@@ -20,6 +22,7 @@ pub struct ExecutorSkillsObservation<'a> {
+     provider: &'a ExecutorSkillProvider,
+     discovery: ExecutorCapabilityDiscoverySnapshot,
+     resolved_roots: Vec<ResolvedSelectedCapabilityRoot>,
++    environment_publication: SelectedEnvironmentPublicationObservation<'a>,
+     selected_plugins: Option<Arc<SelectedPluginSnapshot>>,
+     catalog: SkillCatalog,
+ }
+@@ -30,6 +33,7 @@ pub enum ExecutorSkillsObservationError {
+     ForeignProvider,
+     SelectedRootsUnresolved,
+     RemoteSourceRequiresCapturedObservation,
++    EnvironmentPublication(SelectedEnvironmentPublicationError),
+ }
+ 
+ impl ExecutorSkillProvider {
+@@ -43,6 +47,15 @@ impl ExecutorSkillProvider {
+         sandbox_contexts: &HashMap<String, FileSystemSandboxContext>,
+         selected_plugins: Option<Arc<SelectedPluginSnapshot>>,
+     ) -> Result<ExecutorSkillsObservation<'a>, ExecutorSkillsObservationError> {
++        let environment_publication = self
++            .environment_manager
++            .observe_selected_environment_publications(selected_roots)
++            .map_err(|error| match error {
++                SelectedEnvironmentPublicationError::MissingEnvironment => {
++                    ExecutorSkillsObservationError::SelectedRootsUnresolved
++                }
++                error => ExecutorSkillsObservationError::EnvironmentPublication(error),
++            })?;
+         let resolved_roots = self
+             .environment_manager
+             .observe_ready_selected_capability_roots(selected_roots);
+@@ -54,6 +67,9 @@ impl ExecutorSkillProvider {
+         {
+             return Err(ExecutorSkillsObservationError::SelectedRootsUnresolved);
+         }
++        environment_publication
++            .assert_resolved_roots(&resolved_roots)
++            .map_err(ExecutorSkillsObservationError::EnvironmentPublication)?;
+         // Ordinary remote discovery may reconnect. Preparation requires its own
+         // already-captured passive source; never activate it through this path.
+         if resolved_roots
+@@ -74,10 +90,14 @@ impl ExecutorSkillProvider {
+         if let Some(plugins) = selected_plugins.as_deref() {
+             attribute_executor_plugins(&mut catalog, plugins);
+         }
++        self.environment_manager
++            .with_current_selected_environment_publications(&environment_publication, || ())
++            .map_err(ExecutorSkillsObservationError::EnvironmentPublication)?;
+         Ok(ExecutorSkillsObservation {
+             provider: self,
+             discovery,
+             resolved_roots,
++            environment_publication,
+             selected_plugins,
+             catalog,
+         })
+@@ -93,6 +113,22 @@ impl ExecutorSkillProvider {
+         }
+         Ok(())
+     }
++
++    /// Fences only the original manager/report publishers during the actual
++    /// synchronous action. Other source and permission owners remain required.
++    pub fn with_current_pre_session_environment_publication<R>(
++        &self,
++        observation: &ExecutorSkillsObservation<'_>,
++        action: impl FnOnce() -> R,
++    ) -> Result<R, ExecutorSkillsObservationError> {
++        self.assert_pre_session_observation_owner(observation)?;
++        self.environment_manager
++            .with_current_selected_environment_publications(
++                &observation.environment_publication,
++                action,
++            )
++            .map_err(ExecutorSkillsObservationError::EnvironmentPublication)
++    }
+ }
+ 
+ impl ExecutorSkillsObservation<'_> {
+diff --git a/codex-rs/ext/skills/src/registered_source.rs b/codex-rs/ext/skills/src/registered_source.rs
+index bc965ab..709ced1 100644
+--- a/codex-rs/ext/skills/src/registered_source.rs
++++ b/codex-rs/ext/skills/src/registered_source.rs
+@@ -60,18 +60,16 @@ where
+     /// providers cannot borrow another native provider or disappear as empty.
+     /// This captures only the executor partition, not complete Skills context.
+     pub async fn observe_executor_source<'a>(
+-        &'a self,
+-        registry: &ExtensionRegistry<C>,
++        &self,
++        registry: &'a ExtensionRegistry<C>,
+         selected_roots: &[SelectedCapabilityRoot],
+         sandbox_contexts: &HashMap<String, FileSystemSandboxContext>,
+         selected_plugins: Option<Arc<SelectedPluginSnapshot>>,
+     ) -> Result<ExecutorSkillsObservation<'a>, RegisteredSkillsSourceError> {
+-        registry
+-            .assert_context_source_registration(&self.registration)
++        let source = registry
++            .borrow_context_source(&self.registration)
+             .map_err(RegisteredSkillsSourceError::Registration)?;
+-        let providers = self
+-            .registration
+-            .source()
++        let providers = source
+             .providers
+             .native_pre_session_sources()
+             .map_err(RegisteredSkillsSourceError::UnresolvedProviders)?;
+diff --git a/codex-rs/ext/skills/src/registered_source_tests.rs b/codex-rs/ext/skills/src/registered_source_tests.rs
+index cdc9dd2..2ba9aa0 100644
+--- a/codex-rs/ext/skills/src/registered_source_tests.rs
++++ b/codex-rs/ext/skills/src/registered_source_tests.rs
+@@ -44,16 +44,18 @@ async fn registered_native_pair_observes_only_its_original_executor_owner() {
+     let mut builder = ExtensionRegistryBuilder::<()>::new();
+     install_with_providers(&mut builder, providers, config);
+     let registry = builder.build();
+-    let sources = registered_skills_sources(&registry);
+-    let observed = sources[0]
+-        .observe_executor_source(
+-            &registry,
+-            &[],
+-            &HashMap::new(),
+-            /*selected_plugins*/ None,
+-        )
+-        .await
+-        .unwrap();
++    let observed = {
++        let temporary = registered_skills_sources(&registry);
++        temporary[0]
++            .observe_executor_source(
++                &registry,
++                &[],
++                &HashMap::new(),
++                /*selected_plugins*/ None,
++            )
++            .await
++            .unwrap()
++    };
+     executor
+         .assert_pre_session_observation_owner(&observed)
+         .unwrap();
+diff --git a/codex-rs/ext/skills/tests/executor_file_system_authority.rs b/codex-rs/ext/skills/tests/executor_file_system_authority.rs
+index f6957e3..7780a28 100644
+--- a/codex-rs/ext/skills/tests/executor_file_system_authority.rs
++++ b/codex-rs/ext/skills/tests/executor_file_system_authority.rs
+@@ -1071,6 +1071,10 @@ async fn prepared_executor_observation_uses_original_ready_owner_and_retained_by
+     provider
+         .assert_pre_session_observation_owner(&observation)
+         .unwrap();
++    assert_eq!(
++        provider.with_current_pre_session_environment_publication(&observation, || 23),
++        Ok(23)
++    );
+     let ordinary = provider
+         .list(SkillListQuery {
+             turn_id: "ordinary-fixture".into(),
+@@ -1112,6 +1116,12 @@ async fn prepared_executor_observation_uses_original_ready_owner_and_retained_by
+         foreign.assert_pre_session_observation_owner(&observation),
+         Err(codex_skills_extension::ExecutorSkillsObservationError::ForeignProvider)
+     );
++    assert_eq!(
++        foreign.with_current_pre_session_environment_publication(&observation, || {
++            panic!("foreign provider cannot run the guarded action")
++        }),
++        Err::<(), _>(codex_skills_extension::ExecutorSkillsObservationError::ForeignProvider)
++    );
+ }
+ 
+ #[tokio::test]
