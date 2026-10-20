@@ -981,3 +981,177 @@ it('admits same-session continuation through its frozen outbox without assigning
   expect(JSON.parse(call[1].body)).toEqual(continuation);
   expect(channel.send.mock.calls.some(([body]) => body.type === 'send')).toBe(false);
 });
+
+it('shows preparation after durable ordinary acceptance and clears it only for the selected response', () => {
+  const { store } = setup();
+  channel.listener({ type: 'session_id', sessionId: 'ordinary-session' });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'ordinary-session',
+    messageId: 'ordinary-prompt',
+    text: 'Hello',
+  });
+  channel.listener({
+    type: '_send_accepted',
+    originalSessionId: null,
+    sessionId: 'ordinary-session',
+    clientMsgId: 'ordinary-prompt',
+    retained: true,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({ type: 'message_start', sessionId: 'other-session', messageId: 'foreign' });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({ type: 'message_start', sessionId: 'ordinary-session', messageId: 'answer' });
+  expect(store.getState().sendStatus).toBeNull();
+});
+
+it('does not restore a preparation banner when response output beats its HTTP receipt', () => {
+  const { store } = setup();
+  channel.listener({ type: 'session_id', sessionId: 'fast-session' });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'fast-session',
+    seq: 1,
+    messageId: 'fast-prompt',
+    text: 'Hello',
+  });
+  channel.listener({
+    type: 'message_start',
+    sessionId: 'fast-session',
+    seq: 2,
+    messageId: 'fast-answer',
+  });
+  channel.listener({
+    type: '_send_accepted',
+    originalSessionId: null,
+    sessionId: 'fast-session',
+    clientMsgId: 'fast-prompt',
+    retained: true,
+  });
+  expect(store.getState().sendStatus).toBeNull();
+});
+
+it.each(['initial', 'retry'])(
+  'keeps preparation ended when session_end beats its %s retained receipt without output',
+  (receipt) => {
+    const { store } = setup();
+    channel.send.mockReturnValue(true);
+    if (receipt === 'retry') channel.listener({ type: 'session_id', sessionId: 'stopped-session' });
+    store.getState().sendMessage('Stop before output');
+    const command = channel.send.mock.calls.find(([body]) => body.type === 'send')![0];
+    if (receipt === 'initial')
+      channel.listener({
+        type: 'session_id',
+        sessionId: 'stopped-session',
+        clientMsgId: command.clientMsgId,
+      });
+    channel.listener({
+      type: 'user_message',
+      sessionId: 'stopped-session',
+      messageId: command.clientMsgId,
+      text: command.prompt,
+      seq: 1,
+    });
+    if (receipt === 'retry') {
+      channel.listener({
+        type: '_send_uncertain',
+        sessionId: 'stopped-session',
+        clientMsgId: command.clientMsgId,
+        error: 'Acknowledgement not received',
+      });
+      expect(store.getState().sendError).toBe('Acknowledgement not received');
+    }
+    channel.listener({ type: 'session_end', sessionId: 'stopped-session', seq: 2 });
+    expect(store.getState().messages.running).toBe(false);
+    if (receipt === 'retry') {
+      channel.listener({
+        type: '_send_pending',
+        sessionId: 'stopped-session',
+        clientMsgId: command.clientMsgId,
+        retrying: true,
+      });
+      expect(store.getState().sendStatus).toContain('Reconnecting');
+    }
+    channel.listener({
+      type: '_send_accepted',
+      sessionId: 'stopped-session',
+      clientMsgId: command.clientMsgId,
+      retained: true,
+    });
+    expect(store.getState().sendStatus).toBeNull();
+    expect(store.getState().sendError).toBeNull();
+    expect(store.getState().messages.messages.map((message) => message.messageId)).toEqual([
+      command.clientMsgId,
+    ]);
+    expect(channel.send.mock.calls.filter(([body]) => body.type === 'send')).toEqual([[command]]);
+  },
+);
+
+it('preserves preparation for a fresh command in the ended session despite old and foreign receipts', () => {
+  const { store } = setup();
+  channel.send.mockReturnValue(true);
+  channel.listener({ type: 'session_id', sessionId: 'reused-session' });
+  store.getState().sendMessage('First command');
+  const first = channel.send.mock.calls.find(([body]) => body.type === 'send')![0];
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'reused-session',
+    messageId: first.clientMsgId,
+    text: first.prompt,
+    seq: 1,
+  });
+  channel.listener({ type: 'session_end', sessionId: 'reused-session', seq: 2 });
+  store.getState().sendMessage('New live command');
+  const second = channel.send.mock.calls.filter(([body]) => body.type === 'send')[1][0];
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'reused-session',
+    messageId: second.clientMsgId,
+    text: second.prompt,
+    seq: 3,
+  });
+  channel.listener({ type: 'session_end', sessionId: 'foreign-session', seq: 4 });
+  channel.listener({
+    type: '_send_accepted',
+    sessionId: 'reused-session',
+    clientMsgId: second.clientMsgId,
+    retained: true,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: '_send_accepted',
+    sessionId: 'reused-session',
+    clientMsgId: first.clientMsgId,
+    retained: true,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: '_send_uncertain',
+    sessionId: 'reused-session',
+    clientMsgId: second.clientMsgId,
+    error: 'New command acknowledgement not received',
+  });
+  channel.listener({
+    type: '_send_accepted',
+    sessionId: 'reused-session',
+    clientMsgId: first.clientMsgId,
+    retained: true,
+  });
+  expect(store.getState().sendError).toBe('New command acknowledgement not received');
+  channel.listener({
+    type: '_send_accepted',
+    sessionId: 'reused-session',
+    clientMsgId: second.clientMsgId,
+    retained: true,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  expect(store.getState().sendError).toBeNull();
+  channel.listener({ type: 'session_end', sessionId: 'reused-session', seq: 4 });
+  channel.listener({
+    type: '_send_accepted',
+    sessionId: 'reused-session',
+    clientMsgId: second.clientMsgId,
+    retained: true,
+  });
+  expect(store.getState().sendStatus).toBeNull();
+});

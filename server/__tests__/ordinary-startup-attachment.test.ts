@@ -48,6 +48,7 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'mitzo-ordinary-attachment-'));
   execFileSync('git', ['init', '-q', root]);
   vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
   vi.stubEnv('WORKTREE_ENABLED', 'false');
   vi.stubEnv('MITZO_CODEX_ENABLED', '0');
   vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', '');
@@ -191,7 +192,15 @@ async function startOrdinary(kind: 'SSE' | 'WS', resume: boolean, rest = false) 
     });
     expect(response).toEqual({
       status: 202,
-      body: { ok: true, accepted: true, clientMsgId, sessionId },
+      body: {
+        ok: true,
+        accepted: true,
+        clientMsgId,
+        sessionId,
+        // SDK resume echoes the durable prompt before admission; a new SDK
+        // query has not retained its initial user event at this boundary.
+        ...(resume ? { retained: true } : {}),
+      },
     });
   } else {
     await ws.handleSendV2(connectionId, original.transport, command, context, {

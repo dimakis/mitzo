@@ -6,6 +6,7 @@ import { repositoryChatToolDefinitions } from './repository-chat-tools.js';
 import { profileToolDefinitions } from './session-profile-tools.js';
 import { webAccessDefinition } from './request-web-access.js';
 import { githubPublishingDefinition } from './github-publishing-tool.js';
+import { knowledgeToolDefinitions } from './session-knowledge-tools.js';
 import { telosCreateOutcomeDefinition, telosAdoptSourceDefinition } from './telos-tool.js';
 import { telosItemDefinitions } from './telos-item-tools.js';
 import { telosArtifactDefinitions } from './telos-artifact-tools.js';
@@ -24,6 +25,7 @@ const reads = new Set([
   'TelosGetItem',
   'TelosFindArtifacts',
   'TelosReadArtifact',
+  'ReadKnowledge',
 ]);
 const mixed = new Set(['Bash', 'ConnectionRequest', 'HomeAssistantDashboard']);
 /** Read-only projection of executable registrations. No server discovery or credential reads. */
@@ -38,6 +40,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
     },
     { source: 'Web', definitions: [webAccessDefinition] },
     { source: 'GitHub publishing', definitions: [githubPublishingDefinition] },
+    { source: 'Knowledge', definitions: knowledgeToolDefinitions },
     {
       source: 'Telos',
       definitions: [
@@ -95,7 +98,9 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                   ? 'Requires an available OS sandbox and existing workspace permissions; no network or credentials.'
                   : source === 'Web'
                     ? 'Requires supported provider web search and current approval.'
-                    : 'Existing session permissions, cancellation and runtime admission apply.',
+                    : source === 'Knowledge'
+                      ? 'Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge.'
+                      : 'Existing session permissions, cancellation and runtime admission apply.',
     })),
   );
 }

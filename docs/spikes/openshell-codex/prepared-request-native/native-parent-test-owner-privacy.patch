@@ -1,0 +1,88 @@
+From 236ecefe5ede65b5fd172da8aeec1fc8b650e084 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 22:10:15 +0100
+Subject: [PATCH] fix(core): keep parent approval test setup within session
+ owners
+
+---
+ codex-rs/core/src/session/parent_approval.rs  | 20 +++++++++++++++++++
+ .../tools/approvals/parent_registry_tests.rs  | 10 +---------
+ .../parent_inheritance_boundary_tests.rs      | 13 ++++++------
+ 3 files changed, 27 insertions(+), 16 deletions(-)
+
+diff --git a/codex-rs/core/src/session/parent_approval.rs b/codex-rs/core/src/session/parent_approval.rs
+index 33abcc4..2dcff0a 100644
+--- a/codex-rs/core/src/session/parent_approval.rs
++++ b/codex-rs/core/src/session/parent_approval.rs
+@@ -564,3 +564,23 @@ impl Session {
+ #[cfg(all(test, unix))]
+ #[path = "../tools/approvals/parent_approval_tests.rs"]
+ mod tests;
++
++// Test setup only: retain Session's publication guard without exposing its state.
++#[cfg(all(test, unix))]
++impl Session {
++    pub(crate) async fn publish_parent_test_hooks_if_current(
++        &self,
++        expected_config: &Arc<Config>,
++        hooks: Arc<codex_hooks::Hooks>,
++    ) -> bool {
++        let state = self.state.lock().await;
++        if !Arc::ptr_eq(
++            expected_config,
++            &state.session_configuration.original_config_do_not_use,
++        ) {
++            return false;
++        }
++        self.services.hooks.store(hooks);
++        true
++    }
++}
+diff --git a/codex-rs/core/src/tools/approvals/parent_registry_tests.rs b/codex-rs/core/src/tools/approvals/parent_registry_tests.rs
+index 9ac8650..1c8bbd3 100644
+--- a/codex-rs/core/src/tools/approvals/parent_registry_tests.rs
++++ b/codex-rs/core/src/tools/approvals/parent_registry_tests.rs
+@@ -215,15 +215,7 @@ async fn decisive_results_preserve_registry_count_events_and_hook_precedence() -
+ async fn actual_same_config_refresh_invalidates_only_the_retained_registry_observation()
+ -> anyhow::Result<()> {
+     let fixture = Fixture::new(None, /*gate*/ None, /*panic*/ false).await?;
+-    let config = Arc::clone(
+-        &fixture
+-            .session
+-            .state
+-            .lock()
+-            .await
+-            .session_configuration
+-            .original_config_do_not_use,
+-    );
++    let config = fixture.session.get_config().await;
+     let hooks = fixture.session.hooks();
+     let (decision, original) = observed(&fixture, "before-refresh").await?.into_parts();
+     assert_eq!(decision, None);
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs
+index b527a39..ffbf48e 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs
+@@ -268,13 +268,12 @@ async fn trusted_child_hook(fixture: &Fixture, mode: HookMode) -> anyhow::Result
+             ..Default::default()
+         });
+     // Test publication under the SAME actual production publication guard; Config is unchanged.
+-    let state = fixture.session.state.lock().await;
+-    assert!(Arc::ptr_eq(
+-        &config,
+-        &state.session_configuration.original_config_do_not_use
+-    ));
+-    fixture.session.services.hooks.store(Arc::new(hooks));
+-    drop(state);
++    assert!(
++        fixture
++            .session
++            .publish_parent_test_hooks_if_current(&config, Arc::new(hooks))
++            .await
++    );
+     assert!(Arc::ptr_eq(&config, &fixture.session.get_config().await));
+     Ok(InstalledHook {
+         _home: home,
+-- 
+2.54.0 (Apple Git-157)
+

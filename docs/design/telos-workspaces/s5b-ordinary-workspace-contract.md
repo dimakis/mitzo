@@ -109,3 +109,10 @@ Seven ordinary session-journal cases and sixty existing preparation/runtime/
 metadata cases pass in the focused 67-case run. Native owned-runtime, public
 role/command wrappers and frontend adoption remain separate integrations, with
 CT07–CT09 still open.
+
+Accepted-main idle persistence release is shared by repository and ordinary
+workspaces. Ordinary prepare, reserve, revalidate and claim remain active until their asynchronous
+readiness work settles. Validation retains its synchronous custody contract. Idle release refuses those operations
+without cancellation or replacement. After release, every ordinary entrypoint
+fails before readiness acquisition or private persistence access; reads cannot
+lazily reopen custody. This adds no cleanup, deletion or task lifecycle operation.

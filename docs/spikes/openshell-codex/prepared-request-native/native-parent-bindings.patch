@@ -1,0 +1,749 @@
+diff --git a/codex-rs/core/src/session/parent_approval.rs b/codex-rs/core/src/session/parent_approval.rs
+index 421109a..f13e8a6 100644
+--- a/codex-rs/core/src/session/parent_approval.rs
++++ b/codex-rs/core/src/session/parent_approval.rs
+@@ -3,7 +3,9 @@ use super::session::Session;
+ use super::step_context::StepContext;
+ use super::step_settings::ResolvedStepSettings;
+ use super::turn_context::TurnContext;
++use crate::config::Config;
+ use crate::environment_selection::TurnEnvironmentSnapshot;
++use codex_execpolicy::Policy;
+ use codex_protocol::config_types::ApprovalsReviewer;
+ use codex_protocol::protocol::AskForApproval;
+ use std::sync::Arc;
+@@ -16,11 +18,19 @@ pub(crate) struct InitialExecApprovalIssuer {
+     task_done: Arc<Notify>,
+     turn: Arc<TurnContext>,
+     settings: Arc<ResolvedStepSettings>,
++    live_config: Arc<Config>,
++    base_exec_policy: Arc<Policy>,
+     task_cancellation: CancellationToken,
+     call_cancellation: CancellationToken,
+     environments: TurnEnvironmentSnapshot,
+ }
+ 
++impl InitialExecApprovalIssuer {
++    pub(crate) fn matches_original_exec_policy(&self, policy: &Arc<Policy>) -> bool {
++        Arc::ptr_eq(&self.base_exec_policy, policy)
++    }
++}
++
+ impl Session {
+     #[expect(
+         clippy::await_holding_invalid_type,
+@@ -34,12 +44,14 @@ impl Session {
+         let active = self.active_turn.lock().await;
+         let active = active.as_ref()?;
+         let task = active.task.as_ref()?;
++        let session_state = self.state.lock().await;
+         let state = active.turn_state.lock().await;
+         let settings = task.turn_context.next_step_settings.load_full();
+         if !Arc::ptr_eq(&task.turn_context, &step.turn)
+             || !Arc::ptr_eq(&settings, &step.settings)
+             || settings.approval_policy() != AskForApproval::OnRequest
+             || settings.approvals_reviewer() != ApprovalsReviewer::User
++            || step.turn.allow_prefix_rules() != crate::exec_policy::AllowPrefixRules::Honor
+             || state.strict_auto_review_enabled()
+             || task.cancellation_token.is_cancelled()
+             || cancellation.is_cancelled()
+@@ -51,6 +63,12 @@ impl Session {
+             task_done: Arc::clone(&task.done),
+             turn: Arc::clone(&task.turn_context),
+             settings,
++            live_config: Arc::clone(
++                &session_state
++                    .session_configuration
++                    .original_config_do_not_use,
++            ),
++            base_exec_policy: self.services.exec_policy.current(),
+             task_cancellation: task.cancellation_token.clone(),
+             call_cancellation: cancellation.clone(),
+             environments: step.environments.clone(),
+@@ -80,6 +98,7 @@ impl Session {
+         let Some(task) = active.task.as_ref() else {
+             return false;
+         };
++        let session_state = self.state.lock().await;
+         let state = active.turn_state.lock().await;
+         Arc::ptr_eq(&task.done, &issuer.task_done)
+             && Arc::ptr_eq(&task.turn_context, &issuer.turn)
+@@ -87,6 +106,16 @@ impl Session {
+                 &task.turn_context.next_step_settings.load_full(),
+                 &issuer.settings,
+             )
++            && Arc::ptr_eq(
++                &session_state
++                    .session_configuration
++                    .original_config_do_not_use,
++                &issuer.live_config,
++            )
++            && Arc::ptr_eq(
++                &self.services.exec_policy.current(),
++                &issuer.base_exec_policy,
++            )
+             && !state.strict_auto_review_enabled()
+             && !task.cancellation_token.is_cancelled()
+             && !issuer.task_cancellation.is_cancelled()
+diff --git a/codex-rs/core/src/tools/approvals/parent_approval.rs b/codex-rs/core/src/tools/approvals/parent_approval.rs
+index aac96b9..810a366 100644
+--- a/codex-rs/core/src/tools/approvals/parent_approval.rs
++++ b/codex-rs/core/src/tools/approvals/parent_approval.rs
+@@ -15,6 +15,13 @@ pub(crate) struct FreshParentApproval {
+ }
+ 
+ impl FreshParentApproval {
++    pub(crate) fn matches_original_exec_policy(
++        &self,
++        policy: &std::sync::Arc<codex_execpolicy::Policy>,
++    ) -> bool {
++        self.issuer.matches_original_exec_policy(policy)
++    }
++
+     // Only the actual approval-resolution owner can construct this evidence.
+     pub(super) fn from_resolution(
+         issuer: InitialExecApprovalIssuer,
+diff --git a/codex-rs/core/src/tools/approvals/parent_approval_tests.rs b/codex-rs/core/src/tools/approvals/parent_approval_tests.rs
+index 54f40e2..eda22f7 100644
+--- a/codex-rs/core/src/tools/approvals/parent_approval_tests.rs
++++ b/codex-rs/core/src/tools/approvals/parent_approval_tests.rs
+@@ -61,6 +61,8 @@ impl ApprovalReviewContributor for Contributor {
+ enum Drift {
+     None,
+     Settings,
++    Config,
++    Policy,
+     Task,
+     Strict,
+     Cancel,
+@@ -166,6 +168,26 @@ impl Fixture {
+                                 Drift::Settings => assert!(matches!(self.session.apply_turn_settings(&self.step.turn.sub_id,
+                                     TurnSettingsUpdate { approvals_reviewer: Some(ApprovalsReviewer::User), ..Default::default() }).await,
+                                     TurnSettingsUpdateOutcome::Applied)),
++                                Drift::Config => {
++                                    let original = self.session.get_config().await;
++                                    let settings = self.step.turn.next_step_settings.load_full();
++                                    self.session.refresh_runtime_config(original.as_ref().clone()).await;
++                                    assert!(!Arc::ptr_eq(&original, &self.session.get_config().await));
++                                    assert!(Arc::ptr_eq(&settings, &self.step.turn.next_step_settings.load_full()));
++                                },
++                                Drift::Policy => {
++                                    let config = self.session.get_config().await;
++                                    let original_policy = self.session.services.exec_policy.current();
++                                    let policy_home = tempfile::tempdir()?;
++                                    self.session.services.exec_policy.append_amendment_and_update(
++                                        policy_home.path(),
++                                        &codex_protocol::protocol::ExecPolicyAmendment {
++                                            command: vec!["parent-provenance-policy-drift".into()],
++                                        },
++                                    ).await?;
++                                    assert!(!Arc::ptr_eq(&original_policy, &self.session.services.exec_policy.current()));
++                                    assert!(Arc::ptr_eq(&config, &self.session.get_config().await));
++                                },
+                                 Drift::Task => {
+                                     self.session.abort_all_tasks(TurnAbortReason::Replaced).await;
+                                     self.session.start_task(Arc::clone(&self.step.turn), Vec::new(), PendingTask).await;
+@@ -223,7 +245,14 @@ async fn only_fresh_user_plain_approval_produces_initial_provenance() -> anyhow:
+ 
+ #[tokio::test]
+ async fn issuer_changes_after_user_response_never_relabel_approval() -> anyhow::Result<()> {
+-    for drift in [Drift::Settings, Drift::Task, Drift::Strict, Drift::Cancel] {
++    for drift in [
++        Drift::Settings,
++        Drift::Config,
++        Drift::Policy,
++        Drift::Task,
++        Drift::Strict,
++        Drift::Cancel,
++    ] {
+         let fixture = Fixture::new(None).await?;
+         let result = fixture
+             .approve("original", ReviewDecision::Approved, drift)
+@@ -239,6 +268,40 @@ async fn issuer_changes_after_user_response_never_relabel_approval() -> anyhow::
+     Ok(())
+ }
+ 
++#[tokio::test]
++async fn later_policy_snapshot_cannot_rebind_an_actual_user_receipt() -> anyhow::Result<()> {
++    let fixture = Fixture::new(None).await?;
++    let result = fixture
++        .approve("original-policy", ReviewDecision::Approved, Drift::None)
++        .await?;
++    assert_eq!(result.decision, ReviewDecision::Approved);
++    let approval = result.parent_approval.expect("actual fresh user receipt");
++    let original = fixture.session.services.exec_policy.current();
++    assert!(approval.matches_original_exec_policy(&original));
++    let policy_home = tempfile::tempdir()?;
++    fixture
++        .session
++        .services
++        .exec_policy
++        .append_amendment_and_update(
++            policy_home.path(),
++            &codex_protocol::protocol::ExecPolicyAmendment {
++                command: vec!["later-parent-policy".into()],
++            },
++        )
++        .await?;
++    assert!(
++        !approval.matches_original_exec_policy(&fixture.session.services.exec_policy.current())
++    );
++    assert!(approval.matches_original_exec_policy(&original));
++    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
++    fixture
++        .session
++        .abort_all_tasks(TurnAbortReason::Interrupted)
++        .await;
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn guardian_plain_approved_is_not_a_user_receipt() -> anyhow::Result<()> {
+     let fixture = Fixture::new(Some(ApprovalDecision::Reviewed(ReviewDecision::Approved))).await?;
+diff --git a/codex-rs/core/src/tools/runtimes/unified_exec.rs b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+index ab97c0b..8ad0e8d 100644
+--- a/codex-rs/core/src/tools/runtimes/unified_exec.rs
++++ b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+@@ -123,6 +123,58 @@ pub struct UnifiedExecRuntime<'a> {
+ pub(crate) struct InitialParentApprovalCandidate {
+     approval: FreshParentApproval,
+     initial_active: Arc<AtomicBool>,
++    restricted_launch: InitialParentRestrictedLaunch,
++}
++
++/// Actual transformed first-attempt facts, retained without granting child authority.
++struct InitialParentRestrictedLaunch {
++    permission_profile: codex_protocol::models::PermissionProfile,
++    requested_permissions: codex_protocol::models::PermissionProfile,
++    canonical_permissions: codex_protocol::models::PermissionProfile,
++    executor_platform_os: Option<String>,
++    sandbox: codex_sandboxing::SandboxType,
++    cwd: PathUri,
++    sandbox_cwd: PathUri,
++    workspace_roots: Vec<PathUri>,
++    sandbox_exe: Option<PathBuf>,
++    use_legacy_landlock: bool,
++    windows_sandbox_type: codex_sandboxing::SandboxType,
++    windows_sandbox_level: codex_protocol::config_types::WindowsSandboxLevel,
++    configured_windows_sandbox_level: codex_protocol::config_types::WindowsSandboxLevel,
++    windows_policy_cwd: PathUri,
++    windows_workspace_roots: Vec<codex_utils_absolute_path::AbsolutePathBuf>,
++    environment_id: String,
++    network_environment_id: Option<String>,
++    command: Vec<String>,
++    env: HashMap<String, String>,
++    arg0: Option<String>,
++}
++
++impl InitialParentApprovalCandidate {
++    pub(super) fn matches_original_exec_policy(
++        &self,
++        policy: &Arc<codex_execpolicy::Policy>,
++    ) -> bool {
++        self.approval.matches_original_exec_policy(policy)
++    }
++}
++
++// Shared by the real launch owner and its permission-profile regression. This
++// predicate cannot create approval evidence; it only narrows an existing receipt.
++fn restricted_parent_approval_permissions(
++    raw_permissions: SandboxPermissions,
++    requested: &codex_protocol::models::PermissionProfile,
++    canonical: &codex_protocol::models::PermissionProfile,
++    transformed: &codex_protocol::models::PermissionProfile,
++) -> bool {
++    use codex_protocol::permissions::NetworkSandboxPolicy;
++    raw_permissions == SandboxPermissions::RequireEscalated
++        && requested.network_sandbox_policy() == NetworkSandboxPolicy::Restricted
++        && canonical.network_sandbox_policy() == NetworkSandboxPolicy::Restricted
++        && transformed.network_sandbox_policy() == NetworkSandboxPolicy::Restricted
++        && transformed
++            .file_system_sandbox_policy()
++            .has_denied_read_restrictions()
+ }
+ 
+ pub(crate) struct UnifiedExecAttempt {
+@@ -292,14 +344,10 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecAttempt> for UnifiedExecRunt
+         ctx: &ToolCtx,
+     ) -> Result<UnifiedExecAttempt, ToolError> {
+         // Consume before any fallible work or await; retries cannot reuse initial evidence.
+-        let parent_approval = self.parent_approval.take().and_then(|approval| {
+-            self.initial_exec_command_active
+-                .as_ref()
+-                .map(|active| InitialParentApprovalCandidate {
+-                    approval,
+-                    initial_active: Arc::clone(active),
+-                })
+-        });
++        let parent_approval = self
++            .parent_approval
++            .take()
++            .zip(self.initial_exec_command_active.clone());
+         let base_command = &req.command;
+         let windows_sandbox_proxy_settings_mode = ctx.session.windows_sandbox_proxy_settings_mode;
+         let session_shell = ctx.session.user_shell();
+@@ -684,6 +732,83 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecAttempt> for UnifiedExecRunt
+                 )
+                 .map_err(ToolError::Codex)?;
+             exec_env.exec_server_env_config = req.exec_server_env_config.clone();
++            #[cfg(unix)]
++            let additional_permissions_preapproved = req.additional_permissions_preapproved;
++            #[cfg(not(unix))]
++            let additional_permissions_preapproved = false;
++            // Resolve only the actual first restricted launch. This is inert custody,
++            // not child admission or a globally atomic policy snapshot.
++            let parent_approval = parent_approval.and_then(|(approval, initial_active)| {
++                if !restricted_parent_approval_permissions(
++                    req.sandbox_permissions,
++                    attempt.permissions,
++                    attempt.exec_server_permissions,
++                    &exec_env.permission_profile,
++                ) || !attempt.sandbox_requested
++                    || attempt.sandbox == codex_sandboxing::SandboxType::None
++                    || exec_env.sandbox != attempt.sandbox
++                    || environment_is_remote
++                    || req.turn_environment.config().exec_policy.is_some()
++                    || ctx.step_context.turn.allow_prefix_rules()
++                        != crate::exec_policy::AllowPrefixRules::Honor
++                    || req.turn_environment.config().network_policy.is_some()
++                    || req
++                        .turn_environment
++                        .config()
++                        .permissions
++                        .network
++                        .as_ref()
++                        .is_some_and(|network| network.enabled())
++                    || req.network.is_some()
++                    || attempt.network_proxy.is_some()
++                    || managed_network.is_some()
++                    || managed_network_context.is_some()
++                    || network_proxy_launch.is_some()
++                    || attempt.enforce_managed_network
++                    || attempt.network_denial_cancellation_token.is_some()
++                    || shell_snapshot.is_some()
++                    || req.shell_snapshot.is_some()
++                    || snapshot_credential_context.is_some()
++                    || req.additional_permissions.is_some()
++                    || additional_permissions_preapproved
++                    || internal_permissions.is_some()
++                    || metrics_sidecar.is_some()
++                    || exec_env.exec_server_shell_snapshot.is_some()
++                    || exec_env.network.is_some()
++                    || exec_env.exec_server_enforce_managed_network
++                    || exec_env.exec_server_managed_network.is_some()
++                    || exec_env.exec_server_network_proxy.is_some()
++                    || exec_env.exec_server_sandbox.is_some()
++                {
++                    return None;
++                }
++                Some(InitialParentApprovalCandidate {
++                    approval,
++                    initial_active,
++                    restricted_launch: InitialParentRestrictedLaunch {
++                        permission_profile: exec_env.permission_profile.clone(),
++                        requested_permissions: attempt.permissions.clone(),
++                        canonical_permissions: attempt.exec_server_permissions.clone(),
++                        executor_platform_os: req.turn_environment.executor_platform_os.clone(),
++                        sandbox: exec_env.sandbox,
++                        cwd: exec_env.cwd.clone(),
++                        sandbox_cwd: attempt.sandbox_cwd.clone(),
++                        workspace_roots: attempt.workspace_roots.to_vec(),
++                        sandbox_exe: attempt.sandbox_exe.cloned(),
++                        use_legacy_landlock: attempt.use_legacy_landlock,
++                        windows_sandbox_type: attempt.windows_sandbox_type,
++                        windows_sandbox_level: exec_env.windows_sandbox_level,
++                        configured_windows_sandbox_level: attempt.windows_sandbox_level,
++                        windows_policy_cwd: exec_env.windows_sandbox_policy_cwd.clone(),
++                        windows_workspace_roots: exec_env.windows_sandbox_workspace_roots.clone(),
++                        environment_id: req.turn_environment.selection.environment_id.clone(),
++                        network_environment_id: exec_env.network_environment_id.clone(),
++                        command: exec_env.command.clone(),
++                        env: exec_env.env.clone(),
++                        arg0: exec_env.arg0.clone(),
++                    },
++                })
++            });
+             match zsh_fork::maybe_prepare_unified_exec(
+                 req,
+                 attempt,
+@@ -831,6 +956,71 @@ mod tests {
+         )
+     }
+ 
++    #[test]
++    fn inherited_parent_permissions_require_original_escalation_and_restricted_network_everywhere()
++    {
++        use codex_protocol::permissions::FileSystemAccessMode;
++        use codex_protocol::permissions::FileSystemPath;
++        use codex_protocol::permissions::FileSystemSandboxEntry;
++        use codex_protocol::permissions::FileSystemSandboxPolicy;
++        use codex_protocol::permissions::NetworkSandboxPolicy;
++
++        let denied = FileSystemSandboxPolicy::restricted(vec![FileSystemSandboxEntry {
++            path: FileSystemPath::GlobPattern {
++                pattern: "**/parent-secret.env".into(),
++            },
++            access: FileSystemAccessMode::Deny,
++            missing_path_behavior: None,
++        }]);
++        let restricted =
++            PermissionProfile::from_runtime_permissions(&denied, NetworkSandboxPolicy::Restricted);
++        let enabled =
++            PermissionProfile::from_runtime_permissions(&denied, NetworkSandboxPolicy::Enabled);
++        assert!(restricted_parent_approval_permissions(
++            SandboxPermissions::RequireEscalated,
++            &restricted,
++            &restricted,
++            &restricted
++        ));
++        for raw_permissions in [
++            SandboxPermissions::UseDefault,
++            SandboxPermissions::WithAdditionalPermissions,
++        ] {
++            assert!(!restricted_parent_approval_permissions(
++                raw_permissions,
++                &restricted,
++                &restricted,
++                &restricted
++            ));
++        }
++        for (requested, canonical, transformed) in [
++            (&enabled, &restricted, &restricted),
++            (&restricted, &enabled, &restricted),
++            (&restricted, &restricted, &enabled),
++        ] {
++            assert!(!restricted_parent_approval_permissions(
++                SandboxPermissions::RequireEscalated,
++                requested,
++                canonical,
++                transformed
++            ));
++        }
++        for transformed in [
++            PermissionProfile::read_only(),
++            PermissionProfile::Disabled,
++            PermissionProfile::External {
++                network: NetworkSandboxPolicy::Restricted,
++            },
++        ] {
++            assert!(!restricted_parent_approval_permissions(
++                SandboxPermissions::RequireEscalated,
++                &restricted,
++                &restricted,
++                &transformed
++            ));
++        }
++    }
++
+     #[test]
+     fn unified_exec_options_combines_default_timeout_with_network_denial_cancellation() {
+         let cancellation = CancellationToken::new();
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+index 3194c5b..99191d7 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+@@ -113,6 +113,14 @@ pub(crate) async fn prepare_unified_exec_zsh_fork(
+         req.turn_environment.config().exec_policy.as_ref(),
+         ctx.step_context.turn.allow_prefix_rules(),
+     );
++    // A later provider snapshot must match the policy retained before approval;
++    // never relabel an old user response with a replacement policy.
++    let parent_approval = parent_approval.filter(|candidate| {
++        req.turn_environment.config().exec_policy.is_none()
++            && ctx.step_context.turn.allow_prefix_rules()
++                == crate::exec_policy::AllowPrefixRules::Honor
++            && candidate.matches_original_exec_policy(&parent_exec_policy)
++    });
+     let exec_policy = Arc::new(RwLock::new(parent_exec_policy.as_ref().clone()));
+     // TODO(anp): Keep PathUri through the zsh-fork executor boundary.
+     let cwd = exec_request
+diff --git a/codex-rs/core/src/unified_exec/parent_approval_lifetime_tests.rs b/codex-rs/core/src/unified_exec/parent_approval_lifetime_tests.rs
+new file mode 100644
+index 0000000..8a15e1c
+--- /dev/null
++++ b/codex-rs/core/src/unified_exec/parent_approval_lifetime_tests.rs
+@@ -0,0 +1,272 @@
++//! Exercise the actual initial call and retain only its stored process flag.
++use super::*;
++use crate::session::step_context::StepContext;
++use crate::session::tests::make_session_and_context_with_auth_and_config_and_rx;
++use crate::shell::ShellType;
++use codex_protocol::models::PermissionProfile;
++use codex_protocol::models::SandboxPermissions;
++use codex_protocol::protocol::AskForApproval;
++use codex_tools::UnifiedExecShellMode;
++use codex_utils_output_truncation::TruncationPolicy;
++use core_test_support::skip_if_sandbox;
++use pretty_assertions::assert_eq;
++
++// Own the real future/process so assertion failures and timeouts cannot detach them.
++struct InitialCall {
++    context: Arc<UnifiedExecContext>,
++    process_id: i32,
++    call: Option<tokio::task::JoinHandle<Result<ExecCommandToolOutput, UnifiedExecError>>>,
++    process: Option<Arc<UnifiedExecProcess>>,
++    cleaned: bool,
++}
++impl Drop for InitialCall {
++    fn drop(&mut self) {
++        if self.cleaned {
++            return;
++        }
++        let call = self.call.take();
++        if let Some(call) = &call {
++            call.abort();
++        }
++        if let Some(process) = &self.process {
++            process.terminate();
++        }
++        let context = Arc::clone(&self.context);
++        let id = self.process_id;
++        tokio::spawn(async move {
++            if let Some(call) = call {
++                let _ = call.await;
++            }
++            context
++                .session
++                .services
++                .unified_exec_manager
++                .terminate_all_processes()
++                .await;
++            context
++                .session
++                .services
++                .unified_exec_manager
++                .release_process_id(id)
++                .await;
++        });
++    }
++}
++impl InitialCall {
++    async fn finish(&mut self) -> anyhow::Result<Result<ExecCommandToolOutput, UnifiedExecError>> {
++        let result = tokio::time::timeout(
++            Duration::from_secs(45),
++            self.call.as_mut().expect("initial call"),
++        )
++        .await?;
++        self.call.take();
++        Ok(result?)
++    }
++    async fn cleanup(&mut self) {
++        if let Some(call) = self.call.take() {
++            call.abort();
++            let _ = call.await;
++        }
++        if let Some(process) = &self.process {
++            process.terminate();
++        }
++        self.context
++            .session
++            .services
++            .unified_exec_manager
++            .terminate_all_processes()
++            .await;
++        self.context
++            .session
++            .services
++            .unified_exec_manager
++            .release_process_id(self.process_id)
++            .await;
++        self.cleaned = true;
++    }
++}
++
++// These are process-lifetime tests, not approval/provenance constructors.
++async fn start_initial_call() -> anyhow::Result<(InitialCall, Arc<AtomicBool>)> {
++    let (session, turn, _events) = make_session_and_context_with_auth_and_config_and_rx(
++        codex_login::CodexAuth::from_api_key("offline-test"),
++        Vec::new(),
++        |config| {
++            config.permissions.approval_policy =
++                codex_config::Constrained::allow_any(AskForApproval::Never);
++            config
++                .permissions
++                .set_permission_profile(PermissionProfile::Disabled)
++                .expect("test permissions");
++        },
++    )
++    .await;
++    let step = StepContext::for_test(turn);
++    let environment = step
++        .environments
++        .primary()
++        .expect("local environment")
++        .clone();
++    let context = Arc::new(UnifiedExecContext::new(
++        session,
++        step,
++        CancellationToken::new(),
++        "initial-lifetime".into(),
++    ));
++    let manager = &context.session.services.unified_exec_manager;
++    let process_id = manager.allocate_process_id().await;
++    let request = ExecCommandRequest {
++        command: vec!["/bin/sh".into(), "-c".into(), "sleep 120".into()],
++        shell_type: ShellType::Sh,
++        hook_command: "sleep 120".into(),
++        process_id,
++        yield_time_ms: MAX_YIELD_TIME_MS,
++        max_output_tokens: Some(100),
++        cwd: environment.cwd().clone(),
++        sandbox_cwd: environment.cwd().clone(),
++        turn_environment: environment,
++        shell_mode: UnifiedExecShellMode::Direct,
++        network: None,
++        tty: false,
++        sandbox_permissions: SandboxPermissions::UseDefault,
++        additional_permissions: None,
++        additional_permissions_preapproved: false,
++        justification: None,
++        prefix_rule: None,
++    };
++    let running_context = Arc::clone(&context);
++    let call = tokio::spawn(async move {
++        Box::pin(
++            running_context
++                .session
++                .services
++                .unified_exec_manager
++                .exec_command_inner(request, &running_context, /*completion*/ None),
++        )
++        .await
++    });
++    let mut initial = InitialCall {
++        context: Arc::clone(&context),
++        process_id,
++        call: Some(call),
++        process: None,
++        cleaned: false,
++    };
++    let observed = tokio::time::timeout(Duration::from_secs(10), async {
++        loop {
++            let stored = {
++                let store = manager.process_store.lock().await;
++                store.processes.get(&process_id).map(|entry| {
++                    (
++                        Arc::clone(&entry.initial_exec_command_active),
++                        Arc::clone(&entry.process),
++                    )
++                })
++            };
++            if let Some(stored) = stored {
++                break Ok(stored);
++            }
++            if initial.call.as_ref().expect("initial call").is_finished() {
++                break Err(anyhow::anyhow!(
++                    "initial call ended before storing a live process"
++                ));
++            }
++            tokio::time::sleep(Duration::from_millis(5)).await;
++        }
++    })
++    .await;
++    let (active, process) = match observed {
++        Ok(Ok(stored)) => stored,
++        Ok(Err(error)) => {
++            initial.cleanup().await;
++            return Err(error);
++        }
++        Err(error) => {
++            initial.cleanup().await;
++            return Err(error.into());
++        }
++    };
++    initial.process = Some(process);
++    assert!(active.load(Ordering::Acquire));
++    Ok((initial, active))
++}
++
++async fn poll_retained_closed(
++    context: &UnifiedExecContext,
++    process_id: i32,
++    active: &AtomicBool,
++) -> anyhow::Result<()> {
++    assert!(!active.load(Ordering::Acquire));
++    let output = context
++        .session
++        .services
++        .unified_exec_manager
++        .write_stdin(
++            context,
++            WriteStdinRequest {
++                process_id,
++                input: "",
++                yield_time_ms: 1,
++                max_output_tokens: Some(100),
++                truncation_policy: TruncationPolicy::Bytes(1024),
++                interaction_event: None,
++            },
++        )
++        .await?;
++    assert_eq!(output.process_id, Some(process_id));
++    assert!(!active.load(Ordering::Acquire));
++    Ok(())
++}
++
++#[tokio::test]
++async fn actual_initial_yield_closes_flag_and_retained_poll_never_reopens_it() -> anyhow::Result<()>
++{
++    skip_if_sandbox!(Ok(()));
++    let (mut initial, active) = start_initial_call().await?;
++    let output = initial.finish().await??;
++    assert_eq!(output.process_id, Some(initial.process_id));
++    let result = poll_retained_closed(&initial.context, initial.process_id, &active).await;
++    initial.cleanup().await;
++    result
++}
++
++#[tokio::test]
++async fn dropping_actual_initial_call_closes_flag_without_killing_retained_process()
++-> anyhow::Result<()> {
++    skip_if_sandbox!(Ok(()));
++    let (mut initial, active) = start_initial_call().await?;
++    initial.call.as_ref().expect("initial call").abort();
++    let result = tokio::time::timeout(
++        Duration::from_secs(10),
++        initial.call.as_mut().expect("initial call"),
++    )
++    .await?;
++    initial.call.take();
++    assert!(result.expect_err("actual call aborted").is_cancelled());
++    assert!(
++        !initial
++            .process
++            .as_ref()
++            .expect("stored process")
++            .has_exited()
++    );
++    let result = poll_retained_closed(&initial.context, initial.process_id, &active).await;
++    initial.cleanup().await;
++    result
++}
++
++#[tokio::test]
++async fn actual_initial_process_failure_closes_flag_on_error() -> anyhow::Result<()> {
++    skip_if_sandbox!(Ok(()));
++    let (mut initial, active) = start_initial_call().await?;
++    initial
++        .process
++        .as_ref()
++        .expect("stored process")
++        .fail_and_terminate("initial lifetime fixture failure".into());
++    let result = initial.finish().await?;
++    assert!(result.is_err());
++    assert!(!active.load(Ordering::Acquire));
++    initial.cleanup().await;
++    Ok(())
++}
+diff --git a/codex-rs/core/src/unified_exec/process_manager.rs b/codex-rs/core/src/unified_exec/process_manager.rs
+index d6910bc..61f99aa 100644
+--- a/codex-rs/core/src/unified_exec/process_manager.rs
++++ b/codex-rs/core/src/unified_exec/process_manager.rs
+@@ -1895,3 +1895,7 @@ enum ProcessStatus {
+ #[cfg(test)]
+ #[path = "process_manager_tests.rs"]
+ mod tests;
++
++#[cfg(all(test, unix))]
++#[path = "parent_approval_lifetime_tests.rs"]
++mod parent_approval_lifetime_tests;

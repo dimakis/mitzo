@@ -6,6 +6,7 @@ import { AgentLibraryChatLink } from '../components/AgentLibraryChatSource';
 import { markAgentBuilderAssigned } from '../lib/agent-builder-chat';
 import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
 import { ConversationAgents } from '../components/ConversationAgents';
+import { conversationRepositoryLabel } from '../lib/conversation-repository-label';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
 import {
@@ -181,6 +182,14 @@ export function ChatView() {
     newChatDraft.restored ? newChatDraft.draft.settings.selection : undefined,
   );
   const explicitNew = localRuntime.visible && !activeSessionId;
+  const conversationRepository = conversationRepositoryLabel({
+    routeConversationId: sessionId,
+    conversationId: activeSessionId,
+    repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
+    repositoryContext: localRuntime.repositoryContext,
+    metadataPending: localRuntime.metadataPending,
+    repoNames: messages.activeWorktrees.map(({ repoName }) => repoName),
+  });
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew;
@@ -1128,6 +1137,7 @@ export function ChatView() {
           {activeSessionId && !isSymposium && !controlsBlocked && (
             <ConversationAgents
               compact
+              repository={conversationRepository}
               scope={activeSessionId}
               agents={[
                 {
@@ -1400,6 +1410,7 @@ export function ChatView() {
           navigate(path);
         }}
         conversationLayout={{
+          repository: conversationRepository,
           settings: workspaceControls,
           showHeader: isSymposium,
           leading: (
