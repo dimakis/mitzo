@@ -1,0 +1,92 @@
+{
+  "observedAt": "2026-10-20T02:10:10.566788+00:00",
+  "run": 39348949832,
+  "attempt": 1,
+  "job": 118388296293,
+  "platform": "macos-26",
+  "result": "success",
+  "source": {
+    "publishedHead": "691af045d5dfd8ac99904f85a5f530ef8721f892",
+    "publishedTree": "72e885406ea11c940295fa5f7d1f18857bfa88b5",
+    "actualCheckout": "b560a7ee0d7ee9c0b9d85d74ae186017dd174b96",
+    "actualCheckoutTree": "72e885406ea11c940295fa5f7d1f18857bfa88b5",
+    "actualCheckoutParents": [
+      "07014d87b97a1faf012817d6ffcc6a94a383fe96",
+      "691af045d5dfd8ac99904f85a5f530ef8721f892"
+    ],
+    "nativeCommit": "d615a63d687555242ede9cb3874d2699f99520c3",
+    "nativeTree": "9ce8eecf782809ae5d33f63715000e8396ab2e55",
+    "patches": 70,
+    "artifactProofByteExactToPublished": true
+  },
+  "results": {
+    "passed": 5927,
+    "failed": 0,
+    "nextestSkipped": 27,
+    "seconds": 2004.885,
+    "binaries": 26,
+    "junit": {
+      "name": "nextest-run",
+      "tests": "5927",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "uuid": "4e6b5fdd-382a-4697-939f-7329ce8b6d8d",
+      "timestamp": "2026-10-20T01:32:23.960+00:00",
+      "time": "2004.885"
+    },
+    "namedNew61to70Cases": [
+      {
+        "suite": "codex-core",
+        "name": "client::public_responses_capture::tests::public_policy_captures_actual_ordinary_body_and_retains_native_observations_privately",
+        "result": "PASS",
+        "seconds": "0.021"
+      },
+      {
+        "suite": "codex-core",
+        "name": "client::public_responses_capture::tests::public_policy_refuses_unknown_metadata_backend_controls_and_snapshot_drift",
+        "result": "PASS",
+        "seconds": "0.020"
+      },
+      {
+        "suite": "codex-core",
+        "name": "client::public_responses_capture::tests::public_policy_refuses_contributors_and_unsupported_stream_controls_without_clearing_them",
+        "result": "PASS",
+        "seconds": "0.021"
+      },
+      {
+        "suite": "codex-login",
+        "name": "auth::manager::prepared_api_key::tests::cached_api_credentials_reject_other_owner_logout_and_credential_aba",
+        "result": "PASS",
+        "seconds": "0.030"
+      },
+      {
+        "suite": "codex-login",
+        "name": "auth::manager::prepared_api_key::tests::cached_api_credential_writer_cannot_cross_guarded_native_operation",
+        "result": "PASS",
+        "seconds": "0.021"
+      },
+      {
+        "suite": "codex-core",
+        "name": "client::tests::format_tests::public_body_capture_uses_actual_model_client_state_credentials_and_contributor_inventory",
+        "result": "PASS",
+        "seconds": "0.017"
+      }
+    ],
+    "namedCaseCount": 6,
+    "formatting": "PASS",
+    "sourceReconstruction": "PASS",
+    "accounting": "Do not sum overlapping platform/source totals. Overall27skip exclusions preserved despite executed-onlyJUnit0."
+  },
+  "evidence": {
+    "jobLogSHA256": "defb8992141a0927ba90bd8b774afc26549b295694111ff59d5aa72cfcd036aa",
+    "artifactId": 12235792598,
+    "artifactZIPDigest": "1194ab7bb4e256257c4eab216817fa2e8b739fe659fde606fb309087943d3e7d",
+    "digestMatchesActions": true,
+    "junitSHA256": "43ed0fdcc3d36e067cafe070319e9aec8b8195eebd1e334c22b6b0052e2fe9a2",
+    "sourceProofSHA256": "0f83b97f0de4b19e229fe347be39a05918a3a67439b418549de9c5c95fd8a13d"
+  },
+  "qualification": "Independently qualifies macOS native70 source-body/public metadata/native credential custody/ModelClient fixtures and planner source compilation. Does not establish production caller, whole source/request/account/route/currentness/model-limit/count/consume/release, installed runtime or actual application joining/delivery/replies.",
+  "otherSources": "Linux70 still pending at receipt;73/76/77 remain separate. No prior qualification transferred.",
+  "independentActivity": "Download/read already completed existing logs/JUnit/artifact/proof/Git metadata only. No local test/build/retry/cancel/dispatch/model/provider/deployment."
+}

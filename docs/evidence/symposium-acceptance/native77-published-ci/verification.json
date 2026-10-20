@@ -1,0 +1,38 @@
+{
+  "observedAt": "2026-10-20T02:12:05.401535+00:00",
+  "publishedHead": "dd5edbd2799885760ae2df9e5eaaf62bff590c92",
+  "publishedTree": "e07d1ba85c086b31897a50d1331dce7131623e7e",
+  "githubHeadVerified": true,
+  "pr": 1063,
+  "nativeCommit": "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
+  "nativeTree": "61df68bdcee6a1939367e2ed54e61082d4ef3241",
+  "patchesHashed": 77,
+  "prior76EntriesOrderBytesUnchanged": true,
+  "workflowByteExactTo76": true,
+  "workflowSHA256": "9ca5b2e4cfeb85370752526876af72d5ae5013cfa72cafdda9605e39491645a9",
+  "cDocsByteExact": [
+    {
+      "original": "0d1de9a421d1b54838536a1ac4e7091041652089",
+      "alias": "fcefcdc5a14a04121284756f7efcc0d3c177a5b3",
+      "pathsByteExactAtAlias": 9
+    },
+    {
+      "original": "ee3a9720b0cd8af120cd22ff362deced8795ad9f",
+      "alias": "ea12f06f6a3417a8c3b4bc2286b2d9a62d11db40",
+      "pathsByteExactAtAlias": 8
+    }
+  ],
+  "finalCombinedDocs": {
+    "pathsByteExact": 16,
+    "map": "One shared map uses later ee3 version; original0d1 map remains exact at its adoption alias.",
+    "wrapperDiagnostic": "Initial equality wrapper incorrectly required earlier0d1 map to remain unchanged in final head after ee3 updated it. Corrected last-writer composition check; no source/test assertion changed."
+  },
+  "existingCI": {
+    "native": 39357179342,
+    "host": 39357179339,
+    "state": "Existing jobs in progress; stacked writer skip is not final review."
+  },
+  "sourceCorrectionReceiptSHA256": "1976f5db71e237ada88e3f3d9b5bde4d37ad3070e0232b574655cbd4715ac418",
+  "qualification": "Exact publication/source preservation only; native77 execution pending. Historical73bothfailed, old76Linuxfailed/Maccancelled and77source-correction remain separate. No runtime/App qualification.",
+  "independentActivity": "Read immutable published/native source, allpatch hashes, unchangedworkflow, GitHubidentity and Cdocs equality only. No tests/build/retry/dispatch/model/provider/deployment."
+}

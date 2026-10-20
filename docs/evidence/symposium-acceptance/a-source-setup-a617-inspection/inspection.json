@@ -1,0 +1,67 @@
+{
+  "observedAt": "2026-10-20T02:25:25.546355+00:00",
+  "commit": "a6173f46c693a3c7e35b696cbe801e6ce3093f20",
+  "tree": "7e82e91c8fb935518fe848ca52b94d7ffe5c6b6d",
+  "parent": "22fe178d3e76418938126202b0d84634958792e7",
+  "backendDependency": "45ffb126526e7b944970805b78ba4a4789304415",
+  "all11BackendDependencyFilesByteExact": true,
+  "priorBrief337HelperAndReviewHookUnchanged": true,
+  "sourceHashes": {
+    "frontend/src/components/ConversationAgents.tsx": "37d50d930feb050afcb67f77f5baa66dae3f40b279751946496a57449cbf905d",
+    "frontend/src/components/__tests__/ConversationAgents.application-brief.test.tsx": "b67bb06dc5e055435193fe83e004572bb15c470300dfb4cda35f43eb977ef928",
+    "frontend/src/hooks/__tests__/useConversationJoiningSourceSetup.test.tsx": "83d75857c8afe6f08f2022a389fd50a7c83ceed36c1218aaac4aa44318267c6a",
+    "frontend/src/hooks/useConversationJoiningSourceSetup.ts": "abe632229b8bdd391145cfce4a0dc1c3ee856d9350f74b4813028f4c198afbb8",
+    "frontend/src/pages/ChatView.tsx": "fa1f3dc06c0131fa9f1c5c3d5d5e978c8af96ee9ab30361a8ce91cdf6dabcabf",
+    "frontend/src/pages/DesktopChatView.tsx": "c1596ba19ee43970099a51fdef7a86e58161b2aa281fa673c94c106768b4ad4d",
+    "frontend/src/lib/api-fetch.ts": "711a0346069b965504c3140611dac64443ea82a6dc457d147e243a005b3eb46d",
+    "frontend/src/hooks/useConversationJoiningReview.ts": "6c055ecec5cb8905226e679622637ae77035382d5595cb0890ff1ade839c19ef",
+    "frontend/src/lib/conversation-joining-brief.ts": "84cc96f350bb24a8b9451e41b475dbd7406641b1a6408a3968be378b4f0d10e4"
+  },
+  "patchSHA256": "83b5eb15cb51d77cbf86d842dfdd394823f03a1e317ce1602f127782d729e307",
+  "producerReceiptSHA256": "13839123d87624b0be87d7a66cfeafb91bf8936ece961fba4d7f17129e980f9d",
+  "producerEvidence": {
+    "joining-source-setup-combined.log": {
+      "sha256": "999bf8a84058567ea29ea51816e2e5e2cca83594268cda490941513bd90a11cd",
+      "bytes": 287
+    },
+    "joining-source-setup-focused.log": {
+      "sha256": "c00dd7e2d6062ed10569ea6a1a706494fc069dc56c77958b972f7b14db9bea91",
+      "bytes": 287
+    },
+    "joining-source-setup-design.log": {
+      "sha256": "ea810d6373126309b26db39dda78d26854c4d449f088fc179dd6e0564b4e62a6",
+      "bytes": 386
+    },
+    "joining-source-setup-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "independentFindings": [
+    "Both actual chat pages mount same hook using existing active source only when connected, ordinary, controls unblocked and sessionId===activeSessionId. Existing connection ID passes strict shared query; hook additionally requires actual verified login. Typed MitzoApiClient(apiFetch) uses existing cookie/bearer/base owner and real shared sourceSetup method, not association-list/firstrow substitution.",
+    "New hook reads only GET metadata. It creates no login/connection/store/group identity, begin mutation, target/preparation/catalog/joiningOwner/capacity/provider call. Server unstarted/selected/unavailable are actual shared schema; selected response source/member validation inherited from real client. Page currently consumes reason/retry only; selected relationship is not ready authority.",
+    "Result is private to exact referential owner including source/client/login/base/attempt/loginEpoch. Authentication events increment read epoch, clear result/login, and re-read actual verified auth after existing restoration publication in a microtask. Async completion also checks actual getter/base, active flag/abort/owner/epoch. Source/client/base A-B-A and same-login revoke/restore cannot republish old selection under these guards.",
+    "Effect cleanup aborts actual signal; rejected/stale completion produces no current result. Refresh creates new attempt and another observational read only; UI exposes it on error/server refusal, with no automatic polling. Component retry rendering preserves same-scope name/purpose draft and existing cancel/fresh-session footer; review stays disabled without genuine owner.",
+    "12authored hook cases use actual typed client/auth helpers with synthetic fetch server responses: no client\u2192no read, unstarted/selected, all3refusals and retry, read failure, foreignsource schema rejection, source/client/base cycles, same-login auth loss/restore and unmount abort. Mounted draft fixture retains name/purpose and disables Review; prior initialbrief337 test remains. These are client/component assertions, not actual app/backend authorization execution."
+  ],
+  "producerReported": {
+    "focused": "54PASS3files3.45s, including12new hook cases+2mounted component+40adapter cases;1worker/1GiB. Overlaps prior89 and design108; totals not added.",
+    "design": "108PASS1existingSkip6files2.45s; protectedreferencebytes unchanged.",
+    "types": "Targeted source-mapped hook/component/tests tsc PASS reported; empty log alone is not independent C exit proof. Actual page/fullapp typebuild not claimed.",
+    "normalHooks": "Producer ESLint/Prettier/gitleaks/commitlint PASS; C ran none of these tests/types."
+  },
+  "acceptance": "No additional concrete blocker found within observational frontend source-setup read/retry/fence change. Bounded source/assertion/provenance only.",
+  "limits": [
+    "New genuine production GET must be represented by actual authenticated source-setup route in future combined strict application/browser harness; do not ignore unexpected call or fabricate canonical/capacity success. Current complete campaign remains deferred.",
+    "No catalog/fresh target/new repository intent journal/bootstrap/joining owner is mounted, and d94preview dependency is not consumed by this candidate. Actual Review-driven explicit target staging and source capture/native count/consume order remain future composition.",
+    "No successful UI\u2192backend source/capacity/refreeze/join/delivery/reply or physical-device/render qualification; inherited no-inference and disabled readiness remain. No source-pin update by A is claimed."
+  ],
+  "independentActivity": "Read immutable sixfrontendfiles, actual auth/client/page/callback guards/assertions, exact11backenddependency/protected bytes and producer logs/hash seals only. No C tests/build/browser/native/model/provider/retry/cancel/dispatch/campaign."
+}

@@ -1,0 +1,16 @@
+{
+  "observedAt": "2026-10-20T02:16:12.842874+00:00",
+  "pr": 1060,
+  "publishedHead": "07014d87b97a1faf012817d6ffcc6a94a383fe96",
+  "nativeCommit": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+  "nativeTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
+  "trustedReviewId": "dimakis/mitzo:1060:07014d87b97a1faf012817d6ffcc6a94a383fe96:0",
+  "finding": "CEN-487055AFEF4D",
+  "status": "New blocking/fixable, one issue, recommendation fix",
+  "mechanism": "Fresh capture checks shared manager MCP registry while actual ordinary isolated startup may use IsolatedSessionExtensions<Config> from thread_extension_init; current capture/validate/release could prove absence against wrong registry.",
+  "owner": "Core owns minimal failclosed actual-effective-isolation correction and regression, including explicit isolation and options.session_source/self.session_source guardian fallback. C will independently inspect exact candidate once handed over.",
+  "lineage": "This finding binds exact native60/published07014. Native ordinal is not global identity; forthcoming correction off native60 must not be confused with historical native61 metadata or source77 lineage.",
+  "priorQualification": "Independent native60 Linux6142PASS/11skip andMac5921PASS/27skip remain source-bound fixture results. Green fixture execution does not resolve this new missing-case review finding; fullinventory/production authority was never qualified. Original sealed execution receipts unchanged.",
+  "evidenceSHA256": "2ad29ff43316f7a3265e3b02015a049403814d834ea8481145e4f8053abd6e29",
+  "activity": "Read existing trusted report file only; no fresh review/test/build/liveprovider/model/retry/dispatch or campaign."
+}

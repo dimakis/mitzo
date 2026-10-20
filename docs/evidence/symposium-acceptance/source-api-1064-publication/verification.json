@@ -1,0 +1,80 @@
+{
+  "observedAt": "2026-10-20T02:23:04.219933+00:00",
+  "pr": 1064,
+  "head": "9745d7c21f949c4d2fbbf32fc1163632a9b03f42",
+  "tree": "51ef72c1179fdeebd149c00bf62ecd2656d03a9b",
+  "parents": [
+    "d94ddfbda4d0a0b418f444b05769da830fc72bbd",
+    "a51e2d102f448dec77e1272700583d44da500629"
+  ],
+  "githubHeadVerified": true,
+  "incomingFromAcceptedMain": [
+    "docs/design/telos-workspaces/s5b-ordinary-workspace-contract.md",
+    "packages/protocol/src/__tests__/ordinary-workspace.test.ts",
+    "packages/protocol/src/index.ts",
+    "packages/protocol/src/ordinary-workspace.ts",
+    "server/__tests__/ordinary-workspace-custody.test.ts",
+    "server/connections/reviewed-handler-artifacts.ts",
+    "server/ordinary-workspace-custody.ts",
+    "server/repository-workspaces.ts"
+  ],
+  "incomingNonshared5PathsByteExactToAccepted": true,
+  "sourceBranchNonsharedPathsByteExact": true,
+  "combinedRepositoryWorkspace": {
+    "wholeFileSHA256": "1406d76035da592d8621762e1ac62d5a75fe226f19ff29fdd7c7aeeb1141ae05",
+    "acceptedCustodyWrappersByteExact": true,
+    "removeOnlyAccepted27LineAdditionsRestoresWholeD94File": true,
+    "meaning": "All reviewed preview identity/winner/auth/full-row fences preserved; accepted lazy OrdinaryWorkspaceCustody provider and explicit methods preserved. No new automatic allocation/grant/Session/checkout added by merge."
+  },
+  "protocolBarrel": "Exact source-setup exports plus one accepted ordinary-workspace export. Accepted strict V2 settings unchanged; existing strict collaboration V1 not altered.",
+  "reviewedPins": {
+    "total": 637,
+    "mismatches": 0,
+    "parentKeyUnionExact": true,
+    "d94Pins": 635,
+    "acceptedPins": 635,
+    "combinedActualFiles": "repository-workspaces.ts and index.ts actual merged bytes hashed; runtime revisionv1.0.394-symposium-source-preview"
+  },
+  "sourceHashes": {
+    "docs/design/telos-workspaces/s5b-ordinary-workspace-contract.md": "7d48e13c99b419f7637c3483230dd42b2fe82c5157074e6746030c0a28525e5e",
+    "packages/protocol/src/__tests__/ordinary-workspace.test.ts": "fdab1e8e55198d9a5af709348e4b76f330699e0b5934be33488a93e38166bedf",
+    "packages/protocol/src/index.ts": "6c631072fe39777b0653ac0b1b886b8f880888950024a6beb4438b5ab3b32c29",
+    "packages/protocol/src/ordinary-workspace.ts": "c4431b3fef376cf17142c07764c032d0147915893c0b49c1776b0ccccc08c808",
+    "server/__tests__/ordinary-workspace-custody.test.ts": "f9ab072316e9e1bd32a11f86643940020669dbde71815f8f122d91d1c9a1b290",
+    "server/connections/reviewed-handler-artifacts.ts": "f84fdca67d5820f29d9bea0e8a9d304fd093501efad8633d044d17c58d35e030",
+    "server/ordinary-workspace-custody.ts": "0e4052849178657a82daa9802a1aa89a7d2ffbc21470f75cdda01a9b53133559",
+    "server/repository-workspaces.ts": "1406d76035da592d8621762e1ac62d5a75fe226f19ff29fdd7c7aeeb1141ae05"
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "reusedReviews": {
+    "45ff": "8e2cbb80f98aeb5af192803904a64e5dfb2d55d5fd989fa71849a945016293f7",
+    "d94d": "0f1165eb18ac4f9e6d54656a9f5107821cc253e5bd4e0359efc0b7297dd5f37e"
+  },
+  "producerEvidence": {
+    "source-api-publication.json": {
+      "sha256": "7f8e881bfd8a5733c18851008e0b3698be1fec3d028d09b6184e9b27599a539c",
+      "bytes": 1924
+    },
+    "source-api-current-base-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "source-api-current-base-tests.log": {
+      "sha256": "f35251d832f2c80b593da342e6322eb1023f49774584ae0560307b4a0c25b846",
+      "bytes": 274
+    },
+    "symposium-source-api-package-types.log": {
+      "sha256": "6f1af5063d9140629e7824a6094702ad9341fd7112ab8a28a59d57329f9a1b92",
+      "bytes": 10012
+    }
+  },
+  "producerReported": "119focusedPASS10files1worker/1GiB, mapped source types/hooksPASS. Overlaps earlier51/28; do not sum. Not C execution.",
+  "qualification": "No additional concrete merge/publication-preservation blocker found. Bounded source-preservation only; accepted S5b custody was not re-audited. Normal exact-head CI/trustedreview/App/currentbase/actualslot gates still required; publication/readiness not full application acceptance.",
+  "independentActivity": "Read immutable two-parent diff/source/manifest, hash all actual merged source pins, exact composition/protected bytes and GitHub PR identity only. No tests/types/build/model/provider/retry/dispatch/reviewreset/new campaign."
+}

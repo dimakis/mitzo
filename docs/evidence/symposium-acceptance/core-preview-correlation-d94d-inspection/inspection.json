@@ -1,0 +1,97 @@
+{
+  "observedAt": "2026-10-20T02:16:05.634373+00:00",
+  "commit": "d94ddfbda4d0a0b418f444b05769da830fc72bbd",
+  "tree": "d3adac32899255c1e9e36cef9e73c5d380075b9c",
+  "parent": "45ffb126526e7b944970805b78ba4a4789304415",
+  "changedFiles": [
+    "docs/features/repository-backed-chats.md",
+    "server/__tests__/repository-preview-correlation.test.ts",
+    "server/__tests__/repository-workspace-router.test.ts",
+    "server/app.ts",
+    "server/connections/reviewed-handler-artifacts.ts",
+    "server/repository-workspace-router.ts",
+    "server/repository-workspaces.ts"
+  ],
+  "sourceHashes": {
+    "docs/features/repository-backed-chats.md": "036c9b6e8b61e522b6dd796dfe0695c44e128a4c5cf3b067c1be85a1c47caa74",
+    "server/__tests__/repository-preview-correlation.test.ts": "471881b2b23441d0df4e1b490684f0cba518a735acc216915522c3a8bf63e711",
+    "server/__tests__/repository-workspace-router.test.ts": "fa9aa554209531c8096a54618d1fa547dc1611d41927be3876cddda7ccdd1b97",
+    "server/app.ts": "d416e00c3fb8437e3efc0c6aef2a995f18701fd5f85fedef8e56323319af959c",
+    "server/connections/reviewed-handler-artifacts.ts": "a42fcd465f3e6fbcb07123fece42e36e8642f0d672a420a263bc77330fe1b871",
+    "server/repository-workspace-router.ts": "bf65668f4b3a782216eefbbc097fe8888aaf6b73b0cdcf9427c3feb104ccc178",
+    "server/repository-workspaces.ts": "01935be581413dab217de5eefe8965d1f8ebcae85b22f5511e2b48e47bdf296a",
+    "server/ordinary-repository-preparation.ts": "2cf559fe9360a8d48e51413bf7f0d7a6b2d2bbfb89dc4675f595a2875216eed0",
+    "server/repository-workspace-runtime.ts": "c2fa95795741c661d238aa3e3e9b43dd0db946c202b68ac5de9e5db75368275c",
+    "server/github-repository-source.ts": "b9a6ef89472b001cb8cd8f8bc04c3b31d514980d9a5154cd6ad48c5b30d42c09",
+    "server/ordinary-repository-preparation-authority.ts": "4eac6fb91dc7be34a934c52e6fccc537efb1fdd44ea10439e2f0d3920dbbc593"
+  },
+  "allReviewedPins": {
+    "count": 635,
+    "mismatches": 0,
+    "activity": "Direct immutable source hashing, not test execution."
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "producerEvidence": {
+    "repository-preview-correlation-final.log": {
+      "sha256": "0a55c64a150ed719863b97110d50b1bb2db9b7d26d8811319cf600de4a7df5ac",
+      "bytes": 658
+    },
+    "repository-preview-correlation-green.log": {
+      "sha256": "6a9bce97458b29be7c8219cb8002fc2bc533fb7718c6eb4a5f3172d2eba8fe30",
+      "bytes": 271
+    },
+    "repository-preview-correlation-lint.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "repository-preview-correlation-pins.log": {
+      "sha256": "05fc6b7d3f1943f332daafcbe4c189b03e7f4ea507fe0668c790a2175c23fe28",
+      "bytes": 273
+    },
+    "repository-preview-correlation-red.log": {
+      "sha256": "83bf4a41d386a824edbac70724e1f5fdf80527420123b8a79db0e8e764f72bd7",
+      "bytes": 8557
+    },
+    "repository-preview-correlation-typed-final.log": {
+      "sha256": "f8cf2ba1a6ef8735faec26a3921939ae29a98eedcc319d2b55be9c775acda2ce",
+      "bytes": 274
+    },
+    "symposium-source-api-workspace-mapped-types-final.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "symposium-source-api-workspace-mapped-types.log": {
+      "sha256": "72f44635377c2f2933e92890871062f983688af3509c3ba536f917f7c4d2109d",
+      "bytes": 2909
+    }
+  },
+  "independentFindings": [
+    "Optional requestId is UUID-parsed before metadata/authorization effects. AccountBinding/runtime intent parsed/cloned before awaits; repository canonicalized; private canonical SHA256 fingerprint includes exact original binding/connection/repository/runtime including null distinction. Legacy omitted-ID callers retain random UUID path.",
+    "Original ID and fingerprint are private fields in existing repository_workspaces record, with derived featureBranch. No new ledger/table/Session/source checkout/store/grant/command. Public projection exposes only existing explicit fields and never fingerprint/private proof.",
+    "Retained-ID path reads actual row before inspect/capture, rejects original-intent mismatch against fingerprint and actual row binding/repository/connection/branch/runtime proof. It reauthorizes actual original row and then compares full actual persisted row synchronously, without callbacks or await after final comparison. Changed records fail closed for retry, never rewind.",
+    "New capture preserves actual parsed GitHub preview repository/base branch/OID, existing connection revision and ordinary proof. Before insert it renews actual authorization; INSERT ON CONFLICT(id) DO NOTHING preserves first committed winner, then getHostRecord/assertIntent/authorize/full-row unchanged fence uses winner rather than stale losing candidate. Different intent winner conflicts; same intent returns committed pin and later actual state.",
+    "Actual existing authorize calls real ordinary preparation assertion and GitHub owner, validates account/current connection revision/allowed base branch/abort. Runtime composition loads real selected profiles, supported routes, connection/account/repository and workspace capability; no caller boolean/credential fingerprint becomes permission. HTTP route remains strict authenticated same-origin JSON, resolves binding itself, forwards exact request ID and request lifetime AbortSignal.",
+    "Seven authored counterexamples use real temporary SQLite owner instances and synthetic authorize/inspect/runtime ports: retained exact ID/current auth/no reinspection, changed intents, two same-intent owners racing distinct OIDs, different-intent racing winner, discarded original without recreation, connection revision/runtime refusal, invalid ID before effects plus legacy compatibility. Winner assertions and row equality test no overwrite. Router fixture validates forwarding exact ID with and without runtime and rejects invalid IDs/private fingerprint."
+  ],
+  "producerReported": {
+    "red": "Seven meaningful assertion failures against original preview behavior that ignored new request identity; not missing-module/method initialization. Retained raw log.",
+    "green": "51PASS5suites24.57s; final28PASS3suites2s overlaps and is not added; producer1worker/1GiB.",
+    "pins": "19PASS1file630ms; C independently rehashed all635manifest entries0mismatch.",
+    "types": "Producer reports actual source-workspace-mapped final tsc exit0. Empty final log alone is not independent C exit proof. Retained earlier mapped-type log has real TS2322 fixture literal widening and TS2345 mixed tuple-spread errors; final source has literal as const and explicit requestId branch correcting these. Do not relabel those historical errors as only package-resolution setup. Separate earlier shared-node_modules package-resolution diagnostic reported by core is not conflated with mapped errors.",
+    "hooks": "Normal hooks reported PASS; C did not rerun tests or types."
+  },
+  "acceptance": "No additional concrete blocker found within exact-intent correlated preview recovery boundary; source/assertion/provenance only.",
+  "limits": [
+    "Independent owner fixture uses two SQLite connections in one process; not process-crash/power-loss proof. Discard positive uses no ordinary runtime; other later lifecycle outcomes and abort during last authorization are not independently executed here.",
+    "Changed first-command/model binding can conservatively conflict with original preview intent; no blanket original-request recovery claim after deliberate later binding changes. No original pin/proof/lifecycle overwrite is authorized.",
+    "New route still delegates genuine account/source/runtime authorization; original request ID is correlation only. End-to-end browser lost HTTP response/reload, actual source-setup+preview UI wiring, native review/preparation/count/consume/release and positive app joining remain unqualified.",
+    "Existing historical current-app harness and known-unavailable full joining case unchanged. No physical UI or actual native/runtime/account test."
+  ],
+  "independentActivity": "Immutable source/diff/caller/assertion/log provenance and all source hashes only; no C tests/build/model/provider/GitHub-metadata execution/checkout/retry/cancel/dispatch/new campaign."
+}
