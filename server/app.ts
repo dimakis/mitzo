@@ -1,3 +1,16 @@
+import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
+import { ordinaryWorkspacePreparedCommandStatus } from './ordinary-workspace-prepared-command.js';
+import { requireSameOriginJson } from './connections-router.js';
+import {
+  ordinaryWorkspaceArtifactRoot,
+  hasOrdinaryWorkspaceArtifactScope,
+} from './ordinary-workspace-artifact-root.js';
+import { hasPersistentRevocationAuthority, isAuthSessionCurrent } from './auth.js';
+import { createOrdinaryWorkspacePreparationRouter } from './ordinary-workspace-router.js';
+import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
+import { getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
+import { assertAgentToolRoute } from './agent-tool-selection.js';
+import { OrdinaryWorkspaceSettingsSchema } from '@mitzo/protocol';
 import { readSandboxOwnershipReview } from './sandbox-ownership-review.js';
 import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
 import { summarizeSandboxInventory } from './sandbox-inventory.js';
@@ -31,6 +44,7 @@ import {
   cancelOwnedResponsesQueuedCommand,
 } from './ordinary-local-responses-queue.js';
 import { ownedLocalCodexMetadata } from './ordinary-local-codex-metadata.js';
+import { repositoryPreparedCommandStatus } from './repository-prepared-command.js';
 import { ordinaryCodexContinuationStatus } from './ordinary-codex-continuation-status.js';
 import { createTelemetryRelay } from './telemetry-relay.js';
 import { traceAuthCheck } from './auth-check-tracing.js';
@@ -2172,13 +2186,99 @@ async function authorizeTelosOrdinaryPreparation(
     signal,
   );
 }
-function telosRoleHost(operatorConnectionId?: string) {
+async function resolveTelosOrdinaryWorkspaceSelection(
+  raw: unknown,
+  signal: AbortSignal,
+  operatorConnectionId?: string,
+  retainedLeadId?: string,
+) {
+  const settings = OrdinaryWorkspaceSettingsSchema.parse(raw);
+  signal.throwIfAborted();
+  if (
+    custodianControllerClient ||
+    custodianOwnerMode ||
+    process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' ||
+    settings.binding.execution.location !== 'local' ||
+    settings.binding.harness.implementation !== 'codex' ||
+    settings.binding.account.provider !== 'openai-codex'
+  )
+    throw new TelosWorkError(
+      'invalid',
+      'Ordinary workspaces currently require a supported Local Mac Codex account and target',
+    );
+  const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
+  const inventory = ordinaryRepositoryRuntimeInventory('local', 'codex');
+  const resolved = inventory.catalog.resolve({
+    account: settings.binding.account,
+    harness: 'codex',
+    targetId: settings.binding.execution.targetId,
+    mode: settings.selection.permission.mode,
+  });
+  if (
+    resolved.status !== 'compatible' ||
+    !isDeepStrictEqual(resolved.binding, settings.binding) ||
+    !inventory.result.routes.some(
+      (route) =>
+        isDeepStrictEqual(route.account, settings.binding.account) &&
+        route.targetId === settings.binding.execution.targetId,
+    )
+  )
+    throw new TelosWorkError(
+      'invalid',
+      'The selected ordinary account or target is unavailable; confirm the current execution choices',
+    );
+  const profiles = loadAccountProfiles(),
+    binding = profiles.resolve(settings.binding.account.accountId, settings.selection.model);
+  profiles.validateModelSelection(binding, settings.selection.model, settings.selection.thinking);
+  const agentProfile = await resolveOrdinaryCodexAgentProfile({
+    requested: settings.selection.agent,
+    provider: binding.provider,
+    execution: resolved.binding.execution,
+    ...(retainedLeadId
+      ? { stored: eventStore.getSession(retainedLeadId)?.agentProfile ?? undefined, resume: true }
+      : {}),
+    lookup: (selection) => {
+      if (retainedLeadId)
+        throw new TelosWorkError('unauthorized', 'Original ordinary lead profile unavailable');
+      return readAgentLibraryProfile(selection, operatorConnectionId);
+    },
+  });
+  if (!agentProfile) throw new TelosWorkError('invalid', 'Select a published ordinary agent');
+  assertAgentToolRoute(agentProfile.definition, 'codex-owned-local');
+  const selected = {
+    binding,
+    agentProfile,
+    taskRoot: ordinaryWorkspaceTaskRoot(),
+    requiredCapabilities: ['ordinary_conversation', 'retained_artifacts', 'task_execution'],
+  };
+  await getOrdinaryWorkspaces().qualifyOrdinaryWorkspace({
+    ...selected,
+    preparationId: settings.workspace.preparationId,
+    settings,
+    signal,
+  });
+  signal.throwIfAborted();
+  ordinaryWorkspaceTaskRoot(true);
+  return selected;
+}
+function telosRoleHost(operatorConnectionId?: string, ordinary = false) {
   return createTelosWorkRoleHost({
     dbPath: telosDatabasePath,
     events: eventStore,
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
-    workspaces: () => getRepositoryWorkspaces(),
+    workspaces: () => (ordinary ? getOrdinaryWorkspaces() : getRepositoryWorkspaces()),
+    ordinary: {
+      resolveSelection: (scope, signal) =>
+        resolveTelosOrdinaryWorkspaceSelection(scope.input.settings, signal, operatorConnectionId),
+      authorizeSettings: async (scope, signal) => {
+        await resolveTelosOrdinaryWorkspaceSelection(
+          scope.setup.input.settings,
+          signal,
+          operatorConnectionId,
+        );
+      },
+    },
     resolvePreparation: async (scope, signal) => {
       const selected = await resolveTelosOrdinaryPreparation(
         scope.setup.input.settings,
@@ -2195,18 +2295,26 @@ function telosRoleHost(operatorConnectionId?: string) {
       authorizeTelosOrdinaryPreparation(scope.setup.input.settings, signal, operatorConnectionId),
   });
 }
-async function setupTelosRole(request: TelosWorkRoleRequest, reviewed = false) {
+async function setupTelosRole(request: TelosWorkRoleRequest, reviewed = false, ordinary = false) {
   request.assertAuthorized();
   if (!request.authorization)
     throw new TelosWorkError('unauthorized', 'Interactive operator required');
   return withAgentLibraryRecoveryAuthorization(request.authorization, (connectionId) =>
-    reviewed
-      ? telosRoleHost(connectionId).setupReviewed(request)
-      : telosRoleHost(connectionId).setup(request),
+    ordinary
+      ? reviewed
+        ? telosRoleHost(connectionId, true).setupReviewedOrdinary(request)
+        : telosRoleHost(connectionId, true).setupOrdinary(request)
+      : reviewed
+        ? telosRoleHost(connectionId).setupReviewed(request)
+        : telosRoleHost(connectionId).setup(request),
   );
 }
-async function delegateTelosSlice(request: TelosWorkRoleRequest) {
+async function delegateTelosSlice(request: TelosWorkRoleRequest, explicitOrdinary = false) {
   request.assertAuthorized();
+  const ordinary =
+    explicitOrdinary ||
+    (request.actor.kind === 'conversation' &&
+      eventStore.getSession(request.actor.id)?.ordinaryWorkspaceId != null);
   const run = (connectionId?: string) => {
     const leadId = request.actor.kind === 'conversation' ? request.actor.id : undefined;
     const resolve = async (scope: TelosWorkDelegationScope, signal: AbortSignal) => {
@@ -2222,11 +2330,35 @@ async function delegateTelosSlice(request: TelosWorkRoleRequest) {
       }
       return selected;
     };
-    return createTelosWorkDelegationHost({
+    const host = createTelosWorkDelegationHost({
       dbPath: telosDatabasePath,
       events: eventStore,
       tasks: taskStore,
-      workspaces: () => getRepositoryWorkspaces(),
+      workspaces: () => (ordinary ? getOrdinaryWorkspaces() : getRepositoryWorkspaces()),
+      ordinary: {
+        qualifySettings: (scope, signal) =>
+          resolveTelosOrdinaryWorkspaceSelection(
+            scope.input.settings,
+            signal,
+            connectionId,
+            leadId,
+          ),
+        resolvePreparation: (scope, signal) =>
+          resolveTelosOrdinaryWorkspaceSelection(scope.settings, signal, connectionId, leadId),
+        authorizeSettings: async (scope, signal) => {
+          await resolveTelosOrdinaryWorkspaceSelection(
+            scope.settings,
+            signal,
+            connectionId,
+            leadId,
+          );
+        },
+        dispatch: (owner, actor, input, signal) => {
+          if (!orchestrator)
+            throw new TelosWorkError('conflict', 'Ordinary delegation dispatcher unavailable');
+          return orchestrator.delegateSlice(owner, actor, input, signal);
+        },
+      },
       ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
       sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
       resolvePreparation: resolve,
@@ -2237,7 +2369,8 @@ async function delegateTelosSlice(request: TelosWorkRoleRequest) {
           throw new TelosWorkError('conflict', 'Ordinary delegation dispatcher unavailable');
         return orchestrator.delegateSlice(owner, actor, input, signal);
       },
-    }).delegate(request);
+    });
+    return explicitOrdinary ? host.delegateOrdinary(request) : host.delegate(request);
   };
   return request.actor.kind === 'operator'
     ? withAgentLibraryRecoveryAuthorization(request.authorization, run)
@@ -2287,6 +2420,8 @@ app.use(
   createBackupRouter(createHostBackupService(captureMitzoTelosCoreBackup), operatorAuthMiddleware),
 );
 
+app.use(createOrdinaryWorkspacePreparationRouter());
+
 app.use(
   createTelosWorkRouter({
     dbPath: telosDatabasePath,
@@ -2295,9 +2430,12 @@ app.use(
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+    ordinaryRoleSetup: (request) => setupTelosRole(request, false, true),
+    ordinaryRoleSetupReviewed: (request) => setupTelosRole(request, true, true),
     roleSetup: setupTelosRole,
     roleSetupReviewed: (request) => setupTelosRole(request, true),
     delegateSlice: delegateTelosSlice,
+    ordinaryDelegateSlice: (request) => delegateTelosSlice(request, true),
     roleContext: (request) => telosRoleHost().context(request),
     roleReview: (request) => telosRoleHost().review(request),
     advisorPreview: (request) => saveTelosAdvisorDraft('preview', request),
@@ -2962,8 +3100,15 @@ app.use(
       const binding = repositoryWorkspaceBinding(record.binding.accountId, record.binding.model);
       return { repositoryChat: service.chatPreparation(id, binding) };
     },
-    preview: (binding, connectionId, repository, signal, ordinaryRuntime) =>
-      getRepositoryWorkspaces().preview(binding, connectionId, repository, signal, ordinaryRuntime),
+    preview: (binding, connectionId, repository, signal, ordinaryRuntime, requestId) =>
+      getRepositoryWorkspaces().preview(
+        binding,
+        connectionId,
+        repository,
+        signal,
+        ordinaryRuntime,
+        requestId,
+      ),
     prepare: (id, binding, signal) => getRepositoryWorkspaces().prepare(id, binding, signal),
     status: (id, binding) => getRepositoryWorkspaces(true).qualifiedStatus(id, binding),
     discard: (id, binding) => getRepositoryWorkspaces(true).discard(id, binding),
@@ -3230,8 +3375,22 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     meta.sessionId,
     res.locals.authSession?.id,
   );
+  let routingMetadata: ReturnType<typeof ownedLocalCodexMetadata>;
+  try {
+    routingMetadata = ownedLocalCodexMetadata(
+      eventStore,
+      meta.sessionId,
+      continuationStatus.available,
+    );
+  } catch {
+    res.status(409).json({
+      error:
+        'The original conversation workspace identity is unavailable. Preserve this conversation and recover its original settings.',
+    });
+    return;
+  }
   const runtimeMetadata = {
-    ...ownedLocalCodexMetadata(eventStore, meta.sessionId, continuationStatus.available),
+    ...routingMetadata,
     ...(continuationStatus.reason ? { runtimeCommandReason: continuationStatus.reason } : {}),
     ...(meta.accountBinding?.provider === 'google-vertex' &&
     eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'gemini'
@@ -3369,18 +3528,71 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       // Repository presentation is optional; preserve ordinary metadata on read failure.
     }
   }
+  const preparedController = new AbortController();
+  const abortPreparedStatus = () => preparedController.abort();
+  res.once('close', abortPreparedStatus);
+  let preparedWork: TelosWorkStore | undefined;
+  let preparedStatus: Awaited<ReturnType<typeof ordinaryWorkspacePreparedCommandStatus>>;
+  try {
+    preparedStatus = await (
+      meta.repositoryWorkspaceId
+        ? repositoryPreparedCommandStatus
+        : ordinaryWorkspacePreparedCommandStatus
+    )({
+      events: eventStore,
+      workspaces: () =>
+        meta.repositoryWorkspaceId ? getRepositoryWorkspaces(true) : getOrdinaryWorkspaces(true),
+      sessionId: meta.sessionId,
+      signal: preparedController.signal,
+      assertCurrent: () => {
+        const auth = res.locals.authSession;
+        if (
+          !auth ||
+          !hasPersistentRevocationAuthority() ||
+          !isAuthSessionCurrent(auth) ||
+          custodianControllerClient ||
+          custodianOwnerMode ||
+          process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
+        )
+          throw Error('Current ordinary operator unavailable');
+        resolveTelosWorkCommandScope(
+          {
+            events: eventStore,
+            tasks: taskStore,
+            work: () =>
+              (preparedWork ??= new TelosWorkStore(telosDatabasePath(), {
+                ordinaryConversation: (id) =>
+                  isAvailableTelosWorkConversation(eventStore.getSession(id)),
+              })),
+          },
+          meta.sessionId,
+          eventStore.getSession(meta.sessionId)?.accountBinding ?? undefined,
+        );
+      },
+    });
+  } finally {
+    preparedWork?.close();
+    res.removeListener('close', abortPreparedStatus);
+  }
+  if (res.destroyed) return;
   res.json({
     sessionId: meta.sessionId,
     ...(repositoryContext ? { repositoryContext } : {}),
     ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
     ...(telosWorkRolePresentation ? { telosWorkRolePresentation } : {}),
     ...runtimeMetadata,
+    ...(preparedStatus.prepared
+      ? { runtimeCommandScope: 'prepared-first-command', runtimeCommandReason: undefined }
+      : preparedStatus.reason
+        ? { runtimeCommandScope: 'first-command-only', runtimeCommandReason: preparedStatus.reason }
+        : {}),
     ...(meta.agentProfile ? { agentProfile: meta.agentProfile } : {}),
     sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,
     branch: meta.branch,
     wtId: meta.wtId,
     cwd: meta.cwd,
     repositoryWorkspaceId: meta.repositoryWorkspaceId,
+    ordinaryWorkspaceId: meta.ordinaryWorkspaceId,
     mode: meta.mode,
     isActive: meta.isActive,
     // Optional catalog refresh may yield while this conversation is deleted.
@@ -3696,6 +3908,8 @@ const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 
 function isRemoteSessionArtifact(sessionId: string) {
   const meta = eventStore.getSession(sessionId);
+  // The ordinary owner is local and must fail closed there, never as a sandbox fallback.
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return false;
   if (!meta?.accountBinding)
     return Boolean(meta?.cwd?.startsWith('/sandbox/') && !isConfiguredAllowedPath(meta.cwd));
   if (!['openai', 'openai-codex'].includes(meta.accountBinding.provider)) return false;
@@ -3906,6 +4120,12 @@ function containsPath(root: string, target: string): boolean {
  */
 function sessionArtifactRoot(sessionId: string | undefined): string | null {
   if (!sessionId) return null;
+  const ordinary = ordinaryWorkspaceArtifactRoot(
+    eventStore,
+    () => getOrdinaryWorkspaces(true),
+    sessionId,
+  );
+  if (ordinary) return ordinary.root;
   const cwd = eventStore.getSession(sessionId)?.cwd;
   if (!cwd || !isAbsolute(cwd) || resolve(cwd) === dirname(resolve(cwd))) return null;
   return isConfiguredAllowedPath(cwd) ? cwd : null;
@@ -3949,6 +4169,7 @@ function sessionArtifactBrowserRoot(
   sessionId: string | undefined,
 ): string {
   const workspace = sessionArtifactRoot(sessionId);
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return workspace!;
   if (!workspace || !sessionId || !dir) return workspace ?? BASE_REPO;
   const target = resolveArtifactPath(dir, sessionId);
   if (containsPath(workspace, target)) return workspace;
@@ -3968,6 +4189,7 @@ function resolveArtifactPath(filePath: string, sessionId: string | undefined): s
   const workspace = sessionArtifactRoot(sessionId);
   if (!isAbsolute(filePath)) return resolve(workspace ?? BASE_REPO, filePath);
   const requested = resolve(filePath);
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return requested;
   if (!workspace || existsSync(requested) || !isAllowedPath(requested, sessionId)) return requested;
 
   // Agents sometimes post the repository path after writing in its worktree.
@@ -4013,7 +4235,13 @@ function resolveArtifactPath(filePath: string, sessionId: string | undefined): s
 
 function createAllowedPathChecker(sessionId?: string) {
   const isPrivate = privatePathSnapshot();
-  const artifactRoot = sessionArtifactRoot(sessionId);
+  const ordinary = hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId);
+  let artifactRoot: string | null;
+  try {
+    artifactRoot = sessionArtifactRoot(sessionId);
+  } catch {
+    return () => false;
+  }
   return (filePath: string): boolean => {
     try {
       if (isPrivate(filePath)) return false;
@@ -4021,7 +4249,7 @@ function createAllowedPathChecker(sessionId?: string) {
     } catch {
       return false;
     }
-    return isConfiguredAllowedPath(filePath);
+    return ordinary ? false : isConfiguredAllowedPath(filePath);
   };
 }
 export function isAllowedPath(filePath: string, sessionId?: string): boolean {
@@ -4060,8 +4288,48 @@ app.get(
   })),
 );
 
-app.get('/api/files/roots', (_req, res) => {
-  res.json(getRepoConfig().roots);
+// Browser file access adds no agent capability; internal artifact routes retain their own scopes.
+app.use('/api/files', (req, res, next) => {
+  const sessionId =
+    req.method === 'PUT' && typeof req.body?.sessionId === 'string'
+      ? req.body.sessionId
+      : req.method !== 'PUT' && typeof req.query.sessionId === 'string'
+        ? req.query.sessionId
+        : undefined;
+  if (!hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return next();
+  const auth = res.locals.authSession;
+  if (!auth || !hasPersistentRevocationAuthority() || !isAuthSessionCurrent(auth))
+    return res
+      .status(403)
+      .json({ error: 'A current interactive operator is required for this conversation’s files.' });
+  const validate = () => {
+    try {
+      ordinaryWorkspaceArtifactRoot(eventStore, () => getOrdinaryWorkspaces(true), sessionId);
+      res.setHeader('Cache-Control', 'private, no-store');
+      const unregister = registerAuthSession(auth, () => res.destroy());
+      res.once('close', unregister);
+      next();
+    } catch (error) {
+      res.status(409).json({
+        error:
+          error instanceof SessionArtifactUnavailableError
+            ? error.message
+            : 'This conversation’s workspace is unavailable.',
+      });
+    }
+  };
+  return req.method === 'PUT' ? requireSameOriginJson(req, res, validate) : validate();
+});
+app.get('/api/files/roots', (req, res) => {
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  const ordinary = ordinaryWorkspaceArtifactRoot(
+    eventStore,
+    () => getOrdinaryWorkspaces(true),
+    sessionId,
+  );
+  res.json(
+    ordinary ? [{ label: 'Conversation files', path: ordinary.root }] : getRepoConfig().roots,
+  );
 });
 
 app.get('/api/files/list', (req, res) => {

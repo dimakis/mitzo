@@ -16,6 +16,7 @@ const previewInput = selection.extend({
   connectionId: z.string().min(1).max(128),
   repository: z.string().min(3).max(256),
   ordinaryRuntime: OrdinaryRepositoryRuntimeSelectionSchema.optional(),
+  requestId: z.uuid().optional(),
 });
 export function createRepositoryWorkspaceRouter(deps: {
   resolveBinding(accountId: string, model: string): AccountBinding;
@@ -27,6 +28,7 @@ export function createRepositoryWorkspaceRouter(deps: {
     repository: string,
     signal: AbortSignal,
     ordinaryRuntime?: OrdinaryRepositoryRuntimeSelection,
+    requestId?: string,
   ): Promise<unknown>;
   prepare(id: string, binding: AccountBinding, signal: AbortSignal): Promise<unknown>;
   status?(id: string, binding: AccountBinding): unknown;
@@ -61,6 +63,17 @@ export function createRepositoryWorkspaceRouter(deps: {
     const timer = setTimeout(abort, Math.min(120000, Math.max(0, auth.expiresAt - Date.now())));
     try {
       const binding = deps.resolveBinding(input.data.accountId, input.data.model);
+      if (input.data.requestId)
+        return res.json(
+          await deps.preview(
+            binding,
+            input.data.connectionId,
+            input.data.repository,
+            controller.signal,
+            input.data.ordinaryRuntime,
+            input.data.requestId,
+          ),
+        );
       return res.json(
         await deps.preview(
           binding,

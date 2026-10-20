@@ -170,6 +170,27 @@ export type CodexCommand = CodexCommandInput & {
   status: 'queued' | 'running' | 'completed' | 'interrupted' | 'failed' | 'cancelled';
   attempt: number;
 };
+export const CodexNativeTurnTargetSchema = z.strictObject({
+  commandId: z.string().min(1).max(200),
+  attempt: z.number().int().positive().safe(),
+  threadId: RuntimeString,
+  turnId: RuntimeString,
+  generation: z.number().int().nonnegative().safe(),
+});
+export type CodexNativeTurnTarget = z.infer<typeof CodexNativeTurnTargetSchema>;
+const NativeTurnHistorySchema = z
+  .array(
+    CodexNativeTurnTargetSchema.omit({ commandId: true }).extend({
+      interruptRequestId: z.string().min(1).max(200).optional(),
+    }),
+  )
+  .max(1000);
+export interface CodexTargetedInterruptReceipt {
+  requestId: string;
+  target: CodexNativeTurnTarget;
+  /** A one-way local cancellation claim, never a provider or terminal receipt. */
+  disposition: 'claimed';
+}
 
 /**
  * `intent` was added after command rows were already durable. Compare it for
@@ -270,7 +291,7 @@ export class CodexConversationStore {
         sequence INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),
         id TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL,
         recovery_acknowledged INTEGER NOT NULL DEFAULT 0, retry_not_before INTEGER,
-        retryable INTEGER, ambiguous INTEGER, attempt INTEGER NOT NULL DEFAULT 1,
+        retryable INTEGER, ambiguous INTEGER, attempt INTEGER NOT NULL DEFAULT 1, native_turns TEXT,
         UNIQUE(conversation_id,id));
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
@@ -406,6 +427,8 @@ export class CodexConversationStore {
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN ambiguous INTEGER');
       if (!columns.some((column) => column.name === 'attempt'))
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN attempt INTEGER NOT NULL DEFAULT 1');
+      if (!columns.some((column) => column.name === 'native_turns'))
+        this.db.exec('ALTER TABLE codex_commands ADD COLUMN native_turns TEXT');
       // Legacy recovery rows could not persist a failure class. A failed (not
       // merely interrupted) active command is the conservative signal that the
       // provider thread, rather than only its process transport, needs a new
@@ -1700,6 +1723,182 @@ export class CodexConversationStore {
         .run(id, row.id);
       return 'queued';
     })();
+  }
+  private nativeTurns(raw: string | null) {
+    if (raw === null) return [] as z.infer<typeof NativeTurnHistorySchema>;
+    if (Buffer.byteLength(raw) > 64 * 1024) throw Error('Native turn history unavailable');
+    return NativeTurnHistorySchema.parse(JSON.parse(raw));
+  }
+  private saveNativeTurns(
+    id: string,
+    commandId: string,
+    turns: z.infer<typeof NativeTurnHistorySchema>,
+  ) {
+    const value = JSON.stringify(NativeTurnHistorySchema.parse(turns));
+    if (Buffer.byteLength(value) > 64 * 1024) throw Error('Native turn history capacity exceeded');
+    this.db
+      .prepare('UPDATE codex_commands SET native_turns=? WHERE conversation_id=? AND id=?')
+      .run(value, id, commandId);
+  }
+  /** Actual parsed turn/start ACK only, independent of capacity or thread adoption.
+   * Legacy missing records remain unknown. No caller-provided command input can
+   * populate this private column; original input/idempotency bytes stay intact. */
+  recordNativeTurnAck(
+    id: string,
+    b: AccountBinding,
+    command: CodexCommand,
+    threadId: string,
+    turnId: string,
+  ) {
+    this.db.transaction(() => {
+      const current = this.read(id, b);
+      const row = this.db
+        .prepare(
+          'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+        )
+        .get(id, command.id) as
+        { status: string; attempt: number; native_turns: string | null } | undefined;
+      if (
+        !row ||
+        row.status !== 'running' ||
+        row.attempt !== command.attempt ||
+        current.threadId !== threadId
+      )
+        throw Error('Native turn acknowledgement identity changed');
+      const parsed = CodexNativeTurnTargetSchema.parse({
+        commandId: command.id,
+        attempt: command.attempt,
+        threadId,
+        turnId,
+        generation: current.threadGeneration,
+      });
+      const target = {
+        attempt: parsed.attempt,
+        threadId: parsed.threadId,
+        turnId: parsed.turnId,
+        generation: parsed.generation,
+      };
+      let turns: z.infer<typeof NativeTurnHistorySchema>;
+      try {
+        turns = this.nativeTurns(row.native_turns);
+      } catch {
+        // This control metadata is not capacity or ordinary turn acceptance.
+        // Preserve malformed/unknown custody; never replace it with a new grant.
+        return;
+      }
+      const existing = turns.filter((t) => t.attempt === command.attempt);
+      if (existing.length > 1) throw Error('Native turn acknowledgement is ambiguous');
+      if (existing.length) {
+        const original = this.nativeTarget(command.id, existing[0]);
+        if (!isDeepStrictEqual(original, parsed))
+          throw Error('Native turn acknowledgement changed');
+        return;
+      }
+      const appended = [...turns, target];
+      if (
+        !NativeTurnHistorySchema.safeParse(appended).success ||
+        Buffer.byteLength(JSON.stringify(appended)) > 64 * 1024
+      )
+        return;
+      this.saveNativeTurns(id, command.id, appended);
+    })();
+  }
+  private nativeTarget(
+    commandId: string,
+    value: z.infer<typeof NativeTurnHistorySchema>[number],
+  ): CodexNativeTurnTarget {
+    return {
+      commandId,
+      attempt: value.attempt,
+      threadId: value.threadId,
+      turnId: value.turnId,
+      generation: value.generation,
+    };
+  }
+  nativeTurnTarget(
+    id: string,
+    b: AccountBinding,
+    commandId: string,
+    attempt: number,
+  ): CodexNativeTurnTarget | undefined {
+    const current = this.read(id, b);
+    const row = this.db
+      .prepare(
+        'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+      )
+      .get(id, commandId) as
+      { status: string; attempt: number; native_turns: string | null } | undefined;
+    if (!row || row.status !== 'running' || row.attempt !== attempt) return;
+    const targets = this.nativeTurns(row.native_turns).filter((t) => t.attempt === attempt);
+    if (targets.length !== 1) return;
+    if (
+      targets[0].threadId !== current.threadId ||
+      targets[0].generation !== current.threadGeneration
+    )
+      return;
+    if (this.pendingThreadOwnership(id, b)) return;
+    return this.nativeTarget(commandId, targets[0]);
+  }
+  targetedInterruptReceipt(
+    id: string,
+    b: AccountBinding,
+    requestId: string,
+  ): CodexTargetedInterruptReceipt | undefined {
+    this.read(id, b);
+    z.string().min(1).max(200).parse(requestId);
+    const rows = this.db
+      .prepare(
+        `SELECT c.id,c.native_turns FROM codex_commands c
+      WHERE c.conversation_id=? AND c.native_turns IS NOT NULL AND EXISTS (
+        SELECT 1 FROM json_each(c.native_turns) t WHERE json_extract(t.value,'$.interruptRequestId')=?) LIMIT 2`,
+      )
+      .all(id, requestId) as Array<{ id: string; native_turns: string }>;
+    if (rows.length > 1) throw Error('Interruption request identity is ambiguous');
+    if (!rows.length) return;
+    const turns = this.nativeTurns(rows[0].native_turns).filter(
+      (t) => t.interruptRequestId === requestId,
+    );
+    if (turns.length !== 1) throw Error('Interruption request identity is ambiguous');
+    return { requestId, target: this.nativeTarget(rows[0].id, turns[0]), disposition: 'claimed' };
+  }
+  /** Local target CAS and one-way cancellation claim under the existing command
+   * owner's writer lock. A claim is not proof of RPC send or terminal settlement. */
+  claimTargetedInterrupt(
+    id: string,
+    b: AccountBinding,
+    requestId: string,
+    rawTarget: CodexNativeTurnTarget,
+  ) {
+    const target = CodexNativeTurnTargetSchema.parse(rawTarget);
+    z.string().min(1).max(200).parse(requestId);
+    return this.db
+      .transaction(() => {
+        const previous = this.targetedInterruptReceipt(id, b, requestId);
+        if (previous) {
+          if (!isDeepStrictEqual(previous.target, target))
+            throw Error('Interruption request reused with a different target');
+          return { fresh: false, receipt: previous };
+        }
+        if (
+          !isDeepStrictEqual(this.nativeTurnTarget(id, b, target.commandId, target.attempt), target)
+        )
+          return;
+        const row = this.db
+          .prepare('SELECT native_turns FROM codex_commands WHERE conversation_id=? AND id=?')
+          .get(id, target.commandId) as { native_turns: string };
+        const turns = this.nativeTurns(row.native_turns);
+        const accepted = turns.find((t) =>
+          isDeepStrictEqual(this.nativeTarget(target.commandId, t), target),
+        );
+        if (!accepted) return;
+        if (accepted.interruptRequestId)
+          throw Error('Native turn already has an interruption claim');
+        accepted.interruptRequestId = requestId;
+        this.saveNativeTurns(id, target.commandId, turns);
+        this.pauseForRecovery(id, b);
+        return { fresh: true, receipt: { requestId, target, disposition: 'claimed' as const } };
+      })
+      .immediate();
   }
   recordCapacityAck(
     id: string,

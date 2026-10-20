@@ -6,7 +6,12 @@ import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { assertTelosWorkExecutionAuthority } from './telos-work-execution-authority.js';
 
 interface Owners {
-  events: Pick<EventStore, 'getSessionEvents' | 'getOrdinarySessionPreparationForConversation'>;
+  events: Pick<
+    EventStore,
+    | 'getSessionEvents'
+    | 'getOrdinarySessionPreparationForConversation'
+    | 'getOrdinaryWorkspaceSessionPreparationForConversation'
+  >;
   tasks?: Pick<
     TaskStore,
     'getTelosExecutionBinding' | 'getTelosExecutionTaskForConversation'
@@ -28,7 +33,9 @@ export function resolveTelosWorkCommandScope(
   // The ordinary allocator commits this marker atomically with the session.
   // A crash can precede role retention, so absence of role context is not proof
   // that a newly prepared conversation is an unrelated legacy chat.
-  const prepared = owners.events.getOrdinarySessionPreparationForConversation(sessionId);
+  const prepared =
+    owners.events.getOrdinarySessionPreparationForConversation(sessionId) ??
+    owners.events.getOrdinaryWorkspaceSessionPreparationForConversation(sessionId);
   const taskId = owners.tasks?.getTelosExecutionTaskForConversation(sessionId);
   if (prepared?.delegationAttemptId && (selected?.role !== 'worker' || !taskId))
     throw new Error('Delegated worker provisioning is incomplete; recover its original request');

@@ -3,6 +3,8 @@ import {
   SessionCollaborationSchema,
   SessionCollaborationListQuerySchema,
   CollaborationBeginSchema,
+  CollaborationSourceSetupQuerySchema,
+  CollaborationSourceSetupSchema,
   CollaborationPolicyUpdateSchema,
   CollaborationPolicySchema,
   CollaborationViewSchema,
@@ -100,6 +102,21 @@ export class CollaborationApiClient {
   }
   view(id: string, signal?: AbortSignal) {
     return this.request(this.path(id, 'conversation'), CollaborationViewSchema, signal);
+  }
+  /** Observational canonical fresh-flow selection, never arbitrary first-row reuse. */
+  sourceSetup(sourceConversationId: string, clientId: string, signal?: AbortSignal) {
+    const query = CollaborationSourceSetupQuerySchema.parse({ sourceConversationId, clientId });
+    return this.request(
+      `/api/session-collaborations/source-setup?${new URLSearchParams(query)}`,
+      CollaborationSourceSetupSchema.refine(
+        (value) =>
+          value.sourceConversationId === query.sourceConversationId &&
+          (value.state !== 'selected' ||
+            value.collaboration.participantSessionIds.includes(query.sourceConversationId)),
+        'Collaboration source setup identity changed',
+      ),
+      signal,
+    );
   }
   /** Relationship preparation only; this does not allocate an agent or start a turn. */
   begin(id: string, input: z.infer<typeof CollaborationBeginSchema>, signal?: AbortSignal) {

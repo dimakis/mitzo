@@ -1465,6 +1465,35 @@ scroll strip. Existing semantic tokens, type, focus, control geometry and appear
 preferences remain effective. The ordinary draft owner retains text/images/context
 through silent role binding and first-send consumption.
 
+On the supported Local Mac OAuth Codex route, Repository None prepares an ordinary
+workspace from the server’s readiness receipt. Other execution choices retain their
+selected intent and an actionable refusal. The existing primary control confirms
+role setup after review; readiness and rendering never start a command. Draft storage
+retains the exact preparation, immutable reviewed settings, presentation and request
+identity across reload and unknown outcomes. Device-storage failures keep replacement
+locked. Only an exact durable pre-allocation rejection permits explicit re-review and
+a fresh confirmation. This reuses the existing setup card, status/alert text, composer
+and controls, with no new style or motion pattern.
+
+A bound ordinary workspace uses the same chat settings, transcript and composer.
+Its prepared first command keeps the original account, model, thinking, agent and
+execution choices fixed. A matching consumed receipt refreshes its command phase;
+future model/thinking choices then use the existing continuation controls. Unknown
+delivery keeps the original command and draft for explicit recovery in More options.
+Workspace details say Conversation files and show that a Git branch does not apply.
+No new settings, storage owner or motion pattern is introduced.
+The shared compact Agents control clips its flex label with the existing ellipsis
+pattern, preserving its full accessible name, fixed icon space and shared control
+height at narrow widths and large text sizes.
+
+Ordinary conversation files reuse the existing viewer, optimistic editor and file
+options. Root discovery retains the selected chat; verified ordinary metadata
+withholds Git/worktree controls, while unverified metadata withholds root choices.
+Loading a different chat or document retires the previous UI read and callbacks,
+including a return to a previously selected chat. Server file admission remains
+authoritative. Existing editor drafts, conflict review, download and return links
+keep their original session/path scope without a new editor or storage owner.
+
 The scoped offline role fixture checks source-only lead setup, full refinement/child
 advisor chat, uncertain setup/reload recovery, normal settings, retained unsent draft,
 expanded context pins and proposal saves at 320px WebKit/Chromium and desktop Chromium,
@@ -1775,3 +1804,10 @@ These bounded reference dimensions are a structural exception to the usual share
 spacing/radius scale; they do not establish a new palette, font or reusable scale.
 Browser assertions protect these exact dimensions while shared control-height and
 focus rules remain effective.
+
+The ordinary Files metadata guard also withholds Git/worktree discovery when a
+matching modern runtime projection lacks both workspace identities. A retained
+runtime binding or command-scope flag cannot establish legacy repository scope.
+Repository identities must satisfy the existing command UUID schema. Valid explicit
+repository identities and legacy metadata without runtime routing remain
+on their existing Files path. This does not change server file permissions.

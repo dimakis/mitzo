@@ -1,4 +1,9 @@
 import {
+  OrdinaryLocalWorkspaceOwner,
+  type LocalWorkspaceKind,
+  type LocalWorkspaceRecord,
+} from './ordinary-local-workspace-owner.js';
+import {
   resolveTelosWorkRoleContext,
   resolveTelosWorkSystemPrompt,
 } from './telos-work-role-context.js';
@@ -20,7 +25,6 @@ import type { AgentLibraryStore } from './agent-library-store.js';
 import type { EventStore } from './event-store.js';
 import type {
   HostRepositoryReservationInput,
-  RepositoryWorkspace,
   RepositoryWorkspaces,
 } from './repository-workspaces.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
@@ -59,12 +63,12 @@ const RawPayload = z.strictObject({
     .optional(),
 });
 type Payload = z.infer<typeof RawPayload> & { systemPrompt: string };
-export interface OrdinaryLocalCodexOwnedDispatch {
+export interface OrdinaryLocalCodexOwnedDispatch<K extends LocalWorkspaceKind = 'repository'> {
   admission: OwnedLocalCodexChatAdmission;
   lease: FrozenHostCodexBootstrapLease;
   profile: FrozenHostCodexBootstrapLease['profile'];
   expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>;
-  workspace: RepositoryWorkspace;
+  workspace: LocalWorkspaceRecord<K>;
   payload: Payload;
   sessionId: string;
   commandId: string;
@@ -72,11 +76,12 @@ export interface OrdinaryLocalCodexOwnedDispatch {
   preparationSignal?: AbortSignal;
   agentMessageId?: string;
 }
-interface Owners {
+interface Owners<K extends LocalWorkspaceKind = 'repository'> {
   enabled: boolean;
   eventStore: EventStore;
   library: AgentLibraryStore;
   workspace: RepositoryWorkspaces;
+  workspaceKind?: K;
   reservation: Omit<HostRepositoryReservationInput, 'signal'>;
   commandId: string;
   /** Middleware-authenticated connection captured once, never supplied by request JSON. */
@@ -92,17 +97,17 @@ interface Owners {
    * pump that handle only after admit returns dispatched:true (consumed), so
    * fast turn completion cannot dispose the lease before coordinator completion.
    */
-  dispatch(input: OrdinaryLocalCodexOwnedDispatch): Promise<void>;
+  dispatch(input: OrdinaryLocalCodexOwnedDispatch<K>): Promise<void>;
   /** Existing live native FIFO owner; absent means first-command-only. */
-  dispatchContinuation?(input: OrdinaryLocalCodexOwnedDispatch): Promise<void>;
+  dispatchContinuation?(input: OrdinaryLocalCodexOwnedDispatch<K>): Promise<void>;
 }
 
 /** Server-internal composition for one reserved local first command. No endpoint,
  * automatic enrollment, provider loop or second ledger is introduced. The exact
  * interactive subject survives transport detach and remains revocation-bound.
  */
-export class OrdinaryLocalCodexOwnedRuntime {
-  readonly #reservation: Owners['reservation'];
+export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repository'> {
+  readonly #reservation: Owners<K>['reservation'];
   readonly #runtime: OrdinaryLocalCodexHostRuntime;
   readonly #controller = new AbortController();
   readonly #signal: AbortSignal;
@@ -110,12 +115,13 @@ export class OrdinaryLocalCodexOwnedRuntime {
   #lease?: FrozenHostCodexBootstrapLease;
   #admission?: OwnedLocalCodexChatAdmission;
   #expected?: Readonly<OrdinaryLocalCodexAdmissionExpectation>;
-  #workspace?: RepositoryWorkspace;
+  readonly #workspaceOwner: OrdinaryLocalWorkspaceOwner<K>;
+  #workspace?: LocalWorkspaceRecord<K>;
   #authSessionId?: string;
   #closed = false;
   readonly #onAbort = () => this.close();
 
-  constructor(private readonly owners: Owners) {
+  constructor(private readonly owners: Owners<K>) {
     try {
       if (!owners.enabled || custodianControllerMode || custodianOwnerMode) throw unavailable();
       this.owners = {
@@ -131,6 +137,11 @@ export class OrdinaryLocalCodexOwnedRuntime {
       captured.assertCurrent();
       this.#authSessionId = captured.auth.id;
       this.#reservation = structuredClone(owners.reservation);
+      this.#workspaceOwner = new OrdinaryLocalWorkspaceOwner(
+        owners.workspace,
+        owners.workspaceKind ?? ('repository' as K),
+        this.#reservation,
+      );
       this.#runtime = new OrdinaryLocalCodexHostRuntime(owners.env);
       this.#signal = AbortSignal.any([owners.signal, this.#controller.signal]);
       // registerAuthSession belongs to this retained authority rather than the
@@ -184,7 +195,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
         throw unavailable();
       const profile = profiles.codexProfile(binding);
       if (profile.workspaceId !== undefined) throw unavailable();
-      const descriptor = this.owners.workspace.getHostReservation(this.#reservation);
+      const descriptor = this.#workspaceOwner.get();
       const custody = resume
         ? this.owners.nativeStore?.readHostCustody(
             this.#reservation.conversationId,
@@ -263,6 +274,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
         events: this.owners.eventStore,
         library: this.owners.library,
         workspace: this.owners.workspace,
+        workspaceKind: this.#workspaceOwner.kind,
         reservation: this.#reservation,
         operator: { assertCurrent: () => this.assertCurrent() },
         signal: this.#signal,
@@ -328,18 +340,23 @@ export class OrdinaryLocalCodexOwnedRuntime {
         declaration: target.admissionDeclaration(),
         bootstrapAuthority: bootstrap,
       });
-      let claimedWorkspace: RepositoryWorkspace | undefined;
+      let claimedWorkspace: LocalWorkspaceRecord<K> | undefined;
       let preparedContext: AgentContextSnapshot | undefined;
       const result = await (
         preparationOperationId
-          ? coordinator.admitPreparedFirst.bind(coordinator, preparationOperationId)
+          ? (this.#workspaceOwner.kind === 'ordinary'
+              ? coordinator.admitPreparedOrdinaryWorkspaceFirst
+              : coordinator.admitPreparedFirst
+            ).bind(coordinator, preparationOperationId)
           : resume
             ? coordinator.admitResume.bind(coordinator)
             : coordinator.admit.bind(coordinator)
       )(
         {
           sessionId: this.#reservation.conversationId,
-          repositoryWorkspaceId: descriptor.id,
+          ...(this.#workspaceOwner.kind === 'ordinary'
+            ? { ordinaryWorkspaceId: descriptor.id }
+            : { repositoryWorkspaceId: descriptor.id }),
           cwd: descriptor.directory,
           accountBinding: binding,
           agentProfile,
@@ -360,25 +377,16 @@ export class OrdinaryLocalCodexOwnedRuntime {
             )
               throw unavailable();
             if (resume) {
-              await this.owners.workspace.validateHostTask(
-                this.#reservation.conversationId,
-                descriptor.directory!,
-              );
-              claimedWorkspace =
-                this.owners.workspace.getForConversation(this.#reservation.conversationId) ??
-                undefined;
-            } else
-              claimedWorkspace = await this.owners.workspace.claimReservedHostTask({
-                ...structuredClone(this.#reservation),
-                signal: this.#signal,
-              });
+              await this.#workspaceOwner.validate(descriptor.directory!);
+              claimedWorkspace = this.#workspaceOwner.get();
+            } else claimedWorkspace = await this.#workspaceOwner.claim(this.#signal);
             this.assertCurrent();
             if (
               !claimedWorkspace ||
               claimedWorkspace.id !== expected.workspace.workspaceId ||
               claimedWorkspace.directory !== expected.workspace.cwd ||
               claimedWorkspace.state !== 'claimed' ||
-              claimedWorkspace.sandbox === true
+              ('sandbox' in claimedWorkspace && claimedWorkspace.sandbox === true)
             )
               throw unavailable();
           },
@@ -397,6 +405,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
             lease.assertCurrentSync();
             const owner = {
               eventStore: this.owners.eventStore,
+              workspaceKind: this.#workspaceOwner.kind,
               sessionId: this.#reservation.conversationId,
               commandId: this.owners.commandId,
               expected,
@@ -574,7 +583,9 @@ export class OrdinaryLocalCodexOwnedRuntime {
       return await coordinator.admitContinuation(
         {
           sessionId: this.#reservation.conversationId,
-          repositoryWorkspaceId: workspace.id,
+          ...(this.#workspaceOwner.kind === 'ordinary'
+            ? { ordinaryWorkspaceId: workspace.id }
+            : { repositoryWorkspaceId: workspace.id }),
           cwd: workspace.directory,
           accountBinding: binding,
           agentProfile: original.agentProfile,

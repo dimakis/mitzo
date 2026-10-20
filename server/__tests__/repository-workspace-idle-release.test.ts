@@ -271,10 +271,13 @@ it('releases only the already-created singleton and refuses recreation under ano
   vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', root);
   vi.stubEnv('MITZO_INTERNAL_TOKEN_PATH', join(root, 'internal-token'));
   vi.stubEnv('MITZO_REPOSITORY_WORKSPACES_ENABLED', '1');
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
   const owner = await import('../repository-workspace-runtime.js');
   owner.closeIdleRepositoryWorkspaces();
   expect(existsSync(join(root, 'repository-sources'))).toBe(false);
   const service = owner.getRepositoryWorkspaces();
+  expect(owner.getOrdinaryWorkspaces()).toBe(service);
+  expect(owner.getOrdinaryWorkspaces(true)).toBe(service);
   const close = vi.spyOn(service, 'close');
   cleanups.push(() => {
     if (!close.mock.calls.length) service.close();
@@ -288,6 +291,8 @@ it('releases only the already-created singleton and refuses recreation under ano
   expect(close).toHaveBeenCalledOnce();
   const other = join(root, 'another-private-path');
   vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', other);
+  expect(() => owner.getOrdinaryWorkspaces()).toThrow('released');
+  expect(() => owner.getOrdinaryWorkspaces(true)).toThrow('released');
   expect(() => owner.getRepositoryWorkspaces()).toThrow('released');
   expect(() => owner.getRepositoryWorkspaces(true)).toThrow('released');
   expect(existsSync(other)).toBe(false);

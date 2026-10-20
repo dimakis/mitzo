@@ -130,7 +130,7 @@ function FileViewerDocument() {
         </div>
 
         <div className="viewer-header-actions" role="group" aria-label="File actions">
-          {!state.isViewing && !state.gitInfo?.worktreesLoaded && (
+          {!state.isViewing && state.canLoadWorktrees && !state.gitInfo?.worktreesLoaded && (
             <button
               type="button"
               className="viewer-header-action"

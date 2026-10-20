@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { searchCodex } from './codex-approved-search.js';
 import { context, trace, SpanStatusCode, type Span, type Context } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { performance } from 'node:perf_hooks';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
@@ -31,6 +32,9 @@ import {
   CodexConversationStore,
   type CodexCommand,
   type CodexCommandInput,
+  CodexNativeTurnTargetSchema,
+  type CodexNativeTurnTarget,
+  type CodexTargetedInterruptReceipt,
 } from './codex-conversation-store.js';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
@@ -318,6 +322,31 @@ function requiresProviderThreadReplacement(error: unknown): boolean {
   );
 }
 /** Owns one application conversation. The process, private store and public event sink are supplied by the server. */
+type ActiveCommand = {
+  command: CodexCommand;
+  turnId?: string;
+  accepted: boolean;
+  ownershipPending?: boolean;
+  completions: Map<string, { first: ObjectValue; conflict?: ObjectValue }>;
+  replySources: Map<string, string>;
+  completionHook?: 'pending' | 'done';
+  completionOperation?: Promise<void>;
+  interruptRequested?: boolean;
+  targetedInterruptClaimed?: boolean;
+  abort: AbortController;
+  span?: Span;
+  firstOutputSpan?: Span;
+  traceContext: Context;
+};
+const interruptTargetBrand = Symbol('native-interrupt-target');
+/** Identity only: host auth/admission remains required; serialized copies grant nothing. */
+export type CodexInterruptTarget = Readonly<CodexNativeTurnTarget> & {
+  readonly [interruptTargetBrand]: true;
+};
+export type CodexTargetedInterruptResult =
+  | { status: 'stale_target' }
+  | { status: 'claimed'; receipt: CodexTargetedInterruptReceipt; replayed: boolean };
+
 export class CodexConversation {
   private client: Rpc;
   private transportGeneration = 0;
@@ -336,21 +365,11 @@ export class CodexConversation {
   };
   private mapper?: CodexSessionEvents;
   private commandContexts = new Map<string, Context>();
-  private active?: {
-    command: CodexCommand;
-    turnId?: string;
-    accepted: boolean;
-    ownershipPending?: boolean;
-    completions: Map<string, { first: ObjectValue; conflict?: ObjectValue }>;
-    replySources: Map<string, string>;
-    completionHook?: 'pending' | 'done';
-    completionOperation?: Promise<void>;
-    interruptRequested?: boolean;
-    abort: AbortController;
-    span?: Span;
-    firstOutputSpan?: Span;
-    traceContext?: Context;
-  };
+  private active?: ActiveCommand;
+  private interruptTargets = new WeakMap<
+    CodexInterruptTarget,
+    { active: ActiveCommand; client: Rpc; transportGeneration: number }
+  >();
   private terminalTurns = new Map<string, { commandId: string; status: string }>();
   private paused = false;
   private closed = false;
@@ -1827,7 +1846,7 @@ export class CodexConversation {
       this.binding!,
       command.id,
     );
-    const active = {
+    const active: ActiveCommand = {
       command,
       abort: new AbortController(),
       turnId: undefined as string | undefined,
@@ -2006,6 +2025,13 @@ export class CodexConversation {
         // The exact native ACK owns acceptance even if a trusted observer's
         // durable projection fails. Owned routes can disable capacity recovery.
         active.accepted = true;
+        this.opts.store.recordNativeTurnAck(
+          this.opts.conversationId,
+          this.binding!,
+          command,
+          this.threadId!,
+          active.turnId,
+        );
         let providerObserverFailed = false;
         let providerObserverError: unknown;
         try {
@@ -2108,10 +2134,11 @@ export class CodexConversation {
           return;
         }
         if (active.interruptRequested || active.abort.signal.aborted) {
-          await this.client.request('turn/interrupt', {
-            threadId: this.threadId,
-            turnId: active.turnId,
-          });
+          if (!active.targetedInterruptClaimed)
+            await this.client.request('turn/interrupt', {
+              threadId: this.threadId,
+              turnId: active.turnId,
+            });
           return;
         }
       }
@@ -2649,6 +2676,92 @@ export class CodexConversation {
       success: !result.isError,
       contentItems: [{ type: 'inputText', text: result.content }],
     };
+  }
+  /** Accepted, durably correlated live turn only; no pending/startup target. */
+  captureInterruptTarget(): CodexInterruptTarget | undefined {
+    const active = this.active;
+    if (
+      this.closed ||
+      this.paused ||
+      !this.ready ||
+      !this.binding ||
+      !active?.accepted ||
+      active.ownershipPending ||
+      !active.turnId
+    )
+      return;
+    const value = this.opts.store.nativeTurnTarget(
+      this.opts.conversationId,
+      this.binding,
+      active.command.id,
+      active.command.attempt,
+    );
+    if (!value || value.threadId !== this.threadId || value.turnId !== active.turnId) return;
+    const target = Object.freeze({ ...value, [interruptTargetBrand]: true as const });
+    this.interruptTargets.set(target, {
+      active,
+      client: this.client,
+      transportGeneration: this.transportGeneration,
+    });
+    return target;
+  }
+  /** A durable claim is possibly attempted, never terminal evidence or replay
+   * permission. No public route or replacement FIFO is installed by this port. */
+  async interruptIfCurrent(
+    requestId: string,
+    target: CodexInterruptTarget,
+  ): Promise<CodexTargetedInterruptResult> {
+    const witness = this.interruptTargets.get(target);
+    if (this.closed || !this.binding || !witness) return { status: 'stale_target' };
+    const expected = CodexNativeTurnTargetSchema.parse(target);
+    const previous = this.opts.store.targetedInterruptReceipt(
+      this.opts.conversationId,
+      this.binding,
+      requestId,
+    );
+    if (previous) {
+      if (!isDeepStrictEqual(previous.target, expected))
+        throw Error('Interruption request reused with a different target');
+      return { status: 'claimed', receipt: previous, replayed: true };
+    }
+    const active = witness.active;
+    if (
+      this.active !== active ||
+      !active.accepted ||
+      active.ownershipPending ||
+      this.client !== witness.client ||
+      this.transportGeneration !== witness.transportGeneration ||
+      active.turnId !== expected.turnId ||
+      this.threadId !== expected.threadId
+    )
+      return { status: 'stale_target' };
+    // No await or supplied callback between identity comparison and the actual
+    // store's atomic compare/claim/pause. A persisted claim is never reissued.
+    const claim = this.opts.store.claimTargetedInterrupt(
+      this.opts.conversationId,
+      this.binding,
+      requestId,
+      expected,
+    );
+    if (!claim) return { status: 'stale_target' };
+    if (!claim.fresh) return { status: 'claimed', receipt: claim.receipt, replayed: true };
+    this.paused = true;
+    active.targetedInterruptClaimed = true;
+    active.interruptRequested = true;
+    active.abort.abort();
+    // Abort listeners may retire a transport. Never borrow a successor client.
+    if (
+      this.closed ||
+      this.client !== witness.client ||
+      this.transportGeneration !== witness.transportGeneration ||
+      this.active !== active
+    )
+      throw Error('Interruption transport retired; original claim is uncertain');
+    await witness.client.request('turn/interrupt', {
+      threadId: expected.threadId,
+      turnId: expected.turnId,
+    });
+    return { status: 'claimed', receipt: claim.receipt, replayed: false };
   }
   async interrupt() {
     if (this.closed) return;

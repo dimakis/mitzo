@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import {
   CollaborationSettingsSchema,
+  OrdinaryWorkspaceSettingsSchema,
+  TelosOrdinaryWorkRoleSetupInputSchema,
+  TelosWorkRoleSetupRequestSchema,
+  type OrdinaryWorkspaceSettings,
   TelosWorkIdSchema,
   TelosWorkRoleContextSelectionSchema,
   TelosWorkRoleSetupInputSchema,
@@ -42,15 +46,66 @@ export function readTelosRoleIntent(params: URLSearchParams): TelosRoleRouteInte
 export interface TelosRoleSetupOptions {
   draftId: string | null;
   intent: TelosRoleRouteIntent | null;
-  settings: CollaborationSettings | null;
+  settings: CollaborationSettings | OrdinaryWorkspaceSettings | null;
   api: Pick<TelosWorkApiClient, 'roleContext' | 'setupRole' | 'read'> &
-    Partial<Pick<TelosWorkApiClient, 'reviewRoleContext' | 'setupReviewedRole'>>;
+    Partial<
+      Pick<
+        TelosWorkApiClient,
+        | 'reviewRoleContext'
+        | 'setupReviewedRole'
+        | 'setupOrdinaryRole'
+        | 'setupReviewedOrdinaryRole'
+      >
+    >;
   onBound?(conversationId: string): void;
 }
 const displayFields = {
   presentation: TelosWorkRolePresentationSchema.optional(),
   presentationRef: TelosWorkRolePresentationRefSchema.optional(),
 };
+type PresentationFields = {
+  presentation?: z.infer<typeof TelosWorkRolePresentationSchema>;
+  presentationRef?: z.infer<typeof TelosWorkRolePresentationRefSchema>;
+};
+function validateReview(
+  value: PresentationFields & { context: z.infer<typeof TelosWorkRoleContextSelectionSchema> },
+  context: z.RefinementCtx,
+) {
+  if (value.presentation !== undefined || value.presentationRef !== undefined) {
+    try {
+      readTelosRolePresentation(value.context, value.presentation, value.presentationRef);
+    } catch {
+      context.addIssue({ code: 'custom', message: 'Original reviewed presentation required' });
+    }
+  }
+}
+function validateRejection(
+  value: PresentationFields & {
+    submission: {
+      requestId: string;
+      contextSelection: z.infer<typeof TelosWorkRoleContextSelectionSchema>;
+    };
+    recovery: z.infer<typeof TelosWorkRoleSetupRecoverySchema>;
+  },
+  context: z.RefinementCtx,
+) {
+  if (
+    value.submission.requestId !== value.recovery.requestId ||
+    value.recovery.outcome !== 'rejected_before_allocation'
+  )
+    context.addIssue({ code: 'custom', message: 'Exact terminal rejection proof required' });
+  if (value.presentation !== undefined || value.presentationRef !== undefined) {
+    try {
+      readTelosRolePresentation(
+        value.submission.contextSelection,
+        value.presentation,
+        value.presentationRef,
+      );
+    } catch {
+      context.addIssue({ code: 'custom', message: 'Original rejected presentation required' });
+    }
+  }
+}
 const ReviewSchema = z
   .strictObject({
     settings: CollaborationSettingsSchema,
@@ -59,40 +114,15 @@ const ReviewSchema = z
     priorLinkIds: z.array(z.string()),
     ...displayFields,
   })
-  .superRefine((value, context) => {
-    if (value.presentation !== undefined || value.presentationRef !== undefined) {
-      try {
-        readTelosRolePresentation(value.context, value.presentation, value.presentationRef);
-      } catch {
-        context.addIssue({ code: 'custom', message: 'Original reviewed presentation required' });
-      }
-    }
-  });
+  .superRefine(validateReview);
 const RejectionSchema = z
   .strictObject({
     submission: TelosWorkRoleSetupInputSchema,
     recovery: TelosWorkRoleSetupRecoverySchema,
     ...displayFields,
   })
-  .superRefine((value, context) => {
-    if (
-      value.submission.requestId !== value.recovery.requestId ||
-      value.recovery.outcome !== 'rejected_before_allocation'
-    )
-      context.addIssue({ code: 'custom', message: 'Exact terminal rejection proof required' });
-    if (value.presentation !== undefined || value.presentationRef !== undefined) {
-      try {
-        readTelosRolePresentation(
-          value.submission.contextSelection,
-          value.presentation,
-          value.presentationRef,
-        );
-      } catch {
-        context.addIssue({ code: 'custom', message: 'Original rejected presentation required' });
-      }
-    }
-  });
-const StoredSchema = z.strictObject({
+  .superRefine(validateRejection);
+const LegacyStoredSchema = z.strictObject({
   version: z.literal(1),
   draftId: z.string().min(1),
   intent: IntentSchema,
@@ -101,6 +131,35 @@ const StoredSchema = z.strictObject({
   receipt: TelosWorkCommandReceiptSchema.nullable(),
   rejections: z.array(RejectionSchema).default([]),
 });
+const RoleSettingsSchema = CollaborationSettingsSchema.or(OrdinaryWorkspaceSettingsSchema);
+const ReviewV2Schema = z
+  .strictObject({ ...ReviewSchema.shape, settings: RoleSettingsSchema })
+  .superRefine(validateReview);
+const RejectionV2Schema = z
+  .strictObject({ ...RejectionSchema.shape, submission: TelosWorkRoleSetupRequestSchema })
+  .superRefine(validateRejection);
+/** Version1 stays byte-compatible and strict. Version2 retains both kinds of prior rejection history. */
+const StoredV2Schema = z
+  .strictObject({
+    ...LegacyStoredSchema.shape,
+    version: z.literal(2),
+    review: ReviewV2Schema.nullable(),
+    submission: TelosWorkRoleSetupRequestSchema.nullable(),
+    rejections: z.array(RejectionV2Schema).default([]),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.submission &&
+      (!value.review ||
+        !equal(value.submission.settings, value.review.settings) ||
+        !equal(value.submission.contextSelection, value.review.context))
+    )
+      context.addIssue({
+        code: 'custom',
+        message: 'Original reviewed settings and context required',
+      });
+  });
+const StoredSchema = LegacyStoredSchema.or(StoredV2Schema);
 type Saved = z.infer<typeof StoredSchema>;
 interface State {
   saved: Saved | null;
@@ -121,8 +180,11 @@ const canonical = (value: unknown): unknown =>
       : value;
 const equal = (a: unknown, b: unknown) =>
   JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
-function sameSettings(retained: CollaborationSettings, supplied: CollaborationSettings | null) {
-  const parsed = CollaborationSettingsSchema.safeParse(supplied);
+function sameSettings(
+  retained: CollaborationSettings | OrdinaryWorkspaceSettings,
+  supplied: CollaborationSettings | OrdinaryWorkspaceSettings | null,
+) {
+  const parsed = RoleSettingsSchema.safeParse(supplied);
   return parsed.success && equal(retained, parsed.data);
 }
 const key = (id: string) => `mitzo-telos-role-setup:${encodeURIComponent(id)}`;
@@ -250,14 +312,18 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
     draft.current = options.draftId;
     update(load(options.draftId));
   }, [options.draftId]);
-  const active = (operation: number, draftId: string) =>
-    alive.current && generation.current === operation && latest.current.draftId === draftId;
+  const active = (operation: number, draftId: string, intent: TelosRoleRouteIntent | null) =>
+    alive.current &&
+    generation.current === operation &&
+    latest.current.draftId === draftId &&
+    equal(latest.current.intent, intent);
   const review = async (
     selection?: Pick<TelosWorkRoleContextRequest, 'sourceSnapshotIds' | 'artifactRefs'>,
   ) => {
     const selected = latest.current;
     if (
       !selected.draftId ||
+      draft.current !== selected.draftId ||
       !selected.intent ||
       !selected.settings ||
       current.current.pending ||
@@ -273,9 +339,9 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
     update({ ...current.current, pending: 'review', error: null });
     try {
       const intent = IntentSchema.parse(structuredClone(selected.intent));
-      const settings = CollaborationSettingsSchema.parse(structuredClone(selected.settings));
+      const settings = RoleSettingsSchema.parse(structuredClone(selected.settings));
       const work = await selected.api.read(intent.itemId, abort.signal);
-      if (!active(operation, draftId)) return;
+      if (!active(operation, draftId, selected.intent)) return;
       const reviewed = work.sources.filter((source) => source.selection.kind === 'selected');
       const pinned = [
         ...new Map(
@@ -299,7 +365,7 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
         const reviewed = TelosWorkRoleContextReviewSchema.parse(
           await selected.api.reviewRoleContext(contextRequest, abort.signal),
         );
-        if (!active(operation, draftId)) return;
+        if (!active(operation, draftId, selected.intent)) return;
         context = reviewed.selection;
         display = {
           presentationRef: reviewed.presentationRef,
@@ -313,7 +379,7 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
         context = TelosWorkRoleContextSelectionSchema.parse(
           await selected.api.roleContext(contextRequest, abort.signal),
         );
-        if (!active(operation, draftId)) return;
+        if (!active(operation, draftId, selected.intent)) return;
       }
       if (
         context.itemId !== intent.itemId ||
@@ -323,8 +389,8 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
       )
         throw new Error('Selected work changed during review');
       const assignment = work.assignments.find((row) => row.role === intent.role);
-      const saved: Saved = {
-        version: 1,
+      const saved = StoredSchema.parse({
+        version: 'version' in settings || current.current.saved?.version === 2 ? 2 : 1,
         draftId,
         intent,
         review: {
@@ -337,11 +403,11 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
         submission: null,
         receipt: null,
         rejections: structuredClone(current.current.saved?.rejections ?? []),
-      };
+      });
       persist(saved);
       update({ saved, pending: null, error: null, uncertain: false, storageError: false });
     } catch {
-      if (active(operation, draftId))
+      if (active(operation, draftId, selected.intent))
         update({
           ...current.current,
           pending: null,
@@ -352,7 +418,16 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
   const submit = async (retry: boolean) => {
     const selected = latest.current;
     const state = current.current;
-    if (!selected.draftId || state.pending || state.storageError || !state.saved?.review) return;
+    if (
+      !selected.draftId ||
+      draft.current !== selected.draftId ||
+      state.saved?.draftId !== selected.draftId ||
+      !equal(state.saved.intent, selected.intent) ||
+      state.pending ||
+      state.storageError ||
+      !state.saved.review
+    )
+      return;
     let saved = structuredClone(state.saved);
     if (!saved.submission) {
       if (
@@ -361,7 +436,8 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
         !sameSettings(saved.review!.settings, selected.settings)
       )
         return;
-      saved.submission = TelosWorkRoleSetupInputSchema.parse({
+      saved.submission = TelosWorkRoleSetupRequestSchema.parse({
+        ...('version' in saved.review!.settings ? { version: 2 } : {}),
         itemId: saved.intent.itemId,
         role: saved.intent.role,
         requestId: createBrowserId(),
@@ -386,24 +462,42 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
     update({ ...state, saved, pending: 'setup', error: null });
     try {
       let result;
-      if (saved.review!.presentationRef) {
+      const ordinary = TelosOrdinaryWorkRoleSetupInputSchema.safeParse(saved.submission);
+      if (ordinary.success) {
+        if (saved.review!.presentationRef) {
+          if (!selected.api.setupReviewedOrdinaryRole)
+            throw Error('Original ordinary reviewed setup route unavailable');
+          result = await selected.api.setupReviewedOrdinaryRole({
+            version: 2,
+            input: structuredClone(ordinary.data),
+            presentationRef: structuredClone(saved.review!.presentationRef),
+          });
+        } else {
+          if (!selected.api.setupOrdinaryRole)
+            throw Error('Original ordinary setup route unavailable');
+          result = await selected.api.setupOrdinaryRole(structuredClone(ordinary.data));
+        }
+      } else if (saved.review!.presentationRef) {
         if (!selected.api.setupReviewedRole)
           throw new Error('Original reviewed setup route unavailable');
         result = await selected.api.setupReviewedRole({
           version: 1,
-          input: structuredClone(saved.submission!),
+          input: TelosWorkRoleSetupInputSchema.parse(structuredClone(saved.submission!)),
           presentationRef: structuredClone(saved.review!.presentationRef),
         });
-      } else result = await selected.api.setupRole(structuredClone(saved.submission!));
+      } else
+        result = await selected.api.setupRole(
+          TelosWorkRoleSetupInputSchema.parse(structuredClone(saved.submission!)),
+        );
       const receipt = TelosWorkCommandReceiptSchema.parse(result);
-      if (!active(operation, draftId)) return;
+      if (!active(operation, draftId, selected.intent)) return;
       const conversationId = boundConversation(receipt, saved);
       saved = { ...saved, receipt };
       persist(saved);
       update({ saved, pending: null, error: null, uncertain: false, storageError: false });
       latest.current.onBound?.(conversationId);
     } catch (error) {
-      if (!active(operation, draftId)) return;
+      if (!active(operation, draftId, selected.intent)) return;
       const recovery = TelosWorkRoleSetupRecoverySchema.safeParse(
         error instanceof TelosWorkApiError ? error.recovery : undefined,
       );
@@ -415,7 +509,7 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
         recovery.data.outcome === 'rejected_before_allocation' &&
         recovery.data.requestId === saved.submission!.requestId
       ) {
-        const rejected: Saved = {
+        const rejected = StoredSchema.parse({
           ...saved,
           submission: null,
           review: null,
@@ -433,7 +527,7 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
                 : {}),
             },
           ],
-        };
+        });
         try {
           // The history and release share a verified write. Never release in
           // memory first or overwrite a newer request saved by another tab.
@@ -464,35 +558,48 @@ export function useTelosRoleSetup(options: TelosRoleSetupOptions) {
         });
     }
   };
+  // Effects load the next draft after commit. Never expose the previous render's
+  // receipt/context, or enable its actions, in the intervening render.
+  const ownsState =
+    draft.current === options.draftId &&
+    (!state.saved ||
+      (state.saved.draftId === options.draftId && equal(state.saved.intent, options.intent)));
+  const visibleState: State = ownsState
+    ? state
+    : { saved: null, pending: null, error: null, storageError: true, uncertain: false };
   let boundConversationId: string | null = null;
-  if (state.saved?.receipt) {
+  if (visibleState.saved?.receipt) {
     try {
-      boundConversationId = boundConversation(state.saved.receipt, state.saved);
+      boundConversationId = boundConversation(visibleState.saved.receipt, visibleState.saved);
     } catch {
       /* Preserve the original request for explicit recovery. */
     }
   }
   return {
-    context: state.saved?.review?.context ?? null,
-    presentation: state.saved?.review?.presentation,
-    presentationRef: state.saved?.review?.presentationRef,
-    pending: state.pending,
-    error: state.error,
-    uncertain: state.uncertain,
+    retainedSettings:
+      visibleState.saved?.review?.settings ?? visibleState.saved?.submission?.settings ?? null,
+    context: visibleState.saved?.review?.context ?? null,
+    presentation: visibleState.saved?.review?.presentation,
+    presentationRef: visibleState.saved?.review?.presentationRef,
+    pending: visibleState.pending,
+    error: visibleState.error,
+    uncertain: visibleState.uncertain,
     rejectedBeforeAllocation:
-      !!state.saved?.rejections.length && !state.saved.review && !state.saved.submission,
-    locked: state.storageError || state.saved?.submission != null,
+      !!visibleState.saved?.rejections.length &&
+      !visibleState.saved.review &&
+      !visibleState.saved.submission,
+    locked: visibleState.storageError || visibleState.saved?.submission != null,
     canConfirm:
-      !state.pending &&
-      !state.storageError &&
-      !state.saved?.submission &&
-      state.saved?.review != null &&
-      equal(state.saved.intent, options.intent) &&
-      sameSettings(state.saved.review.settings, options.settings),
+      !visibleState.pending &&
+      !visibleState.storageError &&
+      !visibleState.saved?.submission &&
+      visibleState.saved?.review != null &&
+      equal(visibleState.saved.intent, options.intent) &&
+      sameSettings(visibleState.saved.review.settings, options.settings),
     boundConversationId,
     replacing:
-      state.saved?.intent.mode === 'assign' &&
-      (state.saved.review?.expectedAssignmentRevision ?? 0) > 0,
+      visibleState.saved?.intent.mode === 'assign' &&
+      (visibleState.saved.review?.expectedAssignmentRevision ?? 0) > 0,
     review,
     confirm: () => submit(false),
     retry: () => (current.current.saved?.submission ? submit(true) : review()),

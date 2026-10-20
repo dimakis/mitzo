@@ -1,3 +1,4 @@
+import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import { TelosWorkControlToolInputSchema } from '@mitzo/protocol';
 import {
   TELOS_WORK_CONTROL_TOOL,
@@ -583,6 +584,7 @@ interface Options {
   /** New commands only; running tool/context continuations keep their admitted brief. */
   assertWorkTurnAdmission?: () => void;
   repositoryWorkspace?: RepositoryChatWorkspace;
+  ordinaryWorkspace?: OrdinaryWorkspaceRecord;
   publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
   conversationId: string;
@@ -707,6 +709,9 @@ export async function openCodexChat(options: Options) {
     profile: structuredClone(options.profile),
     agentProfile: selectedProfile,
     agentContext: options.agentContext ? structuredClone(options.agentContext) : undefined,
+    ordinaryWorkspace: options.ordinaryWorkspace
+      ? structuredClone(options.ordinaryWorkspace)
+      : undefined,
     repositoryWorkspace: options.repositoryWorkspace
       ? structuredClone(options.repositoryWorkspace)
       : undefined,
