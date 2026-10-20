@@ -61,6 +61,31 @@ export function TelosOutcomesTree({
   refreshKey: string | number;
 }) {
   const [state, setState] = useState(() => restore(storageKey));
+  // Canonical parents can arrive after the selected record. Reveal each newly
+  // discovered ancestor once; ordinary refreshes must not undo a user's collapse.
+  const byId = new Map(records.map((record) => [record.itemId, record]));
+  const ancestors: string[] = [];
+  const visited = new Set(selectedId ? [selectedId] : []);
+  let parentId = selectedId ? byId.get(selectedId)?.parentId : null;
+  while (parentId && !visited.has(parentId)) {
+    visited.add(parentId);
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    ancestors.push(parentId);
+    parentId = parent.parentId;
+  }
+  const [revealed, setRevealed] = useState({ selectedId, storageKey, ancestors: [] as string[] });
+  const newSelection = revealed.selectedId !== selectedId || revealed.storageKey !== storageKey;
+  if (newSelection || JSON.stringify(revealed.ancestors) !== JSON.stringify(ancestors)) {
+    const added = newSelection
+      ? ancestors
+      : ancestors.filter((id) => !revealed.ancestors.includes(id));
+    setRevealed({ selectedId, storageKey, ancestors });
+    if (added.length || revealed.storageKey !== storageKey) {
+      const current = revealed.storageKey === storageKey ? state : restore(storageKey);
+      setState({ ...current, expanded: [...new Set([...current.expanded, ...added])] });
+    }
+  }
   const [browse, setBrowse] = useState(false);
   const browseTrigger = useRef<HTMLButtonElement>(null);
   function closeBrowse() {

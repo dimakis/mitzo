@@ -1,0 +1,178 @@
+// @vitest-environment jsdom
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { TelosWorkApiClient } from '@mitzo/client';
+import type { TelosSourcePacket } from '@mitzo/protocol';
+import { ChatArea } from '../ChatArea';
+import { SourceContext, type SourceNavigation } from '../../hooks/useTelosSourceNavigation';
+const messages = ['earlier', 'agreed', 'later'].map((messageId) => ({
+  messageId,
+  role: 'user' as const,
+  blocks: [{ blockId: messageId, blockType: 'text' as const, content: 'Original ' + messageId }],
+}));
+const request = { itemId: 'item-a', snapshotId: 'source-a', conversationId: 'origin' };
+function packet(title = 'Exact created outcome', boundary = 'agreed'): TelosSourcePacket {
+  return {
+    itemId: null,
+    creation: { requestId: title, outcome: { summary: title } },
+    context: {
+      sourceConversationId: 'origin',
+      boundary: { messageId: boundary, sequence: 11 },
+      messages: [
+        { messageId: 'earlier', sequence: 2 },
+        { messageId: boundary, sequence: 11 },
+      ],
+    },
+    selection: { mode: 'selected' },
+    attributions: { [boundary]: { provenance: null, seatId: null, createdAt: 1 } },
+  } as TelosSourcePacket;
+}
+function source(itemId = 'item-a', snapshotId = 'source-a') {
+  return {
+    itemId,
+    snapshotId,
+    source: { namespace: 'mitzo', conversationId: 'origin' },
+    selection: { kind: 'selected' },
+  };
+}
+function setup() {
+  vi.spyOn(TelosWorkApiClient.prototype, 'links').mockResolvedValue(
+    ['a', 'b'].map((suffix) => ({
+      itemId: 'item-' + suffix,
+      role: 'origin',
+      conversation: { namespace: 'mitzo', conversationId: 'origin' },
+    })) as never,
+  );
+  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockImplementation(
+    async (itemId) => ({ itemId, sources: [source(itemId, 'source-' + itemId.at(-1))] }) as never,
+  );
+  return vi.spyOn(TelosWorkApiClient.prototype, 'readSource').mockImplementation(
+    async (itemId, snapshotId) =>
+      ({
+        available: true,
+        snapshot: source(itemId, snapshotId),
+        packet: packet(
+          itemId === 'item-a' ? 'Exact created outcome' : 'Second independent outcome',
+          itemId === 'item-a' ? 'agreed' : 'earlier',
+        ),
+      }) as never,
+  );
+}
+function Surface({
+  sessionId = 'origin',
+  inspected = null,
+}: {
+  sessionId?: string;
+  inspected?: SourceNavigation | null;
+}) {
+  return (
+    <MemoryRouter>
+      <SourceContext.Provider value={inspected}>
+        <textarea aria-label="Unsent draft" defaultValue="Keep original draft" />
+        <ChatArea
+          sessionId={sessionId}
+          messages={messages}
+          current={null}
+          running={false}
+          permission={null}
+          onPermissionRespond={() => {}}
+        />
+      </SourceContext.Provider>
+    </MemoryRouter>
+  );
+}
+beforeEach(() => {
+  Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.scrollTo = vi.fn();
+});
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+it('discovers multiple durable origins in an ordinary chat at their own exact exchanges, preserving sparse selection count and original history', async () => {
+  setup();
+  const view = render(<Surface />);
+  const first = await screen.findByRole('link', {
+    name: /Exact created outcome.*Created from this exchange/,
+  });
+  const second = await screen.findByRole('link', {
+    name: /Second independent outcome.*Created from this exchange/,
+  });
+  expect(first.getAttribute('href')).toBe('/todos/item-a?view=Overview');
+  expect(second.getAttribute('href')).toBe('/todos/item-b?view=Overview');
+  expect(first.textContent).toContain('Selected exchange · 2 messages');
+  expect(first.textContent).not.toMatch(/11|2–11|2-11/);
+  const html = view.container.innerHTML;
+  expect(html.indexOf('Original agreed')).toBeLessThan(html.indexOf('Exact created outcome'));
+  expect(html.indexOf('Exact created outcome')).toBeLessThan(html.indexOf('Original later'));
+  expect(html.indexOf('Original earlier')).toBeLessThan(html.indexOf('Second independent outcome'));
+  expect(html.indexOf('Second independent outcome')).toBeLessThan(html.indexOf('Original agreed'));
+  expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('Keep original draft');
+  view.unmount();
+  render(<Surface />);
+  expect(
+    await screen.findByRole('link', { name: /Exact created outcome.*Created from this exchange/ }),
+  ).toBeTruthy();
+});
+it('uses the exact inspected creation once and does not override pending or unavailable source proof with ordinary discovery', async () => {
+  setup();
+  const view = render(<Surface inspected={{ ...request, status: 'ready', packet: packet() }} />);
+  await screen.findByRole('link', { name: /Second independent outcome/ });
+  expect(screen.getAllByRole('link', { name: /Exact created outcome/ })).toHaveLength(1);
+  for (const status of ['loading', 'unavailable'] as const) {
+    view.rerender(<Surface inspected={{ ...request, status }} />);
+    expect(screen.queryByRole('link', { name: /Exact created outcome/ })).toBeNull();
+    expect(screen.getByRole('link', { name: /Second independent outcome/ })).toBeTruthy();
+  }
+});
+it('refuses adoption, foreign identities, missing message/provenance and stale late replies after a chat switch', async () => {
+  const read = setup();
+  read.mockImplementation(
+    async (itemId, snapshotId) =>
+      ({
+        available: true,
+        snapshot: source(itemId, snapshotId),
+        packet: { ...packet(), creation: undefined },
+      }) as never,
+  );
+  const view = render(<Surface />);
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(2));
+  expect(screen.queryByText('Created from this exchange')).toBeNull();
+  read.mockImplementation(
+    async (itemId, snapshotId) =>
+      ({ available: true, snapshot: source('foreign', snapshotId), packet: packet() }) as never,
+  );
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(4));
+  expect(screen.queryByText('Created from this exchange')).toBeNull();
+  for (const p of [
+    packet('Absent boundary', 'missing'),
+    { ...packet(), attributions: {} },
+    {
+      ...packet(),
+      attributions: {
+        agreed: { provenance: { seatId: 'foreign', membershipGeneration: 1, configRevision: 1 } },
+      },
+    },
+  ]) {
+    view.rerender(
+      <Surface inspected={{ ...request, status: 'ready', packet: p as TelosSourcePacket }} />,
+    );
+    expect(screen.queryByText('Created from this exchange')).toBeNull();
+  }
+  let finish!: (value: never) => void;
+  read.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  act(() => document.dispatchEvent(new Event('visibilitychange')));
+  await waitFor(() => expect(read).toHaveBeenCalledTimes(6));
+  view.rerender(<Surface sessionId="other" />);
+  await act(async () =>
+    finish({ available: true, snapshot: source('item-b', 'source-b'), packet: packet() } as never),
+  );
+  expect(screen.queryByText('Created from this exchange')).toBeNull();
+});

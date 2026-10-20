@@ -1,3 +1,6 @@
+import { useTelosCreatedItems } from '../hooks/useTelosCreatedItems';
+import { TelosCreatedItemCard } from './TelosCreatedItemCard';
+import { matchesTelosSourceBoundary } from '../lib/telos-source-boundary';
 import { useTelosSourceNavigation } from '../hooks/useTelosSourceNavigation';
 import { SeatLabel } from './SeatLabel';
 import { UiIcon } from './UiIcon';
@@ -162,20 +165,28 @@ export function ChatArea({
   const source = useTelosSourceNavigation();
   const sourceAnchor = (message: FinishedMessage) => {
     if (source?.status !== 'ready' || source.conversationId !== sessionId) return false;
-    const id = source.packet!.context.boundary.messageId;
-    if (!id) return false;
-    const attribution = source.packet!.attributions[id];
-    return (
-      message.messageId === id &&
-      !!attribution &&
-      (attribution.provenance === null
-        ? !message.symposiumProvenance
-        : message.symposiumProvenance?.seatId === attribution.provenance.seatId &&
-          message.symposiumProvenance?.membershipGeneration ===
-            attribution.provenance.membershipGeneration &&
-          message.symposiumProvenance?.configRevision === attribution.provenance.configRevision)
-    );
+    return matchesTelosSourceBoundary(message, source.packet!);
   };
+  const createdItems = useTelosCreatedItems(sessionId);
+  function createdItemCards(message: FinishedMessage) {
+    if (!sessionId) return null;
+    // The explicit inspected snapshot stays with its own validation owner;
+    // ordinary discovery must not override a pending or unavailable inspection.
+    const items = createdItems.filter(
+      (item) => !source || item.itemId !== source.itemId || item.snapshotId !== source.snapshotId,
+    );
+    if (
+      source?.status === 'ready' &&
+      source.conversationId === sessionId &&
+      source.packet?.creation
+    )
+      items.push({ itemId: source.itemId, snapshotId: source.snapshotId, packet: source.packet });
+    return items
+      .filter((item) => matchesTelosSourceBoundary(message, item.packet))
+      .map((item) => (
+        <TelosCreatedItemCard key={JSON.stringify([item.itemId, item.snapshotId])} item={item} />
+      ));
+  }
   const restoredBoundary = messages.find(sourceAnchor);
   // Only visible public text can anchor a finished assistant. Historical blank
   // or activity-only boundaries retain their normal rendering without owning
@@ -410,6 +421,7 @@ export function ChatArea({
                         : undefined
                     }
                   />
+                  {createdItemCards(msg)}
                   {renderMessageOutcome?.(msg.messageId)}
                 </>
               ),
@@ -516,13 +528,14 @@ export function ChatArea({
             ),
           };
         });
-      if (!streaming && renderMessageOutcome) {
+      if (!streaming && turn.kind === 'finished') {
         const last = rows.at(-1);
         if (last)
           last.value = (
             <>
               {last.value}
-              {renderMessageOutcome(msg.messageId)}
+              {createdItemCards(turn.value)}
+              {renderMessageOutcome?.(msg.messageId)}
             </>
           );
       }
