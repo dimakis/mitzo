@@ -349,6 +349,11 @@ export * from './ordinary-local-vertex-admission.js';
 export * from './ordinary-local-vertex-custody.js';
 export type { ContextCompaction } from './context-compaction.js';
 export * from './collaboration-conversation.js';
+export {
+  CollaborationSourceSetupQuerySchema,
+  CollaborationSourceSetupSchema,
+  type CollaborationSourceSetup,
+} from './collaboration-source-setup.js';
 export * from './collaboration-forward.js';
 
 export * from './agent-tools.js';

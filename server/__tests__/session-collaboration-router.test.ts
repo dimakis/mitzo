@@ -4,6 +4,11 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { revokeAuthSession } from '../auth.js';
+import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import {
+  claimTransportConnection,
+  releaseTransportConnection,
+} from '../transport-auth-ownership.js';
 import { EventStore } from '../event-store.js';
 import { createSessionCollaborationRouter } from '../session-collaboration-router.js';
 let store: EventStore, app: express.Express, path: string;
@@ -26,6 +31,49 @@ beforeEach(() => {
 });
 afterEach(() => store.close());
 const body = { expectedRevision: 0, participantSessionIds: ['first', 'local'] };
+it('resolves setup only through the existing live authenticated source transport', async () => {
+  const url =
+    '/api/session-collaborations/source-setup?sourceConversationId=first&clientId=source-client';
+  expect((await request(app).get(url)).status).toBe(401);
+  expect((await request(app).get(url).set('x-operator', 'yes')).status).toBe(503);
+  const release = bindAgentLibraryTransport('source-client', {
+    id: 'operator',
+    expiresAt: Date.now() + 60000,
+  });
+  claimTransportConnection('source-client', 'operator');
+  try {
+    const response = await request(app).get(url).set('x-operator', 'yes');
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ state: 'unstarted', sourceConversationId: 'first' });
+    expect(response.headers['cache-control']).toContain('no-store');
+    expect(store.listSessionCollaborations('first').collaborations).toEqual([]);
+    expect(store.listSessions()).toHaveLength(3);
+    const begin = await request(app)
+      .post(`${path}/begin`)
+      .set('x-operator', 'yes')
+      .send({ requestId: randomUUID(), sessionId: 'first' });
+    expect(begin.status).toBe(200);
+    const selected = await request(app).get(url).set('x-operator', 'yes');
+    expect(selected.body).toEqual({
+      state: 'selected',
+      sourceConversationId: 'first',
+      collaboration: begin.body,
+    });
+    expect(store.listSessions()).toHaveLength(3);
+    expect((await request(app).get(`${url}&authority=true`).set('x-operator', 'yes')).status).toBe(
+      400,
+    );
+    claimTransportConnection('source-client', 'foreign-operator');
+    expect((await request(app).get(url).set('x-operator', 'yes')).status).toBe(503);
+    claimTransportConnection('source-client', 'operator');
+    releaseTransportConnection('source-client', 'operator');
+    expect((await request(app).get(url).set('x-operator', 'yes')).status).toBe(503);
+  } finally {
+    release();
+    releaseTransportConnection('source-client', 'operator');
+  }
+  expect((await request(app).get(url).set('x-operator', 'yes')).status).toBe(503);
+});
 function reviewInput() {
   return {
     clientId: 'existing-live-transport',
