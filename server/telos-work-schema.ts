@@ -7,6 +7,12 @@ import type Database from 'better-sqlite3';
 export function initializeTelosWorkSchema(db: Database.Database) {
   db.transaction(() =>
     db.exec(`
+    CREATE TABLE IF NOT EXISTS telos_work_controls(control_id TEXT PRIMARY KEY,coordinator_item_id TEXT NOT NULL REFERENCES items(id),data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS telos_work_control_evidence(seq INTEGER PRIMARY KEY,control_id TEXT NOT NULL REFERENCES telos_work_controls(control_id),data TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS telos_work_control_revalidations(control_id TEXT NOT NULL REFERENCES telos_work_controls(control_id),item_id TEXT NOT NULL REFERENCES items(id),main_commit TEXT NOT NULL,work_revision TEXT NOT NULL,evidence_ref TEXT NOT NULL,PRIMARY KEY(control_id,item_id,main_commit,work_revision,evidence_ref));
+    CREATE TABLE IF NOT EXISTS telos_work_control_commands(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,fingerprint TEXT NOT NULL,receipt TEXT NOT NULL,PRIMARY KEY(actor_id,request_id));
+    CREATE TRIGGER IF NOT EXISTS telos_work_control_evidence_no_update BEFORE UPDATE ON telos_work_control_evidence BEGIN SELECT RAISE(ABORT,'Control evidence is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_control_evidence_no_delete BEFORE DELETE ON telos_work_control_evidence BEGIN SELECT RAISE(ABORT,'Control evidence is immutable'); END;
     CREATE TABLE IF NOT EXISTS telos_work_kinds(item_id TEXT PRIMARY KEY REFERENCES items(id),kind TEXT NOT NULL CHECK(kind IN ('coordinator','outcome','work_item')));
     CREATE TABLE IF NOT EXISTS telos_work_links(seq INTEGER PRIMARY KEY,item_id TEXT NOT NULL REFERENCES items(id),role TEXT NOT NULL,namespace TEXT NOT NULL,conversation_id TEXT NOT NULL,data TEXT NOT NULL,UNIQUE(item_id,role,namespace,conversation_id));
     CREATE INDEX IF NOT EXISTS telos_work_links_conversation ON telos_work_links(namespace,conversation_id);

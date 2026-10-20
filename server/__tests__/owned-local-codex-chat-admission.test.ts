@@ -154,6 +154,30 @@ it('requires the exact durable uncertain receipt before creating a trusted chat 
     f.store.close();
   }
 });
+
+it('enqueues the first command under uncertainty but dispatches it only after the coordinator records consumed', () => {
+  const f = fixture();
+  try {
+    f.store.claimOrdinaryLocalCommandDispatch('command');
+    const owner = OwnedLocalCodexChatAdmission.capture(f.input);
+    owner.assertOptions(f.options);
+    owner.assertBeforeEnqueue({
+      id: 'command',
+      prompt: f.options.prompt,
+      intent: f.options.intent,
+      images: f.options.images,
+      model: f.options.model,
+      reasoningEffort: f.options.reasoningEffort,
+    });
+    expect(owner.canClaimCommand('command')).toBe(false);
+    expect(() => owner.assertBeforeDispatch('command')).toThrow();
+    f.store.completeOrdinaryLocalCommand('command');
+    expect(owner.canClaimCommand('command')).toBe(true);
+    expect(() => owner.assertBeforeDispatch('command')).not.toThrow();
+  } finally {
+    f.store.close();
+  }
+});
 it.each([
   'prompt',
   'systemPrompt',

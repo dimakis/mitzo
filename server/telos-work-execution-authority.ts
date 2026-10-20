@@ -29,7 +29,7 @@ export function assertTelosWorkExecutionAuthority(
     mapping ? { ...mapping, executionTaskId: taskId } : null,
   );
   if (!mapping) return;
-  const attempt = owners.work().executionTaskBinding(taskId, sessionId);
+  const attempt = owners.work().executionTaskBinding(taskId, sessionId, true);
   if (
     !attempt ||
     attempt.state !== 'chat_ready' ||

@@ -114,6 +114,21 @@ export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
     }
     let intent: DelegationIntent<K> | undefined;
     try {
+      const existing =
+        (ordinary
+          ? this.deps.work.ordinaryDelegationRequestForHost(input.requestId, actor)
+          : this.deps.work.delegationRequestForHost(input.requestId, actor)) ??
+        (input.mode === 'start'
+          ? ordinary
+            ? this.deps.work.latestOrdinaryDelegationForHost(input.childItemId)
+            : this.deps.work.latestDelegationForHost(input.childItemId)
+          : null);
+      if (!existing || !this.deps.work.delegationCommittedForHost(existing.attemptId))
+        this.deps.work.enforceControlAction(
+          input.leadItemId,
+          'new_worker_dispatch',
+          input.leadConversationId,
+        );
       const prepare = ordinary
         ? this.deps.work.prepareOrdinaryDelegation.bind(this.deps.work)
         : this.deps.work.prepareDelegation.bind(this.deps.work);

@@ -380,6 +380,9 @@ export class CodexConversation {
   private pumping?: Promise<void>;
   private recovery?: Promise<void>;
   private automaticTransportRecoveryAttempted = false;
+  private automaticRecoveryTimer?: ReturnType<typeof setTimeout>;
+  private automaticRecoveryEpoch = 0;
+  private automaticRecoveryRunning?: { epoch: number };
   private explicitEnqueue: Promise<unknown> = Promise.resolve();
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   private appliedWebSearchAccess: WebSearchAccess = 'disabled';
@@ -431,6 +434,8 @@ export class CodexConversation {
     this.ready = false;
     this.stopCapacityScheduleForCleanup();
     const active = this.active;
+    const automatic =
+      !this.paused && !active?.interruptRequested && !this.automaticTransportRecoveryAttempted;
     const status = active?.accepted ? 'interrupted' : 'failed';
     this.finishTurnSpan(status, 'transport');
     const commandId = active?.command.id;
@@ -452,6 +457,8 @@ export class CodexConversation {
           undefined,
           true,
           true,
+          automatic ||
+            (this.automaticRecoveryRunning?.epoch === this.automaticRecoveryEpoch && !active),
         );
     } catch (persistenceError) {
       recoveryPersistenceFailed = true;
@@ -479,6 +486,8 @@ export class CodexConversation {
     // it before dispatch; no provider turn has failed in that case.
     if (active)
       this.opts.onError?.(new Error('Codex transport disconnected; recovery is available'));
+    if (!recoveryPersistenceFailed && automatic && !this.automaticRecoveryRunning)
+      this.recoverSavedQueue();
   }
   private verifyCurrentBinding(stored?: AccountBinding) {
     return this.opts.verifyBinding
@@ -1199,10 +1208,72 @@ export class CodexConversation {
     await this.acknowledgeRecovery();
     return result;
   }
-  async acknowledgeRecovery() {
+  /** Recover only positively queued work after transport loss. Never retry the lost command. */
+  recoverSavedQueue(attempt = 0) {
+    if (
+      this.closed ||
+      !this.binding ||
+      !this.paused ||
+      this.active ||
+      this.recovery ||
+      this.automaticRecoveryTimer ||
+      this.automaticRecoveryRunning ||
+      this.opts.canClaimCommand ||
+      this.opts.transportClosure === 'terminal' ||
+      this.opts.ownerKind === 'symposium' ||
+      !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding) ||
+      this.opts.store.queueSummary(this.opts.conversationId, this.binding).queued === 0 ||
+      this.opts.store.capacityRecovery(this.opts.conversationId, this.binding)
+    )
+      return;
+    const delays = [1000, 2000, 5000, 10000, 30000];
+    if (attempt >= delays.length) {
+      this.recoveryPhase = undefined;
+      this.opts.onQueueChange?.();
+      return;
+    }
+    const epoch = this.automaticRecoveryEpoch;
+    this.recoveryPhase = 'reconnecting';
+    this.opts.onQueueChange?.();
+    this.automaticRecoveryTimer = setTimeout(() => {
+      this.automaticRecoveryTimer = undefined;
+      this.automaticRecoveryRunning = { epoch };
+      void Promise.resolve(this.pumping)
+        .then(async () => {
+          if (epoch !== this.automaticRecoveryEpoch || this.closed) return;
+          this.automaticTransportRecoveryAttempted = true;
+          await this.acknowledgeRecovery(epoch);
+        })
+        .catch((error: unknown) => {
+          if (epoch === this.automaticRecoveryEpoch && attempt === delays.length - 1)
+            this.opts.onError?.(
+              error instanceof Error ? error : new Error('Automatic reconnection failed'),
+            );
+        })
+        .finally(() => {
+          this.automaticRecoveryRunning = undefined;
+          if (epoch === this.automaticRecoveryEpoch && !this.closed)
+            this.recoverSavedQueue(attempt + 1);
+        })
+        .catch(() => {
+          this.recoveryPhase = undefined;
+          log.warn('Automatic transport recovery could not finish; saved work remains queued.');
+        });
+    }, delays[attempt]);
+    this.automaticRecoveryTimer.unref?.();
+  }
+  private cancelAutomaticRecovery(persist = true) {
+    ++this.automaticRecoveryEpoch;
+    clearTimeout(this.automaticRecoveryTimer);
+    this.automaticRecoveryTimer = undefined;
+    if (persist && this.binding)
+      this.opts.store.stopAutomaticRecovery(this.opts.conversationId, this.binding);
+    this.recoveryPhase = undefined;
+  }
+  async acknowledgeRecovery(automaticEpoch?: number) {
     if (this.recovery) return this.recovery;
     const span = tracer.startSpan('codex.transport.recovery');
-    const operation = this.continueRecovery().finally(() => span.end());
+    const operation = this.continueRecovery(automaticEpoch).finally(() => span.end());
     const shared = operation.finally(() => {
       if (this.recovery === shared) {
         this.recovery = undefined;
@@ -1213,16 +1284,41 @@ export class CodexConversation {
     this.recovery = shared;
     return shared;
   }
-  private async continueRecovery() {
+  private async continueRecovery(automaticEpoch?: number) {
     if (this.closed) throw new Error('Codex conversation unavailable');
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
     if (!this.ready) await this.reconnect();
+    const recoveryTransportGeneration = this.transportGeneration;
+    if (automaticEpoch !== undefined) {
+      const page = z
+        .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
+        .parse(
+          await this.client.request('thread/turns/list', {
+            threadId: this.threadId,
+            limit: 1,
+            sortDirection: 'desc',
+            itemsView: 'notLoaded',
+          }),
+        );
+      if (page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status)))
+        throw new Error('Provider turn is still active; saved work remains queued');
+    }
     // A provider turn may continue after turn/start returns. Recovery progress
     // is only for workspace startup and transport reattachment, not generation.
     if (this.recoveryPhase) {
       this.recoveryPhase = undefined;
       this.opts.onQueueChange?.();
     }
+    // Neither metadata nor a progress observer may release work through a
+    // retired transport or undo a Stop that arrived during the reconnect.
+    if (this.closed || !this.ready || recoveryTransportGeneration !== this.transportGeneration)
+      throw new Error('Recovery transport is closed or replaced');
+    if (
+      automaticEpoch !== undefined &&
+      (automaticEpoch !== this.automaticRecoveryEpoch ||
+        !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
+    )
+      throw new Error('Automatic recovery was cancelled');
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!);
     this.paused = false;
     await this.pump();
@@ -2011,16 +2107,17 @@ export class CodexConversation {
             this.threadId!,
             active.turnId,
           );
-        if (this.opts.enableCapacityRecovery) {
-          active.accepted = true;
-          this.opts.store.recordCapacityAck(
-            this.opts.conversationId,
-            this.binding!,
-            command,
-            this.threadId!,
-            active.turnId,
-          );
-        }
+        // Acceptance is durable for every route, independently of whether the
+        // owning route permits automatic capacity recovery. Peer delivery and
+        // retry fences must not lose a real ACK when recovery is disabled.
+        active.accepted = true;
+        this.opts.store.recordCapacityAck(
+          this.opts.conversationId,
+          this.binding!,
+          command,
+          this.threadId!,
+          active.turnId,
+        );
         // The exact native ACK owns acceptance even if a trusted observer's
         // durable projection fails. Owned routes can disable capacity recovery.
         active.accepted = true;
@@ -2744,6 +2841,7 @@ export class CodexConversation {
     );
     if (!claim) return { status: 'stale_target' };
     if (!claim.fresh) return { status: 'claimed', receipt: claim.receipt, replayed: true };
+    this.cancelAutomaticRecovery();
     this.paused = true;
     active.targetedInterruptClaimed = true;
     active.interruptRequested = true;
@@ -2764,6 +2862,7 @@ export class CodexConversation {
   }
   async interrupt() {
     if (this.closed) return;
+    this.cancelAutomaticRecovery();
     this.paused = true;
     const active = this.active;
     // The interrupt request is not a terminal result. Keep active work running
@@ -2805,6 +2904,7 @@ export class CodexConversation {
       }
     };
     try {
+      attempt(() => this.cancelAutomaticRecovery(false));
       attempt(() => this.stopCapacityScheduleForCleanup());
       attempt(() =>
         this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced')),
@@ -2825,6 +2925,7 @@ export class CodexConversation {
               undefined,
               true,
               true,
+              this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding),
             );
         } catch (error) {
           this.opts.onError?.(

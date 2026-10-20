@@ -708,3 +708,181 @@ it.each(['preparation-attempt', 'work-allocation'] as const)(
     expect(f.native.first.launch).not.toHaveBeenCalled();
   },
 );
+
+async function heldOrdinaryDelegationFixture() {
+  const f = await fixture();
+  const command = (itemId: string, input: object) =>
+    f.work.execute(
+      {
+        itemId,
+        requestId: randomUUID(),
+        expectedRevision: f.work.read(itemId, f.actor).revision,
+        ...input,
+      },
+      f.actor,
+    );
+  for (const [id, kind] of [
+    ['coordinator', 'coordinator'],
+    ['priority', 'outcome'],
+  ] as const) {
+    f.db
+      .prepare(
+        "INSERT INTO items(id,parent_id,summary,profile,first_seen,last_seen,created_at,updated_at) VALUES(?,?,?,'manual',?,?,?,?)",
+      )
+      .run(
+        id,
+        id === 'priority' ? 'coordinator' : null,
+        id,
+        f.canonical.stamp,
+        f.canonical.stamp,
+        f.canonical.stamp,
+        f.canonical.stamp,
+      );
+    command(id, { operation: 'classify', kind });
+  }
+  command('coordinator', {
+    operation: 'link',
+    role: 'lead',
+    conversation: { namespace: 'mitzo', conversationId: 'planning' },
+  });
+  command('coordinator', {
+    operation: 'assign',
+    role: 'lead',
+    conversationId: 'planning',
+    expectedAssignmentRevision: 0,
+  });
+  command('studio', { operation: 'reparent', parentId: 'coordinator' });
+  f.input.contextSelection = reviewTelosWorkRoleContext({
+    work: f.work,
+    artifacts: f.canonical.artifacts,
+    actor: f.actor,
+    itemId: 'slice',
+    role: 'worker',
+    selectedSourceSnapshotIds: [],
+    selectedArtifactRefs: [],
+  });
+  f.input.expectedRevision = f.input.contextSelection.brief.revision;
+  return Object.assign(f, {
+    command,
+    hold: () =>
+      f.work.requestControl(
+        {
+          requestId: 'hold-after-commit',
+          coordinatorItemId: 'coordinator',
+          priorityItemId: 'priority',
+          targetItemIds: ['studio'],
+          scope: 'new_worker_dispatch',
+        },
+        f.actor,
+      ),
+  });
+}
+
+it.each(['exact', 'default-start'] as const)(
+  'recovers committed V2 %s after restart under a later dispatch hold without another worker or turn',
+  async (mode) => {
+    const f = await heldOrdinaryDelegationFixture();
+    const original = await f.delegation.delegate(f.actor, f.input, f.native.signal.signal);
+    const sessions = f.native.events
+      .listSessions()
+      .map((s) => s.sessionId)
+      .sort();
+    const task = f.tasks.getTelosExecutionBinding(original.attempt.executionTaskId!);
+    const control = f.hold();
+    f.restart();
+    const reserve = vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace');
+    expect(f.work.delegationRequestForHost(f.input.requestId, f.actor)).toBeNull();
+    expect(f.work.ordinaryDelegationRequestForHost(f.input.requestId, f.actor)?.attemptId).toBe(
+      original.attempt.attemptId,
+    );
+    const replay =
+      mode === 'exact' ? f.input : { ...structuredClone(f.input), requestId: randomUUID() };
+    expect(await f.delegation.delegate(f.actor, replay, f.native.signal.signal)).toEqual(original);
+    expect(
+      f.native.events
+        .listSessions()
+        .map((s) => s.sessionId)
+        .sort(),
+    ).toEqual(sessions);
+    expect(f.work.read('slice', f.actor).attempts).toHaveLength(1);
+    expect(f.tasks.getTelosExecutionBinding(original.attempt.executionTaskId!)).toEqual(task);
+    expect(reserve).not.toHaveBeenCalled();
+    expect(
+      f.native.events.getOrdinaryInitialCommandId(original.workerConversationId),
+    ).toBeUndefined();
+    expect(f.native.first.launch).not.toHaveBeenCalled();
+    expect(f.native.forbidden).not.toHaveBeenCalled();
+    expect(f.work.readControl(control.controlId, f.actor).stage).not.toBe('released');
+  },
+);
+
+it('a V2 committed-receipt exemption still refuses a fresh child and the original worker first physical dispatch during the hold', async () => {
+  const f = await heldOrdinaryDelegationFixture();
+  const original = await f.delegation.delegate(f.actor, f.input, f.native.signal.signal);
+  f.hold();
+  const reserve = vi.spyOn(f.native.workspaces, 'reserveOrdinaryWorkspace');
+  const contextSelection = reviewTelosWorkRoleContext({
+    work: f.work,
+    artifacts: f.canonical.artifacts,
+    actor: f.actor,
+    itemId: 'sibling',
+    role: 'worker',
+    selectedSourceSnapshotIds: [],
+    selectedArtifactRefs: [],
+  });
+  await expect(
+    f.delegation.delegate(
+      f.actor,
+      {
+        ...structuredClone(f.input),
+        requestId: randomUUID(),
+        childItemId: 'sibling',
+        contextSelection,
+        expectedRevision: contextSelection.brief.revision,
+      },
+      f.native.signal.signal,
+    ),
+  ).rejects.toThrow(/hold/i);
+  expect(f.work.read('sibling', f.actor).attempts).toEqual([]);
+  const { assertTelosWorkCommandAdmission } = await import('../telos-work-command-scope.js');
+  expect(() =>
+    assertTelosWorkCommandAdmission(
+      { events: f.native.events, tasks: f.tasks, work: () => f.work },
+      original.workerConversationId,
+      f.native.binding,
+    ),
+  ).toThrow(/hold/i);
+  expect(reserve).not.toHaveBeenCalled();
+  expect(
+    f.native.events.getOrdinaryInitialCommandId(original.workerConversationId),
+  ).toBeUndefined();
+  expect(f.native.first.launch).not.toHaveBeenCalled();
+});
+
+it.each(['hidden', 'replaced'] as const)(
+  'a committed V2 receipt under hold cannot restore a %s lead authority',
+  async (state) => {
+    const f = await heldOrdinaryDelegationFixture();
+    await f.delegation.delegate(f.actor, f.input, f.native.signal.signal);
+    f.hold();
+    if (state === 'hidden') f.native.events.hideSession(f.leadConversationId);
+    else {
+      f.command('studio', {
+        operation: 'link',
+        role: 'lead',
+        conversation: { namespace: 'mitzo', conversationId: 'planning' },
+      });
+      f.command('studio', {
+        operation: 'assign',
+        role: 'lead',
+        conversationId: 'planning',
+        expectedAssignmentRevision: 1,
+      });
+    }
+    await expect(f.delegation.delegate(f.actor, f.input, f.native.signal.signal)).rejects.toThrow(
+      /current.*lead|ordinary.*lead/i,
+    );
+    expect(f.work.read('slice', f.actor).attempts).toHaveLength(1);
+    expect(f.native.first.launch).not.toHaveBeenCalled();
+  },
+);

@@ -2100,7 +2100,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     if (
-      ['message_start', 'session_end', 'error'].includes(String(msg.type)) &&
+      (['message_start', 'session_end', 'error'].includes(String(msg.type)) ||
+        (msg.type === 'message_snapshot' &&
+          Array.isArray(msg.blocks) &&
+          typeof msg.startedSeq === 'number' &&
+          Number.isSafeInteger(msg.startedSeq) &&
+          msg.startedSeq >
+            (store
+              .getState()
+              .messages.messages.filter((message) => message.role === 'user')
+              .at(-1)?.startedSeq ?? Infinity))) &&
       store.getState().sendStatus === 'Preparing response…'
     )
       store.setState({ sendStatus: null });

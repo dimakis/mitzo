@@ -63,6 +63,7 @@ import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-ad
 import { isRegisteredConversation } from './conversation-identity.js';
 import { isDeepStrictEqual } from 'node:util';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
+import { AgentCommunicationStore } from './agent-communication-store.js';
 import { SessionCollaborationStore } from './session-collaboration-store.js';
 import { CollaborationConversationStore } from './collaboration-conversation-store.js';
 import {
@@ -389,6 +390,7 @@ export class EventStore {
   private readonly sessionOutputs: SessionOutputReferenceStore;
   private readonly sessionCollaborations: SessionCollaborationStore;
   readonly collaborationConversation: CollaborationConversationStore;
+  readonly agentCommunication: AgentCommunicationStore;
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
   private readonly ordinaryWorkspaceSessions: OrdinaryWorkspaceSessionStore;
@@ -1322,6 +1324,7 @@ export class EventStore {
     this.migrateConversationSource(db);
     this.migrateUserMessageIndex(db);
     this.sessionOutputs = new SessionOutputReferenceStore(db);
+    this.agentCommunication = new AgentCommunicationStore(db);
     this.sessionCollaborations = new SessionCollaborationStore(db, (membership) =>
       this.collaborationConversation.membershipChanged(membership),
     );
@@ -2296,6 +2299,20 @@ export class EventStore {
     terminalReason?: ProviderAttemptTerminalReason,
   ): ProviderAttemptTransitionResult {
     return this.executionLedger.transitionProviderAttempt(token, nextPhase, terminalReason);
+  }
+
+  /** Durable evidence that this ordinary conversation has reached provider
+   * dispatch before. Queue admission alone is not evidence of a started worker. */
+  hasProviderDispatchForConversation(sessionId: string): boolean {
+    if (!this.db) throw new Error('Execution history unavailable');
+    this.assertConversationIdentity(sessionId);
+    return !!this.db
+      .prepare(
+        `SELECT 1 FROM provider_attempts WHERE session_id=?
+         UNION ALL SELECT 1 FROM events WHERE session_id=? AND type IN ('ordinary_provider_dispatch_started','ordinary_reply_source')
+         LIMIT 1`,
+      )
+      .get(sessionId, sessionId);
   }
 
   /** Read provider-attempt history for one immutable execution generation. */
