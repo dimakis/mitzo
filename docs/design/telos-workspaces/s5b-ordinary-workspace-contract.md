@@ -135,3 +135,14 @@ second scheduler is introduced.
 
 These private adapters remain dependent, unaccepted source. Public HTTP/client/UI
 adoption and the complete CT07–CT09 journeys are still separate requirements.
+
+Accepted-main idle persistence release is shared by repository and ordinary
+workspaces. Ordinary prepare, qualify, reserve, revalidate and claim remain active until their asynchronous
+readiness work settles. Validation retains its synchronous custody contract. Idle release refuses those operations
+without cancellation or replacement. After release, every ordinary entrypoint
+fails before readiness acquisition or private persistence access; reads cannot
+lazily reopen custody. This adds no cleanup, deletion or task lifecycle operation.
+
+## Assignment history read contract
+
+Work reads may include `assignmentHistory` for lead and worker, each with `complete` and `conversationIds`. A previous assignment requires a schema-valid, non-conflicting recorded identity already disclosed by a same-role link. Incomplete legacy history remains unknown; additional-conversation labels require complete role history. Current assignments remain the sole current assignment and action authority. The optional projection does not change the original work revision facts or fill absent fields in old cached receipts. It exposes no new conversation IDs, actors or timestamps.

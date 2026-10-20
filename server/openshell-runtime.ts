@@ -769,6 +769,7 @@ export function verifiedOpenShellPolicy(
 async function knowledgePhase<T>(
   phase:
     | 'reconcile'
+    | 'initial_reconcile'
     | 'reuse_initial_selection'
     | 'verify_host'
     | 'freeze_upload'
@@ -905,16 +906,22 @@ export async function preparePublishedOpenShellSeed(
   signal: AbortSignal,
   beforeFreeze?: (selectedSeed: string) => Promise<void>,
 ): Promise<{ seed: string; cleanup: () => void; publication?: KnowledgeBundleSelection }> {
-  const publication = await config.knowledgeStore?.reconcile(signal);
+  const publication = await knowledgePhase('initial_reconcile', () =>
+    config.knowledgeStore?.reconcile(signal),
+  );
   const selection = publication ? structuredClone(publication) : undefined;
   signal.throwIfAborted();
   // Capacity callers must budget the actual immutable selection before the
   // host snapshot allocation, then pass that same snapshot to ensure().
   const selectedConfig = { ...config, seed: selection?.seed ?? config.seed };
-  const selectedSeed = verifiedOpenShellSeed(selectedConfig);
+  const selectedSeed = await knowledgePhase('verify_host', () =>
+    verifiedOpenShellSeed(selectedConfig),
+  );
   await beforeFreeze?.(selectedSeed);
   signal.throwIfAborted();
-  const prepared = prepareOpenShellSeed({ ...selectedConfig, seed: selectedSeed });
+  const prepared = await knowledgePhase('freeze_upload', () =>
+    prepareOpenShellSeed({ ...selectedConfig, seed: selectedSeed }),
+  );
   if (selection) {
     try {
       const baselineBytes = readFileSync(join(prepared.seed, '..', 'baseline.json'));
@@ -1155,36 +1162,37 @@ export class OpenShellRuntimeManager {
       );
     };
     const catalog = await readCatalog();
-    const providers = [];
-    for (const name of [...expected].sort()) {
-      const matches = inventory.filter((p) => p.name === name);
-      const provider = matches[0];
-      if (matches.length !== 1 || !provider || provider.workspace !== this.config.workspace)
-        throw new Error('Runtime provider inventory is ambiguous');
-      const profile = JSON.parse(
-        await this.run(
-          ['provider', ...this.base(), 'profile', 'export', provider.type, '--output', 'json'],
-          signal,
-        ),
-      );
-      if (
-        name === this.config.account.provider &&
-        this.config.account.kind === 'api' &&
-        provider.type !== 'mitzo-openai-keychain-spike'
-      )
-        throw new Error('Runtime ordinary API account profile is unsupported');
-      const connection = connectionContracts.find((contract) => contract.name === name);
-      if (
-        (name.startsWith('mitzo-conn-') && !connection) ||
-        (connection && (connection.id !== provider.id || connection.type !== provider.type))
-      )
-        throw new Error('Runtime managed connection binding differs');
-      providers.push({
-        ...provider,
-        profile,
-        ...(connection ? { connectionPolicy: connection.policy } : {}),
-      });
-    }
+    const providers = await Promise.all(
+      [...expected].sort().map(async (name) => {
+        const matches = inventory.filter((p) => p.name === name);
+        const provider = matches[0];
+        if (matches.length !== 1 || !provider || provider.workspace !== this.config.workspace)
+          throw new Error('Runtime provider inventory is ambiguous');
+        const profile = JSON.parse(
+          await this.run(
+            ['provider', ...this.base(), 'profile', 'export', provider.type, '--output', 'json'],
+            signal,
+          ),
+        );
+        if (
+          name === this.config.account.provider &&
+          this.config.account.kind === 'api' &&
+          provider.type !== 'mitzo-openai-keychain-spike'
+        )
+          throw new Error('Runtime ordinary API account profile is unsupported');
+        const connection = connectionContracts.find((contract) => contract.name === name);
+        if (
+          (name.startsWith('mitzo-conn-') && !connection) ||
+          (connection && (connection.id !== provider.id || connection.type !== provider.type))
+        )
+          throw new Error('Runtime managed connection binding differs');
+        return {
+          ...provider,
+          profile,
+          ...(connection ? { connectionPolicy: connection.policy } : {}),
+        };
+      }),
+    );
     const attestation = attestEffectiveRuntimePolicy(
       verifiedOpenShellPolicy(this.config),
       detail.policy,
@@ -1225,16 +1233,18 @@ export class OpenShellRuntimeManager {
       throw new Error('Runtime selectable profile catalog changed during attestation');
     // Bind the observations to a stable physical/account/attachment/profile snapshot.
     // resource_version itself advances on read-only observations and is not this fence.
-    for (const provider of providers) {
-      const profile = JSON.parse(
-        await this.run(
-          ['provider', ...this.base(), 'profile', 'export', provider.type, '--output', 'json'],
-          signal,
-        ),
-      );
-      if (runtimePolicyHash(profile) !== runtimePolicyHash(provider.profile))
-        throw new Error('Runtime provider profile changed during attestation');
-    }
+    await Promise.all(
+      providers.map(async (provider) => {
+        const profile = JSON.parse(
+          await this.run(
+            ['provider', ...this.base(), 'profile', 'export', provider.type, '--output', 'json'],
+            signal,
+          ),
+        );
+        if (runtimePolicyHash(profile) !== runtimePolicyHash(provider.profile))
+          throw new Error('Runtime provider profile changed during attestation');
+      }),
+    );
     await this.verifyAccountProvider(signal);
     verifiedOpenShellPolicy(this.config);
     const afterInventory = await this.accountProviderInventory(signal);
@@ -1794,6 +1804,26 @@ export class OpenShellRuntimeManager {
     signal.throwIfAborted();
     if (expiresAt === undefined) throw new Error('Subscription grant expiry is unavailable');
     return expiresAt;
+  }
+
+  /** Read-only qualification of an existing API provider, before any sandbox effect. */
+  async verifyAPIAccountProvider(providerId: string, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    if (this.config.account.kind !== 'api' || !providerId)
+      throw new Error('OpenShell API provider binding unavailable');
+    const matches = (await this.accountProviderInventory(signal)).filter(
+      (provider) => provider.name === this.config.account.provider,
+    );
+    signal.throwIfAborted();
+    const provider = matches[0];
+    if (
+      matches.length !== 1 ||
+      !provider ||
+      provider.id !== providerId ||
+      provider.type !== 'mitzo-openai-keychain-spike' ||
+      provider.workspace !== this.config.workspace
+    )
+      throw new Error('OpenShell API provider binding changed');
   }
 
   private async verifyAccountProvider(signal: AbortSignal) {

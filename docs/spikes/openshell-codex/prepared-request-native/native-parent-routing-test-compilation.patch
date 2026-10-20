@@ -1,0 +1,35 @@
+From ef263974e5dc5ab280003282a8bbfb1a404a5ebf Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 23:25:29 +0100
+Subject: [PATCH] fix(core): compile scoped parent routing regressions
+
+---
+ .../src/tools/approvals/parent_consumer_routing_tests.rs     | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs b/codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs
+index d045b57..2a8e252 100644
+--- a/codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs
++++ b/codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs
+@@ -3,6 +3,8 @@ use super::*;
+ use crate::session::InterceptedApprovalSelection;
+ use crate::tasks::SessionTask;
+ use crate::tasks::SessionTaskResult;
++use codex_protocol::error::CodexErrorDetails;
++use codex_protocol::protocol::EventMsg;
+ use codex_protocol::protocol::GuardianCommandSource;
+ use codex_protocol::protocol::TurnAbortReason;
+ use codex_protocol::protocol::TurnSettingsUpdate;
+@@ -441,7 +443,8 @@ async fn strict_reviewed_abort_never_enters_a_model_or_manual_fallback() -> anyh
+                 .session
+                 .request_intercepted_approval(&selected, /*parent*/ None)
+                 .await,
+-            Err(ToolError::Codex(CodexErr::TurnAborted))
++            Err(ToolError::Codex(error))
++                if matches!(error.details(), CodexErrorDetails::TurnAborted)
+         ));
+         assert_eq!(case.fixture.calls.load(Ordering::SeqCst), 1);
+         case.no_manual();
+-- 
+2.54.0 (Apple Git-157)
+

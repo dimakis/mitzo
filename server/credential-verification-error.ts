@@ -1,5 +1,7 @@
 /** Only these fixed messages/codes may cross the credential verification boundary. */
 const messages = {
+  response_too_large:
+    'The service response exceeded the connection size limit. Use a narrower API endpoint.',
   credential_rejected:
     'The service rejected this key. Check that you copied the complete key from this service, then retry.',
   access_denied: 'The service refused access. Check the key’s account permissions, then retry.',

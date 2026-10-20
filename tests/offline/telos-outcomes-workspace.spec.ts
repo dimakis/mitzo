@@ -494,14 +494,67 @@ for (const theme of ['dark', 'light'])
       await row.getByRole('button', { name: 'Plan the recording setup', exact: true }).click();
       await expect(priority).toHaveValue(String(value));
     }
+    // Settle the departing item's read owners before replacing its document.
+    // The next document retains its independent loading/handoff coverage.
+    const departingItem = page.locator('.telos-item-workspace');
+    await expect(departingItem).toBeVisible();
+    await expect(
+      departingItem.getByRole('button', { name: 'Choose worker', exact: true }),
+    ).toBeVisible();
+    await expect(
+      departingItem
+        .getByRole('region', { name: 'Outputs', exact: true })
+        .getByText('1 saved file', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      departingItem
+        .getByRole('region', { name: 'Sources', exact: true })
+        .getByText('Originating conversation', { exact: true })
+        .first(),
+    ).toBeVisible();
+    let releasePriorityHandoff!: () => void;
+    recordReadGate = new Promise<void>((resolve) => {
+      releasePriorityHandoff = resolve;
+    });
     await reload();
+    await expect(page.getByRole('heading', { name: 'Task', exact: true })).toBeVisible();
     await expect(priority).toHaveValue('10');
     rejectPriority = true;
+    priorityGate = new Promise<void>((resolve) => {
+      releasePriority = resolve;
+    });
     await priority.selectOption('2');
+    await expect(priority).toBeDisabled();
+    await expect.poll(() => priorityWrites.at(-1)).toBe(2);
+    // Cover both actual response orderings. No canonical-ready wait before the
+    // write: the rejected request must start in the legacy fallback header.
+    if (theme === 'light') {
+      releasePriorityHandoff();
+      recordReadGate = undefined;
+      await expect(page.locator('.telos-item-workspace')).toBeVisible();
+      await expect(priority).toBeDisabled();
+      await expect(priority).toHaveValue('10');
+    }
+    releasePriority!();
+    priorityGate = undefined;
     await expect(
       page.getByRole('alert').filter({ hasText: 'Couldn’t confirm this priority' }),
     ).toBeVisible();
     await expect(priority).toHaveValue('10');
+    if (theme === 'dark') {
+      releasePriorityHandoff();
+      recordReadGate = undefined;
+      await expect(page.locator('.telos-item-workspace')).toBeVisible();
+    }
+    await expect(
+      page.getByRole('alert').filter({ hasText: 'Couldn’t confirm this priority' }),
+    ).toBeVisible();
+    await expect(priority).toHaveValue('10');
+    await expect(priority).toBeEnabled();
+    await page.screenshot({
+      path: info.outputPath('priority-handoff-' + theme + '.png'),
+      fullPage: true,
+    });
     rejectPriority = false;
     priorityGate = new Promise((resolve) => {
       releasePriority = resolve;
@@ -606,6 +659,13 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Back', exact: true }).click();
     await expect(page.getByRole('dialog', { name: 'Saved studio plan' })).toBeVisible();
     expect(new URL(page.url()).pathname + new URL(page.url()).search).toBe(selectedWorkRoute);
+    // Revoke access only after the current returned dialog has finished its read.
+    await expect(page.locator('.telos-item-workspace')).toBeVisible();
+    await expect(
+      page
+        .getByRole('dialog', { name: 'Saved studio plan' })
+        .getByRole('heading', { name: 'Retained studio plan r3' }),
+    ).toBeVisible();
     denyArtifact = true;
     await reload();
     await expect(

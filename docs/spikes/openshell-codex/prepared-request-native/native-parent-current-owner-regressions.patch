@@ -1,0 +1,475 @@
+From 37e91e63e0a93000a3c10da92fca0ca5bc6df580 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 20:59:07 +0100
+Subject: [PATCH] test(core): cover held parent resolution refusals
+
+---
+ .../parent_resolution_negative_tests.rs       | 444 ++++++++++++++++++
+ .../parent_resolution_owner_tests.rs          |   3 +
+ 2 files changed, 447 insertions(+)
+ create mode 100644 codex-rs/core/src/tools/approvals/parent_resolution_negative_tests.rs
+
+diff --git a/codex-rs/core/src/tools/approvals/parent_resolution_negative_tests.rs b/codex-rs/core/src/tools/approvals/parent_resolution_negative_tests.rs
+new file mode 100644
+index 0000000..aef67fe
+--- /dev/null
++++ b/codex-rs/core/src/tools/approvals/parent_resolution_negative_tests.rs
+@@ -0,0 +1,444 @@
++//! Additive actual-owner/mapping negatives; no grant constructors.
++use super::*;
++use crate::environment_selection::EnvironmentConfigOrigin;
++use crate::environment_selection::ThreadEnvironments;
++use crate::environment_selection::TurnEnvironmentState;
++use crate::session::ThreadEnvironmentDefaults;
++use codex_protocol::models::AdditionalPermissionProfile;
++use codex_protocol::models::NetworkPermissions;
++use codex_protocol::permissions::NetworkSandboxPolicy;
++use codex_protocol::protocol::EnvironmentConfigState;
++use codex_utils_path_uri::PathUri;
++use pretty_assertions::assert_eq;
++
++async fn paired_cases() -> anyhow::Result<(Case, Case)> {
++    let primary = Case::new().await?;
++    match Case::new().await {
++        Ok(foreign) => Ok((primary, foreign)),
++        Err(error) => {
++            primary.finish(Err(error)).await?;
++            unreachable!("failed foreign setup returned success")
++        }
++    }
++}
++async fn finish_both(
++    primary: Case,
++    foreign: Case,
++    result: anyhow::Result<()>,
++) -> anyhow::Result<()> {
++    // Collect BOTH results before propagating either ordinary error.
++    let primary_result = primary.finish(result).await;
++    let foreign_result = foreign.finish(Ok(())).await;
++    match (primary_result, foreign_result) {
++        (Ok(()), Ok(())) => Ok(()),
++        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
++        (Err(error), Err(foreign)) => {
++            Err(error.context(format!("foreign cleanup also failed: {foreign}")))
++        }
++    }
++}
++
++impl Case {
++    async fn issuer(&self, cancellation: &CancellationToken) -> InitialExecApprovalIssuer {
++        self.fixture
++            .session
++            .capture_initial_exec_approval_issuer(&self.fixture.step, cancellation)
++            .await
++            .expect("actual original issuer observation")
++    }
++    async fn observation_entries(
++        &self,
++        issuer: &InitialExecApprovalIssuer,
++        action: &ApprovalAction,
++        packet: &Packet,
++    ) -> usize {
++        let count = AtomicUsize::new(0);
++        let result = self
++            .fixture
++            .session
++            .with_current_parent_resolution(
++                issuer,
++                action,
++                &packet.selected,
++                &packet.used,
++                &packet.policy,
++                &packet.hooks,
++                || {
++                    count.fetch_add(1, Ordering::SeqCst);
++                    None
++                },
++            )
++            .await;
++        assert!(result.is_none());
++        count.load(Ordering::SeqCst)
++    }
++}
++
++#[tokio::test]
++async fn plain_actual_issuer_and_child_mapping_mismatches_cannot_enter_finish() -> anyhow::Result<()>
++{
++    let (case, foreign) = paired_cases().await?;
++    let result = bounded(async {
++        let cancellation = CancellationToken::new();
++        let foreign_cancel = CancellationToken::new();
++        let foreign_issuer = foreign.issuer(&foreign_cancel).await;
++        for mismatch in 0..33 {
++            let mut issuer = case.issuer(&cancellation).await;
++            let mut packet = case.packet().await?;
++            let mut action = case.fixture.action(CALL);
++            match mismatch {
++                0 => issuer.session = Arc::downgrade(&foreign.fixture.session),
++                1 => issuer.task_done = Arc::clone(&foreign_issuer.task_done),
++                2 => issuer.turn = Arc::clone(&foreign_issuer.turn),
++                3 => issuer.settings = Arc::clone(&foreign_issuer.settings),
++                4 => issuer.live_config = Arc::clone(&foreign_issuer.live_config),
++                5 => issuer.base_exec_policy = Arc::clone(&foreign_issuer.base_exec_policy),
++                6 => packet.used = Arc::clone(&foreign_issuer.live_config),
++                7 => packet.policy = Arc::clone(&foreign_issuer.base_exec_policy),
++                8 => {
++                    if let ApprovalAction::ExecCommand { id, .. } = &mut action {
++                        *id = "foreign".into();
++                    }
++                }
++                9 => {
++                    if let ApprovalAction::ExecCommand { environment_id, .. } = &mut action {
++                        *environment_id = "foreign".into();
++                    }
++                }
++                10 => action = packet.selected.action.clone(),
++                11 => {
++                    if let ApprovalAction::Execve { id, .. } = &mut packet.selected.action {
++                        *id = "foreign".into();
++                    }
++                }
++                12 => {
++                    if let ApprovalAction::Execve { command, .. } = &mut packet.selected.action {
++                        command.push("foreign".into());
++                    }
++                }
++                13 => packet.selected.environment_id = "foreign".into(),
++                14 => {
++                    if let ApprovalAction::Execve { source, .. } = &mut packet.selected.action {
++                        *source = GuardianCommandSource::Shell;
++                    }
++                }
++                15 => {
++                    if let ApprovalAction::Execve { approval_id, .. } = &mut packet.selected.action
++                    {
++                        approval_id.clear();
++                    }
++                }
++                16 => {
++                    if let ApprovalAction::Execve {
++                        additional_permissions,
++                        ..
++                    } = &mut packet.selected.action
++                    {
++                        *additional_permissions = Some(AdditionalPermissionProfile {
++                            network: Some(NetworkPermissions {
++                                enabled: Some(true),
++                            }),
++                            ..Default::default()
++                        });
++                    }
++                }
++                17 => {
++                    if let ApprovalAction::Execve { environment_id, .. } =
++                        &mut packet.selected.action
++                    {
++                        *environment_id = "foreign".into();
++                    }
++                }
++                18 => {
++                    if let ApprovalAction::Execve { argv, .. } = &mut packet.selected.action {
++                        argv.push("not-in-normalized-command".into());
++                    }
++                }
++                19 => {
++                    if let ApprovalAction::Execve { program, .. } = &mut packet.selected.action {
++                        *program =
++                            AbsolutePathBuf::current_dir()?.join("foreign-unexecuted-program");
++                    }
++                }
++                20 => packet.selected.action = case.fixture.action(CALL),
++                21 => packet.selected.context.call_id = "foreign".into(),
++                22 => packet.selected.session = Arc::downgrade(&foreign.fixture.session),
++                23 => packet.selected.task_done = Arc::clone(&foreign_issuer.task_done),
++                24 => packet.selected.settings = Arc::clone(&foreign_issuer.settings),
++                25 => packet.selected.config = Arc::clone(&foreign_issuer.live_config),
++                26 => packet.selected.manager_policy = Arc::clone(&foreign_issuer.base_exec_policy),
++                27 => {
++                    packet.selected._evaluated_policy = Arc::clone(&foreign_issuer.base_exec_policy)
++                }
++                28 => packet.selected.context.strict_auto_review = true,
++                29 => {
++                    packet.selected.context.review_context.approval_policy = AskForApproval::Never
++                }
++                30 => {
++                    packet.selected.context.review_context.approvals_reviewer =
++                        ApprovalsReviewer::AutoReview
++                }
++                31 => {
++                    packet.selected.context.review_context.model_info = Arc::new(
++                        packet
++                            .selected
++                            .context
++                            .review_context
++                            .model_info
++                            .as_ref()
++                            .clone(),
++                    )
++                }
++                32 => {
++                    packet.selected.context.review_context =
++                        GuardianReviewContext::from(&foreign.fixture.step)
++                }
++                _ => unreachable!(),
++            }
++            assert_eq!(
++                case.observation_entries(&issuer, &action, &packet).await,
++                0,
++                "mismatch {mismatch}"
++            );
++        }
++        let issuer = case.issuer(&cancellation).await;
++        let packet = case.packet().await?;
++        assert_eq!(
++            case.observation_entries(&issuer, &case.fixture.action(CALL), &packet)
++                .await,
++            1
++        );
++        cancellation.cancel();
++        assert_eq!(
++            case.observation_entries(&issuer, &case.fixture.action(CALL), &packet)
++                .await,
++            0
++        );
++        Ok(())
++    })
++    .await;
++    finish_both(case, foreign, result).await
++}
++
++#[tokio::test]
++async fn actual_target_grants_and_actual_hook_registry_observations_refuse_finish()
++-> anyhow::Result<()> {
++    for turn_grant in [false, true] {
++        let case = Case::new().await?;
++        let result = bounded(async {
++            let approval = case.fresh().await?;
++            let packet = case.packet().await?;
++            let grant = AdditionalPermissionProfile {
++                network: Some(NetworkPermissions {
++                    enabled: Some(true),
++                }),
++                ..Default::default()
++            };
++            if turn_grant {
++                let state = Arc::clone(
++                    &case
++                        .fixture
++                        .session
++                        .active_turn
++                        .lock()
++                        .await
++                        .as_ref()
++                        .unwrap()
++                        .turn_state,
++                );
++                state
++                    .lock()
++                    .await
++                    .record_granted_permissions(&packet.selected.environment_id, grant);
++            } else {
++                case.fixture
++                    .session
++                    .state
++                    .lock()
++                    .await
++                    .record_granted_permissions(&packet.selected.environment_id, grant);
++            }
++            assert_eq!(case.entries(&approval, &packet).await, 0);
++            Ok(())
++        })
++        .await;
++        case.finish(result).await?;
++    }
++    let case = Case::new().await?;
++    let result =
++        bounded(async {
++            let approval = case.fresh().await?;
++            let packet = case.packet().await?;
++            let config = case.fixture.session.get_config().await;
++            let original_hooks = case.fixture.session.hooks();
++            case.fixture
++                .session
++                .refresh_hooks(Arc::clone(&config))
++                .await;
++            assert!(Arc::ptr_eq(
++                &config,
++                &case.fixture.session.get_config().await
++            ));
++            let refreshed_hooks = case.fixture.session.hooks();
++            assert!(!Arc::ptr_eq(&original_hooks, &refreshed_hooks));
++            assert!(!packet.hooks.matches_current(&refreshed_hooks));
++            assert_eq!(case.entries(&approval, &packet).await, 0);
++            let current_packet = case.packet().await?;
++            assert!(current_packet.hooks.matches_current(&refreshed_hooks));
++            assert_eq!(case.entries(&approval, &current_packet).await, 1);
++            let home = &case.fixture.step.turn.config.codex_home;
++            std::fs::create_dir_all(home)?;
++            std::fs::write(
++                home.join("hooks.json"),
++                serde_json::json!({"hooks":{"PermissionRequest":[{"hooks":[{
++                    "type":"command", "command":"cat >/dev/null; printf '{}'"
++                }]}]}})
++                .to_string(),
++            )?;
++            let stack = &case.fixture.step.turn.config.config_layer_stack;
++            let listed = codex_hooks::list_hooks(codex_hooks::HooksConfig {
++                feature_enabled: true,
++                config_layer_stack: Some(stack.clone()),
++                ..Default::default()
++            });
++            assert_eq!(listed.hooks.len(), 1);
++            let trusted = stack.with_user_config(&home.join(codex_config::CONFIG_TOML_FILE),
++            serde_json::from_value(serde_json::json!({"hooks":{"state":{
++                listed.hooks[0].key.clone(): {"trusted_hash":listed.hooks[0].current_hash.clone()}
++            }}}))?)?;
++            let hooks = case
++                .fixture
++                .session
++                .hooks()
++                .reconfigured(codex_hooks::HooksConfig {
++                    feature_enabled: true,
++                    config_layer_stack: Some(trusted),
++                    shell_program: Some("/bin/sh".into()),
++                    shell_args: vec!["-c".into()],
++                    ..Default::default()
++                });
++            case.fixture.session.services.hooks.store(Arc::new(hooks));
++            let packet = case.packet().await?;
++            assert_eq!(packet.hooks.matching_handler_count(), 1);
++            assert_eq!(case.entries(&approval, &packet).await, 0);
++            Ok(())
++        })
++        .await;
++    case.finish(result).await
++}
++
++#[tokio::test]
++async fn complete_ordered_derived_snapshot_comparison_is_mapping_only() -> anyhow::Result<()> {
++    let (case, foreign) = paired_cases().await?;
++    let result = bounded(async {
++        let actual = case.fixture.step.environments.clone();
++        let ready = actual.primary().unwrap();
++        // Plain cloned Ready metadata; this is not a manufactured selected owner or grant.
++        let mut baseline = actual.clone();
++        let mut secondary = ready.clone();
++        secondary.selection.environment_id = "secondary-mapping".into();
++        baseline
++            .environments
++            .push(TurnEnvironmentState::Ready(secondary));
++        assert!(same_ready_parent_environments(&baseline, &baseline));
++        let inherited = Arc::new(ThreadEnvironments::new(
++            case.fixture
++                .session
++                .services
++                .turn_environments
++                .environment_manager(),
++            crate::shell::default_user_shell(),
++            ThreadEnvironmentDefaults::new(
++                ready.config().clone(),
++                codex_sandboxing::SandboxType::None,
++            ),
++            crate::shell_snapshot::ShellSnapshot::disabled(),
++            actual.clone(),
++            /*non_blocking_snapshots*/ false,
++        ));
++        // Peek the inherited Shared without polling its immediately-ready future.
++        let observed = inherited.observe_selected();
++        let unpolled = observed.snapshot().environments[0].clone();
++        assert!(matches!(&unpolled, TurnEnvironmentState::Starting(_)));
++        for mismatch in 0..14 {
++            let mut changed = baseline.clone();
++            if mismatch == 0 {
++                changed.environments.pop();
++            } else if mismatch == 1 {
++                changed.environments.swap(0, 1);
++            } else if mismatch == 2 {
++                changed.environments[1] = unpolled.clone();
++            } else if mismatch == 3 {
++                changed.environments[1] = TurnEnvironmentState::Failed {
++                    selection: ready.selection.clone(),
++                    error: "mapping-only failure".into(),
++                };
++            } else if let TurnEnvironmentState::Ready(entry) = &mut changed.environments[1] {
++                match mismatch {
++                    4 => entry.selection.config = EnvironmentConfigState::Pending,
++                    5 => {
++                        entry.selection.cwd =
++                            PathUri::from_abs_path(&AbsolutePathBuf::current_dir()?.join("other"))
++                    }
++                    6 => entry.selection.workspace_roots.push(PathUri::from_abs_path(
++                        &AbsolutePathBuf::current_dir()?.join("extra-workspace-root"),
++                    )),
++                    7 => {
++                        entry.config_origin = match entry.config_origin {
++                            EnvironmentConfigOrigin::Thread => EnvironmentConfigOrigin::Owner,
++                            EnvironmentConfigOrigin::Owner => EnvironmentConfigOrigin::Thread,
++                        }
++                    }
++                    8 => {
++                        entry.environment = Arc::clone(
++                            &foreign
++                                .fixture
++                                .step
++                                .environments
++                                .primary()
++                                .unwrap()
++                                .environment,
++                        )
++                    }
++                    9 => entry.executor_platform_os = Some("different-platform".into()),
++                    10 => {
++                        entry.user_home_dir = Some(PathUri::from_abs_path(
++                            &AbsolutePathBuf::current_dir()?.join("other-home"),
++                        ))
++                    }
++                    11 => {
++                        entry.temporary_directories = Some(vec![PathUri::from_abs_path(
++                            &AbsolutePathBuf::current_dir()?.join("other-temp"),
++                        )])
++                    }
++                    12 | 13 => {
++                        if let EnvironmentConfigState::Ready(config) = &mut entry.selection.config {
++                            let profile = if mismatch == 12 {
++                                PermissionProfile::workspace_write()
++                            } else {
++                                PermissionProfile::from_runtime_permissions(
++                                    &PermissionProfile::read_only().file_system_sandbox_policy(),
++                                    NetworkSandboxPolicy::Enabled,
++                                )
++                            };
++                            config.permission_profile =
++                                crate::config::PermissionProfileSnapshot::legacy(profile);
++                        }
++                    }
++                    _ => unreachable!(),
++                }
++            }
++            assert!(
++                !same_ready_parent_environments(&baseline, &changed),
++                "mismatch {mismatch}"
++            );
++        }
++        assert!(!same_ready_parent_environments(
++            &TurnEnvironmentSnapshot::default(),
++            &TurnEnvironmentSnapshot::default()
++        ));
++        Ok(())
++    })
++    .await;
++    finish_both(case, foreign, result).await
++}
+diff --git a/codex-rs/core/src/tools/approvals/parent_resolution_owner_tests.rs b/codex-rs/core/src/tools/approvals/parent_resolution_owner_tests.rs
+index 21ddb79..205d4d5 100644
+--- a/codex-rs/core/src/tools/approvals/parent_resolution_owner_tests.rs
++++ b/codex-rs/core/src/tools/approvals/parent_resolution_owner_tests.rs
+@@ -498,3 +498,6 @@ async fn unsupported_preissuer_model_and_requirements_inputs_only_narrow_optiona
+     }
+     Ok(())
+ }
++
++#[path = "parent_resolution_negative_tests.rs"]
++mod parent_resolution_negative_tests;
+-- 
+2.54.0 (Apple Git-157)
+

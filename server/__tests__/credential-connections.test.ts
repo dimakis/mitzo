@@ -1,3 +1,4 @@
+import { CredentialVerificationError } from '../credential-verification-error.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CredentialConnections,
@@ -32,6 +33,32 @@ function setup() {
 afterEach(() => stores.splice(0).forEach((s) => s.close()));
 
 describe('credential connections', () => {
+  it('preserves safe size, authentication, permission and availability failures without response bodies', async () => {
+    const { service, send } = setup();
+    const c = await service.create(input, { secret: 'fixture' });
+    service.grant('a', c.id, c.revision);
+    send.mockRejectedValueOnce(new CredentialVerificationError('response_too_large'));
+    await expect(
+      service.request(
+        'a',
+        c.id,
+        { path: '/api/states', method: 'GET' },
+        new AbortController().signal,
+      ),
+    ).rejects.toMatchObject({ code: 'response_too_large' });
+    for (const [status, code] of [
+      [401, 'authentication_failed'],
+      [403, 'access_denied'],
+      [429, 'service_unavailable'],
+      [503, 'service_unavailable'],
+    ] as const) {
+      send.mockResolvedValueOnce({ status, body: 'Bearer very-private-token' });
+      await expect(
+        service.request('a', c.id, { path: '/api/', method: 'GET' }, new AbortController().signal),
+      ).rejects.toMatchObject({ code });
+    }
+  });
+
   it('persists the custom template and rejects dashboard scope expansion before credential access', async () => {
     const { store, vault, service } = setup();
     const c = await service.create({ ...input, serviceTemplate: 'custom' }, { secret: 'fixture' });
