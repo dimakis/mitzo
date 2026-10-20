@@ -98,12 +98,15 @@ const schema = z
         const { selection, target, previousSnapshot } = captured.input;
         const request = record.reviewRequest;
         const setup = request.setup;
+        // New full-context captures omit selector IDs without clearing the UI.
+        // Historical captured wire still requires exact retained-request equality.
         if (
           selection.requestId !== request.requestId ||
           selection.sourceConversationId !== record.sourceConversationId ||
           selection.mode !== setup.context ||
           selection.purpose !== setup.purpose.trim() ||
-          !joiningReviewEqual(selection.messageIds, setup.messageIds) ||
+          (!joiningReviewEqual(selection.messageIds, setup.messageIds) &&
+            (setup.context !== 'conversation_so_far' || selection.messageIds.length !== 0)) ||
           !joiningReviewEqual(selection.artifacts, setup.artifacts) ||
           !setup.selection ||
           target.accountId !== setup.selection.accountId ||

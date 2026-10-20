@@ -140,6 +140,18 @@ export function sessionAgentCommunicationTools(owners: Owners) {
           throw Error('Recipient is unavailable to this signed operator');
         return meta;
       };
+      const liveRecipient = (conversationId: string) => {
+        const target = owners.registry.findBySessionId(conversationId);
+        const driver = target?.session.ordinaryRuntimeOwner;
+        return target &&
+          driver?.admitAgentMessage &&
+          driver.authSessionId === captured.auth.id &&
+          !target.session.abortController.signal.aborted &&
+          !owners.registry.isClosingOut(target.clientId) &&
+          !owners.registry.isUserClose(target.clientId)
+          ? target
+          : undefined;
+      };
       const reconcile = (message: AgentMessage) => {
         const retained = owners.events.agentCommunication.forHost(message.messageId);
         if (retained.operatorAuthSessionId !== captured.auth.id)
@@ -191,14 +203,11 @@ export function sessionAgentCommunicationTools(owners: Owners) {
             if (meta.sessionId === owners.conversationId) return [];
             try {
               eligible(meta.sessionId);
-              const live = owners.registry.findBySessionId(meta.sessionId);
               return [
                 {
                   conversationId: meta.sessionId,
                   summary: meta.summary,
-                  availability: live?.session.ordinaryRuntimeOwner?.admitAgentMessage
-                    ? 'live'
-                    : 'unavailable',
+                  availability: liveRecipient(meta.sessionId) ? 'live' : 'unavailable',
                 },
               ];
             } catch {
@@ -224,6 +233,8 @@ export function sessionAgentCommunicationTools(owners: Owners) {
             owners.events.agentCommunication.byRequest(owners.conversationId, input.requestId),
           );
         eligible(input.recipientConversationId);
+        if (!liveRecipient(input.recipientConversationId))
+          throw Error('Recipient is unavailable to this signed operator');
         const permission = await owners.approve(input, signal);
         current();
         if (permission.behavior !== 'allow' || !isDeepStrictEqual(permission.updatedInput, input))
@@ -231,6 +242,8 @@ export function sessionAgentCommunicationTools(owners: Owners) {
         await owners.assertRuntimeCurrent();
         current();
         eligible(input.recipientConversationId);
+        if (!liveRecipient(input.recipientConversationId))
+          throw Error('Recipient is unavailable to this signed operator');
         const send = {
           requestId: input.requestId,
           recipientConversationId: input.recipientConversationId,

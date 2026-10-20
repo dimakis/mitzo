@@ -7,7 +7,10 @@ import { build } from 'esbuild';
 import { chromium, webkit, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { expect as uiExpect } from '@playwright/test';
 import { ConnectionRegistry } from '@mitzo/harness';
-import { CollaborationApplicationReviewResultSchema } from '@mitzo/protocol';
+import {
+  CollaborationApplicationReviewResultSchema,
+  CollaborationSourceCatalogSchema,
+} from '@mitzo/protocol';
 import { assertPlaywrightHost } from '../support/playwright-host';
 import { createApplicationBrowserTransport } from './application-browser-transport';
 
@@ -174,6 +177,8 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
   const providerRequests: unknown[] = [];
   const browserErrors: string[] = [];
   const outsideRequests: string[] = [];
+  const sourceReplyMeasurements: unknown[] = [];
+  const navigationAndFontMeasurements: unknown[] = [];
   const responses: Array<{
     method: string;
     path: string;
@@ -675,6 +680,126 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       ).toEqual(beforeSessions);
       expect(outsideRequests).toEqual([]);
       expect(browserErrors).toEqual([]);
+      // Original policy navigation, Back retention and browser-font usability; no acquisition.
+      const editedBrief =
+        'Independently review the exact selected source. Keep its identity and quoted bytes.';
+      await uiExpect
+        .poll(() => {
+          const latest = responses
+            .filter((r) => r.method === 'POST' && /\/reviews$/.test(r.path))
+            .at(-1);
+          return (latest?.body as { snapshot?: { joiningBrief?: string } })?.snapshot?.joiningBrief;
+        })
+        .toBe(editedBrief);
+      const beforeNavigation = responses.filter(
+        (r) => r.method === 'POST' && /\/reviews$/.test(r.path),
+      );
+      const latestNavigationSnapshot = (beforeNavigation.at(-1)!.body as { snapshot: unknown })
+        .snapshot;
+      const policy = review.locator('.conversation-joining-policy');
+      await uiExpect(policy).toBeVisible();
+      const originalPolicyText = await policy.innerText();
+      await policy.click();
+      const agentsDialog = page.getByRole('dialog', { name: 'Agents', exact: true });
+      await uiExpect(agentsDialog).toBeVisible();
+      await agentsDialog.getByRole('button', { name: 'Add agent', exact: true }).click();
+      await uiExpect(review).toBeVisible();
+      await uiExpect(brief).toHaveValue(editedBrief);
+      await uiExpect(joinButton).toBeDisabled();
+      await review.getByRole('button', { name: 'Back', exact: true }).click();
+      await uiExpect(add).toBeVisible();
+      await uiExpect(add.getByLabel('Name in this chat', { exact: true })).toHaveValue('Reviewer');
+      await uiExpect(add.getByLabel('Purpose', { exact: true })).toHaveValue(
+        'Independently review the selected source.',
+      );
+      await uiExpect(contextChoice).toHaveValue('selected');
+      await uiExpect(sourceMessage).toBeChecked();
+      await uiExpect(add.getByLabel('Model', { exact: true })).toHaveValue('gpt-6-luna');
+      await uiExpect(add.getByLabel('Thinking level', { exact: true })).toHaveValue('low');
+      await reviewButton.click();
+      await uiExpect(review).toBeVisible();
+      await uiExpect(brief).toHaveValue(editedBrief);
+      await review.getByRole('button', { name: 'Back from joining review', exact: true }).click();
+      await uiExpect(add).toBeVisible();
+      await uiExpect(sourceMessage).toBeChecked();
+      await reviewButton.click();
+      await uiExpect(review).toBeVisible();
+      await uiExpect(brief).toHaveValue(editedBrief);
+      await uiExpect(joinButton).toBeDisabled();
+      const afterNavigation = responses.filter(
+        (r) => r.method === 'POST' && /\/reviews$/.test(r.path),
+      );
+      expect(afterNavigation).toHaveLength(beforeNavigation.length);
+      expect((afterNavigation.at(-1)!.body as { snapshot: unknown }).snapshot).toEqual(
+        latestNavigationSnapshot,
+      );
+      assertReviewHasNoAcquisition();
+      navigationAndFontMeasurements.push({
+        theme: appearanceTheme,
+        engine,
+        policyText: originalPolicyText,
+        policyNavigation: 'PASS original Agents → Add agent resumes review',
+        footerBack: 'PASS setup fields and selected message retained',
+        headerBack: 'PASS selected message and edited brief retained',
+        sameSnapshotAndReviewPOSTcount: true,
+      });
+      const measureDialog = async (dialog: import('@playwright/test').Locator) =>
+        dialog.evaluate((element) => {
+          const body = element.querySelector('.conversation-agents-body')!;
+          const title = element.querySelector('h1,h2,h3')!;
+          const sample = body.querySelector('p')!;
+          return {
+            fontSize: getComputedStyle(sample).fontSize,
+            titleHeight: title.getBoundingClientRect().height,
+            sampleHeight: sample.getBoundingClientRect().height,
+            bodyScrollWidth: body.scrollWidth,
+            bodyClientWidth: body.clientWidth,
+            dialogWidth: element.getBoundingClientRect().width,
+            viewportWidth: innerWidth,
+          };
+        });
+      if (engine === 'chromium') {
+        const reviewBaseline = await measureDialog(review);
+        await review.getByRole('button', { name: 'Back', exact: true }).click();
+        await uiExpect(add).toBeVisible();
+        const addBaseline = await measureDialog(add);
+        const cdp = await context.newCDPSession(page);
+        await cdp.send('Page.setFontSizes', { fontSizes: { standard: 20 } });
+        await page.evaluate(
+          () =>
+            new Promise<void>((done) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => done())),
+            ),
+        );
+        const addScaled = await measureDialog(add);
+        expect(parseFloat(addScaled.fontSize)).toBeGreaterThan(parseFloat(addBaseline.fontSize));
+        expect(addScaled.bodyScrollWidth).toBeLessThanOrEqual(addScaled.bodyClientWidth);
+        expect(addScaled.dialogWidth).toBeLessThanOrEqual(addScaled.viewportWidth);
+        await captureState('add-agent-browser-font20', add, reviewButton);
+        await reviewButton.click();
+        await uiExpect(review).toBeVisible();
+        await uiExpect(brief).toHaveValue(editedBrief);
+        const reviewScaled = await measureDialog(review);
+        expect(parseFloat(reviewScaled.fontSize)).toBeGreaterThan(
+          parseFloat(reviewBaseline.fontSize),
+        );
+        expect(reviewScaled.bodyScrollWidth).toBeLessThanOrEqual(reviewScaled.bodyClientWidth);
+        expect(reviewScaled.dialogWidth).toBeLessThanOrEqual(reviewScaled.viewportWidth);
+        await captureState('before-joining-browser-font20', review, joinButton);
+        await uiExpect(joinButton).toBeDisabled();
+        navigationAndFontMeasurements.push({
+          theme: appearanceTheme,
+          engine,
+          browserSetting: 'CDP Page.setFontSizes standard20; no injected CSS/DPR',
+          addBaseline,
+          addScaled,
+          reviewBaseline,
+          reviewScaled,
+        });
+        await cdp.send('Page.setFontSizes', { fontSizes: { standard: 16 } });
+        await cdp.detach();
+      }
+      assertReviewHasNoAcquisition();
       await page.keyboard.press('Escape');
       await uiExpect(review).toBeHidden();
       await uiExpect(agents).toBeFocused();
@@ -708,6 +833,107 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       expect(retainedPreview.ordinaryFirstReservation).toBeUndefined();
       expect(retainedPreview.handoff).toBeUndefined();
       assertReviewHasNoAcquisition();
+      // New C diagnostic scope: existing genuine SOURCE messages, not participant delivery.
+      const catalogResponse = responses
+        .filter((r) => r.method === 'POST' && r.path.endsWith('/source-catalog'))
+        .at(-1)!;
+      const originalCatalog = CollaborationSourceCatalogSchema.parse(catalogResponse.body);
+      expect(originalCatalog.sourceConversationId).toBe(sessionId);
+      expect(originalCatalog.messages).toHaveLength(2);
+      expect(
+        originalCatalog.messages.map((message) =>
+          message.blocks.map((block) => block.content).join(''),
+        ),
+      ).toEqual(['Read the repository source.', 'Offline source answer']);
+      expect(originalCatalog.messages[0].author).toBe('operator');
+      expect(originalCatalog.messages[1].author).toEqual({ sessionId });
+      expect(originalCatalog.boundary.messageId).toBe(originalCatalog.messages[1].messageId);
+      expect(originalCatalog.messages[1].sequence).toBeLessThanOrEqual(
+        originalCatalog.boundary.sequence,
+      );
+      await agents.click();
+      const reopenedAgents = page.getByRole('dialog', { name: 'Agents', exact: true });
+      await reopenedAgents.getByRole('button', { name: 'Add agent', exact: true }).click();
+      await uiExpect(review).toBeVisible();
+      for (const sourceMode of ['selected', 'conversation_so_far'] as const) {
+        await review.getByRole('button', { name: 'Back', exact: true }).click();
+        await uiExpect(add).toBeVisible();
+        await contextChoice.selectOption(sourceMode);
+        await uiExpect(contextChoice).toHaveValue(sourceMode);
+        if (sourceMode === 'selected') {
+          await sourceMessage.check();
+          const replyChoice = add.getByRole('checkbox', { name: /Offline source answer/ });
+          await uiExpect(replyChoice).toHaveCount(1);
+          await replyChoice.check();
+          await uiExpect(sourceMessage).toBeChecked();
+          await uiExpect(replyChoice).toBeChecked();
+        }
+        const beforeSourceReview = responses.length;
+        await reviewButton.click();
+        await uiExpect(review).toBeVisible();
+        const readSourceReview = () => {
+          const response = responses
+            .slice(beforeSourceReview)
+            .filter((r) => r.method === 'POST' && /\/reviews$/.test(r.path))
+            .at(-1);
+          const parsed = CollaborationApplicationReviewResultSchema.safeParse(response?.body);
+          return parsed.success ? parsed.data : null;
+        };
+        await uiExpect.poll(() => readSourceReview()?.snapshot.messages.length).toBe(2);
+        const both = readSourceReview()!;
+        expect(both.snapshot.mode).toBe(sourceMode);
+        expect(both.snapshot.sourceConversationId).toBe(sessionId);
+        expect(both.snapshot.boundary).toEqual(originalCatalog.boundary);
+        expect(both.snapshot.messages).toEqual(originalCatalog.messages);
+        expect(both.snapshot.artifacts).toEqual([]);
+        expect(both.snapshot.capacity.status).toBe('unverified');
+        await uiExpect(joinButton).toBeDisabled();
+        const included = review.locator('.conversation-joining-included');
+        if (!(await included.evaluate((element) => (element as HTMLDetailsElement).open)))
+          await included.locator('summary').click();
+        await uiExpect(
+          review.getByText('Read the repository source.', { exact: true }),
+        ).toBeVisible();
+        await uiExpect(review.getByText('Offline source answer', { exact: true })).toBeVisible();
+        const shown = included.locator('.conversation-joining-message');
+        await uiExpect(shown).toHaveCount(2);
+        await uiExpect(shown.nth(0).locator('small')).toHaveText('You');
+        await uiExpect(shown.nth(1).locator('small')).toHaveText(
+          'Source agent · Offline assistant',
+        );
+        const reviewedTarget = source.owner.get(both.settings.repositoryWorkspaceId);
+        expect(reviewedTarget.state).toBe('preview');
+        expect(reviewedTarget.ordinaryPreparation?.sourceIdentity).toBeUndefined();
+        expect(reviewedTarget.conversationId).toBeUndefined();
+        expect(reviewedTarget.hostReservation).toBeUndefined();
+        expect(reviewedTarget.ordinaryFirstReservation).toBeUndefined();
+        expect(reviewedTarget.handoff).toBeUndefined();
+        assertReviewHasNoAcquisition();
+        expect(f.calls.requests.filter((request) => request.startsWith('POST '))).toHaveLength(
+          enrollmentValidationPosts,
+        );
+        sourceReplyMeasurements.push({
+          theme: appearanceTheme,
+          engine,
+          mode: sourceMode,
+          sourceConversationId: sessionId,
+          boundary: both.snapshot.boundary,
+          snapshotId: both.snapshot.snapshotId,
+          snapshotSHA256: both.snapshot.sha256,
+          messages: both.snapshot.messages,
+          capacity: both.snapshot.capacity,
+          reviewedTargetState: reviewedTarget.state,
+          qualification:
+            'Both existing SOURCE messages in actual Review only; no multi-agent reader delivery/next turn/group full transcript qualification',
+        });
+        await captureState('source-prompt-reply-' + sourceMode, review, joinButton);
+      }
+      expect(browserErrors).toEqual([]);
+      expect(outsideRequests).toEqual([]);
+      assertReviewHasNoAcquisition();
+      await page.keyboard.press('Escape');
+      await uiExpect(review).toBeHidden();
+      await uiExpect(agents).toBeFocused();
       await context.tracing.stop({ path: join(evidence, `trace-${appearanceTheme}.zip`) });
       await context.close();
       context = undefined;
@@ -725,6 +951,8 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
           initialSimulatedSourceGenerationRequests: providerRequests.length,
           initialSimulatedEnrollmentValidationPosts: enrollmentValidationPosts,
           furtherModelRequests: 0,
+          navigationAndFontMeasurements,
+          sourceReplyMeasurements,
           captures,
           responses,
           browserErrors,

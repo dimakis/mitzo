@@ -281,6 +281,7 @@ async function fixture() {
     auth,
     a,
     b,
+    registry,
     permissions,
     setPermissionAction(fn: typeof permissionAction) {
       permissionAction = fn;
@@ -382,12 +383,17 @@ it('wakes an idle native queue once while leaving paused recovery and later canc
   expect(f.b.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
 }, 20000);
 
-it('retains an unavailable cold-recipient receipt without allocation or wake and denies forged native sender identity', async () => {
+it('retains an unavailable approved receipt when its recipient disappears after reservation, without wake or forged identity', async () => {
   const f = await fixture();
   await expect(f.a.call({ operation: 'inbox' }, { threadId: 'forged-thread' })).rejects.toThrow(
     /identity/,
   );
-  delete f.b.session.ordinaryRuntimeOwner;
+  const reserve = f.f.events.agentCommunication.reserve.bind(f.f.events.agentCommunication);
+  vi.spyOn(f.f.events.agentCommunication, 'reserve').mockImplementation((...args) => {
+    const retained = reserve(...args);
+    delete f.b.session.ordinaryRuntimeOwner;
+    return retained;
+  });
   const input = {
     operation: 'send',
     requestId: randomUUID(),
@@ -499,4 +505,76 @@ it('reports uncertain native dispatch failure without treating it as queued or r
   ).toBe(result.value.messageId);
   expect((await f.a.call(input)).value.status).toBe('uncertain');
   expect(f.native.commands(f.b.sessionId, f.b.initial.lease.binding)).toHaveLength(2);
+}, 20000);
+
+it.each(['user-closing', 'aborted', 'missing-owner', 'unsupported', 'foreign-login'] as const)(
+  'does not advertise or prompt a fresh message to a known %s recipient and retains queued history',
+  async (failure) => {
+    const f = await fixture();
+    const original = await f.a.call({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: f.b.sessionId,
+      text: 'Original queued message',
+    });
+    expect(original.value.status).toBe('queued');
+    const permissions = f.permissions.length;
+    const commands = f.native.commands(f.b.sessionId, f.b.initial.lease.binding);
+    if (failure === 'user-closing') f.registry.markUserClose(f.b.clientId);
+    if (failure === 'aborted') f.b.session.abortController.abort();
+    if (failure === 'missing-owner') delete f.b.session.ordinaryRuntimeOwner;
+    if (failure === 'unsupported')
+      f.b.session.ordinaryRuntimeOwner = {
+        ...f.b.session.ordinaryRuntimeOwner!,
+        admitAgentMessage: undefined,
+      };
+    if (failure === 'foreign-login')
+      f.b.session.ordinaryRuntimeOwner = {
+        ...f.b.session.ordinaryRuntimeOwner!,
+        authSessionId: 'different-login',
+      };
+    const list = await f.a.call({ operation: 'list' });
+    expect
+      .soft(
+        list.value.chats.find(
+          (row: { conversationId: string }) => row.conversationId === f.b.sessionId,
+        )?.availability,
+      )
+      .toBe('unavailable');
+    const requestId = randomUUID();
+    const result = await f.a.call({
+      operation: 'send',
+      requestId,
+      recipientConversationId: f.b.sessionId,
+      text: 'Do not prompt or reserve this new message',
+    });
+    expect.soft(result.response.success).toBe(false);
+    expect.soft(f.permissions).toHaveLength(permissions);
+    expect.soft(() => f.f.events.agentCommunication.byRequest(f.a.sessionId, requestId)).toThrow();
+    const retained = await f.a.call({ operation: 'read', messageId: original.value.messageId });
+    expect(retained.value).toMatchObject({ messageId: original.value.messageId, status: 'queued' });
+    expect(f.native.commands(f.b.sessionId, f.b.initial.lease.binding)).toEqual(commands);
+    expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  },
+  20000,
+);
+
+it('rechecks known recipient closure after asynchronous approval before reserving a new message', async () => {
+  const f = await fixture();
+  f.setPermissionAction((event) => {
+    f.registry.markUserClose(f.b.clientId);
+    resolvePending(event.permId as string, 'once', undefined, event.sessionId as string);
+  });
+  const requestId = randomUUID();
+  const result = await f.a.call({
+    operation: 'send',
+    requestId,
+    recipientConversationId: f.b.sessionId,
+    text: 'Do not reserve after closure during approval',
+  });
+  expect(result.response.success).toBe(false);
+  expect(f.permissions).toHaveLength(1);
+  expect(() => f.f.events.agentCommunication.byRequest(f.a.sessionId, requestId)).toThrow();
+  expect(f.native.commands(f.b.sessionId, f.b.initial.lease.binding)).toHaveLength(1);
+  expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
 }, 20000);

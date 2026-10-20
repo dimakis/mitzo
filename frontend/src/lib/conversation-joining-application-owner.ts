@@ -59,11 +59,12 @@ export function createConversationJoiningApplicationOwner(options: {
         repositoryWorkspaceId: setup.repositoryWorkspaceId,
         permissionMode: setup.permissionMode,
       });
+      const selectedMessageIds = selectionIntent.shape.messageIds.parse(setup.messageIds);
       const selection = selectionIntent.parse({
         requestId: request.requestId,
         sourceConversationId,
         mode: setup.context,
-        messageIds: setup.messageIds,
+        messageIds: setup.context === 'selected' ? selectedMessageIds : [],
         artifacts: setup.artifacts,
         purpose: setup.purpose,
         joiningBrief: request.joiningBrief,

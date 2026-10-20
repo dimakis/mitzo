@@ -5,6 +5,7 @@ import {
   CollaborationViewSchema,
   CollaborationPolicyUpdateSchema,
   type CollaborationView,
+  type CollaborationDurableTranscript,
 } from '@mitzo/protocol';
 import { joiningTargetHarness } from './conversation-joining-target-harness';
 import { joiningReviewFixture } from '../preview/conversation-joining-fixture';
@@ -15,13 +16,23 @@ import { sha256Hex } from '../lib/browser-crypto';
 export function joiningApplicationHarness(
   initialGroup: string | null = null,
   members = ['source-chat'],
+  durable?: CollaborationDurableTranscript,
 ) {
   const h = joiningTargetHarness('local', { retainReview: false });
   let group = initialGroup;
   let beginWait: Promise<Response> | undefined;
   let failBegin = false;
   let discussion: CollaborationView | undefined;
-  const snapshot = joiningReviewFixture().snapshot;
+  const snapshot = {
+    ...joiningReviewFixture().snapshot,
+    ...(durable
+      ? {
+          sourceConversationId: durable.sourceConversationId,
+          boundary: durable.boundary,
+          messages: durable.messages,
+        }
+      : {}),
+  };
   const membership = () => ({
     version: 1,
     collaborationId: group,
@@ -109,6 +120,12 @@ export function joiningApplicationHarness(
     if (!path.endsWith('/reviews')) return undefined;
     const { clientId, ...input } = JSON.parse(init!.body as string);
     expect(clientId).toBeTruthy();
+    // Preserve the real compiler's full-mode contract before reading context.
+    if (input.selection.mode === 'conversation_so_far' && input.selection.messageIds.length)
+      return Response.json(
+        { error: 'snapshot_changed', code: 'snapshot_changed' },
+        { status: 422 },
+      );
     const retained = h.journal.read();
     if (retained?.version !== 2 || retained.application.state !== 'captured')
       throw Error('Review not retained');

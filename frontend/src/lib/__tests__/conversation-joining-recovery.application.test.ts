@@ -59,6 +59,33 @@ it('retains exact public application input without changing its strings, array o
   expect(saved).toEqual(record());
   expect(JSON.stringify(saved)).not.toMatch(/clientId|native|capacity|operator|credential/);
 });
+
+it.each(['canonical', 'historical'] as const)(
+  'retains %s full-conversation wire without clearing saved Selected choices or rewriting replay',
+  (kind) => {
+    const storage = conversationJoiningRecovery('source-chat');
+    const input = record();
+    input.reviewRequest.setup.context = 'conversation_so_far';
+    input.application.input.selection.mode = 'conversation_so_far';
+    if (kind === 'canonical') input.application.input.selection.messageIds = [];
+    const original = structuredClone(input);
+    const saved = storage.save(input, null);
+    expect(storage.read()).toEqual(original);
+    expect(storage.read()!.reviewRequest.setup.messageIds).toEqual(['message-one']);
+    expect(saved).toEqual(original);
+    expect(storage.save(structuredClone(original), saved)).toEqual(original);
+  },
+);
+
+it('rejects a substituted nonempty full-conversation ID list that is not its exact retained legacy wire', () => {
+  const storage = conversationJoiningRecovery('source-chat');
+  const input = record();
+  input.reviewRequest.setup.context = 'conversation_so_far';
+  input.application.input.selection.mode = 'conversation_so_far';
+  input.application.input.selection.messageIds = ['other'];
+  expect(() => storage.save(input, null)).toThrow('Captured application review identity conflicts');
+  expect(storage.read()).toBeNull();
+});
 it.each([
   'request',
   'source',

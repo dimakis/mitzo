@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.427-symposium-preview-selected-start';
+  'v1.0.432-symposium-context-peer-availability';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -30,7 +30,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work-controls.ts':
     '5ed0945a92524675e6be14c772cc44949842e3d60430fa7f40cca479cead87be',
   '../agent-communication-tools.ts':
-    'c51e6848c27f385f87b978b69637ff7034bbb86f3cabb56f02e8054417488415',
+    '13fdcf3e970907991afec89547d29746ce3d73cae424448993d89f8ae709b0b7',
   '../telos-work-control-tools.ts':
     '716f889418970118c872d70c8718f4d268077fedc299f002b72446c205ef3b7d',
   '../telos-work-controls.ts': '2fc2b2894eca7ab3457734acdc44772bd6de406d3b322939a488e762f0c92c29',
@@ -178,7 +178,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-migration-adapter.ts':
     '80de415c99219bfa5f4b371ef3ab6b247f22211610418bce69e2980dae58e431',
   '../../frontend/src/lib/conversation-joining-application-owner.ts':
-    '35acb073ebb3c59da18f4e396a2bf6f5974bd4f25e291adea2c895d647099443',
+    '6f94fc394fa740a1e053770232954bb091d1589750fe35e028d2043f2ffed314',
   '../tool-builder-runtime.ts': 'b854fbfa534a8d47f249e1ba8edf65009719ece8c2718d213f29589001e47f05',
   '../installed-custom-tools.ts':
     '103aa54c9df80d683bb0a8f58fa296970e5be0bad0a37acb3a7b2b7e32079af3',
@@ -216,7 +216,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/conversation-repository-label.ts':
     'd995d0b4bf5b26b364c6d1bdf98ea5e591716976b436f134e5952db3cb97419d',
   '../../frontend/src/lib/conversation-joining-recovery.ts':
-    'b007ea747a0a79b3f1ce898fc5b68f4868b4e302bd6bc1a8fd9d1b4821ed5c74',
+    'c7ec0d30a4cbc9068dca72438a2d0a88eb87d18b293457b11948988409377a35',
   '../collaboration-application-review.ts':
     '8b44bddf29078d9479c940b0ed00124e3435afcda6972fa71131c3597ca3dadb',
   '../../frontend/src/lib/saved-artifact-location.ts':
@@ -337,7 +337,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/browser-crypto.ts':
     '5d10eb99cc0f0d8cbabd7eeefa9ce245bd14c8f32921edbf197a13f4b849b270',
   '../../frontend/src/components/ConversationJoiningReview.tsx':
-    '3cff17124e49f231f083d964ac2afaac57a2e5d8fed237ef51122eef19f80040',
+    'a6796ce07f03725ee489681fabcd9b545a4b8504261290945517590e5470319b',
   '../../frontend/src/hooks/useConversationJoiningReview.ts':
     'd55b2009abb0aadc979dbd17f180ee2b766f4e2cb7fb60e9a54e0a6659cd74ed',
   '../../frontend/src/lib/conversation-joining-review.ts':

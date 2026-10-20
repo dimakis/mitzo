@@ -6,6 +6,8 @@ import { ConversationAgents } from '../ConversationAgents';
 import { useConversationJoiningApplication } from '../../hooks/useConversationJoiningApplication';
 import { joiningApplicationHarness } from '../../test-utils/conversation-joining-application-harness';
 import * as auth from '../../lib/api-fetch';
+import { EventStore } from '@mitzo/protocol/event-store';
+import type { CollaborationDurableTranscript } from '@mitzo/protocol';
 
 const selection = { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' };
 vi.mock('../AccountModelPicker', () => ({
@@ -48,8 +50,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function mount() {
-  const h = joiningApplicationHarness();
+function mount(durable?: CollaborationDurableTranscript) {
+  const h = joiningApplicationHarness(null, ['source-chat'], durable);
   function Body() {
     const app = useConversationJoiningApplication({
       sourceConversationId: 'source-chat',
@@ -146,4 +148,100 @@ it('retains the original unknown preview through Close and explicit recovery wit
   expect(
     (screen.getByRole('button', { name: 'Join conversation' }) as HTMLButtonElement).disabled,
   ).toBe(true);
+});
+
+it('keeps both genuine Selected choices through full-context Review and switching back, using new original request identities', async () => {
+  const store = new EventStore(':memory:');
+  try {
+    store.upsertSession({ sessionId: 'source-chat', conversationSource: 'mitzo' });
+    store.append('source-chat', 'user_message', { messageId: 'question', text: 'Exact question.' });
+    store.append('source-chat', 'message_start', { messageId: 'answer' });
+    store.append('source-chat', 'block_start', {
+      messageId: 'answer',
+      blockId: 'text',
+      blockType: 'text',
+    });
+    store.append('source-chat', 'block_delta', {
+      messageId: 'answer',
+      blockId: 'text',
+      delta: 'Exact answer.',
+    });
+    store.append('source-chat', 'block_end', { messageId: 'answer', blockId: 'text' });
+    store.append('source-chat', 'message_end', { messageId: 'answer' });
+    store.append('source-chat', 'ordinary_reply_source', {
+      version: 1,
+      messageId: 'answer',
+      commandId: 'retained-command',
+    });
+    const source = store.getDurableSessionTranscript('source-chat');
+    const events = store.getSessionEvents('source-chat');
+    expect(source.messages.map((message) => message.author)).toEqual([
+      'operator',
+      { sessionId: 'source-chat' },
+    ]);
+    const h = mount(source);
+    await fill();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Context' }), {
+      target: { value: 'selected' },
+    });
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Exact question\./ }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Exact answer\./ }));
+    const posts = () =>
+      h.transport.mock.calls
+        .filter(([url]) => url.endsWith('/reviews'))
+        .map(([, init]) => JSON.parse(init!.body as string));
+    const ids: string[] = [];
+    let originalTarget: ReturnType<typeof h.journal.readTarget>;
+    let originalBrief: string | undefined;
+    for (const mode of ['selected', 'conversation_so_far', 'selected'] as const) {
+      if (posts().length) {
+        fireEvent.click(screen.getByRole('button', { name: /^Back$/ }));
+        fireEvent.change(screen.getByRole('combobox', { name: 'Context' }), {
+          target: { value: mode },
+        });
+        if (mode === 'selected') {
+          expect(screen.getByRole('checkbox', { name: /Exact question\./ })).toHaveProperty(
+            'checked',
+            true,
+          );
+          expect(screen.getByRole('checkbox', { name: /Exact answer\./ })).toHaveProperty(
+            'checked',
+            true,
+          );
+        }
+      }
+      fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+      await screen.findByText('Context for the fresh agent');
+      expect(screen.queryByRole('alert')).toBeNull();
+      const wire = posts().at(-1)!;
+      ids.push(wire.selection.requestId);
+      expect(wire.selection.mode).toBe(mode);
+      expect(wire.selection.messageIds).toEqual(mode === 'selected' ? ['question', 'answer'] : []);
+      expect(wire.selection.boundary).toEqual(source.boundary);
+      expect(wire.selection.artifacts).toEqual([]);
+      expect(h.journal.read()!.reviewRequest.setup.messageIds).toEqual(['question', 'answer']);
+      const brief = screen.getByRole('textbox', {
+        name: /Joining brief · sent to every participant/,
+      }) as HTMLTextAreaElement;
+      originalBrief ??= brief.value;
+      expect(brief.value).toBe(originalBrief);
+      originalTarget ??= structuredClone(h.journal.readTarget());
+      expect(h.journal.readTarget()!.preview).toEqual(originalTarget!.preview);
+      expect(h.journal.readTarget()!.draft.id).toBe(originalTarget!.draft.id);
+      expect(screen.getByRole('button', { name: 'Join conversation' })).toHaveProperty(
+        'disabled',
+        true,
+      );
+      const included = screen.getByText('Review included context').closest('details')!;
+      expect(included.textContent).toContain('Exact question.');
+      expect(included.textContent).toContain('Exact answer.');
+    }
+    expect(new Set(ids).size).toBe(3);
+    expect(h.transport.mock.calls.filter(([url]) => url.endsWith('/preview'))).toHaveLength(1);
+    expect(h.transport.mock.calls.some(([url]) => /\/(prepare|joins|send)$/.test(url))).toBe(false);
+    expect(store.getSessionEvents('source-chat')).toEqual(events);
+    expect(store.getDurableSessionTranscript('source-chat')).toEqual(source);
+  } finally {
+    store.close();
+  }
 });

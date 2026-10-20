@@ -2,8 +2,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
-import { COLLABORATION_EXECUTION_DISABLED } from '@mitzo/protocol';
-import { ConversationAgents } from '../ConversationAgents';
+import { COLLABORATION_EXECUTION_DISABLED, type CollaborationSnapshot } from '@mitzo/protocol';
+import { ConversationAgents, type ConversationAgent } from '../ConversationAgents';
 import {
   joiningReviewFixture,
   joiningSetupFixture,
@@ -49,21 +49,25 @@ afterEach(() => {
   sessionStorage.clear();
   vi.unstubAllGlobals();
 });
-function mount(options: Partial<ConversationJoiningOwner> = {}) {
+function mount(
+  options: Partial<ConversationJoiningOwner> = {},
+  presentation: { agents?: ConversationAgent[]; capacity?: CollaborationSnapshot['capacity'] } = {},
+) {
   let revision = 1;
   const owner: ConversationJoiningOwner = {
     sourceConversationId: 'source-chat',
     artifacts: joiningReviewFixture().artifactLabels,
     review: vi.fn<ConversationJoiningOwner['review']>(async ({ joiningBrief }) =>
-      joiningReviewFixture(
-        joiningBrief === undefined
+      joiningReviewFixture({
+        ...(presentation.capacity ? { capacity: presentation.capacity } : {}),
+        ...(joiningBrief === undefined
           ? {}
           : {
               joiningBrief,
               snapshotId: `00000000-0000-4000-8000-${String(++revision).padStart(12, '0')}`,
               sha256: 'b'.repeat(64),
-            },
-      ),
+            }),
+      }),
     ),
     confirm: vi.fn<ConversationJoiningOwner['confirm']>(async (input) => ({
       version: 1,
@@ -86,14 +90,16 @@ function mount(options: Partial<ConversationJoiningOwner> = {}) {
       <ConversationAgents
         scope="source-chat"
         joiningOwner={owner}
-        agents={[
-          {
-            id: 'source-chat',
-            name: 'Mitzo',
-            state: 'Current conversation',
-            policy: { reads: true, replies: true },
-          },
-        ]}
+        agents={
+          presentation.agents ?? [
+            {
+              id: 'source-chat',
+              name: 'Mitzo',
+              state: 'Current conversation',
+              policy: { reads: true, replies: true },
+            },
+          ]
+        }
         messages={[
           {
             messageId: 'message-one',
@@ -111,7 +117,7 @@ function mount(options: Partial<ConversationJoiningOwner> = {}) {
     </MemoryRouter>
   );
   const rendered = render(view());
-  fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Agents(?:,|$)/ }));
   fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
   fireEvent.change(screen.getByRole('textbox', { name: 'Name in this chat' }), {
     target: { value: 'Reviewer' },
@@ -255,6 +261,132 @@ it('preserves setup, edited review and operation across policy inspection and cl
   fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
   expect(screen.getByRole('dialog', { name: 'Before joining' })).toBeTruthy();
+  expect(owner.confirm).not.toHaveBeenCalled();
+});
+
+const missingAdapter = 'No exact ordinary capacity adapter is registered.';
+const capacityUnavailable = 'Joining is unavailable until capacity can be checked.';
+const participant = (name: string, replies?: boolean): ConversationAgent => ({
+  id: name === 'Mitzo' ? 'source-chat' : name.toLowerCase(),
+  name,
+  state: 'Current conversation',
+  ...(replies === undefined ? {} : { policy: { reads: true, replies } }),
+});
+
+it.each([
+  {
+    case: 'unknown',
+    agents: [participant('Mitzo')],
+    label: 'Shared discussion · Reply settings unavailable',
+  },
+  { case: 'empty', agents: [], label: 'Shared discussion · Reply settings unavailable' },
+  {
+    case: 'partial with known replies',
+    agents: [participant('Mitzo', true), participant('Research')],
+    label: 'Shared discussion · Mitzo reply · Other reply settings unavailable',
+  },
+  {
+    case: 'partial without known replies',
+    agents: [participant('Mitzo', false), participant('Research')],
+    label: 'Shared discussion · Reply settings unavailable',
+  },
+  {
+    case: 'known mixed',
+    agents: [participant('Mitzo', true), participant('Research', false)],
+    label: 'Shared discussion · Mitzo reply',
+  },
+  {
+    case: 'known multiple replies',
+    agents: [participant('Mitzo', true), participant('Research', true)],
+    label: 'Shared discussion · Mitzo, Research reply',
+  },
+  {
+    case: 'known no replies',
+    agents: [participant('Mitzo', false), participant('Research', false)],
+    label: 'Shared discussion · No default replies',
+  },
+])(
+  'keeps the flat policy row truthful for $case policies without inventing a joiner recipient',
+  async ({ agents, label }) => {
+    const owner = mount({}, { agents, capacity: { status: 'unverified', reason: missingAdapter } });
+    fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+    await screen.findByText('Context for the fresh agent');
+    const row = screen.getByRole('button', { name: label });
+    expect(row.classList.contains('conversation-joining-policy')).toBe(true);
+    expect(row.textContent).not.toContain('Reviewer');
+    expect(screen.getByRole('button', { name: 'Join conversation' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    fireEvent.click(row);
+    expect(screen.getByRole('dialog', { name: 'Agents' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+    expect(screen.getByRole('dialog', { name: 'Before joining' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Back from joining review' }));
+    expect(screen.getByRole('textbox', { name: 'Name in this chat' })).toHaveProperty(
+      'value',
+      'Reviewer',
+    );
+    expect(screen.getByRole('textbox', { name: 'Purpose' })).toHaveProperty(
+      'value',
+      joiningSetupFixture().purpose,
+    );
+    expect(owner.review).toHaveBeenCalledTimes(1);
+    expect(owner.confirm).not.toHaveBeenCalled();
+  },
+);
+
+it('explains only the exact unverified adapter fallback while retaining the frozen review and edited brief', async () => {
+  const owner = mount({}, { capacity: { status: 'unverified', reason: missingAdapter } });
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  await screen.findByText('Context for the fresh agent');
+  expect(screen.getByRole('status').textContent).toBe(capacityUnavailable);
+  expect(screen.queryByText(missingAdapter)).toBeNull();
+  const before = await vi.mocked(owner.review).mock.results[0].value;
+  const capacity = structuredClone(before.snapshot.capacity);
+  const brief = screen.getByRole('textbox', { name: /Joining brief · sent to every participant/ });
+  fireEvent.change(brief, { target: { value: 'Keep this exact unavailable-capacity edit.' } });
+  await waitFor(() => expect(owner.review).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe(capacityUnavailable));
+  const after = await vi.mocked(owner.review).mock.results[1].value;
+  expect(before.snapshot.capacity).toEqual(capacity);
+  expect(after.snapshot.capacity).toEqual(capacity);
+  expect(after.snapshot.joiningBrief).toBe('Keep this exact unavailable-capacity edit.');
+  expect(screen.getByRole('button', { name: 'Join conversation' })).toHaveProperty(
+    'disabled',
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Join conversation' }));
+  expect(owner.confirm).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: /^Back$/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  expect(
+    screen.getByRole('textbox', { name: /Joining brief · sent to every participant/ }),
+  ).toHaveProperty('value', 'Keep this exact unavailable-capacity edit.');
+  expect(owner.review).toHaveBeenCalledTimes(2);
+});
+
+it.each([
+  { status: 'unverified', reason: 'The selected account needs to be checked again.' },
+  { status: 'unverified', reason: `${missingAdapter} Recheck the original account.` },
+  { status: 'refused', reason: 'The original target is no longer available.' },
+  {
+    status: 'needs_reviewed_summary',
+    reason: 'Narrow the selection or review a separate attributed summary.',
+  },
+  { status: 'refused', reason: missingAdapter },
+  { status: 'needs_reviewed_summary', reason: missingAdapter },
+] as const)('preserves the actionable $status capacity reason: $reason', async (capacity) => {
+  const owner = mount({}, { capacity });
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  await screen.findByText('Context for the fresh agent');
+  expect(screen.getByRole('status').textContent).toBe(capacity.reason);
+  expect(screen.queryByText(capacityUnavailable)).toBeNull();
+  expect(screen.getByRole('button', { name: 'Join conversation' })).toHaveProperty(
+    'disabled',
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Join conversation' }));
   expect(owner.confirm).not.toHaveBeenCalled();
 });
 

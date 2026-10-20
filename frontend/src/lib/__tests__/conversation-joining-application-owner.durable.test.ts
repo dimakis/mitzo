@@ -115,6 +115,78 @@ it('captures the actual event highwater after trailing metadata without replacin
   expect(h.store.getDurableSessionTranscript('source-chat')).toEqual(source);
 });
 
+it('normalizes only outbound full-conversation IDs through selected/full/selected over genuine operator and finalized reply bytes', async () => {
+  const h = harness();
+  const source = h.store.getDurableSessionTranscript('source-chat');
+  const events = h.store.getSessionEvents('source-chat');
+  const selected = structuredClone(request);
+  selected.setup.messageIds = source.messages.map((message) => message.messageId);
+  const original = structuredClone(selected);
+  expect(source.messages.map((message) => message.author)).toEqual([
+    'operator',
+    { sessionId: 'source-chat' },
+  ]);
+  expect(
+    source.messages.flatMap((message) => message.blocks.map((block) => block.content)),
+  ).toEqual(['Exact question.', 'Exact answer.']);
+  for (const mode of ['selected', 'conversation_so_far', 'selected'] as const) {
+    const intent = {
+      ...structuredClone(selected),
+      setup: { ...structuredClone(selected.setup), context: mode },
+    };
+    const captured = await h.owner.captureReview(intent, new AbortController().signal);
+    expect(captured.selection.mode).toBe(mode);
+    expect(captured.selection.messageIds).toEqual(
+      mode === 'selected' ? ['question', 'answer'] : [],
+    );
+    expect(captured.selection.boundary).toEqual(source.boundary);
+    expect(captured.selection.artifacts).toEqual(original.setup.artifacts);
+    expect(captured.selection.joiningBrief).toBe(original.joiningBrief);
+    expect(intent.setup.messageIds).toEqual(['question', 'answer']);
+    expect(selected).toEqual(original);
+    await expect(h.owner.review(captured, new AbortController().signal)).rejects.toMatchObject({
+      status: 503,
+      code: 'execution_unavailable',
+    });
+    const posted = JSON.parse(h.transport.mock.calls.at(-1)![1]!.body as string);
+    expect(posted.selection).toEqual(captured.selection);
+  }
+  expect(h.store.getSessionEvents('source-chat')).toEqual(events);
+  expect(h.store.getDurableSessionTranscript('source-chat')).toEqual(source);
+});
+
+it.each(['invalid', 'duplicate', 'stale'] as const)(
+  'continues to reject %s selected IDs after a full-conversation capture',
+  async (change) => {
+    const h = harness();
+    const attempt = structuredClone(request);
+    if (change === 'invalid') attempt.setup.messageIds = ['not-retained'];
+    if (change === 'duplicate') attempt.setup.messageIds = ['question', 'question'];
+    if (change === 'stale') {
+      const boundary = h.store.getDurableSessionTranscript('source-chat').boundary;
+      h.store.append('source-chat', 'user_message', {
+        messageId: 'later',
+        text: 'After the retained cursor.',
+      });
+      attempt.setup.messageIds = ['later'];
+      attempt.previousSnapshot = {
+        snapshotId: '00000000-0000-4000-8000-000000000030',
+        sha256: 'c'.repeat(64),
+      };
+      attempt.previousSource = { boundary, expectedMembershipRevision: 1 };
+    }
+    const full = await h.owner.captureReview(
+      { ...attempt, setup: { ...attempt.setup, context: 'conversation_so_far' } },
+      new AbortController().signal,
+    );
+    expect(full.selection.messageIds).toEqual([]);
+    await expect(h.owner.captureReview(attempt, new AbortController().signal)).rejects.toThrow(
+      'Application review owner unavailable',
+    );
+    expect(h.transport.mock.calls.some(([url]) => url.endsWith('/reviews'))).toBe(false);
+  },
+);
+
 it('refreezes the original event cursor and exact brief after genuine later messages and metadata append', async () => {
   const h = harness();
   const source = h.store.getDurableSessionTranscript('source-chat');
