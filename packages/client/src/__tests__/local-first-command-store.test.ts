@@ -1220,3 +1220,167 @@ it('clears preparation progress when a newer assistant snapshot arrives after re
   });
   expect(store.getState().sendStatus).toBeNull();
 });
+
+it.each(['preparing', 'streaming'] as const)(
+  'keeps a newer command %s when an older retained command fails recovery',
+  (phase) => {
+    const { store } = setup();
+    channel.send.mockReturnValue(true);
+    const sessionId = 'late-command-error';
+    channel.listener({ type: 'session_id', sessionId });
+    const submit = (text: string, seq: number) => {
+      store.getState().sendMessage(text, { onDelivery: () => {} });
+      const command = channel.send.mock.calls.filter(([body]) => body.type === 'send').at(-1)![0];
+      channel.listener({
+        type: 'user_message',
+        sessionId,
+        messageId: command.clientMsgId,
+        text,
+        seq,
+      });
+      channel.listener({
+        type: '_send_accepted',
+        sessionId,
+        clientMsgId: command.clientMsgId,
+        retained: true,
+      });
+      return command;
+    };
+    const first = submit('First saved command', 1);
+    const second = submit('Newer saved command', 2);
+    if (phase === 'streaming') {
+      channel.listener({ type: 'message_start', sessionId, seq: 3, messageId: 'newer-answer' });
+      channel.listener({
+        type: 'block_start',
+        sessionId,
+        seq: 4,
+        blockId: 'newer-text',
+        blockType: 'text',
+      });
+      channel.listener({
+        type: 'block_delta',
+        sessionId,
+        seq: 5,
+        blockId: 'newer-text',
+        delta: 'Current answer',
+      });
+    }
+    const current = store.getState().messages.current;
+    const status = store.getState().sendStatus;
+    expect(store.getState().messages.running).toBe(true);
+    expect(status).toBe(phase === 'preparing' ? 'Preparing response…' : null);
+    const failure = {
+      type: 'error',
+      sessionId,
+      clientMsgId: first.clientMsgId,
+      seq: phase === 'streaming' ? 6 : 3,
+      prevSessionSeq: phase === 'streaming' ? 5 : 2,
+      error: 'Message saved. Earlier recovery failed.',
+    };
+    // Returning true commits this durable sequence through the normal SSE
+    // applied-delivery boundary instead of requesting a replay of the error.
+    expect(channel.listener(failure)).toBe(true);
+    expect(failure.type).toBe('error');
+    expect(store.getState().messages.running).toBe(true);
+    expect(store.getState().messages.current).toEqual(current);
+    expect(store.getState().sendStatus).toBe(status);
+    expect(store.getState().sendError).toBeNull();
+    const transcript = store.getState().messages.messages;
+    const errors = transcript.filter((message) =>
+      message.blocks.some(
+        (block) => block.blockType === 'text' && block.content.includes('Earlier recovery failed'),
+      ),
+    );
+    expect(errors).toHaveLength(1);
+    expect(
+      transcript.findIndex((message) => message.messageId === errors[0].messageId),
+    ).toBeLessThan(transcript.findIndex((message) => message.messageId === second.clientMsgId));
+    // A delayed/retried B receipt must not treat A's error as B's answer.
+    channel.listener({
+      type: '_send_accepted',
+      sessionId,
+      clientMsgId: second.clientMsgId,
+      retained: true,
+    });
+    expect(store.getState().sendStatus).toBe(status);
+    expect(store.getState().messages.running).toBe(true);
+    expect(store.getState().messages.current).toEqual(current);
+  },
+);
+
+it('keeps the latest command recovery failure terminal and visible', () => {
+  const { store } = setup();
+  const sessionId = 'latest-command-error';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({
+    type: 'user_message',
+    sessionId,
+    seq: 1,
+    messageId: 'latest',
+    text: 'Saved request',
+  });
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'latest', retained: true });
+  channel.listener({
+    type: 'error',
+    sessionId,
+    seq: 2,
+    clientMsgId: 'latest',
+    error: 'Message saved. Current recovery failed.',
+  });
+  expect(store.getState().sendStatus).toBeNull();
+  expect(store.getState().messages.running).toBe(false);
+  expect(store.getState().messages.messages.at(-1)?.blocks).toContainEqual(
+    expect.objectContaining({ content: '**Error:** Message saved. Current recovery failed.' }),
+  );
+});
+
+it('keeps an older command failure after its existing output and before the newer input', () => {
+  const { store } = setup();
+  const sessionId = 'command-error-groups';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({
+    type: 'user_message',
+    sessionId,
+    seq: 1,
+    messageId: 'older',
+    text: 'Older input',
+  });
+  channel.listener({ type: 'message_start', sessionId, seq: 2, messageId: 'older-answer' });
+  channel.listener({
+    type: 'block_start',
+    sessionId,
+    seq: 3,
+    blockId: 'older-text',
+    blockType: 'text',
+  });
+  channel.listener({
+    type: 'block_delta',
+    sessionId,
+    seq: 4,
+    blockId: 'older-text',
+    delta: 'Older output',
+  });
+  channel.listener({ type: 'message_end', sessionId, seq: 5, messageId: 'older-answer' });
+  channel.listener({
+    type: 'user_message',
+    sessionId,
+    seq: 6,
+    messageId: 'newer',
+    text: 'Newer input',
+  });
+  channel.listener({
+    type: 'error',
+    sessionId,
+    seq: 7,
+    clientMsgId: 'older',
+    error: 'Older command failed.',
+  });
+  const transcript = store.getState().messages.messages;
+  expect(transcript.map((message) => message.messageId)).toEqual([
+    'older',
+    'older-answer',
+    expect.stringMatching(/^err-/),
+    'newer',
+  ]);
+  expect(transcript[1].blocks).toContainEqual(expect.objectContaining({ content: 'Older output' }));
+});

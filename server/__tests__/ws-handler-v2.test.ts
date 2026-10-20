@@ -2109,6 +2109,8 @@ describe('handleSendV2 skill policy', () => {
       undefined,
       undefined,
       '/test-skill',
+      undefined,
+      undefined,
     );
   });
 
@@ -2585,6 +2587,10 @@ describe('handleSendV2 routing', () => {
       undefined,
       undefined,
       'cmsg-1',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
       undefined,
       undefined,
     );
@@ -3751,6 +3757,10 @@ describe('handleSendV2 connection ownership', () => {
       'cmsg-1',
       undefined,
       undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
     );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
@@ -4043,6 +4053,10 @@ describe('handleSendV2 state-based routing', () => {
       undefined,
       undefined,
       'rapid-2',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
       undefined,
       undefined,
     );
@@ -5085,6 +5099,10 @@ describe('handleSendV2 rekey after detached reattach', () => {
       undefined,
       undefined,
       'cmsg-rk',
+      undefined,
+      undefined,
+      undefined,
+      undefined,
       undefined,
       undefined,
     );

@@ -1989,6 +1989,22 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (!options.sseConfig) settleDelivery(msg.clientMsgId, 'failed');
       // Release its preview without applying the error to an unrelated running chat.
       if (offscreen) return true;
+      const messages = store.getState().messages.messages;
+      const commandIndex = messages.findIndex(
+        (message) => message.role === 'user' && message.messageId === msg.clientMsgId,
+      );
+      if (
+        selectedEventSession &&
+        commandIndex >= 0 &&
+        messages.slice(commandIndex + 1).some((message) => message.role === 'user')
+      ) {
+        // A retained command may fail recovery after a later command starts.
+        // Render its failure through the existing non-terminal refusal action;
+        // keep the sequenced event on the normal applied-delivery path.
+        const preparation = preparationObservations.get(msg.clientMsgId);
+        if (preparation?.sessionId === eventSessionId) preparation.ended = true;
+        msg = { ...msg, type: 'session_control_rejected', control: 'send' };
+      }
     }
     // The native WebSocket path confirms delivery through the persisted echo.
     // A pre-assignment startup error is a definitive rejection on that path.

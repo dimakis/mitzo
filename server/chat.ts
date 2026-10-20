@@ -3941,6 +3941,7 @@ export async function sendToChat(
   signal?: AbortSignal,
   userIntent?: string,
   sourceSnapshots?: SourceSnapshot[],
+  onRetained?: () => void,
 ): Promise<boolean> {
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
@@ -4143,7 +4144,43 @@ export async function sendToChat(
       }
     };
     if (codex) {
+      let promptRetained = false;
+      const savedSessionId = session.sessionId;
+      const reportSavedError = (error: string): void => {
+        if (!savedSessionId) {
+          send(session.transport, { type: 'error', sessionId: savedSessionId, error });
+          return;
+        }
+        const event = {
+          v: 2,
+          type: 'error',
+          sessionId: savedSessionId,
+          clientMsgId: messageId,
+          error,
+        };
+        // An attached owner keeps its existing stream transport. The current
+        // POST wrapper may never observe this event, so persist its exact
+        // failure here; wrappers recognize seq and do not append it again.
+        if (eventStore.getSendCommand(messageId)?.sessionId === savedSessionId)
+          eventStore.failSendCommand(messageId, error);
+        const seq = eventStore.append(savedSessionId, 'error', event);
+        const durable = {
+          ...event,
+          seq,
+          prevSessionSeq: eventStore.getSessionPredecessorSeq(savedSessionId, seq),
+        };
+        send(session.transport, durable);
+        broadcastToObservers(session.observers, durable);
+      };
       try {
+        // The ordinary HTTP receipt confirms saved intent, not provider
+        // admission. Keep idle health checks and recovery after this exact
+        // durable echo; their existing private queue/dispatch fences still run.
+        if (session.sessionId) {
+          acknowledge();
+          promptRetained = true;
+          onRetained?.();
+        }
         const selection = await codex.admitExplicitSend(
           {
             id: messageId,
@@ -4156,16 +4193,26 @@ export async function sendToChat(
           signal,
         );
         selectionReasoningEffort = selection.reasoningEffort;
-        acknowledge();
+        if (!promptRetained) acknowledge();
         commitSelection();
-        void codex.resumeAfterExplicitSend().catch((error: unknown) =>
-          send(session.transport, {
-            type: 'error',
-            sessionId: session.sessionId,
-            error: `Message saved. ${publicCodexRuntimeError(error instanceof Error ? error : new Error('Reconnect failed'))}`,
-          }),
-        );
+        void codex
+          .resumeAfterExplicitSend()
+          .catch((error: unknown) =>
+            reportSavedError(
+              `Message saved. ${publicCodexRuntimeError(error instanceof Error ? error : new Error('Reconnect failed'))}`,
+            ),
+          );
       } catch {
+        if (promptRetained) {
+          reportSavedError(
+            signal?.aborted
+              ? 'Message saved. Codex queue preparation was cancelled. Check the conversation before sending a new message.'
+              : 'Message saved. Codex queue admission could not finish. Check the connection before sending a new message.',
+          );
+          // Retention already succeeded. Returning false would emit a second
+          // routing error and overwrite this durable command-specific failure.
+          return true;
+        }
         if (signal?.aborted) return false;
         send(session.transport, {
           type: 'error',

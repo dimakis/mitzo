@@ -834,11 +834,23 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       return { ...state, permission: null, permissionQueue: [] };
 
     case 'CONTROL_REJECTED':
-    case 'ERROR':
+    case 'ERROR': {
+      let insertion = state.messages.length;
+      if (action.type === 'CONTROL_REJECTED' && action.clientMsgId) {
+        const owner = state.messages.findIndex(
+          (message) => message.role === 'user' && message.messageId === action.clientMsgId,
+        );
+        const next = state.messages.findIndex(
+          (message, index) => index > owner && message.role === 'user',
+        );
+        // Keep a delayed failure with its exact command group. Appending it
+        // after a newer input would look like that newer command's response.
+        if (owner >= 0 && next >= 0) insertion = next;
+      }
       return {
         ...state,
         messages: [
-          ...state.messages,
+          ...state.messages.slice(0, insertion),
           {
             messageId: `err-${Date.now()}`,
             role: 'assistant',
@@ -851,9 +863,11 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
               },
             ],
           },
+          ...state.messages.slice(insertion),
         ],
         ...(action.type === 'ERROR' ? { running: false, current: null } : {}),
       };
+    }
 
     case 'SESSION_INFO':
       return {
