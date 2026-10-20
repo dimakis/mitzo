@@ -359,12 +359,33 @@ export class TelosWorkStore {
       )
       .run(input.requestId, actorId, fingerprint, raw.id, raw.sha256);
   }
+  roleSetupRequestRetained(requestId: string): boolean {
+    return !!this.db
+      .prepare(
+        'SELECT 1 FROM telos_work_role_setups WHERE request_id=? UNION ALL SELECT 1 FROM telos_work_role_setup_rejections WHERE request_id=? LIMIT 1',
+      )
+      .get(requestId, requestId);
+  }
   rolePresentationForSetup(
     raw: unknown,
     actor: TelosWorkActor,
   ): TelosWorkRoleContextReview | undefined {
+    return this.rolePresentationForSetupRequest(TelosWorkRoleSetupInputSchema.parse(raw), actor);
+  }
+  rolePresentationForOrdinarySetup(
+    raw: unknown,
+    actor: TelosWorkActor,
+  ): TelosWorkRoleContextReview | undefined {
+    return this.rolePresentationForSetupRequest(
+      TelosOrdinaryWorkRoleSetupInputSchema.parse(raw),
+      actor,
+    );
+  }
+  private rolePresentationForSetupRequest(
+    input: TelosWorkRoleSetupRequest,
+    actor: TelosWorkActor,
+  ): TelosWorkRoleContextReview | undefined {
     this.operator(actor);
-    const input = TelosWorkRoleSetupInputSchema.parse(raw);
     const saved = this.db
       .prepare('SELECT * FROM telos_work_role_setup_presentations WHERE request_id=?')
       .get(input.requestId) as

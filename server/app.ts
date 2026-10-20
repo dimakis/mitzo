@@ -1,3 +1,8 @@
+import { createOrdinaryWorkspacePreparationRouter } from './ordinary-workspace-router.js';
+import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
+import { getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
+import { assertAgentToolRoute } from './agent-tool-selection.js';
+import { OrdinaryWorkspaceSettingsSchema } from '@mitzo/protocol';
 import { readSandboxOwnershipReview } from './sandbox-ownership-review.js';
 import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
 import { summarizeSandboxInventory } from './sandbox-inventory.js';
@@ -2172,13 +2177,99 @@ async function authorizeTelosOrdinaryPreparation(
     signal,
   );
 }
-function telosRoleHost(operatorConnectionId?: string) {
+async function resolveTelosOrdinaryWorkspaceSelection(
+  raw: unknown,
+  signal: AbortSignal,
+  operatorConnectionId?: string,
+  retainedLeadId?: string,
+) {
+  const settings = OrdinaryWorkspaceSettingsSchema.parse(raw);
+  signal.throwIfAborted();
+  if (
+    custodianControllerClient ||
+    custodianOwnerMode ||
+    process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' ||
+    settings.binding.execution.location !== 'local' ||
+    settings.binding.harness.implementation !== 'codex' ||
+    settings.binding.account.provider !== 'openai-codex'
+  )
+    throw new TelosWorkError(
+      'invalid',
+      'Ordinary workspaces currently require a supported Local Mac Codex account and target',
+    );
+  const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
+  const inventory = ordinaryRepositoryRuntimeInventory('local', 'codex');
+  const resolved = inventory.catalog.resolve({
+    account: settings.binding.account,
+    harness: 'codex',
+    targetId: settings.binding.execution.targetId,
+    mode: settings.selection.permission.mode,
+  });
+  if (
+    resolved.status !== 'compatible' ||
+    !isDeepStrictEqual(resolved.binding, settings.binding) ||
+    !inventory.result.routes.some(
+      (route) =>
+        isDeepStrictEqual(route.account, settings.binding.account) &&
+        route.targetId === settings.binding.execution.targetId,
+    )
+  )
+    throw new TelosWorkError(
+      'invalid',
+      'The selected ordinary account or target is unavailable; confirm the current execution choices',
+    );
+  const profiles = loadAccountProfiles(),
+    binding = profiles.resolve(settings.binding.account.accountId, settings.selection.model);
+  profiles.validateModelSelection(binding, settings.selection.model, settings.selection.thinking);
+  const agentProfile = await resolveOrdinaryCodexAgentProfile({
+    requested: settings.selection.agent,
+    provider: binding.provider,
+    execution: resolved.binding.execution,
+    ...(retainedLeadId
+      ? { stored: eventStore.getSession(retainedLeadId)?.agentProfile ?? undefined, resume: true }
+      : {}),
+    lookup: (selection) => {
+      if (retainedLeadId)
+        throw new TelosWorkError('unauthorized', 'Original ordinary lead profile unavailable');
+      return readAgentLibraryProfile(selection, operatorConnectionId);
+    },
+  });
+  if (!agentProfile) throw new TelosWorkError('invalid', 'Select a published ordinary agent');
+  assertAgentToolRoute(agentProfile.definition, 'codex-owned-local');
+  const selected = {
+    binding,
+    agentProfile,
+    taskRoot: ordinaryWorkspaceTaskRoot(),
+    requiredCapabilities: ['ordinary_conversation', 'retained_artifacts', 'task_execution'],
+  };
+  await getOrdinaryWorkspaces().qualifyOrdinaryWorkspace({
+    ...selected,
+    preparationId: settings.workspace.preparationId,
+    settings,
+    signal,
+  });
+  signal.throwIfAborted();
+  ordinaryWorkspaceTaskRoot(true);
+  return selected;
+}
+function telosRoleHost(operatorConnectionId?: string, ordinary = false) {
   return createTelosWorkRoleHost({
     dbPath: telosDatabasePath,
     events: eventStore,
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
-    workspaces: () => getRepositoryWorkspaces(),
+    workspaces: () => (ordinary ? getOrdinaryWorkspaces() : getRepositoryWorkspaces()),
+    ordinary: {
+      resolveSelection: (scope, signal) =>
+        resolveTelosOrdinaryWorkspaceSelection(scope.input.settings, signal, operatorConnectionId),
+      authorizeSettings: async (scope, signal) => {
+        await resolveTelosOrdinaryWorkspaceSelection(
+          scope.setup.input.settings,
+          signal,
+          operatorConnectionId,
+        );
+      },
+    },
     resolvePreparation: async (scope, signal) => {
       const selected = await resolveTelosOrdinaryPreparation(
         scope.setup.input.settings,
@@ -2195,14 +2286,18 @@ function telosRoleHost(operatorConnectionId?: string) {
       authorizeTelosOrdinaryPreparation(scope.setup.input.settings, signal, operatorConnectionId),
   });
 }
-async function setupTelosRole(request: TelosWorkRoleRequest, reviewed = false) {
+async function setupTelosRole(request: TelosWorkRoleRequest, reviewed = false, ordinary = false) {
   request.assertAuthorized();
   if (!request.authorization)
     throw new TelosWorkError('unauthorized', 'Interactive operator required');
   return withAgentLibraryRecoveryAuthorization(request.authorization, (connectionId) =>
-    reviewed
-      ? telosRoleHost(connectionId).setupReviewed(request)
-      : telosRoleHost(connectionId).setup(request),
+    ordinary
+      ? reviewed
+        ? telosRoleHost(connectionId, true).setupReviewedOrdinary(request)
+        : telosRoleHost(connectionId, true).setupOrdinary(request)
+      : reviewed
+        ? telosRoleHost(connectionId).setupReviewed(request)
+        : telosRoleHost(connectionId).setup(request),
   );
 }
 async function delegateTelosSlice(request: TelosWorkRoleRequest) {
@@ -2287,6 +2382,8 @@ app.use(
   createBackupRouter(createHostBackupService(captureMitzoTelosCoreBackup), operatorAuthMiddleware),
 );
 
+app.use(createOrdinaryWorkspacePreparationRouter());
+
 app.use(
   createTelosWorkRouter({
     dbPath: telosDatabasePath,
@@ -2295,6 +2392,8 @@ app.use(
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+    ordinaryRoleSetup: (request) => setupTelosRole(request, false, true),
+    ordinaryRoleSetupReviewed: (request) => setupTelosRole(request, true, true),
     roleSetup: setupTelosRole,
     roleSetupReviewed: (request) => setupTelosRole(request, true),
     delegateSlice: delegateTelosSlice,

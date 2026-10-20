@@ -1,3 +1,11 @@
+import type { TelosOrdinaryWorkRoleSetup } from './telos-ordinary-work-role-setup.js';
+import {
+  TelosWorkRoleSetupIntentSchema,
+  TelosOrdinaryWorkRoleSetupIntentSchema,
+  TelosOrdinaryWorkRoleSetupInputSchema,
+  TelosOrdinaryWorkReviewedRoleSetupInputSchema,
+  type TelosWorkRoleSetupRequestIntent,
+} from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import {
   TelosWorkRoleSetupInputSchema,
@@ -9,7 +17,7 @@ import {
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
-import { TelosWorkRoleSetup, type TelosWorkRoleSetupScope } from './telos-work-role-setup.js';
+import { TelosWorkRoleSetup } from './telos-work-role-setup.js';
 import type { TelosWorkRoleRequest } from './telos-work-routes.js';
 import {
   TelosWorkRoleContextSelectionSchema,
@@ -17,7 +25,7 @@ import {
   renderTelosWorkRoleContext,
   type TelosWorkRoleContextSelection,
 } from './telos-work-role-context.js';
-import { TelosWorkStore, TelosWorkError } from './telos-work-store.js';
+import { TelosWorkStore, TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
 import { TelosArtifactStore } from './telos-artifact-store.js';
 import { reviewTelosWorkRoleContext } from './telos-work-role-review.js';
 import { TelosSourceCapture } from './telos-source-capture.js';
@@ -27,6 +35,8 @@ import {
 } from './telos-work-role-presentation.js';
 
 type SetupDependencies = ConstructorParameters<typeof TelosWorkRoleSetup>[0];
+type OrdinarySetupDependencies = ConstructorParameters<typeof TelosOrdinaryWorkRoleSetup>[0];
+type SetupScope = { actor: TelosWorkActor; setup: TelosWorkRoleSetupRequestIntent };
 export interface TelosWorkRoleHostDependencies {
   dbPath(): string;
   events: EventStore;
@@ -35,6 +45,10 @@ export interface TelosWorkRoleHostDependencies {
   workspaces(): RepositoryWorkspaces;
   resolvePreparation: SetupDependencies['resolvePreparation'];
   authorizeSettings: SetupDependencies['authorize'];
+  ordinary?: {
+    resolveSelection: OrdinarySetupDependencies['resolveSelection'];
+    authorizeSettings: OrdinarySetupDependencies['authorize'];
+  };
 }
 const ReviewInput = TelosWorkRoleContextRequestSchema;
 
@@ -43,6 +57,8 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
   setupReviewed(request: TelosWorkRoleRequest): Promise<TelosWorkCommandReceipt>;
   review(request: TelosWorkRoleRequest): Promise<TelosWorkRoleContextReview>;
   setup(request: TelosWorkRoleRequest): Promise<TelosWorkCommandReceipt>;
+  setupOrdinary(request: TelosWorkRoleRequest): Promise<TelosWorkCommandReceipt>;
+  setupReviewedOrdinary(request: TelosWorkRoleRequest): Promise<TelosWorkCommandReceipt>;
 } {
   async function usingStores<T>(
     request: TelosWorkRoleRequest,
@@ -89,14 +105,107 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
   function setupWithPresentation(
     request: TelosWorkRoleRequest,
     presentationRef: TelosWorkRolePresentationRef | null,
+    ordinary = false,
   ) {
     const actor = structuredClone(request.actor);
-    const input = TelosWorkRoleSetupInputSchema.parse(structuredClone(request.raw));
+    const input = (
+      ordinary ? TelosOrdinaryWorkRoleSetupInputSchema : TelosWorkRoleSetupInputSchema
+    ).parse(structuredClone(request.raw));
     const selection = TelosWorkRoleContextSelectionSchema.parse(input.contextSelection);
     input.contextSelection = selection;
     renderTelosWorkRoleContext(selection);
     return usingStores(request, async (work, artifacts) => {
-      const assertScope = (scope: TelosWorkRoleSetupScope) => {
+      const prepare = (
+        reviewIsCurrent?: () => boolean,
+        ref?: TelosWorkRolePresentationRef | null,
+      ) =>
+        ordinary
+          ? work.prepareOrdinaryRoleSetup(input, actor, reviewIsCurrent, ref)
+          : work.prepareRoleSetup(input, actor, reviewIsCurrent, ref);
+      const authorize = async (scope: SetupScope, signal: AbortSignal) => {
+        if (ordinary) {
+          if (!deps.ordinary)
+            throw new TelosWorkError('invalid', 'Ordinary workspace role setup is unavailable');
+          await deps.ordinary.authorizeSettings(
+            {
+              actor: scope.actor,
+              setup: TelosOrdinaryWorkRoleSetupIntentSchema.parse(scope.setup),
+            },
+            signal,
+          );
+        } else
+          await deps.authorizeSettings(
+            { actor: scope.actor, setup: TelosWorkRoleSetupIntentSchema.parse(scope.setup) },
+            signal,
+          );
+      };
+      if (ordinary && !work.roleSetupRequestRetained(input.requestId)) {
+        // Validate the canonical review before even resolving an execution choice.
+        const current = reviewTelosWorkRoleContext({
+          work,
+          artifacts,
+          readReviewedSource: reviewedSourceReader(request, work, artifacts, input.itemId),
+          actor,
+          itemId: input.itemId,
+          role: input.role,
+          advisorPurpose: selection.advisorPurpose,
+          selectedSourceSnapshotIds: selection.sources.map((source) => source.snapshotId),
+          selectedArtifactRefs: selection.artifacts,
+        });
+        if (
+          input.expectedRevision !== selection.brief.revision ||
+          !isDeepStrictEqual(current, selection)
+        )
+          prepare(() => false, presentationRef); // Existing immutable terminal rejection proof; never an allocation intent.
+        try {
+          request.signal.throwIfAborted();
+          request.assertAuthorized();
+          if (!deps.ordinary)
+            throw new TelosWorkError('invalid', 'Ordinary workspace role setup is unavailable');
+          const selected = await deps.ordinary.resolveSelection(
+            { actor, input: TelosOrdinaryWorkRoleSetupInputSchema.parse(input) },
+            request.signal,
+          );
+          const { assertAgentToolRoute } = await import('./agent-tool-selection.js');
+          request.signal.throwIfAborted();
+          request.assertAuthorized();
+          assertAgentToolRoute(selected.agentProfile.definition, 'codex-owned-local');
+          await deps.workspaces().qualifyOrdinaryWorkspace({
+            ...selected,
+            preparationId:
+              TelosOrdinaryWorkRoleSetupInputSchema.parse(input).settings.workspace.preparationId,
+            settings: TelosOrdinaryWorkRoleSetupInputSchema.parse(input).settings,
+            signal: request.signal,
+          });
+          request.signal.throwIfAborted();
+          request.assertAuthorized();
+        } catch {
+          request.signal.throwIfAborted();
+          request.assertAuthorized();
+          // The complete reviewed request is ineligible before allocation. Journal
+          // that terminal rejection through the existing owner, not an HTTP guess.
+          try {
+            prepare(() => false, presentationRef);
+          } catch (error) {
+            if (
+              error instanceof TelosWorkError &&
+              error.recovery?.outcome === 'rejected_before_allocation'
+            )
+              throw new TelosWorkError(
+                'conflict',
+                'This ordinary workspace selection is unavailable. Choose a supported local Codex account, model, thinking and agent, then review again.',
+                error.recovery,
+              );
+            throw error;
+          }
+          throw new TelosWorkError(
+            'conflict',
+            'Recover the original ordinary role request before changing its selection',
+          );
+        }
+      }
+
+      const assertScope = (scope: SetupScope) => {
         request.signal.throwIfAborted();
         request.assertAuthorized();
         if (
@@ -107,7 +216,7 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
           selection.role !== input.role
         )
           throw new TelosWorkError('unauthorized', 'Role setup scope changed');
-        const saved = work.prepareRoleSetup(input, actor, undefined, presentationRef);
+        const saved = prepare(undefined, presentationRef);
         const current = reviewTelosWorkRoleContext({
           work,
           artifacts,
@@ -150,51 +259,48 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
             throw new TelosWorkError('unauthorized', 'Retained outcome lead unavailable');
         }
       };
-      const retained = work.prepareRoleSetup(
-        input,
-        actor,
-        () => {
-          request.signal.throwIfAborted();
-          request.assertAuthorized();
-          if (selection.itemId !== input.itemId || selection.role !== input.role)
-            throw new TelosWorkError('unauthorized', 'Role setup scope changed');
-          const current = reviewTelosWorkRoleContext({
-            work,
-            artifacts,
-            readReviewedSource: reviewedSourceReader(request, work, artifacts, input.itemId),
-            actor,
-            itemId: input.itemId,
-            role: input.role,
-            advisorPurpose: selection.advisorPurpose,
-            selectedSourceSnapshotIds: selection.sources.map((source) => source.snapshotId),
-            selectedArtifactRefs: selection.artifacts,
-          });
-          request.signal.throwIfAborted();
-          request.assertAuthorized();
-          return (
-            input.expectedRevision === selection.brief.revision &&
-            isDeepStrictEqual(current, selection)
-          );
-        },
-        presentationRef,
-      );
+      const retained = prepare(() => {
+        request.signal.throwIfAborted();
+        request.assertAuthorized();
+        if (selection.itemId !== input.itemId || selection.role !== input.role)
+          throw new TelosWorkError('unauthorized', 'Role setup scope changed');
+        const current = reviewTelosWorkRoleContext({
+          work,
+          artifacts,
+          readReviewedSource: reviewedSourceReader(request, work, artifacts, input.itemId),
+          actor,
+          itemId: input.itemId,
+          role: input.role,
+          advisorPurpose: selection.advisorPurpose,
+          selectedSourceSnapshotIds: selection.sources.map((source) => source.snapshotId),
+          selectedArtifactRefs: selection.artifacts,
+        });
+        request.signal.throwIfAborted();
+        request.assertAuthorized();
+        return (
+          input.expectedRevision === selection.brief.revision &&
+          isDeepStrictEqual(current, selection)
+        );
+      }, presentationRef);
       const initial = { actor, setup: retained.setup };
       assertScope(initial);
-      await deps.authorizeSettings(structuredClone(initial), request.signal);
+      await authorize(structuredClone(initial), request.signal);
       assertScope(initial);
-      if (retained.receipt) return retained.receipt;
-      const owner = new TelosWorkRoleSetup({
+      if (retained.receipt && !ordinary) return retained.receipt;
+      const common = {
         work,
         events: deps.events,
         workspaces: deps.workspaces(),
-        authorize: async (scope, signal) => {
+        authorize: async (scope: SetupScope, signal: AbortSignal) => {
           assertScope(scope);
-          await deps.authorizeSettings(structuredClone(scope), signal);
+          await authorize(structuredClone(scope), signal);
           assertScope(scope);
         },
-        assertBeforeApply: (scope) => assertScope(scope),
-        resolvePreparation: deps.resolvePreparation,
-        retainContext: async (scope, signal) => {
+        assertBeforeApply: (scope: SetupScope) => assertScope(scope),
+        retainContext: async (
+          scope: SetupScope & { conversationId: string },
+          signal: AbortSignal,
+        ) => {
           assertScope(scope);
           signal.throwIfAborted();
           const session = deps.events.getSession(scope.conversationId);
@@ -206,7 +312,9 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
             session.accountBinding,
             selection,
           );
-          const presentation = work.rolePresentationForSetup(input, actor);
+          const presentation = ordinary
+            ? work.rolePresentationForOrdinarySetup(input, actor)
+            : work.rolePresentationForSetup(input, actor);
           if (presentation)
             retainTelosWorkRolePresentation(
               deps.events,
@@ -216,7 +324,15 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
             );
           assertScope(scope);
         },
-      });
+      };
+      const owner = ordinary
+        ? new (await import('./telos-ordinary-work-role-setup.js')).TelosOrdinaryWorkRoleSetup({
+            ...common,
+            resolveSelection: deps.ordinary!.resolveSelection,
+          })
+        : new TelosWorkRoleSetup({ ...common, resolvePreparation: deps.resolvePreparation });
+      // Execution-only imports may yield; preserve the original authority fence.
+      assertScope(initial);
       return owner.setup(actor, input, request.signal);
     });
   }
@@ -265,6 +381,19 @@ export function createTelosWorkRoleHost(deps: TelosWorkRoleHostDependencies): {
           request.assertAuthorized();
           return { selection, presentation };
         }),
+      );
+    },
+    setupOrdinary(request) {
+      return setupWithPresentation(request, null, true);
+    },
+    setupReviewedOrdinary(request) {
+      const reviewed = TelosOrdinaryWorkReviewedRoleSetupInputSchema.parse(
+        structuredClone(request.raw),
+      );
+      return setupWithPresentation(
+        { ...request, raw: reviewed.input },
+        reviewed.presentationRef,
+        true,
       );
     },
     setup(request) {

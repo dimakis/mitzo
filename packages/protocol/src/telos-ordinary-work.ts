@@ -97,3 +97,7 @@ export type TelosWorkDelegationRequest = z.infer<typeof TelosWorkDelegationReque
 export type TelosWorkDelegationRequestIntent = z.infer<
   typeof TelosWorkDelegationRequestIntentSchema
 >;
+
+export type TelosOrdinaryWorkReviewedRoleSetupInput = z.infer<
+  typeof TelosOrdinaryWorkReviewedRoleSetupInputSchema
+>;
