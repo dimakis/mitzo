@@ -173,6 +173,36 @@ it('rejects forbidden files and special file modes even with a recomputed integr
   expect(() => validateSeedBaseline(baseline, stack, dir)).toThrow(/special/);
 });
 
+it.each([
+  ['home_assistant/CONSTITUTION.md', true],
+  ['home_assistant/context/hardware-inventory.md', true],
+  ['home_assistant/context/inventory.md', true],
+  ['home_assistant/private/inventory.json', false],
+  ['home_assistant/context/entities.json', false],
+  ['home_assistant/lib/inventory.py', false],
+  ['home_assistant/.env', false],
+  ['home_assistant/context/.hidden/note.md', false],
+  ['home_assistant/context/floorplan.png', false],
+  ['home_assistant2/context/note.md', false],
+])('enforces the HA portable source boundary for %s', (path, allowed) => {
+  root = '';
+  const { dir, baseline } = fixture('a'.repeat(40));
+  const content = 'Synthetic HA material\n';
+  const fullPath = join(dir, path);
+  mkdirSync(join(fullPath, '..'), { recursive: true });
+  writeFileSync(fullPath, content);
+  chmodSync(fullPath, 0o644);
+  baseline.files[path] = {
+    sha256: createHash('sha256').update(content).digest('hex'),
+    mode: '0644',
+  };
+  const payload: Record<string, unknown> = { ...baseline };
+  delete payload.payloadSha256;
+  baseline.payloadSha256 = createHash('sha256').update(canonicalJsonPayload(payload)).digest('hex');
+  if (allowed) expect(() => validateSeedBaseline(baseline, stack, dir)).not.toThrow();
+  else expect(() => validateSeedBaseline(baseline, stack, dir)).toThrow(/allowlist/);
+});
+
 it('rejects downgrading the first dynamic publication to an unverified legacy baseline', () => {
   root = '';
   const { dir } = fixture('a'.repeat(40));
