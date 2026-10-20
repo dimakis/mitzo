@@ -1,3 +1,4 @@
+import { navigateWithServiceHealth } from '../support/service-health-navigation';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -278,7 +279,9 @@ for (const scope of ['new_worker_dispatch', 'publication', 'safe_point'] as cons
             : {},
       });
     });
-    await page.goto('/chat/coordinator-chat?telosChatItem=coordinator');
+    await navigateWithServiceHealth(page, () =>
+      page.goto('/chat/coordinator-chat?telosChatItem=coordinator'),
+    );
     const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     await expect(draft).toBeVisible();
     await draft.fill('Retain coordinator draft');
@@ -353,7 +356,7 @@ for (const scope of ['new_worker_dispatch', 'publication', 'safe_point'] as cons
     ).toBeVisible();
     if (scope === 'publication')
       await expect(controls.getByText(/Current-main revalidation is required/)).toBeVisible();
-    await page.reload();
+    await navigateWithServiceHealth(page, () => page.reload());
     await expect(
       page.getByRole('heading', {
         name: scope === 'publication' ? 'Hold released · revalidation required' : 'Hold released',
@@ -362,12 +365,12 @@ for (const scope of ['new_worker_dispatch', 'publication', 'safe_point'] as cons
     ).toBeVisible();
     expect(calls.filter((c) => c.operation === 'request')).toHaveLength(1);
     expect(calls.filter((c) => c.operation === 'release')).toHaveLength(1);
-    await page.goto('/chat/native-0?telosChatItem=worker-0');
+    await navigateWithServiceHealth(page, () => page.goto('/chat/native-0?telosChatItem=worker-0'));
     const child = page.getByRole('region', { name: 'Scoped coordination receipt' });
     await expect(child.getByText('Worker 0', { exact: true })).toBeVisible();
     await expect(child.getByText('Worker 1', { exact: true })).toHaveCount(0);
     await expect(child.getByRole('button', { name: 'Release held leads' })).toHaveCount(0);
-    await page.goto('/chat/job-chat?telosChatItem=job');
+    await navigateWithServiceHealth(page, () => page.goto('/chat/job-chat?telosChatItem=job'));
     await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeVisible();
     await expect(page.getByRole('region', { name: 'Scoped coordination receipt' })).toHaveCount(0);
     expect(
