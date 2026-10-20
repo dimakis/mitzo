@@ -225,7 +225,7 @@ jobs:
             just test --lib -p codex-core -E "$native_oracle_filter" \
             --test-threads 1 --retries 0 2>&1 | tee native-core-regression-fixtures.log || oracle_status=$?
           if [[ -f target/nextest/local/junit.xml ]]; then
-            cp target/nextest/local/junit.xml native-core-regression-junit.xml
+            mv target/nextest/local/junit.xml native-core-regression-junit.xml
           fi
           exit "$oracle_status"
       - name: Discover and run explicit extension library fixtures
@@ -278,7 +278,7 @@ jobs:
             just test --lib -p codex-goal-extension -p codex-extension-api \
             --test-threads 1 --retries 0 2>&1 | tee native-extension-lib-fixtures.log || library_status=$?
           if [[ -f target/nextest/local/junit.xml ]]; then
-            cp target/nextest/local/junit.xml native-extension-lib-junit.xml
+            mv target/nextest/local/junit.xml native-extension-lib-junit.xml
           fi
           exit "$library_status"
       - name: Run native crate fixtures without provider credentials
