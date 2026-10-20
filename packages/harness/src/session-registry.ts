@@ -48,6 +48,12 @@ export interface ManagedSession {
     initialPreparationOperationId?: string;
     initialResume?: boolean;
     admit(command: unknown, preparationSignal?: AbortSignal): Promise<{ dispatched: boolean }>;
+    /** Host-only exact peer receipt; cannot be selected by a public command body. */
+    admitAgentMessage?(
+      messageId: string,
+      assertSenderCurrent: () => void,
+      signal: AbortSignal,
+    ): Promise<{ dispatched: boolean }>;
     retryInitial(command: unknown): Promise<{ dispatched: boolean }>;
     close(): void;
     /** Optional original-driver idle release; rejects active preparation/work. */

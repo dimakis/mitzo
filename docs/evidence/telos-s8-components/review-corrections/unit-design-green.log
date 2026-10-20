@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8
+
+
+ Test Files  9 passed (9)
+      Tests  125 passed | 1 skipped (126)
+   Start at  21:23:19
+   Duration  4.76s (transform 351ms, setup 0ms, import 1.19s, tests 1.20s, environment 1.46s)
+

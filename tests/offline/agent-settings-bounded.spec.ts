@@ -242,12 +242,23 @@ for (const appearance of [
     await local.focus();
     await page.keyboard.press('Escape');
     await expect(trigger).toBeFocused();
-    await expect(panel).toHaveAttribute('inert', '');
-    await panel.evaluate(async () => {
+    // Exits remain mounted for motion but leave the accessibility tree at once.
+    const exitingPanel = page.getByRole('region', {
+      name: 'Agent settings',
+      exact: true,
+      includeHidden: true,
+    });
+    await expect(panel).toHaveCount(0);
+    await expect(exitingPanel).toHaveAttribute('inert', '');
+    await expect(exitingPanel).toHaveAttribute('aria-hidden', 'true');
+    await expect(exitingPanel).toHaveJSProperty('hidden', false);
+    await expect(exitingPanel).toHaveAttribute('data-motion-active', 'true');
+    await exitingPanel.evaluate(async () => {
       const animation = (window as HeldWindow).boundedAnimations.at(-1)!;
       animation.finish();
       await animation.finished;
     });
+    await expect(exitingPanel).toHaveJSProperty('hidden', true);
     await page.getByRole('button', { name: 'Save task', exact: true }).click();
     await expect.poll(() => writes.length).toBe(1);
     expect(writes[0].definition.execution).toMatchObject({

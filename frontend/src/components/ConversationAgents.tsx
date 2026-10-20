@@ -22,6 +22,7 @@ import { useMotionPresence } from '../hooks/useMotionPresence';
 import { UiIcon } from './UiIcon';
 import { AccountModelPicker } from './AccountModelPicker';
 import { ChatAgentProfilePicker } from './ChatAgentProfilePicker';
+import { QuickSettingsContext } from '../lib/quick-settings-context';
 import './ConversationAgents.css';
 
 export interface ConversationAgent {
@@ -81,6 +82,15 @@ export function ConversationAgents(props: {
 /** The query box is the available conversation width, before the header's own gutter. */
 function ParticipantHeaderFrame({ compact, children }: { compact?: boolean; children: ReactNode }) {
   return compact ? children : <div className="conversation-participants-container">{children}</div>;
+}
+/** Portals inherit React context. This independent dialog owns its settings,
+ * rather than routing rows into an enclosing ordinary chat settings sheet. */
+function ConversationAgentsDialog(props: Parameters<typeof HomeDialog>[0]) {
+  return (
+    <QuickSettingsContext.Provider value={null}>
+      <HomeDialog {...props} />
+    </QuickSettingsContext.Provider>
+  );
 }
 function ConversationAgentsBody({
   agents,
@@ -281,7 +291,7 @@ function ConversationAgentsBody({
         </div>
       </ParticipantHeaderFrame>
       {present && (
-        <HomeDialog
+        <ConversationAgentsDialog
           title={title}
           closeLabel="Close Agents"
           inactive={!open}
@@ -807,7 +817,7 @@ function ConversationAgentsBody({
               )}
             </footer>
           )}
-        </HomeDialog>
+        </ConversationAgentsDialog>
       )}
     </>
   );

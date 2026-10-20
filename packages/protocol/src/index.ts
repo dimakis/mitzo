@@ -384,3 +384,5 @@ export * from './telos-ordinary-work.js';
 export * from './ordinary-workspace-public.js';
 
 export * from './collaboration-source-catalog.js';
+export * from './telos-work-controls.js';
+export * from './agent-communication.js';

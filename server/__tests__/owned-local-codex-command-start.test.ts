@@ -27,6 +27,7 @@ const runtime = vi.hoisted(() => ({
   scopeError: false,
   useTls: false,
   scopeContext: undefined as { currentTaskId: string; goalId: string } | undefined,
+  nativeQueues: new WeakMap<object, { startQueued(): Promise<void> }>(),
 }));
 vi.mock('../local-server-url.js', async (original) => ({
   ...(await original<typeof import('../local-server-url.js')>()),
@@ -103,7 +104,7 @@ vi.mock('../repository-workspace-runtime.js', () => ({
 }));
 vi.mock('../codex-chat-session.js', () => ({
   openCodexChat: vi.fn(),
-  getCodexRuntime: () => undefined,
+  getCodexRuntime: (session: object) => runtime.nativeQueues.get(session),
   getCodexConversationStore: () => ({}),
   publicCodexStartupError: () => 'Owned local Codex chat unavailable',
 }));
@@ -173,6 +174,7 @@ beforeEach(() => {
   runtime.scopeError = false;
   runtime.useTls = false;
   runtime.scopeContext = undefined;
+  runtime.nativeQueues = new WeakMap();
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
   vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED', '1');
   vi.mocked(openCodexChat).mockImplementation(async (options) => {
@@ -184,13 +186,27 @@ beforeEach(() => {
       model: options.model,
       reasoningEffort: options.reasoningEffort,
     });
-    options.ownedLocal!.assertBeforeDispatch(options.messageId);
+    // Historical fixture dispatched here while uncertain. The real host runs
+    // this same queued query only after its coordinator commits consumed.
+    expect(options.ownedLocal!.canClaimCommand(options.messageId)).toBe(false);
+    expect(() => options.ownedLocal!.assertBeforeDispatch(options.messageId)).toThrow();
+    runtime.nativeQueues.set(options.session, {
+      startQueued: async () => {
+        expect(chat.eventStore.getOrdinaryLocalCommandAdmission(options.messageId)?.state).toBe(
+          'consumed',
+        );
+        expect(options.ownedLocal!.canClaimCommand(options.messageId)).toBe(true);
+        options.ownedLocal!.assertBeforeDispatch(options.messageId);
+        runtime.trace.push('provider-start');
+      },
+    });
     return {
       [Symbol.asyncIterator]: async function* () {
         runtime.trace.push('loop');
         expect(chat.eventStore.getOrdinaryLocalCommandAdmission(options.messageId)?.state).toBe(
           'consumed',
         );
+        expect(runtime.trace).toContain('provider-start');
         yield { type: 'system', subtype: 'init', session_id: options.conversationId };
         await runtime.queryGate;
       },

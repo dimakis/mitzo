@@ -35,6 +35,31 @@ const artifactRuntime = {
   },
   route: { kind: 'api' as const, provider: 'account-provider', model: 'test-model' },
 };
+it('retains actual native turn acceptance across restart without treating queue, claim or thread creation as dispatch', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  expect(s.hasAcceptedProviderTurn('worker', binding)).toBe(false);
+  s.create('worker', binding, '/offline');
+  s.bindThread('worker', binding, 'native-thread');
+  s.enqueue('worker', binding, { id: 'command', prompt: 'continue' });
+  const command = s.claimNext('worker', binding)!;
+  expect(s.hasAcceptedProviderTurn('worker', binding)).toBe(false);
+  s.recordCapacityAck('worker', binding, command, 'native-thread', 'native-turn');
+  expect(s.acceptedProviderTurnForCommand('worker', binding, 'command', 'continue')).toEqual({
+    threadId: 'native-thread',
+    turnId: 'native-turn',
+  });
+  expect(
+    s.acceptedProviderTurnForCommand('worker', binding, 'command', 'different message'),
+  ).toBeUndefined();
+  s.close();
+  s = new CodexConversationStore(path);
+  expect(s.hasAcceptedProviderTurn('worker', binding)).toBe(true);
+  expect(() => s.hasAcceptedProviderTurn('worker', { ...binding, accountId: 'other' })).toThrow(
+    /binding/,
+  );
+  s.close();
+});
 it('records sandbox recipe delivery only against an exact native acknowledgement and retains it across restart', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);

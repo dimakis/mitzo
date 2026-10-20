@@ -6,6 +6,8 @@ export const TelosWorkRoleContextSelectionSchema = z
   .strictObject({
     version: z.literal(1),
     itemId: id,
+    // Absent on historical selections; never backfill their retained bytes.
+    itemKind: z.enum(['coordinator', 'outcome', 'work_item']).nullable().optional(),
     role: z.enum(['lead', 'advisor', 'worker', 'reviewer']),
     brief: z.strictObject({
       revision: id,

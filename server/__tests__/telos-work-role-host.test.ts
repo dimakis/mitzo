@@ -191,6 +191,47 @@ it('uses real silent ordinary setup and retains canonical role context before re
   expect(f.ordinary.store.listSessions()).toHaveLength(2);
 });
 
+it('reviews canonical coordinator kind and retains its distinct mandate without trusting caller-selected kind', async () => {
+  const f = await fixture();
+  classifySelectedItem(f, 'coordinator');
+  const review = await f
+    .host()
+    .review(f.request({ itemId: 'item', role: 'lead', sourceSnapshotIds: [], artifactRefs: [] }));
+  expect(review.selection).toMatchObject({ itemKind: 'coordinator', role: 'lead' });
+  const input = {
+    ...(await setupInput(f)),
+    contextSelection: review.selection,
+  };
+  const forged = structuredClone(input);
+  forged.requestId = 'forged-kind';
+  Object.assign(forged.contextSelection, { itemKind: 'outcome' });
+  await expect(f.host().setup(f.request(forged))).rejects.toThrow('Reviewed work context changed');
+  expect(f.workspaces).not.toHaveBeenCalled();
+  const body = { version: 1, input, presentationRef: review.presentationRef };
+  const first = await f.host().setupReviewed(f.request(body));
+  const id = first.work.assignments[0].conversation.conversationId;
+  const session = f.ordinary.store.getSession(id)!;
+  expect(resolveTelosWorkRoleContext(f.ordinary.store, id, session.accountBinding!)).toEqual(
+    review.selection,
+  );
+  const { resolveOrdinaryContributorGuidance } =
+    await import('../ordinary-contributor-guidance.js');
+  const original = resolveOrdinaryContributorGuidance(
+    f.ordinary.store,
+    id,
+    session.accountBinding!,
+  );
+  expect(original).toContain('directly attached outcomes and coordinators');
+  classifySelectedItem(f, 'outcome');
+  f.ordinary.reopen();
+  expect(await f.host().setupReviewed(f.request(body))).toEqual(first);
+  expect(resolveOrdinaryContributorGuidance(f.ordinary.store, id, session.accountBinding!)).toBe(
+    original,
+  );
+  expect(f.ordinary.store.getOrdinaryInitialCommandId(id)).toBeUndefined();
+  expect(f.ordinary.store.listSessions()).toHaveLength(2);
+});
+
 it('rejects a caller-authored brief even with a valid self hash before touching ordinary workspaces', async () => {
   const f = await fixture();
   const input = await setupInput(f);
