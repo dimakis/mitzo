@@ -13,6 +13,7 @@ import {
 } from '@mitzo/protocol';
 import { assertPlaywrightHost } from '../support/playwright-host';
 import { createApplicationBrowserTransport } from './application-browser-transport';
+import { drainResponseReads } from '../support/drain-response-reads';
 
 // External tool configuration only; every application/auth/account/profile/source
 // owner and API is original. In particular there is NO repository importer mock.
@@ -969,11 +970,16 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       await page.keyboard.press('Escape');
       await uiExpect(review).toBeHidden();
       await uiExpect(agents).toBeFocused();
+      await drainResponseReads(responseReads);
+      expect(browserErrors).toEqual([]);
       await context.tracing.stop({ path: join(evidence, `trace-${appearanceTheme}.zip`) });
+      await drainResponseReads(responseReads);
       await context.close();
       context = undefined;
       page = undefined;
     }
+    await drainResponseReads(responseReads);
+    expect(browserErrors).toEqual([]);
     await writeFile(
       join(evidence, 'observed.json'),
       JSON.stringify(
@@ -1068,4 +1074,6 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       'Application page failed with retained cleanup errors',
     );
   if (primaryErrors.length) throw primaryErrors[0];
+  // A late observer failure must fail the case, including after final retention.
+  expect(browserErrors).toEqual([]);
 }, 60000);
