@@ -6,12 +6,12 @@ closed. Production checkpoint81af292f0a54730d03b7f84500b919612704b380;
 control authority. It maps explicit canonical coordinator kind to the existing
 ordinary lead setup role through one shared helper.
 
-| Caller | Result |
-| --- | --- |
-| Item Chat tab | Choose/Change uses lead+assign; New chat uses lead+additional. |
-| Chat list | Current lead assignment supplies Choose/Change; links alone do not assign. |
-| Overview role entry | Coordinator exposes the same ordinary lead setup and advisor child entry. |
-| Tree conversation entry | Reads current lead assignment while keeping Coordinator display labels. |
+| Caller                  | Result                                                                     |
+| ----------------------- | -------------------------------------------------------------------------- |
+| Item Chat tab           | Choose/Change uses lead+assign; New chat uses lead+additional.             |
+| Chat list               | Current lead assignment supplies Choose/Change; links alone do not assign. |
+| Overview role entry     | Coordinator exposes the same ordinary lead setup and advisor child entry.  |
+| Tree conversation entry | Reads current lead assignment while keeping Coordinator display labels.    |
 
 Unknown kind remains unclassified. The existing role setup hook retains explicit
 assignment fencing:0 for first assignment, current revision for replacement,

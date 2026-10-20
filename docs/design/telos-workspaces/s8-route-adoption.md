@@ -119,7 +119,6 @@ qualification, and S9 must verify the joined candidate. At76, UX17/journey6 coor
 gap. The bounded coordinator adapter below addresses UI routing; reviewed
 coordinator guidance and the joined native control journey remain unaccepted.
 
-
 ## Coordinator entry adapter after the76 baseline
 
 Explicit coordinator kind now uses the existing backend lead role in the Chat
@@ -136,7 +135,6 @@ The earlier76 route review stays the baseline; review of this new mapping is a
 separate bounded delta. S5b and S6 own V2 host composition and coordinator-specific
 mandate/control proof; S9 owns the joined application acceptance. No full UX17
 completion follows from this UI adapter.
-
 
 ## Loading Back, actual source origin and viewport parity
 
