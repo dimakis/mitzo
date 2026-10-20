@@ -1,0 +1,80 @@
+{
+  "observedAt": "2026-10-20T00:42:04.987310+00:00",
+  "run": 39339195266,
+  "attempt": 1,
+  "platform": "macos-26",
+  "job": 118356222282,
+  "result": "success",
+  "source": {
+    "publishedHead": "0fd922430b1452d706f361bfde72a47eea584bda",
+    "publishedTree": "1fd6f34a9ce78096cfa4815e3fd121f34e461e68",
+    "actualCheckout": "024b4e044035ac6acb5465864788cd58fd0191f7",
+    "actualCheckoutTree": "1fd6f34a9ce78096cfa4815e3fd121f34e461e68",
+    "actualCheckoutParents": [
+      "dcbad645a3179731de96957299bb775eb094bff8",
+      "0fd922430b1452d706f361bfde72a47eea584bda"
+    ],
+    "upstream": "a956835d020762cb2b570053af06f643a11c0ecc",
+    "nativeCommit": "557ce440b823868ea853e583c2277d16ec0af726",
+    "reconstructedNativeTree": "77a800c70646406a5165ea56237219e56518c36b",
+    "patches": 54,
+    "artifactProofByteExactToPublished": true
+  },
+  "results": {
+    "passed": 5618,
+    "failed": 0,
+    "skippedByNextestSummary": 27,
+    "seconds": 1983.451,
+    "binaries": 18,
+    "junit": {
+      "name": "nextest-run",
+      "tests": "5618",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "uuid": "27a0a767-01dc-4e35-b00c-6db8fb681f4f",
+      "timestamp": "2026-10-20T00:06:08.086+00:00",
+      "time": "1983.451"
+    },
+    "skipAccounting": "Overall nextest summary retains27 skipped; JUnit includes executed cases only and reports0 skips. Exclusions must remain explicit.",
+    "namedExtensionInventoryTests": [
+      {
+        "name": "capture_refuses_all_unresolved_registrations_without_discovery",
+        "result": "PASS",
+        "seconds": "0.030"
+      },
+      {
+        "name": "capture_and_ordinary_tools_share_frozen_metadata_and_original_executor",
+        "result": "PASS",
+        "seconds": "0.066"
+      },
+      {
+        "name": "renewal_rejects_rebuild_addition_and_aba_with_equal_definitions",
+        "result": "PASS",
+        "seconds": "0.034"
+      },
+      {
+        "name": "empty_registry_is_resolved_but_empty_state_bound_contributor_is_not",
+        "result": "PASS",
+        "seconds": "0.031"
+      }
+    ],
+    "formatting": "PASS",
+    "sourceReconstruction": "PASS"
+  },
+  "evidence": {
+    "jobLog": {
+      "path": "mac-job.log",
+      "sha256": "6a8c65bbf396298ed2f03dd9c65880572e84b85dfbbb88c002e1cb215e2d2606",
+      "bytes": 1254348
+    },
+    "artifact": {
+      "id": 12232123144,
+      "sha256": "83c7107e76b466dfd04db7b9708b505e9bb3e2cfc303337c2a732dc6d6b7f399",
+      "digestMatchesActionsUpload": true
+    },
+    "junitSHA256": "543ebb8c80db0b6834f2a666986a4f2e58be17bf3f1d4c58dd5c74feee064029",
+    "sourceEvidenceSHA256": "058d9d6c10e48a11992d97296ced2d717a83df231e2bf77e397b9c523f051927"
+  },
+  "qualification": "Independently qualifies this macOS source-bound native54 fixture/format checkpoint only. Native60/local61-70, changed host26bc, installed runtime and complete application/capacity/request/count/consume remain separate. No new campaign or execution by C."
+}
