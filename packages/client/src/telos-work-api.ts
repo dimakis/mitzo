@@ -1,4 +1,12 @@
 import {
+  TelosOrdinaryWorkRoleSetupInputSchema,
+  TelosOrdinaryWorkReviewedRoleSetupInputSchema,
+  TelosOrdinaryWorkDelegationInputSchema,
+  type TelosOrdinaryWorkRoleSetupInput,
+  type TelosOrdinaryWorkReviewedRoleSetupInput,
+  type TelosOrdinaryWorkDelegationInput,
+} from '@mitzo/protocol';
+import {
   TelosSourcePermissionReviewSchema,
   TelosSourceMaterialPageRequestSchema,
   TelosSourceMaterialPageSchema,
@@ -65,6 +73,39 @@ export class TelosWorkApiError extends Error {
  */
 export class TelosWorkApiClient {
   constructor(private readonly fetch: ApiFetch) {}
+  setupOrdinaryRole(
+    input: TelosOrdinaryWorkRoleSetupInput,
+    signal?: AbortSignal,
+  ): Promise<TelosWorkCommandReceipt> {
+    return this.request(
+      'roles/ordinary/setup',
+      TelosWorkCommandReceiptSchema,
+      TelosOrdinaryWorkRoleSetupInputSchema.parse(input),
+      signal,
+    );
+  }
+  setupReviewedOrdinaryRole(
+    input: TelosOrdinaryWorkReviewedRoleSetupInput,
+    signal?: AbortSignal,
+  ): Promise<TelosWorkCommandReceipt> {
+    return this.request(
+      'roles/ordinary/setup-reviewed',
+      TelosWorkCommandReceiptSchema,
+      TelosOrdinaryWorkReviewedRoleSetupInputSchema.parse(input),
+      signal,
+    );
+  }
+  delegateOrdinarySlice(
+    input: TelosOrdinaryWorkDelegationInput,
+    signal?: AbortSignal,
+  ): Promise<TelosWorkDelegationReceipt> {
+    return this.request(
+      'delegation/ordinary/start',
+      TelosWorkDelegationReceiptSchema,
+      TelosOrdinaryWorkDelegationInputSchema.parse(input),
+      signal,
+    );
+  }
   delegateSlice(
     input: TelosWorkDelegationInput,
     signal?: AbortSignal,
@@ -202,7 +243,10 @@ export class TelosWorkApiClient {
       const code = typeof error?.code === 'string' ? error.code : 'unavailable';
       const parsed = TelosWorkRoleSetupRecoverySchema.safeParse(error?.recovery);
       const candidate =
-        path === 'roles/setup-reviewed' && body && typeof body === 'object' && 'input' in body
+        ['roles/setup-reviewed', 'roles/ordinary/setup-reviewed'].includes(path) &&
+        body &&
+        typeof body === 'object' &&
+        'input' in body
           ? body.input
           : body;
       const requestId =
@@ -210,7 +254,12 @@ export class TelosWorkApiClient {
           ? candidate.requestId
           : undefined;
       const recovery =
-        (path === 'roles/setup' || path === 'roles/setup-reviewed') &&
+        [
+          'roles/setup',
+          'roles/setup-reviewed',
+          'roles/ordinary/setup',
+          'roles/ordinary/setup-reviewed',
+        ].includes(path) &&
         parsed.success &&
         parsed.data.requestId === requestId &&
         (parsed.data.outcome === 'recover_original' ||
