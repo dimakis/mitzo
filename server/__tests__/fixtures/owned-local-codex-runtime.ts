@@ -319,7 +319,7 @@ export async function ownedRuntimeFixture(
     const commandId = request.clientMsgId;
     const rpc = {
       initialize: vi.fn(async () => {}),
-      request: vi.fn(async (method: string) => {
+      request: vi.fn(async (method: string): Promise<unknown> => {
         if (method === 'account/read')
           return { account: { type: 'chatgpt', email: configuration[0].email, planType: 'plus' } };
         if (method === 'config/read') return { config: {} };

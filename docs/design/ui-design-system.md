@@ -59,6 +59,12 @@ Dynamic route JavaScript uses direct imports rather than Vite modulepreload link
 
 ## Appearance preferences
 
+The existing adviser-account dialog reuses its shared secondary buttons and action
+row for **Retry connection** when a retained ChatGPT grant needs attention. Recovery
+is separate from **Sign in again** and does not open a browser or send terminal input.
+The terminal offline fixture covers keyboard activation, mobile/desktop layouts,
+dark/light themes and alternate accent/font preferences for this recovery state.
+
 Settings exposes eight curated accents and seven locally available UI font stacks. Preset values live in the same token file, including the light/dark accent shades. The preference hook stores validated preset IDs in local storage and applies root data attributes immediately; startup restores them before React renders. The UI says these choices are saved on the current device. Code remains monospace, and Reset appearance restores System theme, Lavender accent and System font. Browser tests verify every accent pair meets 4.5:1 contrast for filled controls and that selections survive route changes and reloads.
 
 ## Mobile composition
@@ -1459,6 +1465,35 @@ scroll strip. Existing semantic tokens, type, focus, control geometry and appear
 preferences remain effective. The ordinary draft owner retains text/images/context
 through silent role binding and first-send consumption.
 
+On the supported Local Mac OAuth Codex route, Repository None prepares an ordinary
+workspace from the server’s readiness receipt. Other execution choices retain their
+selected intent and an actionable refusal. The existing primary control confirms
+role setup after review; readiness and rendering never start a command. Draft storage
+retains the exact preparation, immutable reviewed settings, presentation and request
+identity across reload and unknown outcomes. Device-storage failures keep replacement
+locked. Only an exact durable pre-allocation rejection permits explicit re-review and
+a fresh confirmation. This reuses the existing setup card, status/alert text, composer
+and controls, with no new style or motion pattern.
+
+A bound ordinary workspace uses the same chat settings, transcript and composer.
+Its prepared first command keeps the original account, model, thinking, agent and
+execution choices fixed. A matching consumed receipt refreshes its command phase;
+future model/thinking choices then use the existing continuation controls. Unknown
+delivery keeps the original command and draft for explicit recovery in More options.
+Workspace details say Conversation files and show that a Git branch does not apply.
+No new settings, storage owner or motion pattern is introduced.
+The shared compact Agents control clips its flex label with the existing ellipsis
+pattern, preserving its full accessible name, fixed icon space and shared control
+height at narrow widths and large text sizes.
+
+Ordinary conversation files reuse the existing viewer, optimistic editor and file
+options. Root discovery retains the selected chat; verified ordinary metadata
+withholds Git/worktree controls, while unverified metadata withholds root choices.
+Loading a different chat or document retires the previous UI read and callbacks,
+including a return to a previously selected chat. Server file admission remains
+authoritative. Existing editor drafts, conflict review, download and return links
+keep their original session/path scope without a new editor or storage owner.
+
 The scoped offline role fixture checks source-only lead setup, full refinement/child
 advisor chat, uncertain setup/reload recovery, normal settings, retained unsent draft,
 expanded context pins and proposal saves at 320px WebKit/Chromium and desktop Chromium,
@@ -1538,7 +1573,11 @@ The approved additive priority amendment uses `TodoPrioritySelect` in the curren
 item header and a compact `P<n>` badge in each recursive item card. The native
 select inherits the shared font, semantic colors, control height and focus rule.
 Pending saves disable the field; failures announce uncertainty beside the field
-and preserve the last confirmed value. Existing grouping, sorting and navigation
+and preserve the last confirmed value. The item route owns this pending/error
+state across the legacy-to-canonical header handoff. Hydrating a canonical record
+must not discard a refusal warning or enable another write while one is pending;
+the current record remains authoritative for the displayed confirmed value.
+Existing grouping, sorting and navigation
 remain unchanged. This is not the later S7/S8 workspace implementation.
 
 The intercepted `telos-priority.spec.ts` fixture covers the actual responsive workspace
@@ -1793,3 +1832,43 @@ These bounded reference dimensions are a structural exception to the usual share
 spacing/radius scale; they do not establish a new palette, font or reusable scale.
 Browser assertions protect these exact dimensions while shared control-height and
 focus rules remain effective.
+
+The ordinary Files metadata guard also withholds Git/worktree discovery when a
+matching modern runtime projection lacks both workspace identities. A retained
+runtime binding or command-scope flag cannot establish legacy repository scope.
+Repository identities must satisfy the existing command UUID schema. Valid explicit
+repository identities and legacy metadata without runtime routing remain
+on their existing Files path. This does not change server file permissions.
+
+## Queue recovery status
+
+`ChatStatusMessage` gives send progress, conversation loading and composer-blocking
+reasons one shared quiet treatment: semantic muted text, UiIcon, UI font and shared
+spacing/type tokens. Both chat pages place delivery feedback beside the composer;
+the queue owner gives active recovery priority over duplicate delivery progress.
+Normal progress has no bordered warning panel. The queue uses its existing actions
+with shared control-height targets and a close icon. Only current action failures,
+failed turns ready for review and exhausted/inspection-required recovery get the
+quiet outlined attention treatment. No generic earlier-step warning or successful
+restart/continue notice outlives the work it describes. Transient background
+reattach failures remain represented by current recovery metadata.
+
+A newer assistant snapshot clears preparation progress even if its message_start
+was lost during reconnect; foreign and older snapshots do not. This changes only
+UI progress, never a delivery receipt or permission decision. Drafts, queue review,
+cancellation, keyboard focus and genuine errors remain available.
+
+The intercepted actual-composer queue-status fixture covers mobile
+WebKit/Chromium and desktop Chromium in dark Mint/System and light Teal/Georgia,
+recovery, keyboard fallback activation, cleared status, quiet preparing progress
+and retained drafts. Shared motion supplies the loading icon and reduced-motion
+fallback. These checks use synthetic metadata, no backend and no model calls.
+
+Inspected captures: [phone progress](assets/chat-progress-mobile-dark.png) and
+[desktop progress](assets/chat-progress-desktop-light.png). These show isolated
+actual composer/status components, not a live chat or a change to approved settings.
+
+Pending chat-type qualification renders only pure progress/error feedback beside
+the disabled input; it does not mount the ordinary queue or send owner early.
+Outline warnings use the semantic warning foreground on a transparent background;
+filled controls retain their existing paired foreground contrast checks.

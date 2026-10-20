@@ -57,11 +57,19 @@ restores the configured label.
   browsing continues. A cold start with no valid root snapshot still fails closed
   until the configuration is repaired; unknown credential paths cannot safely be
   guessed. Non-missing-path resolution errors also deny access.
-- Interrupt and process loss pause queued work. Startup marks unfinished commands
-  interrupted. Queued messages require explicit continuation; interrupted actions
-  are never automatically replayed. The chat status shows the saved queue and
-  whether reconnection is needed. Check current state before retrying an uncertain
-  action.
+- Interrupt pauses remain deliberate. Transport loss in an ordinary legacy chat
+  automatically reconnects already queued work, with five transport attempts after
+  1, 2, 5, 10 and 30 seconds. Account, workspace and provider binding are reverified;
+  metadata-only native turn status must be terminal before FIFO dispatch. The lost
+  command is preserved and never replayed. Stop cancels pending and in-flight
+  recovery. A second lost automatic follow-up does not drain further saved work.
+- Transport eligibility is persisted separately from a generic recovery pause and
+  survives cold reattachment. Historical pauses without this qualification retain
+  explicit continuation. Guarded ordinary routes, terminal transports, Symposium
+  and capacity recovery keep their existing owners. After bounded retries fail,
+  the existing reconnect fallback remains available. Check current state before
+  retrying an uncertain action. Successful continuation refreshes queue metadata
+  without leaving a stale attention banner.
 
 ## Approved environment changes
 
@@ -121,6 +129,24 @@ The credential resolver registry accepts additional provider implementations.
 Resolution fails closed; secrets are not stored in account profiles, tool
 environments, or session metadata. The API model is fixed for the conversation.
 Its private native history is separate from the Codex durable follow-up queue.
+
+The enrolled Local Responses runtime offers existing configured OpenAI API accounts
+as well as new Connections enrollments. It reuses the selected account's credential
+reference and its existing rotation/enrollment controller. Missing enrollment custody,
+unresolved credential journals and account changes remain blocking; re-entering a
+key or creating a second account is not required to select an existing account locally.
+The enrolled OpenShell picker also includes existing API accounts with a configured
+provider name and pinned provider ID. Owning admission checks the existing credential
+custody under its mutation gate and verifies the exact provider ID, type and workspace
+before sandbox effects, without copying the host key. An unpinned API profile remains
+available locally; it cannot establish a new explicit sandbox route.
+
+When Local Mac Codex is enrolled, host account discovery uses that runtime's pinned
+native executable for metadata-only account and model checks. It does not depend
+on the globally installed CLI version, start threads or perform inference. Existing
+Mac sign-ins can be registered as host account profiles using their actual verified
+identity and login directory. A differently signed-in sandbox account keeps its own
+profile; registering a Mac account does not replace that account or copy its tokens.
 
 Project command hooks are disabled by default because their commands are repository-
 controlled host code. An operator may explicitly trust them with

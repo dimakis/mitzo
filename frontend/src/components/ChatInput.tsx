@@ -1,3 +1,4 @@
+import { ChatStatusMessage } from './ChatStatusMessage';
 import { MotionPresence } from './MotionPresence';
 import { ComposerResponders, type ComposerResponderSelection } from './ComposerResponders';
 import {
@@ -230,10 +231,20 @@ export function ChatInput({
     }),
     [draftStorageKey, clearDraft, text, flushDraft, savedChatDraft, images, activeContextBlocks],
   );
+  const selectedResponderIds =
+    responders?.responders?.kind === 'selected'
+      ? responders.responders.sessionIds
+      : (responders?.selectedIds ?? []);
   const sendDisabledReason =
     suppliedSendDisabledReason ??
     (respondersOpen ? 'Choose who replies, or close the picker to keep your draft.' : undefined) ??
-    (responders?.selectedIds.some((id) => !responders.members.some((m) => m.id === id))
+    (responders?.responders?.kind === 'selected' && !responders.responders.sessionIds.length
+      ? 'Use @ to choose who replies before sending.'
+      : undefined) ??
+    (responders &&
+    selectedResponderIds.some(
+      (id) => !responders.members.some((m) => m.id === id && !m.unavailableReason),
+    )
       ? 'A selected agent is unavailable. Choose who replies before sending.'
       : undefined) ??
     (textOnly && (images.length || activeContextBlocks.length)
@@ -559,7 +570,9 @@ export function ChatInput({
         ?.querySelector<HTMLElement>('.composer-responder-picker');
       if (e.key === 'Escape') panel?.querySelector<HTMLButtonElement>('button:last-child')?.click();
       else {
-        const choice = panel?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+        const choice = panel?.querySelector<HTMLInputElement | HTMLButtonElement>(
+          '[data-responder-choice]:not(:disabled)',
+        );
         if (e.key === 'Enter') choice?.click();
         else choice?.focus();
       }
@@ -933,7 +946,7 @@ export function ChatInput({
           </button>
         </div>
       ))}
-      {sendDisabledReason && <span role="status">{sendDisabledReason}</span>}
+      <ChatStatusMessage status={sendDisabledReason} />
       <div className="chat-input-row">
         <textarea
           ref={textareaRef}

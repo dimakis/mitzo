@@ -10,6 +10,7 @@ import { MobileShell } from '../../frontend/src/components/MobileShell';
 import { useIsDesktop } from '../../frontend/src/hooks/useMediaQuery';
 import { agentBuilderCommandHandoff } from '../../frontend/src/lib/agent-builder-chat';
 import { createReviewedOutboxStorage } from '../../frontend/src/lib/reviewed-outbox-storage';
+import { builderOfflineTransport } from '../support/builder-offline-transport';
 import '../../frontend/src/styles/tokens.css';
 import '../../frontend/src/styles/global.css';
 import '../../frontend/src/styles/desktop.css';
@@ -42,7 +43,12 @@ const store = createMitzoStore({
   },
   sseConfig: {
     baseUrl: '',
-    fetch: (url, init) => fetch(url, init),
+    fetch: builderOfflineTransport(
+      location.origin,
+      (url, init) => fetch(url, init),
+      (message) =>
+        window.dispatchEvent(new CustomEvent('fixture-builder-message', { detail: message })),
+    ),
     outboxStorage: sessionStorage,
     createEventSource: () => {
       class OfflineSource extends EventTarget {

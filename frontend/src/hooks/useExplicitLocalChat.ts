@@ -1,10 +1,13 @@
 import { resolveRuntimeTarget } from '../lib/chat-runtime-route';
+import { z } from 'zod';
 import { getDefaultAccountModel } from '../lib/account-preference';
 import type { AccountSelection } from '../types/account-selection';
 import { ChatRuntimeDraftContext } from './chat-runtime-draft-context';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   SessionRuntimeBindingSchema,
+  OrdinaryWorkspaceFirstCommandSchema,
+  LocalCodexFirstCommandSchema,
   AgentLibraryVersionSchema,
   AgentContextSnapshotSchema,
   type AgentLibraryVersion,
@@ -28,6 +31,16 @@ import {
   evaluateChatRuntimeSelection,
   type ChatRuntimeSelection,
 } from '../lib/chat-runtime-selection';
+
+/** Public display identity only; source and admission retain the repository owner. */
+const RepositoryContextSchema = z.strictObject({
+  workspaceId: z.string().regex(/^\S{1,200}$/),
+  repository: z
+    .string()
+    .max(201)
+    .regex(/^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?\/[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$/)
+    .refine((value) => !value.includes('..')),
+});
 /** Shared draft intent. Configuration never establishes owning admission. */
 export function useExplicitLocalChat(
   draftId: string,
@@ -97,9 +110,12 @@ export function useExplicitLocalChat(
     sessionId: string;
     binding: SessionRuntimeBinding | null;
     firstCommand: boolean;
+    preparedFirst: boolean;
+    ordinaryWorkspaceId?: string;
     reason?: string;
     intent: ChatRuntimeSelection | null;
     repositoryWorkspaceId?: string;
+    repositoryContext?: z.infer<typeof RepositoryContextSchema>;
     mode?: 'ask' | 'agent' | 'auto';
     agentProfile?: AgentLibraryVersion;
     agentContext?: AgentContextSnapshot;
@@ -185,8 +201,34 @@ export function useExplicitLocalChat(
           body.runtimeBinding == null
             ? null
             : SessionRuntimeBindingSchema.parse(body.runtimeBinding);
+        const ordinaryWorkspaceId =
+          body.ordinaryWorkspaceId == null
+            ? undefined
+            : OrdinaryWorkspaceFirstCommandSchema.shape.workspace.shape.workspaceId.parse(
+                body.ordinaryWorkspaceId,
+              );
+        const preparedFirst = body.runtimeCommandScope === 'prepared-first-command';
+        const preparedRepository =
+          preparedFirst &&
+          ordinaryWorkspaceId === undefined &&
+          LocalCodexFirstCommandSchema.shape.repositoryWorkspaceId.safeParse(
+            body.repositoryWorkspaceId,
+          ).success;
+        if (
+          (ordinaryWorkspaceId !== undefined || preparedFirst) &&
+          ((!ordinaryWorkspaceId && !preparedRepository) ||
+            (ordinaryWorkspaceId !== undefined && body.repositoryWorkspaceId != null) ||
+            parsed?.version !== 2 ||
+            parsed.harness.implementation !== 'codex' ||
+            parsed.execution.location !== 'local' ||
+            parsed.account.provider !== 'openai-codex')
+        )
+          throw Error('Ordinary conversation identity unavailable');
+        const repository = RepositoryContextSchema.safeParse(body.repositoryContext);
         setMeta({
           sessionId,
+          ordinaryWorkspaceId,
+          preparedFirst,
           binding: parsed,
           ...(parsed?.harness.implementation === 'gemini'
             ? {
@@ -235,6 +277,12 @@ export function useExplicitLocalChat(
               ? AgentContextSnapshotSchema.parse(body.agentContext)
               : undefined,
           repositoryWorkspaceId: body.repositoryWorkspaceId,
+          repositoryContext:
+            body.sessionId === sessionId &&
+            repository.success &&
+            repository.data.workspaceId === body.repositoryWorkspaceId
+              ? repository.data
+              : undefined,
           mode: body.mode,
         });
         setMetadataLoadingForSession(null);
@@ -262,6 +310,8 @@ export function useExplicitLocalChat(
     ['codex', 'responses', 'claude-sdk', 'gemini'].includes(
       currentMeta?.binding?.harness.implementation ?? '',
     );
+  const preparedFirst = bound && !!currentMeta?.preparedFirst && !metadataPending;
+  const commandAvailable = !metadataPending && (preparedFirst || continuation);
   const [future, setFuture] = useState<{ sessionId: string; intent: ChatRuntimeSelection } | null>(
     null,
   );
@@ -308,7 +358,7 @@ export function useExplicitLocalChat(
     ? currentMeta!.nativeConstraint!.reason
     : metadataPending
       ? (metadataError ?? 'Loading conversation settings…')
-      : bound && !continuation
+      : bound && !commandAvailable
         ? (currentMeta?.reason ??
           `This ${currentMeta?.binding?.execution.location === 'openshell' ? 'OpenShell' : 'Local'} conversation supports its first command only. Start a new chat for another command.`)
         : sessionId && !currentMeta
@@ -407,11 +457,16 @@ export function useExplicitLocalChat(
     setChoice({ draftId, intent: reviewed });
     retained?.update(reviewed);
   };
+  const refresh = useCallback(() => setAttempt((value) => value + 1), []);
   return {
     intent: selectedIntent,
     inventory,
     continuation,
+    preparedFirst,
+    commandAvailable,
+    ordinaryWorkspaceId: currentMeta?.ordinaryWorkspaceId,
     repositoryWorkspaceId: currentMeta?.repositoryWorkspaceId,
+    repositoryContext: metadataPending ? undefined : currentMeta?.repositoryContext,
     agentProfile: currentMeta?.agentProfile,
     agentContext: currentMeta?.agentContext,
     mode: currentMeta?.mode,
@@ -425,7 +480,7 @@ export function useExplicitLocalChat(
     error,
     metadataUnavailable,
     metadataPending,
-    refresh: () => setAttempt((value) => value + 1),
+    refresh,
     update,
     review: () => {
       update({

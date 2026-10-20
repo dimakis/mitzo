@@ -1,10 +1,13 @@
 import { Router, type Request, type RequestHandler, type Response } from 'express';
 import { z } from 'zod';
 import {
+  TelosWorkControlCommandSchema,
+  type TelosWorkControlCommand,
   TelosWorkCommandSchema,
   TelosWorkIdSchema,
   TelosSourceConversationReferenceSchema,
   TelosWorkDelegationInputSchema,
+  TelosOrdinaryWorkDelegationInputSchema,
   TelosWorkDelegationReceiptSchema,
   TelosStartSliceInputSchema,
 } from '@mitzo/protocol';
@@ -33,11 +36,14 @@ export function createTelosWorkRouter(options: {
   ordinaryConversation(id: string): boolean;
   sourceConversation?(id: string): boolean;
   roleSetup?(request: TelosWorkRoleRequest): Promise<unknown>;
+  ordinaryRoleSetup?(request: TelosWorkRoleRequest): Promise<unknown>;
+  ordinaryRoleSetupReviewed?(request: TelosWorkRoleRequest): Promise<unknown>;
   roleReview?(request: TelosWorkRoleRequest): Promise<unknown>;
   roleSetupReviewed?(request: TelosWorkRoleRequest): Promise<unknown>;
   roleContext?(request: TelosWorkRoleRequest): Promise<unknown>;
   advisorPreview?(request: TelosWorkRoleRequest): Promise<unknown>;
   advisorSave?(request: TelosWorkRoleRequest): Promise<unknown>;
+  ordinaryDelegateSlice?(request: TelosWorkRoleRequest): Promise<unknown>;
   delegateSlice?(request: TelosWorkRoleRequest): Promise<unknown>;
   assertRoleAssignment?(itemId: string, role: 'lead' | 'worker', conversationId: string): void;
 }) {
@@ -89,6 +95,79 @@ export function createTelosWorkRouter(options: {
     }
     return { kind: 'operator', id };
   };
+  const control = (
+    store: TelosWorkStore,
+    input: TelosWorkControlCommand,
+    authority: TelosWorkActor,
+  ) => {
+    switch (input.operation) {
+      case 'read':
+        return store.readControl(input.controlId, authority);
+      case 'inbox':
+        return store.controlInbox(input.itemId, authority);
+      case 'request': {
+        const { operation, ...raw } = input;
+        void operation;
+        return store.requestControl(raw, authority);
+      }
+      case 'acknowledge': {
+        const { operation, ...raw } = input;
+        void operation;
+        return store.acknowledgeControl(raw, authority);
+      }
+      case 'release': {
+        const { operation, ...raw } = input;
+        void operation;
+        return store.releaseControl(raw, authority);
+      }
+    }
+  };
+  router.post(
+    '/api/telos/work/controls',
+    options.operatorAuth,
+    requireSameOriginJson,
+    (req, res) => {
+      const authority = actor(res);
+      if (!authority) return;
+      const parsed = TelosWorkControlCommandSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ code: 'invalid', error: 'Invalid scoped control' });
+        return;
+      }
+      run(res, (store) => control(store, parsed.data, authority));
+    },
+  );
+  router.post('/api/internal/telos/work/control', (req, res) => {
+    if (!options.verifyInternal(req)) {
+      res.status(401).json({ code: 'unauthorized', error: 'Internal token required' });
+      return;
+    }
+    const parsed = z
+      .strictObject({
+        clientId: TelosWorkIdSchema,
+        sessionId: TelosWorkIdSchema,
+        input: TelosWorkControlCommandSchema,
+      })
+      .safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ code: 'invalid', error: 'Invalid scoped control' });
+      return;
+    }
+    const selected = parsed.data;
+    if (
+      req.headers['x-client-id'] !== selected.clientId ||
+      options.sessionId(selected.clientId) !== selected.sessionId ||
+      !options.ordinaryConversation(selected.sessionId)
+    ) {
+      res
+        .status(403)
+        .json({ code: 'unauthorized', error: 'Exact current ordinary conversation required' });
+      return;
+    }
+    run(res, (store) =>
+      control(store, selected.input, { kind: 'conversation', id: selected.sessionId }),
+    );
+  });
   router.get('/api/telos/work/items/:itemId', options.operatorAuth, (req, res) => {
     const authority = actor(res);
     if (!authority) return;
@@ -141,12 +220,15 @@ export function createTelosWorkRouter(options: {
   });
   for (const operation of [
     { path: 'roles/setup', host: options.roleSetup },
+    { path: 'roles/ordinary/setup', host: options.ordinaryRoleSetup },
+    { path: 'roles/ordinary/setup-reviewed', host: options.ordinaryRoleSetupReviewed },
     { path: 'roles/setup-reviewed', host: options.roleSetupReviewed },
     { path: 'roles/context', host: options.roleContext },
     { path: 'roles/review', host: options.roleReview },
     { path: 'advisor/preview', host: options.advisorPreview },
     { path: 'advisor/save', host: options.advisorSave },
     { path: 'delegation/start', host: options.delegateSlice },
+    { path: 'delegation/ordinary/start', host: options.ordinaryDelegateSlice },
   ])
     router.post(
       `/api/telos/work/${operation.path}`,
@@ -156,7 +238,9 @@ export function createTelosWorkRouter(options: {
         const authority = actor(res);
         if (!authority) return;
         const host = operation.host;
-        const delegation = operation.path === 'delegation/start';
+        const delegation = ['delegation/start', 'delegation/ordinary/start'].includes(
+          operation.path,
+        );
         if (!host) {
           res.status(503).json({
             code: 'unavailable',
@@ -166,7 +250,12 @@ export function createTelosWorkRouter(options: {
           });
           return;
         }
-        const parsed = delegation ? TelosWorkDelegationInputSchema.safeParse(req.body) : undefined;
+        const parsed = delegation
+          ? (operation.path === 'delegation/ordinary/start'
+              ? TelosOrdinaryWorkDelegationInputSchema
+              : TelosWorkDelegationInputSchema
+            ).safeParse(req.body)
+          : undefined;
         if (parsed && !parsed.success) {
           res.status(400).json({ code: 'invalid', error: 'Invalid work delegation' });
           return;
@@ -219,7 +308,12 @@ export function createTelosWorkRouter(options: {
                 ? 400
                 : 503;
           res.status(status).json({
-            ...((operation.path === 'roles/setup' || operation.path === 'roles/setup-reviewed') &&
+            ...([
+              'roles/setup',
+              'roles/setup-reviewed',
+              'roles/ordinary/setup',
+              'roles/ordinary/setup-reviewed',
+            ].includes(operation.path) &&
             status === 409 &&
             known &&
             error.code === 'conflict' &&

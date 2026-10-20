@@ -78,7 +78,10 @@ vi.mock('../SymposiumAccessRequests', () => ({
   ),
 }));
 
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
+vi.mock('../../lib/api-fetch', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/api-fetch')>();
+  return { ...actual, apiFetch: vi.fn() };
+});
 vi.mock('../SessionResourcesDialog', () => ({ SessionResourcesDialog: () => null }));
 vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
 vi.mock('../ChatArea', () => ({
@@ -239,12 +242,20 @@ it('composes the approved participant header and ordinary input without recipien
     />,
   );
   const agents = await screen.findByRole('button', { name: 'Agents, Architect, Reviewer' });
+  expect(agents.classList.contains('conversation-participants-trigger')).toBe(true);
+  const names = agents.querySelector('.conversation-participant-names')!;
+  expect(names.firstElementChild?.textContent).toBe('Architect');
+  expect(names.querySelector('.conversation-participant-additional-name')?.textContent).toBe(
+    ' · Reviewer',
+  );
   expect(screen.queryByRole('tablist', { name: 'Symposium conversations' })).toBeNull();
   expect(screen.queryByRole('combobox', { name: 'Message recipient' })).toBeNull();
   expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Access' })).toBeTruthy();
   fireEvent.click(agents);
   const dialog = screen.getByRole('dialog', { name: 'Agents' });
+  expect(within(dialog).getByText('Architect', { selector: 'strong' })).toBeTruthy();
+  expect(within(dialog).getByText('Reviewer', { selector: 'strong' })).toBeTruthy();
   expect(within(dialog).getAllByRole('checkbox', { name: 'Replies by default' })).toHaveLength(2);
   fireEvent.click(within(dialog).getByRole('button', { name: 'Chat settings' }));
   expect(screen.getByText('Retained settings')).toBeTruthy();
@@ -603,12 +614,14 @@ describe('SymposiumConversation', () => {
         sessionId="session"
         chat={chat}
         ordinaryComposer={<button>Ordinary send</button>}
+        pendingFeedback={<span role="status">Preparing response…</span>}
       />,
     );
     expect(
       (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).disabled,
     ).toBe(true);
     expect(screen.queryByText('Ordinary send')).toBeNull();
+    expect(screen.getByText('Preparing response…')).toBeTruthy();
     expect(screen.queryByText('Loading Symposium…')).toBeNull();
   });
 

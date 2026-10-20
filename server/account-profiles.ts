@@ -3,6 +3,7 @@ import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema } from './credentials.js';
 import { CodexAppServerClient } from './codex-app-server-client.js';
+import { OrdinaryLocalCodexHostRuntime } from './ordinary-local-codex-host-runtime.js';
 import { verifyCodexAccount } from './codex-account.js';
 import {
   OpenShellRuntimeManager,
@@ -406,7 +407,7 @@ export class AccountProfiles {
 
   ordinaryLocalResponsesInventory() {
     return this.profiles.flatMap((profile) => {
-      if (profile.provider !== 'openai' || !this.isEnrolledOpenAIAccount(profile.id)) return [];
+      if (profile.provider !== 'openai') return [];
       const discovered = cachedModels(JSON.stringify(profile));
       return [
         {
@@ -460,7 +461,7 @@ export class AccountProfiles {
         profile.provider === 'openai' &&
         openaiApi &&
         profile.sandboxProvider &&
-        this.isEnrolledOpenAIAccount(profile.id)
+        profile.sandboxProviderId
       ) {
         account = {
           accountId: profile.id,
@@ -806,8 +807,18 @@ export class AccountProfiles {
       ? beginSignInCheck(hostEvidence.profileRevision)
       : undefined;
     try {
+      const hostRuntime =
+        profile.credentialRef && process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED === '1'
+          ? new OrdinaryLocalCodexHostRuntime()
+          : undefined;
+      const hostObservation = await hostRuntime?.observe();
       client = profile.credentialRef
-        ? CodexAppServerClient.launch(profile.credentialRef)
+        ? hostObservation
+          ? CodexAppServerClient.launchPreflight(
+              profile.credentialRef,
+              hostObservation.executablePath,
+            )
+          : CodexAppServerClient.launch(profile.credentialRef)
         : await this.launchBrokeredModelDiscovery(profile, deadline.signal);
       await withDiscoveryDeadline(() => client!.initialize(), deadline.signal);
       // Brokered account/read does not identify the configured host login.
@@ -843,10 +854,12 @@ export class AccountProfiles {
           hostGeneration!,
         );
       }
-      return await readCodexModels({
+      const models = await readCodexModels({
         request: (method, params) =>
           withDiscoveryDeadline(() => client!.request(method, params), deadline.signal),
       });
+      hostRuntime?.assertCurrentSync();
+      return models;
     } catch (error) {
       if (profile.credentialRef && !hostIdentityVerified) {
         const evidence = hostEvidence!;

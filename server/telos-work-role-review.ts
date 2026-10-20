@@ -123,6 +123,7 @@ export function reviewTelosWorkRoleContext(
   const selected = TelosWorkRoleContextSelectionSchema.parse({
     version: 1,
     itemId,
+    itemKind: target.work.kind,
     role,
     ...(input.advisorPurpose ? { advisorPurpose: input.advisorPurpose } : {}),
     brief: {

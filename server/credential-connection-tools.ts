@@ -1,3 +1,4 @@
+import { ConnectionRequestError } from './connection-request-error.js';
 import { WebSocketRequestSchema, ConnectionWebSocketError } from './credential-websocket.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -33,7 +34,7 @@ export const credentialConnectionSchemas = {
 };
 const descriptions = {
   ListConnections:
-    'Discover configured service connections and access for this chat. Never returns credentials. If the needed service is missing, use GetConnectionGuide and PrepareConnectionSetup to help the user connect it within this task.',
+    'Discover configured service connections, their transport and access for this chat. Attached or approved connections can be used directly; request_session_access needs RequestConnectionAccess. Never returns credentials. If the needed service is missing, use GetConnectionGuide and PrepareConnectionSetup to help the user connect it within this task.',
   GetConnectionGuide:
     'Load current Mitzo instructions for connecting services, using approved connections, or troubleshooting. Use when service setup is needed; keeps detailed guidance out of the initial context. Returns no credentials.',
   PrepareConnectionSetup:
@@ -41,7 +42,7 @@ const descriptions = {
   GetConnectionSetup:
     'Read progress for a setup prepared by this chat. Returns non-secret pending, verifying, ready, cancelled, or expired status and connectionId when ready. Use once when checking secure completion; do not repeatedly poll. Continue the original task after readiness, request session access, and avoid repeating completed actions.',
   RequestConnectionAccess:
-    'Request explicit approval to use one connection in this session. Approval persists across reconnects of this session only. The credential remains in Apple Keychain.',
+    'Request access for a connection listed with request_session_access. An attached or approved connection already has access; use its listed transport directly. Repeated requests check existing access without prompting again. Approval survives reconnects; credentials remain private to Mitzo.',
   ConnectionWebSocket:
     'Send one bounded command through an approved service WebSocket. Mitzo injects authentication privately; never supply credentials, destination URLs, or authentication frames. Treated as a write and never replayed. An unconfirmed command may have applied; inspect state before retrying. Load GetConnectionGuide for usage details.',
   HomeAssistantDashboard:
@@ -293,6 +294,8 @@ export function createCredentialConnectionTools(
         );
         return { content: JSON.stringify(response), isError: false };
       } catch (error) {
+        if (error instanceof ConnectionRequestError)
+          return { content: JSON.stringify(error.toResult()), isError: true };
         if (error instanceof ConnectionWebSocketError)
           return {
             content: error.mayHaveApplied

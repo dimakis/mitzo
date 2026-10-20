@@ -19,9 +19,9 @@ If `git push` output contains "Bypassed rule violations," you did it wrong. Stop
 
 ## CI Must Pass Before Merge
 
-1. **After every push to a branch**, verify CI passes: `gh run list --limit 1` or `gh run watch`.
+1. **Before merge**, verify required CI for the current combined candidate. Newer PR commits supersede older runs; batch known fixes instead of waiting for obsolete runs.
 2. **If CI fails**, fix it on the branch before merging. Do not merge with red CI.
-3. **All CI steps must run.** The pipeline runs typecheck, tests, and build even if lint/format fails. If you see steps skipped, the workflow is broken — fix it.
+3. **All selected required checks must pass.** The core pipeline retains typecheck, tests and build even if lint/format fails. Browser/native skips are valid only under `scripts/ci-selection.mjs` and its required aggregation gate; incomplete or unknown diffs run all dependent jobs.
 4. **Pre-commit hooks are not a substitute for CI.** Local hooks only check staged files of specific types. CI checks everything.
 
 ## After Pushing a Branch
@@ -40,3 +40,9 @@ gh run view <run-id> --log-failed
 ## If CI Is Red When You Start
 
 Fix it first. A red CI pipeline means every subsequent merge is unverified. The longer it stays red, the more unverified code accumulates. Create a `fix/ci-*` branch and fix it through a PR like everything else.
+
+## Integration and review reuse
+
+Keep strict up-to-date protection unless a fully configured native merge queue provides equivalent combined-result validation. Integrate main at the final landing turn; do not refresh every waiting PR whenever main advances. CI must cover the candidate plus current base. A clean Git merge alone is insufficient.
+
+Follow `skills/land-pr/SKILL.md` for review: one thorough approval plus verification of later changes, with an independent second full pass for high-impact risks. Preserve the baseline across accepted base merges. Review relevant integration deltas, conflict resolutions and extra edits. A new SHA alone does not require another full PR review. Only the trusted review service may reconcile current-head approval; never copy statuses or bypass the App-bound gate.

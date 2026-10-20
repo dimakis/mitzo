@@ -42,11 +42,13 @@ export interface OwnedLocalCodexChatOptions {
   images?: Array<{ data: string; mediaType: string }>;
   agentProfile?: AgentLibraryVersion;
   agentContext?: AgentContextSnapshot;
+  ordinaryWorkspace?: { kind: 'ordinary'; id: string; directory: string };
   repositoryWorkspace?: { id: string; directory?: string; sandbox?: boolean };
   resume?: boolean;
   reattachOnly?: boolean;
 }
 interface Owner {
+  workspaceKind?: 'repository' | 'ordinary';
   eventStore: EventStore;
   sessionId: string;
   commandId: string;
@@ -169,6 +171,11 @@ export class OwnedLocalCodexChatAdmission {
       send.sessionId !== this.owner.sessionId ||
       send.error ||
       !session ||
+      (this.owner.workspaceKind === 'ordinary'
+        ? session.ordinaryWorkspaceId !== expected.workspace.workspaceId ||
+          session.repositoryWorkspaceId != null
+        : session.repositoryWorkspaceId !== expected.workspace.workspaceId ||
+          session.ordinaryWorkspaceId != null) ||
       (initial
         ? receipt.state !== 'uncertain'
         : !['uncertain', 'consumed'].includes(receipt.state)) ||
@@ -267,6 +274,15 @@ export class OwnedLocalCodexChatAdmission {
         profile.model,
       ];
       if (!isDeepStrictEqual(routing(options.profile), routing(this.#profile))) throw unavailable();
+      const ordinary = this.owner.workspaceKind === 'ordinary';
+      const workspace = ordinary ? options.ordinaryWorkspace : options.repositoryWorkspace;
+      if (
+        ordinary
+          ? options.repositoryWorkspace !== undefined ||
+            options.ordinaryWorkspace?.kind !== 'ordinary'
+          : options.ordinaryWorkspace !== undefined
+      )
+        throw unavailable();
       if (
         !!options.resume !== this.#resume ||
         options.reattachOnly ||
@@ -286,9 +302,9 @@ export class OwnedLocalCodexChatAdmission {
         !isDeepStrictEqual(options.images ?? [], this.#payload.images ?? []) ||
         !isDeepStrictEqual(options.agentProfile, expected.agentProfile) ||
         !isDeepStrictEqual(options.agentContext, expected.agentContext) ||
-        options.repositoryWorkspace?.id !== expected.workspace.workspaceId ||
-        options.repositoryWorkspace.directory !== expected.workspace.cwd ||
-        options.repositoryWorkspace.sandbox === true
+        workspace?.id !== expected.workspace.workspaceId ||
+        workspace?.directory !== expected.workspace.cwd ||
+        (workspace && 'sandbox' in workspace && workspace.sandbox === true)
       )
         throw unavailable();
     } catch {
@@ -371,7 +387,10 @@ export class OwnedLocalCodexChatAdmission {
   }
   canClaimCommand(commandId: string): boolean {
     this.assertCurrentSync();
-    if (commandId === this.owner.commandId) return true;
+    if (commandId === this.owner.commandId)
+      return (
+        this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId)?.state === 'consumed'
+      );
     const continuation = this.#continuations.get(commandId);
     if (!continuation) return false;
     continuation.assertCurrentSync();
@@ -386,12 +405,8 @@ export class OwnedLocalCodexChatAdmission {
       return;
     }
     this.assertCurrentSync();
-    this.assertReceipt(!this.#continuation);
-    if (
-      this.#continuation &&
-      !this.#resume &&
-      this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId)?.state !== 'consumed'
-    )
+    this.assertReceipt();
+    if (this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId)?.state !== 'consumed')
       throw unavailable();
     if (!this.#enqueued || this.#dispatched || commandId !== this.owner.commandId)
       throw unavailable();

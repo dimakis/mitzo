@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { z } from 'zod';
 import { createHash } from 'node:crypto';
 import { AgentLibraryVersionSchema } from './agent-library.js';
 import { AgentContextSnapshotSchema } from './agent-context-recipe.js';
@@ -70,6 +71,7 @@ export interface SessionRow {
   selected_model: string | null;
   reasoning_effort: string | null;
   repository_workspace_id: string | null;
+  ordinary_workspace_id?: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -127,7 +129,8 @@ export class SessionMetadataStore {
       throw new Error('Session runtime allocation is ordinary-only');
     const binding = SessionRuntimeBindingSchema.parse(input);
     assertRuntimeAccount(binding, meta.accountBinding);
-    assertRuntimeWorkspace(meta.repositoryWorkspaceId, meta.cwd);
+    assertRuntimeWorkspace(sessionWorkspaceId(meta), meta.cwd);
+    assertOrdinaryWorkspaceRoute(binding, meta.ordinaryWorkspaceId);
     this.db!.transaction(() => {
       const existing = this.stmts.getSession.get(meta.sessionId) as SessionRow | undefined;
       if (existing) {
@@ -135,7 +138,8 @@ export class SessionMetadataStore {
         if (persisted === null) throw new Error('Cannot enroll an existing legacy session');
         if (
           JSON.stringify(persisted) !== JSON.stringify(binding) ||
-          existing.repository_workspace_id !== meta.repositoryWorkspaceId ||
+          existing.repository_workspace_id !== (meta.repositoryWorkspaceId ?? null) ||
+          (existing.ordinary_workspace_id ?? null) !== (meta.ordinaryWorkspaceId ?? null) ||
           existing.cwd !== meta.cwd
         )
           throw new Error('Session runtime binding or workspace cannot be replaced');
@@ -156,6 +160,16 @@ export class SessionMetadataStore {
       throw new Error('Runtime binding requires atomic new-session creation');
     this.owner.assertConversationIdentity(meta.sessionId);
     const existing = this.stmts.getSession.get(meta.sessionId) as SessionRow | undefined;
+    sessionWorkspaceId({
+      repositoryWorkspaceId:
+        meta.repositoryWorkspaceId === undefined
+          ? existing?.repository_workspace_id
+          : meta.repositoryWorkspaceId,
+      ordinaryWorkspaceId:
+        meta.ordinaryWorkspaceId === undefined
+          ? existing?.ordinary_workspace_id
+          : meta.ordinaryWorkspaceId,
+    });
     const contextSnapshot =
       meta.agentContext !== undefined
         ? AgentContextSnapshotSchema.parse(meta.agentContext)
@@ -197,12 +211,20 @@ export class SessionMetadataStore {
         if (
           (meta.repositoryWorkspaceId !== undefined &&
             meta.repositoryWorkspaceId !== existing.repository_workspace_id) ||
+          (meta.ordinaryWorkspaceId !== undefined &&
+            meta.ordinaryWorkspaceId !== (existing.ordinary_workspace_id ?? null)) ||
           (meta.cwd !== undefined && meta.cwd !== existing.cwd)
         )
           throw new Error('Runtime-bound session workspace cannot be replaced or cleared');
       }
       const fields: string[] = [];
       const values: unknown[] = [];
+      if (meta.ordinaryWorkspaceId !== undefined) {
+        if (meta.ordinaryWorkspaceId !== (existing.ordinary_workspace_id ?? null))
+          throw new Error('Ordinary workspace identity requires its original allocation');
+        fields.push('ordinary_workspace_id = ?');
+        values.push(meta.ordinaryWorkspaceId);
+      }
       if (meta.repositoryWorkspaceId !== undefined) {
         if (
           existing.repository_workspace_id &&
@@ -324,6 +346,7 @@ export class SessionMetadataStore {
         'selected_model',
         'reasoning_effort',
         'repository_workspace_id',
+        'ordinary_workspace_id',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -349,6 +372,7 @@ export class SessionMetadataStore {
         meta.selectedModel ?? null,
         meta.reasoningEffort ?? null,
         meta.repositoryWorkspaceId ?? null,
+        meta.ordinaryWorkspaceId ?? null,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -550,8 +574,13 @@ function extractSnippet(payloadStr: string, query: string, contextChars = 80): s
 }
 
 export function rowToSession(row: SessionRow): SessionMeta {
+  sessionWorkspaceId({
+    repositoryWorkspaceId: row.repository_workspace_id,
+    ordinaryWorkspaceId: row.ordinary_workspace_id,
+  });
   return {
     ...(row.repository_workspace_id ? { repositoryWorkspaceId: row.repository_workspace_id } : {}),
+    ...(row.ordinary_workspace_id ? { ordinaryWorkspaceId: row.ordinary_workspace_id } : {}),
     sessionId: row.session_id,
     conversationSource: row.conversation_source,
     summary: row.summary,
@@ -632,6 +661,29 @@ function assertRuntimeAccount(binding: SessionRuntimeBinding, input: unknown): v
     throw new Error('Session runtime account identity does not match account binding');
 }
 
+/** Explicit new kind; an ordinary identity can never stand in a repository field. */
+export function sessionWorkspaceId(meta: {
+  repositoryWorkspaceId?: unknown;
+  ordinaryWorkspaceId?: unknown;
+}): unknown {
+  if (meta.ordinaryWorkspaceId !== undefined && meta.ordinaryWorkspaceId !== null) {
+    if (meta.repositoryWorkspaceId !== undefined && meta.repositoryWorkspaceId !== null)
+      throw Error('Ordinary and repository workspace identities are mutually exclusive');
+    return z.uuid().parse(meta.ordinaryWorkspaceId);
+  }
+  return meta.repositoryWorkspaceId;
+}
+function assertOrdinaryWorkspaceRoute(binding: SessionRuntimeBinding, ordinaryId: unknown) {
+  if (
+    ordinaryId !== undefined &&
+    ordinaryId !== null &&
+    (binding.version !== 2 ||
+      binding.account.provider !== 'openai-codex' ||
+      binding.harness.implementation !== 'codex' ||
+      binding.execution.location !== 'local')
+  )
+    throw Error('Ordinary workspace runtime route is unsupported');
+}
 function assertRuntimeWorkspace(workspaceId: unknown, cwd: unknown): void {
   if (
     typeof workspaceId !== 'string' ||
@@ -653,7 +705,14 @@ function runtimeBindingFromRow(row: SessionRow): SessionRuntimeBinding | null {
       throw new Error('Runtime binding requires an ordinary session without Symposium state');
     const binding = SessionRuntimeBindingSchema.parse(JSON.parse(row.runtime_binding));
     assertRuntimeAccount(binding, JSON.parse(row.account_binding ?? 'null'));
-    assertRuntimeWorkspace(row.repository_workspace_id, row.cwd);
+    assertRuntimeWorkspace(
+      sessionWorkspaceId({
+        repositoryWorkspaceId: row.repository_workspace_id,
+        ordinaryWorkspaceId: row.ordinary_workspace_id,
+      }),
+      row.cwd,
+    );
+    assertOrdinaryWorkspaceRoute(binding, row.ordinary_workspace_id);
     return binding;
   } catch (error) {
     throw new Error('Invalid or unsupported session runtime binding', { cause: error });

@@ -4,6 +4,11 @@ import request from 'supertest';
 import { randomUUID } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { revokeAuthSession } from '../auth.js';
+import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import {
+  claimTransportConnection,
+  releaseTransportConnection,
+} from '../transport-auth-ownership.js';
 import { EventStore } from '../event-store.js';
 import { createSessionCollaborationRouter } from '../session-collaboration-router.js';
 let store: EventStore, app: express.Express, path: string;
@@ -26,6 +31,110 @@ beforeEach(() => {
 });
 afterEach(() => store.close());
 const body = { expectedRevision: 0, participantSessionIds: ['first', 'local'] };
+it('resolves setup only through the existing live authenticated source transport', async () => {
+  const url =
+    '/api/session-collaborations/source-setup?sourceConversationId=first&clientId=source-client';
+  expect((await request(app).get(url)).status).toBe(401);
+  expect((await request(app).get(url).set('x-operator', 'yes')).status).toBe(503);
+  const release = bindAgentLibraryTransport('source-client', {
+    id: 'operator',
+    expiresAt: Date.now() + 60000,
+  });
+  claimTransportConnection('source-client', 'operator');
+  try {
+    const response = await request(app).get(url).set('x-operator', 'yes');
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ state: 'unstarted', sourceConversationId: 'first' });
+    expect(response.headers['cache-control']).toContain('no-store');
+    expect(store.listSessionCollaborations('first').collaborations).toEqual([]);
+    expect(store.listSessions()).toHaveLength(3);
+    const begin = await request(app)
+      .post(`${path}/begin`)
+      .set('x-operator', 'yes')
+      .send({ requestId: randomUUID(), sessionId: 'first' });
+    expect(begin.status).toBe(200);
+    const selected = await request(app).get(url).set('x-operator', 'yes');
+    expect(selected.body).toEqual({
+      state: 'selected',
+      sourceConversationId: 'first',
+      collaboration: begin.body,
+    });
+    expect(store.listSessions()).toHaveLength(3);
+    expect((await request(app).get(`${url}&authority=true`).set('x-operator', 'yes')).status).toBe(
+      400,
+    );
+    claimTransportConnection('source-client', 'foreign-operator');
+    expect((await request(app).get(url).set('x-operator', 'yes')).status).toBe(503);
+    claimTransportConnection('source-client', 'operator');
+    releaseTransportConnection('source-client', 'operator');
+    expect((await request(app).get(url).set('x-operator', 'yes')).status).toBe(503);
+  } finally {
+    release();
+    releaseTransportConnection('source-client', 'operator');
+  }
+  expect((await request(app).get(url).set('x-operator', 'yes')).status).toBe(503);
+});
+function reviewInput() {
+  return {
+    clientId: 'existing-live-transport',
+    selection: {
+      requestId: randomUUID(),
+      expectedMembershipRevision: 1,
+      sourceConversationId: 'first',
+      boundary: { sequence: 0, messageId: null },
+      mode: 'conversation_so_far',
+      messageIds: [],
+      artifacts: [],
+      purpose: 'Review',
+      joiningBrief: 'Edited brief',
+    },
+    target: {
+      runOn: 'openshell',
+      accountId: 'api-account',
+      model: 'recording-model',
+      reasoningEffort: null,
+      agent: { profileId: 'published-agent', revision: 2 },
+      repositoryWorkspaceId: 'prepared-workspace',
+      permissionMode: 'ask',
+    },
+  };
+}
+it('keeps application reviews unavailable without the real source/settings owner', async () => {
+  await request(app).put(path).set('x-operator', 'yes').send(body);
+  const response = await request(app)
+    .post(`${path}/reviews`)
+    .set('x-operator', 'yes')
+    .send(reviewInput());
+  expect(response.status).toBe(503);
+  expect(response.body.code).toBe('execution_unavailable');
+  expect(response.headers['cache-control']).toContain('no-store');
+  expect(store.collaborationConversation.view(path.split('/').at(-1)!).cursor).toBe(0);
+  expect(store.listSessions()).toHaveLength(3);
+});
+it.each(['settings', 'capacity', 'operatorId', 'applicationInputSha256'])(
+  'refuses caller-supplied review %s at the public route',
+  async (field) => {
+    await request(app).put(path).set('x-operator', 'yes').send(body);
+    const response = await request(app)
+      .post(`${path}/reviews`)
+      .set('x-operator', 'yes')
+      .send({ ...reviewInput(), [field]: {} });
+    expect(response.status).toBe(400);
+    expect(store.collaborationConversation.view(path.split('/').at(-1)!).cursor).toBe(0);
+  },
+);
+it('requires operator auth and same-origin JSON for observational review too', async () => {
+  expect((await request(app).post(`${path}/reviews`).send(reviewInput())).status).toBe(401);
+  expect(
+    (
+      await request(app)
+        .post(`${path}/reviews`)
+        .set('x-operator', 'yes')
+        .set('Origin', 'https://other.invalid')
+        .send(reviewInput())
+    ).status,
+  ).toBe(403);
+});
 it('requires interactive operator authorization on reads and mutations', async () => {
   expect((await request(app).get(path)).status).toBe(401);
   expect((await request(app).get('/api/session-collaborations?sessionId=local')).status).toBe(401);
@@ -192,7 +301,11 @@ function installJoining() {
         'Fresh-agent preparation and ordinary delivery are not wired. No session or model is started.',
     },
   };
-  const joining = { confirm: vi.fn(async () => result), recover: vi.fn(async () => result) };
+  const joining = {
+    confirm: vi.fn(async () => result),
+    recover: vi.fn(async () => result),
+    reconcile: vi.fn(async () => result),
+  };
   const mounted = express();
   mounted.use(express.json());
   mounted.use((req, res, next) => {
@@ -323,6 +436,16 @@ it('conceals provider errors and rejects private or malformed owner results', as
   const invalid = await request(mounted).post(`${path}/joins`).set('x-operator', 'yes').send(input);
   expect(invalid.status).toBe(503);
   expect(JSON.stringify(invalid.body)).not.toContain('secret');
+  joining.reconcile.mockResolvedValueOnce({
+    ...result,
+    providerThreadId: 'secret',
+  } as typeof result);
+  const invalidReconcile = await request(mounted)
+    .post(`${path}/joins/${result.joinId}/reconcile`)
+    .set('x-operator', 'yes')
+    .send({ requestId: randomUUID(), expectedMembershipRevision: 1, snapshot: result.snapshot });
+  expect(invalidReconcile.status).toBe(503);
+  expect(JSON.stringify(invalidReconcile.body)).not.toContain('secret');
 });
 
 it('aborts in-flight joining on operator revocation and refuses a late result', async () => {

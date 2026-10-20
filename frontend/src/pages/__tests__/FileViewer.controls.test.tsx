@@ -47,6 +47,7 @@ const mocks = vi.hoisted(() => ({
       },
       roots: [{ path: '/repo', label: 'Repository' }],
       activeRoot: '/repo',
+      canLoadWorktrees: true,
       worktreesLoading: false,
       worktreesError: '',
       loading: false,

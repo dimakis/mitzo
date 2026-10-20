@@ -14,7 +14,12 @@ export function selectCiJobs({ eventName, files, complete = true }) {
         path.startsWith('tests/browser/')
       ) {
         selected.browser = true;
-      } else if (path === 'README.md' || /^docs\/.*\.md$/.test(path)) {
+      } else if (
+        ['README.md', 'AGENTS.md', 'CLAUDE.md'].includes(path) ||
+        /^docs\/.*\.md$/.test(path) ||
+        /^skills\/[^/]+\/SKILL\.md$/.test(path) ||
+        /^\.cursor\/rules\/[^/]+\.mdc$/.test(path)
+      ) {
         // Prose has no browser or Swift build dependency. The full core CI still runs.
       } else {
         selected.browser = true;

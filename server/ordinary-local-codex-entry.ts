@@ -1,4 +1,8 @@
-import { assertOrdinaryHistoricalAcknowledgement } from './ordinary-command-historical-ack.js';
+import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
+import {
+  assertOrdinaryHistoricalAcknowledgement,
+  assertOrdinaryWorkspaceHistoricalAcknowledgement,
+} from './ordinary-command-historical-ack.js';
 import {
   OrdinaryLocalVertexTarget,
   localVertexCapabilities,
@@ -29,6 +33,8 @@ import { join, isAbsolute } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { Router } from 'express';
 import {
+  OrdinaryWorkspaceFirstCommandSchema,
+  OrdinaryWorkspaceContinuationCommandSchema,
   LocalCodexFirstCommandSchema,
   LocalCodexContinuationCommandSchema,
   OrdinaryRuntimeFirstCommandSchema,
@@ -45,7 +51,7 @@ import {
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
-import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
+import { getRepositoryWorkspaces, getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
 import {
   OrdinaryLocalCodexCapabilityCatalog,
   loadOrdinaryLocalCodexTarget,
@@ -285,10 +291,11 @@ export function ordinaryCodexCapabilities() {
 }
 
 /** Mounted inside the existing authenticated chat router. No legacy send claim or fallback. */
-export function createOwnedLocalCodexEntryRouter(
+function createOwnedCodexEntryRouter(
   sse: SessionSseRegistry,
   ctx: Pick<V2HandlerContext, 'connRegistry' | 'sessionRegistry' | 'eventStore'>,
   general = false,
+  ordinary = false,
 ): Router {
   const router = Router();
   const unavailable = general
@@ -400,13 +407,17 @@ export function createOwnedLocalCodexEntryRouter(
           .status(403)
           .json({ ok: false, code: 'connection_unavailable', error: unavailable });
       const parsed = (
-        general
+        ordinary
           ? continuation
-            ? OrdinaryRuntimeContinuationCommandSchema
-            : OrdinaryRuntimeFirstCommandSchema
-          : continuation
-            ? LocalCodexContinuationCommandSchema
-            : LocalCodexFirstCommandSchema
+            ? OrdinaryWorkspaceContinuationCommandSchema
+            : OrdinaryWorkspaceFirstCommandSchema
+          : general
+            ? continuation
+              ? OrdinaryRuntimeContinuationCommandSchema
+              : OrdinaryRuntimeFirstCommandSchema
+            : continuation
+              ? LocalCodexContinuationCommandSchema
+              : LocalCodexFirstCommandSchema
       ).safeParse(req.body);
       if (!parsed.success)
         return res.status(400).json({
@@ -415,6 +426,10 @@ export function createOwnedLocalCodexEntryRouter(
           error: general ? 'Invalid conversation command' : 'Invalid local first command',
         });
       const input = structuredClone(parsed.data);
+      const ordinaryInput = ordinary ? OrdinaryWorkspaceFirstCommandSchema.parse(input) : undefined;
+      const repositoryWorkspaceId =
+        'repositoryWorkspaceId' in input ? input.repositoryWorkspaceId : undefined;
+      let ordinaryWorkspace: OrdinaryWorkspaceRecord | undefined;
       if (input.selection.context.source === 'packs')
         return res.status(409).json({
           ok: false,
@@ -434,12 +449,14 @@ export function createOwnedLocalCodexEntryRouter(
           : process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED) !== '1'
       )
         return res.status(503).json({ ok: false, code: 'entry_disabled', error: unavailable });
-      const sessionId = continuation
-        ? (general
-            ? OrdinaryRuntimeContinuationCommandSchema
-            : LocalCodexContinuationCommandSchema
-          ).parse(req.body).sessionId
-        : nativeStartupSessionId(`repository:${input.repositoryWorkspaceId}`);
+      const sessionId = ordinaryInput
+        ? ordinaryInput.sessionId
+        : continuation
+          ? (general
+              ? OrdinaryRuntimeContinuationCommandSchema
+              : LocalCodexContinuationCommandSchema
+            ).parse(req.body).sessionId
+          : nativeStartupSessionId(`repository:${repositoryWorkspaceId}`);
       const existingOwner = ctx.sessionRegistry.findBySessionId(sessionId);
       if (existingOwner && existingOwner.session.ownedLocalAuthSessionId !== auth.id)
         return res
@@ -449,14 +466,50 @@ export function createOwnedLocalCodexEntryRouter(
         const captured = captureAgentLibraryAuthorization(connectionId);
         captured.assertCurrent();
         if (captured.auth.id !== auth.id) throw Error(unavailable);
-        if (
-          assertOrdinaryHistoricalAcknowledgement(
-            ctx.eventStore,
-            sessionId,
-            auth.id,
-            input,
-            !continuation,
+        if (ordinaryInput) {
+          ordinaryWorkspace = getOrdinaryWorkspaces(true).getOrdinaryWorkspace(
+            ordinaryInput.workspace.workspaceId,
+          );
+          const meta = ctx.eventStore.getSession(sessionId);
+          const prepared = ctx.eventStore.getOrdinaryWorkspaceSessionPreparation(
+            ordinaryWorkspace.allocationOperationId,
+          );
+          if (
+            ordinaryWorkspace.conversationId !== sessionId ||
+            !meta ||
+            meta.ordinaryWorkspaceId !== ordinaryWorkspace.id ||
+            meta.repositoryWorkspaceId != null ||
+            meta.isHidden ||
+            meta.cwd !== ordinaryWorkspace.directory ||
+            prepared?.sessionId !== sessionId ||
+            prepared.workspaceId !== ordinaryWorkspace.id ||
+            prepared.preparationFingerprint !== ordinaryWorkspace.preparationFingerprint
           )
+            throw Error(unavailable);
+        }
+        if (
+          ordinaryInput
+            ? assertOrdinaryWorkspaceHistoricalAcknowledgement(
+                ctx.eventStore,
+                sessionId,
+                auth.id,
+                ordinaryInput,
+                !continuation,
+              )
+            : assertOrdinaryHistoricalAcknowledgement(
+                ctx.eventStore,
+                sessionId,
+                auth.id,
+                (general
+                  ? continuation
+                    ? OrdinaryRuntimeContinuationCommandSchema
+                    : OrdinaryRuntimeFirstCommandSchema
+                  : continuation
+                    ? LocalCodexContinuationCommandSchema
+                    : LocalCodexFirstCommandSchema
+                ).parse(input),
+                !continuation,
+              )
         ) {
           captured.assertCurrent();
           return res.status(202).json({
@@ -490,7 +543,11 @@ export function createOwnedLocalCodexEntryRouter(
               : canResumeOwnedOpenShellCodexDriver(sessionId, auth.id))) ||
           !meta ||
           !binding ||
-          meta.repositoryWorkspaceId !== input.repositoryWorkspaceId ||
+          (ordinaryInput
+            ? meta.ordinaryWorkspaceId !== ordinaryInput.workspace.workspaceId ||
+              meta.repositoryWorkspaceId != null
+            : meta.repositoryWorkspaceId !== repositoryWorkspaceId ||
+              meta.ordinaryWorkspaceId != null) ||
           binding.execution.location !== input.runOn ||
           binding.harness.implementation !== input.runtime.harness ||
           binding.version !== 2 ||
@@ -578,19 +635,59 @@ export function createOwnedLocalCodexEntryRouter(
           ).agentProfileRejections.length
         )
           throw Error(unavailable);
-        if (!BASE_REPO || !isAbsolute(BASE_REPO)) throw Error(unavailable);
+        if (!ordinary && (!BASE_REPO || !isAbsolute(BASE_REPO))) throw Error(unavailable);
+        const preparedRepository =
+          !ordinary && !continuation
+            ? ctx.eventStore.getOrdinarySessionPreparationForConversation(sessionId)
+            : undefined;
+        const preparedRepositoryRecord = preparedRepository
+          ? getRepositoryWorkspaces(true).get(preparedRepository.workspaceId)
+          : undefined;
+        if (preparedRepository) {
+          const meta = ctx.eventStore.getSession(sessionId);
+          const resolved = catalog.resolve(input.runtime);
+          if (
+            input.runOn !== 'local' ||
+            input.runtime.harness !== 'codex' ||
+            preparedRepository.workspaceId !== repositoryWorkspaceId ||
+            preparedRepository.sessionId !== sessionId ||
+            (preparedRepository.firstCommandId !== null &&
+              preparedRepository.firstCommandId !== input.clientMsgId) ||
+            resolved.status !== 'compatible' ||
+            !isDeepStrictEqual(resolved.binding, preparedRepository.settings.binding) ||
+            !isDeepStrictEqual(input.selection, preparedRepository.settings.selection) ||
+            !meta ||
+            meta.isHidden ||
+            meta.ordinaryWorkspaceId != null ||
+            meta.repositoryWorkspaceId !== repositoryWorkspaceId ||
+            meta.cwd !== preparedRepositoryRecord?.directory ||
+            !preparedRepositoryRecord?.hostReservation ||
+            !preparedRepositoryRecord.ordinaryPreparation ||
+            !isDeepStrictEqual(meta.accountBinding, binding)
+          )
+            throw Error(unavailable);
+        }
         const reservation = {
-          id: input.repositoryWorkspaceId,
-          binding: continuation ? ctx.eventStore.getSession(sessionId)!.accountBinding! : binding,
+          id: ordinaryWorkspace ? ordinaryWorkspace.id : repositoryWorkspaceId!,
+          binding: ordinaryWorkspace
+            ? ordinaryWorkspace.binding
+            : continuation
+              ? ctx.eventStore.getSession(sessionId)!.accountBinding!
+              : binding,
           conversationId: sessionId,
-          taskRoot: join(BASE_REPO, '.claude', 'repository-tasks'),
-          ...(!continuation
-            ? {
-                commandFingerprint: createHash('sha256')
-                  .update(JSON.stringify(input))
-                  .digest('hex'),
-              }
-            : {}),
+          taskRoot: ordinaryWorkspace
+            ? ordinaryWorkspace.hostReservation.taskRoot
+            : (preparedRepositoryRecord?.hostReservation?.taskRoot ??
+              join(BASE_REPO, '.claude', 'repository-tasks')),
+          ...(ordinaryWorkspace
+            ? { commandFingerprint: ordinaryWorkspace.preparationFingerprint }
+            : !continuation
+              ? {
+                  commandFingerprint:
+                    preparedRepository?.preparationFingerprint ??
+                    createHash('sha256').update(JSON.stringify(input)).digest('hex'),
+                }
+              : {}),
           runtimeBinding: (() => {
             const resolved = catalog.resolve(input.runtime);
             if (resolved.status !== 'compatible') throw Error(unavailable);
@@ -598,12 +695,12 @@ export function createOwnedLocalCodexEntryRouter(
           })(),
         };
         authority.assertCurrent();
-        if (!continuation && input.runOn === 'local')
+        if (!ordinary && !continuation && input.runOn === 'local')
           await getRepositoryWorkspaces(true).reserveHostTask({
             ...reservation,
             signal: controller.signal,
           });
-        else if (!continuation)
+        else if (!ordinary && !continuation)
           await getRepositoryWorkspaces(true).reserveOrdinarySandboxTask({
             ...reservation,
             signal: controller.signal,
@@ -670,7 +767,7 @@ export function createOwnedLocalCodexEntryRouter(
                         command,
                         meta: {
                           sessionId,
-                          repositoryWorkspaceId: input.repositoryWorkspaceId,
+                          repositoryWorkspaceId: repositoryWorkspaceId!,
                           accountBinding: reservation.binding,
                           agentProfile: profile,
                           cwd: loadOrdinaryOpenShellCodexTarget()!.config.workdir,
@@ -693,6 +790,12 @@ export function createOwnedLocalCodexEntryRouter(
                       signal: controller.signal,
                     })
                   : await startOwnedLocalCodexCommand(transport, `${connectionId}:${sessionId}`, {
+                      workspaceKind: ordinary ? 'ordinary' : 'repository',
+                      ...(!continuation && ordinaryWorkspace
+                        ? { preparationOperationId: ordinaryWorkspace.allocationOperationId }
+                        : preparedRepository
+                          ? { preparationOperationId: preparedRepository.allocationOperationId }
+                          : {}),
                       command,
                       reservation,
                       commandId: input.clientMsgId,
@@ -743,7 +846,22 @@ export function createOwnedLocalCodexEntryRouter(
         authority?.release();
       }
     };
-  router.post('/send', requireSameOriginJson, sendCommand(false));
+  router.post(ordinary ? '/first' : '/send', requireSameOriginJson, sendCommand(false));
   router.post('/continue', requireSameOriginJson, sendCommand(true));
   return router;
+}
+
+export function createOwnedLocalCodexEntryRouter(
+  sse: SessionSseRegistry,
+  ctx: Pick<V2HandlerContext, 'connRegistry' | 'sessionRegistry' | 'eventStore'>,
+  general = false,
+): Router {
+  return createOwnedCodexEntryRouter(sse, ctx, general);
+}
+/** Explicit ordinary V2 wire; no repository or alternate-provider fallback. */
+export function createOwnedOrdinaryWorkspaceCommandRouter(
+  sse: SessionSseRegistry,
+  ctx: Pick<V2HandlerContext, 'connRegistry' | 'sessionRegistry' | 'eventStore'>,
+): Router {
+  return createOwnedCodexEntryRouter(sse, ctx, false, true);
 }

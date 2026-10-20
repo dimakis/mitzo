@@ -349,6 +349,12 @@ export * from './ordinary-local-vertex-admission.js';
 export * from './ordinary-local-vertex-custody.js';
 export type { ContextCompaction } from './context-compaction.js';
 export * from './collaboration-conversation.js';
+export {
+  CollaborationSourceSetupQuerySchema,
+  CollaborationSourceSetupSchema,
+  type CollaborationSourceSetup,
+} from './collaboration-source-setup.js';
+export * from './collaboration-forward.js';
 
 export * from './agent-tools.js';
 export {
@@ -372,3 +378,10 @@ export * from './telos-work-role-context.js';
 export * from './telos-work-delegation.js';
 export { AgentLibraryEditableDefinitionSchema } from './agent-library-editable.js';
 export * from './telos-work-role-presentation.js';
+export * from './ordinary-workspace.js';
+
+export * from './telos-ordinary-work.js';
+export * from './ordinary-workspace-public.js';
+
+export * from './telos-work-controls.js';
+export * from './agent-communication.js';

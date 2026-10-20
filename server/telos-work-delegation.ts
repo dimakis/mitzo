@@ -1,3 +1,15 @@
+import { assertAgentToolRoute } from './agent-tool-selection.js';
+import {
+  OrdinaryWorkspaceSettingsSchema,
+  TelosOrdinaryWorkDelegationInputSchema,
+  type OrdinaryWorkspaceSettings,
+  type TelosOrdinaryWorkDelegationInput,
+  type TelosOrdinaryWorkDelegationIntent,
+  type TelosWorkDelegationInput,
+  type TelosWorkDelegationRequestIntent,
+} from '@mitzo/protocol';
+import type { LocalWorkspaceKind } from './ordinary-local-workspace-owner.js';
+import type { TelosOrdinaryWorkSelection } from './telos-ordinary-work-role-setup.js';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { retainTelosWorkRolePresentation } from './telos-work-role-presentation.js';
@@ -20,11 +32,20 @@ import {
   TelosWorkRoleContextSelectionSchema,
 } from './telos-work-role-context.js';
 
-export interface TelosWorkDelegationScope {
+type DelegationIntent<K extends LocalWorkspaceKind> = K extends 'ordinary'
+  ? TelosOrdinaryWorkDelegationIntent
+  : TelosWorkDelegationIntent;
+type DelegationInput<K extends LocalWorkspaceKind> = K extends 'ordinary'
+  ? TelosOrdinaryWorkDelegationInput
+  : TelosWorkDelegationInput;
+type DelegationSettings<K extends LocalWorkspaceKind> = K extends 'ordinary'
+  ? OrdinaryWorkspaceSettings
+  : CollaborationSettings;
+export interface TelosWorkDelegationScope<K extends LocalWorkspaceKind = 'repository'> {
   actor: TelosWorkActor;
-  intent: TelosWorkDelegationIntent;
+  intent: DelegationIntent<K>;
   /** Original lead selection or its exact independent worker workspace. */
-  settings: CollaborationSettings;
+  settings: DelegationSettings<K>;
 }
 type Preparation = Omit<
   Parameters<RepositoryWorkspaces['prepareOrdinarySession']>[0],
@@ -35,22 +56,27 @@ type Preparation = Omit<
  * Durable ordinary preparation owns allocation/recovery. This owner has no
  * provider, command admission, queue, dispatch or assignment-changing port.
  */
-export class TelosWorkDelegation {
+export class TelosWorkDelegation<K extends LocalWorkspaceKind = 'repository'> {
   constructor(
     private readonly deps: {
+      workspaceKind?: K;
+      qualifyOrdinarySettings?(
+        scope: { actor: TelosWorkActor; input: DelegationInput<K> },
+        signal: AbortSignal,
+      ): Promise<TelosOrdinaryWorkSelection>;
       work: TelosWorkStore;
       events: EventStore;
       tasks: TaskStore;
       workspaces: RepositoryWorkspaces;
-      authorize(scope: TelosWorkDelegationScope, signal: AbortSignal): Promise<void>;
+      authorize(scope: TelosWorkDelegationScope<K>, signal: AbortSignal): Promise<void>;
       resolvePreparation(
-        scope: TelosWorkDelegationScope,
+        scope: TelosWorkDelegationScope<K>,
         signal: AbortSignal,
       ): Promise<Preparation>;
       /** Optional retained display capture; legacy direct owners keep their original behavior. */
-      capturePresentation?(scope: TelosWorkDelegationScope): TelosWorkRolePresentation;
+      capturePresentation?(scope: TelosWorkDelegationScope<K>): TelosWorkRolePresentation;
       /** Synchronous authority/material denial fence, including final work commit. */
-      assertBeforeApply(scope: TelosWorkDelegationScope): void;
+      assertBeforeApply(scope: TelosWorkDelegationScope<K>): void;
     },
   ) {}
 
@@ -60,40 +86,94 @@ export class TelosWorkDelegation {
     signal: AbortSignal,
   ): Promise<TelosWorkDelegationReceipt> {
     const actor = structuredClone(rawActor);
-    const input = TelosWorkDelegationInputSchema.parse(structuredClone(raw));
+    const ordinary = this.deps.workspaceKind === 'ordinary';
+    const input = (
+      ordinary ? TelosOrdinaryWorkDelegationInputSchema : TelosWorkDelegationInputSchema
+    ).parse(structuredClone(raw)) as DelegationInput<K>;
     input.contextSelection = TelosWorkRoleContextSelectionSchema.parse(input.contextSelection);
     renderTelosWorkRoleContext(input.contextSelection);
     signal.throwIfAborted();
-    let intent: TelosWorkDelegationIntent | undefined;
+    if (ordinary) {
+      if (!this.deps.qualifyOrdinarySettings)
+        throw new TelosWorkError(
+          'invalid',
+          'Ordinary workspace selection qualification is unavailable',
+        );
+      const selected = structuredClone(
+        await this.deps.qualifyOrdinarySettings(structuredClone({ actor, input }), signal),
+      );
+      assertAgentToolRoute(selected.agentProfile.definition, 'codex-owned-local');
+      await this.deps.workspaces.qualifyOrdinaryWorkspace({
+        ...selected,
+        preparationId: OrdinaryWorkspaceSettingsSchema.parse(input.settings).workspace
+          .preparationId,
+        settings: OrdinaryWorkspaceSettingsSchema.parse(input.settings),
+        signal,
+      });
+      signal.throwIfAborted();
+    }
+    let intent: DelegationIntent<K> | undefined;
     try {
-      const retained = this.deps.work.prepareDelegation(
+      const existing =
+        (ordinary
+          ? this.deps.work.ordinaryDelegationRequestForHost(input.requestId, actor)
+          : this.deps.work.delegationRequestForHost(input.requestId, actor)) ??
+        (input.mode === 'start'
+          ? ordinary
+            ? this.deps.work.latestOrdinaryDelegationForHost(input.childItemId)
+            : this.deps.work.latestDelegationForHost(input.childItemId)
+          : null);
+      if (!existing || !this.deps.work.delegationCommittedForHost(existing.attemptId))
+        this.deps.work.enforceControlAction(
+          input.leadItemId,
+          'new_worker_dispatch',
+          input.leadConversationId,
+        );
+      const prepare = ordinary
+        ? this.deps.work.prepareOrdinaryDelegation.bind(this.deps.work)
+        : this.deps.work.prepareDelegation.bind(this.deps.work);
+      const retained = prepare(
         input,
         actor,
-        (selected) => {
+        (selected: TelosWorkDelegationRequestIntent) => {
           signal.throwIfAborted();
           this.deps.assertBeforeApply(
-            structuredClone({ actor, intent: selected, settings: selected.input.settings }),
+            structuredClone({
+              actor,
+              intent: selected,
+              settings: selected.input.settings,
+            }) as TelosWorkDelegationScope<K>,
           );
         },
         this.deps.capturePresentation
           ? (selected) =>
               this.deps.capturePresentation!(
-                structuredClone({ actor, intent: selected, settings: selected.input.settings }),
+                structuredClone({
+                  actor,
+                  intent: selected,
+                  settings: selected.input.settings,
+                }) as TelosWorkDelegationScope<K>,
               )
           : undefined,
       );
-      intent = structuredClone(retained.intent);
+      intent = structuredClone(retained.intent) as DelegationIntent<K>;
       // A different default-start request may resolve to the existing attempt.
       // Every subsequent decision uses its canonical original selections.
       const selected = intent;
-      const sourceSettings = CollaborationSettingsSchema.parse(selected.input.settings);
-      const workerSettings = CollaborationSettingsSchema.parse({
-        ...structuredClone(sourceSettings),
-        repositoryWorkspaceId: selected.allocationOperationId,
-      });
-      const scope = (settings: CollaborationSettings): TelosWorkDelegationScope =>
+      const sourceSettings = (
+        ordinary ? OrdinaryWorkspaceSettingsSchema : CollaborationSettingsSchema
+      ).parse(selected.input.settings) as DelegationSettings<K>;
+      const workerSettings = (
+        ordinary
+          ? OrdinaryWorkspaceSettingsSchema.parse(sourceSettings)
+          : CollaborationSettingsSchema.parse({
+              ...structuredClone(sourceSettings),
+              repositoryWorkspaceId: selected.allocationOperationId,
+            })
+      ) as DelegationSettings<K>;
+      const scope = (settings: DelegationSettings<K>): TelosWorkDelegationScope<K> =>
         structuredClone({ actor, intent: selected, settings });
-      const assertCurrent = (settings: CollaborationSettings) => {
+      const assertCurrent = (settings: DelegationSettings<K>) => {
         signal.throwIfAborted();
         this.deps.work.assertDelegationAuthority(selected, actor);
         const attempt = this.deps.work.attemptForHost(selected.attemptId);
@@ -108,16 +188,46 @@ export class TelosWorkDelegation {
           throw new TelosWorkError('conflict', 'Retained delegation attempt changed');
         this.deps.assertBeforeApply(scope(settings));
       };
-      const authorize = async (settings: CollaborationSettings) => {
+      const authorize = async (settings: DelegationSettings<K>) => {
         assertCurrent(settings);
         await this.deps.authorize(scope(settings), signal);
         assertCurrent(settings);
       };
       await authorize(sourceSettings);
+      // A default-start alias may recover a different canonical intent. Recheck
+      // that intent's original selection, never the incoming alias's account/root.
+      let ordinarySelection: TelosOrdinaryWorkSelection | undefined;
+      if (ordinary) {
+        ordinarySelection = structuredClone(
+          await this.deps.qualifyOrdinarySettings!(
+            {
+              actor,
+              input: TelosOrdinaryWorkDelegationInputSchema.parse(
+                selected.input,
+              ) as DelegationInput<K>,
+            },
+            signal,
+          ),
+        );
+        await authorize(sourceSettings);
+        assertAgentToolRoute(ordinarySelection.agentProfile.definition, 'codex-owned-local');
+        const settings = OrdinaryWorkspaceSettingsSchema.parse(workerSettings);
+        await this.deps.workspaces.qualifyOrdinaryWorkspace({
+          ...ordinarySelection,
+          preparationId: settings.workspace.preparationId,
+          settings,
+          signal,
+        });
+        await authorize(workerSettings);
+      }
 
       // The ordinary ledger is consulted before a resolver or workspace owner:
       // a lost response must recover its original session, even after restart.
-      let receipt = this.deps.events.getOrdinarySessionPreparation(selected.allocationOperationId);
+      const getReceipt = () =>
+        ordinary
+          ? this.deps.events.getOrdinaryWorkspaceSessionPreparation(selected.allocationOperationId)
+          : this.deps.events.getOrdinarySessionPreparation(selected.allocationOperationId);
+      let receipt = getReceipt();
       if (!receipt) {
         if (retained.receipt)
           throw new TelosWorkError('conflict', 'Retained ordinary worker allocation unavailable');
@@ -125,42 +235,87 @@ export class TelosWorkDelegation {
           await this.deps.resolvePreparation(scope(sourceSettings), signal),
         );
         await authorize(sourceSettings);
-        await this.deps.workspaces.prepareDelegatedWorkspace({
-          allocationOperationId: selected.allocationOperationId,
-          sourceConversationId: selected.input.leadConversationId,
-          settings: structuredClone(sourceSettings),
-          binding: structuredClone(sourcePreparation.binding),
-          signal,
-        });
-        await authorize(sourceSettings);
-        await authorize(workerSettings);
-        const preparation = structuredClone(
-          await this.deps.resolvePreparation(scope(workerSettings), signal),
-        );
-        await authorize(workerSettings);
-        receipt = (
-          await this.deps.workspaces.prepareOrdinarySession(
+        if (ordinary) {
+          const settings = OrdinaryWorkspaceSettingsSchema.parse(workerSettings);
+          const reserved = await this.deps.workspaces.reserveOrdinaryWorkspace({
+            ...sourcePreparation,
+            allocationOperationId: selected.allocationOperationId,
+            preparationId: settings.workspace.preparationId,
+            settings,
+            signal,
+          });
+          await authorize(workerSettings);
+          receipt = this.deps.events.prepareOrdinaryWorkspaceSession(
             {
-              ...preparation,
+              sessionId: reserved.conversationId,
+              ordinaryWorkspaceId: reserved.id,
+              cwd: reserved.directory,
+              accountBinding: sourcePreparation.binding,
+              agentProfile: sourcePreparation.agentProfile,
+              selectedModel: settings.selection.model,
+              reasoningEffort: settings.selection.thinking,
+              mode: settings.selection.permission.mode,
+            },
+            {
               allocationOperationId: selected.allocationOperationId,
               delegationAttemptId: selected.attemptId,
-              id: workerSettings.repositoryWorkspaceId,
-              settings: structuredClone(workerSettings),
-              signal,
+              preparationFingerprint: reserved.preparationFingerprint,
+              settings,
             },
-            this.deps.events,
-          )
-        ).receipt;
+          );
+        } else {
+          await this.deps.workspaces.prepareDelegatedWorkspace({
+            allocationOperationId: selected.allocationOperationId,
+            sourceConversationId: selected.input.leadConversationId,
+            settings: CollaborationSettingsSchema.parse(sourceSettings),
+            binding: structuredClone(sourcePreparation.binding),
+            signal,
+          });
+          await authorize(sourceSettings);
+          await authorize(workerSettings);
+          const preparation = structuredClone(
+            await this.deps.resolvePreparation(scope(workerSettings), signal),
+          );
+          await authorize(workerSettings);
+          receipt = (
+            await this.deps.workspaces.prepareOrdinarySession(
+              {
+                ...preparation,
+                allocationOperationId: selected.allocationOperationId,
+                delegationAttemptId: selected.attemptId,
+                id: CollaborationSettingsSchema.parse(workerSettings).repositoryWorkspaceId,
+                settings: CollaborationSettingsSchema.parse(workerSettings),
+                signal,
+              },
+              this.deps.events,
+            )
+          ).receipt;
+        }
         await authorize(workerSettings);
       } else {
         await authorize(workerSettings);
       }
 
       const workerConversationId = receipt.sessionId;
+      const workerWorkspaceId = ordinary
+        ? receipt.workspaceId
+        : CollaborationSettingsSchema.parse(workerSettings).repositoryWorkspaceId;
+      if (ordinary) {
+        const record =
+          this.deps.workspaces.getOrdinaryWorkspaceForConversation(workerConversationId);
+        if (!record || !ordinarySelection)
+          throw new TelosWorkError('conflict', 'Original ordinary worker custody required');
+        await this.deps.workspaces.revalidateOrdinaryWorkspace({
+          id: record.id,
+          conversationId: workerConversationId,
+          binding: ordinarySelection.binding,
+          taskRoot: ordinarySelection.taskRoot,
+          signal,
+        });
+        assertCurrent(workerSettings);
+      }
       const assertPreparation = () => {
-        const current = this.deps.events.getOrdinarySessionPreparation(
-          selected.allocationOperationId,
-        );
+        const current = getReceipt();
         const session = this.deps.events.getSession(workerConversationId);
         if (
           !current ||
@@ -168,7 +323,7 @@ export class TelosWorkDelegation {
           current.allocationOperationId !== selected.allocationOperationId ||
           current.sessionId !== workerConversationId ||
           current.delegationAttemptId !== selected.attemptId ||
-          current.workspaceId !== workerSettings.repositoryWorkspaceId ||
+          current.workspaceId !== workerWorkspaceId ||
           workerConversationId === selected.input.leadConversationId ||
           !isDeepStrictEqual(current.settings, workerSettings) ||
           session.accountBinding.accountId !== workerSettings.binding.account.accountId ||
@@ -178,6 +333,28 @@ export class TelosWorkDelegation {
           session.accountBinding.model !== workerSettings.selection.model
         )
           throw new TelosWorkError('conflict', 'Exact ordinary worker preparation required');
+        if (ordinary) {
+          const record =
+            this.deps.workspaces.getOrdinaryWorkspaceForConversation(workerConversationId);
+          if (
+            session.isHidden ||
+            session.sessionType === 'symposium' ||
+            session.conversationSource === 'external_import' ||
+            session.ordinaryWorkspaceId !== workerWorkspaceId ||
+            session.repositoryWorkspaceId != null ||
+            !record ||
+            record.id !== workerWorkspaceId ||
+            record.allocationOperationId !== selected.allocationOperationId ||
+            record.preparationFingerprint !== current.preparationFingerprint ||
+            record.directory !== session.cwd ||
+            !isDeepStrictEqual(record.settings, current.settings)
+          )
+            throw new TelosWorkError(
+              'conflict',
+              'Original available ordinary worker custody required',
+            );
+          this.deps.workspaces.validateRetainedOrdinaryWorkspace(workerConversationId);
+        }
         if (retained.receipt && current.firstCommandId !== null) {
           // A committed allocation remains the same allocation after ordinary
           // future commands are queued, uncertain or failed. Navigation recovers
@@ -195,7 +372,7 @@ export class TelosWorkDelegation {
             send.sessionId !== workerConversationId ||
             !isDeepStrictEqual(initial.binding, workerSettings.binding) ||
             !isDeepStrictEqual(initial.selection, workerSettings.selection) ||
-            initial.workspace.workspaceId !== workerSettings.repositoryWorkspaceId ||
+            initial.workspace.workspaceId !== workerWorkspaceId ||
             initial.workspace.cwd !== session.cwd ||
             !isDeepStrictEqual(
               this.deps.events.getSessionRuntimeBinding(workerConversationId),
@@ -224,7 +401,10 @@ export class TelosWorkDelegation {
         } else {
           // An unfinished linkage cannot adopt metadata changed by another
           // command, and a zero-command receipt still requires exact startup.
-          this.deps.events.assertPreparedOrdinarySession(
+          const assertPrepared = ordinary
+            ? this.deps.events.assertPreparedOrdinaryWorkspaceSession.bind(this.deps.events)
+            : this.deps.events.assertPreparedOrdinarySession.bind(this.deps.events);
+          assertPrepared(
             selected.allocationOperationId,
             session,
             workerSettings.binding,
@@ -281,10 +461,31 @@ export class TelosWorkDelegation {
         // A retained plain-text brief is valid; its first line supplies the title.
       }
       assertCurrent(workerSettings);
-      const task = this.deps.tasks.createOrRecoverTelosExecutionTask(
-        { title: title || 'Work item', description: brief },
-        binding,
-      );
+      const readExactTask = (id: string) => {
+        const task = this.deps.tasks.get(id);
+        if (
+          !task ||
+          (task.sessionId !== null && task.sessionId !== workerConversationId) ||
+          !isDeepStrictEqual(this.deps.tasks.getTelosExecutionBinding(id), binding)
+        )
+          return null;
+        return task;
+      };
+      let task;
+      if (retained.receipt) {
+        const originalTaskId = retained.receipt.attempt.executionTaskId;
+        task = originalTaskId ? readExactTask(originalTaskId) : null;
+        if (!task)
+          throw new TelosWorkError(
+            'conflict',
+            'Original committed execution task and exact binding unavailable; preserve the worker',
+          );
+      } else {
+        task = this.deps.tasks.createOrRecoverTelosExecutionTask(
+          { title: title || 'Work item', description: brief },
+          binding,
+        );
+      }
       const verify = () => {
         assertPreparation();
         const currentContext = resolveTelosWorkRoleContext(
@@ -293,7 +494,7 @@ export class TelosWorkDelegation {
           this.deps.events.getSession(workerConversationId)?.accountBinding ?? undefined,
         );
         return (
-          isDeepStrictEqual(this.deps.tasks.getTelosExecutionBinding(task.id), binding) &&
+          readExactTask(task.id) !== null &&
           isDeepStrictEqual(currentContext, selected.input.contextSelection)
         );
       };

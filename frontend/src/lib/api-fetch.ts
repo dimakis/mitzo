@@ -17,13 +17,18 @@ const LOGOUT_PENDING_KEY = 'mitzo_logout_pending';
 const AUTH_RESTORED_SIGNAL_KEY = 'mitzo_auth_restored_signal';
 export const AUTH_LOST_EVENT = 'mitzo:auth-lost';
 export const AUTH_RESTORED_EVENT = 'mitzo:auth-restored';
+export const CONVERSATION_JOINING_RECOVERY_PREFIX = 'mitzo-conversation-joining-recovery:';
 let authGeneration = 0;
 let authenticationRestored = false;
 const pendingTodoReads = new Map<string, Promise<Response>>();
 const COOKIE_AUTH_VERIFICATION_MS = 30_000;
 const COOKIE_AUTH_CHECK_TIMEOUT_MS = 5_000;
-let verifiedCookieAuth: { generation: number; token: string | null; expiresAt: number } | null =
-  null;
+let verifiedCookieAuth: {
+  generation: number;
+  token: string | null;
+  expiresAt: number;
+  authSessionId?: string;
+} | null = null;
 let cookieRestoreInFlight: {
   generation: number;
   token: string | null;
@@ -36,6 +41,17 @@ export function invalidateTodoReads(): void {
 }
 
 type AuthEventSource = 'local' | 'cross-tab';
+
+function clearJoiningRecovery(): void {
+  try {
+    const keys = Object.keys(sessionStorage).filter((key) =>
+      key.startsWith(CONVERSATION_JOINING_RECOVERY_PREFIX),
+    );
+    for (const key of keys) sessionStorage.removeItem(key);
+  } catch {
+    // Auth changes still invalidate the verified identity when storage is unavailable.
+  }
+}
 
 function dispatchAuthEvent(name: string, source: AuthEventSource = 'local'): void {
   pendingTodoReads.clear();
@@ -53,18 +69,21 @@ if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
     if (event.storageArea && event.storageArea !== localStorage) return;
     if (event.key === AUTH_TOKEN_KEY) {
+      clearJoiningRecovery();
       authGeneration++;
       authenticationRestored = Boolean(event.newValue);
       dispatchAuthEvent(event.newValue ? AUTH_RESTORED_EVENT : AUTH_LOST_EVENT, 'cross-tab');
     } else if (event.key === LOGOUT_PENDING_KEY && event.newValue === '1') {
+      clearJoiningRecovery();
       authGeneration++;
       authenticationRestored = false;
       dispatchAuthEvent(AUTH_LOST_EVENT, 'cross-tab');
     } else if (
       event.key === AUTH_RESTORED_SIGNAL_KEY &&
       event.newValue &&
-      !authenticationRestored
+      (!authenticationRestored || event.newValue.startsWith('login:'))
     ) {
+      if (event.newValue.startsWith('login:')) clearJoiningRecovery();
       authGeneration++;
       authenticationRestored = true;
       dispatchAuthEvent(AUTH_RESTORED_EVENT, 'cross-tab');
@@ -73,15 +92,17 @@ if (typeof window !== 'undefined') {
 }
 
 export function markAuthLost(): void {
+  clearJoiningRecovery();
   authGeneration++;
   authenticationRestored = false;
   if (typeof localStorage !== 'undefined') localStorage.removeItem(AUTH_TOKEN_KEY);
   dispatchAuthEvent(AUTH_LOST_EVENT);
 }
 
-export function loginSucceeded(token?: string): void {
+function restoreAuthenticationLatch(token?: string, explicitLogin = false): void {
   const previousToken = getStoredAuthToken();
-  const shouldRestore = !authenticationRestored || Boolean(token && token !== previousToken);
+  const shouldRestore =
+    explicitLogin || !authenticationRestored || Boolean(token && token !== previousToken);
   if (token && typeof localStorage !== 'undefined') localStorage.setItem(AUTH_TOKEN_KEY, token);
   if (typeof localStorage !== 'undefined') localStorage.removeItem(LOGOUT_PENDING_KEY);
   if (shouldRestore) {
@@ -90,11 +111,29 @@ export function loginSucceeded(token?: string): void {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem(
         AUTH_RESTORED_SIGNAL_KEY,
-        `${authGeneration}:${Date.now()}:${Math.random()}`,
+        `${explicitLogin ? 'login:' : ''}${authGeneration}:${Date.now()}:${Math.random()}`,
       );
     }
     dispatchAuthEvent(AUTH_RESTORED_EVENT);
   }
+}
+
+export function loginSucceeded(token?: string): void {
+  clearJoiningRecovery();
+  // Explicit login is a new identity selection, including cookie-only logins.
+  verifiedCookieAuth = null;
+  restoreAuthenticationLatch(token, true);
+}
+
+/** Last server-verified login identity for local correlation, never an access grant.
+ * A normal reload must verify again before it can select any retained joining state.
+ */
+export function currentVerifiedAuthSessionId(): string | undefined {
+  return !isLogoutPending() &&
+    verifiedCookieAuth?.generation === authGeneration &&
+    verifiedCookieAuth.token === getStoredAuthToken()
+    ? verifiedCookieAuth.authSessionId
+    : undefined;
 }
 
 export function isLogoutPending(): boolean {
@@ -230,13 +269,44 @@ export function restoreCookieAuthentication(): Promise<boolean> {
             isLogoutPending()
           )
             return false;
-          if (response.status === 401 || response.status === 403) return false;
+          if (response.status === 401 || response.status === 403) {
+            clearJoiningRecovery();
+            verifiedCookieAuth = null;
+            return false;
+          }
           if (!response.ok) throw new Error('Authentication service unavailable');
-          loginSucceeded();
+          let authSessionId: string | undefined;
+          try {
+            const body: unknown = await response.json();
+            if (
+              body &&
+              typeof body === 'object' &&
+              'authSessionId' in body &&
+              typeof body.authSessionId === 'string' &&
+              /^\S{1,200}$/.test(body.authSessionId)
+            )
+              authSessionId = body.authSessionId;
+          } catch {
+            // Older backends retain ordinary authentication, without durable joining.
+          }
+          if (controller.signal.aborted) throw new Error('Authentication check timed out');
+          if (
+            authGeneration !== restoreGeneration ||
+            getStoredAuthToken() !== restoreToken ||
+            isLogoutPending()
+          )
+            return false;
+          if (
+            verifiedCookieAuth?.authSessionId &&
+            verifiedCookieAuth.authSessionId !== authSessionId
+          )
+            clearJoiningRecovery();
+          restoreAuthenticationLatch();
           verifiedCookieAuth = {
             generation: authGeneration,
             token: getStoredAuthToken(),
             expiresAt: Date.now() + COOKIE_AUTH_VERIFICATION_MS,
+            authSessionId,
           };
           return true;
         }, controller.signal),
