@@ -1724,7 +1724,7 @@ basis. Output actions move below the copy so full hashes cannot squeeze titles.
 On phones the existing row metadata/actions may wrap onto another line; short
 priority/status tokens remain intact rather than shrinking into split words beside
 a longer coordinator entry. Type size, indents and shared control height are retained.
-Category discovery and recursive branches use shared `MotionPresence` disclosures; Escape restores the category trigger focus. Native output disclosures require no extra animation lifecycle. No palette, typography,
+Category discovery and recursive branches use shared `MotionPresence` disclosures; Escape restores the category trigger focus. Category discovery keeps its decoration inside an unstyled flow-root boundary so its border, padding and spacing collapse together, with no final layout jump on unmount. Native output disclosures require no extra animation lifecycle. No palette, typography,
 shared settings reference or frozen approval changed.
 
 Inspected all-intercept captures: [phone tree](assets/telos-s7-tree-mobile-dark.png),
