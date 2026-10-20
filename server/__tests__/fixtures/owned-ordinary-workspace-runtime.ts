@@ -105,7 +105,7 @@ export async function ownedOrdinaryRuntimeFixture(cleanups: Array<() => void | P
     'ordinary',
   );
   const eventPath = join(root, 'events.db');
-  const events = new EventStore(eventPath),
+  let events = new EventStore(eventPath),
     library = new AgentLibraryStore(eventPath);
   cleanups.push(
     () => events.close(),
@@ -134,18 +134,20 @@ export async function ownedOrdinaryRuntimeFixture(cleanups: Array<() => void | P
   const forbidden = vi.fn(async () => {
     throw Error('No repository authority or Git source is available');
   });
-  const workspaces = new RepositoryWorkspaces(join(root, 'workspace-owner'), {
-    authorize: forbidden,
-    inspect: forbidden,
-    prepare: forbidden,
-    verify: forbidden,
-    ordinaryPreparation: {
-      capture: captureOrdinaryRepositoryPreparation,
-      assert: assertOrdinaryRepositoryPreparation,
-    },
-  });
+  const openWorkspaces = () =>
+    new RepositoryWorkspaces(join(root, 'workspace-owner'), {
+      authorize: forbidden,
+      inspect: forbidden,
+      prepare: forbidden,
+      verify: forbidden,
+      ordinaryPreparation: {
+        capture: captureOrdinaryRepositoryPreparation,
+        assert: assertOrdinaryRepositoryPreparation,
+      },
+    });
+  let workspaces = openWorkspaces();
   cleanups.push(() => workspaces.close());
-  const legacyLookup = vi.spyOn(workspaces, 'getHostReservation');
+  let legacyLookup = vi.spyOn(workspaces, 'getHostReservation');
   const signal = new AbortController();
   const token = await login('test-passphrase-for-vitest');
   if (!token) throw Error('Synthetic operator login unavailable');
@@ -318,7 +320,12 @@ export async function ownedOrdinaryRuntimeFixture(cleanups: Array<() => void | P
       dispatchContinuation,
     };
     const create = () => {
-      const driver = new OrdinaryLocalCodexOwnedRuntime<'ordinary'>(dependencies);
+      const driver = new OrdinaryLocalCodexOwnedRuntime<'ordinary'>({
+        ...dependencies,
+        eventStore: events,
+        library,
+        workspace: workspaces,
+      });
       cleanups.push(() => driver.close());
       return driver;
     };
@@ -338,13 +345,31 @@ export async function ownedOrdinaryRuntimeFixture(cleanups: Array<() => void | P
     root,
     taskRoot,
     privateRoot,
-    events,
-    library,
-    workspaces,
+    get events() {
+      return events;
+    },
+    get library() {
+      return library;
+    },
+    get workspaces() {
+      return workspaces;
+    },
     binding,
     prepared,
     forbidden,
-    legacyLookup,
+    get legacyLookup() {
+      return legacyLookup;
+    },
+    /** Reopen actual durable owners only after the test has stopped any driver. */
+    reopenStorage() {
+      library.close();
+      events.close();
+      workspaces.close();
+      events = new EventStore(eventPath);
+      library = new AgentLibraryStore(eventPath);
+      workspaces = openWorkspaces();
+      legacyLookup = vi.spyOn(workspaces, 'getHostReservation');
+    },
     auth,
     signal,
     first: await prepareSession(),

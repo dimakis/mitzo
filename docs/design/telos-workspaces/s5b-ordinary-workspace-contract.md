@@ -110,9 +110,39 @@ metadata cases pass in the focused 67-case run. Native owned-runtime, public
 role/command wrappers and frontend adoption remain separate integrations, with
 CT07–CT09 still open.
 
+## Explicit V2 role and exact-child adapters
+
+New strict `TelosOrdinaryWorkRoleSetupInputSchema` and
+`TelosOrdinaryWorkDelegationInputSchema` require outer `version: 2` and ordinary
+V2 settings. Existing repository V1 schemas and getters remain exclusive.
+Private adapters reuse the existing canonical role/rejection/delegation journals,
+allocation operation, EventStore preparation, TaskStore mapping and role workflow.
+
+Actual private account/model/thinking, published profile/tool route, runtime and
+capability qualification precede a new V2 role or child allocation intent. Thinking
+is rechecked through the authoritative account/model owner before and after
+readiness waits. Original proof, settings and command fingerprints are retained.
+Unsupported requirements fail before allocating; declared requirements only narrow
+the server capability set.
+
+One selected child receives an independent ordinary workspace, chat and task.
+Exact and distinct-request default-start duplicates recover the canonical attempt;
+owner restart and lost preparation responses recover its original IDs. Explicit
+retry names its predecessor and preserves earlier workers, retained output and
+history. Hidden original sessions and unavailable task inventory fail closed.
+No provider turn starts during role or delegation setup. No ordinary cleanup or
+second scheduler is introduced.
+
+These private adapters remain dependent, unaccepted source. Public HTTP/client/UI
+adoption and the complete CT07–CT09 journeys are still separate requirements.
+
 Accepted-main idle persistence release is shared by repository and ordinary
-workspaces. Ordinary prepare, reserve, revalidate and claim remain active until their asynchronous
+workspaces. Ordinary prepare, qualify, reserve, revalidate and claim remain active until their asynchronous
 readiness work settles. Validation retains its synchronous custody contract. Idle release refuses those operations
 without cancellation or replacement. After release, every ordinary entrypoint
 fails before readiness acquisition or private persistence access; reads cannot
 lazily reopen custody. This adds no cleanup, deletion or task lifecycle operation.
+
+## Assignment history read contract
+
+Work reads may include `assignmentHistory` for lead and worker, each with `complete` and `conversationIds`. A previous assignment requires a schema-valid, non-conflicting recorded identity already disclosed by a same-role link. Incomplete legacy history remains unknown; additional-conversation labels require complete role history. Current assignments remain the sole current assignment and action authority. The optional projection does not change the original work revision facts or fill absent fields in old cached receipts. It exposes no new conversation IDs, actors or timestamps.

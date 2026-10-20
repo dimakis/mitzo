@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.396-symposium-terminal-preview-recovery';
+  'v1.0.397-symposium-terminal-recovery-current-base';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,6 +27,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '721a2ac2183d4ca5e9f73aeb6657bb8021c173440a799299f668a88621b28eb2',
   '../../packages/protocol/src/collaboration-source-setup-owner.ts':
     'e65e3055e3e35661b537137ca2758f3006c5af72003d5dc2460cebbdd0ff969b',
+  '../../packages/protocol/src/telos-ordinary-work.ts':
+    '7d5706456d657d51ebd16503784058148833c9511a06f301738c9d931f1c521f',
+  '../telos-ordinary-work-role-setup.ts':
+    '8f3e795b857a327ed38f0abfd82a49981a2369461b3ac114aadeddd04c996bec',
   '../../packages/protocol/src/ordinary-workspace-session-store.ts':
     'a14a6deb297b3a378c47e9745daaa5bbcac272a74ff5077530472db1378ddb67',
   '../ordinary-local-workspace-owner.ts':
@@ -34,7 +38,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/ordinary-workspace.ts':
     'c4431b3fef376cf17142c07764c032d0147915893c0b49c1776b0ccccc08c808',
   '../ordinary-workspace-custody.ts':
-    '254c8d7f41879b8c4c96493630401413a50c7c1b3e8f157823fad14736b5b60c',
+    '12340f543594f8a4304b7e59c86e02e8ce146cda7f9fce2e645e47b8ad8fd947',
   '../connection-request-error.ts':
     'baedef9cc52b1ace3c705fe396f4a11e938cf7f018d8ccd2ad28f699f69d098c',
 
@@ -231,9 +235,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/telos-work-api.ts':
     '9dc3a4c550598560008127b8de2985f934c49280ae67963a81f8276f36e782c2',
   '../telos-work-schema.ts': '51d23d7e4e2f6af0076901a5e5748b203d4f07238f60b69755a79c8c9671a24e',
-  '../telos-work-store.ts': 'b3efd271c0efa0f38496ef44774f05d50220848167d83a608798d66c839d0385',
+  '../telos-work-store.ts': '2a0131b4b2351908c7cf74fbca98da2cee376358ac09cd4aecf02b9bc3acdc5a',
   '../../packages/protocol/src/telos-work-api.ts':
-    'e24a6d7142cb5bef3910ec37b750b05dece5814d85e35d8bcbdc2f3813270176',
+    'dfed9673113e8f532a253b57ea1696508e339bbfdd83ab98fb2e791a69daf27f',
   '../tool-input-error.ts': '3fa8bc111278d03dd33014cadc8535069c49a12ce636cbbc33126b76190bd3dd',
   '../telos-tool.ts': 'a21d66aaf087d882b78403d335453effa8e7411220d5537b71ff0c271cf9e824',
   '../../frontend/src/lib/browser-crypto.ts':
@@ -769,7 +773,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '4c29712dd8c80db92f6872815848aac37858a4d59b8861700aefc8c8c97e185a',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '95799f43eed7d0f818bcbb1cf9cc504d99168bc31877f4f17a19ae9fd0539d13',
-  '../repository-workspaces.ts': '0c1aff18de5b00edef41ac150f659ba93a050af7c30f403f6a4c8ef2699b80ec',
+  '../repository-workspaces.ts': '1df672ff4394f023b95fd6c01f2c46b43a8acfde0c92eef59c8ef9ff337ba3a7',
   '../../packages/protocol/src/session-metadata-store.ts':
     'fe9caaac077de634f0e76e8c203323a8075461815d973cbf5c431347f7844c09',
   '../../packages/protocol/src/event-store.ts':
@@ -830,7 +834,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '6c631072fe39777b0653ac0b1b886b8f880888950024a6beb4438b5ab3b32c29',
+    '26d48397acaaf1e6cf20cce9906fc890c985fbe87aca448a866628d70dbbbed8',
   '../../packages/protocol/src/telos-work.ts':
     '7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043',
   '../agent-context-authority.ts':
@@ -944,7 +948,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-repository-preparation.ts':
     '2cf559fe9360a8d48e51413bf7f0d7a6b2d2bbfb89dc4675f595a2875216eed0',
   '../ordinary-repository-preparation-authority.ts':
-    '4eac6fb91dc7be34a934c52e6fccc537efb1fdd44ea10439e2f0d3920dbbc593',
+    '54b65da2a861e974bd8846a12549460293ee6a4d7c585f1c7560976fb3d178fc',
   '../../frontend/src/components/RepositoryChatPicker.tsx':
     '9cda6bc42392508104fdf72971a8d9351a6f710130128c6b6e6146fe2033b172',
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':
@@ -1061,7 +1065,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-work-role-host.ts': 'c52c0ebbaa993ebc33c1d783260c54c7931fe072fe71451825935c427ae4d262',
   '../telos-work-role-review.ts':
     '39b3e713bdd7fb9a827445f78d400c42faaf216f0ed0758d77ec5b494634949b',
-  '../telos-work-role-setup.ts': '130380c2fdecaba2ec3c7d7d8cc6c073e90a19a4ecad454ce9073ddb839f5a28',
+  '../telos-work-role-setup.ts': 'd7aaa6e5201ddd86b25a884a65dfc9fa86c53f0a14f85e6007957eb66c0c0aa4',
   '../telos-work-advisor-draft.ts':
     'a572995682705f98c47fffbdb11aff5eb0621f08d826e8584db542f8d89a28bb',
   '../../packages/protocol/src/telos-work-role-context.ts':
@@ -1091,9 +1095,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-store.ts': 'd8db46138a28be13c612601c1e1435352c1e05b1d6c47deb785804ab397cbbc0',
   '../task-tools.ts': '93b692c7fce06cf22a4ceb8ea66a0f6d287140a79bac4e23cf2c88aabeff5d0a',
   '../task-context.ts': '12de60337242e138d161b29de87fe4132204e7cf4b1547b6e0e52e48ae910f35',
-  '../telos-work-delegation.ts': '08a57f54dbcf4463085be5219d21167605a29933b328f718230c07ef0d4ddd5b',
+  '../telos-work-delegation.ts': '7010abd60bcf10dcc051d1cc982b9fea4e9c0cb72aee6c77aec54eac3e72c78a',
   '../telos-work-delegation-host.ts':
-    'ceb1f2b47b548615b0b06f83636b7f79b8141c3ab3c91e16f7edeb46aea52f5a',
+    'cdda7dc57cf51c6980f4d444da7325bf94a766d1c911c3d5053b1ffd97b8c946',
   '../telos-work-command-scope.ts':
     'ee4418309938ce4f14d62d08f051b2fcd7cfeefed51812defea067fcdcc8079c',
   '../telos-work-execution-authority.ts':
