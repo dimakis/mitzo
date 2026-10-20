@@ -22,6 +22,22 @@ receipt can be restored after a browser reload. Removing an unused preparation
 deletes only its controller-owned source copy; a claimed task cannot be removed by
 this endpoint.
 
+`POST /api/repository-workspaces/preview` optionally accepts a caller-generated
+UUID `requestId`, retained before submission. The existing workspace row uses
+that ID and a private server-derived fingerprint of the original account/model,
+connection, canonical repository and ordinary runtime selection. Retrying that
+exact intent renews authorization and returns the original record and pinned
+commit, including any later preparation state. Changed intent conflicts; concurrent
+metadata captures cannot overwrite the first committed row. Legacy callers can
+continue omitting the ID. Neither the ID nor its fingerprint grants source or
+runtime access, and preview does not acquire a checkout or start a session.
+
+After a lost response, read the known workspace ID with the original account/model
+or repeat the original preview request. A missing status response does not prove
+that an earlier request stopped; retain its ID. Preparation continues through the
+existing explicit `/:id/prepare` operation. An expired, failed, discarded or uncertain
+original operation must not be silently replaced or rewound by preview recovery.
+
 The task starts at the previewed commit on `mitzo/repo-<preparation UUID>`. Host
 chats receive an independent copy beneath the configured repository's
 `.claude/repository-tasks/repo-<UUID>/mgmt`; that directory is a standalone Git repository,
