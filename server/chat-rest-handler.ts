@@ -1,3 +1,4 @@
+import { mountApplicationChatEventStream } from './chat-event-stream.js';
 import { createOwnedLocalCodexEntryRouter } from './ordinary-local-codex-entry.js';
 import { operatorAuthMiddleware } from './auth.js';
 import { getPendingRequestsBySession } from './permissions.js';
@@ -136,6 +137,15 @@ function validateBody<T>(
  * Reuses the complete original authenticated chat router and caller-owned stores,
  * SSE transport and V2 context. Construction performs no session/provider work.
  */
+export function mountApplicationChatTransport(
+  application: Express,
+  sseRegistry: SessionSseRegistry,
+  ctx: V2HandlerContext,
+): void {
+  mountApplicationChatEventStream(application, sseRegistry, ctx);
+  mountApplicationChatRestTransport(application, sseRegistry, ctx);
+}
+
 export function mountApplicationChatRestTransport(
   application: Express,
   sseRegistry: SessionSseRegistry,

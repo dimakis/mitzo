@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.400-symposium-chat-http-composition';
+  'v1.0.413-symposium-shared-chat-stream';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
   '../../packages/protocol/src/collaboration-source-catalog.ts':
     'fde9f163f2e3e277c72b34f28cbd89d7c157e02bba8fea66fdd0cffb2b47bd7d',
   '../collaboration-source-catalog.ts':
@@ -577,10 +578,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14',
   '../url-access-tool.ts': '045e01d27a5c5428b9430e440916875a622ea8eb90f598c577d22a2da680a457',
   '../web-access-tool.ts': '0c5e1a8a589cc660983f814abd1994b6b877b1bd1f02b6bc8c26521f6ae1ba13',
-  '../index.ts': 'd52fa841e289f5ce1ed91313c61721bd4e0d3c31ae125dba4d22e86d56e65286',
+  '../index.ts': 'e62d36616517ca725824070d251ce1cc88085633c551502237383e094338eb18',
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
-  '../chat-rest-handler.ts': '45e1116f444c03716068b3ad4e48ea491bc38464ec1f7f9fed930d111e17686a',
+  '../chat-rest-handler.ts': 'a776a5168d43376f1e265872b25ee6aac0eea0051d0be10aaaf76dbfed689a2d',
   '../query-loop.ts': 'c4b8d036dfd418981cb6e4643143d6b4928645e529ba1bf79fdaaf3840df698c',
   '../account-profiles.ts': 'e8b8e659ba11b9d3d28abbb47542929d103dde5c1f2f347d1b6361c547cec759',
   '../ordinary-turn-lifecycle.ts':

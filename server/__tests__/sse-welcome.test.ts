@@ -12,8 +12,8 @@ import { SseTransport } from '../sse-transport.js';
 // Execute the registered production route, without importing index's service bootstrap.
 function eventsRoute(dependencies: Record<string, unknown>) {
   const source = ts.createSourceFile(
-    'index.ts',
-    readFileSync(new URL('../index.ts', import.meta.url), 'utf8'),
+    'chat-event-stream.ts',
+    readFileSync(new URL('../chat-event-stream.ts', import.meta.url), 'utf8'),
     ts.ScriptTarget.Latest,
     true,
   );
@@ -21,7 +21,7 @@ function eventsRoute(dependencies: Record<string, unknown>) {
   const visit = (node: ts.Node) => {
     if (
       ts.isCallExpression(node) &&
-      node.expression.getText(source) === 'app.get' &&
+      node.expression.getText(source) === 'application.get' &&
       ts.isStringLiteral(node.arguments[0]) &&
       node.arguments[0].text === '/api/chat/events'
     )
@@ -61,9 +61,8 @@ it('negotiates bounded ACK batches through the actual SSE welcome frame', async 
   try {
     eventsRoute({
       SseTransport,
-      chatSseRegistry: streams,
-      connRegistry: connections,
-      registry: { removeObserver: vi.fn() },
+      sseRegistry: streams,
+      ctx: { connRegistry: connections, sessionRegistry: { removeObserver: vi.fn() } },
       withSpan: (_name: string, _attrs: unknown, fn: () => void) => fn(),
       log: { info: vi.fn() },
     })(request as Request, response);
