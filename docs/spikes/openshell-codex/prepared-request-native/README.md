@@ -6,10 +6,10 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 102 patches
+## Current composed source: 103 patches
 
-The 102 ordered patches reconstruct native tree
-`5490b91a53aa7290486b90cf8731f185e78a0e70` (local source `e247e3697324c011f886094914821f3b296cb509`).
+The 103 ordered patches reconstruct native tree
+`607b88e5275dc347713a85c2b6ae454470bffb54` (local source `d89bc3cba1a78c947b297bedb9b2653ebaddbc50`).
 All first 99 records and patch bytes remain unchanged. Patch 100 retains the
 original installed default registry and concrete object inventories under the
 same original weak manager and MCP packet. Patch 101 restores one direct Session
@@ -17,6 +17,9 @@ model-provenance enum import. Patch 102 shares original source/history/parent,
 originator precedence and fork-cache DATA transforms at their original call sites.
 Actual process/async acquisition, configuration, history and client construction
 remain with their original owners and order.
+Patch 103 applies only the installed Rust 1.95 canonical formatter to Session.
+The unchanged required Cargo formatting gate traverses that file; its previous
+line wrapping/indentation would fail after the fixture suite. No gate is weakened.
 
 Source 99 run `39482696019` failed production Core library compilation on both
 platforms while building standalone helpers. The three E0433 errors name the

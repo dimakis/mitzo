@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.455-symposium-original-registry-source-frame';
+  'v1.0.456-symposium-canonical-source-frame';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1317,4 +1317,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '42a30b81986512fe61d9d98941d278171dac1ca98dbe6939913122bbb8dde7a4',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-original-source-frame-data.patch':
     '0c5637fdec06f2e6d2836b7e6be4fc59764c807d06c5cde14c22099ddbebead3',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-session-format.patch':
+    '8af4bc406348c4a03c3875e5113dda650cd8d591ea3eb130235193c552398189',
 });

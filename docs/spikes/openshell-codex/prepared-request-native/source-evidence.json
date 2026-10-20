@@ -412,10 +412,14 @@
     {
       "file": "native-original-source-frame-data.patch",
       "sha256": "0c5637fdec06f2e6d2836b7e6be4fc59764c807d06c5cde14c22099ddbebead3"
+    },
+    {
+      "file": "native-original-session-format.patch",
+      "sha256": "8af4bc406348c4a03c3875e5113dda650cd8d591ea3eb130235193c552398189"
     }
   ],
-  "sourceTree": "5490b91a53aa7290486b90cf8731f185e78a0e70",
-  "localSourceCommit": "e247e3697324c011f886094914821f3b296cb509",
+  "sourceTree": "607b88e5275dc347713a85c2b6ae454470bffb54",
+  "localSourceCommit": "d89bc3cba1a78c947b297bedb9b2653ebaddbc50",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -562,7 +566,8 @@
     "b2f34ca45571ca7514b5f307b76a78b475829769",
     "5f20fa7ee0ebc4701f185fb8da282c0592ee8f55",
     "0b0eee8ba6515295e56427e6e34571d4a2851598",
-    "e247e3697324c011f886094914821f3b296cb509"
+    "e247e3697324c011f886094914821f3b296cb509",
+    "d89bc3cba1a78c947b297bedb9b2653ebaddbc50"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -572,7 +577,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "102 ordered patches preserve all99 prior records/bytes. Patch100 retains genuine original default installed registry object provenance;101 restores the Session-local model provenance import required by original selection;102 shares original source/parent/originator/cache pure data transforms at unchanged ordinary acquisition sites. No retained source frame/currentness/adoption/factory grant.",
+    "scope": "103 ordered patches preserve all99 prior records/bytes. Patch100 retains genuine original default installed registry object provenance;101 restores the Session-local model provenance import required by original selection;102 shares original source/parent/originator/cache pure data transforms at unchanged ordinary acquisition sites. No retained source frame/currentness/adoption/factory grant. Patch103 applies only installed Rust1.95 canonical formatting to Session.rs, which the unchanged required cargo fmt gate traverses.",
     "localFocused": {
       "status": "exact_source_reconstruction_and_scoped_format_only",
       "compiled": false,
@@ -581,7 +586,7 @@
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_102_exact_source",
+      "status": "pending_103_exact_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -952,6 +957,15 @@
       "scope": "Pure original source/history/parent/originator precedence and fork-cache transformations. Actual async/process acquisition and final client construction remain at original sites. No retained frame, adoption, lease, client or Ready.",
       "sourceOnly": true,
       "fixturesExecutedLocally": false
+    },
+    "canonicalOriginalSessionFormat": {
+      "sourceCommit": "d89bc3cba1a78c947b297bedb9b2653ebaddbc50",
+      "path": "codex-rs/core/src/session/session.rs",
+      "addedLines": 93,
+      "removedLines": 68,
+      "scope": "Only installed Rust1.95.0 formatting, edition2024; original Session AST/control/value semantics retained. Actualcorelib->sessionmod->Session traversal has no rustfmt skip.",
+      "scopedRustfmtCheck": "PASS",
+      "rustCompiledOrTestedLocally": false
     }
   },
   "historicalFoundation": {
@@ -1673,6 +1687,14 @@
           "job": 118835053811
         }
       ]
+    },
+    {
+      "checkpoint": "source102BeforeRequiredSessionFormat",
+      "sourceCommit": "e247e3697324c011f886094914821f3b296cb509",
+      "sourceTree": "5490b91a53aa7290486b90cf8731f185e78a0e70",
+      "orderedPatchCount": 102,
+      "ciExecuted": false,
+      "scope": "Retained complete source reconstruction before required canonical formatting; no prior CI qualification."
     }
   ],
   "history": [
