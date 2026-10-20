@@ -157,6 +157,8 @@ export interface StreamingBlock {
   toolResult?: string;
   toolResultImages?: ToolResultImage[];
   toolError?: boolean;
+  /** Owning execution ended without a result; no tool success/failure is implied. */
+  toolInterrupted?: boolean;
   subagent?: StreamingSubagentState | FinishedSubagentState;
 }
 
@@ -183,6 +185,8 @@ export interface FinishedBlock {
   toolResult?: string;
   toolResultImages?: ToolResultImage[];
   toolError?: boolean;
+  /** Display-only terminal observation; an actual late result takes precedence. */
+  toolInterrupted?: boolean;
   subagent?: FinishedSubagentState;
 }
 

@@ -48,7 +48,11 @@ import {
 } from './ordinary-contributor-guidance.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
-import { SourceSnapshotsSchema, type SourceSnapshot } from '@mitzo/protocol';
+import {
+  interruptUnansweredToolBlocks,
+  SourceSnapshotsSchema,
+  type SourceSnapshot,
+} from '@mitzo/protocol';
 import { recordAcceptedReplaySession, replayError } from './public-replay-error.js';
 import {
   getOrdinaryWorkspaces,
@@ -5271,6 +5275,7 @@ export interface RestoredMessage {
     toolResult?: string;
     toolResultImages?: Array<{ id: string; mediaType: string }>;
     toolError?: boolean;
+    toolInterrupted?: boolean;
     subagent?: RestoredSubagentState;
   }>;
 }
@@ -5649,6 +5654,10 @@ function replaySingleEventsToTranscript(
       }
       case 'session_end':
         finishTurn();
+        for (let index = 0; index < messages.length; index++) {
+          const blocks = interruptUnansweredToolBlocks(messages[index].blocks);
+          if (blocks !== messages[index].blocks) messages[index] = { ...messages[index], blocks };
+        }
         break;
     }
   }
@@ -6041,6 +6050,15 @@ export function replayEventsToMessages(
           messages.push(currentMsg);
         }
         currentMsg = null;
+        break;
+
+      case 'session_end':
+        if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
+        currentMsg = null;
+        for (let index = 0; index < messages.length; index++) {
+          const blocks = interruptUnansweredToolBlocks(messages[index].blocks);
+          if (blocks !== messages[index].blocks) messages[index] = { ...messages[index], blocks };
+        }
         break;
     }
   }

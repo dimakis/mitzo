@@ -1,4 +1,5 @@
 export * from './markdown-paths.js';
+export { interruptUnansweredToolBlocks } from './tool-lifecycle.js';
 export * from './agent-tasks.js';
 // @mitzo/protocol — shared types, schemas, and utilities for the Mitzo v2 protocol.
 export type {
