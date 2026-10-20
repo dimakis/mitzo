@@ -149,6 +149,7 @@ export function SymposiumConversation({
   ordinaryExcluded = false,
   onContinueInNewChat,
   pendingSettings,
+  pendingFeedback,
   ordinaryAfterMessages,
   profileToolsTarget,
   readOnly = false,
@@ -165,6 +166,8 @@ export function SymposiumConversation({
   ordinaryExcluded?: boolean;
   onContinueInNewChat?(draft: string): void;
   pendingSettings?: ReactNode;
+  /** Pure presentation only; never mounts ordinary queue/send owners before qualification. */
+  pendingFeedback?: ReactNode;
   ordinaryAfterMessages?: ReactNode;
   profileToolsTarget: HTMLElement | null;
   readOnly?: boolean;
@@ -751,6 +754,7 @@ export function SymposiumConversation({
             </>
           }
         />
+        {pendingFeedback}
         {/* Keep the input area visible without mounting queue/send effects. */}
         <div className="chat-input" aria-busy="true">
           <div className="chat-input-row">

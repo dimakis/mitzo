@@ -1493,6 +1493,11 @@ export function DesktopChatView() {
               progressByToolId,
               voice,
             }}
+            pendingFeedback={
+              !isSymposium ? (
+                <ChatStatusMessage status={sendStatus} error={sendError} busy />
+              ) : undefined
+            }
             ordinaryComposer={
               <div
                 className={`conversation-composer${!activeSessionId ? ' conversation-composer--new' : ''}`}

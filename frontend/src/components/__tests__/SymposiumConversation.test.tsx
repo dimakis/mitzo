@@ -614,12 +614,14 @@ describe('SymposiumConversation', () => {
         sessionId="session"
         chat={chat}
         ordinaryComposer={<button>Ordinary send</button>}
+        pendingFeedback={<span role="status">Preparing response…</span>}
       />,
     );
     expect(
       (screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement).disabled,
     ).toBe(true);
     expect(screen.queryByText('Ordinary send')).toBeNull();
+    expect(screen.getByText('Preparing response…')).toBeTruthy();
     expect(screen.queryByText('Loading Symposium…')).toBeNull();
   });
 

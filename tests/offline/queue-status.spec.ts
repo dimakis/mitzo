@@ -136,6 +136,7 @@ for (const theme of ['dark', 'light']) {
     const files = (await output).outputFiles!;
     let continued = false;
     let recovering = true;
+    let failed = 0;
     await page.route('**/*', (route) => {
       const path = new URL(route.request().url()).pathname;
       if (path.endsWith('/meta'))
@@ -148,6 +149,7 @@ for (const theme of ['dark', 'light']) {
               recoveryPhase: recovering ? 'reconnecting' : undefined,
               queued: continued ? 0 : 1,
               interrupted: continued ? 0 : 1,
+              failed,
             },
           },
         });
@@ -212,5 +214,22 @@ for (const theme of ['dark', 'light']) {
     await page.getByRole('button', { name: 'Clear delivery progress' }).click();
     await expect(page.getByText('Preparing response…')).toHaveCount(0);
     await expect(input).toHaveValue('Synthetic unsent draft');
+    failed = 1;
+    await page.getByRole('button', { name: 'Emit queue metadata change', exact: true }).click();
+    const warning = page.locator('.codex-queue-status-attention');
+    await expect(warning).toBeVisible();
+    await expect(warning.locator('svg[data-icon="warning"]')).toHaveCount(1);
+    const warningColor = await page.evaluate(() => {
+      const reference = document.createElement('span');
+      reference.style.color = 'var(--color-warning)';
+      document.body.append(reference);
+      const color = getComputedStyle(reference).color;
+      reference.remove();
+      return color;
+    });
+    expect(await warning.evaluate((element) => getComputedStyle(element).color)).toBe(warningColor);
+    expect(await warning.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+      'rgba(0, 0, 0, 0)',
+    );
   });
 }

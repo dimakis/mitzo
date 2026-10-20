@@ -1839,3 +1839,8 @@ fallback. These checks use synthetic metadata, no backend and no model calls.
 Inspected captures: [phone progress](assets/chat-progress-mobile-dark.png) and
 [desktop progress](assets/chat-progress-desktop-light.png). These show isolated
 actual composer/status components, not a live chat or a change to approved settings.
+
+Pending chat-type qualification renders only pure progress/error feedback beside
+the disabled input; it does not mount the ordinary queue or send owner early.
+Outline warnings use the semantic warning foreground on a transparent background;
+filled controls retain their existing paired foreground contrast checks.

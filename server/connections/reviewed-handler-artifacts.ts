@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.412-quiet-chat-recovery-files';
+  'v1.0.413-quiet-chat-pending-feedback';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -438,7 +438,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/src/session-transport.ts':
     '7aaab4c6a3fb5f362b000e7127a8876fb385928d6786145f974ea8ecd4ce283f',
   '../../frontend/src/components/SymposiumConversation.tsx':
-    'fa2fcb9f8ad545b181f635a0b442f668e8b6c517cbea83e04eac2d66618321f4',
+    '786352592c7944b22fa9d9e402df18c7cc6aa09984718b9dd90b64af86136608',
   '../../frontend/src/components/SymposiumReviewPanel.tsx':
     '32be2e13877a0db2e2d8531718b9410138471c01cebc963592df3ed69cdf710a',
   '../owned-local-codex-control.ts':
@@ -505,9 +505,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '89c3593476f8ee0e99ab1ad1f8b0879626e731a8581cf755f5090624cb8ceedd',
   '../../frontend/src/pages/ChatView.tsx':
-    '3c852c8887981d4e663ed55029ceca1cdcf74b9303c1acbe96d202f16d010894',
+    'd04fea63f03c1445a1aa7d45c2b238605abdb13b7a26d6e2f64fe8b775a68b15',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'c78ec199b8f737a78a18208257c8a504c324cbf9d089b84e826dba8bb08ec66f',
+    '5cd72c857541cd104e8d596d366c815526e8ba5ead357eb8c7e53f396aa542ef',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
