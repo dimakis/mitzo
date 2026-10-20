@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.334-symposium-extension-inventory';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.345-symposium-closed-inputs';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,20 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-closed-mcp-source-plans.patch':
+    '30d053c658d61bdc85042efafe973dba0528f26414c14f749442b880f43de7a6',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-fresh-mcp-source-inputs.patch':
+    '949e4f19bf4c32049d90b11495e813e6e0f5f82c20c2b36e62a35379ae0b1d98',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-pre-session-reserved-id-refusal.patch':
+    '84c0d3c35d287c632824b8820771356b3c7a137ff152576ed101939abed1a706',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-single-attempt-transport-factory.patch':
+    'e9271989d3f049db349fcdb3b7eb16de152e504f70c787be70fc10ad87793f1a',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-config-tool-selection.patch':
+    'db6533f613436bd2981f0babee2bbae2c04bcadea261ebe5b81292ed757a4a23',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-configured-memory-web-tools.patch':
+    '446aa08a81cb866b82988f75e800d40d4e2ed12103ac518367884f450ca403af',
+  '../collaboration-application-delivery-authority.ts':
+    '55a272d355edcce188891e57d0b585941fd56137d3cc7bcc71e3bd9f64ca4dec',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-extension-tool-inventory.patch':
     '4f7da79a4723d70cabdc576bbf34b0bb9c18ba0d933758dda44dc8b228248124',
   // Exact-publication conversion and background preparation.

@@ -220,10 +220,34 @@
     {
       "file": "native-extension-tool-inventory.patch",
       "sha256": "4f7da79a4723d70cabdc576bbf34b0bb9c18ba0d933758dda44dc8b228248124"
+    },
+    {
+      "file": "native-closed-mcp-source-plans.patch",
+      "sha256": "30d053c658d61bdc85042efafe973dba0528f26414c14f749442b880f43de7a6"
+    },
+    {
+      "file": "native-fresh-mcp-source-inputs.patch",
+      "sha256": "949e4f19bf4c32049d90b11495e813e6e0f5f82c20c2b36e62a35379ae0b1d98"
+    },
+    {
+      "file": "native-pre-session-reserved-id-refusal.patch",
+      "sha256": "84c0d3c35d287c632824b8820771356b3c7a137ff152576ed101939abed1a706"
+    },
+    {
+      "file": "native-single-attempt-transport-factory.patch",
+      "sha256": "e9271989d3f049db349fcdb3b7eb16de152e504f70c787be70fc10ad87793f1a"
+    },
+    {
+      "file": "native-config-tool-selection.patch",
+      "sha256": "db6533f613436bd2981f0babee2bbae2c04bcadea261ebe5b81292ed757a4a23"
+    },
+    {
+      "file": "native-configured-memory-web-tools.patch",
+      "sha256": "446aa08a81cb866b82988f75e800d40d4e2ed12103ac518367884f450ca403af"
     }
   ],
-  "sourceTree": "77a800c70646406a5165ea56237219e56518c36b",
-  "localSourceCommit": "557ce440b823868ea853e583c2277d16ec0af726",
+  "sourceTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
+  "localSourceCommit": "bb5bedc2e334700b930352c58e6c50660c173e2e",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -283,7 +307,13 @@
     "3ec49f15814168d9be0553f7bc12e6d78542371a",
     "a69928ec137aafd75d89111ef46c1aadc15e38f1",
     "4cea83bbbf2330e7ffc22389eafcc6dc6f18d8a2",
-    "557ce440b823868ea853e583c2277d16ec0af726"
+    "557ce440b823868ea853e583c2277d16ec0af726",
+    "d395b2c711db25aab4250e24b0ec8ea081e99e90",
+    "24b4d798fe0d6b2c72a7ff51a4d2c9aad71b5765",
+    "2cbbb822ffbe9d9a62e6c26d6e0c69796ae2a1ee",
+    "79a2a34d4c93892298033d116c5e1c0f0c061e6e",
+    "43d48041b06eb631e9e80ecfaa1a1974eeb91b49",
+    "bb5bedc2e334700b930352c58e6c50660c173e2e"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -562,6 +592,30 @@
       "productionStateBoundContributorsUpgraded": false,
       "wholeRequestPreparationReady": false,
       "runtimeActivation": false
+    },
+    "closedSourceInputs": {
+      "sourceCommit": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+      "sourceTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
+      "mcpSources": "Actual installed Apps/plugin sources register closed source-owned declarations; same declaration owns ordinary metadata and pure selection. Unknown/enabled sources refuse before callbacks.",
+      "freshInputs": "ThreadManager captures original StartThreadOptions, actual default/explicit process-local environments and real empty MCP config/binding only when source absence is proven; rejects prior history/inheritance/reserved native IDs, roots, pending/failed/remote environments and configured MCP/Apps/plugins.",
+      "custody": "Retains actual source-manager and selected EnvironmentManager/Environment owner identities; defaults and handle replacement invalidate. This partition is not source/account ordered native consume authority.",
+      "singleAttemptTransport": "Existing login/HttpClientFactory policy creates route-aware pool with no redirects/default headers/cookies/replay fallbacks; effective system proxy fallback, configured cookies and active residency refuse. Ordinary default factory and low-level single-attempt guards unchanged.",
+      "toolSelection": "Config-only source-owned absence plan controls ordinary startup/config/step metadata too; missing registrations preflight before plans or runtime callbacks. Fixed executable definitions retain ordinary order; configuration-selected captures require explicit current-config renewal.",
+      "productionSources": "Memory and web search share their actual configuration selection helpers with their absence declarations. Enabled tools remain unresolved; all other state-bound sources remain unresolved. Memory context/instructions remain separate.",
+      "newFixtureScopes": [
+        "extension-api pre_session_mcp",
+        "extension-api pre_session_tools",
+        "mcp-extension actual installed closed source parity",
+        "core ThreadManager fresh source custody/refusal",
+        "login actual single-attempt factory child-process cases",
+        "memories-extension actual config capture and ordinary lifecycle parity",
+        "web-search-extension mode selection"
+      ],
+      "localScopedRustfmt": "passed",
+      "localRustCompilationOrTests": false,
+      "ciResult": "pending exact new composed tree",
+      "wholeRequestPreparationReady": false,
+      "runtimeActivation": false
     }
   },
   "runtimeQualified": false,
@@ -695,7 +749,13 @@
       "runtimeInstalledOrQualified": false,
       "rustCompiledOrTestsRunOnThisTree": false,
       "scope": "Ordinary same-invocation shell child approval reuse only; default non-fresh User route and zero matching hooks, actual held-owner identity and original runtime flag, all manual fallbacks revalidated. No prepared Responses or application joining authority."
-    }
+    },
+    "closedMcpSources": "d395b2c711db25aab4250e24b0ec8ea081e99e90",
+    "freshMcpInputs": "24b4d798fe0d6b2c72a7ff51a4d2c9aad71b5765",
+    "unreservedFreshInputs": "2cbbb822ffbe9d9a62e6c26d6e0c69796ae2a1ee",
+    "singleAttemptFactory": "79a2a34d4c93892298033d116c5e1c0f0c061e6e",
+    "configToolSelection": "43d48041b06eb631e9e80ecfaa1a1974eeb91b49",
+    "configuredMemoryWebTools": "bb5bedc2e334700b930352c58e6c50660c173e2e"
   },
   "historicalFoundation": {
     "acceptedApplicationPr": 1000,
@@ -2225,6 +2285,14 @@
       "acceptedPr": 1012,
       "qualifiedNativeCi": 39271304931,
       "scope": "Retained exact 53-patch source, no extension pre-session inventory API or tests yet."
+    },
+    {
+      "sourceTree": "77a800c70646406a5165ea56237219e56518c36b",
+      "localSourceCommit": "557ce440b823868ea853e583c2277d16ec0af726",
+      "patchCount": 54,
+      "publishedPr": 1058,
+      "nativeCi": 39339195266,
+      "qualification": "pending at candidate construction; never reused for the new composed tree"
     }
   ]
 }

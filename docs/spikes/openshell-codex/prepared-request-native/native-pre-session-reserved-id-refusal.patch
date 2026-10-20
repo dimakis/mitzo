@@ -1,0 +1,43 @@
+From 2cbbb822ffbe9d9a62e6c26d6e0c69796ae2a1ee Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 00:33:38 +0100
+Subject: [PATCH] fix(core): refuse already reserved native identities in
+ pre-session inputs
+
+---
+ codex-rs/core/src/mcp/pre_session.rs                        | 1 +
+ .../core/src/thread_manager/pre_session_inputs_tests.rs     | 6 ++++++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/codex-rs/core/src/mcp/pre_session.rs b/codex-rs/core/src/mcp/pre_session.rs
+index 187019d..4ed3c3e 100644
+--- a/codex-rs/core/src/mcp/pre_session.rs
++++ b/codex-rs/core/src/mcp/pre_session.rs
+@@ -78,6 +78,7 @@ impl McpManager {
+         if !matches!(&options.initial_history, InitialHistory::New)
+             || options.inherited_environments.is_some()
+             || options.internal_parent.is_some()
++            || options.reserved_thread_id.is_some()
+         {
+             return Err(PreSessionMcpError::RequiresFreshInputs);
+         }
+diff --git a/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs b/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
+index a60da7c..307cd0c 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
+@@ -149,6 +149,12 @@ async fn configured_or_selected_sources_refuse_instead_of_becoming_an_empty_bind
+         manager.capture_pre_session_mcp_sources(selected).err(),
+         Some(PreSessionMcpError::SelectedCapabilities)
+     );
++    let mut reserved = StartThreadOptions::new(config.clone());
++    reserved.reserved_thread_id = Some(codex_protocol::ThreadId::new());
++    assert_eq!(
++        manager.capture_pre_session_mcp_sources(reserved).err(),
++        Some(PreSessionMcpError::RequiresFreshInputs)
++    );
+     let mut inherited = StartThreadOptions::new(config);
+     inherited.initial_history = InitialHistory::Cleared;
+     assert_eq!(
+-- 
+2.54.0 (Apple Git-157)
+

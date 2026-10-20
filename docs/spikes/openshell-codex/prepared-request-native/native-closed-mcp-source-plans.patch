@@ -1,0 +1,543 @@
+From d395b2c711db25aab4250e24b0ec8ea081e99e90 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 00:28:23 +0100
+Subject: [PATCH] feat(extension-api): share closed MCP source declarations
+ with ordinary projection
+
+---
+ codex-rs/ext/extension-api/src/lib.rs         |   4 +
+ .../ext/extension-api/src/mcp_pre_session.rs  | 124 ++++++++++++++++++
+ codex-rs/ext/extension-api/src/registry.rs    |  60 +++++++++
+ .../extension-api/tests/pre_session_mcp.rs    |  94 +++++++++++++
+ codex-rs/ext/mcp/src/lib.rs                   |  21 ++-
+ codex-rs/ext/mcp/src/lib_tests.rs             |  64 +++++++++
+ codex-rs/ext/mcp/src/plugin.rs                |  12 ++
+ codex-rs/ext/mcp/src/plugin_contributor.rs    |   5 +-
+ 8 files changed, 382 insertions(+), 2 deletions(-)
+ create mode 100644 codex-rs/ext/extension-api/src/mcp_pre_session.rs
+ create mode 100644 codex-rs/ext/extension-api/tests/pre_session_mcp.rs
+
+diff --git a/codex-rs/ext/extension-api/src/lib.rs b/codex-rs/ext/extension-api/src/lib.rs
+index da95281..ad53cf1 100644
+--- a/codex-rs/ext/extension-api/src/lib.rs
++++ b/codex-rs/ext/extension-api/src/lib.rs
+@@ -1,5 +1,6 @@
+ mod capabilities;
+ mod contributors;
++mod mcp_pre_session;
+ mod registry;
+ mod session_isolation;
+ mod state;
+@@ -101,6 +102,9 @@ pub use contributors::TurnStartPhase;
+ pub use contributors::TurnStopInput;
+ pub use contributors::WorldStateContributionInput;
+ pub use contributors::WorldStateSectionContribution;
++pub use mcp_pre_session::McpPreSessionContext;
++pub use mcp_pre_session::McpPreSessionOverlay;
++pub use mcp_pre_session::McpPreSessionPlan;
+ pub use registry::ExtensionRegistry;
+ pub use registry::ExtensionRegistryBuilder;
+ pub use registry::empty_extension_registry;
+diff --git a/codex-rs/ext/extension-api/src/mcp_pre_session.rs b/codex-rs/ext/extension-api/src/mcp_pre_session.rs
+new file mode 100644
+index 0000000..cfeb70f
+--- /dev/null
++++ b/codex-rs/ext/extension-api/src/mcp_pre_session.rs
+@@ -0,0 +1,124 @@
++use codex_protocol::capabilities::SelectedCapabilityRoot;
++use std::sync::Arc;
++
++use crate::ExtensionFuture;
++use crate::McpServerContribution;
++use crate::McpServerContributionContext;
++use crate::McpServerContributor;
++use crate::SelectedPlugin;
++
++/// Immutable selection inputs for a registered MCP source's closed plan.
++///
++/// Unlike runtime contribution context, this exposes no thread stores, clients,
++/// discovery or refresh capabilities. Plans must only inspect these values.
++pub struct McpPreSessionContext<'a, C> {
++    config: &'a C,
++    selected_capability_roots: &'a [SelectedCapabilityRoot],
++}
++
++impl<C> Clone for McpPreSessionContext<'_, C> {
++    fn clone(&self) -> Self {
++        *self
++    }
++}
++
++impl<C> Copy for McpPreSessionContext<'_, C> {}
++
++impl<'a, C> McpPreSessionContext<'a, C> {
++    pub fn new(config: &'a C, selected_capability_roots: &'a [SelectedCapabilityRoot]) -> Self {
++        Self {
++            config,
++            selected_capability_roots,
++        }
++    }
++
++    pub fn config(&self) -> &'a C {
++        self.config
++    }
++
++    pub fn selected_capability_roots(&self) -> &'a [SelectedCapabilityRoot] {
++        self.selected_capability_roots
++    }
++}
++
++/// Closed contribution outcomes supported before MCP activation.
++///
++/// There is deliberately no caller-supplied server/tool catalog. Sources that
++/// might add servers, connectors or selected plugin identities remain unresolved.
++/// Both closed variants settle the entire registered source contribution;
++/// even plugins without MCP servers must not be omitted by an absence plan.
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub enum McpPreSessionOverlay {
++    NoContributions,
++    RemoveServer { name: String },
++    Unresolved,
++}
++
++/// Source-owned, effect-free selection function registered beside its real
++/// runtime contributor. It must share the owner's ordinary selection logic;
++/// this is not permission to invoke a runtime callback during preparation.
++pub type McpPreSessionPlan<C> = for<'a> fn(McpPreSessionContext<'a, C>) -> McpPreSessionOverlay;
++
++pub(crate) struct PlannedMcpSource<C: Sync> {
++    pub(crate) contributor: Arc<dyn McpServerContributor<C>>,
++    pub(crate) plan: McpPreSessionPlan<C>,
++}
++
++impl<C: Sync> PlannedMcpSource<C> {
++    fn runtime_plan(&self, context: McpServerContributionContext<'_, C>) -> McpPreSessionOverlay {
++        let mut roots = context
++            .ready_selected_capability_roots()
++            .unwrap_or_default()
++            .to_vec();
++        if let Some(discovery) = context.executor_capability_discovery() {
++            roots.extend(
++                discovery
++                    .roots()
++                    .iter()
++                    .map(|root| root.selected_root.clone()),
++            );
++        }
++        (self.plan)(McpPreSessionContext::new(context.config(), &roots))
++    }
++}
++
++impl<C: Sync> McpServerContributor<C> for PlannedMcpSource<C> {
++    fn id(&self) -> &'static str {
++        self.contributor.id()
++    }
++
++    fn contribute<'a>(
++        &'a self,
++        context: McpServerContributionContext<'a, C>,
++    ) -> ExtensionFuture<'a, Vec<McpServerContribution>> {
++        Box::pin(async move {
++            let plan = self.runtime_plan(context);
++            // Preserve ordinary source cleanup/state effects. The registration's
++            // closed declaration owns metadata in BOTH paths, rather than merely
++            // promising that a separate runtime callback will return no servers.
++            let runtime = self.contributor.contribute(context).await;
++            match plan {
++                McpPreSessionOverlay::NoContributions => Vec::new(),
++                McpPreSessionOverlay::RemoveServer { name } => {
++                    vec![McpServerContribution::Remove { name }]
++                }
++                McpPreSessionOverlay::Unresolved => runtime,
++            }
++        })
++    }
++
++    fn selected_plugins<'a>(
++        &'a self,
++        context: McpServerContributionContext<'a, C>,
++    ) -> ExtensionFuture<'a, Vec<SelectedPlugin<'a>>> {
++        Box::pin(async move {
++            let plan = self.runtime_plan(context);
++            let runtime = self.contributor.selected_plugins(context).await;
++            match plan {
++                McpPreSessionOverlay::NoContributions
++                | McpPreSessionOverlay::RemoveServer { .. } => Vec::new(),
++                McpPreSessionOverlay::Unresolved => runtime,
++            }
++        })
++    }
++}
+diff --git a/codex-rs/ext/extension-api/src/registry.rs b/codex-rs/ext/extension-api/src/registry.rs
+index 037b939..4aa4d0a 100644
+--- a/codex-rs/ext/extension-api/src/registry.rs
++++ b/codex-rs/ext/extension-api/src/registry.rs
+@@ -5,6 +5,9 @@ use crate::ConfigContributor;
+ use crate::ContextContributor;
+ use crate::ExtensionEventSink;
+ use crate::ExtensionToolDefinition;
++use crate::McpPreSessionContext;
++use crate::McpPreSessionOverlay;
++use crate::McpPreSessionPlan;
+ use crate::McpServerContributor;
+ use crate::ModelRequestContributor;
+ use crate::NoopExtensionEventSink;
+@@ -19,6 +22,7 @@ use crate::TurnInputContributor;
+ use crate::TurnItemContributor;
+ use crate::TurnLifecycleContributor;
+ use crate::TurnStartAdmission;
++use crate::mcp_pre_session::PlannedMcpSource;
+ use crate::tool_inventory::FixedToolContributor;
+ 
+ /// Mutable registry used while hosts register typed runtime contributions.
+@@ -40,6 +44,7 @@ impl<C: Sync> Default for ExtensionRegistryBuilder<C> {
+                 approval_review_contributors: Vec::new(),
+                 context_contributors: Vec::new(),
+                 mcp_server_contributors: Vec::new(),
++                mcp_pre_session_plans: Vec::new(),
+                 turn_input_contributors: Vec::new(),
+                 tool_contributors: Vec::new(),
+                 pre_session_tool_definitions: Vec::new(),
+@@ -123,6 +128,23 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
+     /// Registers one runtime MCP server contributor.
+     pub fn mcp_server_contributor(&mut self, contributor: Arc<dyn McpServerContributor<C>>) {
+         self.registry.mcp_server_contributors.push(contributor);
++        self.registry.mcp_pre_session_plans.push(None);
++    }
++
++    /// Registers a source's closed selection plan as declaration authority for
++    /// BOTH ordinary projection and pre-session capture. Ordinary callbacks keep
++    /// their cleanup/state effects; only unresolved plans use runtime metadata.
++    pub fn mcp_server_contributor_with_pre_session_plan(
++        &mut self,
++        contributor: Arc<dyn McpServerContributor<C>>,
++        plan: McpPreSessionPlan<C>,
++    ) where
++        C: 'static,
++    {
++        self.registry
++            .mcp_server_contributors
++            .push(Arc::new(PlannedMcpSource { contributor, plan }));
++        self.registry.mcp_pre_session_plans.push(Some(plan));
+     }
+ 
+     /// Registers one turn-input contributor.
+@@ -186,6 +208,7 @@ pub struct ExtensionRegistry<C: Sync> {
+     skill_invocation_contributors: Vec<Arc<dyn SkillInvocationContributor>>,
+     context_contributors: Vec<Arc<dyn ContextContributor>>,
+     mcp_server_contributors: Vec<Arc<dyn McpServerContributor<C>>>,
++    mcp_pre_session_plans: Vec<Option<McpPreSessionPlan<C>>>,
+     turn_input_contributors: Vec<Arc<dyn TurnInputContributor>>,
+     tool_contributors: Vec<Arc<dyn ToolContributor>>,
+     pre_session_tool_definitions: Vec<Option<Arc<[ExtensionToolDefinition]>>>,
+@@ -210,6 +233,7 @@ impl<C: Sync> ExtensionRegistry<C> {
+                 skill_invocation_contributors: self.skill_invocation_contributors.clone(),
+                 context_contributors: self.context_contributors.clone(),
+                 mcp_server_contributors: self.mcp_server_contributors.clone(),
++                mcp_pre_session_plans: self.mcp_pre_session_plans.clone(),
+                 turn_input_contributors: self.turn_input_contributors.clone(),
+                 tool_contributors: self.tool_contributors.clone(),
+                 pre_session_tool_definitions: self.pre_session_tool_definitions.clone(),
+@@ -295,6 +319,42 @@ impl<C: Sync> ExtensionRegistry<C> {
+         &self.mcp_server_contributors
+     }
+ 
++    /// Resolves closed source overlays without any runtime contribution or
++    /// selected-plugin callbacks. Missing plans refuse before even the closed
++    /// functions run. Returned overlays are only a source partition, not proof
++    /// that configuration, environments or the complete tool inventory are empty.
++    pub fn pre_session_mcp_overlays(
++        &self,
++        context: McpPreSessionContext<'_, C>,
++    ) -> Result<Vec<McpPreSessionOverlay>, Vec<usize>> {
++        let missing: Vec<_> = self
++            .mcp_pre_session_plans
++            .iter()
++            .enumerate()
++            .filter_map(|(index, plan)| plan.is_none().then_some(index))
++            .collect();
++        if !missing.is_empty() {
++            return Err(missing);
++        }
++        let overlays: Vec<_> = self
++            .mcp_pre_session_plans
++            .iter()
++            .flatten()
++            .map(|plan| plan(context))
++            .collect();
++        let unresolved: Vec<_> = overlays
++            .iter()
++            .enumerate()
++            .filter_map(|(index, overlay)| {
++                matches!(overlay, McpPreSessionOverlay::Unresolved).then_some(index)
++            })
++            .collect();
++        if !unresolved.is_empty() {
++            return Err(unresolved);
++        }
++        Ok(overlays)
++    }
++
+     /// Returns the registered turn-input contributors.
+     pub fn turn_input_contributors(&self) -> &[Arc<dyn TurnInputContributor>] {
+         &self.turn_input_contributors
+diff --git a/codex-rs/ext/extension-api/tests/pre_session_mcp.rs b/codex-rs/ext/extension-api/tests/pre_session_mcp.rs
+new file mode 100644
+index 0000000..b7fbfe2
+--- /dev/null
++++ b/codex-rs/ext/extension-api/tests/pre_session_mcp.rs
+@@ -0,0 +1,94 @@
++use std::sync::Arc;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++
++use codex_extension_api::ExtensionFuture;
++use codex_extension_api::ExtensionRegistryBuilder;
++use codex_extension_api::McpPreSessionContext;
++use codex_extension_api::McpPreSessionOverlay;
++use codex_extension_api::McpServerContribution;
++use codex_extension_api::McpServerContributionContext;
++use codex_extension_api::McpServerContributor;
++use pretty_assertions::assert_eq;
++
++enum SourceSelection {
++    Absent,
++    NeedsRuntime,
++}
++
++fn declared_selection(context: McpPreSessionContext<'_, SourceSelection>) -> McpPreSessionOverlay {
++    match context.config() {
++        SourceSelection::Absent => McpPreSessionOverlay::NoContributions,
++        SourceSelection::NeedsRuntime => McpPreSessionOverlay::Unresolved,
++    }
++}
++
++struct RuntimeSource(Arc<AtomicUsize>);
++
++impl McpServerContributor<SourceSelection> for RuntimeSource {
++    fn id(&self) -> &'static str {
++        "runtime-source"
++    }
++
++    fn contribute<'a>(
++        &'a self,
++        _context: McpServerContributionContext<'a, SourceSelection>,
++    ) -> ExtensionFuture<'a, Vec<McpServerContribution>> {
++        self.0.fetch_add(1, Ordering::SeqCst);
++        Box::pin(async {
++            vec![McpServerContribution::HostedApps {
++                config: Box::new(codex_mcp::codex_apps_mcp_server_config(
++                    "https://not-contacted.invalid",
++                    /*apps_mcp_product_sku*/ None,
++                    /*originator*/ None,
++                )),
++                protocol_mode: None,
++            }]
++        })
++    }
++}
++
++#[tokio::test]
++async fn closed_registration_owns_ordinary_metadata_instead_of_an_empty_inventory_promise() {
++    let calls = Arc::new(AtomicUsize::new(0));
++    let mut builder = ExtensionRegistryBuilder::new();
++    builder.mcp_server_contributor_with_pre_session_plan(
++        Arc::new(RuntimeSource(calls.clone())),
++        declared_selection,
++    );
++    let registry = builder.build();
++    assert_eq!(
++        registry.pre_session_mcp_overlays(McpPreSessionContext::new(&SourceSelection::Absent, &[])),
++        Ok(vec![McpPreSessionOverlay::NoContributions])
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert!(
++        registry.mcp_server_contributors()[0]
++            .contribute(McpServerContributionContext::global(
++                &SourceSelection::Absent
++            ))
++            .await
++            .is_empty()
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 1);
++    // Unresolved is honest refusal before runtime discovery, while ordinary
++    // operation retains its existing dynamic source and lifecycle behavior.
++    assert_eq!(
++        registry.pre_session_mcp_overlays(McpPreSessionContext::new(
++            &SourceSelection::NeedsRuntime,
++            &[]
++        )),
++        Err(vec![0])
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 1);
++    assert!(matches!(
++        registry.mcp_server_contributors()[0]
++            .contribute(McpServerContributionContext::global(
++                &SourceSelection::NeedsRuntime
++            ))
++            .await
++            .as_slice(),
++        [McpServerContribution::HostedApps { .. }]
++    ));
++    assert_eq!(calls.load(Ordering::SeqCst), 2);
++}
+diff --git a/codex-rs/ext/mcp/src/lib.rs b/codex-rs/ext/mcp/src/lib.rs
+index 2ca9e12..7ca2d3e 100644
+--- a/codex-rs/ext/mcp/src/lib.rs
++++ b/codex-rs/ext/mcp/src/lib.rs
+@@ -1,6 +1,8 @@
+ use codex_core::config::Config;
+ use codex_extension_api::ExtensionFuture;
+ use codex_extension_api::ExtensionRegistryBuilder;
++use codex_extension_api::McpPreSessionContext;
++use codex_extension_api::McpPreSessionOverlay;
+ use codex_extension_api::McpServerContribution;
+ use codex_extension_api::McpServerContributionContext;
+ use codex_extension_api::McpServerContributor;
+@@ -35,6 +37,20 @@ mod stream_manager_tests;
+ 
+ struct HostedPluginRuntimeExtension;
+ 
++fn hosted_plugin_runtime_plan(context: McpPreSessionContext<'_, Config>) -> McpPreSessionOverlay {
++    if context
++        .config()
++        .features
++        .enabled(codex_features::Feature::Apps)
++    {
++        McpPreSessionOverlay::Unresolved
++    } else {
++        McpPreSessionOverlay::RemoveServer {
++            name: CODEX_APPS_MCP_SERVER_NAME.to_string(),
++        }
++    }
++}
++
+ impl McpServerContributor<Config> for HostedPluginRuntimeExtension {
+     fn id(&self) -> &'static str {
+         "hosted_plugin_runtime"
+@@ -64,7 +80,10 @@ impl McpServerContributor<Config> for HostedPluginRuntimeExtension {
+ }
+ 
+ pub fn install(builder: &mut ExtensionRegistryBuilder<Config>) {
+-    builder.mcp_server_contributor(std::sync::Arc::new(HostedPluginRuntimeExtension));
++    builder.mcp_server_contributor_with_pre_session_plan(
++        std::sync::Arc::new(HostedPluginRuntimeExtension),
++        hosted_plugin_runtime_plan,
++    );
+ }
+ 
+ #[cfg(test)]
+diff --git a/codex-rs/ext/mcp/src/lib_tests.rs b/codex-rs/ext/mcp/src/lib_tests.rs
+index a6c526a..32bd14e 100644
+--- a/codex-rs/ext/mcp/src/lib_tests.rs
++++ b/codex-rs/ext/mcp/src/lib_tests.rs
+@@ -53,3 +53,67 @@ async fn hosted_plugin_runtime_forwards_thread_originator() -> Result<(), Box<dy
+ 
+     Ok(())
+ }
++
++#[tokio::test]
++async fn installed_sources_share_closed_absence_and_refuse_enabled_discovery()
++-> Result<(), Box<dyn std::error::Error>> {
++    let home = tempfile::tempdir()?;
++    let mut config = ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .fallback_cwd(Some(home.path().to_path_buf()))
++        .build()
++        .await?;
++    config.features.disable(codex_features::Feature::Apps)?;
++    config.features.disable(codex_features::Feature::Plugins)?;
++    let mut builder = ExtensionRegistryBuilder::new();
++    install(&mut builder);
++    install_plugins(
++        &mut builder,
++        std::sync::Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
++    );
++    let registry = builder.build();
++    let closed = registry
++        .pre_session_mcp_overlays(McpPreSessionContext::new(&config, &[]))
++        .map_err(|indexes| format!("unresolved source indexes: {indexes:?}"))?;
++    assert_eq!(
++        closed,
++        vec![
++            McpPreSessionOverlay::RemoveServer {
++                name: CODEX_APPS_MCP_SERVER_NAME.to_string()
++            },
++            McpPreSessionOverlay::NoContributions
++        ]
++    );
++    let init = ExtensionDataInit::new();
++    let thread = ExtensionData::new("ordinary-thread");
++    let context = McpServerContributionContext::for_step(
++        &config,
++        &init,
++        &thread,
++        "ordinary-originator",
++        &[],
++        /*executor_capability_discovery*/ None,
++    );
++    let mut ordinary = Vec::new();
++    for source in registry.mcp_server_contributors() {
++        assert!(source.selected_plugins(context).await.is_empty());
++        ordinary.extend(source.contribute(context).await);
++    }
++    assert!(
++        matches!(ordinary.as_slice(), [McpServerContribution::Remove { name }] if name == CODEX_APPS_MCP_SERVER_NAME)
++    );
++    for (feature, index) in [
++        (codex_features::Feature::Apps, 0),
++        (codex_features::Feature::Plugins, 1),
++    ] {
++        let mut enabled = config.clone();
++        enabled.features.enable(feature)?;
++        assert!(
++            registry
++                .pre_session_mcp_overlays(McpPreSessionContext::new(&enabled, &[]))
++                .err()
++                .is_some_and(|indexes| indexes.contains(&index))
++        );
++    }
++    Ok(())
++}
+diff --git a/codex-rs/ext/mcp/src/plugin.rs b/codex-rs/ext/mcp/src/plugin.rs
+index b5586c3..3ae9c4e 100644
+--- a/codex-rs/ext/mcp/src/plugin.rs
++++ b/codex-rs/ext/mcp/src/plugin.rs
+@@ -110,6 +110,18 @@ impl PluginContributor {
+     }
+ }
+ 
++pub(crate) fn pre_session_plugin_plan(
++    context: codex_extension_api::McpPreSessionContext<'_, Config>,
++) -> codex_extension_api::McpPreSessionOverlay {
++    if !context.config().features.enabled(Feature::Plugins)
++        && context.selected_capability_roots().is_empty()
++    {
++        codex_extension_api::McpPreSessionOverlay::NoContributions
++    } else {
++        codex_extension_api::McpPreSessionOverlay::Unresolved
++    }
++}
++
+ impl McpServerContributor<Config> for PluginContributor {
+     fn id(&self) -> &'static str {
+         "plugin"
+diff --git a/codex-rs/ext/mcp/src/plugin_contributor.rs b/codex-rs/ext/mcp/src/plugin_contributor.rs
+index ad5a60f..6a446c0 100644
+--- a/codex-rs/ext/mcp/src/plugin_contributor.rs
++++ b/codex-rs/ext/mcp/src/plugin_contributor.rs
+@@ -25,7 +25,10 @@ pub fn install_plugin_providers(
+     builder.thread_lifecycle_contributor(contributor.clone());
+     builder.config_contributor(contributor.clone());
+     builder.turn_lifecycle_contributor(contributor.clone());
+-    builder.mcp_server_contributor(contributor);
++    builder.mcp_server_contributor_with_pre_session_plan(
++        contributor,
++        crate::plugin::pre_session_plugin_plan,
++    );
+ }
+ 
+ /// Installs plugin support backed by selected environment roots.
+-- 
+2.54.0 (Apple Git-157)
+

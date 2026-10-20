@@ -1,0 +1,226 @@
+From bb5bedc2e334700b930352c58e6c50660c173e2e Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 00:58:28 +0100
+Subject: [PATCH] feat(extensions): declare configured memory and web tool
+ absence
+
+---
+ codex-rs/ext/memories/src/extension.rs   | 16 +++++-
+ codex-rs/ext/memories/src/tests.rs       | 71 ++++++++++++++++++++++++
+ codex-rs/ext/web-search/src/extension.rs | 47 ++++++++++++++--
+ 3 files changed, 127 insertions(+), 7 deletions(-)
+
+diff --git a/codex-rs/ext/memories/src/extension.rs b/codex-rs/ext/memories/src/extension.rs
+index 3db27e4..5c9468b 100644
+--- a/codex-rs/ext/memories/src/extension.rs
++++ b/codex-rs/ext/memories/src/extension.rs
+@@ -13,6 +13,7 @@ use codex_extension_api::PromptFragment;
+ use codex_extension_api::ThreadLifecycleContributor;
+ use codex_extension_api::ThreadStartInput;
+ use codex_extension_api::ToolContributor;
++use codex_extension_api::ToolPreSessionSelection;
+ use codex_features::Feature;
+ use codex_otel::MetricsClient;
+ use codex_protocol::MemoryVersion;
+@@ -43,6 +44,14 @@ pub(crate) struct MemoriesExtensionConfig {
+ }
+ 
+ impl MemoriesExtensionConfig {
++    fn tool_selection(&self) -> ToolPreSessionSelection {
++        if self.enabled && self.dedicated_tools {
++            ToolPreSessionSelection::Unresolved
++        } else {
++            ToolPreSessionSelection::NoTools
++        }
++    }
++
+     fn from_config(config: &Config) -> Self {
+         Self {
+             enabled: config.features.enabled(Feature::MemoryTool) && config.memories.use_memories,
+@@ -143,7 +152,7 @@ impl ToolContributor for MemoriesExtension {
+         let Some(config) = thread_store.get::<MemoriesExtensionConfig>() else {
+             return Vec::new();
+         };
+-        if !config.enabled || !config.dedicated_tools {
++        if config.tool_selection() == ToolPreSessionSelection::NoTools {
+             return Vec::new();
+         }
+ 
+@@ -168,5 +177,8 @@ pub fn install(
+     registry.thread_lifecycle_contributor(extension.clone());
+     registry.config_contributor(extension.clone());
+     registry.prompt_contributor(extension.clone());
+-    registry.tool_contributor(extension);
++    registry.tool_contributor_with_pre_session_plan(
++        extension,
++        Arc::new(|config| MemoriesExtensionConfig::from_config(config).tool_selection()),
++    );
+ }
+diff --git a/codex-rs/ext/memories/src/tests.rs b/codex-rs/ext/memories/src/tests.rs
+index a4f780d..6ef9321 100644
+--- a/codex-rs/ext/memories/src/tests.rs
++++ b/codex-rs/ext/memories/src/tests.rs
+@@ -602,3 +602,74 @@ fn memory_tool(
+ fn memory_tool_name(tool_name: &str) -> ToolName {
+     ToolName::namespaced(crate::MEMORY_TOOLS_NAMESPACE, tool_name)
+ }
++
++#[tokio::test]
++async fn installed_memory_source_declares_only_config_proven_tool_absence() {
++    use codex_core::config::ConfigBuilder;
++    use codex_extension_api::PreSessionToolInventoryError;
++    use codex_features::Feature;
++    let home = tempfile::tempdir().unwrap();
++    let mut config = ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .build()
++        .await
++        .unwrap();
++    config.features.enable(Feature::MemoryTool).unwrap();
++    config.memories.use_memories = true;
++    config.memories.dedicated_tools = true;
++    let mut builder = ExtensionRegistryBuilder::new();
++    crate::extension::install(&mut builder, None);
++    let registry = builder.build();
++    assert_eq!(
++        registry.capture_pre_session_tools_for_config(&config).err(),
++        Some(PreSessionToolInventoryError::StateBoundContributors {
++            registration_indexes: vec![0]
++        })
++    );
++    // Enabling dedicated memory tools is unresolved, never silently omitted.
++    // Both actual disabled configurations declare absence; no lifecycle, memory
++    // reads, backend construction, model or tool callback is needed to capture it.
++    for dedicated in [true, false] {
++        let mut disabled = config.clone();
++        disabled.memories.dedicated_tools = dedicated;
++        if dedicated {
++            disabled.memories.use_memories = false;
++        }
++        let capture = registry
++            .capture_pre_session_tools_for_config(&disabled)
++            .unwrap();
++        assert!(capture.definitions().is_empty());
++        registry
++            .renew_pre_session_tools_for_config(&capture, &disabled)
++            .unwrap();
++        assert!(
++            registry
++                .renew_pre_session_tools_for_config(&capture, &config)
++                .is_err()
++        );
++        let session = ExtensionData::new("ordinary-session");
++        let thread = ExtensionData::new("ordinary-thread");
++        for contributor in registry.thread_lifecycle_contributors() {
++            contributor
++                .on_thread_start(codex_extension_api::ThreadStartInput {
++                    config: &disabled,
++                    session_source: &codex_protocol::protocol::SessionSource::Exec,
++                    persistent_thread_state_available: false,
++                    environments: &[],
++                    mcp_resource_client: None,
++                    extension_metrics: None,
++                    session_store: &session,
++                    thread_store: &thread,
++                })
++                .await;
++        }
++        assert!(
++            registry
++                .tool_contributors()
++                .iter()
++                .flat_map(|source| source.tools(&session, &thread))
++                .collect::<Vec<_>>()
++                .is_empty()
++        );
++    }
++}
+diff --git a/codex-rs/ext/web-search/src/extension.rs b/codex-rs/ext/web-search/src/extension.rs
+index 725643f..f89a048 100644
+--- a/codex-rs/ext/web-search/src/extension.rs
++++ b/codex-rs/ext/web-search/src/extension.rs
+@@ -17,6 +17,7 @@ use codex_extension_api::ThreadLifecycleContributor;
+ use codex_extension_api::ThreadOriginator;
+ use codex_extension_api::ThreadStartInput;
+ use codex_extension_api::ToolContributor;
++use codex_extension_api::ToolPreSessionSelection;
+ use codex_http_client::HttpClientFactory;
+ use codex_login::AuthManager;
+ use codex_model_provider::create_model_provider;
+@@ -44,10 +45,8 @@ impl From<&Config> for WebSearchExtensionConfig {
+         let web_search_mode = config.web_search_mode.value();
+         Self {
+             // Core selects this executor per turn using the feature flag or model metadata.
+-            available: (config.model_provider.is_openai()
+-                || config.model_provider.uses_openai_actor_authorization()
+-                || config.model_provider.supports_standalone_web_search)
+-                && web_search_mode != WebSearchMode::Disabled,
++            available: tool_selection(&config.model_provider, web_search_mode)
++                != ToolPreSessionSelection::NoTools,
+             http_client_factory: config.http_client_factory(),
+             provider: config.model_provider.clone(),
+             settings: search_settings(config, web_search_mode),
+@@ -55,6 +54,20 @@ impl From<&Config> for WebSearchExtensionConfig {
+     }
+ }
+ 
++// This is the same source decision used for ordinary executor selection and
++// pre-session absence; it constructs neither an auth/provider client nor tools.
++fn tool_selection(provider: &ModelProviderInfo, mode: WebSearchMode) -> ToolPreSessionSelection {
++    if (provider.is_openai()
++        || provider.uses_openai_actor_authorization()
++        || provider.supports_standalone_web_search)
++        && mode != WebSearchMode::Disabled
++    {
++        ToolPreSessionSelection::Unresolved
++    } else {
++        ToolPreSessionSelection::NoTools
++    }
++}
++
+ fn search_settings(config: &Config, web_search_mode: WebSearchMode) -> SearchSettings {
+     let web_search_config = config.web_search_config.as_ref();
+     SearchSettings {
+@@ -153,7 +166,10 @@ pub fn install(registry: &mut ExtensionRegistryBuilder<Config>, auth_manager: Ar
+     let extension = Arc::new(WebSearchExtension { auth_manager });
+     registry.thread_lifecycle_contributor(extension.clone());
+     registry.config_contributor(extension.clone());
+-    registry.tool_contributor(extension);
++    registry.tool_contributor_with_pre_session_plan(
++        extension,
++        Arc::new(|config| tool_selection(&config.model_provider, config.web_search_mode.value())),
++    );
+ }
+ 
+ #[cfg(test)]
+@@ -178,6 +194,27 @@ mod tests {
+     use codex_api::ExternalWebAccessMode;
+     use codex_protocol::config_types::WebSearchMode;
+ 
++    #[test]
++    fn ordinary_and_pre_session_tool_selection_preserve_disabled_web_mode() {
++        use codex_extension_api::ToolPreSessionSelection;
++        let provider = ModelProviderInfo::create_openai_provider(/*base_url*/ None);
++        assert_eq!(
++            [
++                WebSearchMode::Disabled,
++                WebSearchMode::Cached,
++                WebSearchMode::Indexed,
++                WebSearchMode::Live
++            ]
++            .map(|mode| super::tool_selection(&provider, mode)),
++            [
++                ToolPreSessionSelection::NoTools,
++                ToolPreSessionSelection::Unresolved,
++                ToolPreSessionSelection::Unresolved,
++                ToolPreSessionSelection::Unresolved
++            ]
++        );
++    }
++
+     #[test]
+     fn external_web_access_preserves_legacy_values_until_indexed() {
+         assert_eq!(
+-- 
+2.54.0 (Apple Git-157)
+

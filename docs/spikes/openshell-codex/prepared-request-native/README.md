@@ -6,10 +6,10 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 54 patches
+## Current composed source: 60 patches
 
-The 54 ordered patches reconstruct native tree
-`77a800c70646406a5165ea56237219e56518c36b` (local source `557ce440b823868ea853e583c2277d16ec0af726`).
+The 60 ordered patches reconstruct native tree
+`b28e456e2791162cd7cbb6b4443e339e5e4aad03` (local source `bb5bedc2e334700b930352c58e6c50660c173e2e`).
 Patch 54 adds an extension-registry input contract for pre-session inventory.
 The owning extension can register its real executable tools with `fixed_tools`;
 the registry retains their definitions for both ordinary planning and capture.
@@ -20,19 +20,45 @@ that would return no tools. Capture refuses before invoking any contributor.
 `renew_pre_session_tools` checks the exact immutable registry identity; a rebuild
 with equal definitions still invalidates the prior process-local capture.
 
-The new offline integration fixtures cover refusal without callbacks, order and
-metadata parity with the ordinary contributor path, retained executable dispatch,
-mutable metadata, registry replacement/addition/ABA and empty-result authority.
-CI adds the extension API crate to the existing Linux/Mac fixture and formatting
-gates, preserving prior coverage. Scoped formatting and source reconstruction are
-local checks; compilation and these new fixtures require CI results on this tree.
+Patches 55–57 add source-owned closed MCP declarations and a real fresh-input
+capture entry on ThreadManager. Actual Apps/plugin registrations share closed
+metadata selection with ordinary projection. The fresh packet retains original
+StartThreadOptions (including dynamic Knowledge tools), resolves actual ordinary
+environment defaults once and proves selected native-process-local environment
+and source custody without starting MCP, a Session or a native thread. Configured
+servers/Apps/plugins, selected roots, inherited/history/reserved-thread inputs,
+unknown contributors and pending/failed/remote environments remain unavailable.
+The empty binding comes from the actual ordinary effective configuration after
+those source proofs; no active Session catalog or global scope is borrowed.
 
-This captures only the extension partition before ordinary step policy. Existing
-production contributors still select tools using thread/config/step state and
-have not been relabeled as fixed. Core/MCP discovery, host dynamic tools, account
-and late HTTP contributors still need their authoritative pre-session inputs.
-No complete prepared request, capacity, joining, dispatch or runtime readiness is
-claimed by this registration contract.
+Patch 58 adds a dedicated single-attempt HTTP factory under the existing login and
+HttpClientFactory policy owners. Its route-aware pool retains network/TLS/proxy
+policy and refuses configured cookies, effective replay fallback and active
+residency; it has no implicit headers, cookies, redirect or retry path. The ordinary
+default factory and low-level guards are unchanged. This supplies transport
+construction only, not account/count/currentness or a one-use request permit.
+
+Patches 59–60 add config-only tool absence declarations. The same registered
+selection controls ordinary startup/configuration and per-step contribution;
+preparation preflights unknown registrations without runtime callbacks. A retained
+configuration-selected capture requires explicit current-config renewal and exact
+registry identity. Memory and web search share their real configuration rules with
+this declaration; enabled/state-dependent tools still refuse. Other production
+contributors remain unresolved, and instruction/context capture is separate.
+
+Offline fixtures cover actual installed source parity/refusal, genuine ThreadManager
+input custody and remote refusal with zero native threads/provider connects, the
+actual HTTP factory against recording proxies and denial policies, and config-plan
+ordinary/per-step parity, renewal and missing-registration preflight. CI adds the
+MCP extension, login, memories and web-search owners to the existing Linux/Mac
+fixture and format gates; all previous coverage remains. Scoped formatting/source
+reconstruction are local checks. Compilation and execution require exact-tree CI;
+PR1058's 54-patch results cannot qualify this new source.
+
+This is still source/input and transport groundwork. Complete Core tool/instruction
+capture, final request metadata/account/limit authority, native prepare/count/consume,
+joining and first-command dispatch/reply remain incomplete. No complete prepared
+request, capacity, joining, dispatch, installed runtime or live route is claimed.
 
 The retained source includes the actual ordinary child-approval consumer to the retained
 immutable-request foundation. It reuses only a genuine fresh user approval from

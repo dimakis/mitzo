@@ -72,6 +72,14 @@ it.each(['Linux', 'macOS'])(
       'codex-guardian-reviewer',
       '-p',
       'codex-extension-api',
+      '-p',
+      'codex-mcp-extension',
+      '-p',
+      'codex-login',
+      '-p',
+      'codex-memories-extension',
+      '-p',
+      'codex-web-search-extension',
       ...(runnerOs === 'Linux' ? ['-p', 'codex-linux-sandbox'] : []),
       '--test-threads',
       '1',
@@ -272,12 +280,26 @@ it('tests and formats the affected Guardian and extension registry owners on bot
       value === '-p' ? [args[index + 1]] : [],
     );
     expect(selected).toEqual(
-      expect.arrayContaining(['codex-guardian-reviewer', 'codex-extension-api']),
+      expect.arrayContaining([
+        'codex-guardian-reviewer',
+        'codex-extension-api',
+        'codex-mcp-extension',
+        'codex-login',
+        'codex-memories-extension',
+        'codex-web-search-extension',
+      ]),
     );
   }
   const formatting = workflow.jobs.source.steps.find(
     (entry) => entry.name === 'Check native source formatting',
   );
-  for (const crate of ['codex-guardian-reviewer', 'codex-extension-api'])
+  for (const crate of [
+    'codex-guardian-reviewer',
+    'codex-extension-api',
+    'codex-mcp-extension',
+    'codex-login',
+    'codex-memories-extension',
+    'codex-web-search-extension',
+  ])
     expect(formatting?.run).toMatch(new RegExp(`(?:^|\\s)-p\\s+${crate}(?:\\s|$)`));
 });
