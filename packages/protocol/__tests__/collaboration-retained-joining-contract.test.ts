@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import {
   CollaborationSnapshotSelectionSchema,
   CollaborationSnapshotDraftSchema,
+  CollaborationApplicationReviewResultSchema,
 } from '../src/collaboration-conversation.js';
 const pin = { artifactId: 'a'.repeat(32), revision: 2, sha256: 'b'.repeat(64) };
 const tagged = { kind: 'retainedArtifactVersion' as const, ...pin };
@@ -49,6 +50,15 @@ it('accepts exact tagged retained selectors while preserving legacy bare selecto
   expect(JSON.stringify(CollaborationSnapshotSelectionSchema.parse(legacy))).toBe(
     JSON.stringify(legacy),
   );
+});
+
+it('preserves exact retained label whitespace while retaining legacy inline normalization', () => {
+  const labels = CollaborationApplicationReviewResultSchema.shape.artifactLabels.unwrap();
+  const retainedLabel = { ...tagged, title: ' Plan ', filename: ' plan.md ' };
+  expect(labels.parse([retainedLabel])).toEqual([retainedLabel]);
+  expect(labels.parse([{ ...pin, title: ' Plan ', filename: ' plan.md ' }])).toEqual([
+    { ...pin, title: 'Plan', filename: 'plan.md' },
+  ]);
 });
 it('keeps independent original provenance separate from the selected source conversation in frozen retained bytes', () => {
   const value = CollaborationSnapshotDraftSchema.parse(draft);

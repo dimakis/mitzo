@@ -442,8 +442,17 @@ export const CollaborationApplicationReviewResultSchema = z.strictObject({
           filename: z.string().trim().min(1).max(1000).optional(),
         }),
         CollaborationRetainedArtifactPinSchema.extend({
-          title: z.string().trim().min(1).max(1000),
-          filename: z.string().trim().min(1).max(1000).optional(),
+          title: z
+            .string()
+            .min(1)
+            .max(1000)
+            .refine((value) => value.trim().length > 0),
+          filename: z
+            .string()
+            .min(1)
+            .max(1000)
+            .refine((value) => value.trim().length > 0)
+            .optional(),
         }),
       ]),
     )
