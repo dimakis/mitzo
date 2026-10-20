@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.409-symposium-source-authority-main';
+  'v1.0.410-chat-recovery-attached-access';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -661,9 +661,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '213de41fb41240c7d10302c1775991995ce7131b2b505bf6cc7dd7c9d1108f94',
+  '../codex-conversation.ts': '3d84e1c4bfcac73ee6c92330e8870194fd3a694d5c4196b50074be2a4e4fdd22',
   '../codex-conversation-store.ts':
-    '08510abc246e9105e82d654186672f2db7697466287782d6e14adfea2977f0d4',
+    '01c669cc38d5e7c81355eeca74488d3ecce8f7ff34f4f76cd0432ba1df40f53d',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
@@ -713,7 +713,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-verification-error.ts':
     'd4fefb2652ec0bd00b24aac257b31a028b597dc20dd7101c77d527fe4505973d',
   '../credential-setup.ts': '8dfd54d1b4cb4408d52c9ca09f5cc220ba69adf6dc6181bc7de6803fee38f69c',
-  '../connection-guide.ts': 'fcbc53ad1654e6360ba0fab9287393387cd94a666fbeaecd597deb501443756d',
+  '../connection-guide.ts': '5c8c08b94ceb0590a1513830dc39874d8d9b7328882392b56f5ee866fad57c25',
   '../credential-setup-continuation.ts':
     '6cb81428bb08fa2cf6b79e762573e34dc87f281cfc5d0be70b5316ce66fdd493',
   '../credential-setup-application.ts':
@@ -728,14 +728,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-connections-router.ts':
     '6d7b779ff5ba148b6aea43483f4003da0d9ed4908e551a273de5906140c7b96b',
   '../credential-connection-tools.ts':
-    '3c0da9bb08e78053866d4017577cd2628765259c260d43e8ab84550ed80b6f99',
+    '209dca272473d84f5de0f63e2bfae6886ef92121397c4352e443c2f2aecb2730',
   '../credential-connections-runtime.ts':
     '89a1cdf4bd50c73a0aecfb966303fb37e0f524da9fb977478602c9c198a51b4d',
   '../credential-http.ts': 'ad803bdedddd64babd20711b076ac9b1e51cf7215136c1a04f6519d1c0e6e748',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-tools.ts': '4ebaf013d5b5872175155d26e2b7df76224d086258f7bd0d8eaba04af793d2a2',
   '../session-credential-tools.ts':
-    '51b6440967be7fca292e55c59f64b06c57468c0031393f7dad714eec854eed70',
+    'ecba84fc3bbc5aa7acdae93979dbc98c058e71d492def42c4f7c5a7664b29ece',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
   'registry.ts': '431c78947dfcca432ece96d0d708f790705484443b9bbdf78c2edbbebc4a4216',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
@@ -825,7 +825,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
   '../openshell-runtime.ts': '3bb6af48164c23b647dffe9f26dcbbb80c7769f55ce7f57fb5a4d3e334752c24',
-  '../codex-chat-session.ts': '14163c249379c790c5621684dcf4ea684ed85c01a6468e03504ef53983d57c73',
+  '../codex-chat-session.ts': '1fb2d4379866fa285a2914e456e09fa88dd3e2ca3eab6bc282b924d0e50b0bcf',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -966,7 +966,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ShareButton.tsx':
     '3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411',
   '../../frontend/src/components/CodexQueueStatus.tsx':
-    '9c65fa58fcb830ab14584a50e8589d328ac96591fe2b6e77e076380ca55d6a2b',
+    '9dc8b10544c97370111ce3f564d5debdf3a7566c4a1bb612e06dc59f9556879b',
   '../ordinary-repository-preparation.ts':
     '2cf559fe9360a8d48e51413bf7f0d7a6b2d2bbfb89dc4675f595a2875216eed0',
   '../ordinary-repository-preparation-authority.ts':
