@@ -355,9 +355,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/account-selection.ts':
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   '../../frontend/src/components/ConversationAgents.tsx':
-    'cfba25729d75b3945fffb70e28fd7461a2410dcc7b75be8b4f9e2797257acf12',
+    '7c71c29c3bc71dca06d0a0bfe131ddf72c71881e28ae6662ed1c19b9fff02a61',
   '../../frontend/src/components/ConversationAgents.css':
-    '780ed8c88c4f1f45a2f5488387a436e7634a3816e0d72a3f5cdd8cd02e111be9',
+    'd1b97f4a9730544f87d86a4688bdd28569c1d3b8a68212316f8f54423475bf36',
   '../../frontend/src/components/ComposerResponders.tsx':
     '1d9d03fc824c8903172bc7216dfcdd7bf0275092315b824f583d96410b900c76',
   '../../frontend/src/components/ComposerResponders.css':

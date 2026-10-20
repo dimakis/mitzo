@@ -51,6 +51,20 @@ function mount(extra = {}) {
     </MemoryRouter>,
   );
 }
+function productionStyles() {
+  const styles = document.createElement('style');
+  styles.textContent = [
+    '../../styles/tokens.css',
+    '../../styles/global.css',
+    '../../styles/home.css',
+    '../AgentSettingsPicker.css',
+    '../ConversationAgents.css',
+  ]
+    .map((path) => readFileSync(new URL(path, import.meta.url), 'utf8'))
+    .join('\n');
+  document.head.append(styles);
+  return styles;
+}
 it('uses one compact participant header and one Agents view without transcript tabs', () => {
   mount();
   fireEvent.click(screen.getByRole('button', { name: 'Agents, Primary agent' }));
@@ -97,15 +111,7 @@ it('keeps fresh-agent setup in the same view, with purpose and full or selected 
 });
 
 it('keeps Context at the shared custom-select size and Review at the approved primary action style', () => {
-  const styles = document.createElement('style');
-  styles.textContent = [
-    '../../styles/tokens.css',
-    '../../styles/global.css',
-    '../ConversationAgents.css',
-  ]
-    .map((path) => readFileSync(new URL(path, import.meta.url), 'utf8'))
-    .join('\n');
-  document.head.append(styles);
+  const styles = productionStyles();
   try {
     mount();
     fireEvent.click(screen.getByRole('button', { name: 'Agents, Primary agent' }));
@@ -133,6 +139,93 @@ it('keeps Context at the shared custom-select size and Review at the approved pr
   } finally {
     styles.remove();
   }
+});
+
+it('uses the approved Add header, quiet Cancel, section and wrapping-footer treatment only in Add', () => {
+  const styles = productionStyles();
+  try {
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Agents, Primary agent' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add agent' });
+    const header = within(dialog).getByRole('heading', { name: 'Add agent' });
+    const close = within(dialog).getByRole('button', { name: 'Close Agents' });
+    const cancel = within(dialog).getByRole('button', { name: 'Cancel' });
+    // JSDOM does not resolve variable-containing font shorthands. Check the
+    // production rule matching this actual title; browser text metrics stay CI.
+    const titleFont = Array.from(styles.sheet!.cssRules).some((rule) => {
+      const style = rule as CSSStyleRule;
+      return (
+        style.selectorText &&
+        header.matches(style.selectorText) &&
+        /^500 var\(--text-lg\)\s*\/\s*1\.3 var\(--font-ui\)$/.test(style.style.font)
+      );
+    });
+    expect.soft(titleFont).toBe(true);
+    expect.soft(getComputedStyle(close).borderTopWidth).toBe('0px');
+    expect.soft(getComputedStyle(cancel).borderTopWidth).toBe('0px');
+    expect.soft(getComputedStyle(cancel).backgroundColor).toBe('rgba(0, 0, 0, 0)');
+    const sections = within(dialog).getAllByRole('heading', { level: 3 });
+    expect(sections.map((section) => section.textContent)).toEqual([
+      'Account & model',
+      'Execution',
+      'Starting context',
+    ]);
+    for (const section of sections) {
+      expect.soft(getComputedStyle(section).fontWeight).toBe('500');
+      expect.soft(getComputedStyle(section).color).toBe('var(--color-accent)');
+    }
+    const footer = dialog.querySelector('footer')!;
+    const hint = within(footer).getByText('Fresh session · starts with a prompt.');
+    expect.soft(getComputedStyle(footer).gap).toBe('var(--space-2)');
+    expect.soft(getComputedStyle(footer).justifyContent).toBe('flex-start');
+    expect.soft(getComputedStyle(footer).flexWrap).toBe('wrap');
+    expect.soft(getComputedStyle(hint).fontSize).toBe('var(--text-xs)');
+    expect.soft(getComputedStyle(hint).minWidth).toBe('72px');
+    expect.soft(getComputedStyle(hint).flexGrow).toBe('1');
+    const content = dialog.querySelector('.home-dialog-content')!;
+    expect.soft(getComputedStyle(content).containerType).toBe('inline-size');
+    expect.soft(getComputedStyle(content).containerName).toBe('conversation-add');
+    const query = Array.from(styles.sheet!.cssRules).find((rule) =>
+      /^@container conversation-add\s*\(max-width:\s*340px\)/.test(rule.cssText),
+    ) as CSSGroupingRule | undefined;
+    expect(query).toBeDefined();
+    const pair = Array.from(query!.cssRules).find(
+      (rule) =>
+        (rule as CSSStyleRule).selectorText ===
+        '.conversation-add-dialog .account-model-settings-pair',
+    ) as CSSStyleRule | undefined;
+    expect(pair?.style.gridTemplateColumns).toBe('minmax(0, 1fr)');
+    expect(pair?.style.gap).toBe('0px');
+  } finally {
+    styles.remove();
+  }
+});
+
+it('returns from Add to its real Agents parent with focus and its draft retained', () => {
+  mount();
+  fireEvent.click(screen.getByRole('button', { name: 'Agents, Primary agent' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  const dialog = screen.getByRole('dialog', { name: 'Add agent' });
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Name in this chat' }), {
+    target: { value: 'Reviewer' },
+  });
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Purpose' }), {
+    target: { value: 'Keep the joining draft.' },
+  });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Back to Agents' }));
+  const agentsDialog = screen.getByRole('dialog', { name: 'Agents' });
+  const add = within(agentsDialog).getByRole('button', { name: 'Add agent' });
+  expect(document.activeElement).toBe(add);
+  fireEvent.click(add);
+  expect(screen.getByRole('textbox', { name: 'Name in this chat' })).toHaveProperty(
+    'value',
+    'Reviewer',
+  );
+  expect(screen.getByRole('textbox', { name: 'Purpose' })).toHaveProperty(
+    'value',
+    'Keep the joining draft.',
+  );
 });
 it('applies real policy edits only through the supplied owner and keeps preview separate from recipients', () => {
   const change = vi.fn(),

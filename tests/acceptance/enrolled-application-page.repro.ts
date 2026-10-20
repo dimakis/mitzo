@@ -466,6 +466,18 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
         isMobile: engine === 'webkit',
         hasTouch: engine === 'webkit',
         colorScheme: appearanceTheme,
+        storageState: {
+          cookies: [],
+          origins: [
+            {
+              origin: http.baseUrl,
+              localStorage: [
+                { name: 'mitzo-accent', value: 'mint' },
+                { name: 'mitzo-font', value: 'georgia' },
+              ],
+            },
+          ],
+        },
       });
       await context.addCookies([
         {
@@ -524,6 +536,8 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
         );
       });
       await page.goto(`${http.baseUrl}/chat/${sessionId}`);
+      await uiExpect(page.locator('html')).toHaveAttribute('data-accent', 'mint');
+      await uiExpect(page.locator('html')).toHaveAttribute('data-font', 'georgia');
       const agents = page.getByRole('button', { name: /^Agents/ }).first();
       await uiExpect(agents).toBeVisible({ timeout: 10000 });
       await agents.click();
@@ -568,6 +582,17 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
             await page!.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
             await uiExpect(page!.locator('html')).toHaveAttribute('data-theme', theme);
             const body = dialog.locator('.conversation-agents-body');
+            if (state === 'add-agent') {
+              const choice = dialog.getByLabel('Context');
+              expect((await choice.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+              if (width === 320) {
+                const modelBox = (await dialog.getByLabel('Model', { exact: true }).boundingBox())!;
+                const thinkingBox = (await dialog
+                  .getByLabel('Thinking level', { exact: true })
+                  .boundingBox())!;
+                expect(thinkingBox.y).toBeGreaterThanOrEqual(modelBox.y + modelBox.height);
+              }
+            }
             await body.locator('p, label, details, textarea').first().scrollIntoViewIfNeeded();
             const upperFile = `${engine}-${width}-${theme}-${state}-upper.png`;
             const upper = await page!.screenshot({

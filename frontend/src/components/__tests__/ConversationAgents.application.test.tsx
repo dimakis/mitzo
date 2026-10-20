@@ -126,9 +126,9 @@ it('drives Add and the existing Review control through actual private adapters w
   expect(h.transport).toHaveBeenCalledTimes(before);
 });
 
-it('retains the original unknown preparation through Close and explicit recovery without a second resource', async () => {
+it('retains the original unknown preview through Close and explicit recovery without a second resource', async () => {
   const h = mount();
-  h.lose('prepare-after');
+  h.lose('preview-after');
   await fill();
   fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
   await screen.findByRole('alert');
@@ -140,8 +140,9 @@ it('retains the original unknown preparation through Close and explicit recovery
   fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
   await screen.findByText('Context for the fresh agent');
   expect(h.journal.readTarget()!.preview).toEqual(original.preview);
+  expect(h.journal.readTarget()!.draft.id).toBe(original.draft.id);
   expect(h.transport.mock.calls.filter(([url]) => url.endsWith('/preview'))).toHaveLength(1);
-  expect(h.transport.mock.calls.filter(([url]) => url.endsWith('/prepare'))).toHaveLength(1);
+  expect(h.transport.mock.calls.filter(([url]) => url.endsWith('/prepare'))).toHaveLength(0);
   expect(
     (screen.getByRole('button', { name: 'Join conversation' }) as HTMLButtonElement).disabled,
   ).toBe(true);

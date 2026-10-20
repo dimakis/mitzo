@@ -133,6 +133,32 @@ it('keeps Add controls in its real dialog portal without routing them into the o
   expect(workspace.getAttribute('aria-expanded')).toBe('false');
   expect(changeOrdinary).not.toHaveBeenCalled();
   expect(JSON.parse(localStorage.getItem('mitzo-default-account-model') ?? 'null')).toBeNull();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Back to Agents' }));
+  const add = screen.getByRole('button', { name: 'Add agent' });
+  expect(document.activeElement).toBe(add);
+  fireEvent.click(add);
+  await waitFor(() => {
+    expect(within(dialog).getByRole('combobox', { name: 'Agent' })).toHaveProperty(
+      'value',
+      (option as HTMLOptionElement).value,
+    );
+    expect(within(dialog).getByRole('combobox', { name: 'Account' })).toHaveProperty(
+      'value',
+      'fresh',
+    );
+    expect(within(dialog).getByRole('combobox', { name: 'Model' })).toHaveProperty(
+      'value',
+      'luna-alternate',
+    );
+    expect(within(dialog).getByRole('combobox', { name: 'Thinking level' })).toHaveProperty(
+      'value',
+      'high',
+    );
+    expect(within(dialog).getByRole('textbox', { name: 'Purpose' })).toHaveProperty(
+      'value',
+      'Preserve this joining draft.',
+    );
+  });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Close Agents' }));
   expect(document.activeElement).toBe(opener);
   fireEvent.click(opener);

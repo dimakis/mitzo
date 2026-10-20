@@ -117,6 +117,18 @@ function ConversationAgentsBody({
     'agents' | 'add' | 'review' | 'settings' | 'preview' | 'details'
   >('agents');
   const [open, setOpen] = useState(false);
+  const addAgentTrigger = useRef<HTMLButtonElement>(null);
+  const restoreAgentsFocus = useRef(false);
+  const returnToAgents = () => {
+    restoreAgentsFocus.current = true;
+    setView('agents');
+  };
+  useEffect(() => {
+    if (view === 'agents' && restoreAgentsFocus.current) {
+      restoreAgentsFocus.current = false;
+      addAgentTrigger.current?.focus({ preventScroll: true });
+    }
+  }, [view]);
   const { ref: dialogMotionRef, present } = useMotionPresence(open, 'fade');
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewAgent = agents.find((agent) => agent.id === previewId);
@@ -296,9 +308,15 @@ function ConversationAgentsBody({
           closeLabel="Close Agents"
           inactive={!open}
           onClose={() => setOpen(false)}
-          className={`conversation-agents-dialog${view === 'review' ? ' conversation-joining-dialog' : ''}`}
-          onBack={view === 'review' ? () => setView(joining.locked ? 'agents' : 'add') : undefined}
-          backLabel="Back from joining review"
+          className={`conversation-agents-dialog${view === 'review' ? ' conversation-joining-dialog' : view === 'add' ? ' conversation-add-dialog' : ''}`}
+          onBack={
+            view === 'review'
+              ? () => setView(joining.locked ? 'agents' : 'add')
+              : view === 'add'
+                ? returnToAgents
+                : undefined
+          }
+          backLabel={view === 'add' ? 'Back to Agents' : 'Back from joining review'}
         >
           <div
             ref={dialogMotionRef}
@@ -761,6 +779,7 @@ function ConversationAgentsBody({
                   <button
                     type="button"
                     className="conversation-agents-primary"
+                    ref={addAgentTrigger}
                     onClick={() => {
                       if (joining.join?.state === 'linked') {
                         const fresh = joining.startNew();
@@ -779,7 +798,10 @@ function ConversationAgentsBody({
               ) : (
                 <>
                   {view === 'add' && <small>Fresh session · starts with a prompt.</small>}
-                  <button type="button" onClick={() => setView('agents')}>
+                  <button
+                    type="button"
+                    onClick={view === 'add' ? returnToAgents : () => setView('agents')}
+                  >
                     {view === 'add' ? 'Cancel' : 'Back to Agents'}
                   </button>
                   {view === 'add' && (
