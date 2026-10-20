@@ -1,0 +1,12 @@
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index fa387e513073fde9d465f65ca91f2b30e0c7fe79..ad3e21f8d430ee3a85ec025e8ab7d3e8aa8018b4 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -33,6 +33,7 @@ use codex_protocol::SessionId;
+ use codex_protocol::capabilities::SelectedCapabilityRoot;
+ use codex_protocol::config_types::ShellEnvironmentPolicy;
+ use codex_protocol::mcp::ClientMcpExtensions;
++use codex_protocol::models::BaseInstructionsProvenance;
+ use codex_protocol::models::ProfileWorkspaceRoot;
+ use codex_protocol::permissions::FileSystemPath;
+ use codex_protocol::permissions::FileSystemSpecialPath;

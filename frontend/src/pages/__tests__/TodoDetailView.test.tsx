@@ -500,7 +500,7 @@ describe('TodoDetailView', () => {
 
     fireEvent.click(screen.getByText('Sub-task one'));
     expect(mockNavigate).toHaveBeenCalledWith('/todos/child1', {
-      state: { item: childItem, activeProfile: 'centaur', scrollTop: 50 },
+      state: { item: childItem, activeProfile: 'centaur', scrollTop: 50, telosHistory: ['abc123'] },
     });
   });
 

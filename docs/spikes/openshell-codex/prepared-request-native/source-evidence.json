@@ -400,10 +400,22 @@
     {
       "file": "native-original-image-and-source-fixtures.patch",
       "sha256": "ec446a7d3a47cef1367abd4781e7e9cd647324cf275170bb84f4c5d1f3562d80"
+    },
+    {
+      "file": "native-original-installed-registry.patch",
+      "sha256": "4f23421b2c13f10758feae38f751da00789704d65ef6060abb54a882014a3249"
+    },
+    {
+      "file": "native-session-provenance-import.patch",
+      "sha256": "42a30b81986512fe61d9d98941d278171dac1ca98dbe6939913122bbb8dde7a4"
+    },
+    {
+      "file": "native-original-source-frame-data.patch",
+      "sha256": "0c5637fdec06f2e6d2836b7e6be4fc59764c807d06c5cde14c22099ddbebead3"
     }
   ],
-  "sourceTree": "6e7109d979ed7deeb4e00fe3ec3473083d0e1b74",
-  "localSourceCommit": "b2f34ca45571ca7514b5f307b76a78b475829769",
+  "sourceTree": "5490b91a53aa7290486b90cf8731f185e78a0e70",
+  "localSourceCommit": "e247e3697324c011f886094914821f3b296cb509",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -547,7 +559,10 @@
     "db7636b35240ce9908fdb4aa00e2beb98963ed03",
     "7b97e7e2468b6386fa559f27bb46163019d14ecd",
     "b6b96a16a805249c19d34c8f6643fa9e4507940d",
-    "b2f34ca45571ca7514b5f307b76a78b475829769"
+    "b2f34ca45571ca7514b5f307b76a78b475829769",
+    "5f20fa7ee0ebc4701f185fb8da282c0592ee8f55",
+    "0b0eee8ba6515295e56427e6e34571d4a2851598",
+    "e247e3697324c011f886094914821f3b296cb509"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -557,16 +572,16 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "99 ordered patches preserve all original89 records and bytes. Patches90-98 extract original initial context DATA, environment/source partitions, default allocations and ModelClient consumed fields. Patch99 repairs documented original image detail validation and two original-owner fixture inputs; complete fresh request factory remains uninstalled.",
+    "scope": "102 ordered patches preserve all99 prior records/bytes. Patch100 retains genuine original default installed registry object provenance;101 restores the Session-local model provenance import required by original selection;102 shares original source/parent/originator/cache pure data transforms at unchanged ordinary acquisition sites. No retained source frame/currentness/adoption/factory grant.",
     "localFocused": {
       "status": "exact_source_reconstruction_and_scoped_format_only",
-      "rustTestsExecuted": false,
       "compiled": false,
+      "rustTestsExecuted": false,
       "allNewRustFixtures": "UNCOMPILED/UNRUN",
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_99_exact_source",
+      "status": "pending_102_exact_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -708,7 +723,39 @@
         ]
       },
       "jobTimeoutMinutes": 240,
-      "timeoutReason": "Both source89 jobs exceeded maximum execution time 2h0m0s after thousands of records; retain complete same package coverage, one thread and zero retries."
+      "timeoutReason": "Both source89 jobs exceeded maximum execution time 2h0m0s after thousands of records; retain complete same package coverage, one thread and zero retries.",
+      "prior99QualificationTransfers": false,
+      "prior99Terminal": {
+        "checkpoint": "source99Terminal",
+        "sourceCommit": "b2f34ca45571ca7514b5f307b76a78b475829769",
+        "sourceTree": "6e7109d979ed7deeb4e00fe3ec3473083d0e1b74",
+        "terminalRun": 39482696019,
+        "conclusion": "both_platforms_failed_core_library_compilation_during_standalone_helpers",
+        "compilerErrors": {
+          "code": "E0433",
+          "type": "BaseInstructionsProvenance",
+          "path": "core/src/session/session.rs",
+          "lines": [791, 797, 803]
+        },
+        "crateFixturesExecuted": 0,
+        "nativeFormattingExecuted": false,
+        "original89ThreeFailureOraclesQualified": false,
+        "terminalReceiptSha256": "2e02bd8a114148ac1679361915a7286e49a3867db1ffb74fc47f1592416276b5",
+        "officialLogs": [
+          {
+            "platform": "linux",
+            "sha256": "4bf78e5ad2ff6e8ab5fc1ac28d501ee9a0b81346521125ccde88e57f583063a8",
+            "bytes": 258258,
+            "job": 118835054202
+          },
+          {
+            "platform": "macos",
+            "sha256": "c268766265e998e4622187cdac2ca96dbb71763d8f1a9bb1a5831b8a5278fc4c",
+            "bytes": 248626,
+            "job": 118835053811
+          }
+        ]
+      }
     }
   },
   "runtimeQualified": false,
@@ -888,6 +935,23 @@
       ],
       "unchangedBundledLunaRow": true,
       "compileOrTestClaim": false
+    },
+    "installedOriginalRegistry": {
+      "commit": "5f20fa7ee0ebc4701f185fb8da282c0592ee8f55",
+      "scope": "Same original builder Arc and concrete inventories bound to original Weak ThreadManager and actual MCP source packet. Provenance only; no callback execution, header finality or currentness/admission grant.",
+      "rustCompiledOrTestedLocally": false
+    },
+    "sessionProvenanceImportRepair": {
+      "commit": "0b0eee8ba6515295e56427e6e34571d4a2851598",
+      "addedLines": 1,
+      "wholeOtherSessionBytesPreserved": true,
+      "scope": "Direct original enum import resolves all3actual source99 compiler errors; behavior/fixtures unchanged."
+    },
+    "originalSourceFrameData": {
+      "commit": "e247e3697324c011f886094914821f3b296cb509",
+      "scope": "Pure original source/history/parent/originator precedence and fork-cache transformations. Actual async/process acquisition and final client construction remain at original sites. No retained frame, adoption, lease, client or Ready.",
+      "sourceOnly": true,
+      "fixturesExecutedLocally": false
     }
   },
   "historicalFoundation": {
@@ -1422,6 +1486,192 @@
         "client::public_responses_capture::tests::bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture",
         "client::public_responses_capture::tests::public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row",
         "thread_manager::pre_session_skills::tests::original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup"
+      ]
+    },
+    {
+      "checkpoint": "source99Terminal",
+      "sourceCommit": "b2f34ca45571ca7514b5f307b76a78b475829769",
+      "sourceTree": "6e7109d979ed7deeb4e00fe3ec3473083d0e1b74",
+      "checks": {
+        "scope": "99 ordered patches preserve all original89 records and bytes. Patches90-98 extract original initial context DATA, environment/source partitions, default allocations and ModelClient consumed fields. Patch99 repairs documented original image detail validation and two original-owner fixture inputs; complete fresh request factory remains uninstalled.",
+        "localFocused": {
+          "status": "exact_source_reconstruction_and_scoped_format_only",
+          "rustTestsExecuted": false,
+          "compiled": false,
+          "allNewRustFixtures": "UNCOMPILED/UNRUN",
+          "dynamicGreenClaimed": false
+        },
+        "ci": {
+          "status": "pending_99_exact_source",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-http-client",
+            "codex-state",
+            "codex-api",
+            "codex-guardian-reviewer",
+            "codex-extension-api",
+            "codex-mcp-extension",
+            "codex-login",
+            "codex-memories-extension",
+            "codex-web-search-extension",
+            "codex-history-notes-extension",
+            "codex-goal-extension",
+            "codex-models-manager",
+            "codex-home",
+            "codex-model-provider-info",
+            "codex-skills-extension",
+            "codex-skills",
+            "codex-exec-server",
+            "codex-app-server",
+            "codex-git-attribution",
+            "codex-core-plugins",
+            "codex-execpolicy"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "testThreads": 1,
+          "retries": 0,
+          "prior81QualificationTransfers": false,
+          "prior82QualificationTransfers": false,
+          "prior83QualificationTransfers": false,
+          "prior84QualificationTransfers": false,
+          "prior85QualificationTransfers": false,
+          "prior86QualificationTransfers": false,
+          "prior87QualificationTransfers": false,
+          "prior88QualificationTransfers": false,
+          "prior88Failure": {
+            "run": 39454890578,
+            "linuxJob": 118739246813,
+            "conclusion": "failure",
+            "failure": "E0308 in model-provider-info/src/captured_provider.rs:124; test literal map used String instead of existing RedactedString",
+            "fixtureExecution": "No crate fixtures executed: cargo test --no-run compilation failed",
+            "macosJob": 118739246289,
+            "macosOutcomeAtCapture": "in_progress",
+            "linuxArtifact": 12283706338,
+            "linuxArtifactSha256": "bcb31395efcb667155ed665b217b57929c7d71dccc01a0a583c90c15966ecee2"
+          },
+          "prior89QualificationTransfers": false,
+          "prior89Terminal": {
+            "sourceCommit": "349165924d187197140074b8cfefe087d2e73cba",
+            "sourceTree": "5afdd74dd6631cf91d32325d78914dff3bc6a8f7",
+            "checks": {
+              "scope": "89 ordered patches retain all88 prior patch records/bytes. Patch89 changes only three test literal values from String to the existing RedactedString type, preserving exact malformed/case-ambiguous header bytes and original assertions. Production native source and all complete-factory/readiness limits remain unchanged.",
+              "localFocused": {
+                "status": "exact_source_reconstruction_and_scoped_format_only",
+                "rustTestsExecuted": false,
+                "compiled": false,
+                "allNewRustFixtures": "UNCOMPILED/UNRUN",
+                "dynamicGreenClaimed": false
+              },
+              "ci": {
+                "status": "pending_89_exact_source",
+                "workflow": ".github/workflows/prepared-request-native.yml",
+                "scope": [
+                  "codex-core",
+                  "codex-http-client",
+                  "codex-state",
+                  "codex-api",
+                  "codex-guardian-reviewer",
+                  "codex-extension-api",
+                  "codex-mcp-extension",
+                  "codex-login",
+                  "codex-memories-extension",
+                  "codex-web-search-extension",
+                  "codex-history-notes-extension",
+                  "codex-goal-extension",
+                  "codex-models-manager",
+                  "codex-home",
+                  "codex-model-provider-info",
+                  "codex-skills-extension",
+                  "codex-skills",
+                  "codex-exec-server",
+                  "codex-app-server",
+                  "codex-git-attribution",
+                  "codex-core-plugins",
+                  "codex-execpolicy"
+                ],
+                "linuxAdditionalScope": ["codex-linux-sandbox"],
+                "platforms": ["ubuntu-24.04", "macos-26"],
+                "testThreads": 1,
+                "retries": 0,
+                "prior81QualificationTransfers": false,
+                "prior82QualificationTransfers": false,
+                "prior83QualificationTransfers": false,
+                "prior84QualificationTransfers": false,
+                "prior85QualificationTransfers": false,
+                "prior86QualificationTransfers": false,
+                "prior87QualificationTransfers": false,
+                "prior88QualificationTransfers": false,
+                "prior88Failure": {
+                  "run": 39454890578,
+                  "linuxJob": 118739246813,
+                  "conclusion": "failure",
+                  "failure": "E0308 in model-provider-info/src/captured_provider.rs:124; test literal map used String instead of existing RedactedString",
+                  "fixtureExecution": "No crate fixtures executed: cargo test --no-run compilation failed",
+                  "macosJob": 118739246289,
+                  "macosOutcomeAtCapture": "in_progress",
+                  "linuxArtifact": 12283706338,
+                  "linuxArtifactSha256": "bcb31395efcb667155ed665b217b57929c7d71dccc01a0a583c90c15966ecee2"
+                }
+              }
+            },
+            "terminalRun": 39463080370,
+            "conclusion": "cancelled_both_platforms_after_partial_fixture_failures_by_120_minute_job_limit",
+            "terminalSealSha256": "6466fb33cae79727b4e92439e534fac7744d0f01bfbcfec01a7dbf7ae1c58866",
+            "partialRetainedArtifactLogRecords": {
+              "linux": {
+                "passed": 6828,
+                "failed": 3,
+                "lastOrdinal": 6831,
+                "listed": 9568
+              },
+              "macos": {
+                "passed": 6171,
+                "failed": 3,
+                "lastOrdinal": 6174,
+                "listed": 9352
+              }
+            },
+            "countsAreFinalSuiteTotals": false,
+            "platformsMayOverlap": true,
+            "junitPresent": false,
+            "formattingExecuted": false,
+            "failedFixtures": [
+              "client::public_responses_capture::tests::bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture",
+              "client::public_responses_capture::tests::public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row",
+              "thread_manager::pre_session_skills::tests::original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup"
+            ]
+          },
+          "jobTimeoutMinutes": 240,
+          "timeoutReason": "Both source89 jobs exceeded maximum execution time 2h0m0s after thousands of records; retain complete same package coverage, one thread and zero retries."
+        }
+      },
+      "terminalRun": 39482696019,
+      "conclusion": "both_platforms_failed_core_library_compilation_during_standalone_helpers",
+      "compilerErrors": {
+        "code": "E0433",
+        "type": "BaseInstructionsProvenance",
+        "path": "core/src/session/session.rs",
+        "lines": [791, 797, 803]
+      },
+      "crateFixturesExecuted": 0,
+      "nativeFormattingExecuted": false,
+      "original89ThreeFailureOraclesQualified": false,
+      "terminalReceiptSha256": "2e02bd8a114148ac1679361915a7286e49a3867db1ffb74fc47f1592416276b5",
+      "officialLogs": [
+        {
+          "platform": "linux",
+          "sha256": "4bf78e5ad2ff6e8ab5fc1ac28d501ee9a0b81346521125ccde88e57f583063a8",
+          "bytes": 258258,
+          "job": 118835054202
+        },
+        {
+          "platform": "macos",
+          "sha256": "c268766265e998e4622187cdac2ca96dbb71763d8f1a9bb1a5831b8a5278fc4c",
+          "bytes": 248626,
+          "job": 118835053811
+        }
       ]
     }
   ],

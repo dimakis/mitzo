@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.449-symposium-original-context-inputs';
+  'v1.0.455-symposium-original-registry-source-frame';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -278,7 +278,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/ws-messages.ts':
     'cfbebddf79a141d8affbdae712178d0d15e16382c959b8d8c4a766073fe4976e',
   '../../frontend/src/styles/global.css':
-    '4b8b12f920c17326e2f7c4d163aba0bed49d91b7ff2143a59ce97c90127d73c2',
+    '5fab4416627a60794919073b676dc18141a1a2660c2aabb57e3e4b09fa7c0d46',
   '../../frontend/src/components/TelosSourceReview.tsx':
     'e501290f74a90903b94fdc3a3c0b81075e72be6ed3b30e60a68ed4f3d38479ee',
   '../../frontend/src/components/PermissionBanner.tsx':
@@ -290,7 +290,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/todo.ts':
     '40ce25d2ee7d5bb6f235d440cf3b5f6baa8f5760c92d4f0856276c6748468cbf',
   '../../frontend/src/pages/TodoDetailView.tsx':
-    '85729725f3fb95c9bbddf90eb4c72688f5f1102fddae9250e86edd65b8725015',
+    '317b2ca66966ba7bb4cf34b9f88a0b9c607bb7feee181379d2c5a89641aa2621',
   '../../frontend/src/hooks/TelosSourceNavigation.tsx':
     'dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598',
   '../../frontend/src/components/WorkOutputs.tsx':
@@ -1213,11 +1213,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useTelosRecords.ts':
     'de8243e0d1d3714a92cd01d9119bf03a2f745781bf7c9e64a54bd6cef8b754fa',
   '../../frontend/src/components/TelosWorkspace.css':
-    '490357c449ee469fb662f4722f187f9ad4922e1f04c23d1b7b37fc74874ba3e2',
+    '7a07d02af6002b2ee9569df038ee3b7ac9120ea3ac05f73d2183d8283b37ba00',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
     'd2f3d3e96a0d74a044dd01aad1df4fe99d2fb76a8af563fe2880ee5a730674c8',
   '../../frontend/src/components/TelosOutcomesTree.tsx':
-    '8887547994e8428bba3ac664407601535c8dfc3bc619725fd2e598671bf1f54f',
+    '0b44810f405051b28484b0b036cb6f165ca46fa6e6c87f058c70422266af3526',
   '../../frontend/src/pages/TodoWorkspace.tsx':
     '4ef4ba56945500aa99e4cfb550b7c059a33406f532a1e6ad89a006fadae618d3',
   '../../frontend/src/pages/FileViewer.tsx':
@@ -1286,7 +1286,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/telos-chat-rows.ts':
     'c7a31faa96b46c2992baadb43e06f968cdac9e54e19957ceb7372b9afca9ebe8',
   '../../frontend/src/lib/telos-item-navigation.ts':
-    '194170adf8cfc918b5b6d0482a413646641bce1de086616fb1a0ac32fa30b6f2',
+    '81d57f3656371909d0ab85cc9c6d1546b4af4bbc8719d06f1ccd0cce9dd2a36c',
   '../../frontend/src/lib/telos-chat-return.ts':
     '82a93d73cc17247366037d16e0909473fbbb8f64b73a1730f1456bbadf701077',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-provider-header-fixture.patch':
@@ -1311,4 +1311,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c308396b865d06621c313dcda9c7d6dd7c628ac22389899ca3038b6602a048c4',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-original-image-and-source-fixtures.patch':
     'ec446a7d3a47cef1367abd4781e7e9cd647324cf275170bb84f4c5d1f3562d80',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-installed-registry.patch':
+    '4f23421b2c13f10758feae38f751da00789704d65ef6060abb54a882014a3249',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-session-provenance-import.patch':
+    '42a30b81986512fe61d9d98941d278171dac1ca98dbe6939913122bbb8dde7a4',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-source-frame-data.patch':
+    '0c5637fdec06f2e6d2836b7e6be4fc59764c807d06c5cde14c22099ddbebead3',
 });

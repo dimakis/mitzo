@@ -6,7 +6,34 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 99 patches
+## Current composed source: 102 patches
+
+The 102 ordered patches reconstruct native tree
+`5490b91a53aa7290486b90cf8731f185e78a0e70` (local source `e247e3697324c011f886094914821f3b296cb509`).
+All first 99 records and patch bytes remain unchanged. Patch 100 retains the
+original installed default registry and concrete object inventories under the
+same original weak manager and MCP packet. Patch 101 restores one direct Session
+model-provenance enum import. Patch 102 shares original source/history/parent,
+originator precedence and fork-cache DATA transforms at their original call sites.
+Actual process/async acquisition, configuration, history and client construction
+remain with their original owners and order.
+
+Source 99 run `39482696019` failed production Core library compilation on both
+platforms while building standalone helpers. The three E0433 errors name the
+missing `BaseInstructionsProvenance` at Session lines 791, 797 and 803. Native crate
+fixtures and formatting skipped; no source-89 failing oracle is now qualified.
+Complete original logs and terminal evidence remain retained. Patch 101 supplies
+only that missing import, preserving every other byte of its parent Session.
+
+All new Rust fixtures remain uncompiled and unrun locally. Exact-source CI keeps
+the complete original package list, one test thread, zero retries and the justified
+240-minute budget. Local verification is reconstruction, static checks and scoped
+formatting only. Installed-registry membership and pure data functions do not
+prove callback effects, final metadata, source currentness, retained-frame adoption,
+complete factory/count/State ownership, host/runtime adoption, joining or Ready.
+No runtime installation or model call is made.
+
+## Retained 99-patch checkpoint
 
 The 99 ordered patches reconstruct native tree
 `6e7109d979ed7deeb4e00fe3ec3473083d0e1b74` (local source `b2f34ca45571ca7514b5f307b76a78b475829769`).

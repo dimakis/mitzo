@@ -1658,6 +1658,19 @@ filter. Recovery, direct navigation state and item Back retain cross-profile All
 outcomes while the filtered fallback keeps its own profile preference. Refresh
 rechecks both cache-backed collection owners; identical URLs share one HTTP read.
 
+Home work pins start a fresh explicit item trail and retain their Home URL and
+opaque route state. Back pops parent items first, including while the child record
+is loading or unavailable, then restores that validated Home context. Direct item
+opens keep the collection fallback; ordinary session pins keep their conversation
+route. Files, saved outputs and source-chat returns carry the same navigation state.
+
+Task review uses the existing TaskNode controls and raw evidence fields. A named
+inline-size container wraps titles, summaries and actions in narrow panes; evidence
+preserves literal text with shared mono/type/spacing tokens and wraps long paths.
+Controls and optional session links retain the shared 44px minimum. The focused
+fixture checks the original 379-byte report, pending/done states, keyboard actions
+and narrow/enlarged layouts; it is separate from actual application acceptance.
+
 Mounted conversation rows in the collection and the focused item's Overview/Work
 child trees share the canonical record owner's refresh generation. This prop is
 required through the detail workspace, tree and row so omitted callers fail typing.
@@ -1711,7 +1724,7 @@ basis. Output actions move below the copy so full hashes cannot squeeze titles.
 On phones the existing row metadata/actions may wrap onto another line; short
 priority/status tokens remain intact rather than shrinking into split words beside
 a longer coordinator entry. Type size, indents and shared control height are retained.
-Category discovery and recursive branches use shared `MotionPresence` disclosures; Escape restores the category trigger focus. Native output disclosures require no extra animation lifecycle. No palette, typography,
+Category discovery and recursive branches use shared `MotionPresence` disclosures; Escape restores the category trigger focus. Category discovery keeps its decoration inside an unstyled flow-root boundary so its border, padding and spacing collapse together, with no final layout jump on unmount. Native output disclosures require no extra animation lifecycle. No palette, typography,
 shared settings reference or frozen approval changed.
 
 Inspected all-intercept captures: [phone tree](assets/telos-s7-tree-mobile-dark.png),

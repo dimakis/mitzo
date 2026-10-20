@@ -599,14 +599,17 @@ test('ordinary task result keeps chat native, reviews in Library and returns to 
   await editor.getByRole('button', { name: 'Save task', exact: true }).scrollIntoViewIfNeeded();
   await expect(editor.getByRole('button', { name: 'Save task', exact: true })).toBeInViewport();
   expect(await editor.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-  for (const control of await editor.locator('input,select,textarea,button,summary').all())
-    if (await control.isVisible())
-      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  const controlHeights = await editor
+    .locator('input,select,textarea,button,summary')
+    .filter({ visible: true })
+    .evaluateAll((controls) => controls.map((control) => control.getBoundingClientRect().height));
+  expect(controlHeights.length).toBeGreaterThan(0);
+  for (const height of controlHeights) expect(height).toBeGreaterThanOrEqual(44);
   await page.screenshot({
     path: info.outputPath('library-task-large-text.png'),
     animations: 'disabled',
   });
-  await largerText.evaluate((element) => element.remove());
+  await largerText.evaluate((element) => (element as HTMLStyleElement).remove());
   await page.getByRole('link', { name: 'Back to Agent Builder', exact: true }).click();
   await expect(page).toHaveURL(originalChat);
   await expect(composer).toHaveValue('Keep discussing the reviewed task.');

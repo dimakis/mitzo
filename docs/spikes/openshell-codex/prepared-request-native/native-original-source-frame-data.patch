@@ -1,0 +1,490 @@
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index a9c5ebd32245ee23f9f833b97b8c89707a3ad6d8..3e90e1ee1071a16106302ae6d415f6e2a5b87e4d 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -236,6 +236,7 @@ mod inject;
+ mod model_client_construction;
+ pub(crate) mod native_allocation;
+ mod reasoning_effort;
++pub(crate) mod source_frame;
+ mod submission;
+ pub(crate) use reasoning_effort::RequestEffortUsage;
+ pub(crate) use submission::Submission;
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index ad3e21f8d430ee3a85ec025e8ab7d3e8aa8018b4..5e9f7d661796d02f4b90b63ede7be2e6aa4125f4 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -834,9 +834,10 @@ impl Session {
+             },
+         }
+         .filter(|_| forked_from_id.is_some());
+-        let parent_thread_id = session_configuration
+-            .parent_thread_id
+-            .or_else(|| initial_history.get_resumed_parent_thread_id());
++        let parent_thread_id = super::source_frame::session_parent_thread_id(
++            session_configuration.parent_thread_id,
++            &initial_history,
++        );
+         session_configuration.parent_thread_id = parent_thread_id;
+         let is_paginated_subagent = matches!(
+             session_configuration.history_mode,
+@@ -868,21 +869,11 @@ impl Session {
+                 .root_thread_instructions_provider(thread_id, instructions.thread_provider);
+         }
+         // Ephemeral forks reuse cache routing, without sharing storage or lifecycle identity.
+-        let fork_cache_key = match &initial_history {
+-            InitialHistory::Forked(items)
+-                if config.ephemeral
+-                    && !session_configuration.session_source.is_non_root_agent() =>
+-            {
+-                items.iter().find_map(|item| match item {
+-                    RolloutItem::SessionMeta(meta) => Some(meta.meta.session_id.to_string()),
+-                    _ => None,
+-                })
+-            }
+-            InitialHistory::New
+-            | InitialHistory::Cleared
+-            | InitialHistory::Resumed(_)
+-            | InitialHistory::Forked(_) => None,
+-        };
++        let fork_cache_key = super::source_frame::fork_prompt_cache_key(
++            &initial_history,
++            config.ephemeral,
++            &session_configuration.session_source,
++        );
+         let resumed_session_id = match &initial_history {
+             InitialHistory::Resumed(resumed) => {
+                 resumed.history.iter().find_map(|item| match item {
+diff --git a/codex-rs/core/src/session/source_frame.rs b/codex-rs/core/src/session/source_frame.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..3b1af3e8014a4f82d16e0fc04e55f22207f8e364
+--- /dev/null
++++ b/codex-rs/core/src/session/source_frame.rs
+@@ -0,0 +1,107 @@
++//! Original startup's source-frame DATA transformations only.
++//! Callers must supply genuine retained original inputs. This module neither
++//! acquires history/parent/process metadata nor certifies their currency; it
++//! allocates no Session, provider client or prepared-request authority.
++use codex_history::InitialHistory;
++use codex_history::RolloutItem;
++use codex_protocol::ThreadId;
++use codex_protocol::protocol::InternalSessionSource;
++use codex_protocol::protocol::SessionSource;
++use codex_protocol::protocol::SubAgentSource;
++
++fn originator_from_service_name(service_name: Option<&str>) -> Option<String> {
++    let service_name = service_name?.trim();
++    for originator in [
++        "codex_work_desktop",
++        "codex_work_web",
++        "codex_work_mobile",
++        "codex_work_cca",
++        "chatgpt_cca",
++    ] {
++        if service_name.eq_ignore_ascii_case(originator) {
++            return Some(originator.to_string());
++        }
++    }
++    None
++}
++
++pub(crate) fn effective_originator_value(
++    metrics_service_name: Option<&str>,
++    env_originator: Option<String>,
++    persisted_originator: Option<String>,
++    inherited_originator: Option<String>,
++    default_originator: String,
++) -> String {
++    originator_from_service_name(metrics_service_name)
++        .or(persisted_originator)
++        .or(inherited_originator)
++        .or(env_originator)
++        .unwrap_or(default_originator)
++}
++
++pub(crate) fn inherited_originator_thread_id(
++    session_source: &SessionSource,
++    parent_thread_id: Option<ThreadId>,
++    forked_from_thread_id: Option<ThreadId>,
++) -> Option<ThreadId> {
++    match session_source {
++        SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
++            parent_thread_id, ..
++        }) => Some(*parent_thread_id),
++        _ => parent_thread_id.or(forked_from_thread_id),
++    }
++}
++
++pub(crate) fn spawn_parent_thread_id(
++    parent_thread_id: Option<ThreadId>,
++    initial_history: &InitialHistory,
++    session_source: &SessionSource,
++) -> Option<ThreadId> {
++    parent_thread_id
++        .or_else(|| initial_history.get_resumed_parent_thread_id())
++        .or(match session_source {
++            SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
++                parent_thread_id, ..
++            }) => Some(*parent_thread_id),
++            _ => None,
++        })
++}
++
++pub(crate) fn session_parent_thread_id(
++    parent_thread_id: Option<ThreadId>,
++    initial_history: &InitialHistory,
++) -> Option<ThreadId> {
++    parent_thread_id.or_else(|| initial_history.get_resumed_parent_thread_id())
++}
++
++pub(crate) fn session_source_for_spawn(session_source: SessionSource) -> SessionSource {
++    match session_source {
++        SessionSource::Internal(InternalSessionSource::Guardian) => SessionSource::SubAgent(
++            SubAgentSource::Other(crate::guardian::GUARDIAN_REVIEWER_NAME.to_owned()),
++        ),
++        source => source,
++    }
++}
++
++pub(crate) fn fork_prompt_cache_key(
++    initial_history: &InitialHistory,
++    ephemeral: bool,
++    session_source: &SessionSource,
++) -> Option<String> {
++    match initial_history {
++        InitialHistory::Forked(items) if ephemeral && !session_source.is_non_root_agent() => {
++            items.iter().find_map(|item| match item {
++                RolloutItem::SessionMeta(meta) => Some(meta.meta.session_id.to_string()),
++                _ => None,
++            })
++        }
++        InitialHistory::New
++        | InitialHistory::Cleared
++        | InitialHistory::Resumed(_)
++        | InitialHistory::Forked(_) => None,
++    }
++}
++
++#[cfg(test)]
++#[path = "source_frame_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/source_frame_tests.rs b/codex-rs/core/src/session/source_frame_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..a20ca39240dd981390f238ac9710cd684d4b2b7c
+--- /dev/null
++++ b/codex-rs/core/src/session/source_frame_tests.rs
+@@ -0,0 +1,211 @@
++use super::*;
++use codex_history::ResumedHistory;
++use codex_protocol::protocol::SessionMeta;
++use codex_protocol::protocol::SessionMetaLine;
++use pretty_assertions::assert_eq;
++use std::sync::Arc;
++
++fn meta(id: ThreadId, parent_thread_id: Option<ThreadId>) -> RolloutItem {
++    RolloutItem::SessionMeta(SessionMetaLine {
++        meta: SessionMeta {
++            id,
++            session_id: id.into(),
++            parent_thread_id,
++            ..SessionMeta::default()
++        },
++        git: None,
++    })
++}
++
++#[test]
++fn original_originator_precedence_keeps_service_persisted_inherited_env_and_default() {
++    for (service, persisted, inherited, env, expected) in [
++        (
++            Some(" CODEX_WORK_WEB "),
++            Some("saved"),
++            Some("parent"),
++            Some("env"),
++            "codex_work_web",
++        ),
++        (
++            Some("codex_work_web_extra"),
++            Some("saved"),
++            Some("parent"),
++            Some("env"),
++            "saved",
++        ),
++        (None, None, Some("parent"), Some("env"), "parent"),
++        (None, None, None, Some("env"), "env"),
++        (None, None, None, None, "provided-process-owner"),
++    ] {
++        assert_eq!(
++            effective_originator_value(
++                service,
++                env.map(str::to_owned),
++                persisted.map(str::to_owned),
++                inherited.map(str::to_owned),
++                "provided-process-owner".to_owned()
++            ),
++            expected
++        );
++    }
++}
++
++#[test]
++fn original_parent_precedence_and_inherited_lookup_choose_their_actual_sources() {
++    let explicit = ThreadId::new();
++    let saved = ThreadId::new();
++    let spawned = ThreadId::new();
++    let forked = ThreadId::new();
++    let source = SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
++        parent_thread_id: spawned,
++        depth: 1,
++        agent_path: None,
++        agent_nickname: None,
++        agent_role: None,
++    });
++    let resumed = InitialHistory::Resumed(ResumedHistory {
++        conversation_id: ThreadId::new(),
++        history: Arc::new(vec![meta(ThreadId::new(), Some(saved))]),
++        rollout_path: None,
++    });
++    assert_eq!(
++        spawn_parent_thread_id(Some(explicit), &resumed, &source),
++        Some(explicit)
++    );
++    assert_eq!(
++        spawn_parent_thread_id(/*parent_thread_id*/ None, &resumed, &source),
++        Some(saved)
++    );
++    assert_eq!(
++        spawn_parent_thread_id(
++            /*parent_thread_id*/ None,
++            &InitialHistory::New,
++            &source
++        ),
++        Some(spawned)
++    );
++    assert_eq!(
++        spawn_parent_thread_id(
++            /*parent_thread_id*/ None,
++            &InitialHistory::New,
++            &SessionSource::Cli
++        ),
++        None
++    );
++    // Parent-originator lookup intentionally prioritizes ThreadSpawn source;
++    // this differs from the resolved Session parent's explicit/history order.
++    assert_eq!(
++        inherited_originator_thread_id(&source, Some(explicit), Some(forked)),
++        Some(spawned)
++    );
++    assert_eq!(
++        inherited_originator_thread_id(&SessionSource::Cli, Some(explicit), Some(forked)),
++        Some(explicit)
++    );
++    assert_eq!(
++        inherited_originator_thread_id(
++            &SessionSource::Cli,
++            /*parent_thread_id*/ None,
++            Some(forked)
++        ),
++        Some(forked)
++    );
++    assert_eq!(
++        session_parent_thread_id(Some(explicit), &resumed),
++        Some(explicit)
++    );
++    assert_eq!(
++        session_parent_thread_id(/*parent_thread_id*/ None, &resumed),
++        Some(saved)
++    );
++    // The original history owner restores parents only for Resumed, not Forked.
++    let forked_history = InitialHistory::Forked(vec![meta(ThreadId::new(), Some(saved))]);
++    assert_eq!(
++        spawn_parent_thread_id(
++            /*parent_thread_id*/ None,
++            &forked_history,
++            &SessionSource::Cli
++        ),
++        None
++    );
++    assert_eq!(
++        session_parent_thread_id(/*parent_thread_id*/ None, &forked_history),
++        None
++    );
++}
++
++#[test]
++fn original_cache_all_history_and_non_root_arms_and_guardian_precedence_remain() {
++    let first = ThreadId::new();
++    let second = ThreadId::new();
++    // Session ID is intentionally distinct from thread ID: cache routing must
++    // use the ORIGINAL first SessionMeta.session_id, never its lifecycle ID.
++    let first_session = ThreadId::new();
++    let first_meta = RolloutItem::SessionMeta(SessionMetaLine {
++        meta: SessionMeta {
++            id: first,
++            session_id: first_session.into(),
++            ..SessionMeta::default()
++        },
++        git: None,
++    });
++    let fork = InitialHistory::Forked(vec![first_meta, meta(second, /*parent_thread_id*/ None)]);
++    assert_eq!(
++        fork_prompt_cache_key(&fork, /*ephemeral*/ true, &SessionSource::Cli),
++        Some(first_session.to_string())
++    );
++    assert_eq!(
++        fork_prompt_cache_key(&fork, /*ephemeral*/ false, &SessionSource::Cli),
++        None
++    );
++    let non_root = SessionSource::SubAgent(SubAgentSource::Other("child".to_owned()));
++    assert_eq!(
++        fork_prompt_cache_key(&fork, /*ephemeral*/ true, &non_root),
++        None
++    );
++    let resumed = InitialHistory::Resumed(ResumedHistory {
++        conversation_id: second,
++        history: Arc::new(vec![meta(first, /*parent_thread_id*/ None)]),
++        rollout_path: None,
++    });
++    for history in [
++        InitialHistory::New,
++        InitialHistory::Cleared,
++        resumed,
++        InitialHistory::Forked(Vec::new()),
++    ] {
++        assert_eq!(
++            fork_prompt_cache_key(&history, /*ephemeral*/ true, &SessionSource::Cli),
++            None
++        );
++    }
++    let guardian =
++        session_source_for_spawn(SessionSource::Internal(InternalSessionSource::Guardian));
++    assert_eq!(
++        guardian,
++        SessionSource::SubAgent(SubAgentSource::Other(
++            crate::guardian::GUARDIAN_REVIEWER_NAME.to_owned()
++        ))
++    );
++    assert_eq!(
++        session_source_for_spawn(SessionSource::Cli),
++        SessionSource::Cli
++    );
++    let fork_key = fork_prompt_cache_key(&fork, /*ephemeral*/ true, &SessionSource::Cli);
++    assert_eq!(
++        crate::guardian::prompt_cache_key_override_for_review_session(&guardian, Some(second))
++            .or(fork_key),
++        Some(format!("guardian:{second}"))
++    );
++    assert_eq!(
++        crate::guardian::prompt_cache_key_override_for_review_session(
++            &guardian, /*parent_thread_id*/ None
++        ),
++        None
++    );
++    assert_eq!(
++        crate::guardian::prompt_cache_key_override_for_review_session(&non_root, Some(second)),
++        None
++    );
++}
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index 6bc24bab7d854fa1329b73120cbd2506edaeefd1..ca4f9becd710c1935c8782442855e9f366e086af 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -23,6 +23,7 @@ use crate::session::SessionIo;
+ use crate::session::SessionSpawnArgs;
+ use crate::session::resolve_multi_agent_version;
+ use crate::session::session::Session;
++use crate::session::source_frame::effective_originator_value;
+ use crate::tasks::InterruptedTurnHistoryMarker;
+ use crate::tasks::interrupted_turn_history_marker;
+ use crate::thread_startup_metadata::ThreadStartupMetadata;
+@@ -392,36 +393,6 @@ impl ThreadSpawnRequest {
+     }
+ }
+ 
+-fn originator_from_service_name(service_name: Option<&str>) -> Option<String> {
+-    let service_name = service_name?.trim();
+-    for originator in [
+-        "codex_work_desktop",
+-        "codex_work_web",
+-        "codex_work_mobile",
+-        "codex_work_cca",
+-        "chatgpt_cca",
+-    ] {
+-        if service_name.eq_ignore_ascii_case(originator) {
+-            return Some(originator.to_string());
+-        }
+-    }
+-    None
+-}
+-
+-fn effective_originator_value(
+-    metrics_service_name: Option<&str>,
+-    env_originator: Option<String>,
+-    persisted_originator: Option<String>,
+-    inherited_originator: Option<String>,
+-    default_originator: String,
+-) -> String {
+-    originator_from_service_name(metrics_service_name)
+-        .or(persisted_originator)
+-        .or(inherited_originator)
+-        .or(env_originator)
+-        .unwrap_or(default_originator)
+-}
+-
+ pub(crate) struct ResumeThreadWithHistoryOptions {
+     pub(crate) config: Config,
+     pub(crate) initial_history: InitialHistory,
+@@ -1904,12 +1875,11 @@ impl ThreadManagerState {
+         parent_thread_id: Option<ThreadId>,
+         forked_from_thread_id: Option<ThreadId>,
+     ) -> Option<String> {
+-        let inherited_thread_id = match session_source {
+-            SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+-                parent_thread_id, ..
+-            }) => Some(*parent_thread_id),
+-            _ => parent_thread_id.or(forked_from_thread_id),
+-        };
++        let inherited_thread_id = crate::session::source_frame::inherited_originator_thread_id(
++            session_source,
++            parent_thread_id,
++            forked_from_thread_id,
++        );
+         let thread = self.get_thread(inherited_thread_id?).await.ok()?;
+         let originator = thread.config_snapshot().await.originator;
+         (!originator.is_empty()).then_some(originator)
+@@ -2218,14 +2188,11 @@ impl ThreadManagerState {
+             }
+             (_, control) => control,
+         };
+-        let parent_thread_id = parent_thread_id
+-            .or_else(|| initial_history.get_resumed_parent_thread_id())
+-            .or(match &session_source {
+-                SessionSource::SubAgent(SubAgentSource::ThreadSpawn {
+-                    parent_thread_id, ..
+-                }) => Some(*parent_thread_id),
+-                _ => None,
+-            });
++        let parent_thread_id = crate::session::source_frame::spawn_parent_thread_id(
++            parent_thread_id,
++            &initial_history,
++            &session_source,
++        );
+         // Host controllers can already be shared with live threads. Publish root settings
+         // only after registration succeeds, so a failed start cannot update their tree.
+         let initial_host_config = (self.agent_control_factory.is_some()
+@@ -2345,14 +2312,7 @@ impl ThreadManagerState {
+             fork_persistence,
+             // Keep only the manager registration internal. The session and its saved
+             // history retain Guardian's existing identity for metadata, filtering and resume.
+-            session_source: match session_source {
+-                SessionSource::Internal(InternalSessionSource::Guardian) => {
+-                    SessionSource::SubAgent(SubAgentSource::Other(
+-                        crate::guardian::GUARDIAN_REVIEWER_NAME.to_owned(),
+-                    ))
+-                }
+-                source => source,
+-            },
++            session_source: crate::session::source_frame::session_source_for_spawn(session_source),
+             forked_from_thread_id,
+             parent_thread_id,
+             thread_source: thread_source.clone(),
