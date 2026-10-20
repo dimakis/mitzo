@@ -1,0 +1,1192 @@
+diff --git a/codex-rs/app-server/src/selected_start_config.rs b/codex-rs/app-server/src/selected_start_config.rs
+index 39cee7f..39a4ab7 100644
+--- a/codex-rs/app-server/src/selected_start_config.rs
++++ b/codex-rs/app-server/src/selected_start_config.rs
+@@ -332,6 +332,36 @@ impl SelectedConfiguredStart<'_> {
+         manager.capture_selected_start_api_mcp(&mut self.start, credentials)
+     }
+ 
++    pub(crate) async fn capture_extension_tools(
++        &self,
++        manager: &ThreadManager,
++    ) -> io::Result<codex_extension_api::PreSessionExtensionTools> {
++        self.renew(manager).await?;
++        let installed = self
++            .installed
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original first-command composition missing"))?;
++        installed
++            .observe(
++                manager,
++                self.start
++                    .mcp_sources()
++                    .ok_or_else(|| io::Error::other("original API MCP sources missing"))?,
++            )
++            .map_err(|error| io::Error::other(format!("{error:?}")))?;
++        let tools = manager.capture_selected_start_extension_tools(&self.start)?;
++        self.renew_extension_tools(manager, &tools).await?;
++        Ok(tools)
++    }
++    pub(crate) async fn renew_extension_tools(
++        &self,
++        manager: &ThreadManager,
++        tools: &codex_extension_api::PreSessionExtensionTools,
++    ) -> io::Result<()> {
++        self.renew(manager).await?;
++        manager.renew_selected_start_extension_tools(&self.start, tools)?;
++        self.renew(manager).await
++    }
+     pub(crate) async fn construct_client(&mut self, manager: &ThreadManager) -> io::Result<()> {
+         let result = async {
+             self.renew(manager).await?;
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index b237f41..a11c777 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -243,6 +243,69 @@ impl ThreadManager {
+         self.with_current_selected_start(selected, || ())
+     }
+ 
++    /// Captures extension metadata only; no executor/lifecycle, complete Core
++    /// tool plan, dispatch association or request readiness is established.
++    pub fn capture_selected_start_extension_tools(
++        &self,
++        selected: &SelectedStartInputs,
++    ) -> io::Result<codex_extension_api::PreSessionExtensionTools> {
++        self.with_current_selected_start(selected, || ())?;
++        let allocation = selected
++            .allocation
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original allocation missing"))?;
++        if allocation.inputs.startup().is_none() {
++            return Err(io::Error::other("original startup selection missing"));
++        }
++        let sources = selected
++            .mcp_sources()
++            .ok_or_else(|| io::Error::other("original MCP sources missing"))?;
++        let registry = self
++            .pre_session_extension_registry(sources)
++            .map_err(io::Error::other)?;
++        let source = allocation
++            .inputs
++            .source_frame()
++            .ok_or_else(|| io::Error::other("original source frame missing"))?
++            .client_source()
++            .0;
++        let capture = registry
++            .capture_pre_session_tools_for_source(&selected.start_options()?.config, source)
++            .map_err(io::Error::other)?;
++        self.with_current_selected_start(selected, || ())?;
++        Ok(capture)
++    }
++    pub fn renew_selected_start_extension_tools(
++        &self,
++        selected: &SelectedStartInputs,
++        capture: &codex_extension_api::PreSessionExtensionTools,
++    ) -> io::Result<()> {
++        self.with_current_selected_start(selected, || ())?;
++        let allocation = selected
++            .allocation
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original allocation missing"))?;
++        if allocation.inputs.startup().is_none() {
++            return Err(io::Error::other("original startup selection missing"));
++        }
++        let sources = selected
++            .mcp_sources()
++            .ok_or_else(|| io::Error::other("original MCP sources missing"))?;
++        let registry = self
++            .pre_session_extension_registry(sources)
++            .map_err(io::Error::other)?;
++        let source = allocation
++            .inputs
++            .source_frame()
++            .ok_or_else(|| io::Error::other("original source frame missing"))?
++            .client_source()
++            .0;
++        registry
++            .renew_pre_session_tools_for_source(capture, &selected.start_options()?.config, source)
++            .map_err(io::Error::other)?;
++        self.with_current_selected_start(selected, || ())
++    }
++
+     /// Constructs the ORIGINAL client once from retained source owners. No
+     /// Session, callback, transport or request is started. Renewals are snapshots,
+     /// not an admission/attempt authorization.
+diff --git a/codex-rs/ext/extension-api/src/lib.rs b/codex-rs/ext/extension-api/src/lib.rs
+index fbc5158..6bab9d4 100644
+--- a/codex-rs/ext/extension-api/src/lib.rs
++++ b/codex-rs/ext/extension-api/src/lib.rs
+@@ -119,6 +119,8 @@ pub use state::ExtensionDataInit;
+ pub use tool_inventory::ExtensionToolDefinition;
+ pub use tool_inventory::PreSessionExtensionTools;
+ pub use tool_inventory::PreSessionToolInventoryError;
++pub use tool_pre_session::SourceToolPreSessionPlan;
++pub use tool_pre_session::SourceToolPreSessionSelection;
+ pub use tool_pre_session::ToolPreSessionPlan;
+ pub use tool_pre_session::ToolPreSessionSelection;
+ pub use turn_admission::TurnStartAdmission;
+diff --git a/codex-rs/ext/extension-api/src/registry.rs b/codex-rs/ext/extension-api/src/registry.rs
+index c5fb54e..531128f 100644
+--- a/codex-rs/ext/extension-api/src/registry.rs
++++ b/codex-rs/ext/extension-api/src/registry.rs
+@@ -26,6 +26,7 @@ use crate::NoopExtensionEventSink;
+ use crate::PreSessionExtensionTools;
+ use crate::PreSessionToolInventoryError;
+ use crate::SkillInvocationContributor;
++use crate::SourceToolPreSessionPlan;
+ use crate::ThreadLifecycleContributor;
+ use crate::TokenUsageContributor;
+ use crate::ToolContributor;
+@@ -39,6 +40,7 @@ use crate::mcp_pre_session::PlannedMcpSource;
+ use crate::mcp_pre_session::RetainedMcpPreSessionPlan;
+ use crate::tool_inventory::FixedToolContributor;
+ use crate::tool_pre_session::PlannedToolContributor;
++use crate::tool_pre_session::RegisteredToolPreSessionPlan;
+ 
+ /// Mutable registry used while hosts register typed runtime contributions.
+ pub struct ExtensionRegistryBuilder<C: Sync> {
+@@ -242,14 +244,41 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
+     ) where
+         C: Send + 'static,
+     {
+-        let contributor = Arc::new(PlannedToolContributor::new(contributor, Arc::clone(&plan)));
++        let contributor = Arc::new(PlannedToolContributor::new(
++            contributor,
++            RegisteredToolPreSessionPlan::ConfigOnly(Arc::clone(&plan)),
++        ));
++        self.registry
++            .thread_lifecycle_contributors
++            .push(contributor.clone());
++        self.registry.config_contributors.push(contributor.clone());
++        self.registry.tool_contributors.push(contributor);
++        self.registry.pre_session_tool_definitions.push(None);
++        self.registry
++            .tool_pre_session_plans
++            .push(Some(RegisteredToolPreSessionPlan::ConfigOnly(plan)));
++    }
++
++    /// Registers source-owned metadata beside the SAME ordinary contributor.
++    /// Config/source projection must be pure; this does not run lifecycle or
++    /// replace executors. Old config-only callers cannot infer a session source.
++    pub fn tool_contributor_with_source_pre_session_plan(
++        &mut self,
++        contributor: Arc<dyn ToolContributor>,
++        absence: ToolPreSessionPlan<C>,
++        plan: SourceToolPreSessionPlan<C>,
++    ) where
++        C: Send + 'static,
++    {
++        let registered = RegisteredToolPreSessionPlan::SourceAware(absence, plan);
++        let contributor = Arc::new(PlannedToolContributor::new(contributor, registered.clone()));
+         self.registry
+             .thread_lifecycle_contributors
+             .push(contributor.clone());
+         self.registry.config_contributors.push(contributor.clone());
+         self.registry.tool_contributors.push(contributor);
+         self.registry.pre_session_tool_definitions.push(None);
+-        self.registry.tool_pre_session_plans.push(Some(plan));
++        self.registry.tool_pre_session_plans.push(Some(registered));
+     }
+ 
+     /// Registers one tool-lifecycle contributor.
+@@ -285,7 +314,7 @@ pub struct ExtensionRegistry<C: Sync> {
+     turn_input_contributors: Vec<Arc<dyn TurnInputContributor>>,
+     tool_contributors: Vec<Arc<dyn ToolContributor>>,
+     pre_session_tool_definitions: Vec<Option<Arc<[ExtensionToolDefinition]>>>,
+-    tool_pre_session_plans: Vec<Option<ToolPreSessionPlan<C>>>,
++    tool_pre_session_plans: Vec<Option<RegisteredToolPreSessionPlan<C>>>,
+     tool_inventory_identity: Arc<()>,
+     tool_lifecycle_contributors: Vec<Arc<dyn ToolLifecycleContributor>>,
+     model_request_contributors: Vec<Arc<dyn ModelRequestContributor>>,
+@@ -462,6 +491,7 @@ impl<C: Sync> ExtensionRegistry<C> {
+         Ok(PreSessionExtensionTools {
+             registry_identity: Arc::clone(&self.tool_inventory_identity),
+             requires_config_renewal: false,
++            source: None,
+             definitions: self
+                 .pre_session_tool_definitions
+                 .iter()
+@@ -479,6 +509,9 @@ impl<C: Sync> ExtensionRegistry<C> {
+         if !Arc::ptr_eq(&self.tool_inventory_identity, &capture.registry_identity) {
+             return Err(PreSessionToolInventoryError::RegistryChanged);
+         }
++        if capture.source.is_some() {
++            return Err(PreSessionToolInventoryError::SourceRequired);
++        }
+         if capture.requires_config_renewal {
+             return Err(PreSessionToolInventoryError::ConfigurationRequired);
+         }
+diff --git a/codex-rs/ext/extension-api/src/registry/pre_session_tools.rs b/codex-rs/ext/extension-api/src/registry/pre_session_tools.rs
+index 530354f..70f6ba4 100644
+--- a/codex-rs/ext/extension-api/src/registry/pre_session_tools.rs
++++ b/codex-rs/ext/extension-api/src/registry/pre_session_tools.rs
+@@ -3,7 +3,8 @@ use std::sync::Arc;
+ use crate::ExtensionRegistry;
+ use crate::PreSessionExtensionTools;
+ use crate::PreSessionToolInventoryError;
+-use crate::ToolPreSessionSelection;
++use crate::SourceToolPreSessionSelection;
++use codex_protocol::protocol::SessionSource;
+ 
+ impl<C: Sync> ExtensionRegistry<C> {
+     /// Captures fixed definitions plus source-proven config-only absence. Every
+@@ -12,6 +13,24 @@ impl<C: Sync> ExtensionRegistry<C> {
+     pub fn capture_pre_session_tools_for_config(
+         &self,
+         config: &C,
++    ) -> Result<PreSessionExtensionTools, PreSessionToolInventoryError> {
++        self.capture_pre_session_tools_inner(config, None)
++    }
++
++    /// Captures ordered source-owned definitions with the original native source.
++    /// Unknown registrations refuse BEFORE any registered pure plan is evaluated.
++    pub fn capture_pre_session_tools_for_source(
++        &self,
++        config: &C,
++        source: &SessionSource,
++    ) -> Result<PreSessionExtensionTools, PreSessionToolInventoryError> {
++        self.capture_pre_session_tools_inner(config, Some(source))
++    }
++
++    fn capture_pre_session_tools_inner(
++        &self,
++        config: &C,
++        source: Option<&SessionSource>,
+     ) -> Result<PreSessionExtensionTools, PreSessionToolInventoryError> {
+         let missing: Vec<_> = self
+             .pre_session_tool_definitions
+@@ -27,16 +46,27 @@ impl<C: Sync> ExtensionRegistry<C> {
+                 registration_indexes: missing,
+             });
+         }
+-        let unresolved: Vec<_> = self
+-            .tool_pre_session_plans
++        let mut definitions = Vec::new();
++        let mut unresolved = Vec::new();
++        for (index, (fixed, plan)) in self
++            .pre_session_tool_definitions
+             .iter()
++            .zip(&self.tool_pre_session_plans)
+             .enumerate()
+-            .filter_map(|(index, plan)| {
+-                plan.as_ref().and_then(|plan| {
+-                    (plan(config) == ToolPreSessionSelection::Unresolved).then_some(index)
+-                })
+-            })
+-            .collect();
++        {
++            if let Some(fixed) = fixed {
++                definitions.extend(fixed.iter().cloned());
++            }
++            if let Some(plan) = plan {
++                match plan.select(config, source) {
++                    SourceToolPreSessionSelection::NoTools => {}
++                    SourceToolPreSessionSelection::Definitions(selected) => {
++                        definitions.extend(selected.iter().cloned())
++                    }
++                    SourceToolPreSessionSelection::Unresolved => unresolved.push(index),
++                }
++            }
++        }
+         if !unresolved.is_empty() {
+             return Err(PreSessionToolInventoryError::StateBoundContributors {
+                 registration_indexes: unresolved,
+@@ -45,12 +75,8 @@ impl<C: Sync> ExtensionRegistry<C> {
+         Ok(PreSessionExtensionTools {
+             registry_identity: Arc::clone(&self.tool_inventory_identity),
+             requires_config_renewal: self.tool_pre_session_plans.iter().any(Option::is_some),
+-            definitions: self
+-                .pre_session_tool_definitions
+-                .iter()
+-                .flatten()
+-                .flat_map(|definitions| definitions.iter().cloned())
+-                .collect(),
++            definitions: definitions.into(),
++            source: source.cloned(),
+         })
+     }
+ 
+@@ -65,6 +91,9 @@ impl<C: Sync> ExtensionRegistry<C> {
+         if !Arc::ptr_eq(&self.tool_inventory_identity, &capture.registry_identity) {
+             return Err(PreSessionToolInventoryError::RegistryChanged);
+         }
++        if capture.source.is_some() {
++            return Err(PreSessionToolInventoryError::SourceRequired);
++        }
+         let renewed = self.capture_pre_session_tools_for_config(config)?;
+         if renewed.definitions != capture.definitions {
+             return Err(PreSessionToolInventoryError::SelectionChanged);
+@@ -72,3 +101,38 @@ impl<C: Sync> ExtensionRegistry<C> {
+         Ok(())
+     }
+ }
++
++impl<C: Sync> ExtensionRegistry<C> {
++    /// Fallible metadata association through this SAME registry/source. The
++    /// ordinary dispatch owner must pass its already-collected actual executors
++    /// and propagate this Result BEFORE send. No such Core caller is installed
++    /// by this source capability; equality is not executor-origin/dispatch authority.
++    pub fn associate_pre_session_tools_for_source(
++        &self,
++        capture: &PreSessionExtensionTools,
++        config: &C,
++        source: &SessionSource,
++        executors: &[Arc<dyn for<'call> crate::ToolExecutor<crate::ToolCall<'call>>>],
++    ) -> Result<(), PreSessionToolInventoryError> {
++        self.renew_pre_session_tools_for_source(capture, config, source)?;
++        capture.check_executor_definitions(executors)
++    }
++    pub fn renew_pre_session_tools_for_source(
++        &self,
++        capture: &PreSessionExtensionTools,
++        config: &C,
++        source: &SessionSource,
++    ) -> Result<(), PreSessionToolInventoryError> {
++        if !Arc::ptr_eq(&self.tool_inventory_identity, &capture.registry_identity) {
++            return Err(PreSessionToolInventoryError::RegistryChanged);
++        }
++        if capture.source.as_ref() != Some(source) {
++            return Err(PreSessionToolInventoryError::SelectionChanged);
++        }
++        let renewed = self.capture_pre_session_tools_for_source(config, source)?;
++        if renewed.definitions != capture.definitions {
++            return Err(PreSessionToolInventoryError::SelectionChanged);
++        }
++        Ok(())
++    }
++}
+diff --git a/codex-rs/ext/extension-api/src/tool_inventory.rs b/codex-rs/ext/extension-api/src/tool_inventory.rs
+index 47c2514..279623e 100644
+--- a/codex-rs/ext/extension-api/src/tool_inventory.rs
++++ b/codex-rs/ext/extension-api/src/tool_inventory.rs
+@@ -26,6 +26,27 @@ pub struct ExtensionToolDefinition {
+ }
+ 
+ impl ExtensionToolDefinition {
++    /// DATA only, for sources whose executor uses the original trait defaults.
++    /// Registration/capture provenance and execution permission remain separate.
++    pub fn from_default_spec(name: ToolName, spec: ToolSpec) -> Self {
++        let search_info = ToolSearchInfo::from_tool_spec(spec.clone(), /*source_info*/ None);
++        Self {
++            name,
++            spec,
++            exposure: ToolExposure::Direct,
++            search_info,
++            supports_parallel_tool_calls: false,
++        }
++    }
++    fn from_executor(executor: &dyn for<'call> ToolExecutor<ToolCall<'call>>) -> Self {
++        Self {
++            name: executor.tool_name(),
++            spec: executor.spec(),
++            exposure: executor.exposure(),
++            search_info: executor.search_info(),
++            supports_parallel_tool_calls: executor.supports_parallel_tool_calls(),
++        }
++    }
+     pub fn name(&self) -> &ToolName {
+         &self.name
+     }
+@@ -58,6 +79,7 @@ pub struct PreSessionExtensionTools {
+     pub(crate) registry_identity: Arc<()>,
+     pub(crate) definitions: Arc<[ExtensionToolDefinition]>,
+     pub(crate) requires_config_renewal: bool,
++    pub(crate) source: Option<codex_protocol::protocol::SessionSource>,
+ }
+ 
+ impl PreSessionExtensionTools {
+@@ -65,6 +87,23 @@ impl PreSessionExtensionTools {
+     pub fn definitions(&self) -> &[ExtensionToolDefinition] {
+         &self.definitions
+     }
++    /// Compares actual original ordinary executor metadata, without invoking a
++    /// handle/lifecycle. This is DATA equality only: the real dispatch owner must
++    /// supply its already-collected executors and propagate refusal BEFORE send.
++    /// This method cannot certify caller origin or grant dispatch permission.
++    pub(crate) fn check_executor_definitions(
++        &self,
++        executors: &[Arc<dyn for<'call> ToolExecutor<ToolCall<'call>>>],
++    ) -> Result<(), PreSessionToolInventoryError> {
++        let actual: Vec<_> = executors
++            .iter()
++            .map(|executor| ExtensionToolDefinition::from_executor(executor.as_ref()))
++            .collect();
++        if actual.as_slice() != self.definitions.as_ref() {
++            return Err(PreSessionToolInventoryError::SelectionChanged);
++        }
++        Ok(())
++    }
+ }
+ 
+ #[derive(Debug, Clone, Eq, PartialEq)]
+@@ -75,6 +114,8 @@ pub enum PreSessionToolInventoryError {
+     RegistryChanged,
+     /// A configuration-selected capture requires renewal with current configuration.
+     ConfigurationRequired,
++    /// Source-aware capture requires the same original source during renewal.
++    SourceRequired,
+     /// The source-owned selection no longer matches the retained definitions.
+     SelectionChanged,
+ }
+@@ -92,6 +133,9 @@ impl fmt::Display for PreSessionToolInventoryError {
+             Self::ConfigurationRequired => {
+                 f.write_str("extension tool inventory requires current configuration")
+             }
++            Self::SourceRequired => {
++                f.write_str("extension tool inventory requires original session source")
++            }
+             Self::SelectionChanged => f.write_str("extension tool inventory selection changed"),
+         }
+     }
+@@ -112,13 +156,7 @@ impl FixedToolContributor {
+             .map(|executor| {
+                 // Registration, not capture, calls the owner-provided getters.
+                 // Ordinary planning subsequently reads only these retained values.
+-                let definition = ExtensionToolDefinition {
+-                    name: executor.tool_name(),
+-                    spec: executor.spec(),
+-                    exposure: executor.exposure(),
+-                    search_info: executor.search_info(),
+-                    supports_parallel_tool_calls: executor.supports_parallel_tool_calls(),
+-                };
++                let definition = ExtensionToolDefinition::from_executor(executor.as_ref());
+                 definitions.push(definition.clone());
+                 Arc::new(FixedToolExecutor {
+                     executor,
+diff --git a/codex-rs/ext/extension-api/src/tool_pre_session.rs b/codex-rs/ext/extension-api/src/tool_pre_session.rs
+index 4072e56..b5ccdcc 100644
+--- a/codex-rs/ext/extension-api/src/tool_pre_session.rs
++++ b/codex-rs/ext/extension-api/src/tool_pre_session.rs
+@@ -5,11 +5,13 @@ use std::sync::PoisonError;
+ use crate::ConfigContributor;
+ use crate::ExtensionData;
+ use crate::ExtensionFuture;
++use crate::ExtensionToolDefinition;
+ use crate::ThreadLifecycleContributor;
+ use crate::ThreadStartInput;
+ use crate::ToolCall;
+ use crate::ToolContributor;
+ use crate::ToolExecutor;
++use codex_protocol::protocol::SessionSource;
+ 
+ /// Config-only declaration from the registered tool source. NoTools settles only
+ /// this source's executable tools; context/instructions require their own capture.
+@@ -24,17 +26,74 @@ pub enum ToolPreSessionSelection {
+ /// ordinary selection logic; never call runtime/discovery or consult mutable state.
+ pub type ToolPreSessionPlan<C> = Arc<dyn Fn(&C) -> ToolPreSessionSelection + Send + Sync>;
+ 
++/// Source-owned metadata selection; never an executable tool or admission grant.
++#[derive(Clone, PartialEq)]
++pub enum SourceToolPreSessionSelection {
++    NoTools,
++    Definitions(Arc<[ExtensionToolDefinition]>),
++    Unresolved,
++}
++/// The original registration supplies a pure config/source projection. Source
++/// must be the original native selected source, never a caller absence/default.
++pub type SourceToolPreSessionPlan<C> =
++    Arc<dyn Fn(&C, &SessionSource) -> SourceToolPreSessionSelection + Send + Sync>;
++
++pub(crate) enum RegisteredToolPreSessionPlan<C> {
++    ConfigOnly(ToolPreSessionPlan<C>),
++    SourceAware(ToolPreSessionPlan<C>, SourceToolPreSessionPlan<C>),
++}
++impl<C> Clone for RegisteredToolPreSessionPlan<C> {
++    fn clone(&self) -> Self {
++        match self {
++            Self::ConfigOnly(plan) => Self::ConfigOnly(Arc::clone(plan)),
++            Self::SourceAware(absence, plan) => {
++                Self::SourceAware(Arc::clone(absence), Arc::clone(plan))
++            }
++        }
++    }
++}
++impl<C> RegisteredToolPreSessionPlan<C> {
++    pub(crate) fn select(
++        &self,
++        config: &C,
++        source: Option<&SessionSource>,
++    ) -> SourceToolPreSessionSelection {
++        match self {
++            Self::ConfigOnly(plan) => match plan(config) {
++                ToolPreSessionSelection::NoTools => SourceToolPreSessionSelection::NoTools,
++                ToolPreSessionSelection::Unresolved => SourceToolPreSessionSelection::Unresolved,
++            },
++            Self::SourceAware(absence, plan) => match source {
++                Some(source) => plan(config, source),
++                None => match absence(config) {
++                    ToolPreSessionSelection::NoTools => SourceToolPreSessionSelection::NoTools,
++                    ToolPreSessionSelection::Unresolved => {
++                        SourceToolPreSessionSelection::Unresolved
++                    }
++                },
++            },
++        }
++    }
++}
++struct ThreadToolSelection {
++    identity: Arc<()>,
++    source: Option<SessionSource>,
++    selection: SourceToolPreSessionSelection,
++}
+ #[derive(Default)]
+-struct ThreadToolSelections(Mutex<Vec<(Arc<()>, ToolPreSessionSelection)>>);
++struct ThreadToolSelections(Mutex<Vec<ThreadToolSelection>>);
+ 
+ pub(crate) struct PlannedToolContributor<C> {
+     contributor: Arc<dyn ToolContributor>,
+-    plan: ToolPreSessionPlan<C>,
++    plan: RegisteredToolPreSessionPlan<C>,
+     identity: Arc<()>,
+ }
+ 
+ impl<C> PlannedToolContributor<C> {
+-    pub(crate) fn new(contributor: Arc<dyn ToolContributor>, plan: ToolPreSessionPlan<C>) -> Self {
++    pub(crate) fn new(
++        contributor: Arc<dyn ToolContributor>,
++        plan: RegisteredToolPreSessionPlan<C>,
++    ) -> Self {
+         Self {
+             contributor,
+             plan,
+@@ -42,21 +101,46 @@ impl<C> PlannedToolContributor<C> {
+         }
+     }
+ 
+-    fn install_selection(&self, config: &C, thread_store: &ExtensionData) {
+-        let selection = (self.plan)(config);
++    fn install_selection(
++        &self,
++        config: &C,
++        source: Option<&SessionSource>,
++        thread_store: &ExtensionData,
++    ) {
++        // Invoke even the original config-only plan before taking the store lock.
++        let selection = self.plan.select(config, source);
+         let selections = thread_store.get_or_init(ThreadToolSelections::default);
+         let mut selections = selections.0.lock().unwrap_or_else(PoisonError::into_inner);
+-        if let Some((_, current)) = selections
++        if let Some(current) = selections
+             .iter_mut()
+-            .find(|(identity, _)| Arc::ptr_eq(identity, &self.identity))
++            .find(|current| Arc::ptr_eq(&current.identity, &self.identity))
+         {
+-            *current = selection;
++            if let Some(source) = source {
++                current.source = Some(source.clone());
++            }
++            current.selection = selection;
+         } else {
+-            selections.push((Arc::clone(&self.identity), selection));
++            selections.push(ThreadToolSelection {
++                identity: Arc::clone(&self.identity),
++                source: source.cloned(),
++                selection,
++            });
+         }
+     }
+-
+-    fn selection(&self, thread_store: &ExtensionData) -> ToolPreSessionSelection {
++    fn retained_source(&self, thread_store: &ExtensionData) -> Option<SessionSource> {
++        thread_store
++            .get::<ThreadToolSelections>()
++            .and_then(|selections| {
++                selections
++                    .0
++                    .lock()
++                    .unwrap_or_else(PoisonError::into_inner)
++                    .iter()
++                    .find(|current| Arc::ptr_eq(&current.identity, &self.identity))
++                    .and_then(|current| current.source.clone())
++            })
++    }
++    fn selection(&self, thread_store: &ExtensionData) -> SourceToolPreSessionSelection {
+         thread_store
+             .get::<ThreadToolSelections>()
+             .and_then(|selections| {
+@@ -65,17 +149,17 @@ impl<C> PlannedToolContributor<C> {
+                     .lock()
+                     .unwrap_or_else(PoisonError::into_inner)
+                     .iter()
+-                    .find(|(identity, _)| Arc::ptr_eq(identity, &self.identity))
+-                    .map(|(_, selection)| *selection)
++                    .find(|current| Arc::ptr_eq(&current.identity, &self.identity))
++                    .map(|current| current.selection.clone())
+             })
+-            .unwrap_or(ToolPreSessionSelection::Unresolved)
++            .unwrap_or(SourceToolPreSessionSelection::Unresolved)
+     }
+ }
+ 
+ impl<C: Sync> ThreadLifecycleContributor<C> for PlannedToolContributor<C> {
+     fn on_thread_start<'a>(&'a self, input: ThreadStartInput<'a, C>) -> ExtensionFuture<'a, ()> {
+         Box::pin(async move {
+-            self.install_selection(input.config, input.thread_store);
++            self.install_selection(input.config, Some(input.session_source), input.thread_store);
+         })
+     }
+ }
+@@ -88,7 +172,15 @@ impl<C> ConfigContributor<C> for PlannedToolContributor<C> {
+         _previous: &C,
+         current: &C,
+     ) {
+-        self.install_selection(current, thread);
++        match &self.plan {
++            RegisteredToolPreSessionPlan::ConfigOnly(_) => {
++                self.install_selection(current, None, thread)
++            }
++            RegisteredToolPreSessionPlan::SourceAware(_, _) => {
++                let source = self.retained_source(thread);
++                self.install_selection(current, source.as_ref(), thread);
++            }
++        }
+     }
+ }
+ 
+@@ -100,8 +192,9 @@ impl<C> ToolContributor for PlannedToolContributor<C> {
+     ) -> Vec<Arc<dyn for<'call> ToolExecutor<ToolCall<'call>>>> {
+         let tools = self.contributor.tools(session, thread);
+         match self.selection(thread) {
+-            ToolPreSessionSelection::NoTools => Vec::new(),
+-            ToolPreSessionSelection::Unresolved => tools,
++            SourceToolPreSessionSelection::NoTools => Vec::new(),
++            SourceToolPreSessionSelection::Unresolved
++            | SourceToolPreSessionSelection::Definitions(_) => tools,
+         }
+     }
+ 
+@@ -113,8 +206,13 @@ impl<C> ToolContributor for PlannedToolContributor<C> {
+     ) -> Vec<Arc<dyn for<'call> ToolExecutor<ToolCall<'call>>>> {
+         let tools = self.contributor.tools_for_step(session, thread, step);
+         match self.selection(thread) {
+-            ToolPreSessionSelection::NoTools => Vec::new(),
+-            ToolPreSessionSelection::Unresolved => tools,
++            SourceToolPreSessionSelection::NoTools => Vec::new(),
++            SourceToolPreSessionSelection::Unresolved
++            | SourceToolPreSessionSelection::Definitions(_) => tools,
+         }
+     }
+ }
++
++#[cfg(test)]
++#[path = "tool_pre_session_tests.rs"]
++mod tests;
+diff --git a/codex-rs/ext/extension-api/src/tool_pre_session_tests.rs b/codex-rs/ext/extension-api/src/tool_pre_session_tests.rs
+new file mode 100644
+index 0000000..2a1f94d
+--- /dev/null
++++ b/codex-rs/ext/extension-api/src/tool_pre_session_tests.rs
+@@ -0,0 +1,138 @@
++use super::*;
++use crate::ExtensionRegistryBuilder;
++use crate::PreSessionToolInventoryError;
++use codex_protocol::protocol::SubAgentSource;
++use pretty_assertions::assert_eq;
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++struct CountingContributor(Arc<AtomicUsize>);
++impl ToolContributor for CountingContributor {
++    fn tools(
++        &self,
++        _session: &ExtensionData,
++        _thread: &ExtensionData,
++    ) -> Vec<Arc<dyn for<'call> ToolExecutor<ToolCall<'call>>>> {
++        self.0.fetch_add(1, Ordering::SeqCst);
++        Vec::new()
++    }
++}
++fn source_plan(calls: Arc<AtomicUsize>) -> SourceToolPreSessionPlan<bool> {
++    Arc::new(move |enabled, source| {
++        calls.fetch_add(1, Ordering::SeqCst);
++        if !*enabled || matches!(source, SessionSource::SubAgent(SubAgentSource::Review)) {
++            SourceToolPreSessionSelection::NoTools
++        } else {
++            SourceToolPreSessionSelection::Unresolved
++        }
++    })
++}
++fn absence() -> ToolPreSessionPlan<bool> {
++    Arc::new(|enabled| {
++        if *enabled {
++            ToolPreSessionSelection::Unresolved
++        } else {
++            ToolPreSessionSelection::NoTools
++        }
++    })
++}
++
++#[test]
++fn source_plan_unknown_first_and_foreign_changed_source_config_refuse_without_tool_calls() {
++    let plans = Arc::new(AtomicUsize::new(0));
++    let tools = Arc::new(AtomicUsize::new(0));
++    let mut builder = ExtensionRegistryBuilder::<bool>::new();
++    builder.tool_contributor_with_source_pre_session_plan(
++        Arc::new(CountingContributor(Arc::clone(&tools))),
++        absence(),
++        source_plan(Arc::clone(&plans)),
++    );
++    let registry = builder.build();
++    let mut unknown = registry.to_builder();
++    unknown.tool_contributor(Arc::new(CountingContributor(Arc::clone(&tools))));
++    assert!(
++        matches!(unknown.build().capture_pre_session_tools_for_source(&false, &SessionSource::Exec), Err(PreSessionToolInventoryError::StateBoundContributors { registration_indexes }) if registration_indexes == vec![1])
++    );
++    assert_eq!(plans.load(Ordering::SeqCst), 0);
++    assert_eq!(tools.load(Ordering::SeqCst), 0);
++    let capture = registry
++        .capture_pre_session_tools_for_source(&false, &SessionSource::Exec)
++        .unwrap();
++    registry
++        .renew_pre_session_tools_for_source(&capture, &false, &SessionSource::Exec)
++        .unwrap();
++    assert_eq!(
++        registry.renew_pre_session_tools_for_config(&capture, &false),
++        Err(PreSessionToolInventoryError::SourceRequired)
++    );
++    assert_eq!(
++        registry.renew_pre_session_tools_for_source(
++            &capture,
++            &false,
++            &SessionSource::SubAgent(SubAgentSource::Review)
++        ),
++        Err(PreSessionToolInventoryError::SelectionChanged)
++    );
++    assert!(
++        registry
++            .renew_pre_session_tools_for_source(&capture, &true, &SessionSource::Exec)
++            .is_err()
++    );
++    assert_eq!(
++        registry
++            .to_builder()
++            .build()
++            .renew_pre_session_tools_for_source(&capture, &false, &SessionSource::Exec),
++        Err(PreSessionToolInventoryError::RegistryChanged)
++    );
++    let legacy = registry
++        .capture_pre_session_tools_for_config(&false)
++        .unwrap();
++    registry
++        .renew_pre_session_tools_for_config(&legacy, &false)
++        .unwrap();
++    assert!(
++        registry
++            .capture_pre_session_tools_for_config(&true)
++            .is_err()
++    );
++    assert_eq!(tools.load(Ordering::SeqCst), 0);
++}
++
++#[tokio::test]
++async fn ordinary_config_renewal_retains_real_thread_start_source_and_legacy_forwarding() {
++    let plans = Arc::new(AtomicUsize::new(0));
++    let tools = Arc::new(AtomicUsize::new(0));
++    let contributor = PlannedToolContributor::new(
++        Arc::new(CountingContributor(Arc::clone(&tools))),
++        RegisteredToolPreSessionPlan::SourceAware(absence(), source_plan(Arc::clone(&plans))),
++    );
++    let session = ExtensionData::new("ordinary-source-oracle");
++    let thread = ExtensionData::new("ordinary-thread-oracle");
++    // Ordinary adapter oracle, never called by capture. No fake tool/executor,
++    // Session or success bit is injected into production preparation.
++    contributor
++        .on_thread_start(ThreadStartInput {
++            config: &false,
++            session_source: &SessionSource::SubAgent(SubAgentSource::Review),
++            persistent_thread_state_available: true,
++            environments: &[],
++            mcp_resource_client: None,
++            extension_metrics: None,
++            session_store: &session,
++            thread_store: &thread,
++        })
++        .await;
++    contributor.on_config_changed(&session, &thread, &false, &true);
++    assert!(contributor.selection(&thread) == SourceToolPreSessionSelection::NoTools);
++    assert_eq!(plans.load(Ordering::SeqCst), 2);
++    assert!(contributor.tools(&session, &thread).is_empty());
++    assert_eq!(tools.load(Ordering::SeqCst), 1);
++    let legacy = PlannedToolContributor::new(
++        Arc::new(CountingContributor(Arc::clone(&tools))),
++        RegisteredToolPreSessionPlan::ConfigOnly(absence()),
++    );
++    legacy.on_config_changed(&session, &thread, &false, &true);
++    assert!(legacy.selection(&thread) == SourceToolPreSessionSelection::Unresolved);
++    legacy.tools(&session, &thread);
++    assert_eq!(tools.load(Ordering::SeqCst), 2);
++}
+diff --git a/codex-rs/ext/goal/src/extension.rs b/codex-rs/ext/goal/src/extension.rs
+index c683a35..a33db6b 100644
+--- a/codex-rs/ext/goal/src/extension.rs
++++ b/codex-rs/ext/goal/src/extension.rs
+@@ -9,6 +9,7 @@ use codex_extension_api::ExtensionData;
+ use codex_extension_api::ExtensionEventSink;
+ use codex_extension_api::ExtensionFuture;
+ use codex_extension_api::ExtensionRegistryBuilder;
++use codex_extension_api::SourceToolPreSessionSelection;
+ use codex_extension_api::ThreadIdleInput;
+ use codex_extension_api::ThreadLifecycleContributor;
+ use codex_extension_api::ThreadResumeInput;
+@@ -50,6 +51,7 @@ use crate::spec::CREATE_GOAL_TOOL_NAME;
+ use crate::spec::UPDATE_GOAL_TOOL_NAME;
+ use crate::steering::budget_limit_steering_item;
+ use crate::tool::GoalToolExecutor;
++use crate::tool::GoalToolKind;
+ 
+ #[derive(Clone, Debug)]
+ pub struct GoalExtensionConfig {
+@@ -104,10 +106,7 @@ where
+         Box::pin(async move {
+             let config = (self.goal_config)(input.config);
+             let enabled = config.enabled;
+-            let tools_visible_for_thread = !matches!(
+-                input.session_source,
+-                SessionSource::SubAgent(SubAgentSource::Review)
+-            );
++            let tools_visible_for_thread = goal_tools_visible_for_source(input.session_source);
+             let tools_available_for_thread =
+                 input.persistent_thread_state_available && tools_visible_for_thread;
+             input.thread_store.insert(config);
+@@ -548,8 +547,8 @@ where
+             .get::<GoalExtensionConfig>()
+             .and_then(|config| config.max_goal_token_budget);
+ 
+-        let tools = [
+-            GoalToolExecutor::get(
++        let tools = GoalToolKind::ORDERED.map(|kind| match kind {
++            GoalToolKind::Get => GoalToolExecutor::get(
+                 runtime.thread_id(),
+                 Arc::clone(&self.state_dbs),
+                 runtime.accounting_state(),
+@@ -557,7 +556,7 @@ where
+                 self.event_emitter.clone(),
+                 self.metrics.clone(),
+             ),
+-            GoalToolExecutor::create(
++            GoalToolKind::Create => GoalToolExecutor::create(
+                 runtime.thread_id(),
+                 Arc::clone(&self.state_dbs),
+                 runtime.accounting_state(),
+@@ -566,7 +565,7 @@ where
+                 self.metrics.clone(),
+                 max_goal_token_budget,
+             ),
+-            GoalToolExecutor::update(
++            GoalToolKind::Update => GoalToolExecutor::update(
+                 runtime.thread_id(),
+                 Arc::clone(&self.state_dbs),
+                 runtime.accounting_state(),
+@@ -574,7 +573,7 @@ where
+                 self.event_emitter.clone(),
+                 self.metrics.clone(),
+             ),
+-        ];
++        });
+         tools
+             .into_iter()
+             .map(|mut tool| {
+@@ -585,7 +584,11 @@ where
+     }
+ }
+ 
+-/// Installs the ordinary goal owners and their config-only absence plan.
++fn goal_tools_visible_for_source(source: &SessionSource) -> bool {
++    !matches!(source, SessionSource::SubAgent(SubAgentSource::Review))
++}
++
++/// Installs ordinary Goal owners and their original ordered metadata plan.
+ /// `goal_config` must project only the supplied configuration without effects or
+ /// mutable external reads; preparation and ordinary lifecycle share that source.
+ pub fn install_with_backend<C>(
+@@ -614,15 +617,25 @@ pub fn install_with_backend<C>(
+     registry.token_usage_contributor(extension.clone());
+     registry.tool_lifecycle_contributor(extension.clone());
+     let goal_config = Arc::clone(&extension.goal_config);
+-    registry.tool_contributor_with_pre_session_plan(
++    let config_only = Arc::clone(&goal_config);
++    registry.tool_contributor_with_source_pre_session_plan(
+         extension,
+         Arc::new(move |config| {
+-            if goal_config(config).enabled {
++            if config_only(config).enabled {
+                 ToolPreSessionSelection::Unresolved
+             } else {
+                 ToolPreSessionSelection::NoTools
+             }
+         }),
++        Arc::new(move |config, source| {
++            if goal_config(config).enabled && goal_tools_visible_for_source(source) {
++                SourceToolPreSessionSelection::Definitions(
++                    GoalToolKind::ORDERED.map(GoalToolKind::definition).into(),
++                )
++            } else {
++                SourceToolPreSessionSelection::NoTools
++            }
++        }),
+     );
+ }
+ 
+@@ -643,3 +656,7 @@ fn tool_attempt_counts_for_goal_progress(outcome: ToolCallOutcome) -> bool {
+         | ToolCallOutcome::Aborted => false,
+     }
+ }
++
++#[cfg(test)]
++#[path = "tool_selection_tests.rs"]
++mod tool_selection_tests;
+diff --git a/codex-rs/ext/goal/src/tool.rs b/codex-rs/ext/goal/src/tool.rs
+index ff50406..6f12b02 100644
+--- a/codex-rs/ext/goal/src/tool.rs
++++ b/codex-rs/ext/goal/src/tool.rs
+@@ -1,5 +1,6 @@
+ use std::sync::Arc;
+ 
++use codex_extension_api::ExtensionToolDefinition;
+ use codex_extension_api::FunctionCallError;
+ use codex_extension_api::JsonToolOutput;
+ use codex_extension_api::ToolCall;
+@@ -41,12 +42,33 @@ pub(crate) struct GoalToolExecutor {
+ }
+ 
+ #[derive(Clone, Copy)]
+-enum GoalToolKind {
++pub(crate) enum GoalToolKind {
+     Get,
+     Create,
+     Update,
+ }
+ 
++impl GoalToolKind {
++    pub(crate) const ORDERED: [Self; 3] = [Self::Get, Self::Create, Self::Update];
++    fn tool_name(self) -> ToolName {
++        ToolName::plain(match self {
++            GoalToolKind::Get => GET_GOAL_TOOL_NAME,
++            GoalToolKind::Create => CREATE_GOAL_TOOL_NAME,
++            GoalToolKind::Update => UPDATE_GOAL_TOOL_NAME,
++        })
++    }
++    fn spec(self) -> ToolSpec {
++        match self {
++            GoalToolKind::Get => create_get_goal_tool(),
++            GoalToolKind::Create => create_create_goal_tool(),
++            GoalToolKind::Update => create_update_goal_tool(),
++        }
++    }
++    pub(crate) fn definition(self) -> ExtensionToolDefinition {
++        ExtensionToolDefinition::from_default_spec(self.tool_name(), self.spec())
++    }
++}
++
+ #[derive(Debug, Deserialize)]
+ #[serde(rename_all = "snake_case")]
+ pub struct CreateGoalRequest {
+@@ -142,19 +164,10 @@ impl GoalToolExecutor {
+ 
+ impl<'call> ToolExecutor<ToolCall<'call>> for GoalToolExecutor {
+     fn tool_name(&self) -> ToolName {
+-        ToolName::plain(match self.kind {
+-            GoalToolKind::Get => GET_GOAL_TOOL_NAME,
+-            GoalToolKind::Create => CREATE_GOAL_TOOL_NAME,
+-            GoalToolKind::Update => UPDATE_GOAL_TOOL_NAME,
+-        })
++        self.kind.tool_name()
+     }
+-
+     fn spec(&self) -> ToolSpec {
+-        match self.kind {
+-            GoalToolKind::Get => create_get_goal_tool(),
+-            GoalToolKind::Create => create_create_goal_tool(),
+-            GoalToolKind::Update => create_update_goal_tool(),
+-        }
++        self.kind.spec()
+     }
+ 
+     fn handle<'a>(
+diff --git a/codex-rs/ext/goal/src/tool_selection_tests.rs b/codex-rs/ext/goal/src/tool_selection_tests.rs
+new file mode 100644
+index 0000000..e95f07a
+--- /dev/null
++++ b/codex-rs/ext/goal/src/tool_selection_tests.rs
+@@ -0,0 +1,181 @@
++use super::*;
++use codex_extension_api::ExtensionRegistry;
++use codex_extension_api::PreSessionToolInventoryError;
++use codex_utils_absolute_path::test_support::PathExt;
++use pretty_assertions::assert_eq;
++
++async fn fixture() -> anyhow::Result<(
++    tempfile::TempDir,
++    Arc<ExtensionRegistry<bool>>,
++    Arc<GoalService>,
++)> {
++    let home = tempfile::tempdir()?;
++    let runtime = codex_state::StateRuntime::init(
++        codex_state::SqliteConfig::new_for_testing(home.path().abs()),
++        "offline-goal-source".to_string(),
++    )
++    .await?;
++    let mut builder = ExtensionRegistryBuilder::<bool>::new();
++    let service = Arc::new(GoalService::new());
++    install_with_backend(
++        &mut builder,
++        runtime,
++        AnalyticsEventsClient::disabled(),
++        None,
++        Weak::new(),
++        Arc::clone(&service),
++        |enabled| GoalExtensionConfig {
++            enabled: *enabled,
++            max_goal_token_budget: Some(123),
++        },
++    );
++    Ok((home, builder.build(), service))
++}
++
++async fn ordinary_oracle(
++    registry: &ExtensionRegistry<bool>,
++    source: &SessionSource,
++    persistent: bool,
++) -> (
++    Vec<Arc<dyn for<'call> ToolExecutor<ToolCall<'call>>>>,
++    ExtensionData,
++) {
++    // Ordinary runtime oracle ONLY, after metadata capture. Preparation itself
++    // constructs no ExtensionData/Session/runtime and invokes no lifecycle/tool.
++    let thread_id = ThreadId::new();
++    let session = ExtensionData::new(thread_id.to_string());
++    let thread = ExtensionData::new(thread_id.to_string());
++    for contributor in registry.thread_lifecycle_contributors() {
++        contributor
++            .on_thread_start(ThreadStartInput {
++                config: &true,
++                session_source: source,
++                persistent_thread_state_available: persistent,
++                environments: &[],
++                mcp_resource_client: None,
++                extension_metrics: None,
++                session_store: &session,
++                thread_store: &thread,
++            })
++            .await;
++    }
++    let tools = registry
++        .tool_contributors()
++        .iter()
++        .flat_map(|contributor| contributor.tools(&session, &thread))
++        .collect();
++    (tools, thread)
++}
++
++#[tokio::test]
++async fn goal_original_ordered_metadata_matches_real_executors_and_refuses_order_or_missing_tools()
++-> anyhow::Result<()> {
++    let (_home, registry, service) = fixture().await?;
++    let unstarted = ThreadId::new();
++    assert!(service.runtime_for_thread(unstarted).is_none());
++    let capture = registry.capture_pre_session_tools_for_source(&true, &SessionSource::Exec)?;
++    assert!(service.runtime_for_thread(unstarted).is_none());
++    assert_eq!(
++        capture
++            .definitions()
++            .iter()
++            .map(|definition| definition.name().name.clone())
++            .collect::<Vec<_>>(),
++        vec![
++            crate::spec::GET_GOAL_TOOL_NAME.to_string(),
++            crate::spec::CREATE_GOAL_TOOL_NAME.to_string(),
++            crate::spec::UPDATE_GOAL_TOOL_NAME.to_string()
++        ]
++    );
++    assert_eq!(
++        registry.associate_pre_session_tools_for_source(&capture, &true, &SessionSource::Exec, &[]),
++        Err(PreSessionToolInventoryError::SelectionChanged)
++    );
++    let (tools, _thread) = ordinary_oracle(&registry, &SessionSource::Exec, true).await;
++    registry.associate_pre_session_tools_for_source(
++        &capture,
++        &true,
++        &SessionSource::Exec,
++        &tools,
++    )?;
++    let mut reversed = tools.clone();
++    reversed.reverse();
++    assert_eq!(
++        registry.associate_pre_session_tools_for_source(
++            &capture,
++            &true,
++            &SessionSource::Exec,
++            &reversed
++        ),
++        Err(PreSessionToolInventoryError::SelectionChanged)
++    );
++    // Whole descriptor matching above includes Direct exposure, generated
++    // ToolSearchInfo::from_tool_spec(spec,None) and parallel=false. No handle ran.
++    assert_eq!(
++        registry.associate_pre_session_tools_for_source(
++            &capture,
++            &false,
++            &SessionSource::Exec,
++            &tools
++        ),
++        Err(PreSessionToolInventoryError::SelectionChanged)
++    );
++    assert_eq!(
++        registry.associate_pre_session_tools_for_source(
++            &capture,
++            &true,
++            &SessionSource::SubAgent(SubAgentSource::Review),
++            &tools
++        ),
++        Err(PreSessionToolInventoryError::SelectionChanged)
++    );
++    let rebuilt = registry.to_builder().build();
++    assert_eq!(
++        rebuilt.renew_pre_session_tools_for_source(&capture, &true, &SessionSource::Exec),
++        Err(PreSessionToolInventoryError::RegistryChanged)
++    );
++    Ok(())
++}
++
++#[tokio::test]
++async fn goal_visibility_and_persistence_keep_original_metadata_and_execution_policy_separate()
++-> anyhow::Result<()> {
++    let (_home, registry, _service) = fixture().await?;
++    // Preserve the existing disabled/config-only contract, without inventing a source.
++    assert!(
++        registry
++            .capture_pre_session_tools_for_config(&false)?
++            .definitions()
++            .is_empty()
++    );
++    assert!(
++        registry
++            .capture_pre_session_tools_for_config(&true)
++            .is_err()
++    );
++    let root = registry.capture_pre_session_tools_for_source(&true, &SessionSource::Exec)?;
++    let review = registry.capture_pre_session_tools_for_source(
++        &true,
++        &SessionSource::SubAgent(SubAgentSource::Review),
++    )?;
++    assert!(review.definitions().is_empty());
++    let (tools, thread) = ordinary_oracle(&registry, &SessionSource::Exec, false).await;
++    registry.associate_pre_session_tools_for_source(&root, &true, &SessionSource::Exec, &tools)?;
++    let runtime = goal_runtime_handle(&thread).unwrap();
++    assert!(runtime.tools_visible());
++    assert!(!runtime.tools_available());
++    let (review_tools, _) = ordinary_oracle(
++        &registry,
++        &SessionSource::SubAgent(SubAgentSource::Review),
++        true,
++    )
++    .await;
++    registry.associate_pre_session_tools_for_source(
++        &review,
++        &true,
++        &SessionSource::SubAgent(SubAgentSource::Review),
++        &review_tools,
++    )?;
++    assert!(review_tools.is_empty());
++    Ok(())
++}

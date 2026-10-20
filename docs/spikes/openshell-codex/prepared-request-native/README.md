@@ -6,7 +6,40 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 107 patches
+## Current composed source: 109 patches
+
+The 109 ordered patches reconstruct native tree
+`eaafee0c18477031e6b6b96b7bd972304a5a2bba` (local source
+`d8a86a91a675300959a9e91cc10f2a82a389b359`). All 107 earlier patch
+records and bytes remain unchanged. This source requires fresh CI; the retained
+public 107 results do not qualify these new sources.
+
+Patch 108 captures the original Goal get/create/update definitions from the same
+registry and actual source/effective configuration, preserving real handlers,
+visibility and execution policy. Patch 109 carries that opaque extension partition
+through the original allocation into the real Session. It binds only the actual
+admitted User turn and checks the original registry's actual executor sequence
+before adaptation and router finalization. Failed or consumed custody cannot
+fall back to an ordinary empty plan; the original None lazy path remains exact.
+
+Five Core and four Goal/API fixtures are authored but UNCOMPILED/UNRUN locally.
+Both original extension libraries declare test=false, so CI additionally selects
+both explicit library targets and requires the four actual named cases. Three
+retained historical regression oracles and the five new Core cases run early; the complete original suite covering 22 packages plus Linux sandbox, one thread, zero retries and a budget of 240 minutes remain.
+Added diagnostic failures remain failures and do not suppress the full suite.
+
+The page recorder separately drains actual response-body reads before closing
+its browser owner and asserts errors after final retention. Its two changed
+browser cases pass using retained official 107 bundles with all original 3399
+input hashes checked, without a local build. The original 107 unclean final
+network receipt is retained and is not relabelled as this candidate's pass.
+
+This does not freeze intended first-command content/overrides, full initial
+context or final Core/MCP/policy specs. Complete request/count/State/currentness,
+RPC/host adoption, Ready, joining/reply and selected later-turn continuation
+remain open. No runtime install, account selection or real model call occurred.
+
+## Previous composed source: 107 patches
 
 The107 ordered patches reconstruct native tree
 `d05bb05b2e3d8395e8fae4144a6669ac12c0ad5f` (local source

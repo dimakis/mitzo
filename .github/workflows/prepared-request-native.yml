@@ -157,6 +157,7 @@ jobs:
           print(json.dumps(proof))
           PY
       - name: Build standalone native test helpers
+        id: native_helpers
         shell: bash
         working-directory: .native-prepared-source/codex-rs
         env:
@@ -189,7 +190,99 @@ jobs:
               echo "CARGO_BIN_EXE_codex_linux_sandbox=$CARGO_TARGET_DIR/debug/codex-linux-sandbox"
             } >> "$GITHUB_ENV"
           fi
+      - name: Discover and run required Core regression fixtures first
+        id: original_regression_oracles
+        if: ${{ !cancelled() && steps.native_helpers.outcome == 'success' }}
+        shell: bash
+        working-directory: .native-prepared-source/codex-rs
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          set -euo pipefail
+          # Early diagnostic ordering only; the complete original suite still runs.
+          native_oracle_filter='test(=client::public_responses_capture::tests::bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture) | test(=client::public_responses_capture::tests::public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row) | test(=thread_manager::pre_session_skills::tests::original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup) | test(=session::client_input_data::tests::retained_tool_carrier_burns_foreign_allocation_and_repeated_install_or_take) | test(=session::client_input_data::tests::retained_tool_binding_ignores_unbound_contexts_and_never_recovers_after_cancel_or_failure) | test(=session::turn_input::tests::retained_tools_bind_only_actual_admitted_user_and_reject_automatic_or_recovery) | test(=tools::spec_plan::tests::retained_actual_registry_iterator_associates_before_router_and_preserves_final_specs) | test(=tools::spec_plan::tests::retained_router_metadata_mismatch_burns_before_adapter_and_cannot_fall_back)'
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            NEXTEST_PROFILE=local RUST_MIN_STACK=8388608 \
+            cargo nextest list --lib -p codex-core -E "$native_oracle_filter" \
+            --message-format json > native-core-regression-list.json
+          python3 - <<'PY_ORACLES'
+          import json
+          from pathlib import Path
+          expected = {'session::client_input_data::tests::retained_tool_carrier_burns_foreign_allocation_and_repeated_install_or_take', 'tools::spec_plan::tests::retained_router_metadata_mismatch_burns_before_adapter_and_cannot_fall_back', 'thread_manager::pre_session_skills::tests::original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup', 'tools::spec_plan::tests::retained_actual_registry_iterator_associates_before_router_and_preserves_final_specs', 'client::public_responses_capture::tests::public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row', 'client::public_responses_capture::tests::bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture', 'session::client_input_data::tests::retained_tool_binding_ignores_unbound_contexts_and_never_recovers_after_cancel_or_failure', 'session::turn_input::tests::retained_tools_bind_only_actual_admitted_user_and_reject_automatic_or_recovery'}
+          report = json.loads(Path('native-core-regression-list.json').read_text())
+          observed = set()
+          for suite in report['rust-suites'].values():
+              if suite['package-name'] != 'codex-core' or suite['kind'] != 'lib' or suite['status'] != 'listed':
+                  continue
+              for name, case in suite['testcases'].items():
+                  if not case['ignored'] and case['filter-match']['status'] == 'matches':
+                      observed.add(name)
+          if observed != expected:
+              raise RuntimeError(f'Expected exact eight Core regression cases, observed: {sorted(observed)}')
+          PY_ORACLES
+          oracle_status=0
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            just test --lib -p codex-core -E "$native_oracle_filter" \
+            --test-threads 1 --retries 0 2>&1 | tee native-core-regression-fixtures.log || oracle_status=$?
+          if [[ -f target/nextest/local/junit.xml ]]; then
+            cp target/nextest/local/junit.xml native-core-regression-junit.xml
+          fi
+          exit "$oracle_status"
+      - name: Discover and run explicit extension library fixtures
+        if: ${{ !cancelled() && steps.native_helpers.outcome == 'success' }}
+        id: extension_libraries
+        shell: bash
+        working-directory: .native-prepared-source/codex-rs
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          set -euo pipefail
+          # Both original Cargo libraries use test=false. Explicit --lib selects
+          # their real unit harnesses; the complete package suite remains below.
+          library_status=0
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            NEXTEST_PROFILE=local RUST_MIN_STACK=8388608 \
+            cargo nextest list --lib -p codex-goal-extension -p codex-extension-api \
+            --message-format json > native-extension-lib-list.json
+          python3 - <<'PY_DISCOVERY'
+          import json
+          from pathlib import Path
+          expected = {
+              'codex-goal-extension': {
+                  'extension::tool_selection_tests::goal_original_ordered_metadata_matches_real_executors_and_refuses_order_or_missing_tools',
+                  'extension::tool_selection_tests::goal_visibility_and_persistence_keep_original_metadata_and_execution_policy_separate',
+              },
+              'codex-extension-api': {
+                  'tool_pre_session::tests::source_plan_unknown_first_and_foreign_changed_source_config_refuse_without_tool_calls',
+                  'tool_pre_session::tests::ordinary_config_renewal_retains_real_thread_start_source_and_legacy_forwarding',
+              },
+          }
+          report = json.loads(Path('native-extension-lib-list.json').read_text())
+          observed = {}
+          for suite in report['rust-suites'].values():
+              if suite['kind'] != 'lib' or suite['status'] != 'listed':
+                  continue
+              for name, case in suite['testcases'].items():
+                  if not case['ignored'] and case['filter-match']['status'] == 'matches':
+                      observed.setdefault(suite['package-name'], set()).add(name)
+          for package, names in expected.items():
+              missing = names - observed.get(package, set())
+              if missing:
+                  raise RuntimeError(f'Actual explicit library discovery missing {package}: {sorted(missing)}')
+          Path('native-extension-lib-discovery.json').write_text(json.dumps({
+              'status': 'DISCOVERED_NOT_EXECUTED',
+              'required': {package: sorted(names) for package, names in expected.items()},
+          }, indent=2) + '\n')
+          PY_DISCOVERY
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            just test --lib -p codex-goal-extension -p codex-extension-api \
+            --test-threads 1 --retries 0 2>&1 | tee native-extension-lib-fixtures.log || library_status=$?
+          if [[ -f target/nextest/local/junit.xml ]]; then
+            cp target/nextest/local/junit.xml native-extension-lib-junit.xml
+          fi
+          exit "$library_status"
       - name: Run native crate fixtures without provider credentials
+        if: ${{ !cancelled() && steps.native_helpers.outcome == 'success' }}
         shell: bash
         working-directory: .native-prepared-source/codex-rs
         env:
@@ -213,6 +306,13 @@ jobs:
           name: native-fixtures-${{ matrix.os }}
           path: |
             .native-prepared-source/codex-rs/native-fixtures.log
+            .native-prepared-source/codex-rs/native-core-regression-list.json
+            .native-prepared-source/codex-rs/native-core-regression-fixtures.log
+            .native-prepared-source/codex-rs/native-core-regression-junit.xml
+            .native-prepared-source/codex-rs/native-extension-lib-list.json
+            .native-prepared-source/codex-rs/native-extension-lib-discovery.json
+            .native-prepared-source/codex-rs/native-extension-lib-fixtures.log
+            .native-prepared-source/codex-rs/native-extension-lib-junit.xml
             .native-prepared-source/codex-rs/target/nextest/local/junit.xml
             .native-prepared-source/native-v8-artifacts.json
             docs/spikes/openshell-codex/prepared-request-native/source-evidence.json

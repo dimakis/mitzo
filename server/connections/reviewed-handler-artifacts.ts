@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.460-symposium-original-startup-selection';
+  'v1.0.462-symposium-admitted-extension-tools';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1327,4 +1327,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '4d08edd85cfa0019d2417ee7c46bf440928924218f1157dfe18806c29c6ec0bb',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-public-capture-client-test-import.patch':
     '9bd157355ee47c4bdd4f27a641732126c3f121a5cd34e37ab3894882d61fdb26',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-source-goal-tools.patch':
+    '97575e0433900c779b1be773c9c372de36bf6c56accbac06e71552d18c98dc31',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-admitted-extension-carry.patch':
+    '2ede5c8a7d5c6d522b6291faf1d78fb0ad5d3f3c7a64c93bc3cf67f0256d655a',
 });
