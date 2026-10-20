@@ -6,7 +6,35 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 105 patches
+## Current composed source: 107 patches
+
+The107 ordered patches reconstruct native tree
+`d05bb05b2e3d8395e8fae4144a6669ac12c0ad5f` (local source
+`b17efb6332df194e14ae5c96ecedb4b3e51849bd`). All105 earlier patch records
+and bytes remain unchanged.
+
+Patch106 shares the original startup review-policy, full model-row, TokenBudget
+and base-instruction transformations at their ordinary acquisition positions.
+The selected owner retains raw loader/policy configuration separately from the
+effective configuration used by MCP and the original client. The same credential
+Arc, catalog publisher, source frame, registry and original one-time allocation
+remain bound. Ordinary Session adopts each retained stage once without selecting
+or transforming it again. Its ordinary None refresh/default/fallback path remains.
+Four new fixtures are authored and UNCOMPILED/UNRUN locally.
+
+Source105 built both standalone helpers but failed Core test compilation on both
+platforms: the capture fixture lacked the original ModelClient import, producing
+four missing-type diagnostics and a dependent missing test predicate. No native
+crate fixture executed; formatting skipped. Patch107 supplies only that import,
+retaining every production byte and assertion. This repair still requires fresh CI.
+
+Source review and installed scoped Rust1.95 formatting do not establish compiler
+or runtime qualification. Full first-step settings/context and Goal/tool plans,
+final headers/body, authoritative count and jointly guarded State association,
+durable host/RPC custody and actual joining/reply remain open. No installation,
+account access, model call, Ready or Join is claimed.
+
+## Retained 105-patch checkpoint
 
 The105 ordered patches reconstruct native tree
 `9e3512cf6d188fec34a95e746276b06584d917ac` (local source
