@@ -10,6 +10,11 @@ import {
 } from '../../preview/conversation-joining-fixture';
 import type { LegacyConversationJoiningOwner as ConversationJoiningOwner } from '../../lib/conversation-joining-review';
 import { markAuthLost, restoreCookieAuthentication } from '../../lib/api-fetch';
+import {
+  retainedJoiningReviewFixture,
+  retainedLabel,
+  retainedPin,
+} from '../../lib/__tests__/conversation-joining-retained-fixture';
 
 vi.mock('../AccountModelPicker', () => ({
   AccountModelPicker: ({
@@ -44,7 +49,7 @@ afterEach(() => {
   sessionStorage.clear();
   vi.unstubAllGlobals();
 });
-function mount() {
+function mount(options: Partial<ConversationJoiningOwner> = {}) {
   let revision = 1;
   const owner: ConversationJoiningOwner = {
     sourceConversationId: 'source-chat',
@@ -74,8 +79,9 @@ function mount() {
       execution: COLLABORATION_EXECUTION_DISABLED,
     })),
     recover: vi.fn(),
+    ...options,
   };
-  render(
+  const view = () => (
     <MemoryRouter>
       <ConversationAgents
         scope="source-chat"
@@ -102,8 +108,9 @@ function mount() {
           },
         ]}
       />
-    </MemoryRouter>,
+    </MemoryRouter>
   );
+  const rendered = render(view());
   fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
   fireEvent.change(screen.getByRole('textbox', { name: 'Name in this chat' }), {
@@ -119,8 +126,80 @@ function mount() {
   });
   fireEvent.click(screen.getByRole('checkbox', { name: /Keep the plan/ }));
   fireEvent.click(screen.getByRole('checkbox', { name: /Chat experience plan/ }));
-  return owner;
+  return Object.assign(owner, { refreshArtifacts: () => rendered.rerender(view()) });
 }
+
+it('selects artifact kinds independently and keeps retained r2 when r3 arrives', async () => {
+  let revision = 10;
+  const saved = retainedJoiningReviewFixture();
+  const owner = mount({
+    artifacts: structuredClone(saved.artifactLabels),
+    review: vi.fn(async ({ joiningBrief }) => {
+      const review = structuredClone(saved);
+      if (joiningBrief !== undefined) {
+        review.snapshot.joiningBrief = joiningBrief;
+        review.snapshot.snapshotId = `00000000-0000-4000-8000-${String(++revision).padStart(12, '0')}`;
+        review.snapshot.sha256 = 'b'.repeat(64);
+      }
+      return review;
+    }),
+  });
+  const inline = screen.getByRole('checkbox', { name: /Chat experience plan/ }) as HTMLInputElement;
+  const retained = screen.getByRole('checkbox', {
+    name: /Retained review plan/,
+  }) as HTMLInputElement;
+  expect(inline.checked).toBe(true);
+  expect(retained.checked).toBe(false);
+  fireEvent.click(retained);
+  expect(inline.checked).toBe(true);
+  fireEvent.click(retained);
+  expect(inline.checked).toBe(true);
+  expect(retained.checked).toBe(false);
+  fireEvent.click(retained);
+  owner.artifacts!.push({
+    ...retainedLabel(),
+    revision: 3,
+    title: 'New r3',
+    filename: 'latest.md',
+  });
+  owner.refreshArtifacts();
+  expect(retained.checked).toBe(true);
+  expect((screen.getByRole('checkbox', { name: /New r3/ }) as HTMLInputElement).checked).toBe(
+    false,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  await screen.findByRole('textbox', { name: /Joining brief · sent to every participant/ });
+  expect(owner.review).toHaveBeenCalledWith(
+    expect.objectContaining({
+      setup: expect.objectContaining({
+        artifacts: [...joiningSetupFixture().artifacts, retainedPin()],
+      }),
+    }),
+    expect.any(AbortSignal),
+  );
+  const included = screen.getByText('Review included context').closest('details')!;
+  expect(included.textContent).toContain('Chat experience plan');
+  expect(included.textContent).toContain('Retained review plan');
+  expect(included.textContent).toContain('Saved version 2 · retained-plan-r2.md');
+  expect(included.textContent).toContain('original-author-chat');
+  expect(included.textContent).toContain('notes/retained-plan-r2.md');
+  expect(included.textContent).not.toContain('latest.md');
+  fireEvent.change(
+    screen.getByRole('textbox', { name: /Joining brief · sent to every participant/ }),
+    {
+      target: { value: 'Keep both exact saved versions.' },
+    },
+  );
+  await waitFor(() => expect(owner.review).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(owner.review).mock.calls[1][0].setup.artifacts).toEqual([
+    ...joiningSetupFixture().artifacts,
+    retainedPin(),
+  ]);
+  fireEvent.click(screen.getByRole('button', { name: /^Back$/ }));
+  expect(
+    (screen.getByRole('checkbox', { name: /Retained review plan/ }) as HTMLInputElement).checked,
+  ).toBe(true);
+});
 it('follows approved setup, exact artifact selection, context review, editable brief and confirmation', async () => {
   const owner = mount();
   expect(owner.review).not.toHaveBeenCalled();

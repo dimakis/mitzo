@@ -2,10 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createBrowserId } from '../lib/browser-crypto';
 import {
   CollaborationApplicationReviewInputSchema,
+  CollaborationApplicationReviewResultSchema,
   CollaborationJoinInputSchema,
   CollaborationJoinSchema,
-  CollaborationSettingsSchema,
-  CollaborationSnapshotSchema,
   type CollaborationJoin,
   type CollaborationJoinInput,
 } from '@mitzo/protocol';
@@ -27,6 +26,7 @@ import {
   AUTH_RESTORED_EVENT,
   currentVerifiedAuthSessionId,
 } from '../lib/api-fetch';
+import { sameConversationArtifact } from '../lib/conversation-joining-artifacts';
 
 type State = {
   review: ConversationJoiningReviewResult | null;
@@ -88,11 +88,7 @@ function readReview(
   brief?: string,
   previous?: ConversationJoiningReviewFence,
 ): ConversationJoiningReviewResult {
-  const review = {
-    ...raw,
-    snapshot: CollaborationSnapshotSchema.parse(raw.snapshot),
-    settings: CollaborationSettingsSchema.parse(raw.settings),
-  };
+  const review = CollaborationApplicationReviewResultSchema.parse(raw);
   const { snapshot, settings } = review;
   if (
     !Number.isSafeInteger(review.expectedMembershipRevision) ||
@@ -112,30 +108,15 @@ function readReview(
         [...setup.messageIds].sort(),
       )) ||
     setup.artifacts.some(
-      (a) =>
-        !snapshot.artifacts.some(
-          (pin) =>
-            a.artifactId === pin.artifactId &&
-            a.revision === pin.revision &&
-            a.sha256 === pin.sha256,
-        ),
+      (a) => !snapshot.artifacts.some((pin) => sameConversationArtifact(a, pin)),
     ) ||
-    snapshot.artifacts.some(
-      (pin) =>
-        !review.artifactLabels?.some(
-          (label) =>
-            label.artifactId === pin.artifactId &&
-            label.revision === pin.revision &&
-            label.sha256 === pin.sha256 &&
-            typeof label.title === 'string' &&
-            label.title.trim().length > 0 &&
-            label.title.length <= 1000 &&
-            (label.filename === undefined ||
-              (typeof label.filename === 'string' &&
-                label.filename.trim().length > 0 &&
-                label.filename.length <= 1000)),
-        ),
-    ) ||
+    snapshot.artifacts.some((pin) => {
+      const labels = review.artifactLabels?.filter((label) => sameConversationArtifact(label, pin));
+      return (
+        labels?.length !== 1 ||
+        ('kind' in pin && (labels[0].title !== pin.title || labels[0].filename !== pin.filename))
+      );
+    }) ||
     (brief !== undefined && snapshot.joiningBrief !== brief) ||
     (previous &&
       (joiningReviewFence(review).sourceSha256 !== previous.sourceSha256 ||

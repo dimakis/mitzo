@@ -1,5 +1,6 @@
 import type {
   AgentProfileSelection,
+  CollaborationApplicationReviewResult,
   CollaborationApplicationReviewInput,
   CollaborationJoin,
   CollaborationJoinInput,
@@ -23,13 +24,9 @@ export interface ConversationAgentSetup {
   repositoryWorkspaceId?: string;
   permissionMode?: CollaborationApplicationReviewInput['target']['permissionMode'];
 }
-export interface ConversationArtifactOption {
-  artifactId: string;
-  revision: number;
-  sha256: string;
-  title: string;
-  filename?: string;
-}
+export type ConversationArtifactOption = NonNullable<
+  CollaborationApplicationReviewResult['artifactLabels']
+>[number];
 export interface ConversationJoiningReviewResult {
   snapshot: CollaborationSnapshot;
   settings: CollaborationSettings;

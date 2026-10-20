@@ -7,6 +7,11 @@ import type {
 import { useConversationJoiningReview } from '../hooks/useConversationJoiningReview';
 import { initialConversationJoiningBrief } from '../lib/conversation-joining-brief';
 import {
+  conversationArtifactKey,
+  conversationArtifactPin,
+  sameConversationArtifact,
+} from '../lib/conversation-joining-artifacts';
+import {
   ConversationJoiningReview,
   ConversationJoiningReviewActions,
 } from './ConversationJoiningReview';
@@ -494,41 +499,29 @@ function ConversationAgentsBody({
                           <p>No artifacts in this conversation.</p>
                         )}
                         {joiningOwner.artifacts.map((artifact) => (
-                          <label
-                            key={`${artifact.artifactId}:${artifact.revision}:${artifact.sha256}`}
-                          >
+                          <label key={conversationArtifactKey(artifact)}>
                             <input
                               type="checkbox"
-                              checked={setup.artifacts.some(
-                                (a) =>
-                                  a.artifactId === artifact.artifactId &&
-                                  a.revision === artifact.revision &&
-                                  a.sha256 === artifact.sha256,
+                              checked={setup.artifacts.some((a) =>
+                                sameConversationArtifact(a, artifact),
                               )}
                               onChange={(event) =>
                                 setSetup((s) => ({
                                   ...s,
                                   artifacts: event.target.checked
-                                    ? [
-                                        ...s.artifacts,
-                                        {
-                                          artifactId: artifact.artifactId,
-                                          revision: artifact.revision,
-                                          sha256: artifact.sha256,
-                                        },
-                                      ]
+                                    ? [...s.artifacts, conversationArtifactPin(artifact)]
                                     : s.artifacts.filter(
-                                        (a) =>
-                                          a.artifactId !== artifact.artifactId ||
-                                          a.revision !== artifact.revision ||
-                                          a.sha256 !== artifact.sha256,
+                                        (a) => !sameConversationArtifact(a, artifact),
                                       ),
                                 }))
                               }
                             />
                             <span>
                               {artifact.title}
-                              <small>Saved version {artifact.revision}</small>
+                              <small>
+                                Saved version {artifact.revision}
+                                {artifact.filename ? ` · ${artifact.filename}` : ''}
+                              </small>
                             </span>
                           </label>
                         ))}

@@ -1,6 +1,10 @@
 import type { ConversationAgent } from './ConversationAgents';
 import type { useConversationJoiningReview } from '../hooks/useConversationJoiningReview';
 import { UiIcon } from './UiIcon';
+import {
+  conversationArtifactKey,
+  sameConversationArtifact,
+} from '../lib/conversation-joining-artifacts';
 
 export function ConversationJoiningReview({
   flow,
@@ -63,22 +67,28 @@ export function ConversationJoiningReview({
               </div>
             )}
             {snapshot.artifacts.map((artifact) => {
-              const label = reviewed.artifactLabels?.find(
-                (a) =>
-                  a.artifactId === artifact.artifactId &&
-                  a.revision === artifact.revision &&
-                  a.sha256 === artifact.sha256,
+              const label = reviewed.artifactLabels?.find((a) =>
+                sameConversationArtifact(a, artifact),
               );
+              const retained = 'kind' in artifact ? artifact : null;
+              const title = retained?.title ?? label?.title;
+              const filename = retained?.filename ?? label?.filename;
               return (
                 <div
                   className="conversation-joining-context"
-                  key={`${artifact.artifactId}:${artifact.revision}`}
+                  key={conversationArtifactKey(artifact)}
                 >
-                  <strong>{label?.title}</strong>
+                  <strong>{title}</strong>
                   <small>
                     Saved version {artifact.revision}
-                    {label?.filename ? ` · ${label.filename}` : ''}
+                    {filename ? ` · ${filename}` : ''}
                   </small>
+                  {retained && (
+                    <small>
+                      Source chat {retained.provenance.sessionId}
+                      {retained.provenance.sourcePath ? ` · ${retained.provenance.sourcePath}` : ''}
+                    </small>
+                  )}
                 </div>
               );
             })}

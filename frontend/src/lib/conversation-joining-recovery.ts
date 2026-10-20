@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   AgentProfileSelectionSchema,
   CollaborationApplicationReviewInputSchema,
+  CollaborationArtifactPinSchema,
   SessionCollaborationIdSchema,
   CollaborationJoinInputSchema,
   CollaborationJoinSchema,
@@ -23,15 +24,7 @@ const setup = z.strictObject({
   purpose: z.string().max(4000),
   context: z.enum(['conversation_so_far', 'selected']),
   messageIds: z.array(id).max(500),
-  artifacts: z
-    .array(
-      z.strictObject({
-        artifactId: id,
-        revision: z.number().int().positive().safe(),
-        sha256: digest,
-      }),
-    )
-    .max(100),
+  artifacts: z.array(CollaborationArtifactPinSchema).max(100),
   runOn: z.enum(['openshell', 'local']),
   selection: z
     .strictObject({

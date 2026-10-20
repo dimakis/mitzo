@@ -10,6 +10,7 @@ import {
   joiningReviewFixture,
   joiningSetupFixture,
 } from '../../preview/conversation-joining-fixture';
+import { retainedPin } from './conversation-joining-retained-fixture';
 
 beforeEach(async () => {
   localStorage.clear();
@@ -34,6 +35,25 @@ function record(): ConversationJoiningRecoveryRecord {
     acceptedReview: joiningReviewFence(joiningReviewFixture()),
   };
 }
+
+it('retains both artifact kinds under identical IDs, revisions and hashes across reload', () => {
+  const storage = conversationJoiningRecovery('source-chat');
+  const input = record();
+  input.reviewRequest.setup.artifacts.push(retainedPin());
+  storage.save(input, null);
+  expect(conversationJoiningRecovery('source-chat').read()).toEqual(input);
+  expect(storage.read()!.reviewRequest.setup.artifacts).toHaveLength(2);
+  expect(sessionStorage.getItem(sessionStorage.key(0)!)).not.toContain('original-author-chat');
+});
+
+it('rejects an unknown retained artifact kind without replacing the original recovery request', () => {
+  const storage = conversationJoiningRecovery('source-chat');
+  const original = storage.save(record(), null);
+  const invalid = structuredClone(original);
+  invalid.reviewRequest.setup.artifacts = [{ ...retainedPin(), kind: 'other' } as never];
+  expect(() => storage.save(invalid, original)).toThrow();
+  expect(storage.read()).toEqual(original);
+});
 
 it('stores public correlation and source fences without retaining reviewed source or native witnesses', () => {
   const storage = conversationJoiningRecovery('source-chat');

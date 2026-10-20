@@ -12,6 +12,11 @@ import {
 import type { ConversationJoiningReviewRequest } from '../conversation-joining-review';
 import { conversationJoiningRecovery, joiningReviewFence } from '../conversation-joining-recovery';
 import * as auth from '../api-fetch';
+import {
+  retainedArtifact,
+  retainedLabel,
+  retainedPin,
+} from './conversation-joining-retained-fixture';
 
 const group = '00000000-0000-4000-8000-000000000010';
 const requestId = '00000000-0000-4000-8000-000000000020';
@@ -167,6 +172,38 @@ it('retains the explicit initial application brief through a lost response and B
   expect(JSON.parse(retries[1][1]!.body as string)).toEqual(original);
   expect(h.fetch.mock.calls.filter(([url]) => !url.endsWith('/reviews'))).toHaveLength(2);
   expect(restored.result.current.brief).toBe(brief);
+  expect(restored.result.current.canConfirm).toBe(false);
+  expect(h.fetch.mock.calls.some(([url]) => url.includes('/joins'))).toBe(false);
+});
+
+it('replays both exact artifact kinds through the real typed client after a lost response and reload', async () => {
+  const h = await harness();
+  const setup = input().setup;
+  setup.artifacts = [...joiningSetupFixture().artifacts, retainedPin()];
+  h.data.response.snapshot.artifacts = [
+    ...joiningReviewFixture().snapshot.artifacts,
+    { ...structuredClone(retainedArtifact), contentBase64: 'YWJj' },
+  ];
+  h.data.response.artifactLabels = [...joiningReviewFixture().artifactLabels!, retainedLabel()];
+  h.loseResponse();
+  const first = renderHook(() => useConversationJoiningReview(h.owner));
+  await act(() => first.result.current.prepare(setup, brief));
+  const posted = h.fetch.mock.calls.filter(([url]) => url.endsWith('/reviews'));
+  expect(posted).toHaveLength(1);
+  const original = JSON.parse(posted[0][1]!.body as string);
+  expect(original.selection.artifacts).toEqual(setup.artifacts);
+  first.unmount();
+  const restored = renderHook(() => useConversationJoiningReview(h.owner));
+  await act(() => restored.result.current.prepare(setup, 'Do not replace the retained brief'));
+  const retries = h.fetch.mock.calls.filter(([url]) => url.endsWith('/reviews'));
+  expect(retries).toHaveLength(2);
+  expect(JSON.parse(retries[1][1]!.body as string)).toEqual(original);
+  expect(h.fetch.mock.calls.filter(([url]) => !url.endsWith('/reviews'))).toHaveLength(2);
+  expect(restored.result.current.review?.snapshot.artifacts[1]).toMatchObject(retainedArtifact);
+  expect(restored.result.current.review?.snapshot.artifacts[1]).not.toHaveProperty(
+    'sourceConversationId',
+  );
+  expect(restored.result.current.review?.snapshot.sourceConversationId).toBe('source-chat');
   expect(restored.result.current.canConfirm).toBe(false);
   expect(h.fetch.mock.calls.some(([url]) => url.includes('/joins'))).toBe(false);
 });
