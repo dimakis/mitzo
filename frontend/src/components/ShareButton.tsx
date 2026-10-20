@@ -1,5 +1,5 @@
 import { UiIcon } from './UiIcon';
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useLayoutEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { shareFile, downloadFile } from '../lib/share-file';
 import { HomeDialog } from './HomeDialog';
@@ -23,7 +23,7 @@ export function ShareButton({ filePath, sessionId, className, onOpen }: ShareBut
   const [error, setError] = useState('');
   const generationRef = useRef(0);
   const mountedRef = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     mountedRef.current = true;
     generationRef.current += 1;
     busyRef.current = false;
