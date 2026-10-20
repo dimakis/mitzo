@@ -17,11 +17,12 @@ import {
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 import { loadAccountProfiles } from './account-profiles.js';
+import { resolveChatAgentProfile } from './agent-library-binding.js';
+import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import {
-  readOrdinaryCodexAgentProfile,
-  resolveOrdinaryCodexAgentProfile,
-} from './ordinary-codex-agent-profile.js';
-import { assertOrdinarySilentPreparationAuthority } from './ordinary-repository-preparation-authority.js';
+  assertOrdinaryRepositoryPreparation,
+  assertOrdinarySilentPreparationAuthority,
+} from './ordinary-repository-preparation-authority.js';
 import { OrdinaryCollaborationReview } from './collaboration-review-owner.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
 import { createCollaborationRetainedContext } from './collaboration-retained-context-source.js';
@@ -251,21 +252,24 @@ export class CollaborationApplicationReview {
     const proof = record.ordinaryPreparation;
     if (
       !proof ||
-      record.state !== 'ready' ||
+      (record.state !== 'preview' && record.state !== 'ready') ||
       record.conversationId ||
       record.hostReservation ||
       record.ordinaryFirstReservation ||
       record.handoff ||
       proof.runtimeBinding.execution.location !== target.runOn ||
-      proof.runtimeBinding.harness.implementation !== 'codex'
+      (record.state === 'ready' && proof.runtimeBinding.harness.implementation !== 'codex')
     )
       throw unavailable();
+    // A genuine preview captures account/runtime intent without acquiring a source.
+    // Its observational settings cannot qualify silent allocation or native capacity.
+    const harness = proof.runtimeBinding.harness.implementation;
     const profiles = loadAccountProfiles();
     const binding = profiles.resolve(target.accountId, target.model);
     profiles.validateModelSelection(binding, target.model, target.reasoningEffort);
     const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
     const resolveBinding = () => {
-      const inventory = ordinaryRepositoryRuntimeInventory(target.runOn, 'codex');
+      const inventory = ordinaryRepositoryRuntimeInventory(target.runOn, harness);
       const current = inventory.profiles.resolve(target.accountId, target.model);
       inventory.profiles.validateModelSelection(current, target.model, target.reasoningEffort);
       const result = inventory.catalog.resolve({
@@ -274,7 +278,7 @@ export class CollaborationApplicationReview {
           provider: current.provider,
           profileRevision: current.profileRevision,
         },
-        harness: 'codex',
+        harness,
         targetId: proof.runtimeBinding.execution.targetId,
         mode: target.permissionMode,
       });
@@ -287,10 +291,15 @@ export class CollaborationApplicationReview {
       return result.binding;
     };
     const runtime = resolveBinding();
-    const agent = await resolveOrdinaryCodexAgentProfile({
+    const agent = await resolveChatAgentProfile({
       requested: target.agent,
       provider: binding.provider,
-      execution: runtime.execution,
+      toolRoute:
+        runtime.execution.location === 'openshell'
+          ? 'openshell'
+          : harness === 'codex'
+            ? 'codex-owned-local'
+            : 'local-api',
       lookup: (selection) => readAgentLibraryProfile(selection, connectionId),
     });
     if (!agent || agent.definition.contextRecipe !== undefined) throw unavailable();
@@ -306,8 +315,14 @@ export class CollaborationApplicationReview {
       },
       repositoryWorkspaceId: target.repositoryWorkspaceId,
     };
-    await this.owners.workspaces.qualifiedStatus(record.id, binding);
-    await assertOrdinarySilentPreparationAuthority(proof, binding, settings, signal);
+    await this.owners.workspaces.qualifiedStatus(record.id, binding, signal);
+    if (record.state === 'ready')
+      await assertOrdinarySilentPreparationAuthority(proof, binding, settings, signal);
+    else
+      await assertOrdinaryRepositoryPreparation(proof, binding, signal, true, {
+        model: target.model,
+        thinking: target.reasoningEffort,
+      });
     const assertCurrent = () => {
       signal.throwIfAborted();
       resolveBinding();

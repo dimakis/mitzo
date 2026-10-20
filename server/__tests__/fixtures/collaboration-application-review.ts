@@ -34,7 +34,7 @@ export async function cleanupApplicationReviewFixtures() {
 export const digest = (value: string | Uint8Array) =>
   createHash('sha256').update(value).digest('hex');
 
-export async function fixture() {
+export async function fixture(options: { prepare?: boolean } = {}) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => {
@@ -213,7 +213,7 @@ export async function fixture() {
       },
     },
   );
-  await workspaces.prepare(preview.id, binding, controller.signal);
+  if (options.prepare !== false) await workspaces.prepare(preview.id, binding, controller.signal);
   const group = randomUUID();
   store.upsertSession({ sessionId: 'source', conversationSource: 'mitzo' });
   store.collaborationConversation.begin(group, { requestId: randomUUID(), sessionId: 'source' });

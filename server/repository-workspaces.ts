@@ -1008,9 +1008,16 @@ export class RepositoryWorkspaces {
     }
     signal.throwIfAborted();
   }
-  async qualifiedStatus(id: string, binding: AccountBinding) {
+  async qualifiedStatus(
+    id: string,
+    binding: AccountBinding,
+    signal: AbortSignal = AbortSignal.timeout(30000),
+  ) {
     return this.runOperation(async () => {
       const record = this.get(id);
+      // Observing a planned source retains the original account/connection access
+      // checks without acquiring its working copy or granting silent preparation.
+      if (record.state === 'preview') await this.authorize(record, binding, signal);
       if (!isDeepStrictEqual(record.binding, binding)) {
         if (
           record.state !== 'ready' ||
@@ -1018,11 +1025,11 @@ export class RepositoryWorkspaces {
           !record.ordinaryPreparation?.sourceIdentity
         )
           throw new Error('Prepared first command is frozen');
-        await this.assertOrdinaryPreparation(record, binding, AbortSignal.timeout(30000), true);
+        await this.assertOrdinaryPreparation(record, binding, signal, true);
       } else if (record.ordinaryPreparation)
-        await this.assertOrdinaryPreparation(record, binding, AbortSignal.timeout(30000));
+        await this.assertOrdinaryPreparation(record, binding, signal);
       if (record.state === 'ready' && record.ordinaryPreparation)
-        await this.verifyHostSource(record, AbortSignal.timeout(30000));
+        await this.verifyHostSource(record, signal);
       this.assertUnchangedHostRecord(record);
       return publicRepositoryWorkspace(record);
     });

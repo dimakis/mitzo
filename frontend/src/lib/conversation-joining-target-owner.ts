@@ -49,8 +49,8 @@ function failure(message: string): never {
 const originalError =
   'The original repository preparation could not be checked. Its request stays retained.';
 
-/** Explicit Review staging through the existing ordinary owners. No source
- * workspace, active permission, session allocation, provider call or send is reused. */
+/** Correlate the original ordinary target. Review observes its genuine preview;
+ * explicit preparation callers retain their existing acquisition/recovery path. */
 export async function prepareConversationJoiningTarget(options: {
   sourceConversationId: string;
   collaborationId: string;
@@ -58,10 +58,12 @@ export async function prepareConversationJoiningTarget(options: {
   request: ConversationJoiningReviewRequest;
   signal: AbortSignal;
   isCurrent(): boolean;
+  observeOnly?: boolean;
 }): Promise<
   Pick<CollaborationApplicationReviewInput['target'], 'repositoryWorkspaceId' | 'permissionMode'>
 > {
   const { signal, sourceConversationId, collaborationId, repository, isCurrent } = options;
+  const observeOnly = options.observeOnly === true;
   const request = structuredClone(options.request);
   const journal = conversationJoiningRecovery(sourceConversationId);
   const selection = CollaborationApplicationReviewInputSchema.shape.target
@@ -207,16 +209,21 @@ export async function prepareConversationJoiningTarget(options: {
     };
     check();
     if (workspace.state === 'preview') {
-      if (target.phase === 'resolved') failure(originalError);
+      // An older allocation may still be in flight. Review must neither replay
+      // that effect nor reinterpret an uncertain preparation as a settled preview.
+      if (observeOnly && target.phase === 'prepare_pending') failure(originalError);
+      if (!observeOnly && target.phase === 'resolved') failure(originalError);
       if (target.phase === 'preview_pending') save({ ...target, phase: 'previewed' });
-      save({ ...target!, phase: 'prepare_pending' });
-      const prepared = await fetch(`${path}/prepare`, {
-        accountId: retained.preview.accountId,
-        model: retained.preview.model,
-      });
-      if (!prepared.ok) failure(originalError);
-      workspace = workspaceSchema.parse(await json(prepared));
-      check();
+      if (!observeOnly) {
+        save({ ...target!, phase: 'prepare_pending' });
+        const prepared = await fetch(`${path}/prepare`, {
+          accountId: retained.preview.accountId,
+          model: retained.preview.model,
+        });
+        if (!prepared.ok) failure(originalError);
+        workspace = workspaceSchema.parse(await json(prepared));
+        check();
+      }
     }
     if (workspace.state === 'failed' || workspace.state === 'discarded') {
       const wasResolved = target!.phase === 'resolved';
@@ -230,25 +237,29 @@ export async function prepareConversationJoiningTarget(options: {
           request,
           signal,
           isCurrent,
+          observeOnly,
         });
       }
       failure(
         'The original repository preparation failed. Check again to start a fresh preparation.',
       );
     }
-    if (workspace.state !== 'ready' || !workspace.ordinaryRuntime)
-      failure(
-        'The original repository preparation is still running or already in use. Check its status again.',
-      );
-    const runtime = workspace.ordinaryRuntime;
-    const intended = retained.preview.ordinaryRuntime;
-    if (
-      !equal(runtime.account, intended.runtime.account) ||
-      runtime.harness.implementation !== intended.runtime.harness ||
-      runtime.execution.location !== intended.runOn ||
-      runtime.execution.targetId !== intended.runtime.targetId
-    )
-      failure(originalError);
+    if (!observeOnly || workspace.state !== 'preview') {
+      if (workspace.state !== 'ready' || !workspace.ordinaryRuntime)
+        failure(
+          'The original repository preparation is still running or already in use. Check its status again.',
+        );
+      const runtime = workspace.ordinaryRuntime;
+      const intended = retained.preview.ordinaryRuntime;
+      if (
+        !equal(runtime.account, intended.runtime.account) ||
+        runtime.harness.implementation !== intended.runtime.harness ||
+        runtime.execution.location !== intended.runOn ||
+        runtime.execution.targetId !== intended.runtime.targetId
+      )
+        failure(originalError);
+    }
+    // Resolved records the checked original UUID/draft, never execution readiness.
     save({ ...target!, phase: 'resolved' });
     if (!sourceCurrent || target!.preview.repository !== repository)
       failure(

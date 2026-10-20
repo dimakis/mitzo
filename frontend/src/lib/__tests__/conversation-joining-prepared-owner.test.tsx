@@ -7,6 +7,7 @@ import { joiningTargetHarness } from '../../test-utils/conversation-joining-targ
 import { joiningReviewFixture } from '../../preview/conversation-joining-fixture';
 import { useConversationJoiningReview } from '../../hooks/useConversationJoiningReview';
 import { createPreparedConversationJoiningOwner } from '../conversation-joining-prepared-owner';
+import { prepareConversationJoiningTarget } from '../conversation-joining-target-owner';
 import { sha256Hex } from '../browser-crypto';
 import * as auth from '../api-fetch';
 
@@ -129,7 +130,7 @@ function harness() {
   };
 }
 
-it('stages ordinary target before observational capture and preserves unverified capacity through actual typed review', async () => {
+it('retains an ordinary preview before observational capture and preserves unverified capacity through actual typed review', async () => {
   const h = harness();
   const hook = renderHook(() => useConversationJoiningReview(h.owner));
   expect(h.transport).not.toHaveBeenCalled();
@@ -146,31 +147,44 @@ it('stages ordinary target before observational capture and preserves unverified
   const paths = h.transport.mock.calls.map(
     ([url]) => new URL(url, 'https://offline.invalid').pathname,
   );
-  expect(
-    paths.indexOf(`/api/repository-workspaces/${target.preview.requestId}/prepare`),
-  ).toBeLessThan(paths.indexOf('/api/sessions/source-chat/messages'));
+  expect(paths).not.toContain(`/api/repository-workspaces/${target.preview.requestId}/prepare`);
+  expect(paths.indexOf('/api/repository-workspaces/preview')).toBeLessThan(
+    paths.indexOf('/api/sessions/source-chat/messages'),
+  );
+  expect(h.resources.get(target.preview.requestId)?.state).toBe('preview');
   await act(() => hook.result.current.confirm());
   expect(h.transport.mock.calls.some(([url]) => url.includes('/joins'))).toBe(false);
 });
 
-it('recovers a lost preparation response through a remounted actual owner without a replacement or review-side allocation', async () => {
-  const h = harness();
-  h.lose('prepare-after');
-  const first = renderHook(() => useConversationJoiningReview(h.owner));
-  await act(() => first.result.current.prepare(h.request.setup, h.request.joiningBrief));
-  const original = h.journal.readTarget()!;
-  expect(first.result.current.error).toBeTruthy();
-  first.unmount();
-  const restored = renderHook(() => useConversationJoiningReview(h.create()));
-  await act(() =>
-    restored.result.current.prepare(h.request.setup, 'Do not replace the original brief'),
-  );
-  expect(restored.result.current.error).toBeNull();
-  expect(restored.result.current.brief).toBe(h.request.joiningBrief);
-  expect(h.journal.readTarget()!.preview).toEqual(original.preview);
-  expect(h.posts().filter(([url]) => url.endsWith('/prepare'))).toHaveLength(1);
-  expect(restored.result.current.canConfirm).toBe(false);
-});
+it.each(['preview-before', 'preview-after'] as const)(
+  'recovers %s through a remounted actual owner without allocating a source',
+  async (loss) => {
+    const h = harness();
+    h.lose(loss);
+    const first = renderHook(() => useConversationJoiningReview(h.owner));
+    await act(() => first.result.current.prepare(h.request.setup, h.request.joiningBrief));
+    const original = h.journal.readTarget()!;
+    expect(first.result.current.error).toBeTruthy();
+    first.unmount();
+    const restored = renderHook(() => useConversationJoiningReview(h.create()));
+    await act(() =>
+      restored.result.current.prepare(h.request.setup, 'Do not replace the original brief'),
+    );
+    expect(restored.result.current.error).toBeNull();
+    expect(restored.result.current.brief).toBe(h.request.joiningBrief);
+    expect(h.journal.readTarget()!.preview).toEqual(original.preview);
+    expect(h.journal.readTarget()!.draft.id).toBe(original.draft.id);
+    expect(h.posts().filter(([url]) => url.endsWith('/preview'))).toHaveLength(
+      loss === 'preview-before' ? 2 : 1,
+    );
+    if (loss === 'preview-before') {
+      const previews = h.posts().filter(([url]) => url.endsWith('/preview'));
+      expect(previews[1][1]!.body).toBe(previews[0][1]!.body);
+    }
+    expect(h.posts().filter(([url]) => url.endsWith('/prepare'))).toHaveLength(0);
+    expect(restored.result.current.canConfirm).toBe(false);
+  },
+);
 
 it('replays only the exact captured review after loss and reload without preparing or recapturing its source', async () => {
   const h = harness();
@@ -202,6 +216,9 @@ it('replays only the exact captured review after loss and reload without prepari
 it('recovers the original review after changed execution setup is rejected during uncertain preparation', async () => {
   const h = harness();
   h.lose('prepare-before');
+  // An older explicit preparation remains unresolved; observational Review
+  // must not replay it or replace its original UUID/draft.
+  await expect(prepareConversationJoiningTarget(h.options)).rejects.toThrow();
   const flow = renderHook(() => useConversationJoiningReview(h.owner));
   await act(() => flow.result.current.prepare(h.request.setup, h.request.joiningBrief));
   const original = h.journal.read()!;
@@ -211,6 +228,10 @@ it('recovers the original review after changed execution setup is rejected durin
   );
   expect(h.transport).toHaveBeenCalledTimes(count);
   expect(h.journal.read()!.reviewRequest).toEqual(original.reviewRequest);
+  const retained = h.journal.readTarget()!;
+  const resource = h.resources.get(retained.preview.requestId)!;
+  resource.state = 'ready';
+  resource.ordinaryRuntime = structuredClone(h.runtime);
   await act(() => flow.result.current.retryReview());
   expect(flow.result.current.error).toBeNull();
   expect(flow.result.current.setup?.runOn).toBe('local');
@@ -236,6 +257,7 @@ it('refreezes a brief at its original source boundary when the durable conversat
   );
   expect(flow.result.current.error).toBeNull();
   const original = structuredClone(flow.result.current.review!.snapshot);
+  const originalTarget = structuredClone(h.journal.readTarget()!);
   const prepared = h.posts().filter(([url]) => /\/(preview|prepare)$/.test(url)).length;
   h.append();
   await act(() => flow.result.current.editBrief('Preserve the exact reviewed source.'));
@@ -247,6 +269,10 @@ it('refreezes a brief at its original source boundary when the durable conversat
     expectedMembershipRevision: 1,
   });
   expect(h.posts().filter(([url]) => /\/(preview|prepare)$/.test(url))).toHaveLength(prepared);
+  expect(h.journal.readTarget()!.preview).toEqual(originalTarget.preview);
+  expect(h.journal.readTarget()!.draft.id).toBe(originalTarget.draft.id);
+  expect(h.resources.get(originalTarget.preview.requestId)?.state).toBe('preview');
+  expect(h.posts().filter(([url]) => url.endsWith('/prepare'))).toHaveLength(0);
   expect(flow.result.current.canConfirm).toBe(false);
 });
 

@@ -3,6 +3,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ConversationAgents } from '../ConversationAgents';
+import { readFileSync } from 'node:fs';
 
 vi.mock('../AccountModelPicker', () => ({
   AccountModelPicker: () => (
@@ -93,6 +94,45 @@ it('keeps fresh-agent setup in the same view, with purpose and full or selected 
     'Check the design.',
   );
   expect(preview).not.toHaveBeenCalled();
+});
+
+it('keeps Context at the shared custom-select size and Review at the approved primary action style', () => {
+  const styles = document.createElement('style');
+  styles.textContent = [
+    '../../styles/tokens.css',
+    '../../styles/global.css',
+    '../ConversationAgents.css',
+  ]
+    .map((path) => readFileSync(new URL(path, import.meta.url), 'utf8'))
+    .join('\n');
+  document.head.append(styles);
+  try {
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: 'Agents, Primary agent' }));
+    const add = screen.getByRole('button', { name: 'Add agent' });
+    const primary = getComputedStyle(add);
+    const expected = { background: primary.background, color: primary.color };
+    fireEvent.click(add);
+    const dialog = screen.getByRole('dialog', { name: 'Add agent' });
+    const context = within(dialog).getByRole('combobox', { name: 'Context' });
+    const selectStyle = getComputedStyle(context);
+    // Reuse the existing custom-select appearance while keeping dialog sizing.
+    // Native WebKit hit-box geometry still requires the offline browser fixture.
+    expect.soft(selectStyle.appearance).toBe('none');
+    const controlHeight = getComputedStyle(document.documentElement)
+      .getPropertyValue('--control-height')
+      .trim();
+    expect(controlHeight).toBeTruthy();
+    expect.soft([controlHeight, 'var(--control-height)']).toContain(selectStyle.minHeight);
+    expect.soft(selectStyle.width).toBe('100%');
+    expect.soft(selectStyle.maxWidth).toBe('100%');
+    const review = within(dialog).getByRole('button', { name: 'Review joining brief' });
+    const reviewStyle = getComputedStyle(review);
+    expect.soft(reviewStyle.background).toBe(expected.background);
+    expect.soft(reviewStyle.color).toBe(expected.color);
+  } finally {
+    styles.remove();
+  }
 });
 it('applies real policy edits only through the supplied owner and keeps preview separate from recipients', () => {
   const change = vi.fn(),

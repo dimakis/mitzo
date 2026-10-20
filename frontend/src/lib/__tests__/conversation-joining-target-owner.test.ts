@@ -247,3 +247,88 @@ it('preserves original correlation against stale writers, phase rewind and repla
   expect(h.journal.readTarget()!.preview).toEqual(original.preview);
   expect(h.posts()).toHaveLength(count + 1);
 });
+
+it.each(['codex', 'responses'] as const)(
+  'observes a genuine %s preview receipt without preparing a checkout or granting runtime readiness',
+  async (harnessName) => {
+    const h = harness();
+    if (harnessName === 'responses')
+      h.extra((path) =>
+        path === '/api/chat/runtime/capabilities'
+          ? Response.json({
+              ...h.inventory,
+              accounts: h.inventory.accounts.map((entry) => ({
+                ...entry,
+                account: { ...entry.account, provider: 'openai' },
+              })),
+              targets: h.inventory.targets.map((target) => ({ ...target, harness: harnessName })),
+              routes: h.inventory.routes.map((route) => ({
+                ...route,
+                harness: harnessName,
+                account: { ...route.account, provider: 'openai' },
+              })),
+            })
+          : undefined,
+      );
+    const result = await prepare({ ...h.options, observeOnly: true });
+    const original = h.journal.readTarget()!;
+    expect(original.phase).toBe('resolved');
+    expect(original.preview.ordinaryRuntime.runtime.harness).toBe(harnessName);
+    expect(result).toEqual({
+      repositoryWorkspaceId: original.preview.requestId,
+      permissionMode: original.draft.settings.mode,
+    });
+    expect(h.resources.get(original.preview.requestId)).toMatchObject({ state: 'preview' });
+    expect(h.resources.get(original.preview.requestId)?.ordinaryRuntime).toBeUndefined();
+    expect(h.posts()).toHaveLength(1);
+    expect(h.posts()[0][0]).toBe('/api/repository-workspaces/preview');
+    const count = h.posts().length;
+    expect(await prepare({ ...h.options, observeOnly: true })).toEqual(result);
+    expect(h.posts()).toHaveLength(count);
+    expect(h.journal.readTarget()).toEqual(original);
+  },
+);
+
+it('captures observational intent before asynchronous callbacks can change the caller option', async () => {
+  const h = harness();
+  const options = { ...h.options, observeOnly: true };
+  h.after(() => {
+    options.observeOnly = false;
+  });
+  await prepare(options);
+  expect(h.posts().filter(([url]) => url.endsWith('/prepare'))).toHaveLength(0);
+});
+
+it('keeps an unknown legacy preparation pinned and recovers its original ready receipt without another allocation', async () => {
+  const h = harness();
+  h.lose('prepare-before');
+  await expect(prepare(h.options)).rejects.toThrow();
+  const original = h.journal.readTarget()!;
+  const count = h.posts().length;
+  await expect(prepare({ ...h.options, observeOnly: true })).rejects.toThrow();
+  expect(h.posts()).toHaveLength(count);
+  expect(h.journal.readTarget()).toEqual(original);
+  const resource = h.resources.get(original.preview.requestId)!;
+  resource.state = 'ready';
+  resource.ordinaryRuntime = structuredClone(h.runtime);
+  expect(await prepare({ ...h.options, observeOnly: true })).toEqual({
+    repositoryWorkspaceId: original.preview.requestId,
+    permissionMode: original.draft.settings.mode,
+  });
+  expect(h.posts()).toHaveLength(count);
+  expect(h.journal.readTarget()!.preview).toEqual(original.preview);
+  expect(h.journal.readTarget()!.draft.id).toBe(original.draft.id);
+});
+
+it('replaces only an observed failed receipt without losing observational mode during recovery', async () => {
+  const h = harness();
+  await prepare({ ...h.options, observeOnly: true });
+  const original = h.journal.readTarget()!;
+  h.resources.get(original.preview.requestId)!.state = 'failed';
+  const result = await prepare({ ...h.options, observeOnly: true });
+  const replacement = h.journal.readTarget()!;
+  expect(replacement.preview.requestId).not.toBe(original.preview.requestId);
+  expect(result.repositoryWorkspaceId).toBe(replacement.preview.requestId);
+  expect(h.resources.get(replacement.preview.requestId)?.state).toBe('preview');
+  expect(h.posts().filter(([url]) => url.endsWith('/prepare'))).toHaveLength(0);
+});

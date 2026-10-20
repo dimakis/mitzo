@@ -424,6 +424,28 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       .listSessions()
       .map((s) => s.sessionId)
       .sort();
+    const originalSourceClones = structuredClone(
+      source.commands.filter(([command, operation]) => command === 'git' && operation === 'clone'),
+    );
+    const assertReviewHasNoAcquisition = () => {
+      expect(
+        responses.filter(
+          (response) => response.method === 'POST' && /\/prepare$/.test(response.path),
+        ),
+      ).toEqual([]);
+      expect(
+        source.commands.filter(
+          ([command, operation]) => command === 'git' && operation === 'clone',
+        ),
+      ).toEqual(originalSourceClones);
+      expect(
+        chat.eventStore
+          .listSessions()
+          .map((session) => session.sessionId)
+          .sort(),
+      ).toEqual(beforeSessions);
+      expect(providerRequests).toHaveLength(1);
+    };
     stream.close();
     await vi.waitFor(() => expect(application.chatSseRegistry.size).toBe(0));
     // Browser execution has no request fulfillment/intercepted API responses.
@@ -546,8 +568,7 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
             await page!.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
             await uiExpect(page!.locator('html')).toHaveAttribute('data-theme', theme);
             const body = dialog.locator('.conversation-agents-body');
-            await body.hover();
-            await page!.mouse.wheel(0, -5000);
+            await body.locator('p, label, details, textarea').first().scrollIntoViewIfNeeded();
             const upperFile = `${engine}-${width}-${theme}-${state}-upper.png`;
             const upper = await page!.screenshot({
               path: join(evidence, upperFile),
@@ -562,8 +583,7 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
               file: upperFile,
               sha256: sha(upper),
             });
-            await body.hover();
-            await page!.mouse.wheel(0, 5000);
+            await body.locator('p, label, details, textarea').last().scrollIntoViewIfNeeded();
             await footerButton.scrollIntoViewIfNeeded();
             await uiExpect(footerButton).toBeInViewport();
             if (engine === 'webkit') {
@@ -600,6 +620,7 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       await review.getByText('Review included context', { exact: false }).click();
       const brief = review.getByRole('textbox', { name: /Joining brief/ });
       await uiExpect(brief).toBeEditable();
+      assertReviewHasNoAcquisition();
       await brief.fill(
         'Independently review the exact selected source. Keep its identity and quoted bytes.',
       );
@@ -654,7 +675,14 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       expect(refrozen.snapshot.capacity.status).toBe('unverified');
       expect(refrozen.snapshot.snapshotId).not.toBe(initialReview.snapshot.snapshotId);
       expect(refrozen.settings.repositoryWorkspaceId).not.toBe(source.workspace.id);
-      expect(source.owner.get(refrozen.settings.repositoryWorkspaceId)).toBeDefined();
+      const retainedPreview = source.owner.get(refrozen.settings.repositoryWorkspaceId);
+      expect(retainedPreview.state).toBe('preview');
+      expect(retainedPreview.ordinaryPreparation?.sourceIdentity).toBeUndefined();
+      expect(retainedPreview.conversationId).toBeUndefined();
+      expect(retainedPreview.hostReservation).toBeUndefined();
+      expect(retainedPreview.ordinaryFirstReservation).toBeUndefined();
+      expect(retainedPreview.handoff).toBeUndefined();
+      assertReviewHasNoAcquisition();
       await context.tracing.stop({ path: join(evidence, `trace-${appearanceTheme}.zip`) });
       await context.close();
       context = undefined;

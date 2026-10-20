@@ -42,6 +42,7 @@ export function createPreparedConversationJoiningOwner(
         request,
         signal,
         isCurrent: options.isCurrent,
+        observeOnly: true,
       });
       assertCurrent(signal);
       prepared = { requestId: request.requestId, ...target };

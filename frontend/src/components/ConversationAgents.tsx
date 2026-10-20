@@ -522,6 +522,7 @@ function ConversationAgentsBody({
                 <label className="conversation-agent-field">
                   Context
                   <select
+                    className="chat-model-select"
                     value={setup.context}
                     onChange={(e) =>
                       setSetup((s) => ({
@@ -784,6 +785,7 @@ function ConversationAgentsBody({
                   {view === 'add' && (
                     <button
                       type="button"
+                      className="conversation-agents-primary"
                       disabled={
                         !joiningOwner ||
                         joining.locked ||

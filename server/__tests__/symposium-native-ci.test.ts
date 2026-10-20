@@ -102,6 +102,8 @@ it.each(['Linux', 'macOS'])(
       'codex-git-attribution',
       '-p',
       'codex-core-plugins',
+      '-p',
+      'codex-execpolicy',
       ...(runnerOs === 'Linux' ? ['-p', 'codex-linux-sandbox'] : []),
       '--test-threads',
       '1',
@@ -311,6 +313,7 @@ it('tests and formats the affected Guardian and extension registry owners on bot
         'codex-web-search-extension',
         'codex-models-manager',
         'codex-core-plugins',
+        'codex-execpolicy',
       ]),
     );
   }
@@ -333,6 +336,7 @@ it('tests and formats the affected Guardian and extension registry owners on bot
     'codex-app-server',
     'codex-git-attribution',
     'codex-core-plugins',
+    'codex-execpolicy',
   ])
     expect(formatting?.run).toMatch(new RegExp(`(?:^|\\s)-p\\s+${crate}(?:\\s|$)`));
 });
