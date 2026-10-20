@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.403-chat-final.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.403-chat-metadata-guard.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '495b3ca8f62ea9fa668c9f05742af38ef7754f5a81a25e8c5f7b19aefa65b990',
 
   '../repository-prepared-command.ts':
-    '707f65af0dbd68959704a1dccb6120dcd4807b7054931713353f386e78ef6759',
+    'f6ef0586e88e3e325fdfc151fe8809619bb6b9d38b10615e450c6b1911ecd502',
   '../ordinary-workspace-prepared-command.ts':
     'c8d91b0bb39c856032797c97d6a5245bdd759b6037b5f3cfe08d50ff018ab1bf',
   '../../packages/client/src/local-command-delivery.ts':
