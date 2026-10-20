@@ -42,8 +42,13 @@ it('retries a saved connection without opening another ChatGPT sign-in', async (
   expect(screen.queryByRole('button', { name: 'Retry connection to Personal' })).toBeNull();
   expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(false);
   expect(mocks.changed).toHaveBeenCalledOnce();
-  expect(document.activeElement).toBe(
-    screen.getByRole('button', { name: 'Refresh adviser accounts' }),
+  // Recovery status can render before mutate's final busy=false commit. Focus
+  // restoration belongs to that asynchronous effect, so await the same exact
+  // user-visible focus contract rather than the earlier status message.
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'Refresh adviser accounts' }),
+    ),
   );
 });
 it('recovers a host-owned pending sign-in on remount and allows cancellation without starting another attempt', async () => {
