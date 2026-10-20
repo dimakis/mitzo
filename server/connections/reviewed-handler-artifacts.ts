@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.413-quiet-chat-pending-feedback';
+  'v1.0.414-quiet-chat-recovery-fences';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -666,7 +666,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '3d84e1c4bfcac73ee6c92330e8870194fd3a694d5c4196b50074be2a4e4fdd22',
+  '../codex-conversation.ts': '146a63b02dcea03f67eecea7b4c9bd84e0d8b853f211c874cfd5c21b73dd5b67',
   '../codex-conversation-store.ts':
     '01c669cc38d5e7c81355eeca74488d3ecce8f7ff34f4f76cd0432ba1df40f53d',
   '../symposium-custodian-ipc.ts':

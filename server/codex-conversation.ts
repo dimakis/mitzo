@@ -382,7 +382,7 @@ export class CodexConversation {
   private automaticTransportRecoveryAttempted = false;
   private automaticRecoveryTimer?: ReturnType<typeof setTimeout>;
   private automaticRecoveryEpoch = 0;
-  private automaticRecoveryRunning = false;
+  private automaticRecoveryRunning?: { epoch: number };
   private explicitEnqueue: Promise<unknown> = Promise.resolve();
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   private appliedWebSearchAccess: WebSearchAccess = 'disabled';
@@ -457,7 +457,8 @@ export class CodexConversation {
           undefined,
           true,
           true,
-          automatic || (this.automaticRecoveryRunning && !active),
+          automatic ||
+            (this.automaticRecoveryRunning?.epoch === this.automaticRecoveryEpoch && !active),
         );
     } catch (persistenceError) {
       recoveryPersistenceFailed = true;
@@ -1236,7 +1237,7 @@ export class CodexConversation {
     this.opts.onQueueChange?.();
     this.automaticRecoveryTimer = setTimeout(() => {
       this.automaticRecoveryTimer = undefined;
-      this.automaticRecoveryRunning = true;
+      this.automaticRecoveryRunning = { epoch };
       void Promise.resolve(this.pumping)
         .then(async () => {
           if (epoch !== this.automaticRecoveryEpoch || this.closed) return;
@@ -1250,7 +1251,7 @@ export class CodexConversation {
             );
         })
         .finally(() => {
-          this.automaticRecoveryRunning = false;
+          this.automaticRecoveryRunning = undefined;
           if (epoch === this.automaticRecoveryEpoch && !this.closed)
             this.recoverSavedQueue(attempt + 1);
         })
@@ -1287,6 +1288,7 @@ export class CodexConversation {
     if (this.closed) throw new Error('Codex conversation unavailable');
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
     if (!this.ready) await this.reconnect();
+    const recoveryTransportGeneration = this.transportGeneration;
     if (automaticEpoch !== undefined) {
       const page = z
         .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
@@ -1300,12 +1302,6 @@ export class CodexConversation {
         );
       if (page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status)))
         throw new Error('Provider turn is still active; saved work remains queued');
-      if (
-        automaticEpoch !== this.automaticRecoveryEpoch ||
-        this.closed ||
-        !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!)
-      )
-        throw new Error('Automatic recovery was cancelled');
     }
     // A provider turn may continue after turn/start returns. Recovery progress
     // is only for workspace startup and transport reattachment, not generation.
@@ -1313,6 +1309,16 @@ export class CodexConversation {
       this.recoveryPhase = undefined;
       this.opts.onQueueChange?.();
     }
+    // Neither metadata nor a progress observer may release work through a
+    // retired transport or undo a Stop that arrived during the reconnect.
+    if (this.closed || !this.ready || recoveryTransportGeneration !== this.transportGeneration)
+      throw new Error('Recovery transport is closed or replaced');
+    if (
+      automaticEpoch !== undefined &&
+      (automaticEpoch !== this.automaticRecoveryEpoch ||
+        !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
+    )
+      throw new Error('Automatic recovery was cancelled');
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!);
     this.paused = false;
     await this.pump();
@@ -2918,6 +2924,7 @@ export class CodexConversation {
               undefined,
               true,
               true,
+              this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding),
             );
         } catch (error) {
           this.opts.onError?.(

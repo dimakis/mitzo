@@ -5865,24 +5865,71 @@ it('retains qualified transport recovery across a cold reattach without replayin
   const first = await setup();
   await first.c.send({ id: 'lost', prompt: 'Synthetic request' });
   await first.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  first.callbacks.onClose(new Error('connection closed'));
+  expect(first.store.automaticRecoveryPending('app', first.getBinding())).toBe(true);
   first.c.close();
-  first.store.pauseForRecovery(
-    'app',
-    first.getBinding(),
-    undefined,
-    'interrupted',
-    'resume',
-    undefined,
-    true,
-    true,
-    true,
-  );
+  expect(first.store.automaticRecoveryPending('app', first.getBinding())).toBe(true);
   const restored = await setup(first.store);
   restored.c.recoverSavedQueue();
   await vi.advanceTimersByTimeAsync(1000);
   expect(restored.c.queue().find(({ id }) => id === 'saved')?.status).toBe('running');
   expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
   expect(first.store.automaticRecoveryPending('app', first.getBinding())).toBe(false);
+});
+
+it('does not restore automatic eligibility when a reconnect transport closes after Stop', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  let release!: () => void;
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/turns/list') {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { data: [], nextCursor: null };
+    }
+    return request(method, params);
+  });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  await f.c.interrupt();
+  f.callbacks.onClose(new Error('reconnect closed after Stop'));
+  expect(f.store.automaticRecoveryPending('app', f.getBinding())).toBe(false);
+  release();
+  await vi.advanceTimersByTimeAsync(60000);
+  f.c.close();
+  expect(f.store.automaticRecoveryPending('app', f.getBinding())).toBe(false);
+  const restored = await setup(f.store);
+  restored.c.recoverSavedQueue();
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(restored.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+});
+
+it('rejects recovery metadata from a transport that closes before its continuation runs', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/turns/list') {
+      f.callbacks.onClose(new Error('metadata transport closed'));
+      return { data: [], nextCursor: null };
+    }
+    return request(method, params);
+  });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(f.store.automaticRecoveryPending('app', f.getBinding())).toBe(true);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  f.rpc.request.mockImplementation(request);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('running');
 });
 
 it('leaves recovery of guarded ordinary routes to their existing runtime owner', async () => {
