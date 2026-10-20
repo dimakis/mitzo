@@ -20,7 +20,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { acceptSendCommandAsync } from './send-command.js';
 import { bindAgentLibraryTransport } from './agent-library-transport.js';
 import type { AuthSession } from './auth.js';
-import type { Request, Response } from 'express';
+import type { Express, Request, Response } from 'express';
 import {
   V2SendMessage,
   V2StopMessage,
@@ -130,6 +130,18 @@ function validateBody<T>(
     return null;
   }
   return result.data!;
+}
+
+/** Shared production HTTP composition, without importing the listener/bootstrap.
+ * Reuses the complete original authenticated chat router and caller-owned stores,
+ * SSE transport and V2 context. Construction performs no session/provider work.
+ */
+export function mountApplicationChatRestTransport(
+  application: Express,
+  sseRegistry: SessionSseRegistry,
+  ctx: V2HandlerContext,
+): void {
+  application.use('/api/chat', createChatRestRouter(sseRegistry, ctx));
 }
 
 export function createChatRestRouter(

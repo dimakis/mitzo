@@ -158,7 +158,7 @@ import {
 import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { SseTransport } from './sse-transport.js';
-import { createChatRestRouter } from './chat-rest-handler.js';
+import { mountApplicationChatRestTransport } from './chat-rest-handler.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 
 const log = createLogger('server');
@@ -801,8 +801,7 @@ app.get('/api/chat/events', (req, res) => {
 });
 
 // Mount HTTP POST chat endpoints (authenticated)
-const chatRestRouter = createChatRestRouter(chatSseRegistry, v2Ctx);
-app.use('/api/chat', chatRestRouter);
+mountApplicationChatRestTransport(app, chatSseRegistry, v2Ctx);
 
 /**
  * Handle a v2 WebSocket connection (after hello handshake detected).
