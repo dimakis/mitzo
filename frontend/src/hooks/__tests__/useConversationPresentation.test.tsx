@@ -509,3 +509,20 @@ it('retains successful replies on refresh failure and rejects a view belonging t
   expect(result.current.projection?.view.collaborationId).toBe(h.view.collaborationId);
   expect(result.current.projection?.view.messages).toEqual(h.view.messages);
 });
+
+it('consults the actual application fence before retained read, recipient and policy callbacks have effects', async () => {
+  const h = harness();
+  let active = true;
+  const fence = () => active;
+  const hook = renderHook(() => useConversationPresentation({ ...h.props, isCurrent: fence }));
+  await waitFor(() => expect(hook.result.current.projection).not.toBeNull());
+  const callbacks = hook.result.current;
+  const before = h.fetch.mock.calls.length;
+  active = false;
+  await act(async () => {
+    await callbacks.setPolicy('reader', { reads: true, replies: true });
+    await callbacks.refresh();
+  });
+  expect(callbacks.setResponders({ kind: 'all' })).toBe(false);
+  expect(h.fetch).toHaveBeenCalledTimes(before);
+});

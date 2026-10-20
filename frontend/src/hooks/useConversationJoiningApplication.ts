@@ -271,6 +271,11 @@ export function useConversationJoiningApplication(options: {
   }, [isCurrent, ordinarySource, basis, currentSourceSetup]);
   const ordinaryAllowed = canSendOrdinary();
   return {
+    // Read composition only. These are the existing canonical selection and
+    // route/auth/client/action fence, never delivery or capacity authority.
+    membership: conflict ? undefined : selected?.collaboration,
+    authScope: basis.scope.login,
+    isCurrent,
     owner,
     catalog,
     add,

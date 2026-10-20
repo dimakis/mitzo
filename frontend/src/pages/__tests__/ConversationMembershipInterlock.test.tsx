@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, fireEvent, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
@@ -8,6 +8,8 @@ import { DesktopChatView } from '../DesktopChatView';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { joiningApplicationHarness } from '../../test-utils/conversation-joining-application-harness';
 import * as auth from '../../lib/api-fetch';
+import { getSessionChatDraft } from '../../lib/chat-drafts';
+import { sharedConversationView } from '../../../../tests/fixtures/symposium-shared-conversation-data';
 
 type Input = {
   onSend(text: string): boolean;
@@ -19,13 +21,24 @@ type Input = {
   ): void;
   sendDisabledReason?: string;
 };
-const inputs = vi.hoisted(() => ({ current: null as Input | null, unexpected: new Set<string>() }));
-vi.mock('../../components/ChatInput', () => ({
-  ChatInput: (props: Input) => {
-    inputs.current = props;
-    return <button disabled={!!props.sendDisabledReason}>Send fixture draft</button>;
-  },
+const inputs = vi.hoisted(() => ({
+  current: null as Input | null,
+  unexpected: new Set<string>(),
+  real: false,
 }));
+vi.mock('../../components/ChatInput', async (original) => {
+  const real = await original<typeof import('../../components/ChatInput')>();
+  return {
+    ChatInput: (props: React.ComponentProps<typeof real.ChatInput>) => {
+      inputs.current = props;
+      return inputs.real ? (
+        <real.ChatInput {...props} />
+      ) : (
+        <button disabled={!!props.sendDisabledReason}>Send fixture draft</button>
+      );
+    },
+  };
+});
 vi.mock('../../lib/event-bus-singleton', () => ({
   eventBus: {
     on: vi.fn(() => vi.fn()),
@@ -98,11 +111,20 @@ vi.mock('../../lib/api-fetch', async (original) => {
   };
 });
 
+const originalShowModal = HTMLDialogElement.prototype.showModal;
+const originalClose = HTMLDialogElement.prototype.close;
 beforeEach(async () => {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute('open', '');
+  };
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute('open');
+  };
   localStorage.clear();
   sessionStorage.clear();
   auth.markAuthLost();
   inputs.current = null;
+  inputs.real = false;
   inputs.unexpected.clear();
   vi.stubGlobal(
     'fetch',
@@ -112,6 +134,8 @@ beforeEach(async () => {
 });
 afterEach(() => {
   cleanup();
+  HTMLDialogElement.prototype.showModal = originalShowModal;
+  HTMLDialogElement.prototype.close = originalClose;
   auth.markAuthLost();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -242,6 +266,85 @@ for (const Page of [ChatView, DesktopChatView]) {
     expect(inputs.current!.onSend('No source fallback')).toBe(false);
     expect(reloaded.send).not.toHaveBeenCalled();
     expect(reloaded.interrupt).not.toHaveBeenCalled();
+    expect([...inputs.unexpected]).toEqual([]);
+  });
+}
+
+const oldLocks = Object.getOwnPropertyDescriptor(navigator, 'locks');
+afterEach(() => {
+  if (oldLocks) Object.defineProperty(navigator, 'locks', oldLocks);
+  else Reflect.deleteProperty(navigator, 'locks');
+});
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} mounts canonical Agents/policy and upgrades the same real legacy editor only on explicit @all`, async () => {
+    inputs.real = true;
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: { request: async (_name: string, _options: unknown, body: () => unknown) => body() },
+    });
+    const group = '00000000-0000-4000-8000-000000000001';
+    const h = joiningApplicationHarness(group, ['source-chat', 'peer', 'reader']);
+    const view = JSON.parse(
+      JSON.stringify(sharedConversationView())
+        .replaceAll('"architect"', '"source-chat"')
+        .replaceAll('"reviewer"', '"peer"'),
+    );
+    view.membershipRevision = 3;
+    view.policies.forEach((p: { membershipRevision: number }) => (p.membershipRevision = 3));
+    h.discussion(view);
+    localStorage.setItem('mitzo-draft-source-chat', 'Original legacy editor body');
+    const page = mount(Page);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Choose who replies' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    const input = screen.getByRole('textbox', { name: 'Message Mitzo' }) as HTMLTextAreaElement;
+    expect(getSessionChatDraft('source-chat')).toBeNull();
+    expect(input.value).toBe('Original legacy editor body');
+    input.focus();
+    fireEvent.change(input, { target: { value: 'Latest edited body @all' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    await waitFor(() =>
+      expect(
+        getSessionChatDraft('source-chat')?.settings.collaborationResponders?.responders,
+      ).toEqual({ kind: 'all' }),
+    );
+    const id = getSessionChatDraft('source-chat')!.id;
+    await waitFor(() => expect(input.value).toBe('Latest edited body '));
+    expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toBe(input);
+    expect(document.activeElement).toBe(input);
+    expect(localStorage.getItem('mitzo-draft-source-chat')).toBe('Latest edited body @all');
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(page.send).not.toHaveBeenCalled();
+    expect(page.interrupt).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole('button', { name: /^Agents,/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'Agents' });
+    expect(within(dialog).getByText('Agent · peer')).toBeTruthy();
+    const sharing = within(dialog).getAllByRole('checkbox', { name: 'Reads future discussion' });
+    fireEvent.click(sharing[1]);
+    await waitFor(() =>
+      expect(h.transport.mock.calls.filter(([url]) => url.endsWith('/policy'))).toHaveLength(1),
+    );
+    await waitFor(() =>
+      expect(
+        (
+          within(dialog).getAllByRole('checkbox', {
+            name: 'Reads future discussion',
+          })[1] as HTMLInputElement
+        ).checked,
+      ).toBe(true),
+    );
+    expect(getSessionChatDraft('source-chat')!.id).toBe(id);
+    expect(getSessionChatDraft('source-chat')!.text).toBe('Latest edited body ');
+    expect(page.send).not.toHaveBeenCalled();
+    expect(
+      h.transport.mock.calls.some(([url]) =>
+        /\/(begin|prepare|preview|reviews|joins|messages)$/.test(
+          new URL(url, 'https://offline.invalid').pathname,
+        ),
+      ),
+    ).toBe(false);
     expect([...inputs.unexpected]).toEqual([]);
   });
 }

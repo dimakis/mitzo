@@ -6,6 +6,8 @@ import { AgentLibraryChatLink } from '../components/AgentLibraryChatSource';
 import { markAgentBuilderAssigned } from '../lib/agent-builder-chat';
 import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
 import { ConversationAgents } from '../components/ConversationAgents';
+import { ConversationDiscussionFeedback } from '../components/ConversationDiscussionFeedback';
+import { useConversationDiscussion } from '../hooks/useConversationDiscussion';
 import { useConversationJoiningApplication } from '../hooks/useConversationJoiningApplication';
 import { conversationRepositoryLabel } from '../lib/conversation-repository-label';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
@@ -1118,6 +1120,21 @@ export function ChatView() {
     routeKey: joiningRoute.key,
     ordinarySourceConversationId: !isSymposium ? (sessionId ?? activeSessionId) : null,
   });
+  const sourceAgent = activeSessionId
+    ? {
+        id: activeSessionId,
+        name: agentLabel ?? 'Mitzo',
+        account: workspaceSummary?.profile,
+        model: workspaceSummary?.model,
+        thinking: workspaceSummary?.thinking,
+        state: 'Current conversation',
+      }
+    : null;
+  const discussion = useConversationDiscussion({
+    joining: joiningFlow,
+    source: sourceAgent,
+    draftId: savedChatDraft?.id,
+  });
   const workspaceControls = (
     <WorkspaceControls
       title={
@@ -1162,16 +1179,14 @@ export function ChatView() {
               onRetryJoiningSetup={joiningFlow.canRetry ? joiningFlow.retry : undefined}
               repository={conversationRepository}
               scope={activeSessionId}
-              agents={[
-                {
-                  id: activeSessionId,
-                  name: agentLabel ?? 'Mitzo',
-                  account: workspaceSummary?.profile,
-                  model: workspaceSummary?.model,
-                  thinking: workspaceSummary?.thinking,
-                  state: 'Current conversation',
-                },
-              ]}
+              agents={discussion.agents ?? (sourceAgent ? [sourceAgent] : [])}
+              onPolicyChange={
+                discussion.policyDisabled
+                  ? undefined
+                  : (id, values) => void discussion.presentation.setPolicy(id, values)
+              }
+              policyUnavailableReason={discussion.unavailableReason}
+              policyFeedback={<ConversationDiscussionFeedback discussion={discussion} />}
               messages={messages.messages}
             />
           )}
@@ -1569,6 +1584,23 @@ export function ChatView() {
               />
             )}
             <ChatInput
+              responders={discussion.responders}
+              legacyRecipientUpgrade={
+                discussion.collaborationId && !savedChatDraft && discussion.canChooseRecipients()
+                  ? {
+                      collaborationId: discussion.collaborationId,
+                      isCurrent: discussion.canChooseRecipients,
+                      settings: {
+                        selection: accountSelection,
+                        mode,
+                        isolation,
+                        search: settingsSearch,
+                        summary: workspaceSummary,
+                        repositoryWorkspaceId: localRuntime.repositoryWorkspaceId ?? null,
+                      },
+                    }
+                  : undefined
+              }
               collaboration={
                 activeSessionId && !controlsBlocked && !localBound && ordinaryControls ? (
                   <OrdinaryCollaborationEntry sessionId={activeSessionId} compact />

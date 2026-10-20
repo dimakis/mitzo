@@ -1,5 +1,11 @@
 import { expect } from 'vitest';
-import { COLLABORATION_EXECUTION_DISABLED, createOrdinaryFreshPermission } from '@mitzo/protocol';
+import {
+  COLLABORATION_EXECUTION_DISABLED,
+  createOrdinaryFreshPermission,
+  CollaborationViewSchema,
+  CollaborationPolicyUpdateSchema,
+  type CollaborationView,
+} from '@mitzo/protocol';
 import { joiningTargetHarness } from './conversation-joining-target-harness';
 import { joiningReviewFixture } from '../preview/conversation-joining-fixture';
 import { sha256Hex } from '../lib/browser-crypto';
@@ -14,6 +20,7 @@ export function joiningApplicationHarness(
   let group = initialGroup;
   let beginWait: Promise<Response> | undefined;
   let failBegin = false;
+  let discussion: CollaborationView | undefined;
   const snapshot = joiningReviewFixture().snapshot;
   const membership = () => ({
     version: 1,
@@ -60,21 +67,45 @@ export function joiningApplicationHarness(
         boundary: snapshot.boundary,
         messages: snapshot.messages,
       });
-    if (path.endsWith('/conversation'))
-      return Response.json({
-        version: 1,
-        collaborationId: group,
-        membershipRevision: members.length,
-        participantSessionIds: members,
-        unavailableParticipantSessionIds: [],
-        cursor: 0,
-        policySequence: 0,
-        policies: [],
-        messages: [],
-        hasEarlierMessages: false,
-        joins: [],
-        execution: COLLABORATION_EXECUTION_DISABLED,
+    if (path.endsWith('/policy')) {
+      if (!discussion || init?.method !== 'PUT') throw Error('Unexpected policy fixture request');
+      const input = CollaborationPolicyUpdateSchema.parse(JSON.parse(init.body as string));
+      expect(input.expectedMembershipRevision).toBe(discussion.membershipRevision);
+      const old = discussion.policies.find((p) => p.sessionId === input.sessionId)!;
+      expect(input.expectedRevision).toBe(old.revision);
+      const policy = {
+        ...old,
+        revision: old.revision + 1,
+        membershipRevision: discussion.membershipRevision,
+        effectiveFromSequence: discussion.cursor + 2,
+        readsFutureDiscussion: input.readsFutureDiscussion,
+        repliesByDefault: input.repliesByDefault,
+      };
+      discussion = CollaborationViewSchema.parse({
+        ...discussion,
+        cursor: discussion.cursor + 1,
+        policySequence: discussion.cursor + 1,
+        policies: discussion.policies.map((p) => (p.sessionId === policy.sessionId ? policy : p)),
       });
+      return Response.json(policy);
+    }
+    if (path.endsWith('/conversation'))
+      return Response.json(
+        discussion ?? {
+          version: 1,
+          collaborationId: group,
+          membershipRevision: members.length,
+          participantSessionIds: members,
+          unavailableParticipantSessionIds: [],
+          cursor: 0,
+          policySequence: 0,
+          policies: [],
+          messages: [],
+          hasEarlierMessages: false,
+          joins: [],
+          execution: COLLABORATION_EXECUTION_DISABLED,
+        },
+      );
     if (!path.endsWith('/reviews')) return undefined;
     const { clientId, ...input } = JSON.parse(init!.body as string);
     expect(clientId).toBeTruthy();
@@ -115,6 +146,9 @@ export function joiningApplicationHarness(
   return {
     ...h,
     group: () => group,
+    discussion: (value: CollaborationView) => {
+      discussion = CollaborationViewSchema.parse(value);
+    },
     beginWait: (value: Promise<Response>) => {
       beginWait = value;
     },
