@@ -11,6 +11,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(apiFetch).mockImplementation((url) => {
     const path = String(url);
+    if (path.endsWith('/meta')) return response({ sessionId: path.split('/')[3] }) as never;
     if (path.startsWith('/api/git/info'))
       return response({
         branch: 'main',
