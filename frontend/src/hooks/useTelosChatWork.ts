@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TelosWorkApiClient } from '@mitzo/client';
 import type { TelosWorkView } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
@@ -7,7 +7,15 @@ const api = new TelosWorkApiClient(apiFetch);
 /** Abort-fenced role history and current assignments; no allocator/settings writes. */
 export function useTelosChatWork(itemId: string | null, refreshKey: string | number) {
   const [revision, setRevision] = useState(0);
-  const [result, setResult] = useState<{ itemId: string; work?: TelosWorkView; error?: string }>();
+  const key = JSON.stringify([itemId, refreshKey, revision]);
+  const active = useRef<AbortController | null>(null);
+  const [result, setResult] = useState<{
+    key: string;
+    controller: AbortController;
+    itemId: string;
+    work?: TelosWorkView;
+    error?: string;
+  }>();
   useEffect(() => {
     const refresh = () => setRevision((v) => v + 1);
     const resume = () => {
@@ -29,23 +37,31 @@ export function useTelosChatWork(itemId: string | null, refreshKey: string | num
   useEffect(() => {
     if (!itemId) return;
     const controller = new AbortController();
+    active.current = controller;
     void api.read(itemId, controller.signal).then(
       (work) => {
         if (!controller.signal.aborted)
           setResult(
             work.itemId === itemId
-              ? { itemId, work }
-              : { itemId, error: 'Linked conversations unavailable.' },
+              ? { key, controller, itemId, work }
+              : { key, controller, itemId, error: 'Linked conversations unavailable.' },
           );
       },
       () => {
         if (!controller.signal.aborted)
-          setResult({ itemId, error: 'Linked conversations unavailable.' });
+          setResult({ key, controller, itemId, error: 'Linked conversations unavailable.' });
       },
     );
     return () => controller.abort();
-  }, [itemId, refreshKey, revision]);
+  }, [itemId, key]);
   return {
+    // Retained same-item content is display-only until this exact read generation settles.
+    current:
+      result?.key === key &&
+      result.controller === active.current &&
+      !result.controller.signal.aborted &&
+      !!result.work &&
+      !result.error,
     work: result?.itemId === itemId ? result.work : undefined,
     error: result?.itemId === itemId ? result.error : undefined,
     refresh: () => setRevision((v) => v + 1),

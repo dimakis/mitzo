@@ -1,4 +1,17 @@
+import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
+import { TelosWorkControlToolInputSchema } from '@mitzo/protocol';
+import {
+  TELOS_WORK_CONTROL_TOOL,
+  telosWorkControlDefinitions,
+  executeTelosWorkControlTool,
+} from './telos-work-control-tools.js';
 import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
+import {
+  AGENT_COMMUNICATION_TOOL,
+  agentCommunicationDefinitions,
+  recordAgentMessageAcceptance,
+  sessionAgentCommunicationTools,
+} from './agent-communication-tools.js';
 import {
   assertAgentToolRoute,
   assertAgentToolSelected,
@@ -568,7 +581,10 @@ interface Options {
   agentProfile?: AgentLibraryVersion;
   /** Captured from verified operator transport, never caller JSON; admission only. */
   assertAgentContextAuthorization?: () => void;
+  /** New commands only; running tool/context continuations keep their admitted brief. */
+  assertWorkTurnAdmission?: () => void;
   repositoryWorkspace?: RepositoryChatWorkspace;
+  ordinaryWorkspace?: OrdinaryWorkspaceRecord;
   publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
   conversationId: string;
@@ -693,6 +709,9 @@ export async function openCodexChat(options: Options) {
     profile: structuredClone(options.profile),
     agentProfile: selectedProfile,
     agentContext: options.agentContext ? structuredClone(options.agentContext) : undefined,
+    ordinaryWorkspace: options.ordinaryWorkspace
+      ? structuredClone(options.ordinaryWorkspace)
+      : undefined,
     repositoryWorkspace: options.repositoryWorkspace
       ? structuredClone(options.repositoryWorkspace)
       : undefined,
@@ -819,6 +838,10 @@ async function openCodexChatBound(
       ? resolveTelosWorkRoleContext(options.eventStore, options.conversationId, options.binding)
       : undefined;
   const leadWorkTools = selectedTelosRole?.role === 'lead' ? telosWorkDefinitions : [];
+  const controlWorkTools =
+    selectedTelosRole && ['lead', 'worker'].includes(selectedTelosRole.role)
+      ? telosWorkControlDefinitions
+      : [];
   let workerTaskContext: ManagedSession['taskContext'] = null;
   if (
     options.ownedOpenShell &&
@@ -1087,6 +1110,7 @@ async function openCodexChatBound(
         ...telosItemDefinitions,
         ...telosArtifactDefinitions,
         ...leadWorkTools,
+        ...controlWorkTools,
         ...(workerTaskContext ? telosWorkerTaskDefinitions : []),
         ...integrationTools,
       ]
@@ -1111,7 +1135,8 @@ async function openCodexChatBound(
       !openShell ||
       !runtimeManager ||
       !managedOpenShell ||
-      !grantableProviders.includes(provider)
+      (!grantableProviders.includes(provider) &&
+        !managedConnections.some((connection) => connection.gatewayProviderName === provider))
     )
       return { content: 'Integration provider is not grantable', isError: true };
     if (turn?.denied.has(provider))
@@ -1158,6 +1183,12 @@ async function openCodexChatBound(
         isError: false,
       };
     if (access.state === 'indeterminate') throw access.error;
+    if (!grantableProviders.includes(provider))
+      return {
+        content:
+          'This configured connection is not currently available in the sandbox. Refresh ListConnections and inspect runtime connection status; this is not evidence that service authentication was rejected.',
+        isError: true,
+      };
     const providerLabel =
       INTEGRATION_PROVIDER_LABELS[provider] ??
       onDemandConnections.find((connection) => connection.gatewayProviderName === provider)
@@ -1482,6 +1513,38 @@ async function openCodexChatBound(
         assertHostCurrentSync,
       )
     : undefined;
+  const communicationTools = options.ownedLocal
+    ? sessionAgentCommunicationTools({
+        events: options.eventStore,
+        native: store(),
+        registry: options.registry,
+        conversationId: options.conversationId,
+        session: options.session,
+        assertRuntimeCurrent: assertHostCurrent,
+        assertRuntimeCurrentSync: assertHostCurrentSync,
+        approve: (input, signal) => {
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner || owner.session !== options.session)
+            throw Error('Current native sender required');
+          return buildPermissionHandler(owner.clientId, options.registry, {
+            onDemandCreate: options.onDemandCreate,
+          })(AGENT_COMMUNICATION_TOOL, input, {
+            signal,
+            toolUseID: randomUUID(),
+            forcePrompt: true,
+            allowSessionGrant: false,
+            title: 'Send this peer message?',
+            description:
+              'Approve the exact target and text. This grants no other agent action or merge authority.',
+          });
+        },
+        startQueued: async (session) => {
+          const runtime = runtimes.get(session);
+          if (!runtime) throw Error('Recipient native queue unavailable');
+          await runtime.startQueued();
+        },
+      })
+    : undefined;
   const localProfileTools = options.ownedLocal
     ? sessionProfileTools(
         options.conversationId,
@@ -1499,8 +1562,10 @@ async function openCodexChatBound(
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
+          ...agentCommunicationDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
+          ...controlWorkTools,
         ].map((tool) => tool.name),
       )
     : undefined;
@@ -1519,17 +1584,22 @@ async function openCodexChatBound(
           transport: 'openshell',
           access: 'attached',
         })),
-        ...grantableProviders.map((provider) => ({
-          id: `openshell:${provider}`,
-          label:
-            onDemandConnections.find((c) => c.gatewayProviderName === provider)?.label ??
-            INTEGRATION_PROVIDER_LABELS[provider] ??
+        ...grantableProviders
+          .filter(
+            (provider) =>
+              !managedConnections.some((connection) => connection.gatewayProviderName === provider),
+          )
+          .map((provider) => ({
+            id: `openshell:${provider}`,
+            label:
+              onDemandConnections.find((c) => c.gatewayProviderName === provider)?.label ??
+              INTEGRATION_PROVIDER_LABELS[provider] ??
+              provider,
+            endpoint: onDemandConnections.find((c) => c.gatewayProviderName === provider)?.endpoint,
             provider,
-          endpoint: onDemandConnections.find((c) => c.gatewayProviderName === provider)?.endpoint,
-          provider,
-          transport: 'openshell',
-          access: 'request_session_access',
-        })),
+            transport: 'openshell',
+            access: 'request_session_access',
+          })),
       ],
       request: requestIntegrationAccess,
     },
@@ -1675,8 +1745,10 @@ async function openCodexChatBound(
           ...mcp.definitions,
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
+          ...agentCommunicationDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
+          ...controlWorkTools,
         ]
       : connectedOpenShell
         ? [
@@ -1728,6 +1800,7 @@ async function openCodexChatBound(
           beforeThreadInitialization: (store: CodexConversationStore) =>
             options.ownedLocal!.persistCustody(store),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            options.assertWorkTurnAdmission?.();
             options.assertAgentContextAuthorization?.();
             options.ownedLocal!.assertBeforeEnqueue(input);
           },
@@ -1745,6 +1818,7 @@ async function openCodexChatBound(
           canClaimCommand: (commandId: string) =>
             options.ownedOpenShell!.canClaimCommand(commandId),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) => {
+            options.assertWorkTurnAdmission?.();
             options.assertAgentContextAuthorization?.();
             options.ownedOpenShell!.assertBeforeEnqueue(input);
           },
@@ -2029,13 +2103,33 @@ async function openCodexChatBound(
       : {}),
     emit: (event) => events.push(event),
     onProviderDispatch: (messageId) => {
+      options.assertWorkTurnAdmission?.();
       if (ownedHost) options.assertAgentContextAuthorization?.();
       options.ownedLocal?.assertBeforeDispatch(messageId);
       options.ownedOpenShell?.assertBeforeDispatch(messageId);
       options.ordinaryTurnLifecycle?.beforeDispatch(messageId);
       beginTrackedProviderAttempt(options.session, messageId);
+      // Ordinary owned turns do not use closeout's provider-attempt ledger.
+      // Persist this boundary only after every admission fence succeeds, before
+      // native turn/start. Queued commands alone cannot mark a worker started.
+      if (options.conversationId)
+        options.eventStore.append(options.conversationId, 'ordinary_provider_dispatch_started', {
+          messageId,
+        });
     },
     onProviderAccepted: (messageId, threadId, turnId) => {
+      if (options.ownedLocal) {
+        recordAgentMessageAcceptance(
+          options.eventStore,
+          privateStorage,
+          options.conversationId,
+          options.binding,
+          options.session.ordinaryRuntimeOwner?.authSessionId,
+          messageId,
+          threadId,
+          turnId,
+        );
+      }
       // Thread instructions already contain the retained snapshot. The exact
       // turn/start acknowledgement associates it without duplicating developer context.
       if (agentContext && !agentContext.sandbox)
@@ -2177,6 +2271,55 @@ async function openCodexChatBound(
         return result;
       }
       await assertHostCurrent();
+      if (name === TELOS_WORK_CONTROL_TOOL) {
+        if (!controlWorkTools.length)
+          return { content: 'Current retained lead or worker role required', isError: true };
+        const parsed = TelosWorkControlToolInputSchema.safeParse(input);
+        if (!parsed.success)
+          return toolInputError(
+            'Scoped work control',
+            TelosWorkControlToolInputSchema,
+            parsed.error,
+          );
+        const owner = options.registry.findBySessionId(options.conversationId);
+        if (!owner || owner.session !== options.session)
+          return { content: 'Exact current work conversation unavailable', isError: true };
+        const assertControlOwner = () => {
+          signal.throwIfAborted();
+          const current = options.registry.findBySessionId(options.conversationId);
+          if (
+            current?.clientId !== owner.clientId ||
+            current.session !== owner.session ||
+            !isDeepStrictEqual(
+              resolveTelosWorkRoleContext(
+                options.eventStore,
+                options.conversationId,
+                options.binding,
+              ),
+              selectedTelosRole,
+            )
+          )
+            throw Error('Work control owner changed during approval');
+        };
+        assertControlOwner();
+        const permission = await buildPermissionHandler(owner.clientId, options.registry, {
+          onDemandCreate: options.onDemandCreate,
+        })(name, parsed.data, { signal, toolUseID: randomUUID(), allowSessionGrant: false });
+        assertControlOwner();
+        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
+        if (!isDeepStrictEqual(permission.updatedInput, parsed.data))
+          return { content: 'Scoped control input changed during approval', isError: true };
+        await assertHostCurrent();
+        assertControlOwner();
+        return executeTelosWorkControlTool(
+          localHttpBaseUrl(Number.parseInt(process.env.PORT || '3100', 10), localServerUsesTls()),
+          owner.clientId,
+          options.conversationId,
+          INTERNAL_TOKEN,
+          parsed.data,
+          signal,
+        );
+      }
       if (name === TELOS_START_SLICE_TOOL) {
         if (!leadWorkTools.length)
           return {
@@ -2229,6 +2372,25 @@ async function openCodexChatBound(
       }
       const apiResult = await apiTools?.execute(name, input, signal);
       if (apiResult) return apiResult;
+      if (name === AGENT_COMMUNICATION_TOOL) {
+        if (!communicationTools)
+          return {
+            content: 'Agent communication requires an enrolled ordinary Local Codex owner.',
+            isError: true,
+          };
+        try {
+          return {
+            content: JSON.stringify(await communicationTools.execute(input, signal, callContext)),
+            isError: false,
+          };
+        } catch {
+          return {
+            content:
+              'Agent communication is unavailable under the current sender, recipient or exact-message approval. If delivery was uncertain, read the original message/request receipt before sending again.',
+            isError: true,
+          };
+        }
+      }
       const taskResult = await localTaskTools?.execute(name, input, signal, callContext);
       if (taskResult) return taskResult;
       const profileResult = await localProfileTools?.execute(name, input, signal, callContext);
@@ -2546,6 +2708,7 @@ async function openCodexChatBound(
     // send reacquires this same coordinator for runtime and knowledge admission;
     // release setup first so neither callback waits on its own startup fence.
     startupReservation?.();
+    runtime.recoverSavedQueue();
     if (!options.reattachOnly && !deferInitialSend) await sendInitialCodexTurn(options, runtime);
   } catch (error) {
     close();

@@ -7,6 +7,7 @@ import { telosChatRows } from '../lib/telos-chat-rows';
 import type { TelosChatDetails } from '../components/TelosChatList';
 const Metadata = z.object({
   sessionId: z.string(),
+  createdAt: z.number().int().nonnegative().max(8640000000000000).optional().catch(undefined),
   accountBinding: z
     .object({ accountLabel: z.string().nullish(), model: z.string().nullish() })
     .nullish(),
@@ -46,19 +47,26 @@ export function useTelosChatDetails(work: TelosWorkView | undefined) {
             meta.modelSelection?.models?.find((value) => value.id === model)?.label ?? model;
           const location = meta.runtimeBinding?.execution.location;
           details[row.key] = {
-            description:
-              [
-                meta.agentProfile?.definition.name,
-                meta.accountBinding?.accountLabel,
-                modelLabel,
-                location === 'local'
-                  ? 'Local Mac'
-                  : location === 'openshell'
-                    ? 'OpenShell'
-                    : undefined,
-              ]
-                .filter(Boolean)
-                .join(' · ') || 'Settings unavailable',
+            accountModel: [meta.accountBinding?.accountLabel, modelLabel]
+              .filter(Boolean)
+              .join(' · '),
+            profileTarget: [
+              meta.agentProfile?.definition.name,
+              location === 'local'
+                ? 'Local Mac'
+                : location === 'openshell'
+                  ? 'OpenShell'
+                  : undefined,
+            ]
+              .filter(Boolean)
+              .join(' · '),
+            createdAt: meta.createdAt,
+            ...(!meta.agentProfile?.definition.name &&
+            !meta.accountBinding?.accountLabel &&
+            !modelLabel &&
+            !location
+              ? { description: 'Settings unavailable' }
+              : {}),
           };
         } catch {
           details[row.key] = { description: 'Settings unavailable' };

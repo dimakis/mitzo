@@ -35,6 +35,31 @@ const artifactRuntime = {
   },
   route: { kind: 'api' as const, provider: 'account-provider', model: 'test-model' },
 };
+it('retains actual native turn acceptance across restart without treating queue, claim or thread creation as dispatch', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  expect(s.hasAcceptedProviderTurn('worker', binding)).toBe(false);
+  s.create('worker', binding, '/offline');
+  s.bindThread('worker', binding, 'native-thread');
+  s.enqueue('worker', binding, { id: 'command', prompt: 'continue' });
+  const command = s.claimNext('worker', binding)!;
+  expect(s.hasAcceptedProviderTurn('worker', binding)).toBe(false);
+  s.recordCapacityAck('worker', binding, command, 'native-thread', 'native-turn');
+  expect(s.acceptedProviderTurnForCommand('worker', binding, 'command', 'continue')).toEqual({
+    threadId: 'native-thread',
+    turnId: 'native-turn',
+  });
+  expect(
+    s.acceptedProviderTurnForCommand('worker', binding, 'command', 'different message'),
+  ).toBeUndefined();
+  s.close();
+  s = new CodexConversationStore(path);
+  expect(s.hasAcceptedProviderTurn('worker', binding)).toBe(true);
+  expect(() => s.hasAcceptedProviderTurn('worker', { ...binding, accountId: 'other' })).toThrow(
+    /binding/,
+  );
+  s.close();
+});
 it('records sandbox recipe delivery only against an exact native acknowledgement and retains it across restart', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);
@@ -1148,4 +1173,183 @@ it('keeps migration source and candidate provenance separate and rejects mismatc
   expect(() => store.listSandboxOwnership()).toThrow(/binding changed/);
   db.close();
   store.close();
+});
+function acceptedTargetFixture() {
+  const f = setup(),
+    store = new CodexConversationStore(f.path);
+  store.create('target-chat', binding, '/workspace');
+  store.bindThread('target-chat', binding, 'thread-a');
+  store.enqueue('target-chat', binding, { id: 'command-a', prompt: 'First' });
+  const command = store.claimNext('target-chat', binding)!;
+  store.recordNativeTurnAck('target-chat', binding, command, 'thread-a', 'turn-a');
+  const target = store.nativeTurnTarget('target-chat', binding, command.id, command.attempt)!;
+  return { ...f, store, command, target };
+}
+it('retains an interruption claim across restart without reissuing a local mutation', () => {
+  const f = acceptedTargetFixture();
+  const claim = f.store.claimTargetedInterrupt('target-chat', binding, 'control-a', f.target)!;
+  expect(claim.fresh).toBe(true);
+  const queue = f.store.commands('target-chat', binding);
+  f.store.close();
+  const restored = new CodexConversationStore(f.path);
+  try {
+    expect(restored.targetedInterruptReceipt('target-chat', binding, 'control-a')).toEqual(
+      claim.receipt,
+    );
+    const before = restored.read('target-chat', binding);
+    expect(restored.claimTargetedInterrupt('target-chat', binding, 'control-a', f.target)).toEqual({
+      fresh: false,
+      receipt: claim.receipt,
+    });
+    expect(restored.read('target-chat', binding)).toEqual(before);
+    expect(restored.commands('target-chat', binding)).toEqual(queue);
+    expect(() =>
+      restored.claimTargetedInterrupt('target-chat', binding, 'control-a', {
+        ...f.target,
+        turnId: 'successor',
+      }),
+    ).toThrow(/different target/);
+  } finally {
+    restored.close();
+  }
+});
+it('rolls back a cancellation claim when the same transaction cannot pause', () => {
+  const f = acceptedTargetFixture();
+  const db = new Database(f.path);
+  try {
+    db.exec(
+      "CREATE TRIGGER refuse_target_pause BEFORE UPDATE OF recovery ON codex_conversations BEGIN SELECT RAISE(ABORT,'synthetic pause failure'); END",
+    );
+    expect(() =>
+      f.store.claimTargetedInterrupt('target-chat', binding, 'control-a', f.target),
+    ).toThrow('synthetic pause failure');
+    expect(f.store.targetedInterruptReceipt('target-chat', binding, 'control-a')).toBeUndefined();
+    expect(f.store.read('target-chat', binding).recovery).toBe(0);
+    expect(f.store.commands('target-chat', binding)[0].status).toBe('running');
+  } finally {
+    db.close();
+    f.store.close();
+  }
+});
+it('refuses missing or changed native acknowledgement without inventing a capacity ACK', () => {
+  const f = acceptedTargetFixture(),
+    db = new Database(f.path);
+  try {
+    const before = f.store.read('target-chat', binding);
+    db.prepare('UPDATE codex_commands SET native_turns=NULL WHERE conversation_id=?').run(
+      'target-chat',
+    );
+    expect(f.store.nativeTurnTarget('target-chat', binding, 'command-a', 1)).toBeUndefined();
+    expect(
+      f.store.claimTargetedInterrupt('target-chat', binding, 'control-a', f.target),
+    ).toBeUndefined();
+    expect(f.store.read('target-chat', binding)).toEqual(before);
+    expect(db.prepare('SELECT COUNT(*) AS n FROM codex_capacity_native_acks').get()).toEqual({
+      n: 0,
+    });
+    expect(f.store.readThreadAcceptances('target-chat', binding)).toEqual([]);
+  } finally {
+    db.close();
+    f.store.close();
+  }
+});
+it.each(['malformed', 'oversize'] as const)(
+  'preserves %s native control custody without granting a new interruption',
+  (kind) => {
+    const f = acceptedTargetFixture(),
+      db = new Database(f.path);
+    try {
+      const raw = kind === 'malformed' ? '{retained-unknown' : ' '.repeat(65537) + '[]';
+      db.prepare('UPDATE codex_commands SET native_turns=? WHERE id=?').run(raw, 'command-a');
+      const before = f.store.read('target-chat', binding);
+      expect(() =>
+        f.store.recordNativeTurnAck('target-chat', binding, f.command, 'thread-a', 'turn-a'),
+      ).not.toThrow();
+      expect(() =>
+        f.store.claimTargetedInterrupt('target-chat', binding, 'new-control', f.target),
+      ).toThrow();
+      expect(
+        db.prepare('SELECT native_turns FROM codex_commands WHERE id=?').get('command-a'),
+      ).toEqual({ native_turns: raw });
+      expect(f.store.read('target-chat', binding)).toEqual(before);
+    } finally {
+      db.close();
+      f.store.close();
+    }
+  },
+);
+it('retains a full native history and its original cancellation claim without pruning for a new ACK', () => {
+  const f = acceptedTargetFixture(),
+    db = new Database(f.path);
+  try {
+    const turns = Array.from({ length: 1000 }, (_, i) => ({
+      attempt: i + 2,
+      threadId: 'a',
+      turnId: 'b',
+      generation: 0,
+      ...(i === 0 ? { interruptRequestId: 'retained-control' } : {}),
+    }));
+    const raw = JSON.stringify(turns);
+    expect(Buffer.byteLength(raw)).toBeLessThan(65536);
+    db.prepare('UPDATE codex_commands SET native_turns=? WHERE id=?').run(raw, 'command-a');
+    const before = f.store.read('target-chat', binding);
+    const original = f.store.targetedInterruptReceipt('target-chat', binding, 'retained-control');
+    expect(original?.target.attempt).toBe(2);
+    f.store.recordNativeTurnAck('target-chat', binding, f.command, 'thread-a', 'turn-a');
+    expect(f.store.nativeTurnTarget('target-chat', binding, 'command-a', 1)).toBeUndefined();
+    expect(
+      f.store.claimTargetedInterrupt('target-chat', binding, 'new-control', f.target),
+    ).toBeUndefined();
+    expect(f.store.targetedInterruptReceipt('target-chat', binding, 'retained-control')).toEqual(
+      original,
+    );
+    expect(
+      db.prepare('SELECT native_turns FROM codex_commands WHERE id=?').get('command-a'),
+    ).toEqual({ native_turns: raw });
+    expect(f.store.read('target-chat', binding)).toEqual(before);
+  } finally {
+    db.close();
+    f.store.close();
+  }
+});
+it('keeps the accepted turn immutable within its original command attempt', () => {
+  const f = acceptedTargetFixture();
+  try {
+    f.store.recordNativeTurnAck('target-chat', binding, f.command, 'thread-a', 'turn-a');
+    expect(() =>
+      f.store.recordNativeTurnAck('target-chat', binding, f.command, 'thread-a', 'different-turn'),
+    ).toThrow(/acknowledgement changed/);
+    expect(f.store.nativeTurnTarget('target-chat', binding, 'command-a', 1)).toEqual(f.target);
+    expect(f.store.read('target-chat', binding).recovery).toBe(0);
+  } finally {
+    f.store.close();
+  }
+});
+it('refuses ambiguous same-attempt native history before claiming or pausing', () => {
+  const f = acceptedTargetFixture(),
+    db = new Database(f.path);
+  try {
+    const { attempt, threadId, turnId, generation } = f.target;
+    const current = { attempt, threadId, turnId, generation };
+    const raw = JSON.stringify([
+      { ...current, threadId: 'old-thread', turnId: 'old-turn' },
+      current,
+    ]);
+    db.prepare('UPDATE codex_commands SET native_turns=? WHERE id=?').run(raw, 'command-a');
+    const before = f.store.read('target-chat', binding);
+    expect(f.store.nativeTurnTarget('target-chat', binding, 'command-a', 1)).toBeUndefined();
+    expect(
+      f.store.claimTargetedInterrupt('target-chat', binding, 'ambiguous-control', f.target),
+    ).toBeUndefined();
+    expect(
+      f.store.targetedInterruptReceipt('target-chat', binding, 'ambiguous-control'),
+    ).toBeUndefined();
+    expect(f.store.read('target-chat', binding)).toEqual(before);
+    expect(
+      db.prepare('SELECT native_turns FROM codex_commands WHERE id=?').get('command-a'),
+    ).toEqual({ native_turns: raw });
+  } finally {
+    db.close();
+    f.store.close();
+  }
 });

@@ -1465,6 +1465,35 @@ scroll strip. Existing semantic tokens, type, focus, control geometry and appear
 preferences remain effective. The ordinary draft owner retains text/images/context
 through silent role binding and first-send consumption.
 
+On the supported Local Mac OAuth Codex route, Repository None prepares an ordinary
+workspace from the server’s readiness receipt. Other execution choices retain their
+selected intent and an actionable refusal. The existing primary control confirms
+role setup after review; readiness and rendering never start a command. Draft storage
+retains the exact preparation, immutable reviewed settings, presentation and request
+identity across reload and unknown outcomes. Device-storage failures keep replacement
+locked. Only an exact durable pre-allocation rejection permits explicit re-review and
+a fresh confirmation. This reuses the existing setup card, status/alert text, composer
+and controls, with no new style or motion pattern.
+
+A bound ordinary workspace uses the same chat settings, transcript and composer.
+Its prepared first command keeps the original account, model, thinking, agent and
+execution choices fixed. A matching consumed receipt refreshes its command phase;
+future model/thinking choices then use the existing continuation controls. Unknown
+delivery keeps the original command and draft for explicit recovery in More options.
+Workspace details say Conversation files and show that a Git branch does not apply.
+No new settings, storage owner or motion pattern is introduced.
+The shared compact Agents control clips its flex label with the existing ellipsis
+pattern, preserving its full accessible name, fixed icon space and shared control
+height at narrow widths and large text sizes.
+
+Ordinary conversation files reuse the existing viewer, optimistic editor and file
+options. Root discovery retains the selected chat; verified ordinary metadata
+withholds Git/worktree controls, while unverified metadata withholds root choices.
+Loading a different chat or document retires the previous UI read and callbacks,
+including a return to a previously selected chat. Server file admission remains
+authoritative. Existing editor drafts, conflict review, download and return links
+keep their original session/path scope without a new editor or storage owner.
+
 The scoped offline role fixture checks source-only lead setup, full refinement/child
 advisor chat, uncertain setup/reload recovery, normal settings, retained unsent draft,
 expanded context pins and proposal saves at 320px WebKit/Chromium and desktop Chromium,
@@ -1771,6 +1800,44 @@ six reduced-motion scenarios. See the [correction evidence](../evidence/telos-s8
 
 ## Telos ordinary route adoption
 
+The ordinary coordinator control consumer uses the existing transcript-card slot,
+shared type/spacing/semantic tokens and quiet receipt rows. Priority selection
+chooses an exact directly attached outcome for this control; it does not change
+the item's numeric priority. Publication, new-worker-dispatch and safe-point scopes
+remain distinct. Human request/read/release actions use the existing signed operator
+route; recipient acknowledgement and host application come only from retained backend
+evidence. Missing recipients, uncertainty, refusal and current-main revalidation
+remain explicit. Session storage retains only the exact pending retry envelope,
+with no automatic submission or control authority. Receipts reload from the server inbox.
+
+The chat work panel scopes its approved compact tree treatment through
+`.telos-chat-tree`: node icons and the full assignment sidecar are omitted there,
+while the amended `P<n>` badge stays visible as a compact token. Canonical item
+status flows beneath the kind metadata, separately from execution-task state. Titles,
+kind badges, nesting and disclosure navigation retain reading room.
+The `compact` prop alone does not select this treatment: Overview/Work child
+trees retain their numeric priority, status and role-entry controls. Font and
+indentation use the existing type/spacing scales; no shared tree rule changes.
+The focused offline `telos-chat-compact-panel` fixture checks both scopes at
+320px and 1280px, light/dark, and retains keyboard close/focus and draft state.
+
+The chooser follows the approved primary hierarchy: conversation title,
+role/account/model, then profile/execution target/conversation-created date.
+Creation uses the exact persisted session timestamp exposed by the existing
+identity-checked metadata read. Missing or invalid dates remain unavailable;
+link time and last-modified time never substitute for creation. All recorded
+role-link authors/times and retained source provenance remain in a native
+**Conversation provenance** disclosure outside the chat-opening button. It reuses
+the existing native-disclosure pattern, semantic tokens and 44px focusable summary;
+technical identifiers remain readable on request rather than filling the primary row.
+Native disclosure summaries share the App keyboard-dismiss exemption with other
+interactive controls, so keyboard activation keeps focus through opening and closing.
+The current-item read is keyed to the route item independently of related
+collection membership. Parent/child hydration and related errors update their
+regions without replacing an active same-item workspace or its native disclosure.
+Manual, event and resume refresh retain the existing abort/identity/priority owners;
+real item navigation and authoritative primary unavailability keep their reset behavior.
+
 The S8 adoption candidate wires its chooser into the real item Chat tab and its
 slim item/chats/work row into the existing mobile and desktop ordinary headers.
 It retains the approved settings, Access, Resources and composer owners. The
@@ -1822,3 +1889,43 @@ These bounded reference dimensions are a structural exception to the usual share
 spacing/radius scale; they do not establish a new palette, font or reusable scale.
 Browser assertions protect these exact dimensions while shared control-height and
 focus rules remain effective.
+
+The ordinary Files metadata guard also withholds Git/worktree discovery when a
+matching modern runtime projection lacks both workspace identities. A retained
+runtime binding or command-scope flag cannot establish legacy repository scope.
+Repository identities must satisfy the existing command UUID schema. Valid explicit
+repository identities and legacy metadata without runtime routing remain
+on their existing Files path. This does not change server file permissions.
+
+## Queue recovery status
+
+`ChatStatusMessage` gives send progress, conversation loading and composer-blocking
+reasons one shared quiet treatment: semantic muted text, UiIcon, UI font and shared
+spacing/type tokens. Both chat pages place delivery feedback beside the composer;
+the queue owner gives active recovery priority over duplicate delivery progress.
+Normal progress has no bordered warning panel. The queue uses its existing actions
+with shared control-height targets and a close icon. Only current action failures,
+failed turns ready for review and exhausted/inspection-required recovery get the
+quiet outlined attention treatment. No generic earlier-step warning or successful
+restart/continue notice outlives the work it describes. Transient background
+reattach failures remain represented by current recovery metadata.
+
+A newer assistant snapshot clears preparation progress even if its message_start
+was lost during reconnect; foreign and older snapshots do not. This changes only
+UI progress, never a delivery receipt or permission decision. Drafts, queue review,
+cancellation, keyboard focus and genuine errors remain available.
+
+The intercepted actual-composer queue-status fixture covers mobile
+WebKit/Chromium and desktop Chromium in dark Mint/System and light Teal/Georgia,
+recovery, keyboard fallback activation, cleared status, quiet preparing progress
+and retained drafts. Shared motion supplies the loading icon and reduced-motion
+fallback. These checks use synthetic metadata, no backend and no model calls.
+
+Inspected captures: [phone progress](assets/chat-progress-mobile-dark.png) and
+[desktop progress](assets/chat-progress-desktop-light.png). These show isolated
+actual composer/status components, not a live chat or a change to approved settings.
+
+Pending chat-type qualification renders only pure progress/error feedback beside
+the disabled input; it does not mount the ordinary queue or send owner early.
+Outline warnings use the semantic warning foreground on a transparent background;
+filled controls retain their existing paired foreground contrast checks.

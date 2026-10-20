@@ -93,3 +93,8 @@ export type {
 } from './event-bus.js';
 
 export { TelosWorkApiClient, TelosWorkApiError } from './telos-work-api.js';
+
+export { OrdinaryWorkspaceApiClient, OrdinaryWorkspaceApiError } from './ordinary-workspace-api.js';
+
+// Shared validation for browser persistence of the existing local command outbox.
+export { parseLocalCommandDelivery } from './local-command-delivery.js';

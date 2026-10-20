@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -148,7 +148,10 @@ describe('lossless Telos workspace record', () => {
   it('leaves actual retained material IDs, bytes, hashes, revisions and provenance under the existing artifact owner', () => {
     const f = fixture();
     const artifacts = new TelosArtifactStore(f.path);
+    const firstDate = '2026-10-20T09:00:00.000Z';
+    const revisionDate = '2026-10-20T10:00:00.000Z';
     try {
+      vi.useFakeTimers({ toFake: ['Date'] });
       const save = (bytes: Buffer, requestId: string) =>
         artifacts.save({
           itemId: 'item',
@@ -159,25 +162,31 @@ describe('lossless Telos workspace record', () => {
           sourcePath: 'original-mock.html',
           requestId,
         });
+      vi.setSystemTime(firstDate);
       const original = save(Buffer.from('<html>Exact approved source</html>\n'), 'r1');
+      vi.setSystemTime(revisionDate);
       const later = save(Buffer.from('<html>Later revision</html>\n'), 'r2');
+      expect(original.createdAt).toBe(firstDate);
+      expect(later.createdAt).toBe(revisionDate);
+      expect(later.createdAt).not.toBe(original.createdAt);
       expect(later.id).toBe(original.id);
       expect(later.revision).toBe(2);
       const before = [artifacts.read(original.id, 1), artifacts.read(original.id, 2)];
       const canonical = f.retained();
       const record = f.store.readRecord('item', operator);
-      // The legacy owner's general artifact link is unpinned. Preserve it as-is;
-      // its immutable revisions remain available through the artifact owner.
+      // The unpinned association keeps its original Added date; each immutable
+      // revision retains its own creation date under the artifact owner.
       expect(record.links).toContainEqual(
         expect.objectContaining({
           url: '/api/telos/artifacts/' + later.id,
-          addedAt: later.createdAt,
+          addedAt: original.createdAt,
         }),
       );
       expect([artifacts.read(original.id, 1), artifacts.read(original.id, 2)]).toEqual(before);
       expect(f.retained()).toEqual(canonical);
       expect(f.store.readRecord('item', operator)).toEqual(record);
     } finally {
+      vi.useRealTimers();
       artifacts.close();
     }
   });

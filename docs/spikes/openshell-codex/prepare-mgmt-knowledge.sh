@@ -250,7 +250,7 @@ safe_path() {
     *) spoke="${1%%/*}"; rest="${1#*/}" ;;
   esac
   case "$spoke" in
-    jira_process|slack_observe|architecture|professional|patents|music|health|command_center|knowledge_space|okrs/shared_eng_excellence|professional/blog|professional/linkedin)
+    jira_process|slack_observe|architecture|professional|patents|music|health|home_assistant|command_center|knowledge_space|okrs/shared_eng_excellence|professional/blog|professional/linkedin)
       case "$rest" in CONSTITUTION.md|AGENTS.md|CLAUDE.md|context/*.md) return 0 ;; esac ;;
   esac
   return 1

@@ -214,3 +214,98 @@ it.each([
     );
   },
 );
+
+const ordinaryBody = {
+  version: 2,
+  runOn: 'local',
+  sessionId: 'prepared-chat',
+  workspace: { kind: 'ordinary', workspaceId: '11111111-1111-4111-8111-111111111111' },
+  clientMsgId: 'ordinary-command',
+  capabilityRevision: 'caps-r1',
+  runtime: {
+    account: { accountId: 'personal', provider: 'openai-codex', profileRevision: 'routing-r1' },
+    harness: 'codex',
+    targetId: 'mac',
+    mode: 'agent',
+  },
+  selection: {
+    version: 1,
+    agent: { profileId: 'agent', revision: 1 },
+    model: 'luna-fixture',
+    thinking: 'low',
+    context: { source: 'none', revision: null },
+    permission: { mode: 'agent', revision: 0 },
+  },
+  payload: { text: 'Original ordinary command' },
+};
+it.each(['first', 'continue'] as const)(
+  'persists and manually recovers V2 %s through the actual browser adapter and existing outbox',
+  async (phase) => {
+    const { SendOutbox } = await import('../../../../packages/client/src/send-outbox');
+    const disk = memory(),
+      url = 'https://one.test/api/chat/local-codex/send';
+    const notify = vi.fn(),
+      fetch = vi.fn().mockRejectedValue(Error('lost response'));
+    const outbox = new SendOutbox({
+      url,
+      storage: createReviewedOutboxStorage(disk, url, 'local'),
+      localFirstCommand: true,
+      notify,
+      fetch,
+    });
+    outbox.start();
+    expect(outbox.enqueue(ordinaryBody, 1, 'original-draft', { version: 2, phase })).toBe(true);
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(expect.objectContaining({ state: 'uncertain' })),
+    );
+    outbox.stop();
+    const accepted = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          sessionId: ordinaryBody.sessionId,
+          clientMsgId: ordinaryBody.clientMsgId,
+          dispatched: true,
+          state: 'consumed',
+        }),
+        { status: 202 },
+      ),
+    );
+    const restored = new SendOutbox({
+      url,
+      storage: createReviewedOutboxStorage(disk, url, 'local'),
+      localFirstCommand: true,
+      notify,
+      fetch: accepted,
+    });
+    restored.start();
+    expect(accepted).not.toHaveBeenCalled();
+    expect(restored.retryLocalCommand()).toBe(true);
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({ acknowledged: true, sessionId: 'prepared-chat' }),
+      ),
+    );
+    expect(accepted.mock.calls[0][0]).toBe(`/api/ordinary/workspaces/commands/${phase}`);
+    expect(JSON.parse(accepted.mock.calls[0][1].body)).toEqual(ordinaryBody);
+    expect(JSON.parse(createReviewedOutboxStorage(disk, url, 'local').getItem('queue')!)).toEqual(
+      [],
+    );
+    restored.stop();
+  },
+);
+it.each([undefined, { version: 2, phase: 'send' }, { version: 2, phase: 'first', grant: true }])(
+  'refuses missing or forged V2 delivery metadata without retaining it: %j',
+  (ordinaryDelivery) => {
+    const disk = memory(),
+      url = 'https://one.test/api/chat/local-codex/send';
+    const storage = createReviewedOutboxStorage(disk, url, 'local');
+    expect(() =>
+      storage.setItem(
+        'queue',
+        JSON.stringify([{ body: ordinaryBody, scope: 1, ordinaryDelivery }]),
+      ),
+    ).toThrow();
+    expect(disk.length).toBe(0);
+  },
+);

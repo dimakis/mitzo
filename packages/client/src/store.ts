@@ -1,3 +1,10 @@
+import {
+  parseLocalCommandDelivery,
+  OrdinaryCommandDeliverySchema,
+  type OrdinaryCommandPhase,
+  type OrdinaryCommandDelivery,
+  type LocalCommandRequest,
+} from './local-command-delivery.js';
 /**
  * MitzoStore factory — zustand vanilla store wiring all slices.
  *
@@ -10,10 +17,9 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { FinishedMessage, MitzoMode, ImageAttachment, SourceSnapshot } from '@mitzo/protocol';
 import {
   splitContextPrompt,
-  OrdinaryRuntimeFirstCommandSchema,
-  OrdinaryRuntimeContinuationCommandSchema,
   type OrdinaryRuntimeContinuationCommand,
   type OrdinaryRuntimeFirstCommand,
+  type OrdinaryWorkspaceFirstCommand,
 } from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
@@ -131,13 +137,25 @@ export interface MitzoStoreState {
   /** Dedicated first-command delivery intent; never a runtime readiness receipt. */
   localFirstCommandTransportAvailable: boolean;
   localCommand: {
-    request?: OrdinaryRuntimeFirstCommand | OrdinaryRuntimeContinuationCommand;
+    request?: LocalCommandRequest;
+    ordinaryPhase?: OrdinaryCommandPhase;
+    preparedSessionId?: string;
     state: string;
     sessionId?: string;
     originDraftId?: string;
   } | null;
   sendLocalFirstCommand(
     request: OrdinaryRuntimeFirstCommand | OrdinaryRuntimeContinuationCommand,
+    observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string },
+  ): boolean;
+  sendPreparedRepositoryCommand(
+    request: OrdinaryRuntimeFirstCommand,
+    sessionId: string,
+    observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string },
+  ): boolean;
+  sendOrdinaryWorkspaceCommand(
+    request: OrdinaryWorkspaceFirstCommand,
+    phase: OrdinaryCommandPhase,
     observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string },
   ): boolean;
   recoverLocalCommand(): boolean;
@@ -317,6 +335,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   let reviewedAuthenticated = options.initiallyAuthenticated !== false;
   let reviewedSendScope = Date.now();
+  let taskReadSequence = 0;
   const reviewedOutbox = options.reviewedSendConfig
     ? new SendOutbox({
         url: options.reviewedSendConfig.url,
@@ -356,10 +375,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           headers: () => ({ 'X-Connection-ID': connection.getConnectionId() ?? '' }),
           notify(event) {
             if (event.type !== '_local_command_state') return;
-            const parsed = OrdinaryRuntimeFirstCommandSchema.or(
-              OrdinaryRuntimeContinuationCommandSchema,
-            ).safeParse(event.request);
-            const request = parsed.success ? parsed.data : undefined;
+            let request: LocalCommandRequest | undefined;
+            let ordinaryDelivery: OrdinaryCommandDelivery | undefined;
+            try {
+              ordinaryDelivery =
+                event.ordinaryDelivery === undefined
+                  ? undefined
+                  : OrdinaryCommandDeliverySchema.parse(event.ordinaryDelivery);
+              request = parseLocalCommandDelivery(event.request, ordinaryDelivery);
+            } catch {
+              /* Invalid retained intent is visible and blocks replacement. */
+            }
             const state = String(event.state);
             const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined;
             // Restored outbox intent has no in-memory composer observer, but
@@ -376,6 +402,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             store.setState({
               localCommand: {
                 request,
+                ...(ordinaryDelivery ? { ordinaryPhase: ordinaryDelivery.phase } : {}),
+                ...(ordinaryDelivery?.version === 1
+                  ? { preparedSessionId: ordinaryDelivery.sessionId }
+                  : {}),
                 state,
                 sessionId,
                 ...(typeof event.originDraftId === 'string'
@@ -392,7 +422,32 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             if (!request) return;
             // Only a validated202 acknowledges this submitted request; a retained409
             // session is an observation and must not consume its launch identity.
-            if (sessionId && event.acknowledged === true && !('sessionId' in request)) {
+            if (
+              sessionId &&
+              event.acknowledged === true &&
+              state === 'consumed' &&
+              ordinaryDelivery?.phase === 'first' &&
+              (ordinaryDelivery.version === 1
+                ? sessionId === ordinaryDelivery.sessionId
+                : 'sessionId' in request && sessionId === request.sessionId)
+            ) {
+              const source = request.payload.sourceSnapshots?.find(
+                (source) => source.kind === 'agent-library',
+              );
+              // This conversation already exists. Finalize only its durable source
+              // handoff; launch drafts and foreground navigation keep their owners.
+              if (source)
+                options.sendHandoff?.assign(request.clientMsgId, sessionId, {
+                  kind: 'agent-library',
+                  revision: source.revision,
+                });
+            }
+            if (
+              sessionId &&
+              event.acknowledged === true &&
+              !('sessionId' in request) &&
+              ordinaryDelivery?.version !== 1
+            ) {
               const source = request.payload.sourceSnapshots?.find(
                 (source) => source.kind === 'agent-library',
               );
@@ -812,6 +867,54 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   // syncRunningState removed — running state is server-authoritative via
   // session_state_changed events. Periodic sync covers iOS foreground gaps.
 
+  function sendOwnedLocalCommand(
+    request: unknown,
+    opts: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string } = {},
+    ordinaryDelivery?: OrdinaryCommandDelivery,
+  ): boolean {
+    let frozen: LocalCommandRequest;
+    try {
+      frozen = parseLocalCommandDelivery(request, ordinaryDelivery);
+    } catch {
+      return false;
+    }
+    if (
+      !localOutbox ||
+      !reviewedAuthenticated ||
+      !connection.getConnectionId() ||
+      (ordinaryDelivery?.version === 1
+        ? parserState.currentSessionId !== ordinaryDelivery.sessionId
+        : 'sessionId' in frozen
+          ? parserState.currentSessionId !== frozen.sessionId
+          : !!parserState.currentSessionId) ||
+      (store.getState().localCommand && store.getState().localCommand!.state !== 'consumed')
+    )
+      return false;
+    if (frozen.payload.sourceSnapshots?.length && options.sendHandoff?.prepare(frozen) === false)
+      return false;
+    observeDelivery(frozen.clientMsgId, opts, 'send', 'local');
+    const sent = localOutbox.enqueue(frozen, Date.now(), opts.draftId, ordinaryDelivery);
+    if (!sent) {
+      settleDelivery(frozen.clientMsgId, 'failed', 'local');
+      return false;
+    }
+    pendingOptimisticMessageIds.add(frozen.clientMsgId);
+    store.setState((s) => ({
+      sendError: null,
+      modeChangeReady: false,
+      messages: messagesReducer(s.messages, {
+        type: 'USER_SEND',
+        text: frozen.payload.text,
+        clientMsgId: frozen.clientMsgId,
+        images: frozen.payload.images?.map(
+          (image) => `data:${image.mediaType};base64,${image.data}`,
+        ),
+        sourceSnapshots: frozen.payload.sourceSnapshots,
+      }),
+    }));
+    return true;
+  }
+
   const store = createStore<MitzoStoreState>((set, get) => ({
     // ── Initial state ────────────────────────────────────────────────────
 
@@ -1004,48 +1107,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     localCommand: null,
     localFirstCommandTransportAvailable: !!localOutbox,
-    sendLocalFirstCommand(
-      request: OrdinaryRuntimeFirstCommand | OrdinaryRuntimeContinuationCommand,
-      opts = {},
-    ) {
-      const parsed = OrdinaryRuntimeFirstCommandSchema.or(
-        OrdinaryRuntimeContinuationCommandSchema,
-      ).safeParse(request);
-      if (
-        !parsed.success ||
-        !localOutbox ||
-        !reviewedAuthenticated ||
-        !connection.getConnectionId() ||
-        (parsed.success && 'sessionId' in parsed.data
-          ? parserState.currentSessionId !== parsed.data.sessionId
-          : !!parserState.currentSessionId) ||
-        (get().localCommand && get().localCommand!.state !== 'consumed')
-      )
-        return false;
-      const frozen = parsed.data;
-      if (frozen.payload.sourceSnapshots?.length && options.sendHandoff?.prepare(frozen) === false)
-        return false;
-      observeDelivery(frozen.clientMsgId, opts, 'send', 'local');
-      const sent = localOutbox.enqueue(frozen, Date.now(), opts.draftId);
-      if (!sent) {
-        settleDelivery(frozen.clientMsgId, 'failed', 'local');
-        return false;
-      }
-      pendingOptimisticMessageIds.add(frozen.clientMsgId);
-      set((s) => ({
-        sendError: null,
-        modeChangeReady: false,
-        messages: messagesReducer(s.messages, {
-          type: 'USER_SEND',
-          text: frozen.payload.text,
-          clientMsgId: frozen.clientMsgId,
-          images: frozen.payload.images?.map(
-            (image) => `data:${image.mediaType};base64,${image.data}`,
-          ),
-          sourceSnapshots: frozen.payload.sourceSnapshots,
-        }),
-      }));
-      return true;
+    sendLocalFirstCommand(request, opts = {}) {
+      return sendOwnedLocalCommand(request, opts);
+    },
+    sendPreparedRepositoryCommand(request, sessionId, opts = {}) {
+      return sendOwnedLocalCommand(request, opts, { version: 1, phase: 'first', sessionId });
+    },
+    sendOrdinaryWorkspaceCommand(request, phase, opts = {}) {
+      return sendOwnedLocalCommand(request, opts, { version: 2, phase });
     },
     recoverLocalCommand() {
       return (
@@ -1323,8 +1392,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // ── Task actions ──────────────────────────────────────────────────────
 
     async loadTasks() {
+      const readSequence = ++taskReadSequence;
       try {
         const tasks = await api.getTasks();
+        if (readSequence !== taskReadSequence) return;
         set((s) => ({ tasks: { ...s.tasks, tree: tasks } }));
       } catch {
         // Graceful — keep existing tree
@@ -2032,7 +2103,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     if (
-      ['message_start', 'session_end', 'error'].includes(String(msg.type)) &&
+      (['message_start', 'session_end', 'error'].includes(String(msg.type)) ||
+        (msg.type === 'message_snapshot' &&
+          Array.isArray(msg.blocks) &&
+          typeof msg.startedSeq === 'number' &&
+          Number.isSafeInteger(msg.startedSeq) &&
+          msg.startedSeq >
+            (store
+              .getState()
+              .messages.messages.filter((message) => message.role === 'user')
+              .at(-1)?.startedSeq ?? Infinity))) &&
       store.getState().sendStatus === 'Preparing response…'
     )
       store.setState({ sendStatus: null });

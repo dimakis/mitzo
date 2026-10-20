@@ -75,10 +75,43 @@
   font-weight: 500;
 }
 .telos-chat-copy small,
+.telos-chat-role-settings,
 .telos-chat-note {
   margin-top: var(--space-2);
   font-size: var(--text-xs);
   color: var(--color-muted);
+}
+.telos-chat-role-settings {
+  display: block;
+}
+.telos-chat-copy .telos-chat-role-settings small {
+  display: inline;
+  margin: 0;
+}
+.telos-chat-provenance {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+.telos-chat-provenance summary {
+  min-height: var(--control-height);
+  align-content: center;
+  padding-inline: var(--space-2);
+  cursor: pointer;
+}
+.telos-chat-provenance summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.telos-chat-provenance dl {
+  margin: 0;
+  padding: var(--space-2);
+}
+.telos-chat-provenance dl > div + div {
+  margin-top: var(--space-2);
+}
+.telos-chat-provenance dd {
+  margin: var(--space-1) 0 0;
 }
 .telos-chat-frame {
   container-type: inline-size;
@@ -128,6 +161,47 @@
   border-left: 1px solid var(--color-border);
   padding: var(--page-gutter);
   overflow-wrap: anywhere;
+}
+/* Approved chat-panel composition; full workspace child trees keep their
+   priority/status and role controls, even when they use the compact prop. */
+.telos-chat-tree .telos-node-icon,
+.telos-chat-tree .telos-tree-row-end > :not(.todo-priority-badge):not(.telos-node-status) {
+  display: none;
+}
+.telos-chat-tree .telos-tree-row {
+  display: grid;
+  grid-template-columns: var(--control-height) minmax(0, 1fr) auto;
+}
+.telos-chat-tree .telos-node-copy {
+  grid-column: 2;
+  grid-row: 1;
+}
+.telos-chat-tree .telos-tree-row-end {
+  display: contents;
+}
+.telos-chat-tree .todo-priority-badge {
+  grid-column: 3;
+  grid-row: 1;
+}
+.telos-chat-tree .telos-node-status {
+  grid-column: 2;
+  grid-row: 2;
+  font-size: var(--text-2xs);
+  padding: 0;
+}
+.telos-chat-tree .telos-tree .telos-tree {
+  margin-left: var(--space-2);
+  padding-left: var(--space-2);
+}
+.telos-chat-tree .telos-node-title {
+  font-size: var(--text-xs);
+}
+.telos-chat-tree .telos-node-meta {
+  font-size: var(--text-2xs);
+  gap: var(--space-1h);
+}
+.telos-chat-tree .telos-node-meta > span:first-child {
+  white-space: nowrap;
 }
 .telos-chat-route-frame {
   display: flex;

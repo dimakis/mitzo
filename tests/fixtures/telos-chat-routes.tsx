@@ -22,6 +22,7 @@ import '../../frontend/src/styles/motion.css';
 declare global {
   interface Window {
     fixtureTodoEvents: EventTarget;
+    fixtureConnection: (connected: boolean) => void;
   }
 }
 class FixtureEvents extends EventTarget {
@@ -31,6 +32,11 @@ class FixtureEvents extends EventTarget {
   constructor() {
     super();
     window.fixtureTodoEvents = this;
+    window.fixtureConnection = (connected) => {
+      this.readyState = connected ? 1 : 0;
+      if (connected) this.onopen?.({});
+      else this.onerror?.({});
+    };
     queueMicrotask(() => this.onopen?.({}));
   }
   close() {

@@ -85,10 +85,19 @@ export function repositoryWorkspaceCatalog(binding: AccountBinding) {
   return { available: true, repositories };
 }
 /** Lazy, explicit enrollment: importing the app performs no source acquisition or metadata writes. */
-export function getRepositoryWorkspaces(readOnly = false) {
+function workspaceOwner(readOnly = false, ordinary = false) {
   if (idleReleased) throw Error('Repository workspace owner released');
-  if (!repositoryWorkspacesEnabled() && !readOnly)
-    throw new Error('Repository-backed chats are not enabled');
+  if (
+    !readOnly &&
+    (ordinary
+      ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
+      : !repositoryWorkspacesEnabled())
+  )
+    throw new Error(
+      ordinary
+        ? 'Ordinary local workspaces are not enabled'
+        : 'Repository-backed chats are not enabled',
+    );
   if (
     readOnly &&
     !service &&
@@ -184,4 +193,13 @@ export function readRepositoryWorkspaceForConversation(
   if (expectedWorkspaceId && record?.id !== expectedWorkspaceId)
     throw new Error('Repository claim ledger is unavailable or changed; preserve the conversation');
   return record;
+}
+
+/** Existing repository callers keep their original enrollment gate. */
+export function getRepositoryWorkspaces(readOnly = false) {
+  return workspaceOwner(readOnly);
+}
+/** Same allocation/custody owner and SQLite, without requiring a Git feature grant. */
+export function getOrdinaryWorkspaces(readOnly = false) {
+  return workspaceOwner(readOnly, true);
 }

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { TelosChatRoute } from '../hooks/useTelosChatRoute';
 import { useTodoData } from '../hooks/useTodoData';
 import { useTelosRecords } from '../hooks/useTelosRecords';
@@ -40,6 +41,15 @@ export function TelosChatWorkTree({
     for (const record of records)
       if (record.parentId && related.has(record.parentId)) related.add(record.itemId);
   const board = useTaskBoard();
+  const { refresh: refreshCollection } = collection;
+  const { refresh: refreshTasks } = board;
+  const previousRefreshKey = useRef(data.refreshKey);
+  useEffect(() => {
+    if (previousRefreshKey.current === data.refreshKey) return;
+    previousRefreshKey.current = data.refreshKey;
+    refreshCollection();
+    refreshTasks();
+  }, [data.refreshKey, refreshCollection, refreshTasks]);
   const taskIds = new Set(
     data.work.attempts
       .filter(
@@ -52,7 +62,8 @@ export function TelosChatWorkTree({
     return tasks.flatMap((task) => [task, ...flatten(task.children ?? [])]);
   }
   const tasks = flatten(board.tasks).filter(
-    (task) => taskIds.has(task.id) && task.sessionId === conversationId,
+    (task) =>
+      taskIds.has(task.id) && (task.sessionId === null || task.sessionId === conversationId),
   );
   return (
     <>

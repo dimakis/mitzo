@@ -143,7 +143,7 @@ export function useTelosChatRoute(conversationId: string | null) {
         row.conversation.namespace === 'mitzo' &&
         row.conversation.conversationId === conversationId,
     )
-      ? { itemId, work: work.work, record, refreshKey }
+      ? { itemId, work: work.work, workCurrent: work.current, record, refreshKey }
       : null;
   const retained = location.state?.telosChatReturn;
   const localReturn = readTelosChatReturn(location.state, requested, location.pathname);
@@ -160,7 +160,8 @@ export function useTelosChatRoute(conversationId: string | null) {
       if (itemId) navigate(telosChatListPath(itemId), { state: backState });
     },
     onItem: () => {
-      if (itemId) navigate(`/todos/${encodeURIComponent(itemId)}`, { state: backState });
+      if (itemId)
+        navigate(`/todos/${encodeURIComponent(itemId)}?view=Overview`, { state: backState });
     },
     onOpen: (targetId: string, view?: 'Chat') => {
       if (!itemId) return;

@@ -79,8 +79,21 @@ export function TodoDetailView() {
     collectRecordIds(item);
     if (item.parentId) recordIds.push(item.parentId);
   }
-  const canonical = useTelosRecords(recordIds);
-  const record = canonical.records.find((value) => value.itemId === id);
+  // Collection discovery changes parent/child membership, not the current
+  // workspace's lifetime. Keep its accepted read keyed only to the route item.
+  const primary = useTelosRecords(id ? [id] : []);
+  const related = useTelosRecords(
+    recordIds.filter((value) => value !== id),
+    primary.refreshKey,
+  );
+  const canonical = {
+    records: [...primary.records, ...related.records],
+    unavailable: [...primary.unavailable, ...related.unavailable],
+    loading: primary.loading,
+    refreshKey: related.refreshKey,
+    refresh: primary.refresh,
+  };
+  const record = primary.records.find((value) => value.itemId === id);
 
   useEffect(() => {
     if (!loading && !refreshing && !error && !item && !canonical.loading && !record)
@@ -105,7 +118,7 @@ export function TodoDetailView() {
             relatedState={
               error
                 ? 'unavailable'
-                : !item
+                : !item || related.loading
                   ? 'loading'
                   : canonical.unavailable.some(
                         (value) => value !== record.itemId && value !== record.parentId,

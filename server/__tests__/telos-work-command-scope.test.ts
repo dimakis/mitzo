@@ -11,8 +11,12 @@ import {
   retainTelosWorkRoleContext,
   resolveTelosWorkRoleContext,
 } from '../telos-work-role-context.js';
-import { resolveTelosWorkCommandScope } from '../telos-work-command-scope.js';
+import {
+  resolveTelosWorkCommandScope,
+  assertTelosWorkCommandAdmission,
+} from '../telos-work-command-scope.js';
 import { handleTaskComplete, handleTaskStatus } from '../task-tools.js';
+import { resolveTelosWorkTaskToolContext } from '../telos-work-execution-authority.js';
 
 const cleanups: (() => void)[] = [];
 afterEach(() =>
@@ -21,7 +25,7 @@ afterEach(() =>
     .reverse()
     .forEach((close) => close()),
 );
-function fixture(delegation = true, withRole = true, marker?: string) {
+function fixture(delegation = true, withRole = true, marker?: string, coordinated = false) {
   const root = mkdtempSync(join(tmpdir(), 'telos-command-scope-'));
   let events = new EventStore(join(root, 'events.db'));
   let tasks = new TaskStore(join(root, 'tasks.db'));
@@ -30,6 +34,10 @@ function fixture(delegation = true, withRole = true, marker?: string) {
   db.exec(`CREATE TABLE items(id TEXT PRIMARY KEY,parent_id TEXT,summary TEXT,updated_at TEXT);
     INSERT INTO items VALUES('outcome',NULL,'Outcome','original');
     INSERT INTO items VALUES('child','outcome','Slice one','original');`);
+  if (coordinated)
+    db.exec(
+      "INSERT INTO items VALUES('coordinator',NULL,'Coordinator','original'),('priority','coordinator','Priority','original'); UPDATE items SET parent_id='coordinator' WHERE id='outcome';",
+    );
   db.close();
   const open = () =>
     new TelosWorkStore(path, { ordinaryConversation: (id) => !!events.getSession(id) });
@@ -54,6 +62,23 @@ function fixture(delegation = true, withRole = true, marker?: string) {
     );
   command('outcome', { operation: 'classify', kind: 'outcome' });
   command('child', { operation: 'classify', kind: 'work_item' });
+  if (coordinated) {
+    command('coordinator', { operation: 'classify', kind: 'coordinator' });
+    command('priority', { operation: 'classify', kind: 'outcome' });
+    events.upsertSession({ sessionId: 'coordinator-chat' });
+    command('coordinator', {
+      operation: 'link',
+      role: 'lead',
+      conversation: { namespace: 'mitzo', conversationId: 'coordinator-chat' },
+    });
+    command('coordinator', {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: 'coordinator-chat',
+      expectedAssignmentRevision: 0,
+    });
+  }
+
   command('outcome', {
     operation: 'link',
     role: 'lead',
@@ -184,6 +209,16 @@ function fixture(delegation = true, withRole = true, marker?: string) {
   };
   return {
     account,
+    command,
+    actor,
+    retained,
+    changeBrief(itemId: string) {
+      const writer = new Database(path);
+      writer
+        .prepare('UPDATE items SET summary=?,updated_at=? WHERE id=?')
+        .run('Changed reviewed brief', randomUUID(), itemId);
+      writer.close();
+    },
     meta,
     binding,
     settings,
@@ -324,4 +359,138 @@ it('uses the proven worker task for TaskStatus and leaves TaskComplete pending i
   );
   expect(f.tasks.get(taskId)?.status).toBe('pending_review');
   expect(f.tasks.get(unrelated.id)?.status).toBe('pending');
+});
+
+it('CT11: a replaced worker loses command and completion authority while its original attempt remains attributable after restart', () => {
+  const f = fixture();
+  const taskId = f.complete();
+  const original = f.work.executionTaskBinding(taskId, 'worker');
+  f.events.upsertSession({ sessionId: 'replacement' });
+  f.command('child', {
+    operation: 'link',
+    role: 'worker',
+    conversation: { namespace: 'mitzo', conversationId: 'replacement' },
+  });
+  f.command('child', {
+    operation: 'assign',
+    role: 'worker',
+    conversationId: 'replacement',
+    expectedAssignmentRevision: 0,
+  });
+  f.reopen();
+  expect(f.work.executionTaskBinding(taskId, 'worker')).toEqual(original);
+  expect(() => resolveTelosWorkCommandScope(f.owners(), 'worker', f.account)).toThrow(
+    /superseded/i,
+  );
+  expect(() =>
+    resolveTelosWorkTaskToolContext(
+      f.owners(),
+      { sessionId: 'worker', taskId, accountBinding: f.account },
+      { sessionId: 'worker', taskId },
+    ),
+  ).toThrow(/superseded/i);
+  expect(f.tasks.get(taskId)?.status).toBe('pending');
+});
+
+it('CT11: replacing a lead changes current routing without rewriting or revoking an already delegated worker', () => {
+  const f = fixture();
+  const taskId = f.complete();
+  const original = f.work.executionTaskBinding(taskId, 'worker');
+  f.events.upsertSession({ sessionId: 'new-lead' });
+  f.command('outcome', {
+    operation: 'link',
+    role: 'lead',
+    conversation: { namespace: 'mitzo', conversationId: 'new-lead' },
+  });
+  f.command('outcome', {
+    operation: 'assign',
+    role: 'lead',
+    conversationId: 'new-lead',
+    expectedAssignmentRevision: 1,
+  });
+  f.reopen();
+  expect(resolveTelosWorkCommandScope(f.owners(), 'worker', f.account)).toEqual({
+    currentTaskId: taskId,
+    goalId: taskId,
+  });
+  expect(f.work.executionTaskBinding(taskId, 'worker')).toEqual(original);
+  expect(() => f.work.readDelegationTarget('lead', 'child', 'outcome')).toThrow(/lead/i);
+  expect(f.work.read('outcome', f.actor).assignments[0].conversation.conversationId).toBe(
+    'new-lead',
+  );
+});
+
+it('CT10: a queued command cannot dispatch changed scope; running context and completion retain the original reviewed revision after restart', () => {
+  const f = fixture();
+  const taskId = f.complete();
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).not.toThrow();
+  const original = resolveTelosWorkRoleContext(f.events, 'worker', f.account);
+  f.admit('queued-before-change');
+  f.changeBrief('child');
+  f.reopen();
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).toThrow(
+    /brief.*changed|context.*changed/i,
+  );
+  expect(resolveTelosWorkRoleContext(f.events, 'worker', f.account)).toEqual(original);
+  // The already running command can return evidence under its original context.
+  expect(
+    resolveTelosWorkTaskToolContext(
+      f.owners(),
+      { sessionId: 'worker', taskId, accountBinding: f.account },
+      { sessionId: 'worker', taskId },
+    ),
+  ).toBe(taskId);
+  expect(f.work.executionTaskBinding(taskId, 'worker')?.contextSnapshotId).toBe(
+    f.retained!.intent.contextSnapshotId,
+  );
+  expect(f.events.getOrdinaryCommandAdmission('queued-before-change')).toBeDefined();
+});
+it('CT10: parent brief changes also fence future dispatch without rewriting the retained worker packet', () => {
+  const f = fixture();
+  f.complete();
+  const original = resolveTelosWorkRoleContext(f.events, 'worker', f.account);
+  f.changeBrief('outcome');
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).toThrow(
+    /context.*changed/i,
+  );
+  expect(resolveTelosWorkRoleContext(f.events, 'worker', f.account)).toEqual(original);
+});
+
+it('CT12: a dispatch hold also fences an already allocated but unstarted worker, while leaving previously dispatched workers continuing under their captured context', () => {
+  const f = fixture(true, true, undefined, true);
+  f.complete();
+  const hold = (requestId: string) =>
+    f.work.requestControl(
+      {
+        requestId,
+        coordinatorItemId: 'coordinator',
+        priorityItemId: 'priority',
+        targetItemIds: ['outcome'],
+        scope: 'new_worker_dispatch',
+      },
+      f.actor,
+    );
+  const first = hold('before-first-turn');
+  f.admit('already-queued');
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).toThrow(/hold/i);
+  f.work.releaseControl({ requestId: 'release-first', controlId: first.controlId }, f.actor);
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).not.toThrow();
+  const nativeHold = hold('native-history');
+  const nativeHistory = vi.fn(() => true);
+  expect(() =>
+    assertTelosWorkCommandAdmission(
+      { ...f.owners(), hasAcceptedProviderTurn: nativeHistory },
+      'worker',
+      f.account,
+    ),
+  ).not.toThrow();
+  expect(nativeHistory).toHaveBeenCalledWith('worker', f.account);
+  f.work.releaseControl({ requestId: 'release-native', controlId: nativeHold.controlId }, f.actor);
+  // The native Codex dispatch callback writes this event for ordinary turns;
+  // codex-chat-session.test.ts exercises that actual callback. Such turns have
+  // no closeout provider_attempts row.
+  f.events.append('worker', 'ordinary_provider_dispatch_started', { messageId: 'already-queued' });
+  hold('after-first-dispatch');
+  f.reopen();
+  expect(() => assertTelosWorkCommandAdmission(f.owners(), 'worker', f.account)).not.toThrow();
 });

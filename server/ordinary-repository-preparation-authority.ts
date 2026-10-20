@@ -210,6 +210,10 @@ export async function assertOrdinaryRepositoryPreparation(
   binding: AccountBinding,
   signal: AbortSignal,
   requireModelReadiness = false,
+  selection?: Pick<
+    import('@mitzo/protocol').OrdinaryWorkspaceSettings['selection'],
+    'model' | 'thinking'
+  >,
 ) {
   const saved = OrdinaryRepositoryPreparationSchema.parse(raw);
   if (
@@ -219,6 +223,21 @@ export async function assertOrdinaryRepositoryPreparation(
     )
   )
     throw unavailable();
+  // Explicit ordinary V2 selections qualify exact thinking before allocation.
+  // Legacy callers without this extra tuple retain their existing behavior.
+  const assertSelectionCurrent = () => {
+    if (!selection) return;
+    if (!requireModelReadiness || selection.model !== binding.model) throw unavailable();
+    const profiles = loadAccountProfiles();
+    profiles.validateModelSelection(binding, selection.model, selection.thinking);
+    const model = profiles
+      .catalog()
+      .find((account) => account.id === binding.accountId)
+      ?.models.find((model) => model.id === selection.model);
+    if (!model || (selection.thinking === null && model.reasoningEfforts?.length))
+      throw unavailable();
+  };
+  assertSelectionCurrent();
   const current = await captureOrdinaryRepositoryPreparation(
     binding,
     {
@@ -237,6 +256,7 @@ export async function assertOrdinaryRepositoryPreparation(
     current.credentialDigest !== saved.credentialDigest
   )
     throw unavailable();
+  assertSelectionCurrent();
 }
 
 /** Read-only requalification for silent allocation; API/SDK queue preparation and
