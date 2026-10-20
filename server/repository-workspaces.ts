@@ -7,6 +7,7 @@ import {
   OrdinaryOpenShellCommandAdmissionSchema,
   type AgentLibraryVersion,
   type CollaborationSettings,
+  type OrdinarySessionPreparationReceipt,
 } from '@mitzo/protocol';
 import {
   OrdinaryRepositoryPreparationSchema,
@@ -1248,6 +1249,46 @@ export class RepositoryWorkspaces {
     signal.throwIfAborted();
     this.assertUnchangedHostRecord(record);
     await this.assertHostSource(record, signal);
+  }
+  /** Read-only qualification of an existing silent preparation. No reserve/claim or repair. */
+  async qualifyPreparedHostSession(
+    receipt: OrdinarySessionPreparationReceipt,
+    binding: AccountBinding,
+    signal: AbortSignal,
+  ): Promise<void> {
+    return this.runOperation(async () => {
+      const record = this.getHostRecord(receipt.workspaceId);
+      if (
+        receipt.firstCommandId !== null ||
+        receipt.workspaceId !== receipt.settings.repositoryWorkspaceId ||
+        record.state !== 'reserved' ||
+        !record.ordinaryPreparation ||
+        !record.hostReservation ||
+        record.sandbox !== false ||
+        !isDeepStrictEqual(record.ordinaryFirstReservation, {
+          conversationId: receipt.sessionId,
+          binding,
+          commandFingerprint: receipt.preparationFingerprint,
+        })
+      )
+        throw Error('Original silent repository reservation unavailable');
+      const reservation = {
+        id: receipt.workspaceId,
+        conversationId: receipt.sessionId,
+        binding,
+        taskRoot: record.hostReservation.taskRoot,
+        runtimeBinding: receipt.settings.binding,
+        commandFingerprint: receipt.preparationFingerprint,
+      };
+      this.getHostReservation(reservation);
+      await this.firstBinding(record, reservation, signal);
+      await this.authorizeHostRecord(record, binding, signal);
+      await this.verifyHostSource(record, signal);
+      await this.assertHostRoot(record.hostReservation);
+      signal.throwIfAborted();
+      this.assertUnchangedHostRecord(record);
+      this.getHostReservation(reservation);
+    });
   }
   /** Pins host identity in the existing SQLite row, without creating destination files. */
   async reserveHostTask(input: HostRepositoryReservationInput): Promise<HostRepositoryReservation> {

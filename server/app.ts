@@ -1,3 +1,5 @@
+import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
+import { ordinaryWorkspacePreparedCommandStatus } from './ordinary-workspace-prepared-command.js';
 import { requireSameOriginJson } from './connections-router.js';
 import {
   ordinaryWorkspaceArtifactRoot,
@@ -42,6 +44,7 @@ import {
   cancelOwnedResponsesQueuedCommand,
 } from './ordinary-local-responses-queue.js';
 import { ownedLocalCodexMetadata } from './ordinary-local-codex-metadata.js';
+import { repositoryPreparedCommandStatus } from './repository-prepared-command.js';
 import { ordinaryCodexContinuationStatus } from './ordinary-codex-continuation-status.js';
 import { createTelemetryRelay } from './telemetry-relay.js';
 import { traceAuthCheck } from './auth-check-tracing.js';
@@ -3365,8 +3368,22 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     meta.sessionId,
     res.locals.authSession?.id,
   );
+  let routingMetadata: ReturnType<typeof ownedLocalCodexMetadata>;
+  try {
+    routingMetadata = ownedLocalCodexMetadata(
+      eventStore,
+      meta.sessionId,
+      continuationStatus.available,
+    );
+  } catch {
+    res.status(409).json({
+      error:
+        'The original conversation workspace identity is unavailable. Preserve this conversation and recover its original settings.',
+    });
+    return;
+  }
   const runtimeMetadata = {
-    ...ownedLocalCodexMetadata(eventStore, meta.sessionId, continuationStatus.available),
+    ...routingMetadata,
     ...(continuationStatus.reason ? { runtimeCommandReason: continuationStatus.reason } : {}),
     ...(meta.accountBinding?.provider === 'google-vertex' &&
     eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'gemini'
@@ -3504,12 +3521,64 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       // Repository presentation is optional; preserve ordinary metadata on read failure.
     }
   }
+  const preparedController = new AbortController();
+  const abortPreparedStatus = () => preparedController.abort();
+  res.once('close', abortPreparedStatus);
+  let preparedWork: TelosWorkStore | undefined;
+  let preparedStatus: Awaited<ReturnType<typeof ordinaryWorkspacePreparedCommandStatus>>;
+  try {
+    preparedStatus = await (
+      meta.repositoryWorkspaceId
+        ? repositoryPreparedCommandStatus
+        : ordinaryWorkspacePreparedCommandStatus
+    )({
+      events: eventStore,
+      workspaces: () =>
+        meta.repositoryWorkspaceId ? getRepositoryWorkspaces(true) : getOrdinaryWorkspaces(true),
+      sessionId: meta.sessionId,
+      signal: preparedController.signal,
+      assertCurrent: () => {
+        const auth = res.locals.authSession;
+        if (
+          !auth ||
+          !hasPersistentRevocationAuthority() ||
+          !isAuthSessionCurrent(auth) ||
+          custodianControllerClient ||
+          custodianOwnerMode ||
+          process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
+        )
+          throw Error('Current ordinary operator unavailable');
+        resolveTelosWorkCommandScope(
+          {
+            events: eventStore,
+            tasks: taskStore,
+            work: () =>
+              (preparedWork ??= new TelosWorkStore(telosDatabasePath(), {
+                ordinaryConversation: (id) =>
+                  isAvailableTelosWorkConversation(eventStore.getSession(id)),
+              })),
+          },
+          meta.sessionId,
+          eventStore.getSession(meta.sessionId)?.accountBinding ?? undefined,
+        );
+      },
+    });
+  } finally {
+    preparedWork?.close();
+    res.removeListener('close', abortPreparedStatus);
+  }
+  if (res.destroyed) return;
   res.json({
     sessionId: meta.sessionId,
     ...(repositoryContext ? { repositoryContext } : {}),
     ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
     ...(telosWorkRolePresentation ? { telosWorkRolePresentation } : {}),
     ...runtimeMetadata,
+    ...(preparedStatus.prepared
+      ? { runtimeCommandScope: 'prepared-first-command', runtimeCommandReason: undefined }
+      : preparedStatus.reason
+        ? { runtimeCommandScope: 'first-command-only', runtimeCommandReason: preparedStatus.reason }
+        : {}),
     ...(meta.agentProfile ? { agentProfile: meta.agentProfile } : {}),
     sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,
     branch: meta.branch,
