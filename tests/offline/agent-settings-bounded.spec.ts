@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { SaveAgentTaskSchema } from '../../packages/protocol/src/agent-tasks';
 
+test.use({ baseURL: 'https://mitzo-ui.test' });
+
 // CI-only browser execution. Do not import/--list this spec locally: like the
 // existing builder fixture, its bundle is prepared when the module is loaded.
 const bundle = build({

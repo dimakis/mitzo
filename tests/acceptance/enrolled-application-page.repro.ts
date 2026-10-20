@@ -34,12 +34,27 @@ async function exactBrowserBundle(directory: string) {
       jsx: 'automatic',
       minify: true,
       define: defines,
+      plugins: [
+        {
+          name: 'original-css-raw-text',
+          setup(builder) {
+            builder.onLoad({ filter: /\.css$/, namespace: 'file' }, async (input) => {
+              if (input.suffix !== '?raw') return;
+              return { contents: await readFile(input.path, 'utf8'), loader: 'text' };
+            });
+          },
+        },
+      ],
       alias: {
         '@mitzo/client/hooks': resolve('packages/client/src/hooks/index.ts'),
         '@mitzo/client': resolve('packages/client/src/index.ts'),
         '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),
       },
     });
+    await writeFile(
+      join(directory, 'esbuild-metafile.json'),
+      JSON.stringify(bundled.metafile, null, 2),
+    );
     const inputs: Record<string, string> = {};
     const virtualInputs: Record<string, string> = {};
     const dependencies = await realpath(resolve('node_modules'));
@@ -48,13 +63,14 @@ async function exactBrowserBundle(directory: string) {
         virtualInputs[input] = sha(defines['import.meta.env']);
         continue;
       }
-      const absolute = await realpath(resolve(input));
+      const suffix = input.endsWith('.css?raw') ? '?raw' : '';
+      const absolute = await realpath(resolve(suffix ? input.slice(0, -suffix.length) : input));
       const logical = absolute.startsWith(dependencies + '/')
         ? 'node_modules/' + relative(dependencies, absolute)
         : relative(process.cwd(), absolute);
       if (logical.startsWith('../'))
         throw Error('Unexpected browser input outside source/dependencies');
-      inputs[logical] = sha(await readFile(absolute));
+      inputs[logical + suffix] = sha(await readFile(absolute));
     }
     const files: Record<string, string> = {};
     for (const output of bundled.outputFiles!) {
@@ -94,8 +110,10 @@ async function exactBrowserBundle(directory: string) {
   expect(manifest.virtualInputs).toEqual({
     '<define:import.meta.env>': sha(defines['import.meta.env']),
   });
-  for (const [input, expected] of Object.entries(manifest.inputs))
-    expect(sha(await readFile(resolve(input))), input).toBe(expected);
+  for (const [input, expected] of Object.entries(manifest.inputs)) {
+    const physical = input.endsWith('.css?raw') ? input.slice(0, -'?raw'.length) : input;
+    expect(sha(await readFile(resolve(physical))), input).toBe(expected);
+  }
   const assets = new Map<string, { contentType: string; bytes: Uint8Array | string }>();
   for (const [file, expected] of Object.entries(manifest.files)) {
     if (!['actual-chat.js', 'actual-chat.css'].includes(file))
