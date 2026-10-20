@@ -153,3 +153,28 @@ it('reveals a changed selection and bounds missing or cyclic ancestry without ch
   );
   expect(screen.getByRole('searchbox')).toBeTruthy();
 });
+
+it('retains manual collapse when canonical ancestors temporarily disappear and return', () => {
+  const template = records[0];
+  const child = { ...template, itemId: 'child', parentId: 'parent', summary: 'Selected work' };
+  const parent = { ...template, itemId: 'parent', parentId: 'root', summary: 'Retained parent' };
+  const root = { ...template, itemId: 'root', parentId: null, summary: 'Newly discovered root' };
+  const props = { selectedId: child.itemId, onOpen: vi.fn() };
+  const view = render(<TelosOutcomesTree {...props} refreshKey={0} records={[parent, child]} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse Retained parent' }));
+  // A collection key change temporarily renders the selected-record fallback.
+  view.rerender(<TelosOutcomesTree {...props} refreshKey={1} records={[child]} />);
+  view.rerender(<TelosOutcomesTree {...props} refreshKey={2} records={[parent, child]} />);
+  expect(
+    screen.getByRole('button', { name: 'Expand Retained parent' }).getAttribute('aria-expanded'),
+  ).toBe('false');
+  view.rerender(<TelosOutcomesTree {...props} refreshKey={3} records={[root, parent, child]} />);
+  expect(
+    screen
+      .getByRole('button', { name: 'Collapse Newly discovered root' })
+      .getAttribute('aria-expanded'),
+  ).toBe('true');
+  expect(
+    screen.getByRole('button', { name: 'Expand Retained parent' }).getAttribute('aria-expanded'),
+  ).toBe('false');
+});

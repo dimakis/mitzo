@@ -76,11 +76,16 @@ export function TelosOutcomesTree({
   }
   const [revealed, setRevealed] = useState({ selectedId, storageKey, ancestors: [] as string[] });
   const newSelection = revealed.selectedId !== selectedId || revealed.storageKey !== storageKey;
-  if (newSelection || JSON.stringify(revealed.ancestors) !== JSON.stringify(ancestors)) {
-    const added = newSelection
-      ? ancestors
-      : ancestors.filter((id) => !revealed.ancestors.includes(id));
-    setRevealed({ selectedId, storageKey, ancestors });
+  const added = newSelection
+    ? ancestors
+    : ancestors.filter((id) => !revealed.ancestors.includes(id));
+  if (newSelection || added.length > 0) {
+    setRevealed({
+      selectedId,
+      storageKey,
+      // A temporary collection gap must not forget a manually collapsed parent.
+      ancestors: newSelection ? ancestors : [...revealed.ancestors, ...added],
+    });
     if (added.length || revealed.storageKey !== storageKey) {
       const current = revealed.storageKey === storageKey ? state : restore(storageKey);
       setState({ ...current, expanded: [...new Set([...current.expanded, ...added])] });
