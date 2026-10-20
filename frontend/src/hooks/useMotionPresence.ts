@@ -1,11 +1,18 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { animateMotion, motionFrame, type MotionKind } from '../lib/motion';
 import { useReducedMotion } from './useReducedMotion';
 
 /** Retain exits for their animation only. Disable motion when a surface becomes inline.
  * Callers immediately hide closing surfaces from input and assistive technology. */
-export function useMotionPresence(open: boolean, kind: MotionKind, appear = true, enabled = true) {
-  const ref = useRef<HTMLDivElement>(null);
+export function useMotionPresence(
+  open: boolean,
+  kind: MotionKind,
+  appear = true,
+  enabled = true,
+  surfaceRef?: RefObject<HTMLDivElement | null>,
+) {
+  const localRef = useRef<HTMLDivElement>(null);
+  const ref = surfaceRef ?? localRef;
   const [retained, setRetained] = useState(open);
   const initial = useRef(true);
   const previousOpen = useRef(open);
@@ -95,7 +102,7 @@ export function useMotionPresence(open: boolean, kind: MotionKind, appear = true
       release();
       releaseExit.current = null;
     };
-  }, [open, kind, appear, reduced, enabled]);
+  }, [open, kind, appear, reduced, enabled, ref]);
 
   return { ref, present: open || retained };
 }

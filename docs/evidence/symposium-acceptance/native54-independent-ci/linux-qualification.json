@@ -1,0 +1,79 @@
+{
+  "observedAt": "2026-10-20T00:36:30.186165+00:00",
+  "run": 39339195266,
+  "attempt": 1,
+  "platform": "ubuntu-24.04",
+  "job": 118356221841,
+  "result": "success",
+  "source": {
+    "publishedHead": "0fd922430b1452d706f361bfde72a47eea584bda",
+    "publishedTree": "1fd6f34a9ce78096cfa4815e3fd121f34e461e68",
+    "actualCheckout": "024b4e044035ac6acb5465864788cd58fd0191f7",
+    "actualCheckoutTree": "1fd6f34a9ce78096cfa4815e3fd121f34e461e68",
+    "actualCheckoutParents": [
+      "dcbad645a3179731de96957299bb775eb094bff8",
+      "0fd922430b1452d706f361bfde72a47eea584bda"
+    ],
+    "upstream": "a956835d020762cb2b570053af06f643a11c0ecc",
+    "nativeCommit": "557ce440b823868ea853e583c2277d16ec0af726",
+    "reconstructedNativeTree": "77a800c70646406a5165ea56237219e56518c36b",
+    "patches": 54,
+    "artifactProofByteExactToPublished": true
+  },
+  "results": {
+    "passed": 5839,
+    "failed": 0,
+    "skippedByNextestSummary": 11,
+    "seconds": 2300.109,
+    "binaries": 20,
+    "junit": {
+      "tests": 5839,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "skipAccounting": "Nextest overall summary retains11 skipped tests; retained JUnit includes the5839 executed cases and reports0 skipped. Do not infer zero exclusions from JUnit.",
+    "namedExtensionInventoryTests": [
+      {
+        "name": "capture_refuses_all_unresolved_registrations_without_discovery",
+        "result": "PASS",
+        "seconds": "0.006"
+      },
+      {
+        "name": "capture_and_ordinary_tools_share_frozen_metadata_and_original_executor",
+        "result": "PASS",
+        "seconds": "0.007"
+      },
+      {
+        "name": "renewal_rejects_rebuild_addition_and_aba_with_equal_definitions",
+        "result": "PASS",
+        "seconds": "0.006"
+      },
+      {
+        "name": "empty_registry_is_resolved_but_empty_state_bound_contributor_is_not",
+        "result": "PASS",
+        "seconds": "0.006"
+      }
+    ],
+    "formatting": "PASS",
+    "sourceReconstruction": "PASS"
+  },
+  "evidence": {
+    "jobLog": {
+      "path": "job-118356221841.log",
+      "bytes": 1312181,
+      "sha256": "200588bd5c99ea37efa6f25ff088061a6521c58a96630a9cda356540f2d87dcb"
+    },
+    "artifact": {
+      "id": 12231638051,
+      "name": "native-fixtures-ubuntu-24.04",
+      "sha256": "c618bffcf57a79683325c44442244286b77776fef80c70ea600ee2ea6f8fc437",
+      "digestMatchesActionsUpload": true
+    },
+    "junitSHA256": "2e8536ace7eea263b7c2754f8db3016b8fca6ea10e572c10b29d4c5265557159",
+    "sourceEvidenceSHA256": "058d9d6c10e48a11992d97296ced2d717a83df231e2bf77e397b9c523f051927"
+  },
+  "qualification": "Independently qualified this Linux source-bound native54 fixture/format checkpoint, including four exact extension-inventory cases. This is not whole pre-session Core/MCP/tool inventory, account/limit/count/consume, installed runtime, actual app or positive delivery qualification.",
+  "otherSources": "macOS native54 job still pending at this receipt; native60 and later local61-70 require their own results. Local26bc host merge is not covered by this exact-head host execution, though its unchanged native54 proof has separate source preservation evidence. Platform totals overlap and must not be summed.",
+  "independentActivity": "Read/download existing completed CI logs/artifacts and exact checkout Git metadata only. No tests, retry, build, model call or new workflow triggered."
+}

@@ -1,0 +1,63 @@
+{
+  "observedAt": "2026-10-20T01:57:45.587996+00:00",
+  "commit": "8bd7c1bf6969a2f82a1df5af4d0bf8c769f5bc27",
+  "tree": "4e10c63ae0c6026d789ca6d49eb06c5e4a33e9f1",
+  "parent": "d2e547ca1082b544042552096d66919829ce6c34",
+  "sourceHashes": {
+    "server/__tests__/collaboration-joining-retained-artifacts.test.ts": "49177d60d73c26dfb3e6fc0028b6db0c199842d71fc45a1db5f4a1f68cea6a9d",
+    "server/collaboration-joining-retained-artifacts.ts": "6884cd5cca0482a7688a4931ea84e2d82cac7c8337437479381c9f661abda14e",
+    "server/collaboration-retained-artifact-source.ts": "e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470"
+  },
+  "producerEvidence": {
+    "late-callback-correction.patch": {
+      "sha256": "b3a638cacc761735431b9bc6be599cf8d14e42ddc20301624ce30044bcab9d69",
+      "bytes": 5840
+    },
+    "late-callback-receipt.json": {
+      "sha256": "dfc1842056e43db83619a1a949409c2a90557aa6729698fcd0102f7e4207e2f9",
+      "bytes": 2498
+    },
+    "late-callback-red.log": {
+      "sha256": "651935398306350e81fb191368b1c4185a3316342c847e9c96edadafbfde60e9",
+      "bytes": 4013
+    },
+    "late-callback-green.log": {
+      "sha256": "42d2f44d93f3faedffee5f3e9ed356632ae3c7e4d3bfd828b6d8552a4bf0792f",
+      "bytes": 298
+    },
+    "late-callback-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "originalFindingReceipt": {
+    "path": "../b-joining-retained-d2e547-inspection/inspection.json",
+    "sha256": "b871dca1e325c5dddfae07e6b4e3105e8a3d8e768b871525a4f0f9637f913934",
+    "preserved": true
+  },
+  "findings": [
+    {
+      "id": "CB-retained-last-byte-fence",
+      "status": "closed at source/assertion level",
+      "source": "Final read.assertCurrent now ends with synchronous(custody), after all supplied association/authorization callbacks. Actual existing retained source currentBytes uses only local store metadata/bounded bytes/hash/privacy reads and no arbitrary authority callback; its source unchanged. Exact-length BLOB mutation with unchanged stored size/hash now reaches final hash check.",
+      "assertion": "New negative replaces selected bytes with equal-length exclamation bytes on second final synchronous authorization callback, expects throw, asserts two callbacks and unchanged stored size/hash. This targets original missed counterexample."
+    },
+    {
+      "id": "CB-page-last-synchronous-fence",
+      "status": "closed at source/assertion level",
+      "source": "After all observations run authority callbacks, final pass invokes assertMetadataCurrent for every observation, which only compares actual revision metadata/privacy with private original. No later supplied callback or BLOB read.",
+      "assertion": "New negative mutates revision3 source_path during revision1 second/final synchronous authorization callback, expects snapshot_changed and zero readBoundedRevision calls. This targets earlier-entry mutation after its authority check."
+    }
+  ],
+  "producerReported": {
+    "red": "Two targeted behavior failures against d2 original source;29 filtered. Original module-missing initialization diagnostic remains separate.",
+    "green": "31 PASS/0 skipped,1file,592ms total;1worker/1024MiB",
+    "types": "Producer receipt reports exit0; empty stdout alone is not independent typecheck execution proof.",
+    "hooks": "Producer normal hooks PASS; no C execution."
+  },
+  "limits": [
+    "Only two owned files changed; actual retained source unchanged. Source/assertion closure does not qualify actual production app wiring, canonical live association/access/save composition, cross-owner ABA/atomicity, source acceptance, transcript deletion, compiler/refreeze/recovery, native capacity or inference.",
+    "Dependency injection still requires genuine existing retained owner with callback-free local custody; arbitrary replacement of typed source is not authority. Core owns actual composition."
+  ],
+  "independentActivity": "Read immutable commit/diff and existing source/tests/producer logs/hash provenance only. No C test/build/browser/native/model/provider call, retry, dispatch or duplicate campaign."
+}

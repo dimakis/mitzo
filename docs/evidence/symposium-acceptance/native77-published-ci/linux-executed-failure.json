@@ -1,0 +1,148 @@
+{
+  "observedAt": "2026-10-20T03:47:57.426378+00:00",
+  "run": 39357179342,
+  "attempt": 1,
+  "job": 118414639970,
+  "platform": "ubuntu-24.04",
+  "jobConclusion": "failure",
+  "overallRunStatusAtSnapshot": "in_progress",
+  "overallRunConclusionAtSnapshot": null,
+  "source": {
+    "publishedHead": "dd5edbd2799885760ae2df9e5eaaf62bff590c92",
+    "publishedTree": "e07d1ba85c086b31897a50d1331dce7131623e7e",
+    "actualCheckout": "d46aaeebe7d9dd2dfa145c6fcc71b9ba860b994a",
+    "actualCheckoutTree": "e07d1ba85c086b31897a50d1331dce7131623e7e",
+    "actualCheckoutParents": [
+      "5bdbce1b02266e92967441f0ef57d323ed992650",
+      "dd5edbd2799885760ae2df9e5eaaf62bff590c92"
+    ],
+    "nativeCommit": "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
+    "nativeTree": "61df68bdcee6a1939367e2ed54e61082d4ef3241",
+    "patches": 77,
+    "artifactSourceProofByteExact": true
+  },
+  "results": {
+    "classification": "Executed fixture failure AFTER successful selected test-target compilation; NOT previous73/76macro compilation failure.",
+    "executed": 6205,
+    "passed": 6204,
+    "failed": 1,
+    "nextestSkipped": 11,
+    "seconds": 2608.968,
+    "binaries": 34,
+    "junit": {
+      "name": "nextest-run",
+      "tests": "6205",
+      "skipped": "0",
+      "failures": "1",
+      "errors": "0",
+      "uuid": "7158f44e-4118-4ef1-8e14-5a9e15aa5b5b",
+      "timestamp": "2026-10-20T02:58:38.156+00:00",
+      "time": "2608.968"
+    },
+    "skipAccounting": "Overall nextest11exclusions retained despite executed-onlyJUnit0. No summed platform/source totals.",
+    "sourceReconstruction": "PASS",
+    "formatting": "skipped",
+    "named71to76Cases": [
+      {
+        "suite": "codex-history-notes-extension::history_notes_extension",
+        "name": "disabled_history_notes_capture_tracks_ordinary_configuration",
+        "result": "PASS",
+        "seconds": "0.018"
+      },
+      {
+        "suite": "codex-goal-extension::goal_extension_backend",
+        "name": "disabled_goal_capture_tracks_ordinary_configuration",
+        "result": "PASS",
+        "seconds": "0.103"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::effects::pending_claim_cannot_acknowledge_and_refusal_survives_restart",
+        "result": "PASS",
+        "seconds": "0.141"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::effects::release_and_cancellation_have_one_durable_winner",
+        "result": "PASS",
+        "seconds": "0.893"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::effects::pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain",
+        "result": "FAIL",
+        "seconds": "0.131"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::effects::forced_release_preserves_executable_handoff_and_restart_uncertainty",
+        "result": "PASS",
+        "seconds": "0.135"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::effects::continuation_requires_released_predecessor_and_original_acceptance",
+        "result": "PASS",
+        "seconds": "0.273"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::guarded_commit::guarded_commit_denial_rolls_back_and_success_is_durable_before_guard_returns",
+        "result": "PASS",
+        "seconds": "0.132"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::guarded_commit::guard_response_loss_after_commit_cannot_release_or_replay_claim",
+        "result": "PASS",
+        "seconds": "0.111"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::guarded_commit::guarded_commit_rolls_back_partial_update_and_rejects_another_claim",
+        "result": "PASS",
+        "seconds": "0.122"
+      },
+      {
+        "suite": "codex-core",
+        "name": "client::prepared_api_claim::tests::ordinary_credential_owner_guards_real_pending_cas_and_logout_refuses",
+        "result": "PASS",
+        "seconds": "0.133"
+      },
+      {
+        "suite": "codex-core",
+        "name": "client::prepared_api_claim::tests::ordinary_logout_races_actual_guarded_claim_without_future_escape",
+        "result": "PASS",
+        "seconds": "0.417"
+      }
+    ],
+    "namedNewPass": 11,
+    "namedNewFail": 1
+  },
+  "diagnostic": {
+    "test": "runtime::prepared_requests::tests::effects::pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain",
+    "suite": "codex-state",
+    "sourceLocation": "state/src/runtime/prepared_request_effects_tests.rs:375:14",
+    "message": "Result::unwrap on SQLite2067 UNIQUE constraint failed: index prepared_requests_consumed_command_root",
+    "sourceInference": "One request() outside loop uses application_scope_id=session and command_id=command for BOTH independent pending and ordinary roots. First pending refusal intentionally remains consumed; second root consumption collides with actual unique(application_scope_id,command_id) WHERE consumed=1 AND no predecessor. Inference from immutable fixture+SQL, not a log that names operation.",
+    "ownerAction": "Core owns minimal distinct-command fixture correction, retaining pending pool-local rejection/irreversible refusal and ordinary uncertainty assertions. Do not relax guard/index/consumption tombstone or blanket rerun.",
+    "sourceHashes": {
+      "codex-rs/state/src/runtime/prepared_request_effects_tests.rs": "4cc05fc92cd36dc93f14aef52e8aa81f50d36b0a4124d0672c4d7a94f26439a9",
+      "codex-rs/state/src/runtime/prepared_requests_tests.rs": "1b2b8dac957615978b7062eb2ea9bc60e73a08ffc800a0e9c2aa9c2bd84c191c",
+      "codex-rs/state/migrations/0061_prepared_request_sampling.sql": "444c74d8a398f7f02c84e042084520b7d0fda88ae66c6b3951f06cc1048ef1ea"
+    }
+  },
+  "evidence": {
+    "jobLogSHA256": "c43536a9062af3ae8cdc6552bf2283bcb59ac6d3d2f322b8b5b5471fbd74b7fb",
+    "jobMetadataSHA256": "76af845f35ddc1b57bc9ad4aa833bb16edaf573a5298b7230526518d2be1f15d",
+    "artifactId": 12239346558,
+    "artifactZIPDigest": "ca505bb842adfde02e5d440efb4790c524388bbf25fc3ce9e139f64d7abd44d8",
+    "digestMatchesActions": true,
+    "junitSHA256": "5e34d76f7663c28f04234c79b1f31981a974b54fbca66aa3d86a70dbdb56bbb3",
+    "sourceProofSHA256": "67bcb06dc453c64b8357255ac5458d2d2a8bebaa9086db3cafa60214cd4933ef"
+  },
+  "qualification": "Overall native77 NOT qualified. Eleven of twelve named new71\u201376 fixtures executed successfully on Linux, including all5guard/credential bridge cases; one pending-custody fixture fails. These bounded passes do not establish complete source/account/request/count/consume/release/runtime/App authority or resolve native60effective-registry finding. Mac77 separately pending.",
+  "preservation": "Earlier73bothOS E0659 and old76Linux36E0659/Maccancelled remain unchanged. Source77imports now compile on Linux and tests execute; do not transfer that to Mac/new correction source.",
+  "independentActivity": "Download/read existing terminalLinux logs/JUnit/artifact/sourceproof/exactcheckout Git metadata and immutable fixture/SQL only. No new tests/build/Rust/model/provider/retry/cancel/dispatch/worker/review campaign.",
+  "metadataWrapperDiagnostic": "Initial unhanded C metadata used scope as literal placeholder; immutable request helper actually says session. Corrected metadata literal only after direct source read; raw logs/JUnit/source and test assertions unchanged."
+}

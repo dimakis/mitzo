@@ -1,0 +1,535 @@
+From 712955521527345f477abb11f1c54be80bf64a27 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 02:15:50 +0100
+Subject: [PATCH] feat(symposium): execute pending claim inside synchronous
+ native guard
+
+---
+ codex-rs/state/src/lib.rs                     |   1 +
+ codex-rs/state/src/runtime.rs                 |   1 +
+ .../src/runtime/prepared_request_effects.rs   |   6 +-
+ .../prepared_request_guarded_commit.rs        | 222 ++++++++++++++++++
+ .../prepared_request_guarded_commit_tests.rs  | 210 +++++++++++++++++
+ .../state/src/runtime/prepared_requests.rs    |   4 +
+ .../src/runtime/prepared_requests_tests.rs    |   3 +
+ 7 files changed, 444 insertions(+), 3 deletions(-)
+ create mode 100644 codex-rs/state/src/runtime/prepared_request_guarded_commit.rs
+ create mode 100644 codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs
+
+diff --git a/codex-rs/state/src/lib.rs b/codex-rs/state/src/lib.rs
+index 49d5011..1bc0d41 100644
+--- a/codex-rs/state/src/lib.rs
++++ b/codex-rs/state/src/lib.rs
+@@ -83,6 +83,7 @@ pub use runtime::GoalUpdate;
+ pub use runtime::MemoryStore;
+ pub use runtime::NewPreparedRequest;
+ pub use runtime::PendingPreparedRequestAttempt;
++pub use runtime::PendingPreparedRequestCommit;
+ pub use runtime::PreparedProviderReceipt;
+ pub use runtime::PreparedRequestAttempt;
+ pub use runtime::PreparedRequestAttemptState;
+diff --git a/codex-rs/state/src/runtime.rs b/codex-rs/state/src/runtime.rs
+index e7bbf1e..25fafdf 100644
+--- a/codex-rs/state/src/runtime.rs
++++ b/codex-rs/state/src/runtime.rs
+@@ -70,6 +70,7 @@ pub use goals::GoalUpdate;
+ pub use memories::MemoryStore;
+ pub use prepared_requests::NewPreparedRequest;
+ pub use prepared_requests::PendingPreparedRequestAttempt;
++pub use prepared_requests::PendingPreparedRequestCommit;
+ pub use prepared_requests::PreparedProviderReceipt;
+ pub use prepared_requests::PreparedRequestAttempt;
+ pub use prepared_requests::PreparedRequestAttemptState;
+diff --git a/codex-rs/state/src/runtime/prepared_request_effects.rs b/codex-rs/state/src/runtime/prepared_request_effects.rs
+index dd7386f..d1a7085 100644
+--- a/codex-rs/state/src/runtime/prepared_request_effects.rs
++++ b/codex-rs/state/src/runtime/prepared_request_effects.rs
+@@ -28,9 +28,9 @@ pub enum PreparedRequestEffectState {
+ /// Reads and restart cannot reconstruct it. It is neither an authority proof nor
+ /// admission acknowledgement, and must never be passed to queue/session owners.
+ pub struct PendingPreparedRequestAttempt {
+-    record: PreparedRequestRecord,
+-    nonce: String,
+-    owner_pool: Arc<SqlitePool>,
++    pub(super) record: PreparedRequestRecord,
++    pub(super) nonce: String,
++    pub(super) owner_pool: Arc<SqlitePool>,
+ }
+ 
+ impl PendingPreparedRequestAttempt {
+diff --git a/codex-rs/state/src/runtime/prepared_request_guarded_commit.rs b/codex-rs/state/src/runtime/prepared_request_guarded_commit.rs
+new file mode 100644
+index 0000000..54aaa49
+--- /dev/null
++++ b/codex-rs/state/src/runtime/prepared_request_guarded_commit.rs
+@@ -0,0 +1,222 @@
++//! A synchronous local commit operation for real native owner guards.
++//!
++//! SQLx normally executes SQLite on its worker after an await. A successful auth
++//! callback returning that future would release its fence before consumption.
++//! Here the existing pool connection is exclusively locked; the move-only
++//! operation performs only two fixed updates and COMMIT before the guard returns.
++//! This is credential/local-owner composition, not the canonical host proof.
++
++use super::NewPreparedRequest;
++use super::PendingPreparedRequestAttempt;
++use super::PreparedRequestAttemptState;
++use super::PreparedRequestEffectState;
++use super::PreparedRequestRecord;
++use super::PreparedRequestScope;
++use super::StateRuntime;
++use super::record_from_row;
++use super::sampling;
++use super::validate_request;
++use super::validate_text;
++use libsqlite3_sys as sqlite;
++use sqlx::SqlitePool;
++use sqlx::sqlite::LockedSqliteHandle;
++use std::ffi::CStr;
++use std::marker::PhantomData;
++use std::ptr::NonNull;
++use std::sync::Arc;
++
++/// A single fixed pending-claim transaction, borrowing SQLx's exclusive handle.
++/// It is not Send, cannot outlive the synchronous guard, exposes no SQL handle,
++/// and returns no future. Only `commit` may produce this operation's pending token.
++pub struct PendingPreparedRequestCommit<'a> {
++    database: NonNull<sqlite::sqlite3>,
++    record: PreparedRequestRecord,
++    nonce: String,
++    owner_pool: Arc<SqlitePool>,
++    _handle: PhantomData<&'a mut ()>,
++}
++
++struct Statement(NonNull<sqlite::sqlite3_stmt>);
++
++impl Drop for Statement {
++    fn drop(&mut self) {
++        // SAFETY: Every statement is created under the borrowed exclusive SQLx
++        // handle and finalized before that borrow/connection can be released.
++        unsafe {
++            sqlite::sqlite3_finalize(self.0.as_ptr());
++        }
++    }
++}
++
++impl<'a> PendingPreparedRequestCommit<'a> {
++    fn new(
++        handle: &'a mut LockedSqliteHandle<'_>,
++        record: PreparedRequestRecord,
++        nonce: String,
++        owner_pool: Arc<SqlitePool>,
++    ) -> Self {
++        Self {
++            database: handle.as_raw_handle(),
++            record,
++            nonce,
++            owner_pool,
++            _handle: PhantomData,
++        }
++    }
++
++    /// Execute the bounded local SQLite transaction while the caller holds its
++    /// actual native guards. No queue, thread, provider, host RPC or await runs.
++    /// An error never grants a right; uncertain commitment must be read by the
++    /// original operation and cannot be retried as a replacement claim.
++    pub fn commit(mut self) -> anyhow::Result<PendingPreparedRequestAttempt> {
++        let preparation_id = self.record.preparation_id.clone();
++        let nonce = self.nonce.clone();
++        let consumed_at = chrono::Utc::now().timestamp_millis().to_string();
++        anyhow::ensure!(self.execute(
++            c"UPDATE prepared_requests SET consumed = 1, consumed_at = ?, consumption_nonce = ? WHERE preparation_id = ? AND consumed = 0 AND attempt_state = 'open' AND effect_state = 'ordinary' AND measurement_json IS NOT NULL",
++            &[&consumed_at, &nonce, &preparation_id],
++        )? == 1, "guarded prepared consumption lost");
++        anyhow::ensure!(self.execute(
++            c"UPDATE prepared_requests SET attempt_state = 'committed', effect_state = 'pending' WHERE preparation_id = ? AND consumed = 1 AND attempt_state = 'open' AND consumption_nonce = ?",
++            &[&preparation_id, &nonce],
++        )? == 1, "guarded prepared pending commitment lost");
++        self.execute(c"COMMIT", &[])?;
++        self.record.consumed = true;
++        self.record.attempt_state = PreparedRequestAttemptState::Committed;
++        self.record.effect_state = PreparedRequestEffectState::Pending;
++        Ok(PendingPreparedRequestAttempt {
++            record: self.record,
++            nonce: self.nonce,
++            owner_pool: self.owner_pool,
++        })
++    }
++
++    fn execute(&mut self, sql: &CStr, parameters: &[&str]) -> anyhow::Result<i64> {
++        let mut raw = std::ptr::null_mut();
++        // SAFETY: new() borrowed the live LockedSqliteHandle, which pauses all
++        // SQLx worker FFI access. SQL is static, NUL-terminated and private to this
++        // owner. No handle, hook, transaction manager or cached statement escapes.
++        let code = unsafe {
++            sqlite::sqlite3_prepare_v2(
++                self.database.as_ptr(),
++                sql.as_ptr(),
++                /*nByte*/ -1,
++                &mut raw,
++                std::ptr::null_mut(),
++            )
++        };
++        let statement = NonNull::new(raw).map(Statement);
++        anyhow::ensure!(
++            code == sqlite::SQLITE_OK,
++            "guarded SQLite preparation failed ({code})"
++        );
++        let statement =
++            statement.ok_or_else(|| anyhow::anyhow!("guarded SQLite statement missing"))?;
++        for (index, value) in parameters.iter().enumerate() {
++            let index = i32::try_from(index + 1)?;
++            let length = i32::try_from(value.len())?;
++            // SAFETY: Statement remains valid under the same exclusive handle;
++            // length bounds the live UTF-8 slice and TRANSIENT makes SQLite copy
++            // its bytes before returning. Values never become SQL syntax.
++            let code = unsafe {
++                sqlite::sqlite3_bind_text(
++                    statement.0.as_ptr(),
++                    index,
++                    value.as_ptr().cast(),
++                    length,
++                    sqlite::SQLITE_TRANSIENT(),
++                )
++            };
++            anyhow::ensure!(
++                code == sqlite::SQLITE_OK,
++                "guarded SQLite binding failed ({code})"
++            );
++        }
++        // SAFETY: Bound statement and database share the retained exclusive
++        // handle. Every path finalizes the local statement before unlocking.
++        let code = unsafe { sqlite::sqlite3_step(statement.0.as_ptr()) };
++        anyhow::ensure!(
++            code == sqlite::SQLITE_DONE,
++            "guarded SQLite statement failed ({code})"
++        );
++        // SAFETY: The database still has the same exclusive live handle; this
++        // reads the just-completed statement's connection-local change count.
++        let changed = unsafe { sqlite::sqlite3_changes64(self.database.as_ptr()) };
++        Ok(changed)
++    }
++}
++
++impl StateRuntime {
++    /// Validate and acquire the real local write transaction before entering a
++    /// synchronous native authority guard. The fixed callback result cannot be
++    /// an asynchronous future or a permit for later use. This does not supply
++    /// any actual auth guard, source fence or retrospective canonical proof.
++    pub async fn claim_pending_prepared_request_with_guard(
++        &self,
++        preparation_id: &str,
++        request: &NewPreparedRequest,
++        witness_id: &str,
++        guard: impl for<'commit> FnOnce(
++            PendingPreparedRequestCommit<'commit>,
++        ) -> anyhow::Result<PendingPreparedRequestAttempt>,
++    ) -> anyhow::Result<PendingPreparedRequestAttempt> {
++        validate_text(preparation_id)?;
++        validate_text(witness_id)?;
++        validate_request(request)?;
++        anyhow::ensure!(
++            request.scope == PreparedRequestScope::Command,
++            "review context cannot be consumed"
++        );
++        let mut connection = self.prepared_request_connection().await?;
++        // This connection is already close-on-drop and FULL synchronous. Use a
++        // raw BEGIN rather than SQLx Transaction: the synchronous operation owns
++        // COMMIT, and SQLite connection closure rolls back every unfinished path.
++        sqlx::query("BEGIN IMMEDIATE")
++            .execute(&mut *connection)
++            .await?;
++        let row = sqlx::query(sampling::REQUEST_BY_PREPARATION_ID)
++            .bind(preparation_id)
++            .fetch_one(&mut *connection)
++            .await?;
++        let record = record_from_row(&row)?;
++        anyhow::ensure!(
++            record.request == *request,
++            "guarded prepared inputs conflict"
++        );
++        anyhow::ensure!(
++            record
++                .measurement
++                .as_ref()
++                .is_some_and(|value| value.witness_id == witness_id),
++            "guarded prepared witness missing or conflicting"
++        );
++        anyhow::ensure!(
++            !record.consumed
++                && record.attempt_state == PreparedRequestAttemptState::Open
++                && record.effect_state == PreparedRequestEffectState::Ordinary,
++            "guarded prepared request is closed or consumed"
++        );
++        sampling::validate_consumption(&mut connection, &record).await?;
++        let nonce = uuid::Uuid::now_v7().to_string();
++        let mut expected = record.clone();
++        expected.consumed = true;
++        expected.attempt_state = PreparedRequestAttemptState::Committed;
++        expected.effect_state = PreparedRequestEffectState::Pending;
++        let mut handle = connection.lock_handle().await?;
++        // Bound synchronous work only after this point. The borrow prevents the
++        // operation escaping this guard or reaching SQLx after the guard releases.
++        let pending = guard(PendingPreparedRequestCommit::new(
++            &mut handle,
++            record,
++            nonce.clone(),
++            Arc::clone(&self.pool),
++        ))?;
++        anyhow::ensure!(
++            pending.record == expected
++                && pending.nonce == nonce
++                && Arc::ptr_eq(&pending.owner_pool, &self.pool),
++            "guard returned a different prepared claim"
++        );
++        Ok(pending)
++    }
++}
+diff --git a/codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs b/codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs
+new file mode 100644
+index 0000000..52aaf58
+--- /dev/null
++++ b/codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs
+@@ -0,0 +1,210 @@
++use super::sampling::measure_sample;
++use super::sampling::sampling_request;
++use super::*;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++
++#[tokio::test]
++async fn guarded_commit_denial_rolls_back_and_success_is_durable_before_guard_returns() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let prepared = measure_sample(
++        &runtime,
++        "guarded",
++        &sampling_request("root", /*predecessor*/ None),
++    )
++    .await;
++    let calls = AtomicUsize::new(0);
++    assert!(
++        runtime
++            .claim_pending_prepared_request_with_guard(
++                &prepared.preparation_id,
++                &prepared.request,
++                "wrong-witness",
++                |_| {
++                    calls.fetch_add(1, Ordering::SeqCst);
++                    anyhow::bail!("preflight must not enter guard")
++                }
++            )
++            .await
++            .is_err()
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert!(
++        runtime
++            .claim_pending_prepared_request_with_guard(
++                &prepared.preparation_id,
++                &prepared.request,
++                "witness",
++                |_commit| {
++                    calls.fetch_add(1, Ordering::SeqCst);
++                    anyhow::bail!("actual owner denied")
++                }
++            )
++            .await
++            .is_err()
++    );
++    assert_eq!(
++        runtime.read_prepared_request("guarded").await.unwrap(),
++        Some(prepared.clone())
++    );
++    let pending = runtime
++        .claim_pending_prepared_request_with_guard(
++            &prepared.preparation_id,
++            &prepared.request,
++            "witness",
++            |commit| {
++                calls.fetch_add(1, Ordering::SeqCst);
++                let pending = commit.commit()?;
++                assert!(pending.record().consumed);
++                assert_eq!(
++                    pending.record().attempt_state,
++                    PreparedRequestAttemptState::Committed
++                );
++                assert_eq!(
++                    pending.record().effect_state,
++                    PreparedRequestEffectState::Pending
++                );
++                Ok(pending)
++            },
++        )
++        .await
++        .unwrap();
++    assert_eq!(calls.load(Ordering::SeqCst), 2);
++    let retained = pending.record().clone();
++    assert_eq!(
++        runtime.read_prepared_request("guarded").await.unwrap(),
++        Some(retained.clone())
++    );
++    drop(pending);
++    runtime.close().await;
++    let reopened = open(&home).await;
++    assert_eq!(
++        reopened.read_prepared_request("guarded").await.unwrap(),
++        Some(retained)
++    );
++    assert_eq!(
++        reopened
++            .close_prepared_request(&prepared.preparation_id, &prepared.request)
++            .await
++            .unwrap(),
++        PreparedRequestClosure::RefusedBeforeEffects
++    );
++}
++
++#[tokio::test]
++async fn guard_response_loss_after_commit_cannot_release_or_replay_claim() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let prepared = measure_sample(
++        &runtime,
++        "lost-response",
++        &sampling_request("root", /*predecessor*/ None),
++    )
++    .await;
++    assert!(
++        runtime
++            .claim_pending_prepared_request_with_guard(
++                &prepared.preparation_id,
++                &prepared.request,
++                "witness",
++                |commit| {
++                    drop(commit.commit()?);
++                    anyhow::bail!("owner response lost after synchronous commit")
++                }
++            )
++            .await
++            .is_err()
++    );
++    let retained = runtime
++        .read_prepared_request("lost-response")
++        .await
++        .unwrap()
++        .unwrap();
++    assert!(retained.consumed);
++    assert_eq!(retained.effect_state, PreparedRequestEffectState::Pending);
++    assert!(
++        runtime
++            .claim_pending_prepared_request_with_guard(
++                &prepared.preparation_id,
++                &prepared.request,
++                "witness",
++                |commit| commit.commit()
++            )
++            .await
++            .is_err()
++    );
++    assert!(
++        runtime
++            .consume_prepared_request(&prepared.preparation_id, &prepared.request, "witness")
++            .await
++            .is_err()
++    );
++    assert_eq!(
++        runtime
++            .close_prepared_request(&prepared.preparation_id, &prepared.request)
++            .await
++            .unwrap(),
++        PreparedRequestClosure::RefusedBeforeEffects
++    );
++}
++
++#[tokio::test]
++async fn guarded_commit_rolls_back_partial_update_and_rejects_another_claim() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let prepared = measure_sample(&runtime, "partial", &request()).await;
++    sqlx::query("CREATE TRIGGER test_reject_pending BEFORE UPDATE OF attempt_state ON prepared_requests WHEN NEW.effect_state = 'pending' BEGIN SELECT RAISE(ABORT, 'injected pending failure'); END")
++        .execute(runtime.pool.as_ref()).await.unwrap();
++    assert!(
++        runtime
++            .claim_pending_prepared_request_with_guard(
++                &prepared.preparation_id,
++                &prepared.request,
++                "witness",
++                |commit| commit.commit()
++            )
++            .await
++            .is_err()
++    );
++    assert_eq!(
++        runtime.read_prepared_request("partial").await.unwrap(),
++        Some(prepared.clone())
++    );
++    sqlx::query("DROP TRIGGER test_reject_pending")
++        .execute(runtime.pool.as_ref())
++        .await
++        .unwrap();
++    let pending = runtime
++        .claim_pending_prepared_request_with_guard(
++            &prepared.preparation_id,
++            &prepared.request,
++            "witness",
++            |commit| commit.commit(),
++        )
++        .await
++        .unwrap();
++    let other = measure_sample(&runtime, "other", &request()).await;
++    assert!(
++        runtime
++            .claim_pending_prepared_request_with_guard(
++                &other.preparation_id,
++                &other.request,
++                "witness",
++                |_commit| Ok(pending)
++            )
++            .await
++            .is_err()
++    );
++    assert_eq!(
++        runtime.read_prepared_request("other").await.unwrap(),
++        Some(other)
++    );
++    assert_eq!(
++        runtime
++            .close_prepared_request(&prepared.preparation_id, &prepared.request)
++            .await
++            .unwrap(),
++        PreparedRequestClosure::RefusedBeforeEffects
++    );
++}
+diff --git a/codex-rs/state/src/runtime/prepared_requests.rs b/codex-rs/state/src/runtime/prepared_requests.rs
+index c0eb911..2f36a06 100644
+--- a/codex-rs/state/src/runtime/prepared_requests.rs
++++ b/codex-rs/state/src/runtime/prepared_requests.rs
+@@ -34,6 +34,10 @@ mod effects;
+ pub use effects::PendingPreparedRequestAttempt;
+ pub use effects::PreparedRequestEffectState;
+ 
++#[path = "prepared_request_guarded_commit.rs"]
++mod guarded_commit;
++pub use guarded_commit::PendingPreparedRequestCommit;
++
+ #[path = "prepared_request_sampling.rs"]
+ mod sampling;
+ pub use sampling::PreparedRequestSampling;
+diff --git a/codex-rs/state/src/runtime/prepared_requests_tests.rs b/codex-rs/state/src/runtime/prepared_requests_tests.rs
+index d4a03ed..3dc13e1 100644
+--- a/codex-rs/state/src/runtime/prepared_requests_tests.rs
++++ b/codex-rs/state/src/runtime/prepared_requests_tests.rs
+@@ -14,6 +14,9 @@ mod sampling;
+ #[path = "prepared_request_effects_tests.rs"]
+ mod effects;
+ 
++#[path = "prepared_request_guarded_commit_tests.rs"]
++mod guarded_commit;
++
+ async fn open(home: &Path) -> Arc<StateRuntime> {
+     StateRuntime::init(
+         crate::SqliteConfig::new_for_testing(home.abs()),
+-- 
+2.54.0 (Apple Git-157)
+

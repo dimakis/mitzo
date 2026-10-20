@@ -1,0 +1,270 @@
+From 6860f60f27dcd3af7d12116f67abff2b342cf011 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 01:31:34 +0100
+Subject: [PATCH] refactor(core): share resolved tool exposure and model spec
+ policy
+
+---
+ codex-rs/core/src/tools/spec_plan.rs          | 106 +++---------------
+ .../src/tools/spec_plan/model_exposure.rs     |  88 +++++++++++++++
+ 2 files changed, 102 insertions(+), 92 deletions(-)
+ create mode 100644 codex-rs/core/src/tools/spec_plan/model_exposure.rs
+
+diff --git a/codex-rs/core/src/tools/spec_plan.rs b/codex-rs/core/src/tools/spec_plan.rs
+index e425ad7..bec5a9b 100644
+--- a/codex-rs/core/src/tools/spec_plan.rs
++++ b/codex-rs/core/src/tools/spec_plan.rs
+@@ -1,4 +1,5 @@
+ mod collaboration;
++mod model_exposure;
+ mod shell_and_resources;
+ mod utility;
+ 
+@@ -317,7 +318,10 @@ pub(crate) fn finalize_tool_router(
+     tool_search_handler_cache: &ToolSearchHandlerCache,
+ ) -> CodexResult<ToolRouter> {
+     hosted_specs.retain(|spec| registry.tool_policy.allows(&ToolName::plain(spec.name())));
+-    apply_direct_model_only_namespace_overrides(turn_context, &mut registry);
++    model_exposure::apply_direct_model_only_namespace_overrides(
++        &turn_context.config,
++        &mut registry,
++    );
+     let tool_mode = effective_tool_mode(turn_context, model_info);
+     let code_mode_enabled = matches!(tool_mode, ToolMode::CodeMode | ToolMode::CodeModeOnly);
+     if code_mode_enabled {
+@@ -480,39 +484,6 @@ pub(crate) fn finalize_tool_router(
+     Ok(router)
+ }
+ 
+-fn apply_direct_model_only_namespace_overrides(
+-    turn_context: &TurnContext,
+-    registry: &mut ToolRegistry,
+-) {
+-    if turn_context
+-        .config
+-        .code_mode
+-        .direct_only_tool_namespaces
+-        .is_empty()
+-    {
+-        return;
+-    }
+-
+-    for tool in registry.entries_mut() {
+-        let configured = tool
+-            .runtime
+-            .tool_name()
+-            .with_default_namespace()
+-            .namespace
+-            .as_ref()
+-            .is_some_and(|namespace| {
+-                turn_context
+-                    .config
+-                    .code_mode
+-                    .direct_only_tool_namespaces
+-                    .contains(namespace)
+-            });
+-        if configured && tool.exposure.is_available_in_code_mode() {
+-            tool.exposure = ToolExposure::DirectModelOnly;
+-        }
+-    }
+-}
+-
+ #[instrument(level = "trace", skip_all)]
+ fn build_model_visible_specs(
+     turn_context: &TurnContext,
+@@ -529,14 +500,18 @@ fn build_model_visible_specs(
+         }
+ 
+         let tool_name = tool.runtime.tool_name();
+-        if is_hidden_by_code_mode_only(turn_context, model_info, &tool_name, exposure) {
++        if model_exposure::is_hidden_by_code_mode_only(
++            effective_tool_mode(turn_context, model_info),
++            &tool_name,
++            exposure,
++        ) {
+             continue;
+         }
+ 
+         let spec = tool.runtime.spec();
+-        specs.push(spec_for_model_request(
+-            turn_context,
+-            model_info,
++        specs.push(model_exposure::spec_for_model_request(
++            &turn_context.config,
++            effective_tool_mode(turn_context, model_info),
+             exposure,
+             &tool_name,
+             code_mode_tool_names,
+@@ -553,34 +528,6 @@ fn build_model_visible_specs(
+         .collect()
+ }
+ 
+-fn spec_for_model_request(
+-    turn_context: &TurnContext,
+-    model_info: &ModelInfo,
+-    exposure: ToolExposure,
+-    tool_name: &ToolName,
+-    code_mode_tool_names: &BTreeMap<String, ToolName>,
+-    spec: ToolSpec,
+-) -> ToolSpec {
+-    let tool_mode = effective_tool_mode(turn_context, model_info);
+-    if matches!(tool_mode, ToolMode::CodeMode | ToolMode::CodeModeOnly)
+-        && exposure.is_available_in_code_mode()
+-        && !is_excluded_from_code_mode(turn_context, tool_name)
+-        && codex_code_mode::is_code_mode_nested_tool(spec.name())
+-        && code_mode_tool_names
+-            .get(&codex_code_mode::normalize_code_mode_identifier(
+-                &codex_tools::code_mode_name_for_tool_name(tool_name),
+-            ))
+-            .is_some_and(|winner| winner == tool_name)
+-    {
+-        codex_tools::augment_tool_spec_for_code_mode(
+-            spec,
+-            turn_context.config.code_mode.tool_input_schema_max_bytes,
+-        )
+-    } else {
+-        spec
+-    }
+-}
+-
+ #[instrument(level = "trace", skip_all)]
+ fn hosted_model_tool_specs(
+     turn_context: &TurnContext,
+@@ -750,31 +697,6 @@ fn agent_type_description(
+     }
+ }
+ 
+-fn is_hidden_by_code_mode_only(
+-    turn_context: &TurnContext,
+-    model_info: &ModelInfo,
+-    tool_name: &ToolName,
+-    exposure: ToolExposure,
+-) -> bool {
+-    let tool_mode = effective_tool_mode(turn_context, model_info);
+-    tool_mode == ToolMode::CodeModeOnly
+-        && exposure.is_available_in_code_mode()
+-        && codex_code_mode::is_code_mode_nested_tool(&codex_tools::code_mode_name_for_tool_name(
+-            tool_name,
+-        ))
+-}
+-
+-fn is_excluded_from_code_mode(turn_context: &TurnContext, tool_name: &ToolName) -> bool {
+-    let tool_name = tool_name.clone().with_default_namespace();
+-    tool_name.namespace.as_ref().is_some_and(|namespace| {
+-        turn_context
+-            .config
+-            .code_mode
+-            .excluded_tool_namespaces
+-            .contains(namespace)
+-    })
+-}
+-
+ fn register_code_mode_executors(
+     turn_context: &TurnContext,
+     model_info: &ModelInfo,
+@@ -799,7 +721,7 @@ fn register_code_mode_executors(
+         }
+ 
+         let tool_name = tool.runtime.tool_name();
+-        if is_excluded_from_code_mode(turn_context, &tool_name) {
++        if model_exposure::is_excluded_from_code_mode(&turn_context.config, &tool_name) {
+             continue;
+         }
+ 
+diff --git a/codex-rs/core/src/tools/spec_plan/model_exposure.rs b/codex-rs/core/src/tools/spec_plan/model_exposure.rs
+new file mode 100644
+index 0000000..af7a096
+--- /dev/null
++++ b/codex-rs/core/src/tools/spec_plan/model_exposure.rs
+@@ -0,0 +1,88 @@
++//! Shared ordinary exposure/model-spec transformation over resolved inputs.
++//! Provider namespace eligibility and final registry ownership stay with the
++//! enclosing ordinary planner. No Session/TurnContext or provider callback is
++//! needed here; mode/config values do not attest source or execution authority.
++
++use crate::config::Config;
++use crate::tools::registry::ToolExposure;
++use crate::tools::registry::ToolRegistry;
++use codex_protocol::openai_models::ToolMode;
++use codex_tools::ToolName;
++use codex_tools::ToolSpec;
++use std::collections::BTreeMap;
++
++pub(super) fn apply_direct_model_only_namespace_overrides(
++    config: &Config,
++    registry: &mut ToolRegistry,
++) {
++    if config.code_mode.direct_only_tool_namespaces.is_empty() {
++        return;
++    }
++
++    for tool in registry.entries_mut() {
++        let configured = tool
++            .runtime
++            .tool_name()
++            .with_default_namespace()
++            .namespace
++            .as_ref()
++            .is_some_and(|namespace| {
++                config
++                    .code_mode
++                    .direct_only_tool_namespaces
++                    .contains(namespace)
++            });
++        if configured && tool.exposure.is_available_in_code_mode() {
++            tool.exposure = ToolExposure::DirectModelOnly;
++        }
++    }
++}
++
++pub(super) fn spec_for_model_request(
++    config: &Config,
++    tool_mode: ToolMode,
++    exposure: ToolExposure,
++    tool_name: &ToolName,
++    code_mode_tool_names: &BTreeMap<String, ToolName>,
++    spec: ToolSpec,
++) -> ToolSpec {
++    if matches!(tool_mode, ToolMode::CodeMode | ToolMode::CodeModeOnly)
++        && exposure.is_available_in_code_mode()
++        && !is_excluded_from_code_mode(config, tool_name)
++        && codex_code_mode::is_code_mode_nested_tool(spec.name())
++        && code_mode_tool_names
++            .get(&codex_code_mode::normalize_code_mode_identifier(
++                &codex_tools::code_mode_name_for_tool_name(tool_name),
++            ))
++            .is_some_and(|winner| winner == tool_name)
++    {
++        codex_tools::augment_tool_spec_for_code_mode(
++            spec,
++            config.code_mode.tool_input_schema_max_bytes,
++        )
++    } else {
++        spec
++    }
++}
++
++pub(super) fn is_hidden_by_code_mode_only(
++    tool_mode: ToolMode,
++    tool_name: &ToolName,
++    exposure: ToolExposure,
++) -> bool {
++    tool_mode == ToolMode::CodeModeOnly
++        && exposure.is_available_in_code_mode()
++        && codex_code_mode::is_code_mode_nested_tool(&codex_tools::code_mode_name_for_tool_name(
++            tool_name,
++        ))
++}
++
++pub(super) fn is_excluded_from_code_mode(config: &Config, tool_name: &ToolName) -> bool {
++    let tool_name = tool_name.clone().with_default_namespace();
++    tool_name.namespace.as_ref().is_some_and(|namespace| {
++        config
++            .code_mode
++            .excluded_tool_namespaces
++            .contains(namespace)
++    })
++}
+-- 
+2.54.0 (Apple Git-157)
+

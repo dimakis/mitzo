@@ -1,0 +1,28 @@
+{
+  "observedAt": "2026-10-20T04:03:54.284987+00:00",
+  "run": 39358899994,
+  "head": "811f058b5acf712ce52d738551172b0316ed8c0e",
+  "tree": "eb65d3692d9c42f54ce7394215556c4b244b67f4",
+  "terminalConclusion": "success",
+  "platforms": {
+    "linux": {
+      "receipt": "linux-qualification.json",
+      "sha256": "dba3e7ba663681f4b430d9349ea0fe50d01236fcf8220a1653cc21456184c15f",
+      "job": 118420139878,
+      "executed": 6144,
+      "passed": 6144,
+      "failed": 0,
+      "nextestSkipped": 11
+    },
+    "mac": {
+      "receipt": "mac-qualification.json",
+      "sha256": "7dfffd91510902ad1476e6cbd0160005fea97450ee6b917b8a2d478055272619",
+      "job": 118420140147,
+      "executed": 5923,
+      "passed": 5923,
+      "failed": 0,
+      "nextestSkipped": 27
+    }
+  },
+  "qualification": "BothOS original12+2isolation cases PASS on corrected60+61 ea641 lineage. Source-bound fixture/format checkpoint only; independent full16criteria remain ACTIVE, no final native/account/request/count/consume/release/App readiness or different-head qualification."
+}

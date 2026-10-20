@@ -2,7 +2,679 @@
 
 Living map owner: workstream C, `01a14bdc-d152-7912-84d4-c0012e9d5206`.
 
-Current accepted-artifact integration combines C `d1166ff0e903caddeb48c8174b41b3efcd2e2eb0` with
+## Executed application baseline
+
+Accepted main `dcbad645a3179731de96957299bb775eb094bff8`, tree
+`79964ceb666ddc2e23f0e7f2a02520fcdad31296`, is the baseline for this recheck.
+Accepted main subsequently advanced to `1accf01a89c42460163f43b0a95f71f4534f19a7`,
+tree `dbe5a3db1a2a804eb4df6c4dcd16b05cdf77f987`; the executed application results
+below remain bound to `dcbad645`, with no blanket rerun for that base change.
+All632 reviewed source fingerprints on `dcbad645` match `v1.0.333-prompt-startup`. Before this
+map edit, all248 paths from accepted C#1022 were byte-identical; prior source,
+failed diagnostics and captures are retained. The five Symposium source PRs are
+merged, including app#1023 at3882cd21, UI#1021 atc3f0d874 and C#1022 atd4660966.
+Source acceptance remains separate from a complete positive application journey.
+
+**Two existing actual-app read-only cases pass** on the clean accepted source:
+real authentication/cookie and transport ownership, committed begin response loss,
+concurrent exact retry, same-root restart, actual unused workspace preparation,
+observational review200 with exact brief/settings and **unverified capacity**;
+then exact durable visible bytes/digests, private-history exclusion, typed HTTP,
+restart and hidden-source refusal. The known-unavailable joining/reply case was
+explicitly filtered, never counted as passed. Prior6dd import timeouts remain
+historical and are not the current baseline failure.
+
+**Both required-owner omission controls fail as intended** with original assertions:
+omitting only the real app review factory returns503 instead of200; omitting only
+the durable-reader injection makes the original exact-read assertion reject with
+API500 while the observational case still passes. Exact app bytes are restored
+in both controls. An initial receipt-wrapper expectation of503 for the durable
+control was incorrect; its actual500/failure was retained without a test rerun or
+assertion change. [Source/results/controls and raw hashes](symposium-acceptance/current-app-dcbad-baseline/verification.json).
+Bulky raw Vitest JSON/logs stay in C's task artifacts at the named path in that receipt.
+All runs use one worker/1024MiB, synthetic data/configuration and recording external
+boundaries; no model/provider calls, browser/Rust campaign, runtime installation,
+staging or deployment occurred.
+
+The parent and milestone remain ACTIVE; all16criteria are unchanged. Root handover
+`87d62d149bdec6bed5b826884d4aa29d@r3` binds current source and ownership. Core owns
+native/account/session/runtime/preparation/app composition; C remains the sole
+independent acceptance/map owner under the current feature owner. No new harness,
+worker, phase tree or second product path is introduced.
+
+## Independent preparatory source checkpoints
+
+These candidates do not replace the accepted application baseline above.
+S6 `3079e3bb25c467f487719b6eeba5a40b1e835a11`, tree
+`5621c21dfa8beaedd4e55e2cf0c59ed41c59ef7f`, consumes the exact core type contract
+from `36423f8a`; C independently checked byte equality, all639 source pins and
+six producer log hashes. The optional read-only router preflight checks signed
+request lifetime/currentness, but even a successful result and final fence still
+return503 before staging or admission. Producer34passes/4suites and7meaningful
+red failures are component evidence with stubbed resolver results. Earlier
+unexplained501 diagnostics are retained; no cause or product fix is inferred.
+No production resolver or prepared-command consumer is supplied by this candidate.
+[Bounded S6 source/assertion/provenance inspection](symposium-acceptance/source-preflight-checkpoints/s6-preflight-3079-inspection.json).
+
+Published stacked [#1060](https://github.com/dimakis/mitzo/pull/1060) at
+`07014d87b97a1faf012817d6ffcc6a94a383fe96`, tree
+`ec77d838d55fa28506cd17762d1d8638c527a487`, carries native60
+`bb5bedc2e334700b930352c58e6c50660c173e2e`, tree
+`b28e456e2791162cd7cbb6b4443e339e5e4aad03`. All60 published patch hashes match;
+the prior54 entries/order are unchanged. The two new partitions share source-owned
+config selection with actual startup/config-change and ordinary/per-step tool
+filtering. Enabled memory/web tools remain unresolved. Config-aware capture and
+renewal currently have helper/test callers only; these declarations do not settle
+context instructions or complete production request preparation/count/consume.
+Ordinary contributor callbacks still execute before tool filtering; callback-free
+claims apply only to pre-session capture/renewal. C inspected source, assertions,
+callers and workflow without running Rust or duplicating the producer campaign.
+[Bounded native59/60 inspection](symposium-acceptance/source-preflight-checkpoints/native60-source-inspection.json).
+
+At the preparatory source checkpoint, existing native CI39339195266 and
+CI39345244430 were still unqualified. Native54 has since completed independent
+qualification below; native60 has since also qualified on both OS, as recorded below. No source inspection, producer
+component result or pending CI closes a complete application criterion. Core has
+consumed C's prior exact baseline commit `4a875f7c` as `6af8b2bd`; this subsequent
+checkpoint keeps that handed-off commit immutable. Parent and milestone stay ACTIVE.
+
+## Initial brief and retained-version correction checkpoints
+
+A's `337be9b17e458a227b122ed2893b1d0bf8f19afe`, tree
+`a720065cc307092b299dde3f555a9eed71c7bd68`, fixes the missing initial brief
+at the application-adapter boundary. Explicit Review now supplies approved editable
+copy; same-setup Back/retry/reload retains exact saved brief/request bytes, including
+existing empty/whitespace behavior. A changed setup remains a new intent and may
+seed new copy. Protected approved references, setup/browser tests and ledger bytes
+are unchanged. C found no additional concrete blocker within this fix. Producer
+89focused passes and108design passes/1existing skip overlap and are not summed.
+The mounted fixture stops at capture refusal; the typed adapter uses fixture HTTP
+responses. No production joining owner/catalog/bootstrap or successful application
+journey is installed. [Independent source/assertion/provenance review](symposium-acceptance/a-initial-brief-337be9-inspection/inspection.json).
+
+B's retained-version seam `d2e547ca1082b544042552096d66919829ce6c34`, tree
+`47512694447fb25170b6eec4672df09aa3e8c545`, reads exact real retained-owner
+metadata/bytes and metadata-only revision pages, with injected association/access
+ports still owned by core. C found two final-callback holes: equal-length bytes
+could change after the last hash, and a last page callback could change an earlier
+entry after its metadata check. The original findings and initialization-only red
+log remain preserved. [Original independent review](symposium-acceptance/b-joining-retained-d2e547-inspection/inspection.json).
+
+Correction `8bd7c1bf6969a2f82a1df5af4d0bf8c769f5bc27`, tree
+`4e10c63ae0c6026d789ca6d49eb06c5e4a33e9f1`, closes both findings at
+**source/assertion level**. The final read fence ends with the existing owner's
+callback-free bounded bytes/hash/privacy renewal. The final page pass compares
+all actual metadata/privacy after all authority callbacks, without content hydration.
+Two new counterexamples fail behaviorally against the original source in retained
+producer logs; corrected producer coverage is31passes/0skips. C verified immutable
+source, assertions and log/hash provenance, with no test execution. This does not
+qualify core's actual canonical association/access/save composition, cross-owner
+ABA, transcript removal, compiler/refreeze/recovery or application joining.
+[Independent correction review](symposium-acceptance/b-late-callback-8bd7-inspection/inspection.json).
+
+A's later `a6173f46c693a3c7e35b696cbe801e6ce3093f20`, tree
+`7e82e91c8fb935518fe848ca52b94d7ffe5c6b6d`, mounts the genuine typed
+observational source-setup GET in both chat pages for the active ordinary source,
+verified login and live client. Referential owner, auth epoch, actual auth/base
+getters and abort checks fence late auth/source/client/base results. Read retry
+preserves the editable draft/footer, with Review still disabled without a genuine
+joining owner. All11backend dependency paths match45ff; prior337brief/review
+helpers and approved references are unchanged. Producer54focused passes and
+108design passes/1existing skip overlap prior totals and are not added. No catalog,
+target journal, source preparation or joining owner is mounted. The eventual strict
+combined harness must bridge the actual authenticated GET, without ignoring an
+unexpected request or fabricating canonical/capacity state. [Independent frontend read review](symposium-acceptance/a-source-setup-a617-inspection/inspection.json).
+
+## Canonical source setup and correlated preview
+
+Core source-setup `45ffb126526e7b944970805b78ba4a4789304415`, tree
+`66a0140252e0d12f4370a383c67bca63ad20bb4d`, parent7195, supplies an
+observational canonical lookup through the existing store, typed client and real
+application router. It verifies the original first durable begin receipt's strict
+result and canonical fingerprint, original source, and current membership. Legacy,
+missing/corrupt proof, foreign origin and multiple associations fail closed; absent,
+hidden, Symposium and imported sources are unavailable. Current cookie/operator
+and live-transport identities are checked before and after the synchronous read.
+Strict public schemas and typed responses bind the requested source; this selects
+relationship metadata without a source-content or execution grant. C found no
+additional concrete blocker in this bounded seam and rehashed all635reviewed
+source pins with zero mismatches. Producer49passes/4files and19pin passes remain
+component evidence: the actual-router fixture uses synthetic auth middleware,
+and the typed client uses fake HTTP. [Independent source-setup review](symposium-acceptance/core-source-setup-45ff-inspection/inspection.json).
+
+The child preview extension `d94ddfbda4d0a0b418f444b05769da830fc72bbd`, tree
+`d3adac32899255c1e9e36cef9e73c5d380075b9c`, adds an optional caller-known UUID
+and private server-derived exact-intent fingerprint in the existing workspace row.
+Original-intent retry reads that row without new metadata inspection or runtime
+capture; changed intent conflicts. Concurrent capture uses INSERT DO NOTHING,
+then checks and reauthorizes the actual winner and compares the full persisted row
+before returning it. The first committed pin/proof/lifecycle cannot be overwritten
+by a losing capture. No checkout, Session, grant or second store is introduced.
+C found no additional blocker; all635source pins and protected approved references
+match. Seven meaningful producer red failures precede green51passes/5suites;
+final28passes overlap and are not added. Earlier mapped-type logs contain actual
+literal-widening and mixed-spread errors, corrected by final literal types and an
+explicit request-ID branch; retain them separately from package-resolution setup
+diagnostics and producer-reported successful final tsc. The race fixtures use two
+SQLite owners in one process; they are not process-crash proof. Changed later
+binding may conservatively conflict with original preview intent. No browser
+lost-response/reload or successful application joining is qualified by this review.
+[Independent preview-correlation review](symposium-acceptance/core-preview-correlation-d94d-inspection/inspection.json).
+
+Published [#1064](https://github.com/dimakis/mitzo/pull/1064) is
+`9745d7c21f949c4d2fbbf32fc1163632a9b03f42`, tree
+`51ef72c1179fdeebd149c00bf62ecd2656d03a9b`, with parents d94d and accepted
+`a51e2d102f448dec77e1272700583d44da500629`. C verified exactly eight incoming
+accepted paths: five nonshared paths are byte-identical to accepted S5b; all
+nonshared API paths match reviewed d94d. The combined workspace file preserves
+accepted lazy custody methods and all reviewed preview logic exactly; removing
+only the accepted27line additions restores the entire d94d file. The protocol
+barrel adds only the accepted ordinary-workspace export. All637actual merged
+source pins match the exact parent-key union, including combined workspace/index
+bytes; protected references are unchanged. No additional merge-preservation blocker
+was found. Producer119focused passes overlap prior51/28; normal exact-head
+CI, trusted review, App, current base and actual merge slot remain required.
+This publication does not supply production joining or native admission.
+[Independent publication/merge proof](symposium-acceptance/source-api-1064-publication/verification.json).
+
+## Native60 independent execution qualification
+
+Existing [CI39345244430](https://github.com/dimakis/mitzo/actions/runs/39345244430),
+attempt1, independently qualifies native60 on both OS against the exact published
+`07014d87b97a1faf012817d6ffcc6a94a383fe96` source above. Both actual checkouts
+are `860744dd44adbb569cfd81bf7cd1b6a742431f04`, with published tree
+`ec77d838d55fa28506cd17762d1d8638c527a487`. Both reconstructed native trees
+and retained source-evidence bytes match the published60patch proof; downloaded
+artifact ZIP digests match Actions. Reconstruction and formatting pass.
+
+| Platform    | Executed passes | Nextest skipped | Fixture duration |
+| ----------- | --------------: | --------------: | ---------------: |
+| Ubuntu24.04 |           6,142 |              11 |       2,584.389s |
+| macOS26     |           5,921 |              27 |       2,211.962s |
+
+Zero failures; all12new named55–60cases pass on each OS. **Platform and source
+totals overlap and are not summed.** Nextest11/27exclusions remain explicit despite
+executed-only JUnit reporting zero skips. The single-attempt factory driver is one
+case, without inflating internal subprocess scenarios. [Both-OS qualification](symposium-acceptance/native60-source-inspection/qualification.json),
+[Linux detail](symposium-acceptance/native60-source-inspection/linux-qualification.json),
+[macOS detail](symposium-acceptance/native60-source-inspection/mac-qualification.json).
+Raw logs, ZIPs, JUnit and hash seals remain in C's task artifacts under
+`implementation-evidence/native60-source-inspection/`. C only downloaded/read
+existing terminal evidence; no local Rust, test, retry, dispatch or model call ran.
+This qualifies bounded native input/closed-source/config-selection/ordinary
+single-attempt factory fixtures. Complete inventory, source/instructions,
+account/route/model limits, genuine request/count/consume, host revision/release,
+installed runtime and full application joining/delivery/replies remain open.
+Native70 has since qualified separately below. Native73/76 terminal failures and
+current77 execution remain distinct from this60 fixture qualification.
+
+## Native60 trusted finding and exact isolation correction
+
+Existing trusted review on published07014 reports blocking `CEN-487055AFEF4D`:
+fresh MCP capture checked the manager registry even when ordinary isolated startup
+would select a separate `IsolatedSessionExtensions<Config>` registry. Native60's
+green fixtures remain valid source-bound results; they do not resolve this missing
+case or qualify complete inventory. [Retained trusted finding](symposium-acceptance/native60-isolated-registry-review/inspection.json).
+
+Core correction `ea6416336b5275e8a3c13e508f1c68df289f75a3`, tree
+`203e5ac78c2f6653251ee6828163d1234897216f`, has sole parent native60
+`bb5bedc2e334700b930352c58e6c50660c173e2e`. It shares the actual ordinary
+isolation helper: explicit policy wins, otherwise explicit or manager-default
+source uses the same Guardian classification. Effective isolation refuses before
+manager registry/environment/plans. Supported inherited capture retains resolved
+source and explicit inherited policy in original options, preventing default
+substitution on release. C verified the entire ordinary ThreadManager file is
+otherwise byte-identical after helper extraction; startup behavior is preserved.
+Two authored, unexecuted actual-owner regressions cover the real unresolved
+isolated registry, no inherited-plan/runtime/thread/event callback, explicit and
+default Guardian choices, retained default changes and explicit precedence.
+The finding's mechanism is **closed at source/assertion level only**; exact changed
+source CI and trusted review remain required. This correction's lineage is native60;
+it is neither historical native61 metadata nor a global ordinal. The same change
+on later77 lineage is separately recorded as865e2f6. [Independent correction review](symposium-acceptance/native60-isolation-fix-ea641-inspection/inspection.json).
+
+The correction is published on#1060 at
+`09899212aa36458449c66b0f90be4e66e0ec1bbe`, tree
+`739bdbf94603ac487e986960b1557e63a73c0921`. C verified all61patches, unchanged
+prior60order/bytes, actual ea641 native tree, unchanged both-OS workflow and all641
+actual host source pins. At the recorded GitHub snapshot only the automatic stacked
+writer was skipped; no exact-head host/native execution run was observable, so no
+run ID or execution was inferred. The feature owner subsequently identified a real
+advanced-feature-dependency conflict suppressing pull-request CI; core owns that
+normal dependency merge and its new exact head. This is source/publication evidence
+only, with no old-head retry, workflow change or higher-campaign reset.
+[Independent correction publication](symposium-acceptance/native60-registry-fix-publication/verification.json).
+
+## Native54 execution and separate native70 publication
+
+C independently qualified existing [native CI39339195266](https://github.com/dimakis/mitzo/actions/runs/39339195266),
+attempt1, against published head `0fd922430b1452d706f361bfde72a47eea584bda`,
+tree `1fd6f34a9ce78096cfa4815e3fd121f34e461e68`. Both actual CI checkouts are
+`024b4e044035ac6acb5465864788cd58fd0191f7`, with that same tree. Each platform
+reconstructed native `557ce440b823868ea853e583c2277d16ec0af726`, exact tree
+`77a800c70646406a5165ea56237219e56518c36b`, from the pinned upstream and54patches.
+Retained source-evidence bytes match the published proof; downloaded artifact ZIP
+digests match the Actions uploads. Reconstruction and formatting pass on both OS.
+
+| Platform    | Executed passes | Nextest skipped | Fixture duration |
+| ----------- | --------------: | --------------: | ---------------: |
+| Ubuntu24.04 |           5,839 |              11 |       2,300.109s |
+| macOS26     |           5,618 |              27 |       1,983.451s |
+
+Zero failures. **Platform totals overlap and are not summed.** Nextest's overall
+summaries retain the skipped counts above; JUnit contains the executed cases and
+reports zero skips, so it must not be used to erase those exclusions. All four
+named extension-inventory cases pass on each OS: unresolved contributors refuse
+without discovery, fixed metadata shares the original executor, exact registry
+renewal rejects rebuild/addition/ABA, and an empty registry differs from an empty
+state-bound contributor. [Independent qualification](symposium-acceptance/native54-independent-ci/qualification.json),
+[Linux detail](symposium-acceptance/native54-independent-ci/linux-qualification.json),
+[macOS detail](symposium-acceptance/native54-independent-ci/mac-qualification.json).
+Raw logs, JUnit, original ZIPs and hash seals are retained in C's task artifacts
+under `implementation-evidence/native54-independent-ci/` and in the linked CI run.
+C downloaded/read existing evidence only; no local Rust, model call or CI retry ran.
+
+This qualifies the **extension-only inventory protocol**, not complete Core/MCP/
+production tool inventory, native capacity, account/model limits, exact request
+count/consume, installed runtime or positive application joining/delivery/replies.
+The separate local host integration `26bc6702` preserves all16HA and all5native54
+nonmanifest paths byte-for-byte, plus the exact union of both parents'634valid
+source pins; its changed host still requires normal exact-head CI/review/base gates.
+
+The later [stacked#1061](https://github.com/dimakis/mitzo/pull/1061) is published at
+`691af045d5dfd8ac99904f85a5f530ef8721f892`, tree
+`72e885406ea11c940295fa5f7d1f18857bfa88b5`, over unchanged#1060. Its native70
+source is `d615a63d687555242ede9cb3874d2699f99520c3`, tree
+`9ce8eecf782809ae5d33f63715000e8396ab2e55`. C verified all70published patch hashes,
+unchanged prior60entries/order, the actual native Git tree and unchanged both-OS
+workflow coverage. The three paths from exact C commit `bd3425f7` are byte-identical
+in the publication, consumed as `f5fdf008`.
+[Independent publication/source proof](symposium-acceptance/native70-publication/verification.json).
+
+C's bounded61–70 source inspections cover private native metadata projection,
+its committed None/User source restriction, actual utility/shell/resource/
+collaboration/tool-mode/exposure/code-mode planner extractions, native credential
+custody and the actual ModelClient body seam. The thread-source finding and stale
+parent imports have exact committed corrections; original diagnostics remain
+retained. Extracted registration/policy bodies match after named typed-input
+substitutions, and effectful wrapper ordering is preserved. Runtime metadata
+getters still require their real binding owner; a typed flag is not source or
+execution authority. These are source/assertion receipts, with no C Rust execution.
+
+Existing [native70 CI39348949832](https://github.com/dimakis/mitzo/actions/runs/39348949832),
+attempt1, now independently qualifies both OS at the exact691af045 publication.
+Actual CI checkout `b560a7ee0d7ee9c0b9d85d74ae186017dd174b96` has the published
+`72e885406ea11c940295fa5f7d1f18857bfa88b5` tree. Both retained source proofs
+match publication; artifact ZIP digests match Actions; reconstruction and formatting pass.
+
+| Platform    | Executed passes | Nextest skipped | Fixture duration |
+| ----------- | --------------: | --------------: | ---------------: |
+| Ubuntu24.04 |           6,148 |              11 |       2,377.782s |
+| macOS26     |           5,927 |              27 |       2,004.885s |
+
+Zero failures; all six new61–70named fixtures pass on each OS. **Overlapping
+platform/source totals are not added.** Overall nextest11/27skip exclusions remain
+despite executed-only JUnit zero skips. [Both-OS qualification](symposium-acceptance/native70-published-ci/qualification.json),
+[Linux detail](symposium-acceptance/native70-published-ci/linux-qualification.json),
+[macOS detail](symposium-acceptance/native70-published-ci/mac-qualification.json).
+These qualify bounded public-body/metadata, credential-custody and ModelClient
+fixtures plus planner source compilation. They do not resolve the native60 trusted
+registry finding or qualify changed isolation source. Host CI39348949899 and final
+normal base/review gates remain separate. Stacked
+status-writer skips do not confer final review approval. No production prepare RPC,
+complete native request/account/currentness/limit/count/consume or actual full
+application journey is established. All16criteria and ACTIVE statuses remain.
+
+## Native73 publication and later guarded-CAS source
+
+The next stacked [#1062](https://github.com/dimakis/mitzo/pull/1062) publication is
+`5bdbce1b02266e92967441f0ef57d323ed992650`, tree
+`64f41d948d23a4ef1fff1f18c47e91bd236b992c`, over unchanged#1061. Its native73
+is `311b9ae9c07874d9ff5964e95629e057f337dd9d`, tree
+`9e17d7d58b5a2e264520c9b923567c8789a1c123`. C independently verified all73patch
+hashes, unchanged prior70entries/order/bytes, actual native Git tree and all five
+published paths from exact C `264ec3ff`, consumed as `50de568b`. Both notes and
+goal extension packages are added to both-OS fixture and formatting scope, with
+all prior packages retained; the real goal backend integration target remains
+auto-discovered. [Publication/source proof](symposium-acceptance/native73-published-ci/verification.json).
+Existing native CI39351558521 must supply exact-source execution evidence for
+the seven new notes/goals/pending-gate fixtures. A successful compile-only status
+or stacked status-writer skip does not establish fixture/final-review approval.
+
+Native71's registered notes/goals plans share actual configuration owners and
+keep enabled sources unresolved, including runtime-unavailable cases. Capture
+precedes ExtensionData session/thread stores; goal's native StateRuntime already
+exists for installation. Neither this partition nor selection renewal proves
+whole-request config ABA, instructions or source authority.
+[Independent notes/goals inspection](symposium-acceptance/native71-notes-goals-inspection/inspection.json).
+
+Native72 adds an effect state to the **existing** StateRuntime prepared-request
+ledger. Move-only, pool/record/nonce-bound pending claims withhold the executable
+attempt. Transactional release and permanent refusal serialize on the same row;
+refusal retains consumed/committed state, and API/SQL fences cover receipts and
+continuation. Ordinary and legacy rows retain uncertainty. This primitive does
+not implement the host's original canonical revision/ABA proof or actual release
+authority. C found two fixture gaps: release success was not forced, and sampling
+aliases were unexercised. Native73 corrects both with actual-owner forced
+release-first/restart coverage and pending/refused continuation refusal plus a
+released predecessor positive. Those findings are **closed at assertion level**;
+original72 diagnostics are retained.
+[Initial pending-gate inspection](symposium-acceptance/native72-pending-gate-inspection/inspection.json),
+[exact73 fixture correction](symposium-acceptance/native73-gate-fixture-correction/inspection.json).
+
+Later local native74 `71295552`, tree
+`81af76eec430a61430dfc112073ef67128e6dc99`, adds a lifetime-bound synchronous
+commit operation over the actual SQLx locked handle. C checked SQLx0.9 dependency
+source against locked crate archive hashes: worker FFI exclusion, private
+parameterized SQL, transient copies, RAII statement finalization, row counts,
+raw transaction bookkeeping, FULL/WAL selection and nonpooled cleanup. No
+concrete unsafe ownership defect was found within this source scope. Cleanup
+rollback may complete asynchronously; no unfinished connection is returned to
+the pool. This is not compilation or physical crash/power-loss qualification.
+[Guarded-CAS source inspection](symposium-acceptance/native74-sync-cas-inspection/inspection.json).
+
+Native75 `68d9e80a`, tree `2487593b071f2ed84a6e134c7222d439c35a6645`, connects
+that synchronous commit to the actual ordinary ModelClient's AuthManager. C
+verified the original session/provider/origin gate and body-format tokens are
+unchanged. Database acquisition/validation awaits precede auth locking; the
+concrete callback executes both updates and COMMIT inside the real credential
+read guards. It returns no future/epoch and crosses no host RPC under those locks.
+Synthetic actual-owner fixtures cover positive, foreign-owner, logout and race
+outcomes; their numeric/request/account data is not authority. The bridge closes
+only the credential partition at source level, not request/account provenance,
+other source guards or effect release.
+[Ordinary credential bridge inspection](symposium-acceptance/native75-ordinary-credential-cas-inspection/inspection.json).
+
+C also found that74's original “durable before return” fixture checked only
+in-memory flags inside its guard. Native76 `f75d65a1`, tree
+`bd05b3b6597fe5640b41363e4b2d351dff060d53`, adds an independent preopened read-only
+connection/thread that must observe actual consumed/committed/pending row values
+**before the synchronous callback exits**. COMMIT deferred beyond the guard would
+fail that assertion. Only35test lines changed; the finding is closed at exact
+assertion source. [In-guard persisted-observation correction](symposium-acceptance/native76-in-guard-observation-correction/inspection.json).
+These74–76 inspection receipts contain no Rust execution; earlier CI cannot
+qualify them. The later [#1063](https://github.com/dimakis/mitzo/pull/1063)
+publication at `390d259c978e2de80e641ea7c9265e2cd3ca7a48`, tree
+`7882ba764e44fd879d2bddade4601c033dfae265`, carries native76
+`f75d65a1a6133ed3eecc42b92c9f74e84741e835`, tree
+`bd05b3b6597fe5640b41363e4b2d351dff060d53`. C verified all76patch hashes,
+unchanged prior73entries/order/bytes and workflow, actual native tree, and
+coverage of the five new guarded-claim/bridge fixtures. Existing native
+CI39353493313 must supply its own execution evidence; no earlier result qualifies
+this source. C's preceding `0d1de9a4` docs were not consumed in this publication.
+[Independent native76 publication proof](symposium-acceptance/native76-published-ci/verification.json). C ran no Rust, SQL experiment, model/provider call or new
+campaign while inspecting these boundaries.
+
+The canonical retrospective original-revision proof R, private operation/sample/
+request/witness/runtime binding, remaining native/source/account/route guards,
+authoritative model limits, complete request/count/consume and production RPC/
+admission/release remain required. No actual positive application join/delivery/
+reply is established. Later accepted-main and#1058head advances remain separate
+from the executed dcb application and old0fd native54 receipts. Cancelled26bc
+follow-up CI is retained as supersession, with partial logs and no invented pass
+or source-failure qualification. Existing60/70/73first-source observations remain
+separate. All16criteria and ACTIVE statuses are preserved.
+
+## Terminal73/76 campaigns and separate77 correction
+
+Existing [native73 CI39351558521](https://github.com/dimakis/mitzo/actions/runs/39351558521),
+attempt1, failed on both OS before fixture execution:22E0659 ambiguous `assert_eq!`
+errors in `prepared_request_effects_tests.rs` per platform. `cargo test --no-run`
+exited101 and formatting was skipped. Actual retained artifacts match published
+source proof and Actions digests. Original assertion-level73 corrections and the first sealed Linux diagnostic remain
+preserved unchanged, including core's adopted raw diagnostic; they never implied
+compilation qualification. [Both-OS terminal evidence](symposium-acceptance/native73-published-ci/terminal-qualification.json).
+
+Old [native76 CI39353493313](https://github.com/dimakis/mitzo/actions/runs/39353493313)
+ended cancelled: Linux actually failed compilation with36E0659 errors,22in effects
+and14in guarded-commit fixtures; macOS was cancelled during standalone helper
+compilation, before fixture execution. The macOS cancellation confers neither a
+pass nor a source failure. C did not cancel/retry either job. Artifacts retain exact
+published source proofs and verified ZIP digests. [Separate76 terminal evidence](symposium-acceptance/native76-published-ci/terminal-qualification.json).
+
+Native77 `1d8ea29eea323d0ebe2112e76ba49a7e152a8f14`, tree
+`61df68bdcee6a1939367e2ed54e61082d4ef3241`, adds exactly two explicit
+`pretty_assertions::assert_eq` imports to those child fixtures. Assertions, case
+bodies and actual parent module are unchanged. The named resolution mechanism is
+closed at source level; compilation and fixture execution need new-source evidence.
+[Independent two-line correction](symposium-acceptance/native77-explicit-assertions-inspection/inspection.json).
+
+Updated#1063 is `dd5edbd2799885760ae2df9e5eaaf62bff590c92`, tree
+`e07d1ba85c086b31897a50d1331dce7131623e7e`, carrying this77source. C verified
+all77patch hashes, unchanged prior76entries/order/bytes and both-OS workflow, exact
+GitHub head, and C0d1/ee3adoptions asfcefcdc5/ea12f06f. Both adoption aliases preserve
+their exact original paths; the final16unique paths take the later ee3version of
+ONE map. Existing native CI39357179342 is pending independent qualification;
+stacked status-writer skip confers no final review approval. No old failure, earlier
+green result or source correction is transferred to this campaign.
+[Independent77 publication proof](symposium-acceptance/native77-published-ci/verification.json).
+All raw logs, ZIPs, JUnit, source copies and hash seals remain in C's task artifacts.
+C read existing evidence and immutable source only; no Rust/test/build/model/provider
+call, CI retry/dispatch, deployment or new review campaign ran.
+
+## Exact retained-context and corrected native checkpoints
+
+These later source reviews and existing CI results supplement the `dcbad645`
+executed application baseline. They do not replace that baseline or complete any
+of the16canonical criteria. Original failed logs, JUnit, ZIP digests, immutable
+source copies and producer diagnostics remain in C's task `implementation-evidence`
+directory; compact source-bound receipts are versioned here. No C test, browser,
+Rust build, model/provider call, new review, workflow retry, dispatch, cancellation,
+staging or deployment was performed for this update.
+
+### Kind-aware selections, labels and private bootstrap
+
+Core `9eb0f9d10344770b55bf209cf120f6715791413b`, tree
+`80d7c5286daa689a25fa5bf149cb44f64c8ad542`, adds strict tagged retained-version
+selectors, independent frozen metadata/provenance and kind-aware duplicate identity
+in both compiler and actual snapshot store. Legacy bare selectors retain their
+original inline meaning. [Independent source review](symposium-acceptance/shared-retained-kind-9eb0-inspection/inspection.json)
+preserves initial schema/typing and save-regression failures; producer counts are
+overlapping component evidence, not an application pass.
+
+A `85749b7b4b375a0a439cf266d8e61e23aa71a90c` adds matching private selection,
+labels and recovery. C found that the existing Selected subset check accepted
+unrequested extra artifacts. [Original HOLD](symposium-acceptance/a-artifact-kinds-8574-inspection/inspection.json)
+is retained. A `a2717e2e4703667fc2770e9bebfc45824e987583`, tree
+`73c25e1b2592e21e4ce4b5aefcc33ff89d522fc0`, requires exact sorted kind/id/revision/
+SHA sets and rejects duplicate pins on either side; So-far retains its subset rule.
+The requested extra-pin and equal-count duplicate controls are meaningful original
+REDs. [Exact Selected-set correction](symposium-acceptance/a-selected-set-a271-correction/inspection.json)
+is closed at source/assertion level only.
+
+C separately found that shared label trimming changed actual retained titles and
+filenames, causing valid whitespace metadata to fail exact UI comparison. The
+[supplemental finding](symposium-acceptance/retained-label-normalization-finding/finding.json)
+corrects the earlier bounded no-additional-blocker conclusion without rewriting it.
+Core `fe0257685b9111b49f56e7434c004a699d9f13c2`, tree
+`90ac7408d8ba64c00ded291da458f37f411b310c`, preserves retained labels with bounded
+nonblank refinements and leaves legacy inline trimming unchanged. Pure-schema RED
+and real-store whitespace round trip are retained.
+[Source/assertion closure](symposium-acceptance/retained-label-fe025-correction/inspection.json)
+requires both this correction and A's exact-set guard in the composed candidate.
+
+A's bounded [retry-focus correction6bf339f3](symposium-acceptance/a-retry-focus-6bf3-inspection/inspection.json)
+moves focus to the existing loading status when Check setup is removed, with the
+original focus-body RED retained. Its producer UI/design counts are fixture scope.
+A `21130dac32ce76cd2d5628d3a79cf004a05a11ac`, tree
+`9309817ba47102065bbdcb58dfa4b8159f516aa4`, supplies a private, unmounted typed
+begin resolver. It journals original IDs before POST in a strict v3 wrapper at the
+existing authenticated source key, rereads canonical state after loss/reload and
+checks concurrent journal replacement. No fake draft/membership/capacity is stored.
+[Bootstrap inspection](symposium-acceptance/a-bootstrap-2113-inspection/inspection.json)
+keeps caller retirement/abort and eventual mounted acceptance open.
+
+### Actual retained owners and observational catalog wiring
+
+Core `427b3a2b2b3b9a3f338be3a53b4b3063c632de1b`, tree
+`0f5c1ae1aec89ac192df9713717652b865cb29e1`, composes the actual opened visible
+prefix with existing retained revision ownership, canonical source-origin relation,
+current Work privacy and rendered exact-version links. So-far refuses unversioned
+references; Selected may choose another exact version of an associated artifact.
+Final callback-free fences check all retained metadata/association/raw bytes after
+all authority callbacks. Real owner fixtures corrupt earlier bytes or delete its
+only origin during later callbacks and require refusal.
+[Independent owner review](symposium-acceptance/retained-source-427b-inspection/inspection.json)
+keeps cross-owner admission and complete ABA authority unqualified.
+
+Core `269f8b5be12e49136a45b08ece4c89cb2053e414`, tree
+`6ce50d4565983543d89ae613ea9e09d3934fa305`, adds browser-safe catalog/version
+selectors and actual application retained-review injection. Catalogs use existing
+read-only Telos storage, origin pagination and exact visible references without
+hydrating BLOBs. Missing storage is explicitly unavailable. Private full metadata
+witnesses renew privacy/association after all callbacks; the late-title mutation
+fixture proves final refusal. Repository intent comes only from the actual claimed
+read-only ledger and conveys a repository name for fresh target authorization.
+App-owned leases close in `finally`.
+
+Actual ApplicationReview now returns exact kind-aware original labels and renews
+current retained metadata/privacy/association during recovery. It verifies frozen
+snapshot body size/SHA, without claiming a fresh live-BLOB read on recovery; fresh
+compile/save retains the existing actual byte fence. C verified all645source pins,
+protected refs and six unchanged compiler/parser/byte-owner dependencies.
+[Catalog/application inspection](symposium-acceptance/catalog-269f-inspection/inspection.json)
+found no additional concrete bounded blocker. Producer125passes/9files precede the
+last frozen-body check; final affected30passes/2files overlap that campaign. Neither
+is a C full-app/browser campaign. Capacity remains unverified and native joining,
+delivery, replies and mounted combined UX remain open. Root separately reports an
+actual Telos source-origin Added-date reset after file replacement, assigned to B;
+this catalog review does not qualify or close that coexistence correction.
+
+### Terminal preview correlation and subsequent publication preservation
+
+Existing trusted review `CEN-D37507564B60` found that ordinary terminal preparations
+still tried to lstat a source legitimately deleted on failure/discard. The
+[original finding](symposium-acceptance/preview-terminal-CEN-D37507564B60/finding.json)
+is preserved. Core `f479612ce7b77cc86f435be6f922e2a79add13f6`, tree
+`27d0ee589c85ef7cf78776349fc7f63bb627bbc7`, exempts only durable failed/discarded
+records from that physical check, preserving runtime/account/correlation authority
+and ready missing/replaced-source refusal. Original real-owner REDs precede the
+correction. [Bounded source/assertion closure](symposium-acceptance/preview-terminal-f479-correction/inspection.json)
+is separate from final exact-head trusted review and CI.
+
+C verified publication preservation at [77a9185c](symposium-acceptance/source-api-1064-base-77a9/verification.json),
+[58e5cf46](symposium-acceptance/source-api-1064-base-58e5/verification.json) and finally
+[#1064 head9478982c](symposium-acceptance/source-api-1064-base-9478/verification.json),
+tree `c1ad64f23ef01bf3202ea86366917f52c4e7707a`, parents58e5/a1c792f.
+All645actual pins match the parent key union; incoming19nonshared and original14
+nonshared paths remain exact. Whole RepositoryWorkspaces and EventStore preserve
+the reviewed terminal fix. The original incoming campaign records60passes and one
+subprocess setup failure; an unchanged child-body rerun with explicit current-source
+TSX mapping passes. This is not an all-green claim for the original campaign.
+Later accepted main402dadf4 is accounting only; it does not relabel947's source,
+base or CI. Final strict-base, CI and trusted-followup gates remain core-owned.
+
+### Existing native campaigns and the new79source
+
+[#1058 exact63f5 CI39351657252](https://github.com/dimakis/mitzo/actions/runs/39351657252)
+is independently qualified on both OS at actual checkout0007d26a, tree91f66c42:
+Linux5839passes/11skips/2298.169seconds; macOS5618passes/27skips/1808.303seconds.
+The four named extension-inventory fixtures, reconstruction and formatting pass.
+[Exact-head qualification](symposium-acceptance/native54-final-63f5-ci/qualification.json)
+is distinct from the earlier0fd campaign, despite identical native54proof.
+
+[#1060 corrected isolation CI39358899994](https://github.com/dimakis/mitzo/actions/runs/39358899994)
+is independently qualified at811f058b/treeeb65d369 and actual checkout5c7c6990.
+Linux6144passes/11skips/2596.896seconds; macOS5923passes/27skips/2009.484seconds.
+Both new isolation fixtures and the original12named cases pass on both platforms,
+with exact artifact/source proof, reconstruction and formatting. This qualifies
+corrected native60+61lineage `ea641633`, not a historical ordinal61 or later79tree.
+[Publication preservation](symposium-acceptance/native60-registry-dependency-811f/verification.json)
+and [both-OS result](symposium-acceptance/native60-registry-dependency-811f/qualification.json)
+close the source-specific execution gap for the trusted isolation correction;
+complete native preparation/account/request/count/consume/release remains open.
+
+Original [native77 CI39357179342](https://github.com/dimakis/mitzo/actions/runs/39357179342)
+executed and **failed on both platforms**. Linux6204passes/1failure/11skips from6205
+executed,2608.968seconds; macOS5983passes/1failure/27skips from5984executed,
+2288.914seconds. Both hit SQLite2067 at effects fixture375 in
+`pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain`.
+The other11of12new cases, including all five guarded-claim/credential bridge cases,
+pass on each platform; formatting is skipped. This is not the earlier73/76macro
+compilation failure and does not qualify77overall.
+[Both-platform terminal failure](symposium-acceptance/native77-published-ci/both-platform-terminal-failure.json)
+retains separate platform receipts and original diagnostic bytes.
+
+Immutable fixture/SQL inspection identifies one command ID reused for two consumed
+root requests; the actual unique command-root index must remain. Native correction
+`46df3041feb4fbf9bf6f47d41452abe341de61e9`, tree
+`900c92af991875072ff94fe76c1df8fa76ca684d`, creates a request inside each loop arm
+with distinct pending/ordinary command IDs. All other case assertions and actual
+index bytes remain exact. [Source/assertion closure](symposium-acceptance/native-pending-command-46df-correction/inspection.json)
+does not turn the original failure into a pass.
+
+New [#1063 head8b42fb9d](symposium-acceptance/native79-published-ci/verification.json),
+tree `3b7ec203aa8508f16d727ec5e4b0154705646e35`, publishes79ordered patches with
+all prior77bytes/order unchanged, reviewed isolation patch78and fixture patch79.
+C verified all659actual pins, unchanged workflow and exact15-path14ace evidence
+adoption. Existing normal CI39366560285 is building; its execution needs its own
+qualification. No source inspection or older green transfers to this new tree.
+
+The separate [unwired provider descriptor](symposium-acceptance/provider-spec-limits-staged-inspection/inspection.json)
+is staged at proposed tree1797b1ef with exactly one new file. Independent canonical
+JSON/SHA verification reproduces285bytes and digest89ceab0f. The exact public
+[gpt-6-luna specification](https://developers.openai.com/api/docs/models/gpt-6-luna)
+was independently searched/fetched and confirms1050000context and128000maximum
+output tokens. Three authored Rust fixtures are unexecuted; dependencies already
+exist. The normal signing-key lock remains intact. This record provides no account,
+route, current catalog epoch, exact input count, ready capacity or dispatch grant.
+Platform/source counts throughout overlap and are never added together.
+
+## Requirement-to-evidence map
+
+Numbers match the exact [canonical16criteria](symposium-acceptance/current-app-dcbad-baseline/criteria.json); the canonical text/hash is retained unchanged. Partial evidence never completes an entire criterion.
+
+| Criterion                                                                                        | Contract owner               | Exact evidence                                                                            | Current state and open gap                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Visual evidence                                                                                             |
+| ------------------------------------------------------------------------------------------------ | ---------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 1. Ordinary chat → Add agent → edit/refreeze → silent join → explicit prompt → attributed answer | Core + A + C                 | [current baseline](symposium-acceptance/current-app-dcbad-baseline/verification.json)     | OPEN. Current actual auth/begin/workspace/observational review passes, but capacity is unverified and production joining is absent. No positive complete journey has run.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | No current full-app UI comparison; fixture evidence is separate.                                            |
+| 2. Membership re-review retains the same allocation                                              | Core                         | [historical owner envelope](symposium-acceptance/420d-current-owner-envelope/result.json) | PARTIAL owner/client evidence only. Production joining/reconciliation is unmounted, so mounted same-allocation recovery remains open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Explicit re-review/reconciliation UX still requires actual joining.                                         |
+| 3. Lost responses and close/remount/reload/restart preserve identities                           | Core + C                     | [current baseline](symposium-acceptance/current-app-dcbad-baseline/verification.json)     | PARTIAL CURRENT GREEN for committed begin response loss, concurrent exact retry, same cookie/root restart, exact review/settings/brief/workspace recovery. Allocated-agent confirmation, routed remount and different-login lifecycle remain open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Intercepted UI reload receipts do not prove allocated-agent recovery.                                       |
+| 4. Approved Add agent and Before joining copy/order/drafts                                       | Core + A + C                 | [approved mirror](../design/approved/symposium/VALIDATION.md)                             | Approved HTML/PNG and protected setup/browser test hashes verified unchanged. Accepted UI source/fixture conformance is historical source-specific evidence; actual successful review/refreeze/join flow remains open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Compare final mounted source against the pinned reference when runnable; no new approval.                   |
+| 5. Approved ledger and combined theme/layout/focus/refusal checks                                | A + feature owner + C        | [historical C render](symposium-acceptance/c534-browser-independent/result.json)          | PARTIAL. Existing approved ledger is pinned at fresh-agent-review-2026-10-18-test-syntax; no reference rewrite. No new browser campaign in this baseline.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Prior C and A fixture renders retain their exact sources; mounted combined UX and physical iOS remain open. |
+| 6. Authorized prompt AND reply readers before next explicit turn                                 | Core + C                     | [current baseline](symposium-acceptance/current-app-dcbad-baseline/verification.json)     | CURRENT GREEN for exact durable source bytes/digests, private-history exclusion, typed actual HTTP read, restart and hidden-source refusal. This is source retrieval, not production reader delivery: ordinaryCollaborationDelivery has no production assignment.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | No UI-to-native reader delivery claim.                                                                      |
+| 7. Defaults/@, same-account isolation, partial failures and ordinary Stop                        | Core + S6 + A + C            | [historical owner envelope](symposium-acceptance/420d-current-owner-envelope/result.json) | PARTIAL owner/component evidence. Current public messages POST is503; native Defaults/@ fanout, ordinary queue/Stop and uncertain replay must be exercised through actual composition.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Existing shared conversation fixture outcomes are not backend recipient execution.                          |
+| 8. Exact native request/count/consume, per-sampling permits and uncertainty                      | Core native                  | [native contract](../features/symposium-native-request-contract.md)                       | OPEN. Native54 extension-inventory fixtures/formatting pass on both OS with explicit exclusions. Complete Core/MCP/production inventory and late HTTP/account authority remain open. Native60 input/config/factory fixtures also pass on both OS with exclusions. Native70 body/auth fixtures also pass on both OS; these greens do not resolve the native60 trusted registry finding. Native73 failed both-OS compilation;76 Linux failed compilation/Mac cancelled;77 executed the same command-root fixture failure on both OS. Isolation correction ea641 now passes its own both-OS811f campaign; separate79publication carries isolation and distinct-command corrections with fresh execution pending. Public Luna limits are a source/hash-reviewed unwired descriptor only. Host revision proof, authoritative limits and production release remain open; no ready capacity or full application qualification. | No C native build, installed-runtime test or visual claim.                                                  |
+| 9. Canonical checkpoint and normal CI/review gates                                               | Core + feature owner + C     | [current baseline](symposium-acceptance/current-app-dcbad-baseline/verification.json)     | Parent and milestone are ACTIVE; exact16criteria preserved. Prior five source PRs are merged. This scoped map/evidence commit is for the next coherent delivery; local baseline success does not complete the milestone.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Actual approved full-app comparison still required.                                                         |
+| 10. Shared client/server identities, errors and native invalidation                              | Core protocol/native + C     | [current baseline](symposium-acceptance/current-app-dcbad-baseline/verification.json)     | PARTIAL CURRENT GREEN for typed begin/list/view/review and actual auth/restart, plus durable source typed client. Native same-request count/dispatch, one-use sampling and invalidation/refreeze remain open.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Client error fixtures alone cannot close native/application integration.                                    |
+| 11. Real schema/migration/rollback/concurrency/crash recovery                                    | Core stores + C + B          | [historical owner envelope](symposium-acceptance/420d-current-owner-envelope/result.json) | Current actual app freshly initializes and restarts real stores; historical migration/rollback and save-fence receipts remain source-specific. Full confirmation/concurrent allocation/crash-before-recording matrix requires real joining.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Browser reload is not database crash/allocation proof.                                                      |
+| 12. Actual production auth/router/preparation/dispatch/reply composition                         | Core + C                     | [current baseline](symposium-acceptance/current-app-dcbad-baseline/verification.json)     | CURRENT PARTIAL GREEN: original actual-app observational and durable-read cases pass. Omitting real review injection causes503; omitting durable injection causes500 and fails the unchanged positive assertion. Both restore exact source. Joining/dispatch/reply remain absent; no hand-wired success owner used.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | No complete mounted UI → native flow claim.                                                                 |
+| 13. Multi-agent readers/defaults/attribution/failure/Stop without replay                         | Core + S6 + C                | [historical owner envelope](symposium-acceptance/420d-current-owner-envelope/result.json) | OPEN at actual application boundary. OrdinaryCollaborationReplies has no production instantiation; public execution is unavailable. Historical ordinary-owner evidence remains bounded; full independent recipients and reader/reply lifecycle still required.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Fixture reply/uncertain/pending outcomes are presentation evidence only.                                    |
+| 14. Exact approved Add agent/Before joining and recovery UX                                      | A + core + feature owner + C | [historical C render](symposium-acceptance/c534-browser-independent/result.json)          | PARTIAL fixture/reference evidence only. Actual editable/refrozen review, real fresh join, retained intent, focus/refusal/stale/uncertain flows must be compared on the runnable combined application.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | No new render/reference/tolerance/approval or physical iOS acceptance.                                      |
+| 15. Bounded Telos/Symposium coexistence through shared ordinary owners                           | Core + S6 + C                | [historical owner envelope](symposium-acceptance/420d-current-owner-envelope/result.json) | Historical role/context/tool/command isolation retained. Requalify the bounded actual ordinary composition after native/application authority is installed; preserve Telos role control and Symposium participation separately.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | No new combined orchestration feature or Telos UX claim.                                                    |
+| 16. One living map and separate source/behavior/UX/live evidence                                 | C + core checkpoint          | [current baseline](symposium-acceptance/current-app-dcbad-baseline/verification.json)     | ONE MAP REBASELINED to accepted dcbad645/tree79964ceb. Two current selected positives and two expected owner-omission failures are retained; the known-unavailable join was deliberately not selected. All16criteria and prior248Cpaths preserved before this map update.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Live account/runtime/physical-device matrix remains separately authorized and unqualified.                  |
+
+## Next complete application checkpoint
+
+Current production wiring is deliberately incomplete: `app.ts` installs only the
+store and observational review; native capacity and the joining port are absent.
+The public messages/snapshots writes return503. `ordinaryCollaborationContextHooks`
+accepts an optional delivery owner but production callers do not supply it;
+`OrdinaryCollaborationReplies` has no production instantiation. Forwarded content
+is explicitly refused before ordinary staging. These are implementation gaps,
+not invitations to substitute a fake approval, membership, router or cached Session.
+
+Core's unaccepted#1058 checkpoint introduces registration-owned extension inventory
+capture/renewal only. Its producer record is explicitly not a complete request,
+capacity, dispatch or runnable application seam. Core/MCP/production extension
+selection and late HTTP/account authority still have to be resolved. C does not
+rebuild native source or infer readiness from this checkpoint.
+
+Once core supplies genuine native inventory/request/count/consume authority and
+actual app preparation/join/delivery/reply composition, C will exercise ordinary
+chat → Add agent → inspect/edit/refreeze exact context/brief/capacity → fresh join
+with zero inference → explicit reviewer prompt → attributed answer, then recovery
+and reader follow-up. Required-owner omissions must fail. A combined candidate
+will be labelled; accepted main will be requalified after landing. Approved UI
+comparison follows the actual runnable source; physical iOS/live runtime remain
+separate. Known-blocked full journeys are not repeatedly rerun while these owners
+are absent.
+
+## Historical checkpoints and supporting evidence
+
+The following recorded sources/results remain historical. Their original “current”
+or “latest” wording refers to the source named in that checkpoint, not this baseline.
+
+Historical accepted-artifact checkpoint combines C `d1166ff0e903caddeb48c8174b41b3efcd2e2eb0` with
 accepted main `a7cef26f4de2050412e978e7c311107d5505ed5e` (#1020). Signed source merge
 `31e10441a50b5c1ae399d903aea9377439e68099` has tree
 `6ab84b44602054aadad9304e672c8aa28209a5c5`. The clean merge preserves all242 prior C
@@ -248,37 +920,12 @@ The initial fixture red phase failed on its missing helper module; implementing 
 actual-owner fixture made the scoped checks green. The no-listener transport also
 started with a missing-helper red and now exercises real Express JSON/cookie handling.
 
-## Requirement-to-evidence map
-
-Numbers match the canonical milestone criteria. “Partial” means only the stated
-bounded behavior was observed, never completion of the full criterion. Visual,
-native/live and application evidence remain distinct.
-
-| Criterion                                                                                                  | Contract owner                               | Exact source / command evidence                                                                                                                                                                                                                                                                              | Current state and open gap                                                                                                                                                                                                                                                                                                                                                                                                                     | Visual evidence                                                                                                                                        |
-| ---------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1. Existing chat → Add agent → edit/refreeze → silent join → explicit prompt → attributed finalized answer | Core + A + C                                 | Exact core `420d2570` + C `0c9a4704`; [current owner result](symposium-acceptance/420d-current-owner-envelope/result.json); separate [independent browser result](symposium-acceptance/c534-browser-independent/result.json)                                                                                 | Last420d checkpoint REQUIRED RED at actual joins503; current6ddc first app import times out and blocks durable/join checks. Public begin response-loss/concurrent/restart, actual unused READY workspace, review200/unverified and exact review recovery pass without agent/command allocation. Browser fixtures independently pass but do not connect the whole Add agent-to-reply application journey.                                       | Selected independent source-specific captures retained; full actual app joining/reply and native/iOS remain open.                                      |
-| 2. Membership change re-review links the same allocation                                                   | Core                                         | Exact420d joining-owner membership conflict/restart and typed recovery/reconciliation client tests; [current owner result](symposium-acceptance/420d-current-owner-envelope/result.json)                                                                                                                     | PARTIAL GREEN at actual owner/client boundary: the original allocation survives membership-link conflict/restart. Actual mounted application reconciliation and explicit re-review UX remain open.                                                                                                                                                                                                                                             | Recovery comparison pending.                                                                                                                           |
-| 3. Lost review/confirmation survives close/remount/reload/restart with original operation                  | Core                                         | Exact core `420d2570` + C `0c9a4704`; [current owner result](symposium-acceptance/420d-current-owner-envelope/result.json); separate fixture reload/policy recovery in browser report; [39a CI service/API/hook receipt](symposium-acceptance/39a-core-ci-verification/verification.json)                    | PARTIAL GREEN: same-cookie/root source begin receipt and review settings/snapshot/workspace survive exact retries/restart. Exact39a CI additionally passes3 real service/API/hook retained-review cases using an explicit fixture capture adapter. Intercepted UI draft/policy recovery also passes. Allocated-agent confirmation loss, actual routed remount and different-login lifecycle remain open.                                       | No browser fixture result substitutes for allocated-agent recovery.                                                                                    |
-| 4. Approved Add agent copy/order/repository, Before joining and drafts                                     | Core                                         | Frozen HTML175e801f; independently rerun unchanged protected/shared specs on c534; [independent browser result](symposium-acceptance/c534-browser-independent/result.json); inspected setup/large-text captures                                                                                              | PARTIAL: observed Add agent setup/footer and large-text containment match the frozen visible copy; original protected journeys pass. Successful Before joining/edit/refreeze/confirmation and real account/repository route composition remain open.                                                                                                                                                                                           | No new reference, tolerance or design exception; disabled setup fixtures do not establish silent joining.                                              |
-| 5. Approved-design ledger and combined light/dark/mobile/desktop/focus/refusal checks                      | Core ledger + A captures + C inspection      | Exact c534 protected/shared browser rerun:12 UI+2 startup,0 retry/fail/skip; [independent browser result](symposium-acceptance/c534-browser-independent/result.json); [DOM/capture receipt](symposium-acceptance/c534-browser-independent/dom-and-capture-receipt.json)                                      | PARTIAL GREEN for covered fixture light/dark/mobile/desktop/keyboard/refusal/recovery and serif geometry. Final mounted-application UX/ledger and physical iOS remain open.                                                                                                                                                                                                                                                                    | Eight independent-run captures inspected; six producer captures separately retained. Raw hashes preserve duplicates; image counts are not test totals. |
-| 6. Readers retain authorized prompts AND replies before next explicit turn; no read-triggered inference    | Core + C                                     | Exact core420d + C0c9a; unchanged reader-reply reproduction through actual ordinary recording driver                                                                                                                                                                                                         | PARTIAL GREEN: authorized prompts/finalized replies precede the next explicit reader turn; reading alone triggers no model. Full routed application delivery remains open.                                                                                                                                                                                                                                                                     | No full-app UX claim from recording-driver composition.                                                                                                |
-| 7. Defaults/@ stable recipients, same-account isolation, partial failures, ordinary Stop                   | Existing policy/delivery/reply owners + A/C  | Exact420d actual owner envelope; independent browser Defaults/@/draft and partial-outcome fixtures; [current owner result](symposium-acceptance/420d-current-owner-envelope/result.json); [independent browser result](symposium-acceptance/c534-browser-independent/result.json)                            | PARTIAL GREEN for bounded ordinary isolation and fixture stable-recipient/default/@, retained draft, independent partial outcomes and confirmed policy recovery. Actual UI-to-native fanout, Stop and uncertain replay remain open.                                                                                                                                                                                                            | Browser behavior independently rerun; synthetic intercepted API outcomes remain distinct from actual backend recipient execution.                      |
-| 8. Native exact retained request, per-sampling permit, tool loop, ACK and Stop uncertainty                 | Core native                                  | Core6ddc composes nativef8; native whole-head failures remain owner-reported, not C-qualified. Historical producer receipts retained; no C native rebuild or installed-runtime test                                                                                                                          | OWNER-REPORTED native/source pipeline evidence only. C independently checks584 host source pins and browser bundles, not exact native count/consume, installed runtime or selected account qualification.                                                                                                                                                                                                                                      | Not a visual criterion.                                                                                                                                |
-| 9. Canonical evidence/checkpoint and normal CI/review gates                                                | Core + C                                     | One map, source/test/browser receipts and guarded scoped notes; current draft PR1022                                                                                                                                                                                                                         | IN PROGRESS. Completed core39a ci job has checked tree equality and3 recovery/29 service passes; this is not the whole workflow or production app acceptance. CI/trusted review must qualify the exact published C head. No parent/milestone closure, merge or runtime acceptance follows from local green subsets.                                                                                                                            | Full mounted-source UX gate remains open.                                                                                                              |
-| 10. Shared client/server identity/errors; exact native request and invalidation                            | Shared protocol/client/router/native         | `--owners` actual schemas/client round-trip and separate hand-wired HTTP owner tests                                                                                                                                                                                                                         | PARTIAL GREEN at owner boundary. Typed association reads also pass actual app auth/cursor/restart with no effects. Native count/dispatch equality, per-sampling invalidation and actual joining error/recovery composition remain pending.                                                                                                                                                                                                     | UI error projections alone cannot close it.                                                                                                            |
-| 11. Canonical schemas/migrations, rollback/concurrency/crash/recovery                                      | EventStore/workspace/recovery + C/B fixtures | Current real EventStore migration/workspace/forward storage and source save-fence envelope on420d; original older accepted backup retained                                                                                                                                                                   | PARTIAL GREEN for actual schema initialization, backup migration/restart/rollback and private-forward retention/transaction fences, original-source save renewal and privacy revocation before ordinary dispatch. No invented schema/capability; full actual app allocation/crash matrix remains open.                                                                                                                                         | Intercepted browser reload is separate evidence.                                                                                                       |
-| 12. Actual production app construction/auth/session/router/preparation/dispatch/reply                      | Core production seam + C                     | Last verified420d + C0c9a real app/auth/source/HTTP workspace/review; latest6ddc app attempt unqualified; [current owner result](symposium-acceptance/420d-current-owner-envelope/result.json)                                                                                                               | Historical420d PARTIAL actual-app GREEN through public begin/retries/source restart, typed association metadata reads/cursor/restart, workspace preparation/review200-unverified/review restart. Current6ddc app setup times out before durable-reader verification; historical joins503 remains required RED; no agent/command allocation or inference. Dispatch/finalized reply and selected API/OpenShell/native qualification remain open. | Separate real-component browser fixtures pass with all traffic intercepted; they do not mount the backend application owners.                          |
-| 13. Multi-agent defaults, attribution, readers, failure, Stop/no replay                                    | Existing owners + C                          | Current ordinary delivery/reply/reader/isolation owner cases plus independent partial-outcome browser fixture; [current owner result](symposium-acceptance/420d-current-owner-envelope/result.json)                                                                                                          | PARTIAL GREEN for stable target identities, verified finalized source, retained success beside another failure, no cross-session command claims and next-turn reader context. Full native Stop/no-replay and routed multi-agent lifecycle remain open.                                                                                                                                                                                         | Successful reply plus uncertain/pending recipients independently visible in captured fixture.                                                          |
-| 14. Exact approved UI, retained edits/focus/refusal/stale/uncertainty                                      | A + core + C                                 | Exact c534 independent protected/shared browser run and twelve DOM measurements; [independent browser result](symposium-acceptance/c534-browser-independent/result.json); [DOM/capture receipt](symposium-acceptance/c534-browser-independent/dom-and-capture-receipt.json); prior A-static bounds preserved | PARTIAL GREEN for exercised geometry/focus/defaults/drafts/policy confirmation/refusal/large-text cases. Independently measured320 serif name track64px and count gap4px across projects/themes. Full actual Add agent/join/refreeze/reply UX and physical iOS remain open.                                                                                                                                                                    | Protected specs and frozen reference unchanged by C; synthetic APIs mean no complete UX acceptance or new approval.                                    |
-| 15. Bounded Telos/Symposium coexistence without role/context/tool/command leakage                          | Shared ordinary owners + C                   | Current420d ordinary role/context/tool/command coexistence regressions in C actual-owner envelope                                                                                                                                                                                                            | PARTIAL GREEN for same-account independent roles/sessions, retained authority across restart and wrong-session/task refusal. This bounded internal-owner proof does not substitute for TelosS9, full UI or a new combined feature.                                                                                                                                                                                                             | No separate full Telos UX qualification.                                                                                                               |
-| 16. One living map, source/test/visual gaps, later sequential qualification                                | C map / core checkpoint                      | This file, portable runner receipts, coordinated A/B/core ownership                                                                                                                                                                                                                                          | MAP ESTABLISHED; combined milestone remains open. Source merged, offline integration, approved UX, live runtime and deployed are separate states.                                                                                                                                                                                                                                                                                              | Final visual evidence pending.                                                                                                                         |
-
-Artifact journey (additional workstream handover requirement): selected saved version
-must reach the intended recipient unchanged, with access and retained provenance,
-including later edits/source unavailability. B owns canonical saved-byte fixture and
-adapter; C will consume its exact committed interface. Transcript references and
-host-only forwarding packets are not independent retention or actual agent delivery.
-No saved-artifact delivery is independently accepted by this report.
+Artifact journey (additional handover requirement): B's exact retained versions and
+C's75-test accepted artifact/ordinary-serialization proof remain bounded evidence.
+Current `OrdinaryCollaborationDelivery` explicitly refuses every `message.forward`
+before staging. Host helper serialization, transcript references and native export
+do not establish actual forwarded-content delivery or a note-only ACK. Core/S6 own
+the ordinary input/delivery seam; real selected-version delivery remains open.
 
 ## Actual-app construction prerequisites
 

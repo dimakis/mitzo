@@ -1,0 +1,38 @@
+{
+  "observedAt": "2026-10-20T00:59:09.013864+00:00",
+  "commit": "a156fb9b0368681a3c5635d71aade56410c83ea3",
+  "tree": "ae4c6716abf412dafacfac74671de31d22ce8256",
+  "parent": "d615a63d687555242ede9cb3874d2699f99520c3",
+  "sourceHashes": {
+    "codex-rs/ext/goal/src/extension.rs": "45cd1bb2a649f81a8b6cbd3c937b52364cb396f4ac6bb98a91f8c06304d6f95f",
+    "codex-rs/ext/goal/tests/goal_extension_backend.rs": "30c2fc434532d8dab1d6c1f9957a57e2040fbcd0eba0c08e5a0b4ce6848ce875",
+    "codex-rs/ext/history-notes/src/extension.rs": "129fadce0650fb5cae3cfe34d9f565315893be1c55591ec14d19a26996ebe85b",
+    "codex-rs/ext/history-notes/tests/history_notes_extension.rs": "a9a3015d0463b4c0afd7153376a2a0c06fd3683d1e4c3967845408d7b018a698",
+    "codex-rs/ext/goal/src/runtime.rs": "59a8c65a5b0d65bea5fab63d2eb3c4c17431d1c8eaf91891563e95657267f04c",
+    "codex-rs/app-server/src/extensions.rs": "e097740f3c33cf84456283ea59a4409e48e10c00d61937604e9fe6474e3ef518",
+    "codex-rs/ext/goal/Cargo.toml": "e03430bf9732d45b9aaebe6969d4a90e63daf348107f4b74bf227dfb38e33454",
+    "codex-rs/ext/history-notes/Cargo.toml": "1ef6280b0fd4c6a1cb9e6bda55212fdd8368359f1192a9a5855c87b2a6cdb368"
+  },
+  "independentFindings": [
+    "History-notes config-only flag/provider selection is shared with actual update_config and actual registered pre-session plan. Selected enabled config remains Unresolved before auth/thread availability, including API-key cases where ordinary runtime may expose no tools. Disabled config removes ordinary thread extension state as before.",
+    "Goal registration captures the same actual goal_config projection used in thread lifecycle/config changes. Enabled always remains Unresolved; disabled maps NoTools. Inspected real app-server closure reads only Config Goals feature/max-goal budget. Generic callback purity remains source/caller responsibility, not a type-enforced property of Fn.",
+    "All goal set_enabled writers in inspected extension source are thread-start and config-change paths; only enabled atomic store is the setter. tools_visible requires enabled and original source visibility. Existing runtime callbacks remain wrapped through original registry mechanism.",
+    "Capture/renewal invokes config plans, not ordinary lifecycle/tool/context callbacks. Ordinary callbacks and wrappers retain their behavior; config selection alone cannot settle whole-request source/config ABA or context instructions."
+  ],
+  "authoredFixturesNotExecuted": [
+    "disabled_history_notes_capture_tracks_ordinary_configuration",
+    "disabled_goal_capture_tracks_ordinary_configuration"
+  ],
+  "assertionScope": "Actual installed registries capture before ExtensionData session/thread stores and lifecycle; disabled ordinary tools remain empty, enabled transitions expose real9 notes/3 goal tools, enabled renewal refuses, disabled transition and selection renewal recover. Goal StateRuntime is constructed before registry installation/capture, so this is not proof of zero native store initialization. History fixture final context check runs after config removal and returns empty before backend call. Synthetic auth and no tool invocation; no real account/model call by C.",
+  "coverageRequirement": {
+    "nextPublication": "Include codex-history-notes-extension and codex-goal-extension in BOTH-OS native fixture package list and formatting, retaining prior scope. Goal lib has test=false; actual authored backend integration target must execute.",
+    "currentPublished70": "Neither new extension package appears in published70 native fixture/format lists. Its existing CI cannot qualify71."
+  },
+  "remainingGaps": [
+    "Generic callback/source purity and exact registry/config custody must hold at real preparation call site; selections are not grants.",
+    "No complete instructions/inventory/account/route/model-limit/currentness/count/consume or actual application qualification.",
+    "No Rust compile/test result for local71; existing60/70/current-head54 CI remain source-bound."
+  ],
+  "independentActivity": "Immutable source/caller/writer/test-wiring/package/whitespace inspection only; no C Rust/tests/model/provider/storage execution or new campaign.",
+  "acceptance": "No additional source blocker found in this bounded disabled-tool declaration partition. Next exact-source CI coverage remains required before executable qualification."
+}

@@ -1,0 +1,67 @@
+{
+  "observedAt": "2026-10-20T02:10:34.257669+00:00",
+  "run": 39353493313,
+  "attempt": 1,
+  "runConclusion": "cancelled",
+  "published": {
+    "pr": 1063,
+    "head": "390d259c978e2de80e641ea7c9265e2cd3ca7a48",
+    "tree": "7882ba764e44fd879d2bddade4601c033dfae265",
+    "basePr": 1062,
+    "baseHead": "5bdbce1b02266e92967441f0ef57d323ed992650",
+    "githubHeadVerification": "Exact GitHub PR head verified"
+  },
+  "native": {
+    "commit": "f75d65a1a6133ed3eecc42b92c9f74e84741e835",
+    "tree": "bd05b3b6597fe5640b41363e4b2d351dff060d53"
+  },
+  "platformResults": [
+    {
+      "platform": "macos-26",
+      "job": 118402901469,
+      "conclusion": "cancelled",
+      "classification": "Cancelled while standalone helpers building before fixture execution. Neither PASS nor source-failure qualification. C did not cancel/retry; exact cancellation reason not inferred from job conclusion.",
+      "compileE0659": 0,
+      "affectedFiles": {},
+      "sourceReconstruction": "PASS exact native tree in retained log",
+      "formatting": "skipped",
+      "logSHA256": "0e840d1570b0bec3b6355e2ca0a2b0d22fc1d370c13bb42d9d3df1379a625efa",
+      "logPath": "mac-terminal-job.log"
+    },
+    {
+      "platform": "ubuntu-24.04",
+      "job": 118402901750,
+      "conclusion": "failure",
+      "classification": "Fixture compile failure before execution; E0659 assert_eq ambiguity from glob/prelude macro resolution. No executed native test totals inferred.",
+      "compileE0659": 36,
+      "affectedFiles": {
+        "prepared_request_effects_tests.rs": 22,
+        "prepared_request_guarded_commit_tests.rs": 14
+      },
+      "sourceReconstruction": "PASS exact native tree in retained log",
+      "formatting": "skipped",
+      "logSHA256": "c3a2e81f0e51492015bcb0d5fa4b14b47dd7f6b891492a88ce09003bc8bc3dc0",
+      "logPath": "linux-terminal-job.log"
+    }
+  ],
+  "retainedArtifacts": [
+    {
+      "id": 12236240229,
+      "name": "native-fixtures-ubuntu-24.04",
+      "digest": "sha256:0ace0089e1effa98b778e4e0776c25065b0393c43332b7d77199e9d5b2072644",
+      "matchesActions": true,
+      "sourceProofByteExactToPublished": true,
+      "junitPresent": false
+    },
+    {
+      "id": 12235144089,
+      "name": "native-fixtures-macos-26",
+      "digest": "sha256:32fe1c0237f8d617c5176119894c816b60c9124744e0c0bdb2ef4bc55780a073",
+      "matchesActions": true,
+      "sourceProofByteExactToPublished": true,
+      "junitPresent": false
+    }
+  ],
+  "qualification": "No native fixture execution qualification from these jobs. Existing source/assertion receipts and exact source provenance remain separate. Native77 two explicit imports address named mechanism at SOURCElevel only; newsource CI needs independent qualification. Native70 success cannot transfer.",
+  "independentActivity": "Download/read already terminal existing logs/metadata/artifacts/sourceproof only. No new test/build/retry/cancel/dispatch/model/provider/deployment."
+}

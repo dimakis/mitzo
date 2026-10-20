@@ -1,0 +1,69 @@
+{
+  "observedAt": "2026-10-20T02:58:45.771672+00:00",
+  "commit": "21130dac32ce76cd2d5628d3a79cf004a05a11ac",
+  "tree": "9309817ba47102065bbdcb58dfa4b8159f516aa4",
+  "parent": "a1be3ab5003ca562b195885dcea8885eef5ead14",
+  "sourceHashes": {
+    "frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx": "7a9dd538b3201e8cd242d16d709afeaea6d65b898919d0c31f5d4232149cdf55",
+    "frontend/src/lib/__tests__/conversation-joining-recovery.test.ts": "160d2d10fdccba1ae7eb4ac83d22438fea31d2f5624be61c364443309984cbd8",
+    "frontend/src/lib/__tests__/conversation-joining-source-owner.test.ts": "b2da0f22a59dacb6de1db1e42d5772cb6ea23928653c0c88382436d3eb08e98f",
+    "frontend/src/lib/conversation-joining-recovery.ts": "6e7c7235858c2ea15581cefa9b458a3dc617c0ed4da6c85994a4511bfe53d291",
+    "frontend/src/lib/conversation-joining-source-owner.ts": "f2c40227d8f3cc9a3bc4e4772cdc7a538aea8c76fa1b3bc73d3b0fec6e526131",
+    "frontend/src/hooks/useConversationJoiningReview.ts": "0e8ce8027bd613a84b97bb09197382f78683d8086f574538141a8597198cae06",
+    "frontend/src/lib/conversation-joining-application-owner.ts": "d575f127b74ecfdf627cb448d9dc06c47e7497d1842c51fa76c9682af401e6e4",
+    "frontend/src/lib/api-fetch.ts": "711a0346069b965504c3140611dac64443ea82a6dc457d147e243a005b3eb46d"
+  },
+  "exactCoreDependency": "fe0257685b9111b49f56e7434c004a699d9f13c2",
+  "all33CombinedCoreDependencyBlobsByteExact": true,
+  "priorA271ReviewGuardByteExact": true,
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "patchSHA256": "3579095491f62a8e571281ef150e073be4deef2eba7d0acf4d5b555a10f4c895",
+  "producerEvidence": {
+    "joining-source-bootstrap-green.log": {
+      "sha256": "4740e1850ce739c39594fd62f2e8e1782b7551f094a1dd4ed87ff91e599e81c9",
+      "bytes": 289
+    },
+    "joining-source-bootstrap-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "joining-source-bootstrap-concurrent-red.log": {
+      "sha256": "60b44597b15d3b33695fe7dc5aaaa46105564da8e3ce6f8b67b23a50663ceb92",
+      "bytes": 1620
+    },
+    "joining-retained-label-bytes-red.log": {
+      "sha256": "92741d8585fddf90c22651715bf1347dc4d03c539bc49616d212b86ff4f6b5d6",
+      "bytes": 1551
+    }
+  },
+  "independentFindings": [
+    "Private resolver has no production caller or page hook: only definition and tests. Explicit invocation uses actual typed sourceSetup and begin, not a group list/first-row choice or fabricated membership. Real client validates source response and original begin group/revision1/single-source receipt. apiFetch snapshots URL/auth before network await; begin request body is schema-parsed/serialized.",
+    "Existing auth/base/source storage key now accepts strict v3 envelope with only original group+begin UUIDs and nullable existing v2 review. No second journal, fake review, persisted membership/source bytes/capacity/native grant. v1/v2 parsing unchanged; v3 nested source and application group must equal original begin and nested review must be v2.",
+    "Original IDs are generated only after a current unstarted canonical read and synchronous retainBegin compare-and-write before POST. Missing/quota/malformed storage prevents POST; stale expected begin, attempted replacement or old v1/v2 review prevents new begin. Successful selected/unavailable read creates no replacement IDs. Unknown conflict or response loss leaves original correlation and no automatic retry.",
+    "Explicit retry first re-reads canonical selection; matching committed group avoids another POST, still-unstarted retries original group/request/body only, conflicting selected group refuses. After every canonical read it compares actual journal begin with captured value, catching the reproduced concurrent writer. After begin it returns only a fresh canonical read, never the begin response as membership authority.",
+    "Auth event invalidation is monotonic for operation; journal current login/base, caller isCurrent lifetime, current client and AbortSignal are checked around awaits. Listeners always removed in finally, while retained IDs survive error/retirement. Future mounted caller must supply real monotonic retirement/abort ownership; standalone equality checks do not claim all possible source/client/base ABA proof.",
+    "read() projects only nested review for existing hook. Begin-only state returns null and causes no fake restored setup/draft/capture. save keeps v3 begin and validates review belongs to original group; linked clear removes only review, preserving begin. Existing v1/v2 record outside envelope remains supported and unchanged.",
+    "Actual application hook adoption test mounts with begin-only journal and observes no fetch/fake setup before explicit prepare; real typed review fixture then retains v3 begin+v2 input under one key and unverified capacity stays disabled. Core fe025 is exact-consumed; new typed-client whitespace case preserves original labels and frozen metadata without weakening guard."
+  ],
+  "producerReported": {
+    "focused": "105PASS4files2.61s1worker/1GiB; overlaps prior hooks/adapter/journal101/82 and is not added.",
+    "concurrencyRed": "1behavioralFAIL19unselected before post-read journal comparison; original code returned another canonical group while a concurrent original begin was retained.",
+    "labelBytesRed": "1FAIL42unselected against pre-fe025 schema; now producer green includes real typed client/frozen label guard with exact nonblank bytes and unverified capacity.",
+    "typesHooks": "Focused source-mapped types and normal hooks PASS reported; no independent C execution or fullapp build.",
+    "design": "No UI/style changes; protected references byte-exact, prior applicable design run108PASS1existingSkip retained as source-specific history, no new browser pass claimed."
+  },
+  "acceptance": "No additional concrete blocker found within private resolver/same-journal v3 component. Source/assertion/provenance only.",
+  "limits": [
+    "Two async resolver actions and storage faults are simulated through actual typed client with HTTP fixtures, not actual live-cookie transport+EventStore/browser process or power-loss/atomic cross-browser storage proof. Server canonical begin remains durable owner.",
+    "Selected canonical metadata alone never authorizes replacing an unresolved legacy review; existing hook/journal identity checks remain required at eventual mount.",
+    "No production resolver/joining-owner/catalog/source repository hint/fresh target is installed. Final real lifetime guards and explicit action wiring must be inspected when mounted; no page-load creation or additional product controls are qualified.",
+    "Full exact source/access/refreeze/capacity/native request/count/consume/release/delivery/reply and approved mounted UX remain open."
+  ],
+  "independentActivity": "Read immutable5file diff/real typed client/auth/recovery/callers/tests/all33dependency and protected bytes/producer logs/patch hashes only. No C tests/types/build/schema execution/browser/native/model/provider/retry/dispatch/new campaign."
+}

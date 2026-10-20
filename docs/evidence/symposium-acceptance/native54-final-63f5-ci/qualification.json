@@ -1,0 +1,28 @@
+{
+  "observedAt": "2026-10-20T04:03:54.284987+00:00",
+  "run": 39351657252,
+  "head": "63f5b4f786f24da8b1174547b95e16d320db0b70",
+  "tree": "91f66c425066bf45cedd3c1252c6cf4c952e4278",
+  "terminalConclusion": "success",
+  "platforms": {
+    "linux": {
+      "receipt": "linux-qualification.json",
+      "sha256": "145054af3b9a9704d80a00bcbf82487bf20925f58ed80e72ea41e6b3d8ee23ca",
+      "job": 118397086443,
+      "executed": 5839,
+      "passed": 5839,
+      "failed": 0,
+      "nextestSkipped": 11
+    },
+    "mac": {
+      "receipt": "mac-qualification.json",
+      "sha256": "32f79f2cdfebd8ebdf4cebf9e56548ff96555918b07421512939dacccccd3c0c",
+      "job": 118397086220,
+      "executed": 5618,
+      "passed": 5618,
+      "failed": 0,
+      "nextestSkipped": 27
+    }
+  },
+  "qualification": "BothOS four54extensioninventory named cases PASS at exact63f5 publication. Source-bound fixture/format checkpoint only; independent full16criteria remain ACTIVE, no final native/account/request/count/consume/release/App readiness or different-head qualification."
+}

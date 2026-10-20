@@ -1,0 +1,335 @@
+From 79a2a34d4c93892298033d116c5e1c0f0c061e6e Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 00:15:48 +0100
+Subject: [PATCH] feat(login): add explicit single-attempt transport factory
+
+---
+ codex-rs/login/src/auth/default_client.rs     |   4 +
+ .../src/auth/single_attempt_transport.rs      |  55 ++++
+ .../auth/single_attempt_transport_tests.rs    | 237 ++++++++++++++++++
+ 3 files changed, 296 insertions(+)
+ create mode 100644 codex-rs/login/src/auth/single_attempt_transport.rs
+ create mode 100644 codex-rs/login/src/auth/single_attempt_transport_tests.rs
+
+diff --git a/codex-rs/login/src/auth/default_client.rs b/codex-rs/login/src/auth/default_client.rs
+index 28a952e..b704652 100644
+--- a/codex-rs/login/src/auth/default_client.rs
++++ b/codex-rs/login/src/auth/default_client.rs
+@@ -23,6 +23,10 @@ use std::sync::RwLock;
+ 
+ use crate::outbound_proxy::AuthRouteConfig;
+ 
++#[path = "single_attempt_transport.rs"]
++mod single_attempt_transport;
++pub use single_attempt_transport::create_single_attempt_transport_for_routes_async;
++
+ /// Set this to add a suffix to the User-Agent string.
+ ///
+ /// It is not ideal that we're using a global singleton for this.
+diff --git a/codex-rs/login/src/auth/single_attempt_transport.rs b/codex-rs/login/src/auth/single_attempt_transport.rs
+new file mode 100644
+index 0000000..6291375
+--- /dev/null
++++ b/codex-rs/login/src/auth/single_attempt_transport.rs
+@@ -0,0 +1,55 @@
++use super::ROUTE_AWARE_CLIENT_BUILD_PERMIT;
++use super::read_default_client_residency_requirement;
++use codex_http_client::ClientRouteClass;
++use codex_http_client::HttpClientFactory;
++use codex_http_client::ReqwestTransport;
++use codex_http_client::RouteAwareClientPool;
++
++/// Builds a policy-aware transport for explicitly finalized, single-attempt requests.
++///
++/// Callers must use `execute_once` or `stream_once`: construction does not confer
++/// account/currentness authority, validate a public API request, or consume a
++/// durable send permit. All approved request headers must be supplied explicitly.
++/// Cookies, replay fallback and managed residency are refused rather than silently
++/// omitted; residency needs a future request owner that validates its retained header.
++/// Route and custom-CA errors propagate at send time without a legacy fallback.
++pub async fn create_single_attempt_transport_for_routes_async(
++    http_client_factory: HttpClientFactory,
++    route_class: ClientRouteClass,
++) -> std::io::Result<ReqwestTransport> {
++    let permit = ROUTE_AWARE_CLIENT_BUILD_PERMIT
++        .acquire()
++        .await
++        .map_err(std::io::Error::other)?;
++    tokio::task::spawn_blocking(move || {
++        let _permit = permit;
++        if http_client_factory.allows_system_proxy_fallback()
++            || http_client_factory.has_chatgpt_cookies()
++        {
++            return Err(std::io::Error::new(
++                std::io::ErrorKind::Unsupported,
++                "single-attempt transport does not support replay fallback or configured cookies",
++            ));
++        }
++        if read_default_client_residency_requirement().is_some() {
++            return Err(std::io::Error::new(
++                std::io::ErrorKind::Unsupported,
++                "single-attempt transport requires explicit managed residency header validation",
++            ));
++        }
++        // Retain the supplied network/proxy authority. Unlike the ordinary default
++        // builder, this pool has no implicit headers, cookie store or legacy fallback.
++        Ok(ReqwestTransport::from_route_aware_client_pool(
++            RouteAwareClientPool::new_without_redirects_or_request_logging(
++                http_client_factory,
++                route_class,
++            ),
++        ))
++    })
++    .await
++    .map_err(std::io::Error::other)?
++}
++
++#[cfg(test)]
++#[path = "single_attempt_transport_tests.rs"]
++mod tests;
+diff --git a/codex-rs/login/src/auth/single_attempt_transport_tests.rs b/codex-rs/login/src/auth/single_attempt_transport_tests.rs
+new file mode 100644
+index 0000000..8949552
+--- /dev/null
++++ b/codex-rs/login/src/auth/single_attempt_transport_tests.rs
+@@ -0,0 +1,237 @@
++use super::create_single_attempt_transport_for_routes_async;
++use codex_http_client::ClientRouteClass;
++use codex_http_client::DestinationPolicy;
++use codex_http_client::HttpClientFactory;
++use codex_http_client::HttpTransport;
++use codex_http_client::NetworkPolicyController;
++use codex_http_client::NetworkPolicyDenied;
++use codex_http_client::OutboundProxyPolicy;
++use codex_http_client::Request;
++use codex_http_client::TransportError;
++use codex_http_client::cache_system_proxy_route_for_test;
++use http::HeaderValue;
++use http::Method;
++use pretty_assertions::assert_eq;
++use std::collections::BTreeSet;
++use std::time::Duration;
++use wiremock::Mock;
++use wiremock::MockServer;
++use wiremock::ResponseTemplate;
++use wiremock::matchers::any;
++
++const CHILD_CASE: &str = "CODEX_TEST_SINGLE_ATTEMPT_FACTORY_CASE";
++
++fn request(url: String) -> Request {
++    let mut request = Request::new(Method::POST, url).with_raw_body("retained bytes");
++    request.headers.insert(
++        http::header::ACCEPT,
++        HeaderValue::from_static("application/json"),
++    );
++    request.headers.insert(
++        "x-retained-observation",
++        HeaderValue::from_static("fixture"),
++    );
++    request.timeout = Some(Duration::from_secs(/*secs*/ 5));
++    request
++}
++
++// A fresh process isolates residency/global proxy caches and ambient CA configuration.
++// Every request uses the real factory/pool and a cached route to a local recording
++// proxy. No provider, auth owner or model is involved.
++#[test]
++fn single_attempt_factory_offline_cases() {
++    if let Ok(case) = std::env::var(CHILD_CASE) {
++        let runtime = tokio::runtime::Builder::new_current_thread()
++            .enable_all()
++            .build()
++            .unwrap();
++        runtime.block_on(async {
++            match case.as_str() {
++                "wire" => records_explicit_requests_without_replay_or_cookies().await,
++                "policy" => retains_managed_network_denial().await,
++                "ca" => invalid_custom_ca_refuses_before_connecting().await,
++                "unsupported" => refuses_unsupported_factory_authority().await,
++                "residency" => {
++                    super::super::set_default_client_residency_requirement(Some(
++                        super::super::ResidencyRequirement::Us,
++                    ));
++                    let result = create_single_attempt_transport_for_routes_async(
++                        HttpClientFactory::new(OutboundProxyPolicy::RespectSystemProxy),
++                        ClientRouteClass::Api,
++                    )
++                    .await;
++                    assert!(matches!(result, Err(error) if error.kind() == std::io::ErrorKind::Unsupported));
++                }
++                _ => panic!("unknown offline factory fixture"),
++            }
++        });
++        println!("single-attempt factory fixture completed: {case}");
++        return;
++    }
++
++    let temp = tempfile::tempdir().unwrap();
++    let invalid_ca = temp.path().join("invalid-ca.pem");
++    std::fs::write(&invalid_ca, "not a CA certificate").unwrap();
++    for case in ["wire", "policy", "ca", "unsupported", "residency"] {
++        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
++        command
++            .args([
++                "--exact",
++                concat!(module_path!(), "::single_attempt_factory_offline_cases")
++                    .trim_start_matches("codex_login::"),
++                "--nocapture",
++            ])
++            .env(CHILD_CASE, case)
++            .env_remove("CODEX_CA_CERTIFICATE")
++            .env_remove("SSL_CERT_FILE");
++        if case == "ca" {
++            command.env("CODEX_CA_CERTIFICATE", &invalid_ca);
++        }
++        let output = command.output().unwrap();
++        assert!(
++            output.status.success(),
++            "{case}: stdout={} stderr={}",
++            String::from_utf8_lossy(&output.stdout),
++            String::from_utf8_lossy(&output.stderr)
++        );
++        assert!(
++            String::from_utf8_lossy(&output.stdout)
++                .contains(&format!("single-attempt factory fixture completed: {case}"))
++        );
++    }
++}
++
++async fn records_explicit_requests_without_replay_or_cookies() {
++    for status in [200, 307, 503] {
++        let proxy = MockServer::start().await;
++        let url = format!(
++            "http://factory-{}.invalid/responses",
++            proxy.address().port()
++        );
++        cache_system_proxy_route_for_test(&url, proxy.uri());
++        Mock::given(any())
++            .respond_with(
++                ResponseTemplate::new(status)
++                    .insert_header("location", url.as_str())
++                    .insert_header("set-cookie", "fixture_cookie=unexpected; Path=/"),
++            )
++            .mount(&proxy)
++            .await;
++        let transport = create_single_attempt_transport_for_routes_async(
++            HttpClientFactory::new(OutboundProxyPolicy::RespectSystemProxy),
++            ClientRouteClass::Api,
++        )
++        .await
++        .unwrap();
++        // Only success gets a second explicit operation, to observe cookie retention.
++        let attempts = if status == 200 { 2 } else { 1 };
++        for _ in 0..attempts {
++            let result = transport.execute_once(request(url.clone())).await;
++            if status == 200 {
++                assert_eq!(result.unwrap().status.as_u16(), status);
++            } else {
++                assert!(
++                    matches!(result, Err(TransportError::Http { status: actual, .. }) if actual.as_u16() == status)
++                );
++            }
++        }
++        // Exercise generation's streaming method through the same factory too.
++        let result = transport.stream_once(request(url.clone())).await;
++        if status == 200 {
++            assert_eq!(result.unwrap().status.as_u16(), status);
++        } else {
++            assert!(
++                matches!(result, Err(TransportError::Http { status: actual, .. }) if actual.as_u16() == status)
++            );
++        }
++        let requests = proxy.received_requests().await.unwrap();
++        assert_eq!(requests.len(), attempts + 1);
++        for recorded in requests {
++            let mut headers = recorded
++                .headers
++                .iter()
++                .map(|(name, value)| {
++                    (
++                        name.as_str().to_string(),
++                        value.to_str().unwrap().to_string(),
++                    )
++                })
++                .collect::<Vec<_>>();
++            headers.sort();
++            assert_eq!(
++                (recorded.method, recorded.url.path(), recorded.body, headers),
++                (
++                    Method::POST,
++                    "/responses",
++                    b"retained bytes".to_vec(),
++                    vec![
++                        ("accept".to_string(), "application/json".to_string()),
++                        ("content-length".to_string(), "14".to_string()),
++                        (
++                            "host".to_string(),
++                            format!("factory-{}.invalid", proxy.address().port())
++                        ),
++                        ("x-retained-observation".to_string(), "fixture".to_string()),
++                    ],
++                )
++            );
++        }
++    }
++}
++
++async fn retains_managed_network_denial() {
++    let proxy = MockServer::start().await;
++    let url = format!("http://denied-{}.invalid/responses", proxy.address().port());
++    cache_system_proxy_route_for_test(&url, proxy.uri());
++    let controller = NetworkPolicyController::default();
++    let policy = controller.policy();
++    let transport = create_single_attempt_transport_for_routes_async(
++        HttpClientFactory::new(OutboundProxyPolicy::RespectSystemProxy)
++            .with_network_policy(policy.clone()),
++        ClientRouteClass::Api,
++    )
++    .await
++    .unwrap();
++    assert!(matches!(
++        transport.execute_once(request(url.clone())).await,
++        Err(TransportError::Policy(NetworkPolicyDenied::Unavailable))
++    ));
++    assert!(controller.publish(
++        policy.revision(),
++        DestinationPolicy::Restricted {
++            allowed_hosts: BTreeSet::new(),
++        },
++    ));
++    assert!(matches!(
++        transport.stream_once(request(url)).await,
++        Err(TransportError::Policy(NetworkPolicyDenied::Destination))
++    ));
++    assert!(proxy.received_requests().await.unwrap().is_empty());
++}
++
++async fn invalid_custom_ca_refuses_before_connecting() {
++    let proxy = MockServer::start().await;
++    let url = format!("http://ca-{}.invalid/responses", proxy.address().port());
++    cache_system_proxy_route_for_test(&url, proxy.uri());
++    let transport = create_single_attempt_transport_for_routes_async(
++        HttpClientFactory::new(OutboundProxyPolicy::RespectSystemProxy),
++        ClientRouteClass::Api,
++    )
++    .await
++    .unwrap();
++    let result = transport.execute_once(request(url)).await;
++    assert!(matches!(result, Err(TransportError::Build(_))));
++    assert!(proxy.received_requests().await.unwrap().is_empty());
++}
++
++async fn refuses_unsupported_factory_authority() {
++    for factory in [
++        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault).with_system_proxy_fallback(),
++        HttpClientFactory::new(OutboundProxyPolicy::RespectSystemProxy)
++            .with_chatgpt_cookies([HeaderValue::from_static("fixture_cookie=value")]),
++    ] {
++        let result =
++            create_single_attempt_transport_for_routes_async(factory, ClientRouteClass::Api).await;
++        assert!(matches!(result, Err(error) if error.kind() == std::io::ErrorKind::Unsupported));
++    }
++}
+-- 
+2.54.0 (Apple Git-157)
+

@@ -1,0 +1,680 @@
+From 24b4d798fe0d6b2c72a7ff51a4d2c9aad71b5765 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 00:28:59 +0100
+Subject: [PATCH] feat(core): capture fresh ordinary start inputs with closed
+ MCP source absence
+
+---
+ codex-rs/core/src/lib.rs                      |   2 +
+ codex-rs/core/src/mcp.rs                      |   6 +
+ codex-rs/core/src/mcp/pre_session.rs          | 224 +++++++++++++
+ codex-rs/core/src/thread_manager.rs           |   3 +
+ .../src/thread_manager/pre_session_inputs.rs  |  45 +++
+ .../pre_session_inputs_tests.rs               | 314 ++++++++++++++++++
+ 6 files changed, 594 insertions(+)
+ create mode 100644 codex-rs/core/src/mcp/pre_session.rs
+ create mode 100644 codex-rs/core/src/thread_manager/pre_session_inputs.rs
+ create mode 100644 codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
+
+diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
+index a6cb6f3..92ba225 100644
+--- a/codex-rs/core/src/lib.rs
++++ b/codex-rs/core/src/lib.rs
+@@ -104,6 +104,8 @@ mod mcp_tool_approval_templates;
+ mod mcp_tool_exposure;
+ mod network_policy_decision;
+ pub use mcp::McpManager;
++pub use mcp::PreSessionMcpError;
++pub use mcp::PreSessionMcpSources;
+ mod original_image_detail;
+ pub use codex_mcp::CodexAppsToolsCache;
+ pub use codex_mcp::SandboxState;
+diff --git a/codex-rs/core/src/mcp.rs b/codex-rs/core/src/mcp.rs
+index 9b92194..aba5ee8 100644
+--- a/codex-rs/core/src/mcp.rs
++++ b/codex-rs/core/src/mcp.rs
+@@ -1,6 +1,10 @@
+ use std::collections::HashMap;
+ use std::sync::Arc;
+ 
++mod pre_session;
++pub use pre_session::PreSessionMcpError;
++pub use pre_session::PreSessionMcpSources;
++
+ use crate::config::Config;
+ use codex_config::DEFAULT_MCP_SERVER_ENVIRONMENT_ID;
+ use codex_config::McpServerConfig;
+@@ -102,6 +106,7 @@ enum OrderedMcpOverlay {
+ 
+ #[derive(Clone)]
+ pub struct McpManager {
++    pre_session_source_identity: Arc<()>,
+     plugins_manager: Arc<PluginsManager>,
+     extensions: Arc<ExtensionRegistry<Config>>,
+     codex_apps_tools_cache: ConnectorRuntimeManager<ToolInfo>,
+@@ -124,6 +129,7 @@ impl McpManager {
+         codex_apps_tools_cache: ConnectorRuntimeManager<ToolInfo>,
+     ) -> Self {
+         Self {
++            pre_session_source_identity: Arc::new(()),
+             plugins_manager,
+             extensions,
+             codex_apps_tools_cache,
+diff --git a/codex-rs/core/src/mcp/pre_session.rs b/codex-rs/core/src/mcp/pre_session.rs
+new file mode 100644
+index 0000000..187019d
+--- /dev/null
++++ b/codex-rs/core/src/mcp/pre_session.rs
+@@ -0,0 +1,224 @@
++use std::collections::HashSet;
++use std::sync::Arc;
++
++use codex_core_plugins::PluginLoadOutcome;
++use codex_exec_server::Environment;
++use codex_exec_server::EnvironmentManager;
++use codex_extension_api::McpPreSessionContext;
++use codex_extension_api::McpPreSessionOverlay;
++use codex_features::Feature;
++use codex_history::InitialHistory;
++use codex_mcp::McpBinding;
++use codex_protocol::capabilities::SelectedCapabilityRoot;
++use codex_protocol::protocol::EnvironmentConfigState;
++use codex_protocol::protocol::TurnEnvironmentSelection;
++
++use super::McpManager;
++use crate::environment_selection::default_thread_environment_selections;
++use crate::thread_manager::StartThreadOptions;
++
++/// Retains genuine ordinary start inputs with configuration-owned MCP absence.
++///
++/// "Local" means the native process's actual local executor, including when the
++/// process runs inside an OpenShell sandbox. It does not select a Mac, account,
++/// provider, installed runtime or target. No Session or MCP runtime is created.
++/// This is only a source partition: configuration/source/account currentness,
++/// complete request capture, counting and prepared admission remain required.
++pub struct PreSessionMcpSources {
++    owner: Arc<()>,
++    options: StartThreadOptions,
++    environment_manager: Arc<EnvironmentManager>,
++    environments: Vec<(String, Arc<Environment>)>,
++    selection_origin: SelectionOrigin,
++    binding: Arc<McpBinding>,
++}
++
++enum SelectionOrigin {
++    Explicit,
++    Default,
++}
++
++impl PreSessionMcpSources {
++    /// The actual retained ordinary inputs, including dynamic Tools/Knowledge.
++    pub fn start_options(&self) -> &StartThreadOptions {
++        &self.options
++    }
++
++    pub fn binding(&self) -> &Arc<McpBinding> {
++        &self.binding
++    }
++
++    pub(crate) fn into_start_options(self) -> StartThreadOptions {
++        self.options
++    }
++}
++
++#[derive(Debug, thiserror::Error, Eq, PartialEq)]
++pub enum PreSessionMcpError {
++    #[error("MCP preparation requires fresh, non-inherited native start inputs")]
++    RequiresFreshInputs,
++    #[error("configured MCP, Apps or plugin sources require unresolved inventory")]
++    ConfiguredSources,
++    #[error("selected capability roots require unresolved inventory")]
++    SelectedCapabilities,
++    #[error("selected environment {0} is unavailable or requires discovery")]
++    UnresolvedEnvironment(String),
++    #[error("MCP source registrations require unresolved inventory at {0:?}")]
++    UnresolvedContributors(Vec<usize>),
++    #[error("captured MCP source owner or selected environment changed")]
++    SourceOwnerChanged,
++}
++
++impl McpManager {
++    pub(crate) fn capture_pre_session_fresh_sources(
++        &self,
++        mut options: StartThreadOptions,
++        environment_manager: Arc<EnvironmentManager>,
++    ) -> Result<PreSessionMcpSources, PreSessionMcpError> {
++        if !matches!(&options.initial_history, InitialHistory::New)
++            || options.inherited_environments.is_some()
++            || options.internal_parent.is_some()
++        {
++            return Err(PreSessionMcpError::RequiresFreshInputs);
++        }
++        let config = &options.config;
++        if config.features.enabled(Feature::Apps)
++            || config.features.enabled(Feature::Plugins)
++            || !config.mcp_servers.get().is_empty()
++        {
++            return Err(PreSessionMcpError::ConfiguredSources);
++        }
++        let thread_roots = options
++            .thread_extension_init
++            .get::<Vec<SelectedCapabilityRoot>>();
++        if thread_roots
++            .as_deref()
++            .is_some_and(|roots| !roots.is_empty())
++        {
++            return Err(PreSessionMcpError::SelectedCapabilities);
++        }
++
++        // Resolve defaults with the same owner used by ordinary thread/start.
++        // Retaining Some prevents a later start from silently selecting new defaults.
++        let (selections, selection_origin) = match options.environments.take() {
++            Some(selections) => (selections, SelectionOrigin::Explicit),
++            None => (
++                default_thread_environment_selections(
++                    &environment_manager,
++                    &config.cwd,
++                    &config.workspace_roots,
++                ),
++                SelectionOrigin::Default,
++            ),
++        };
++        let mut environments = Vec::with_capacity(selections.len());
++        let mut seen = HashSet::with_capacity(selections.len());
++        for selection in &selections {
++            if !seen.insert(selection.environment_id.clone()) {
++                return Err(PreSessionMcpError::UnresolvedEnvironment(
++                    selection.environment_id.clone(),
++                ));
++            }
++            let environment = environment_manager
++                .get_environment(&selection.environment_id)
++                .filter(|environment| !environment.is_remote())
++                .ok_or_else(|| {
++                    PreSessionMcpError::UnresolvedEnvironment(selection.environment_id.clone())
++                })?;
++            match &selection.config {
++                EnvironmentConfigState::Pending | EnvironmentConfigState::Failed(_) => {
++                    return Err(PreSessionMcpError::UnresolvedEnvironment(
++                        selection.environment_id.clone(),
++                    ));
++                }
++                EnvironmentConfigState::Ready(config) => {
++                    if !config.selected_capability_roots.is_empty() {
++                        return Err(PreSessionMcpError::SelectedCapabilities);
++                    }
++                }
++                EnvironmentConfigState::FromThread => {
++                    if !environment.selected_capability_roots().is_empty() {
++                        return Err(PreSessionMcpError::SelectedCapabilities);
++                    }
++                }
++            }
++            environments.push((selection.environment_id.clone(), environment));
++        }
++
++        let overlays = self
++            .extensions
++            .pre_session_mcp_overlays(McpPreSessionContext::new(
++                config,
++                thread_roots
++                    .as_deref()
++                    .map(Vec::as_slice)
++                    .unwrap_or_default(),
++            ))
++            .map_err(PreSessionMcpError::UnresolvedContributors)?;
++        for (index, overlay) in overlays.into_iter().enumerate() {
++            match overlay {
++                McpPreSessionOverlay::NoContributions
++                | McpPreSessionOverlay::RemoveServer { .. } => {}
++                McpPreSessionOverlay::Unresolved => {
++                    return Err(PreSessionMcpError::UnresolvedContributors(vec![index]));
++                }
++            }
++        }
++
++        // All registered sources can only remove/omit servers, and the actual
++        // effective configuration above contains no server/plugin/Apps source.
++        // Reuse ordinary config construction; do not call plugin loading or an
++        // existing runtime's current_binding (which can start discovery).
++        let mcp_config = config
++            .to_mcp_config_with_loaded_plugins(&PluginLoadOutcome::default(), std::iter::empty());
++        if !mcp_config
++            .mcp_server_catalog
++            .configured_servers()
++            .is_empty()
++        {
++            return Err(PreSessionMcpError::ConfiguredSources);
++        }
++        let binding = Arc::new(McpBinding::empty(Arc::new(mcp_config)));
++        options.environments = Some(selections);
++        Ok(PreSessionMcpSources {
++            owner: Arc::clone(&self.pre_session_source_identity),
++            options,
++            environment_manager,
++            environments,
++            selection_origin,
++            binding,
++        })
++    }
++
++    pub(crate) fn validate_pre_session_sources(
++        &self,
++        sources: &PreSessionMcpSources,
++        environment_manager: &Arc<EnvironmentManager>,
++    ) -> Result<(), PreSessionMcpError> {
++        if !Arc::ptr_eq(&self.pre_session_source_identity, &sources.owner)
++            || !Arc::ptr_eq(environment_manager, &sources.environment_manager)
++        {
++            return Err(PreSessionMcpError::SourceOwnerChanged);
++        }
++        if matches!(sources.selection_origin, SelectionOrigin::Default)
++            && Some(default_thread_environment_selections(
++                environment_manager,
++                &sources.options.config.cwd,
++                &sources.options.config.workspace_roots,
++            ))
++            .as_ref()
++                != sources.options.environments.as_ref()
++        {
++            return Err(PreSessionMcpError::SourceOwnerChanged);
++        }
++        for (environment_id, environment) in &sources.environments {
++            if !environment_manager
++                .get_environment(environment_id)
++                .is_some_and(|current| Arc::ptr_eq(&current, environment))
++            {
++                return Err(PreSessionMcpError::SourceOwnerChanged);
++            }
++        }
++        Ok(())
++    }
++}
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index ba195d8..7e18529 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -240,6 +240,9 @@ pub struct ThreadManager {
+     _test_codex_home_guard: Option<TempCodexHomeGuard>,
+ }
+ 
++#[path = "thread_manager/pre_session_inputs.rs"]
++mod pre_session_inputs;
++
+ /// Captured parent identity for an internal child, including inline parents that
+ /// do not have a public entry in the thread manager. Authentication and the shared
+ /// agent budget remain bound to the parent that created this value.
+diff --git a/codex-rs/core/src/thread_manager/pre_session_inputs.rs b/codex-rs/core/src/thread_manager/pre_session_inputs.rs
+new file mode 100644
+index 0000000..c308dd9
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/pre_session_inputs.rs
+@@ -0,0 +1,45 @@
++use crate::PreSessionMcpError;
++use crate::PreSessionMcpSources;
++
++use super::StartThreadOptions;
++use super::ThreadManager;
++
++impl ThreadManager {
++    /// Retains a fresh ordinary start's inputs when the actual configuration,
++    /// registered sources and process-local environment owners establish MCP
++    /// absence. This neither starts a Session nor qualifies a prepared request.
++    pub fn capture_pre_session_mcp_sources(
++        &self,
++        options: StartThreadOptions,
++    ) -> Result<PreSessionMcpSources, PreSessionMcpError> {
++        self.state
++            .mcp_manager
++            .capture_pre_session_fresh_sources(options, self.state.environment_manager.clone())
++    }
++
++    /// Renews only this packet's registry/environment custody. Actual selected
++    /// configuration/source/account renewal and prepared admission remain
++    /// separate requirements before count association or any dispatch.
++    pub fn validate_pre_session_mcp_sources(
++        &self,
++        sources: &PreSessionMcpSources,
++    ) -> Result<(), PreSessionMcpError> {
++        self.state
++            .mcp_manager
++            .validate_pre_session_sources(sources, &self.state.environment_manager)
++    }
++
++    /// Returns the retained ordinary options, including the resolved original
++    /// environment selection. This restores inputs, not an execution permit.
++    pub fn release_pre_session_start_inputs(
++        &self,
++        sources: PreSessionMcpSources,
++    ) -> Result<StartThreadOptions, PreSessionMcpError> {
++        self.validate_pre_session_mcp_sources(&sources)?;
++        Ok(sources.into_start_options())
++    }
++}
++
++#[cfg(test)]
++#[path = "pre_session_inputs_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs b/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
+new file mode 100644
+index 0000000..a60da7c
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
+@@ -0,0 +1,314 @@
++use std::collections::HashMap;
++use std::sync::Arc;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++
++use codex_config::Constrained;
++use codex_exec_server::EnvironmentManager;
++use codex_extension_api::ExtensionRegistryBuilder;
++use codex_extension_api::McpPreSessionContext;
++use codex_extension_api::McpPreSessionOverlay;
++use codex_extension_api::McpServerContribution;
++use codex_extension_api::McpServerContributionContext;
++use codex_extension_api::McpServerContributor;
++use codex_features::Feature;
++use codex_history::InitialHistory;
++use codex_login::CodexAuth;
++use codex_protocol::capabilities::CapabilityRootLocation;
++use codex_protocol::capabilities::SelectedCapabilityRoot;
++use codex_protocol::dynamic_tools::DynamicToolFunctionSpec;
++use codex_protocol::dynamic_tools::DynamicToolSpec;
++use codex_protocol::protocol::EnvironmentConfigState;
++use codex_utils_path_uri::PathUri;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++
++use super::*;
++use crate::McpManager;
++use crate::config::Config;
++use crate::config::test_config;
++
++async fn config() -> Config {
++    let mut config = test_config().await;
++    config
++        .features
++        .disable(Feature::Apps)
++        .expect("Apps fixture");
++    config
++        .features
++        .disable(Feature::Plugins)
++        .expect("plugin fixture");
++    config.mcp_servers = Constrained::allow_any(HashMap::new());
++    config
++}
++
++fn manager(config: &Config) -> ThreadManager {
++    ThreadManager::with_models_provider_and_home_for_tests(
++        CodexAuth::from_api_key("offline-no-model-call"),
++        config.model_provider.clone(),
++        config.codex_home.to_path_buf(),
++        Arc::new(EnvironmentManager::default_for_tests()),
++    )
++}
++
++#[tokio::test]
++async fn fresh_capture_retains_ordinary_inputs_without_startup_or_default_reselection() {
++    let config = config().await;
++    let manager = manager(&config);
++    let mut created = manager.state.thread_created_tx.subscribe();
++    let mut options = StartThreadOptions::new(config.clone());
++    let tools = vec![DynamicToolSpec::Function(DynamicToolFunctionSpec {
++        name: "ReadKnowledge".to_string(),
++        description: "synthetic selected profile schema custody fixture".to_string(),
++        input_schema: json!({"type":"object","properties":{"query":{"type":"string"}}}),
++        defer_loading: true,
++    })];
++    options.dynamic_tools = tools.clone();
++    let selections = manager.default_environment_selections(&config.cwd, &config.workspace_roots);
++    let sources = manager
++        .capture_pre_session_mcp_sources(options)
++        .expect("closed sources");
++    assert!(!sources.binding().has_servers());
++    assert!(sources.binding().tools().is_empty());
++    assert!(
++        sources
++            .binding()
++            .config()
++            .mcp_server_catalog
++            .configured_servers()
++            .is_empty()
++    );
++    assert_eq!(&sources.start_options().dynamic_tools, &tools);
++    assert_eq!(
++        &sources.start_options().environments,
++        &Some(selections.clone())
++    );
++    assert_eq!(manager.state.threads.read().await.len(), 0);
++    assert!(matches!(
++        created.try_recv(),
++        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
++    ));
++    manager
++        .validate_pre_session_mcp_sources(&sources)
++        .expect("same owners");
++    let restored = manager
++        .release_pre_session_start_inputs(sources)
++        .expect("retained inputs");
++    assert_eq!(
++        (
++            restored.config.cwd,
++            restored.dynamic_tools,
++            restored.environments
++        ),
++        (config.cwd, tools, Some(selections))
++    );
++    assert!(matches!(restored.initial_history, InitialHistory::New));
++    assert_eq!(manager.state.threads.read().await.len(), 0);
++}
++
++#[tokio::test]
++async fn configured_or_selected_sources_refuse_instead_of_becoming_an_empty_binding() {
++    let config = config().await;
++    let manager = manager(&config);
++    for feature in [Feature::Apps, Feature::Plugins] {
++        let mut enabled = config.clone();
++        enabled.features.enable(feature).expect("enabled fixture");
++        assert_eq!(
++            manager
++                .capture_pre_session_mcp_sources(StartThreadOptions::new(enabled))
++                .err(),
++            Some(PreSessionMcpError::ConfiguredSources)
++        );
++    }
++    let mut configured = config.clone();
++    configured.mcp_servers = Constrained::allow_any(HashMap::from([(
++        "configured".to_string(),
++        codex_mcp::codex_apps_mcp_server_config(
++            "https://uncontacted.invalid",
++            /*apps_mcp_product_sku*/ None,
++            /*originator*/ None,
++        ),
++    )]));
++    assert_eq!(
++        manager
++            .capture_pre_session_mcp_sources(StartThreadOptions::new(configured))
++            .err(),
++        Some(PreSessionMcpError::ConfiguredSources)
++    );
++    let mut selected = StartThreadOptions::new(config.clone());
++    selected
++        .thread_extension_init
++        .insert(vec![SelectedCapabilityRoot {
++            id: "selected-root".to_string(),
++            location: CapabilityRootLocation::Environment {
++                environment_id: "local".to_string(),
++                path: PathUri::from_abs_path(&config.cwd),
++            },
++        }]);
++    assert_eq!(
++        manager.capture_pre_session_mcp_sources(selected).err(),
++        Some(PreSessionMcpError::SelectedCapabilities)
++    );
++    let mut inherited = StartThreadOptions::new(config);
++    inherited.initial_history = InitialHistory::Cleared;
++    assert_eq!(
++        manager.capture_pre_session_mcp_sources(inherited).err(),
++        Some(PreSessionMcpError::RequiresFreshInputs)
++    );
++    assert_eq!(manager.state.threads.read().await.len(), 0);
++}
++
++static PLAN_CALLS: AtomicUsize = AtomicUsize::new(0);
++
++fn observed_plan(_context: McpPreSessionContext<'_, Config>) -> McpPreSessionOverlay {
++    PLAN_CALLS.fetch_add(1, Ordering::SeqCst);
++    McpPreSessionOverlay::NoContributions
++}
++
++struct RuntimeSource(Arc<AtomicUsize>);
++
++impl McpServerContributor<Config> for RuntimeSource {
++    fn id(&self) -> &'static str {
++        "runtime-source"
++    }
++
++    fn contribute<'a>(
++        &'a self,
++        _context: McpServerContributionContext<'a, Config>,
++    ) -> codex_extension_api::ExtensionFuture<'a, Vec<McpServerContribution>> {
++        self.0.fetch_add(1, Ordering::SeqCst);
++        Box::pin(async { Vec::new() })
++    }
++}
++
++#[tokio::test]
++async fn unknown_registration_refuses_before_closed_plans_or_runtime_callbacks() {
++    let config = config().await;
++    let mut manager = manager(&config);
++    let calls = Arc::new(AtomicUsize::new(0));
++    let mut registry = ExtensionRegistryBuilder::new();
++    registry.mcp_server_contributor_with_pre_session_plan(
++        Arc::new(RuntimeSource(calls.clone())),
++        observed_plan,
++    );
++    registry.mcp_server_contributor(Arc::new(RuntimeSource(calls.clone())));
++    let state = Arc::get_mut(&mut manager.state).expect("unshared owner");
++    state.mcp_manager = Arc::new(McpManager::new_with_extensions(
++        state.plugins_manager.clone(),
++        Arc::new(registry.build()),
++        state.mcp_manager.codex_apps_tools_cache(),
++    ));
++    PLAN_CALLS.store(0, Ordering::SeqCst);
++    assert_eq!(
++        manager
++            .capture_pre_session_mcp_sources(StartThreadOptions::new(config))
++            .err(),
++        Some(PreSessionMcpError::UnresolvedContributors(vec![1]))
++    );
++    assert_eq!(
++        (
++            PLAN_CALLS.load(Ordering::SeqCst),
++            calls.load(Ordering::SeqCst)
++        ),
++        (0, 0)
++    );
++    assert_eq!(manager.state.threads.read().await.len(), 0);
++}
++
++#[tokio::test]
++async fn unresolved_and_duplicate_environments_refuse_and_replaced_owners_invalidate() {
++    let config = config().await;
++    let mut manager = manager(&config);
++    let selections = manager.default_environment_selections(&config.cwd, &config.workspace_roots);
++    for state in [
++        EnvironmentConfigState::Pending,
++        EnvironmentConfigState::Failed("unavailable".into()),
++    ] {
++        let mut selected = selections.clone();
++        selected[0].config = state;
++        let mut options = StartThreadOptions::new(config.clone());
++        options.environments = Some(selected);
++        assert_eq!(
++            manager.capture_pre_session_mcp_sources(options).err(),
++            Some(PreSessionMcpError::UnresolvedEnvironment("local".into()))
++        );
++    }
++    let mut duplicate = StartThreadOptions::new(config.clone());
++    duplicate.environments = Some([selections.clone(), selections].concat());
++    assert_eq!(
++        manager.capture_pre_session_mcp_sources(duplicate).err(),
++        Some(PreSessionMcpError::UnresolvedEnvironment("local".into()))
++    );
++    let capture = manager
++        .capture_pre_session_mcp_sources(StartThreadOptions::new(config.clone()))
++        .expect("closed source");
++    let state = Arc::get_mut(&mut manager.state).expect("unshared owner");
++    state.mcp_manager = Arc::new(McpManager::new(state.plugins_manager.clone()));
++    assert_eq!(
++        manager.validate_pre_session_mcp_sources(&capture),
++        Err(PreSessionMcpError::SourceOwnerChanged)
++    );
++    let capture = manager
++        .capture_pre_session_mcp_sources(StartThreadOptions::new(config))
++        .expect("closed source");
++    Arc::get_mut(&mut manager.state)
++        .expect("unshared owner")
++        .environment_manager = Arc::new(EnvironmentManager::default_for_tests());
++    assert_eq!(
++        manager.validate_pre_session_mcp_sources(&capture),
++        Err(PreSessionMcpError::SourceOwnerChanged)
++    );
++}
++
++struct DormantRemote(Arc<AtomicUsize>);
++
++impl codex_exec_server::NoiseRendezvousConnectProvider for DormantRemote {
++    fn connect_bundle(
++        &self,
++        _: codex_exec_server::NoiseChannelPublicKey,
++    ) -> futures::future::BoxFuture<
++        '_,
++        Result<codex_exec_server::NoiseRendezvousConnectBundle, codex_exec_server::ExecServerError>,
++    > {
++        self.0.fetch_add(1, Ordering::SeqCst);
++        Box::pin(futures::future::pending())
++    }
++}
++
++#[tokio::test]
++async fn new_default_or_selected_remote_refuses_without_starting_its_provider() {
++    let config = config().await;
++    let manager = manager(&config);
++    let sources = manager
++        .capture_pre_session_mcp_sources(StartThreadOptions::new(config.clone()))
++        .expect("original local source");
++    let calls = Arc::new(AtomicUsize::new(0));
++    manager
++        .state
++        .environment_manager
++        .materialize_pending_noise_environment(
++            "remote".to_string(),
++            Arc::new(DormantRemote(calls.clone())),
++        )
++        .expect("dormant remote fixture");
++    assert_eq!(
++        manager.validate_pre_session_mcp_sources(&sources),
++        Err(PreSessionMcpError::SourceOwnerChanged)
++    );
++    let mut remote = sources
++        .start_options()
++        .environments
++        .clone()
++        .expect("resolved selection");
++    remote[0].environment_id = "remote".to_string();
++    let mut options = StartThreadOptions::new(config);
++    options.environments = Some(remote);
++    assert_eq!(
++        manager.capture_pre_session_mcp_sources(options).err(),
++        Some(PreSessionMcpError::UnresolvedEnvironment(
++            "remote".to_string()
++        ))
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert_eq!(manager.state.threads.read().await.len(), 0);
++}
+-- 
+2.54.0 (Apple Git-157)
+

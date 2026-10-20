@@ -1,0 +1,136 @@
+{
+  "observedAt": "2026-10-20T01:38:34.592875+00:00",
+  "run": 39345244430,
+  "attempt": 1,
+  "platform": "ubuntu-24.04",
+  "job": 118376147716,
+  "result": "success",
+  "source": {
+    "publishedHead": "07014d87b97a1faf012817d6ffcc6a94a383fe96",
+    "publishedTree": "ec77d838d55fa28506cd17762d1d8638c527a487",
+    "actualCheckout": "860744dd44adbb569cfd81bf7cd1b6a742431f04",
+    "actualCheckoutTree": "ec77d838d55fa28506cd17762d1d8638c527a487",
+    "actualCheckoutParents": [
+      "0fd922430b1452d706f361bfde72a47eea584bda",
+      "07014d87b97a1faf012817d6ffcc6a94a383fe96"
+    ],
+    "upstream": "a956835d020762cb2b570053af06f643a11c0ecc",
+    "nativeCommit": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+    "nativeTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
+    "patches": 60,
+    "artifactProofByteExactToPublished": true
+  },
+  "results": {
+    "passed": 6142,
+    "failed": 0,
+    "nextestSkipped": 11,
+    "seconds": 2584.389,
+    "binaries": 28,
+    "junit": {
+      "name": "nextest-run",
+      "tests": "6142",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "uuid": "26c46360-4f92-40cb-abe8-7a97d5bd1377",
+      "timestamp": "2026-10-20T00:52:09.224+00:00",
+      "time": "2584.389"
+    },
+    "skipAccounting": "Nextest summary includes11 skipped; JUnit reports0 because it contains executed cases only. Retain overall exclusions.",
+    "namedNew55to60Cases": [
+      {
+        "name": "thread_manager::pre_session_inputs::tests::fresh_capture_retains_ordinary_inputs_without_startup_or_default_reselection",
+        "suite": "codex-core",
+        "result": "PASS",
+        "seconds": "0.032"
+      },
+      {
+        "name": "thread_manager::pre_session_inputs::tests::configured_or_selected_sources_refuse_instead_of_becoming_an_empty_binding",
+        "suite": "codex-core",
+        "result": "PASS",
+        "seconds": "0.031"
+      },
+      {
+        "name": "thread_manager::pre_session_inputs::tests::unknown_registration_refuses_before_closed_plans_or_runtime_callbacks",
+        "suite": "codex-core",
+        "result": "PASS",
+        "seconds": "0.032"
+      },
+      {
+        "name": "thread_manager::pre_session_inputs::tests::unresolved_and_duplicate_environments_refuse_and_replaced_owners_invalidate",
+        "suite": "codex-core",
+        "result": "PASS",
+        "seconds": "0.034"
+      },
+      {
+        "name": "thread_manager::pre_session_inputs::tests::new_default_or_selected_remote_refuses_without_starting_its_provider",
+        "suite": "codex-core",
+        "result": "PASS",
+        "seconds": "0.036"
+      },
+      {
+        "name": "closed_registration_owns_ordinary_metadata_instead_of_an_empty_inventory_promise",
+        "suite": "codex-extension-api::pre_session_mcp",
+        "result": "PASS",
+        "seconds": "0.006"
+      },
+      {
+        "name": "tests::installed_sources_share_closed_absence_and_refuse_enabled_discovery",
+        "suite": "codex-mcp-extension",
+        "result": "PASS",
+        "seconds": "0.022"
+      },
+      {
+        "name": "auth::default_client::single_attempt_transport::tests::single_attempt_factory_offline_cases",
+        "suite": "codex-login",
+        "result": "PASS",
+        "seconds": "0.300"
+      },
+      {
+        "name": "config_plan_owns_ordinary_absence_and_renews_without_runtime_callbacks",
+        "suite": "codex-extension-api::pre_session_tools",
+        "result": "PASS",
+        "seconds": "0.006"
+      },
+      {
+        "name": "missing_tool_plan_preflights_before_any_closed_plan_or_runtime_callback",
+        "suite": "codex-extension-api::pre_session_tools",
+        "result": "PASS",
+        "seconds": "0.006"
+      },
+      {
+        "name": "tests::installed_memory_source_declares_only_config_proven_tool_absence",
+        "suite": "codex-memories-extension",
+        "result": "PASS",
+        "seconds": "0.016"
+      },
+      {
+        "name": "extension::tests::ordinary_and_pre_session_tool_selection_preserve_disabled_web_mode",
+        "suite": "codex-web-search-extension",
+        "result": "PASS",
+        "seconds": "0.008"
+      }
+    ],
+    "namedCaseCount": 12,
+    "factoryCounting": "single_attempt_factory_offline_cases is one driver test. Internal subprocess scenarios/helper names are not counted as additional independent tests.",
+    "formatting": "PASS",
+    "sourceReconstruction": "PASS"
+  },
+  "evidence": {
+    "jobLog": {
+      "path": "job-118376147716.log",
+      "sha256": "e8ba29c153e73711c527ba4d269dcd70c2454aed4bf551f52efbbca570f3aae4",
+      "bytes": 1362350
+    },
+    "artifact": {
+      "id": 12234188065,
+      "sha256": "f407a6ce22ae3bd734614d83dc934730ede736e54b8ba60b94004c8a92abc4ca",
+      "digestMatchesActionsUpload": true
+    },
+    "junitSHA256": "aefc14d830a1c43732f42d6427986a5198579ed3c5eca0d9ba1ee1610a31de26",
+    "sourceEvidenceSHA256": "f6a457a6c668d03f3dc5d9baacb827acfc405b2b6cfe8279b51ceb0929691718"
+  },
+  "qualification": "Independently qualifies Linux native60 source-bound input/closed-source/config-selection/ordinary-single-attempt-factory fixtures, including12 new named cases. Not complete Core/MCP/production inventory, source/instruction/account/route/model-limit/request/count/consume authority, installed runtime or actual application joining/delivery/replies.",
+  "otherSources": "macOS native60 is still pending at this receipt. Native70/73/76 require their own qualification. Platform/source totals overlap and must not be summed; published head070 remains the source even after accepted-main/stack-base advances.",
+  "independentActivity": "Download/read existing terminal Linux logs/JUnit/artifact/proof and exact checkout Git metadata only. No new test, Rust build, retry, dispatch, model/provider call or deployment."
+}

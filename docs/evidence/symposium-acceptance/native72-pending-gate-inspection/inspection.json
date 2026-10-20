@@ -1,0 +1,59 @@
+{
+  "observedAt": "2026-10-20T01:04:49.351197+00:00",
+  "commit": "9a68030f69bc95951822cfefc09053f3292aed14",
+  "tree": "9525ae95ae5b0b8bfe6458721e4a67b1d9538d32",
+  "parent": "a156fb9b0368681a3c5635d71aade56410c83ea3",
+  "sourceHashes": {
+    "codex-rs/state/migrations/0062_prepared_request_effects.sql": "ae3ace8d034a673cc2cb16384677d22fbdd8a37d0f83e4ccb6de82b7d1b6dbc5",
+    "codex-rs/state/src/lib.rs": "85f5fde28c12dfc3a344b14c8ef7dbbcf96af261c3757d8ab1c6600ce604bcaa",
+    "codex-rs/state/src/runtime.rs": "5e1c439432792039e73436611f44c59c428e72e5686fc97ac4f65e2ce202d786",
+    "codex-rs/state/src/runtime/prepared_request_attempts.rs": "160b68f487703d46d43e6493c6b3481e85c6182d13a9591e02aa628ea6efccca",
+    "codex-rs/state/src/runtime/prepared_request_attempts_tests.rs": "dca33bbd71b05e01cefe134cb9b94ae93450df71bbd6cc74c42ae18f1d43a017",
+    "codex-rs/state/src/runtime/prepared_request_effects.rs": "6c648c53c9bcea5f79f8351d9816deb049d89ed8dbb8ecfd84845501d189b109",
+    "codex-rs/state/src/runtime/prepared_request_effects_tests.rs": "1e07a25f5eea9bde935176471427339340347a45a06ef45111113b59db4d7e8e",
+    "codex-rs/state/src/runtime/prepared_request_sampling.rs": "dfbc05d6525af7995a29190b5bef3218d8db5beb74d39bfeffe44b72bd1926eb",
+    "codex-rs/state/src/runtime/prepared_requests.rs": "3e161ea5a3475dc822c085426e8564cca740497d1d9b01cb4bc033b6f4613da4",
+    "codex-rs/state/src/runtime/prepared_requests_tests.rs": "d7146ef2a67f11317202706bd9898eb6dc340425cc5f9f0ae797428ff0a44a86",
+    "codex-rs/state/migrations/0059_prepared_requests.sql": "575c907e93d768c991652c972c6d7111ec86b866f74638fadcfd207cccf817fe",
+    "codex-rs/state/migrations/0060_prepared_request_attempts.sql": "3b17324fcfc367c36b1deab24667e277e380c686a6935364e2937cadf3bb3dab",
+    "codex-rs/state/migrations/0061_prepared_request_sampling.sql": "444c74d8a398f7f02c84e042084520b7d0fda88ae66c6b3951f06cc1048ef1ea",
+    "codex-rs/state/src/runtime/prepared_request_sampling_tests.rs": "0f351de84b21fb1791c0b3c5183a1822f5232d6e0932d07edbc86db2a3d10e7d"
+  },
+  "scope": "Existing StateRuntime persistence primitive only; no retrospective host proof, native64 guarded CAS, actual private RPC/production caller or application qualification.",
+  "sourceFindings": [
+    "Migration62 adds effect_state to existing prepared_requests ledger; prior59-61 bytes unchanged. Ordinary default preserves old committed/legacy uncertainty. New nonordinary states require consumed+committed; initial-insert, irreversible-transition, receipt, sampling and retention triggers fence pending/refused rows.",
+    "Pending token has private fields, no Clone/serialization and actual Arc pool ownership; contains exact record+private nonce. Ordinary commit path remains separate. Reads/restart expose data, not a reconstruction API for the move-only pending token.",
+    "Release validates actual pool identity, full retained record equality and nonce under BEGIN IMMEDIATE, then CASes pending->released and returns existing executable Attempt only after commit. Failure consumes token; a released/lost handoff remains consumed uncertainty.",
+    "Close serializes on the same ledger: pending->refused_before_effects is irreversible, retains committed+consumed state and excludes late release. Already refused repeats refuse; released/ordinary committed stay AttemptAlreadyCommitted; legacy stays PriorAttemptUncertain.",
+    "Receipt API gates effect state before either root native ACK, continuation-owner alias or provider receipt update; SQL independently fences receipt columns for pending/refused. Sampling consumption validates predecessor effect state under same transaction and migration adds a SQL continuation-consumption fence.",
+    "Existing immutable request/measurement/nonce and retention/receipt constraints still apply. Existing pre60 migration fixture upgrades through current migrations and exercises legacy receipt/recovery behavior, but no execution result exists for source72.",
+    "Search found no production gate caller or new external PreparedRequestRecord struct literal/closure match needing an inferred successful compilation. Async StateRuntime methods are not yet the required synchronous credential-guarded native CAS."
+  ],
+  "authoredFixturesNotExecuted": [
+    "pending_claim_cannot_acknowledge_and_refusal_survives_restart",
+    "release_and_cancellation_have_one_durable_winner",
+    "pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain"
+  ],
+  "openQualificationFindings": [
+    {
+      "id": "C72-release-positive",
+      "problem": "No new fixture deterministically requires valid same-pool release success. Every race iteration may close first; an always-refusing release could satisfy all assertions.",
+      "requestedCoreFix": "Forced release-first positive with real Attempt, later AttemptAlreadyCommitted close, valid exact ACK/provider receipt and consumed/released restart persistence. Existing close-first path supplies opposite outcome.",
+      "status": "Sent directly to core before executable/publication qualification."
+    },
+    {
+      "id": "C72-continuation-alias",
+      "problem": "None of three new fixtures creates a sampling binding. New pending/refused continuation API/SQL aliases are inspected at source but not exercised by those assertions.",
+      "requestedCoreFix": "Actual-owner pending/refused predecessor continuation refusal through API/direct SQL alias, plus released predecessor continuation positive using existing StateRuntime sampling helpers.",
+      "status": "Sent directly to core; no duplicate C campaign."
+    }
+  ],
+  "prospectiveRequiredProof": [
+    "Original canonical monotonic revisions/ABA and exact private one-use operation/sample/request/witness/attempt/custody proof at retrospective R.",
+    "Production no-effect gate across every admission/queue/transport/ACK/receipt/continuation alias and ordinary Stop/cancel/timeout.",
+    "Actual synchronous guarded native CAS without auth lock across host RPC; no returned future/epoch as authority.",
+    "Crash/escaped handoff remains consumed uncertainty unless durable pending/refusal provides affirmative no-effect proof in actual composition."
+  ],
+  "independentActivity": "Immutable source/migration/caller/assertion/whitespace inspection only; no C Rust compilation/tests, SQLite experiment, model/provider call or new campaign.",
+  "acceptance": "Ledger source fences appear consistent within bounded primitive scope; executable qualification HELD for identified fixture gaps and absent Rust execution. Not host/native ordering, complete request/count/consume or application acceptance."
+}

@@ -1,0 +1,141 @@
+{
+  "observedAt": "2026-10-20T04:01:01.323350+00:00",
+  "run": 39357179342,
+  "attempt": 1,
+  "job": 118414639835,
+  "platform": "macos-26",
+  "jobConclusion": "failure",
+  "source": {
+    "publishedHead": "dd5edbd2799885760ae2df9e5eaaf62bff590c92",
+    "publishedTree": "e07d1ba85c086b31897a50d1331dce7131623e7e",
+    "actualCheckout": "d46aaeebe7d9dd2dfa145c6fcc71b9ba860b994a",
+    "actualCheckoutTree": "e07d1ba85c086b31897a50d1331dce7131623e7e",
+    "actualCheckoutParents": [
+      "5bdbce1b02266e92967441f0ef57d323ed992650",
+      "dd5edbd2799885760ae2df9e5eaaf62bff590c92"
+    ],
+    "nativeCommit": "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
+    "nativeTree": "61df68bdcee6a1939367e2ed54e61082d4ef3241",
+    "patches": 77,
+    "artifactSourceProofByteExact": true
+  },
+  "results": {
+    "executed": 5984,
+    "passed": 5983,
+    "failed": 1,
+    "nextestSkipped": 27,
+    "seconds": 2288.914,
+    "junit": {
+      "name": "nextest-run",
+      "tests": "5984",
+      "skipped": "0",
+      "failures": "1",
+      "errors": "0",
+      "uuid": "0999ce5b-3f60-439f-8f9b-9346e8d9ad21",
+      "timestamp": "2026-10-20T03:08:36.719+00:00",
+      "time": "2288.914"
+    },
+    "namedCases": [
+      {
+        "suite": "codex-history-notes-extension::history_notes_extension",
+        "name": "disabled_history_notes_capture_tracks_ordinary_configuration",
+        "result": "PASS",
+        "seconds": "0.316"
+      },
+      {
+        "suite": "codex-goal-extension::goal_extension_backend",
+        "name": "disabled_goal_capture_tracks_ordinary_configuration",
+        "result": "PASS",
+        "seconds": "0.106"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::effects::pending_claim_cannot_acknowledge_and_refusal_survives_restart",
+        "result": "PASS",
+        "seconds": "0.226"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::effects::release_and_cancellation_have_one_durable_winner",
+        "result": "PASS",
+        "seconds": "1.448"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::effects::pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain",
+        "result": "FAIL",
+        "seconds": "0.261"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::effects::forced_release_preserves_executable_handoff_and_restart_uncertainty",
+        "result": "PASS",
+        "seconds": "0.218"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::effects::continuation_requires_released_predecessor_and_original_acceptance",
+        "result": "PASS",
+        "seconds": "0.392"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::guarded_commit::guarded_commit_denial_rolls_back_and_success_is_durable_before_guard_returns",
+        "result": "PASS",
+        "seconds": "0.183"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::guarded_commit::guard_response_loss_after_commit_cannot_release_or_replay_claim",
+        "result": "PASS",
+        "seconds": "0.131"
+      },
+      {
+        "suite": "codex-state",
+        "name": "runtime::prepared_requests::tests::guarded_commit::guarded_commit_rolls_back_partial_update_and_rejects_another_claim",
+        "result": "PASS",
+        "seconds": "0.201"
+      },
+      {
+        "suite": "codex-core",
+        "name": "client::prepared_api_claim::tests::ordinary_credential_owner_guards_real_pending_cas_and_logout_refuses",
+        "result": "PASS",
+        "seconds": "0.125"
+      },
+      {
+        "suite": "codex-core",
+        "name": "client::prepared_api_claim::tests::ordinary_logout_races_actual_guarded_claim_without_future_escape",
+        "result": "PASS",
+        "seconds": "0.333"
+      }
+    ],
+    "sourceReconstruction": "success",
+    "formatting": "skipped",
+    "skipAccounting": "JUnit contains executed tests only; nextest exclusions retained separately. Platform/source totals overlap and are not summed."
+  },
+  "evidence": {
+    "artifactId": 12239755442,
+    "artifactZIPDigest": "18c0483a3c9f627350c3301d380c9cc425dbebba9c31bf55b12b875ff7860e37",
+    "digestMatchesActions": true,
+    "artifactSourceProofByteExact": true,
+    "sourceProofSHA256": "67bcb06dc453c64b8357255ac5458d2d2a8bebaa9086db3cafa60214cd4933ef",
+    "junitSHA256": "38a14729a6e7ca074b982a520452d6eed8b5b2654b3437cf89e052d41a0aaaa8",
+    "jobLogSHA256": "6f447a9353540fb89beffe2cbdd8e889a5c8b0b6a4af1782cf5394b31a6f3ac7",
+    "jobMetadataSHA256": "89a9a28c54e2fb4d48f0cd2d4ba70cfe733c332fd3945bfb3e2e7a6a718f190f"
+  },
+  "independentActivity": "Read/download existing CI artifacts and immutable source only. No new tests/builds/model/provider/dispatch/retry/cancel/review campaign.",
+  "diagnostic": {
+    "test": "runtime::prepared_requests::tests::effects::pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain",
+    "suite": "codex-state",
+    "sourceLocation": "state/src/runtime/prepared_request_effects_tests.rs:375:14",
+    "message": "Result::unwrap on SQLite2067 UNIQUE constraint failed: index prepared_requests_consumed_command_root",
+    "sourceInference": "One request() outside loop uses application_scope_id=session and command_id=command for BOTH independent pending and ordinary roots. First pending refusal intentionally remains consumed; second root consumption collides with actual unique(application_scope_id,command_id) WHERE consumed=1 AND no predecessor. Inference from immutable fixture+SQL, not a log that names operation.",
+    "ownerAction": "Core owns minimal distinct-command fixture correction, retaining pending pool-local rejection/irreversible refusal and ordinary uncertainty assertions. Do not relax guard/index/consumption tombstone or blanket rerun.",
+    "sourceHashes": {
+      "codex-rs/state/src/runtime/prepared_request_effects_tests.rs": "4cc05fc92cd36dc93f14aef52e8aa81f50d36b0a4124d0672c4d7a94f26439a9",
+      "codex-rs/state/src/runtime/prepared_requests_tests.rs": "1b2b8dac957615978b7062eb2ea9bc60e73a08ffc800a0e9c2aa9c2bd84c191c",
+      "codex-rs/state/migrations/0061_prepared_request_sampling.sql": "444c74d8a398f7f02c84e042084520b7d0fda88ae66c6b3951f06cc1048ef1ea"
+    }
+  },
+  "qualification": "Original native77 terminal FAILURE on macOS, same pending-custody fixture SQLite2067 UNIQUE at line375 as Linux. Other11of12 new71\u201376 cases PASS. Selected targets compiled; fmt skipped. No overall native77 qualification. The46df/native79 source correction and its fresh existing CI remain separate."
+}

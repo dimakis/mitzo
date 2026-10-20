@@ -1,0 +1,70 @@
+{
+  "observedAt": "2026-10-20T01:09:10.160953+00:00",
+  "published": {
+    "pr": 1062,
+    "head": "5bdbce1b02266e92967441f0ef57d323ed992650",
+    "tree": "64f41d948d23a4ef1fff1f18c47e91bd236b992c",
+    "basePr": 1061,
+    "baseHead": "691af045d5dfd8ac99904f85a5f530ef8721f892",
+    "githubHeadVerification": "Exact GitHub PR head verified"
+  },
+  "native": {
+    "commit": "311b9ae9c07874d9ff5964e95629e057f337dd9d",
+    "tree": "9e17d7d58b5a2e264520c9b923567c8789a1c123",
+    "patchesHashed": 73,
+    "prior70EntriesOrderAndBytesUnchanged": true,
+    "manifestMatchesActualNativeGitTree": true,
+    "reconstruction": "Producer PASS reported; C did not rerun. Exact-source CI must reconstruct and execute independently."
+  },
+  "cEvidence": {
+    "original": "264ec3ff2edf7df3dab6a276e3fafe3384ade8b2",
+    "adoptedAlias": "50de568b",
+    "fivePublishedPathsByteExact": true,
+    "hashes": {
+      "docs/evidence/symposium-acceptance/native54-independent-ci/linux-qualification.json": "3bb1b632e79729b44f1e46817e57869954baf1df3010848b3fc4e672aaa16e45",
+      "docs/evidence/symposium-acceptance/native54-independent-ci/mac-qualification.json": "df022f08a698b0d42034c820cc8e1747aa170d73782f0bb806321cf5541bd4e6",
+      "docs/evidence/symposium-acceptance/native54-independent-ci/qualification.json": "63a9b6785dd6200d32e49d039084f5e464ddc5338a25eb332bb4ba34533155af",
+      "docs/evidence/symposium-acceptance/native70-publication/verification.json": "572269a40b6a748151cccbfed594321ba5bcc35cf9d0a62629d06aed835dc5b9",
+      "docs/evidence/symposium-integration-acceptance.md": "f706fb033b3c7a67f5bd1241fcb1c166b661c64cc304244ba9793a66ecad9c49"
+    }
+  },
+  "workflow": {
+    "newPackages": ["codex-history-notes-extension", "codex-goal-extension"],
+    "bothOSFixturesAndFormattingIncludeBoth": true,
+    "allPriorPackagesRetained": true,
+    "worker": 1,
+    "retries": 0,
+    "goalIntegrationTarget": "Existing auto-discovered tests/goal_extension_backend.rs remains enabled despite lib test=false; no autotests=false in package. Actual execution still pending.",
+    "sha256": "9ca5b2e4cfeb85370752526876af72d5ae5013cfa72cafdda9605e39491645a9"
+  },
+  "requiredNewNamedFixtures": [
+    "disabled_history_notes_capture_tracks_ordinary_configuration",
+    "disabled_goal_capture_tracks_ordinary_configuration",
+    "pending_claim_cannot_acknowledge_and_refusal_survives_restart",
+    "release_and_cancellation_have_one_durable_winner",
+    "pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain",
+    "forced_release_preserves_executable_handoff_and_restart_uncertainty",
+    "continuation_requires_released_predecessor_and_original_acceptance"
+  ],
+  "sourceInspectionContinuity": {
+    "71": "../native71-notes-goals-inspection/inspection.json",
+    "72": "../native72-pending-gate-inspection/inspection.json",
+    "73": "../native73-gate-fixture-correction/inspection.json",
+    "findings": "Both72 fixture gaps closed in73 at assertion level; original diagnostics unchanged. No native execution qualification."
+  },
+  "contract": "Documents conditional C/R original canonical monotonic revisions including ABA, exact private operation/sample/request/witness/custody proof, withheld effect gate, immutable refusal, consumed uncertainty, actual synchronous native CAS and no auth lock across host RPC. Replaces consumption-refuses phrasing with no executable right under the separately scoped pending claim. Explicitly states primitive alone does not supply R/custody/guarded CAS or production admission; documentation is not implementation proof.",
+  "ci": {
+    "native": 39351558521,
+    "host": 39351559251,
+    "authCompileOnly": 39351558611,
+    "state": "Existing jobs started; no independent execution qualification or stacked final review approval."
+  },
+  "producerReported": {
+    "hostPass": 38,
+    "files": 2,
+    "localRustExecution": false,
+    "receiptSHA256": "7252efe6ed584f2588ce873ad1cf3ba4a5177d944c8f09dfa12885f387207d43"
+  },
+  "independentActivity": "Immutable source/patch/C-doc/package/workflow/contract provenance inspection only; no Rust compile/test/model/provider/reconstruction rerun or new campaign.",
+  "acceptance": "Source/publication checkpoint only. Genuine hostR/originalrevision ABA, private RPC, actual native guarded CAS, full request/account/route/headers/model-limit/count/consume and application joining/delivery/replies remain open."
+}

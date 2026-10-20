@@ -1,0 +1,344 @@
+From d94560ee6252824e060d32a5e1ec740f28846ace Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 01:24:17 +0100
+Subject: [PATCH] refactor(core): construct collaboration tools from resolved
+ metadata
+
+---
+ codex-rs/core/src/tools/spec_plan.rs          | 126 +++------------
+ .../core/src/tools/spec_plan/collaboration.rs | 147 ++++++++++++++++++
+ 2 files changed, 167 insertions(+), 106 deletions(-)
+ create mode 100644 codex-rs/core/src/tools/spec_plan/collaboration.rs
+
+diff --git a/codex-rs/core/src/tools/spec_plan.rs b/codex-rs/core/src/tools/spec_plan.rs
+index f5599da..b1fa717 100644
+--- a/codex-rs/core/src/tools/spec_plan.rs
++++ b/codex-rs/core/src/tools/spec_plan.rs
+@@ -1,3 +1,4 @@
++mod collaboration;
+ mod shell_and_resources;
+ mod utility;
+ 
+@@ -14,27 +15,16 @@ use crate::tools::handlers::CodeModeWaitHandler;
+ use crate::tools::handlers::DynamicToolHandler;
+ use crate::tools::handlers::ToolSearchHandlerCache;
+ use crate::tools::handlers::extension_tools::ExtensionToolAdapter;
+-use crate::tools::handlers::multi_agents::CloseAgentHandler;
+-use crate::tools::handlers::multi_agents::ResumeAgentHandler;
+-use crate::tools::handlers::multi_agents::SendInputHandler;
+ use crate::tools::handlers::multi_agents::SpawnAgentHandler;
+ use crate::tools::handlers::multi_agents::WaitAgentHandler;
+ use crate::tools::handlers::multi_agents_common::DEFAULT_WAIT_TIMEOUT_MS;
+ use crate::tools::handlers::multi_agents_common::MAX_WAIT_TIMEOUT_MS;
+ use crate::tools::handlers::multi_agents_common::MIN_WAIT_TIMEOUT_MS;
+ use crate::tools::handlers::multi_agents_spec::MULTI_AGENT_V1_NAMESPACE;
+-use crate::tools::handlers::multi_agents_spec::SpawnAgentToolOptions;
+ use crate::tools::handlers::multi_agents_spec::WaitAgentTimeoutOptions;
+-use crate::tools::handlers::multi_agents_v2::FollowupTaskHandler as FollowupTaskHandlerV2;
+-use crate::tools::handlers::multi_agents_v2::InterruptAgentHandler;
+-use crate::tools::handlers::multi_agents_v2::ListAgentsHandler as ListAgentsHandlerV2;
+-use crate::tools::handlers::multi_agents_v2::SendMessageHandler as SendMessageHandlerV2;
+-use crate::tools::handlers::multi_agents_v2::SpawnAgentHandler as SpawnAgentHandlerV2;
+-use crate::tools::handlers::multi_agents_v2::WaitAgentHandler as WaitAgentHandlerV2;
+ use crate::tools::handlers::tool_search_spec::ToolSearchSourceListing;
+ use crate::tools::hosted_spec::WebSearchToolOptions;
+ use crate::tools::hosted_spec::create_web_search_tool;
+-use crate::tools::multi_agent_tool::multi_agent_v2_handler;
+ #[cfg(test)]
+ use crate::tools::registry::RegisteredTool;
+ use crate::tools::registry::ToolExposure;
+@@ -1057,9 +1047,6 @@ fn add_collaboration_tools_with_role_resolver(
+     let turn_context = context.turn_context;
+     if collab_tools_enabled(turn_context, context.model_info) {
+         if multi_agent_v2_enabled(turn_context) {
+-            let model_messages = ResolvedModelMessages::from_model(context.model_info);
+-            let spawn_agent_description =
+-                model_messages.multi_agent_tool_description_override("spawn_agent");
+             let exposure = if turn_context.config.multi_agent_v2.non_code_mode_only {
+                 ToolExposure::DirectModelOnly
+             } else {
+@@ -1071,85 +1058,18 @@ fn add_collaboration_tools_with_role_resolver(
+             let roles = resolve_roles();
+             let agent_type_description =
+                 agent_type_description(&roles, context.default_agent_type_description);
+-            let hide_spawn_agent_metadata =
+-                turn_context.config.multi_agent_v2.hide_spawn_agent_metadata;
+-            registry.register_trusted_with_exposure(
+-                multi_agent_v2_handler(
+-                    SpawnAgentHandlerV2::new(
+-                        SpawnAgentToolOptions {
+-                            available_models: turn_context.available_models.clone(),
+-                            agent_type_description,
+-                            expose_agent_type: !turn_context.config.agent_roles.is_empty(),
+-                            hide_agent_type_model_reasoning: hide_spawn_agent_metadata,
+-                            expose_spawn_agent_model_overrides: turn_context
+-                                .config
+-                                .multi_agent_v2
+-                                .expose_spawn_agent_model_overrides,
+-                            multi_agent_version: turn_context.multi_agent_version,
+-                            usage_hint_text: turn_context
+-                                .config
+-                                .multi_agent_v2
+-                                .usage_hint_text
+-                                .clone(),
+-                        },
+-                        spawn_agent_description.map(str::to_owned),
+-                    ),
+-                    tool_namespace,
+-                    // Spawn composes the selected description with runtime model and usage guidance.
+-                    /*description_override*/
+-                    None,
+-                    model_messages.multi_agent_tool_parameters_override("spawn_agent"),
+-                ),
+-                exposure,
+-            );
+-            if !turn_context.config.multi_agent_v2.disable_direct_message {
+-                registry.register_trusted_with_exposure(
+-                    multi_agent_v2_handler(
+-                        SendMessageHandlerV2,
+-                        tool_namespace,
+-                        model_messages.multi_agent_tool_description_override("send_message"),
+-                        model_messages.multi_agent_tool_parameters_override("send_message"),
+-                    ),
+-                    exposure,
+-                );
+-                registry.register_trusted_with_exposure(
+-                    multi_agent_v2_handler(
+-                        FollowupTaskHandlerV2,
+-                        tool_namespace,
+-                        model_messages.multi_agent_tool_description_override("followup_task"),
+-                        model_messages.multi_agent_tool_parameters_override("followup_task"),
+-                    ),
+-                    exposure,
+-                );
+-            }
+-            if turn_context.config.multi_agent_v2.wait_agent_enabled {
+-                registry.register_trusted_with_exposure(
+-                    multi_agent_v2_handler(
+-                        WaitAgentHandlerV2::new(context.wait_agent_timeouts),
+-                        tool_namespace,
+-                        model_messages.multi_agent_tool_description_override("wait_agent"),
+-                        model_messages.multi_agent_tool_parameters_override("wait_agent"),
+-                    ),
+-                    exposure,
+-                );
+-            }
+-            registry.register_trusted_with_exposure(
+-                multi_agent_v2_handler(
+-                    InterruptAgentHandler,
+-                    tool_namespace,
+-                    model_messages.multi_agent_tool_description_override("interrupt_agent"),
+-                    model_messages.multi_agent_tool_parameters_override("interrupt_agent"),
+-                ),
+-                exposure,
+-            );
+-            registry.register_trusted_with_exposure(
+-                multi_agent_v2_handler(
+-                    ListAgentsHandlerV2,
+-                    tool_namespace,
+-                    model_messages.multi_agent_tool_description_override("list_agents"),
+-                    model_messages.multi_agent_tool_parameters_override("list_agents"),
+-                ),
++            collaboration::append_v2(
++                collaboration::CollaborationToolInputs {
++                    config: &turn_context.config,
++                    available_models: &turn_context.available_models,
++                    multi_agent_version: turn_context.multi_agent_version,
++                    wait_agent_timeouts: context.wait_agent_timeouts,
++                    agent_type_description,
++                },
++                context.model_info,
++                tool_namespace,
+                 exposure,
++                registry,
+             );
+         } else {
+             let roles = resolve_roles();
+@@ -1160,23 +1080,17 @@ fn add_collaboration_tools_with_role_resolver(
+             } else {
+                 ToolExposure::Direct
+             };
+-            registry.add_with_exposure(
+-                SpawnAgentHandler::new(SpawnAgentToolOptions {
+-                    available_models: turn_context.available_models.clone(),
+-                    agent_type_description,
+-                    expose_agent_type: !turn_context.config.agent_roles.is_empty(),
+-                    hide_agent_type_model_reasoning: false,
+-                    expose_spawn_agent_model_overrides: true,
++            collaboration::append_v1(
++                collaboration::CollaborationToolInputs {
++                    config: &turn_context.config,
++                    available_models: &turn_context.available_models,
+                     multi_agent_version: turn_context.multi_agent_version,
+-                    usage_hint_text: turn_context.config.multi_agent_v2.usage_hint_text.clone(),
+-                }),
++                    wait_agent_timeouts: context.wait_agent_timeouts,
++                    agent_type_description,
++                },
+                 exposure,
++                registry,
+             );
+-            registry.add_with_exposure(SendInputHandler, exposure);
+-            registry.add_with_exposure(ResumeAgentHandler, exposure);
+-            registry
+-                .add_with_exposure(WaitAgentHandler::new(context.wait_agent_timeouts), exposure);
+-            registry.add_with_exposure(CloseAgentHandler, exposure);
+         }
+     }
+ }
+diff --git a/codex-rs/core/src/tools/spec_plan/collaboration.rs b/codex-rs/core/src/tools/spec_plan/collaboration.rs
+new file mode 100644
+index 0000000..698cf40
+--- /dev/null
++++ b/codex-rs/core/src/tools/spec_plan/collaboration.rs
+@@ -0,0 +1,147 @@
++//! Actual ordinary collaboration handler construction from resolved metadata.
++//! The enclosing source owner retains eligibility and exact provider/role-read
++//! ordering. These functions neither load roles nor inspect a Session/TurnContext.
++//! Captured role text, available models, namespace and exposure are input values;
++//! this metadata partition alone is not source or tool/capacity authority.
++
++use crate::config::Config;
++use crate::tools::handlers::multi_agents::CloseAgentHandler;
++use crate::tools::handlers::multi_agents::ResumeAgentHandler;
++use crate::tools::handlers::multi_agents::SendInputHandler;
++use crate::tools::handlers::multi_agents::SpawnAgentHandler;
++use crate::tools::handlers::multi_agents::WaitAgentHandler;
++use crate::tools::handlers::multi_agents_spec::SpawnAgentToolOptions;
++use crate::tools::handlers::multi_agents_spec::WaitAgentTimeoutOptions;
++use crate::tools::handlers::multi_agents_v2::FollowupTaskHandler as FollowupTaskHandlerV2;
++use crate::tools::handlers::multi_agents_v2::InterruptAgentHandler;
++use crate::tools::handlers::multi_agents_v2::ListAgentsHandler as ListAgentsHandlerV2;
++use crate::tools::handlers::multi_agents_v2::SendMessageHandler as SendMessageHandlerV2;
++use crate::tools::handlers::multi_agents_v2::SpawnAgentHandler as SpawnAgentHandlerV2;
++use crate::tools::handlers::multi_agents_v2::WaitAgentHandler as WaitAgentHandlerV2;
++use crate::tools::multi_agent_tool::multi_agent_v2_handler;
++use crate::tools::registry::ToolExposure;
++use crate::tools::registry::ToolRegistry;
++use codex_prompts::ResolvedModelMessages;
++use codex_protocol::openai_models::ModelInfo;
++use codex_protocol::openai_models::ModelPreset;
++use codex_protocol::protocol::MultiAgentVersion;
++
++pub(super) struct CollaborationToolInputs<'a> {
++    pub(super) config: &'a Config,
++    pub(super) available_models: &'a [ModelPreset],
++    pub(super) multi_agent_version: MultiAgentVersion,
++    pub(super) wait_agent_timeouts: WaitAgentTimeoutOptions,
++    pub(super) agent_type_description: String,
++}
++
++pub(super) fn append_v2(
++    input: CollaborationToolInputs<'_>,
++    model_info: &ModelInfo,
++    tool_namespace: Option<&str>,
++    exposure: ToolExposure,
++    registry: &mut ToolRegistry,
++) {
++    let model_messages = ResolvedModelMessages::from_model(model_info);
++    let spawn_agent_description =
++        model_messages.multi_agent_tool_description_override("spawn_agent");
++    let hide_spawn_agent_metadata = input.config.multi_agent_v2.hide_spawn_agent_metadata;
++    let agent_type_description = input.agent_type_description;
++    registry.register_trusted_with_exposure(
++        multi_agent_v2_handler(
++            SpawnAgentHandlerV2::new(
++                SpawnAgentToolOptions {
++                    available_models: input.available_models.to_vec(),
++                    agent_type_description,
++                    expose_agent_type: !input.config.agent_roles.is_empty(),
++                    hide_agent_type_model_reasoning: hide_spawn_agent_metadata,
++                    expose_spawn_agent_model_overrides: input
++                        .config
++                        .multi_agent_v2
++                        .expose_spawn_agent_model_overrides,
++                    multi_agent_version: input.multi_agent_version,
++                    usage_hint_text: input.config.multi_agent_v2.usage_hint_text.clone(),
++                },
++                spawn_agent_description.map(str::to_owned),
++            ),
++            tool_namespace,
++            // Spawn composes the selected description with runtime model and usage guidance.
++            /*description_override*/
++            None,
++            model_messages.multi_agent_tool_parameters_override("spawn_agent"),
++        ),
++        exposure,
++    );
++    if !input.config.multi_agent_v2.disable_direct_message {
++        registry.register_trusted_with_exposure(
++            multi_agent_v2_handler(
++                SendMessageHandlerV2,
++                tool_namespace,
++                model_messages.multi_agent_tool_description_override("send_message"),
++                model_messages.multi_agent_tool_parameters_override("send_message"),
++            ),
++            exposure,
++        );
++        registry.register_trusted_with_exposure(
++            multi_agent_v2_handler(
++                FollowupTaskHandlerV2,
++                tool_namespace,
++                model_messages.multi_agent_tool_description_override("followup_task"),
++                model_messages.multi_agent_tool_parameters_override("followup_task"),
++            ),
++            exposure,
++        );
++    }
++    if input.config.multi_agent_v2.wait_agent_enabled {
++        registry.register_trusted_with_exposure(
++            multi_agent_v2_handler(
++                WaitAgentHandlerV2::new(input.wait_agent_timeouts),
++                tool_namespace,
++                model_messages.multi_agent_tool_description_override("wait_agent"),
++                model_messages.multi_agent_tool_parameters_override("wait_agent"),
++            ),
++            exposure,
++        );
++    }
++    registry.register_trusted_with_exposure(
++        multi_agent_v2_handler(
++            InterruptAgentHandler,
++            tool_namespace,
++            model_messages.multi_agent_tool_description_override("interrupt_agent"),
++            model_messages.multi_agent_tool_parameters_override("interrupt_agent"),
++        ),
++        exposure,
++    );
++    registry.register_trusted_with_exposure(
++        multi_agent_v2_handler(
++            ListAgentsHandlerV2,
++            tool_namespace,
++            model_messages.multi_agent_tool_description_override("list_agents"),
++            model_messages.multi_agent_tool_parameters_override("list_agents"),
++        ),
++        exposure,
++    );
++}
++
++pub(super) fn append_v1(
++    input: CollaborationToolInputs<'_>,
++    exposure: ToolExposure,
++    registry: &mut ToolRegistry,
++) {
++    let agent_type_description = input.agent_type_description;
++    registry.add_with_exposure(
++        SpawnAgentHandler::new(SpawnAgentToolOptions {
++            available_models: input.available_models.to_vec(),
++            agent_type_description,
++            expose_agent_type: !input.config.agent_roles.is_empty(),
++            hide_agent_type_model_reasoning: false,
++            expose_spawn_agent_model_overrides: true,
++            multi_agent_version: input.multi_agent_version,
++            usage_hint_text: input.config.multi_agent_v2.usage_hint_text.clone(),
++        }),
++        exposure,
++    );
++    registry.add_with_exposure(SendInputHandler, exposure);
++    registry.add_with_exposure(ResumeAgentHandler, exposure);
++    registry.add_with_exposure(WaitAgentHandler::new(input.wait_agent_timeouts), exposure);
++    registry.add_with_exposure(CloseAgentHandler, exposure);
++}
+-- 
+2.54.0 (Apple Git-157)
+

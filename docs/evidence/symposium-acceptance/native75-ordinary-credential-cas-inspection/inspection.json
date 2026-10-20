@@ -1,0 +1,38 @@
+{
+  "observedAt": "2026-10-20T01:24:27.164855+00:00",
+  "commit": "68d9e80ad6dbbbadf76312e8b685e6dd66b1f085",
+  "tree": "2487593b071f2ed84a6e134c7222d439c35a6645",
+  "parent": "712955521527345f477abb11f1c54be80bf64a27",
+  "sourceHashes": {
+    "codex-rs/core/src/client.rs": "60660ad04ec66eb11c7a78dc252ab08f6ff2181abb7ed7af0f1f3a2ae1ac26ac",
+    "codex-rs/core/src/client_prepared_api_claim.rs": "5e0c64319d0d3e27fa18602ed0c6ced5fa3886daef085ce8038deb2dbe53461b",
+    "codex-rs/core/src/client_prepared_api_claim_tests.rs": "4c97eb36fcd3db447917731bfbaee0b02e73df56b4495c7d016748d0278960f2",
+    "codex-rs/core/src/client_public_responses_capture.rs": "1430202022611ec689b86f73bca097879427b2317332a4604d8addd8425a66d3",
+    "codex-rs/model-provider/src/provider.rs": "adabad97f59dbc593431a9c47911e74d1fd9d48648b874026a23db86b32ec5a1",
+    "codex-rs/login/src/auth/manager.rs": "065a6ee3630a6e08d29b0da9243b82d34683b5e73e13ec4cca532179b4211f03",
+    "codex-rs/login/src/auth/prepared_api_key.rs": "e73b51855de310c0f7b12bd783940d704ec68a7f557daa47c1c6887a4adb1c16"
+  },
+  "independentChecks": {
+    "originalSessionProviderOriginAuthGateTokenEqual": true,
+    "originalBodyContextFormatterNormalizationAndContributorInventoryTokenEqual": true,
+    "actualOwner": "ModelClient::new creates gated ConfiguredModelProvider, whose private info value and AuthManager Arc are immutable fields; getters borrow info/clone same Arc. Provider callbacks resolve before native DB waits and auth locks.",
+    "actualGuardedCAS": "StateRuntime acquires/validates write transaction and LockedSqliteHandle before callback. Callback invokes actual AuthManager.with_current_api_key_credentials with commit.commit() as its synchronous operation. Both auth read guards remain held through the two fixed native updates and COMMIT; no async result, host RPC or later epoch is substituted.",
+    "lockOrder": "Concrete path orders SQLite transaction/exclusive handle then native external-auth read then cached-auth read. Inspected auth writers have no synchronous StateRuntime/SQLite reentry. Future additional local-owner guards need their own ordering assessment.",
+    "testStorage": "Actual synthetic API credentials, unique temp DB/auth homes, from_auth_for_testing_with_home explicitly File store and API-key-env disabled; logout() path does not call logout_with_revoke. No ModelClientSession/HTTP/model/queue/native thread allocation in these assertions.",
+    "whitespace": "PASS"
+  },
+  "authoredFixturesNotExecuted": [
+    "ordinary_credential_owner_guards_real_pending_cas_and_logout_refuses",
+    "ordinary_logout_races_actual_guarded_claim_without_future_escape"
+  ],
+  "assertionScope": "Forced same-manager positive compares full consumed+committed+pending record; foreign same-secret manager and stale credentials after real temporary-home logout must leave original measured row. Four actual Tokio two-thread logout races permit committed-pending or byte-equal original row; they do not force both winners or isolate all interleavings. Synthetic measurement/account/route values are not real authority.",
+  "outstanding74Finding": "C74-persisted-observation-before-guard-return remains pending authored fixture correction/CI; source currently executes COMMIT in correct guarded location.",
+  "remainingGaps": [
+    "Credential partition does not bind arbitrary stored request.account_id or native request/model/route/source provenance to this account. Genuine producer must derive and bind those through real owners.",
+    "Other native owner guards, canonical original revision/ABA proof R, private RPC, account/model limits, native complete request/count/consume and effect-release authority remain open.",
+    "Method currently has fixture callers only; no production admission/application joining/delivery/reply qualification.",
+    "No Rust compilation/test evidence for local74/75. Existing73 and earlier CI cannot qualify them."
+  ],
+  "independentActivity": "Immutable source/callsite/provider/auth/helper-body/whitespace inspection only; no C Rust/model/provider/credential/storage test or new campaign.",
+  "acceptance": "No additional concrete source defect found within actual credential-owner-to-synchronous-CAS bridge. Bounded source review only; outstanding fixture proof and execution/other-authority/application qualification remain open."
+}

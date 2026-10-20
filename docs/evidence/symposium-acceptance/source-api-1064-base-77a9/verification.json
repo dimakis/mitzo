@@ -1,0 +1,74 @@
+{
+  "observedAt": "2026-10-20T02:49:27.561095+00:00",
+  "pr": 1064,
+  "head": "77a9185cf9a563d72a5db53dfe5429df2d44e9e7",
+  "tree": "59ab33a4b02a404aa5dc86cebf198a80f3726b16",
+  "parents": [
+    "9745d7c21f949c4d2fbbf32fc1163632a9b03f42",
+    "332feb5114b49be6a8391485b67eedef61f37b87"
+  ],
+  "githubHeadAndBaseVerified": true,
+  "incomingPaths": [
+    "docs/design/telos-workspaces/s5b-ordinary-workspace-contract.md",
+    "packages/protocol/src/event-store.ts",
+    "packages/protocol/src/ordinary-prepared-session.ts",
+    "packages/protocol/src/ordinary-workspace-session-store.ts",
+    "packages/protocol/src/session-metadata-store.ts",
+    "packages/protocol/src/types.ts",
+    "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+    "server/__tests__/ordinary-workspace-custody.test.ts",
+    "server/__tests__/ordinary-workspace-owned-runtime.test.ts",
+    "server/__tests__/ordinary-workspace-session-preparation.test.ts",
+    "server/connections/reviewed-handler-artifacts.ts",
+    "server/ordinary-local-codex-admission.ts",
+    "server/ordinary-local-codex-owned-runtime.ts",
+    "server/ordinary-local-codex-selection-owner.ts",
+    "server/ordinary-local-workspace-owner.ts",
+    "server/ordinary-workspace-custody.ts",
+    "server/owned-local-codex-chat-admission.ts",
+    "server/repository-workspaces.ts"
+  ],
+  "all15IncomingNonsharedPathsByteExactTo332": true,
+  "all14APINonsharedPathsByteExactTo9745": true,
+  "combinedRepositoryWorkspace": {
+    "previewWholeMethodByteExactTo9745": true,
+    "removeOnlyAcceptedRevalidateWrapperRestoresWhole9745File": true,
+    "sha256": "136d4d413dda03a115e7329a6509a4d5d43b84dfd0e8b8eacacd0ef6259852d1"
+  },
+  "combinedEventStore": {
+    "removeOnlyOriginal3LineSourceSetupInjectionRestoresWhole332File": true,
+    "sha256": "cbd156afa3d0b1325079ceee0fe11b72770ab709d9f96603554060f3f22a3213",
+    "meaning": "All incoming ordinary-workspace runtime/session guards preserved exactly; existing sourceSetup availability owner preserved. Accepted332 internals not re-audited."
+  },
+  "manifest": {
+    "actualPins": 639,
+    "mismatches": 0,
+    "parentKeyUnionExact": true,
+    "onlyCombinedHashes": [
+      "server/repository-workspaces.ts",
+      "packages/protocol/src/event-store.ts"
+    ],
+    "runtimeRevision": "v1.0.395-symposium-source-preview-current-base"
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "producerEvidence": {
+    "source-api-current-base-tests.log": {
+      "sha256": "f35251d832f2c80b593da342e6322eb1023f49774584ae0560307b4a0c25b846",
+      "bytes": 274
+    },
+    "source-api-current-base-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "producerReported": "149focusedPASS13files, mapped source types/hooksPASS per exact core handover; overlaps previous119/51/28, not summed. No C execution.",
+  "reusedPriorSourceReceipt": "02b80aa2a2ab22d3478af92900c7e5aac9f716d8ec5fcd0ba20e567d6743ccbd remains valid for9745+a51e only, not newhead CI.",
+  "qualification": "No additional concrete bounded merge/publication-preservation blocker. Newhead normal CI/trustedreview/App/currentbase/actualslot still required; old9745green does not qualify77a9185. No actual slot/readiness/complete application/native authority claim.",
+  "independentActivity": "Read immutable parents/shared exact compositions/all639actual source hashes/protected refs/GitHubhead-base and retained producer log provenance only. No tests/types/build/native/browser/model/provider/retry/dispatch/reviewreset/new campaign."
+}

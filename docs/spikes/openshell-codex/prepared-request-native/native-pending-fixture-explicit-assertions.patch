@@ -1,0 +1,24 @@
+diff --git a/codex-rs/state/src/runtime/prepared_request_effects_tests.rs b/codex-rs/state/src/runtime/prepared_request_effects_tests.rs
+index 5c8a1ab..fe52cf8 100644
+--- a/codex-rs/state/src/runtime/prepared_request_effects_tests.rs
++++ b/codex-rs/state/src/runtime/prepared_request_effects_tests.rs
+@@ -2,6 +2,7 @@ use super::sampling::acknowledge_sample;
+ use super::sampling::measure_sample;
+ use super::sampling::sampling_request;
+ use super::*;
++use pretty_assertions::assert_eq;
+ 
+ #[tokio::test]
+ async fn forced_release_preserves_executable_handoff_and_restart_uncertainty() {
+diff --git a/codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs b/codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs
+index ef7630b..0e6942d 100644
+--- a/codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs
++++ b/codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs
+@@ -1,6 +1,7 @@
+ use super::sampling::measure_sample;
+ use super::sampling::sampling_request;
+ use super::*;
++use pretty_assertions::assert_eq;
+ use std::sync::atomic::AtomicUsize;
+ use std::sync::atomic::Ordering;
+ 

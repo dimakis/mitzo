@@ -1,0 +1,60 @@
+{
+  "observedAt": "2026-10-20T03:14:18.834263+00:00",
+  "finding": "CEN-D37507564B60",
+  "commit": "f479612ce7b77cc86f435be6f922e2a79add13f6",
+  "tree": "27d0ee589c85ef7cf78776349fc7f63bb627bbc7",
+  "parent": "77a9185cf9a563d72a5db53dfe5429df2d44e9e7",
+  "sourceHashes": {
+    "docs/features/repository-backed-chats.md": "33080432abd8563ef3cb67c3d9b9a8dd4da7144f94e6f52fa9ea0fb70b88ca96",
+    "server/__tests__/repository-preview-correlation.test.ts": "3f512dc13fbec6effc14317bab945d57d8c06cce1a5ea892087e4ced36b9a13e",
+    "server/connections/reviewed-handler-artifacts.ts": "db4ac5d2ca6cc96ef973a9ef57ae0c4c98c97d5e3062140634ca19bfaebe3635",
+    "server/repository-workspaces.ts": "0c1aff18de5b00edef41ac150f659ba93a050af7c30f403f6a4c8ef2699b80ec"
+  },
+  "status": "Named mechanism CLOSED at source/assertion level; normal exact-head CI/trustedreview still required",
+  "trustedFindingSupplementSHA256": "aaf33f5110f37a4c284291876b94e1f120818c08fc10288d7586ca9dd15c2f8a",
+  "actualReviewedPins": {
+    "count": 639,
+    "mismatches": 0
+  },
+  "independentFindings": [
+    "Entire repository-workspaces.ts otherwise byte-identical: only assertOrdinaryPreparation physical-source lstat condition now exempts durable discarded/failed states in addition to prior claimed exemption. It does not change record state/sourceReleased/proof/intent/identity, reacquire source, recapture or inspect.",
+    "Actual account/proof/schema/runtime assertion before condition and abort checks after it remain; preview authorize also still renews connection revision and allowed base branch. Ready/reserved/claiming custody conditions unchanged, and public metadata cannot expose ordinaryRuntime for failed/discarded. No ready authority inferred from unexplained missing directory.",
+    "Actual prepare\u2192discard and forced post-sourceIdentity prepare failure exercise real owner transitions, SQLite rows/filesystem cleanup and recovery with original ID. Acquisition/auth are explicitly synthetic (fixture creates .git/HEAD+file), not real GitHub clone/runtime. New owner reopening is same-process persistence, not process-crash test.",
+    "Terminal original record and pin remain equal after replay/status; no extra prepare/inspect/capture. Revoked connection/runtime still refuse preview without row changes. Ready missing/replaced actual path refuse both preview and qualifiedStatus, retaining original row.",
+    "Trusted original9745 FIX and77a unresolved reports, old source-persistence receipts and initial ENOENT behavioralRED are preserved, not relabeled by component green. Candidate is local pre-main1b94 integration; subsequent merged publication must be separately inspected/qualified."
+  ],
+  "producerEvidence": {
+    "source-api-terminal-recovery-controls.log": {
+      "sha256": "709032422cb4b11622e37162d2a4af8504ae71b47c763ea361b60503525e27e3",
+      "bytes": 273
+    },
+    "source-api-terminal-recovery-green.log": {
+      "sha256": "2a3abb294e3d576a685f15a201346f2a9f92d0310c9833c2934be90cd36d8aea",
+      "bytes": 658
+    },
+    "source-api-terminal-recovery-pins.log": {
+      "sha256": "eb6b88eb3274acc4c0da0894722d47a617adb02c7b9854a7dc06daea7ea630d1",
+      "bytes": 274
+    },
+    "source-api-terminal-recovery-red.log": {
+      "sha256": "4c204d990ec821f50a18ae46ce688113c10bc090e1d51cb7ba12b320f943b928",
+      "bytes": 3030
+    },
+    "source-api-terminal-recovery-types-final.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "source-api-terminal-recovery-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "producerReported": {
+    "red": "2FAIL8PASS for actual ordinary prepare/discard and forced post-identity cleanup before fix.",
+    "green": "Current11 correlation cases PASS, includes ready missing/replaced variants. Broader52PASS4files preceded the additional replacement control; final30PASS2files (correlation+pins) and scoped types/hooks PASS. These overlap, not added or called a final broad rerun.",
+    "activity": "No C test/type/build/execution/campaign."
+  },
+  "qualification": "No additional concrete blocker in bounded terminal metadata correction. Source/assertion closure only, not trusted-review resolution or runnable source/dispatch qualification.",
+  "limits": "Normal new published head CI/current review/App/strict base/actual slot remain required; real network/auth/runtime excluded. C native source observers stay separate and no retry/dispatch or higher campaign reset occurred.",
+  "independentActivity": "Read immutable4file diff/whole-file equivalence outsidecondition/actual owner fixtures/all source pins and retainedproducerlogs only. No C tests/types/build/browser/native/model/provider/retry/cancel/dispatch/freshreview/new campaign."
+}

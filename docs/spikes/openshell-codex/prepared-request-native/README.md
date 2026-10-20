@@ -6,11 +6,127 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 53 patches
+## Current composed source: 81 patches
 
-The 53 ordered patches reconstruct native tree
-`098b7933552a6fd2120010f38fa8a71aa4df7990` (local source `4cea83bbbf2330e7ffc22389eafcc6dc6f18d8a2`).
-The current source adds the actual ordinary child-approval consumer to the retained
+The 81 ordered patches reconstruct native tree
+`e2b7d2093d6a671ac0929730a0297139ca2067b7` (local source `673a893f754b03ded8efba534b452c29233ffc8e`).
+
+Patch 81 corrects two Arc cloning expressions in the actual catalog owner.
+Source 80 CI `39368960594` failed both library builds with E0308 before any
+crate fixture or formatting ran; none of its nine new fixtures is qualified.
+The correction binds and dereferences the real MutexGuard in a short scope,
+retaining the same lock order, Arc pointer and publication lifetime. No policy
+or fixture changes. Exact source 81 requires fresh native CI.
+
+Patch 80 adds an explicitly unverified model-limit candidate under the existing
+ModelsManager owner. The reviewed exact `gpt-6-luna` descriptor retains both
+provider specification ceilings and provenance. Actual unique model metadata
+and ordinary configuration can only lower the context ceiling. Unknown aliases,
+duplicate/fallback/API-unsupported rows, custom catalogs and invalid limits
+refuse. Private owner/publication identities reject a foreign manager and catalog
+publication ABA, including equal data and cache publication; renewal retains the
+actual catalog read lock. Ordinary model-info/picker behavior is unchanged.
+
+Bundled or cached metadata is descriptive and supplies no account, provider,
+public Responses route, live configuration, input count, credential or admission
+proof. There is no producer caller or readiness grant. Six manager fixtures and
+three descriptor fixtures are authored but unexecuted locally. Exact source CI
+explicitly tests and formats `codex-models-manager` on both platforms; transitive
+compilation alone does not execute these fixtures.
+
+Patches 71–73 add the source-only pending-effect state gate; 74–76 add
+synchronous SQLite commitment inside actual credential custody and independent
+committed-row observation fixtures. Patch 77 fixes two child assertion imports.
+Its exact CI run `39357179342` executed fixtures on both platforms and failed one
+case: independent pending/ordinary subcases reused a consumed command root.
+Linux ran 6,205 tests (6,204 passed, one failed, 11 skipped); Mac ran 5,984
+(5,983 passed, one failed, 27 skipped). Counts overlap. Formatting was skipped.
+Those results do not qualify source 77 or this new source.
+
+Patch 78 carries the exact effective-MCP-registry correction already published
+on the native60 lineage: capture refuses an ordinary isolated registry and
+retains the actual inherited selection. Patch 79 assigns distinct command IDs
+to the two independent custody fixture cases. The consumed-command uniqueness
+guard and every original pool-local and ordinary uncertainty assertion remain.
+No production code changes in patch 79. These 79 patches require fresh exact-tree
+CI; no compilation or Rust tests ran locally. No runtime is installed or adopted.
+
+Patch 54 adds an extension-registry input contract for pre-session inventory.
+The owning extension can register its real executable tools with `fixed_tools`;
+the registry retains their definitions for both ordinary planning and capture.
+`capture_pre_session_tools` reads registration-owned definitions in ordinary
+order without discovery, Session creation, MCP activation or provider calls.
+Any ordinary state-bound `tool_contributor` remains unresolved, including one
+that would return no tools. Capture refuses before invoking any contributor.
+`renew_pre_session_tools` checks the exact immutable registry identity; a rebuild
+with equal definitions still invalidates the prior process-local capture.
+
+Patches 55–57 add source-owned closed MCP declarations and a real fresh-input
+capture entry on ThreadManager. Actual Apps/plugin registrations share closed
+metadata selection with ordinary projection. The fresh packet retains original
+StartThreadOptions (including dynamic Knowledge tools), resolves actual ordinary
+environment defaults once and proves selected native-process-local environment
+and source custody without starting MCP, a Session or a native thread. Configured
+servers/Apps/plugins, selected roots, inherited/history/reserved-thread inputs,
+unknown contributors and pending/failed/remote environments remain unavailable.
+The empty binding comes from the actual ordinary effective configuration after
+those source proofs; no active Session catalog or global scope is borrowed.
+
+Patch 58 adds a dedicated single-attempt HTTP factory under the existing login and
+HttpClientFactory policy owners. Its route-aware pool retains network/TLS/proxy
+policy and refuses configured cookies, effective replay fallback and active
+residency; it has no implicit headers, cookies, redirect or retry path. The ordinary
+default factory and low-level guards are unchanged. This supplies transport
+construction only, not account/count/currentness or a one-use request permit.
+
+Patches 59–60 add config-only tool absence declarations. The same registered
+selection controls ordinary startup/configuration and per-step contribution;
+preparation preflights unknown registrations without runtime callbacks. A retained
+configuration-selected capture requires explicit current-config renewal and exact
+registry identity. Memory and web search share their real configuration rules with
+this declaration; enabled/state-dependent tools still refuse. Other production
+contributors remain unresolved, and instruction/context capture is separate.
+
+Patches 61–70 connect the public body partition to the actual ordinary
+ModelClient owner. Its context resolver is shared with the existing ordinary
+builder; it derives its real provider/AuthManager and request-contributor
+inventory. A named public-route policy runs before formatting, retains the full
+native observation snapshot privately, and refuses unknown metadata, backend
+controls, unsupported native sources and contributors. The strict freezer still
+refuses unsupported final fields. Internal stream controls are not cleared.
+
+The new cached API-key selection belongs to the actual native AuthManager.
+Owner/generation/key checks run with the existing external-auth then cached-auth
+read locks held through a bounded synchronous operation; the actual credential
+writer publishes revisions under the same write lock. A callback result cannot
+authorize a later transaction. This settles credential custody only, not managed
+policy/network, host source/account, route, model/limit or durable consume order.
+The ModelClient body capture returns completed formatted bytes inside that guard,
+without provider callbacks or a deferred future in its guarded path.
+
+Actual ordinary utility, shell/resource and collaboration handler construction,
+tool-mode selection, model exposure and code-mode registry construction now share
+resolved-input owners. The original managed-sandbox gate, actual provider/role-read
+order and real handler/spec/exposure order remain. Runtime metadata getters still
+run in their documented ordinary positions; these extractions do not qualify
+unresolved contributors or supply a complete fresh tool/prompt inventory. No fake
+Session, TurnContext, source-complete flag or alternate planning catalog is added.
+
+Offline fixtures cover actual installed source parity/refusal, genuine ThreadManager
+input custody and remote refusal with zero native threads/provider connects, the
+actual HTTP factory against recording proxies and denial policies, and config-plan
+ordinary/per-step parity, renewal and missing-registration preflight. CI adds the
+MCP extension, login, memories and web-search owners to the existing Linux/Mac
+fixture and format gates; all previous coverage remains. Scoped formatting/source
+reconstruction are local checks. Compilation and execution require exact-tree CI;
+Results from PR1058's 54-patch or PR1060's 60-patch source cannot qualify this new source.
+
+This is still source/input and transport groundwork. Complete Core tool/instruction
+capture, final request metadata/account/limit authority, native prepare/count/consume,
+joining and first-command dispatch/reply remain incomplete. No complete prepared
+request, capacity, joining, dispatch, installed runtime or live route is claimed.
+
+The retained source includes the actual ordinary child-approval consumer to the retained
 immutable-request foundation. It reuses only a genuine fresh user approval from
 the same still-active initial invocation. The original runtime lifetime flag is
 never reopened, and returning/yielding from that invocation closes reuse. The

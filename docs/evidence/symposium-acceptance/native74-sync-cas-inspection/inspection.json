@@ -1,0 +1,55 @@
+{
+  "observedAt": "2026-10-20T01:23:19.337205+00:00",
+  "commit": "712955521527345f477abb11f1c54be80bf64a27",
+  "tree": "81af76eec430a61430dfc112073ef67128e6dc99",
+  "parent": "311b9ae9c07874d9ff5964e95629e057f337dd9d",
+  "sourceHashes": {
+    "codex-rs/state/src/lib.rs": "2acc1ffd418f94a23fb3f3216a89ce92da55c96aa21ba2e17043b90b6903ca0f",
+    "codex-rs/state/src/runtime.rs": "eb79a126b0f4ad467a96af5b865561967232ad4139aa40abda8131701f3b60de",
+    "codex-rs/state/src/runtime/prepared_request_effects.rs": "e9b356bbf3718afb7088187ed0531f894e8efe91f3c692658f0db78c40ea6f02",
+    "codex-rs/state/src/runtime/prepared_request_guarded_commit.rs": "d00fce0cec4aacd608d7cb7ae09afd97d0e4b75665f2d61e6fe311a3e8fd8bfe",
+    "codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs": "b7b8000e5a2ef5844c45d7fc6b0c30dbb42b5b6ed75a7d3921be433dcec085a3",
+    "codex-rs/state/src/runtime/prepared_requests.rs": "2fa112005704de47b0ff5c7d9aacbbfa9bc2002bda5c7b7bd78bfd5708648ba4",
+    "codex-rs/state/src/runtime/prepared_requests_tests.rs": "1b2b8dac957615978b7062eb2ea9bc60e73a08ffc800a0e9c2aa9c2bd84c191c",
+    "codex-rs/state/src/sqlite.rs": "aef74fffc8a6dc6469154b3d6f357de0fc409955a6721f2a904579748ed558a8",
+    "codex-rs/Cargo.toml": "e558c28aaf94c9f20c7d57224eb9509084e31110850aad24d04bef7811dc335d",
+    "codex-rs/Cargo.lock": "f0ea6b033508c394980bfc011907947beffcb7f7b1a56addbff90196617c14a4",
+    "codex-rs/state/Cargo.toml": "d4b46c8386a47a8a03e68d5aa4c4ad545d9b04fcec19c08b0c998f4b52ef3c0e"
+  },
+  "dependencyProof": {
+    "sqlx": "Exact workspace=0.9.0 plus Cargo.lock checksums; libsqlite3-sys0.37.0 is the unified locked FFI dependency.",
+    "localDependencySources": "Verified SQLx-sqlite/core0.9 crate archives against Cargo.lock SHA256 and inspected files byte-identical to those archives; see dependency-source-verification.json.",
+    "primaryReferences": [
+      "https://docs.rs/sqlx/0.9.0/sqlx/sqlite/struct.SqliteConnection.html#method.lock_handle",
+      "https://docs.rs/sqlx/0.9.0/sqlx/sqlite/struct.LockedSqliteHandle.html#method.as_raw_handle",
+      "https://docs.rs/sqlx/0.9.0/sqlx/pool/struct.PoolConnection.html#method.close_on_drop",
+      "https://www.sqlite.org/c3ref/bind_blob.html",
+      "https://www.sqlite.org/c3ref/finalize.html",
+      "https://www.sqlite.org/c3ref/close.html",
+      "https://www.sqlite.org/pragma.html#pragma_synchronous"
+    ]
+  },
+  "sourceFindings": [
+    "Async preflight acquires existing close-on-drop connection with synchronous FULL, raw BEGIN IMMEDIATE and actual row/witness/sampling validation before entering guard. Existing pool setup requests WAL. No SQLx Transaction object is created, so no mismatched SQLx transaction-depth bookkeeping is left by raw COMMIT.",
+    "Pinned LockedSqliteHandle excludes background worker FFI on database/statements. Private new() borrows that handle; lifetime phantom and NonNull !Send prevent ordinary safe escape/concurrent use of the operation. Commit consumes self and result type is fixed PendingAttempt, not arbitrary future/epoch. Compilation/lifetime checking still requires CI.",
+    "Private FFI executes only two constant parameterized UPDATEs and constant COMMIT. String lengths are checked into i32, SQLITE_TRANSIENT copies live bytes, indices are bounded, prepare/bind/step codes checked; each UPDATE requires changes64==1. COMMIT change count ignored correctly.",
+    "Statement RAII wraps nonnull prepared statements even before prepare-code check, finalizing on success and every error/unwind while exclusive handle remains live. No raw handle/statement/SQL/hook API is exposed.",
+    "Successful SQLITE_DONE COMMIT precedes pending-token construction and synchronous guard return. Exact expected record, nonce and pool are rechecked on returned token, rejecting a different pending claim.",
+    "Failure/denial/cancellation before commit drops nonpooled connection; pinned close_on_drop detaches synchronously and schedules close, driver drops statement cache before handle close, SQLite rolls back open transaction. Cleanup may finish asynchronously; it is not a claim that rollback completed before the error return. No unfinished connection returns to pool.",
+    "Error after successful COMMIT is consumed pending uncertainty, not failed consumption: source/tests retain same operation, reject reconsume and allow only later durable pending refusal. Actual auth guard/host proof/production caller absent at source74."
+  ],
+  "authoredFixturesNotExecuted": [
+    "guarded_commit_denial_rolls_back_and_success_is_durable_before_guard_returns",
+    "guard_response_loss_after_commit_cannot_release_or_replay_claim",
+    "guarded_commit_rolls_back_partial_update_and_rejects_another_claim"
+  ],
+  "assertionScope": "Wrong witness does not enter guard; denial leaves original row; valid result persists/reopens; injected second UPDATE failure rolls back whole transaction; different returned claim refuses; postcommit response-loss is consumed/no replay. No actual cancellation/panic/power-loss experiment or compile proof.",
+  "openAssertionFinding": {
+    "id": "C74-persisted-observation-before-guard-return",
+    "problem": "Inside the durability callback fixture only returned in-memory flags are asserted. Real persisted read/reopen occurs after guard returns; moving persistence outside the guard could evade this fixture.",
+    "requestedCoreFix": "Independent real ledger observation before synchronous callback exit, without locked-connection reentry, await or network.",
+    "status": "Sent directly to core; source currently places COMMIT correctly. Executable fixture-proof qualification remains pending correction and exact-source Rust CI."
+  },
+  "independentActivity": "Immutable native source, Cargo.lock/archive verified dependency source, primary API documentation and assertion review only; no C Rust build/test, SQLite experiment, credential/model/provider call or new campaign.",
+  "acceptance": "No concrete unsafe memory/SQLx ownership defect found within inspected source mechanism. Bounded source assessment only; fixture-observation gap, actual bridge/native other-owner/R/ABA/model-limit/full request/count/consume/application proof remain open."
+}

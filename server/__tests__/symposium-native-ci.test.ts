@@ -70,6 +70,22 @@ it.each(['Linux', 'macOS'])(
       'codex-api',
       '-p',
       'codex-guardian-reviewer',
+      '-p',
+      'codex-extension-api',
+      '-p',
+      'codex-mcp-extension',
+      '-p',
+      'codex-login',
+      '-p',
+      'codex-memories-extension',
+      '-p',
+      'codex-web-search-extension',
+      '-p',
+      'codex-history-notes-extension',
+      '-p',
+      'codex-goal-extension',
+      '-p',
+      'codex-models-manager',
       ...(runnerOs === 'Linux' ? ['-p', 'codex-linux-sandbox'] : []),
       '--test-threads',
       '1',
@@ -262,17 +278,36 @@ it('refuses a source-build bypass of the verified archive and binding pair', () 
   expect(run.exported).toBe('');
 });
 
-it('tests and formats the affected Guardian reviewer owner on both native platforms', () => {
+it('tests and formats the affected Guardian and extension registry owners on both native platforms', () => {
   for (const platform of ['Linux', 'macOS']) {
     const recorded = runRecordedStep(0, false, platform);
     expect(recorded.result.status).toBe(0);
     const selected = recorded.arguments.flatMap((value, index, args) =>
       value === '-p' ? [args[index + 1]] : [],
     );
-    expect(selected).toContain('codex-guardian-reviewer');
+    expect(selected).toEqual(
+      expect.arrayContaining([
+        'codex-guardian-reviewer',
+        'codex-extension-api',
+        'codex-mcp-extension',
+        'codex-login',
+        'codex-memories-extension',
+        'codex-web-search-extension',
+        'codex-models-manager',
+      ]),
+    );
   }
   const formatting = workflow.jobs.source.steps.find(
     (entry) => entry.name === 'Check native source formatting',
   );
-  expect(formatting?.run).toMatch(/(?:^|\s)-p\s+codex-guardian-reviewer(?:\s|$)/);
+  for (const crate of [
+    'codex-guardian-reviewer',
+    'codex-extension-api',
+    'codex-mcp-extension',
+    'codex-login',
+    'codex-memories-extension',
+    'codex-web-search-extension',
+    'codex-models-manager',
+  ])
+    expect(formatting?.run).toMatch(new RegExp(`(?:^|\\s)-p\\s+${crate}(?:\\s|$)`));
 });

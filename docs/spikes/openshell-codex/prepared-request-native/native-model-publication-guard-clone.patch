@@ -1,0 +1,28 @@
+diff --git a/codex-rs/models-manager/src/manager.rs b/codex-rs/models-manager/src/manager.rs
+index b597051..775e2fc 100644
+--- a/codex-rs/models-manager/src/manager.rs
++++ b/codex-rs/models-manager/src/manager.rs
+@@ -426,7 +426,10 @@ impl ModelsManager for OpenAiModelsManager {
+             if exact.next().is_some() {
+                 return None;
+             }
+-            let publication = Arc::clone(&self.model_limits_publication.lock().ok()?);
++            let publication = {
++                let guard = self.model_limits_publication.lock().ok()?;
++                Arc::clone(&*guard)
++            };
+             UnverifiedModelLimitCandidate::capture(
+                 Arc::clone(&self.model_limits_owner),
+                 publication,
+@@ -445,7 +448,10 @@ impl ModelsManager for OpenAiModelsManager {
+                 return None;
+             }
+             let catalog = self.remote_models.read().await;
+-            let publication = Arc::clone(&self.model_limits_publication.lock().ok()?);
++            let publication = {
++                let guard = self.model_limits_publication.lock().ok()?;
++                Arc::clone(&*guard)
++            };
+             if !Arc::ptr_eq(&publication, &candidate.publication) {
+                 return None;
+             }

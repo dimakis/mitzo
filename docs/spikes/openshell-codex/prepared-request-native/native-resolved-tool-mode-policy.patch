@@ -1,0 +1,130 @@
+From a2dcefaafe3732a4255f681429abf04d645bcfa5 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 01:27:19 +0100
+Subject: [PATCH] refactor(core): share tool-mode policy over resolved inputs
+
+---
+ codex-rs/core/src/tools/mod.rs       | 25 +++++------------
+ codex-rs/core/src/tools/spec_plan.rs |  2 --
+ codex-rs/core/src/tools/tool_mode.rs | 42 ++++++++++++++++++++++++++++
+ 3 files changed, 49 insertions(+), 20 deletions(-)
+ create mode 100644 codex-rs/core/src/tools/tool_mode.rs
+
+diff --git a/codex-rs/core/src/tools/mod.rs b/codex-rs/core/src/tools/mod.rs
+index 05f2b05..1614a6e 100644
+--- a/codex-rs/core/src/tools/mod.rs
++++ b/codex-rs/core/src/tools/mod.rs
+@@ -21,6 +21,7 @@ pub(crate) mod runtimes;
+ pub(crate) mod sandboxing;
+ pub(crate) mod spec_plan;
+ pub(crate) mod tool_dispatch_trace;
++mod tool_mode;
+ mod tool_namespaces_info;
+ mod user_messaging;
+ pub(crate) use user_messaging::record_confirmed_code_mode_send;
+@@ -31,7 +32,6 @@ use crate::session::turn_context::TurnContext;
+ pub(crate) use approvals::ApprovalContext;
+ pub(crate) use approvals::ApprovalResolution;
+ pub(crate) use approvals::parent_approval_gate;
+-use codex_features::Feature;
+ use codex_protocol::exec_output::ExecToolCallOutput;
+ use codex_protocol::openai_models::ModelInfo;
+ use codex_protocol::openai_models::ToolMode;
+@@ -75,27 +75,16 @@ pub(crate) fn tool_user_shell_type(
+ }
+ 
+ pub(crate) fn requested_tool_mode(turn_context: &TurnContext, model_info: &ModelInfo) -> ToolMode {
+-    model_info.tool_mode.unwrap_or_else(|| {
+-        if turn_context.config.features.enabled(Feature::CodeModeOnly) {
+-            ToolMode::CodeModeOnly
+-        } else if turn_context.config.features.enabled(Feature::CodeMode) {
+-            ToolMode::CodeMode
+-        } else {
+-            ToolMode::Direct
+-        }
+-    })
++    tool_mode::requested_tool_mode(&turn_context.config, model_info)
+ }
+ 
+ pub(crate) fn effective_tool_mode(turn_context: &TurnContext, model_info: &ModelInfo) -> ToolMode {
+-    let requested_tool_mode = requested_tool_mode(turn_context, model_info);
+-    if !turn_context.code_mode_available
+-        && requested_tool_mode == ToolMode::CodeMode
+-        && !turn_context.config.code_mode.disable_in_process_fallback
+-    {
+-        ToolMode::Direct
++    let availability = if turn_context.code_mode_available {
++        tool_mode::CodeModeAvailability::Available
+     } else {
+-        requested_tool_mode
+-    }
++        tool_mode::CodeModeAvailability::Unavailable
++    };
++    tool_mode::effective_tool_mode(&turn_context.config, model_info, availability)
+ }
+ 
+ /// Format the combined exec output for sending back to the model.
+diff --git a/codex-rs/core/src/tools/spec_plan.rs b/codex-rs/core/src/tools/spec_plan.rs
+index b1fa717..e425ad7 100644
+--- a/codex-rs/core/src/tools/spec_plan.rs
++++ b/codex-rs/core/src/tools/spec_plan.rs
+@@ -15,8 +15,6 @@ use crate::tools::handlers::CodeModeWaitHandler;
+ use crate::tools::handlers::DynamicToolHandler;
+ use crate::tools::handlers::ToolSearchHandlerCache;
+ use crate::tools::handlers::extension_tools::ExtensionToolAdapter;
+-use crate::tools::handlers::multi_agents::SpawnAgentHandler;
+-use crate::tools::handlers::multi_agents::WaitAgentHandler;
+ use crate::tools::handlers::multi_agents_common::DEFAULT_WAIT_TIMEOUT_MS;
+ use crate::tools::handlers::multi_agents_common::MAX_WAIT_TIMEOUT_MS;
+ use crate::tools::handlers::multi_agents_common::MIN_WAIT_TIMEOUT_MS;
+diff --git a/codex-rs/core/src/tools/tool_mode.rs b/codex-rs/core/src/tools/tool_mode.rs
+new file mode 100644
+index 0000000..7fb5ff2
+--- /dev/null
++++ b/codex-rs/core/src/tools/tool_mode.rs
+@@ -0,0 +1,42 @@
++//! Shared ordinary tool-mode selection on immutable resolved data.
++//! Availability is captured by the actual code-mode owner. This enum selects
++//! metadata/fallback only; it does not prove runtime or prepared-request custody.
++
++use crate::config::Config;
++use codex_features::Feature;
++use codex_protocol::openai_models::ModelInfo;
++use codex_protocol::openai_models::ToolMode;
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub(super) enum CodeModeAvailability {
++    Available,
++    Unavailable,
++}
++
++pub(super) fn requested_tool_mode(config: &Config, model_info: &ModelInfo) -> ToolMode {
++    model_info.tool_mode.unwrap_or_else(|| {
++        if config.features.enabled(Feature::CodeModeOnly) {
++            ToolMode::CodeModeOnly
++        } else if config.features.enabled(Feature::CodeMode) {
++            ToolMode::CodeMode
++        } else {
++            ToolMode::Direct
++        }
++    })
++}
++
++pub(super) fn effective_tool_mode(
++    config: &Config,
++    model_info: &ModelInfo,
++    availability: CodeModeAvailability,
++) -> ToolMode {
++    let requested_tool_mode = requested_tool_mode(config, model_info);
++    if availability == CodeModeAvailability::Unavailable
++        && requested_tool_mode == ToolMode::CodeMode
++        && !config.code_mode.disable_in_process_fallback
++    {
++        ToolMode::Direct
++    } else {
++        requested_tool_mode
++    }
++}
+-- 
+2.54.0 (Apple Git-157)
+
