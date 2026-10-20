@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.395-symposium-retained-joining-contract';
+  'v1.0.396-symposium-exact-retained-labels';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -275,7 +275,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/collaboration-forward.ts':
     '24fa815ce9f2b2673bfd4e656c455b239e5ad2fd26d22a3d5bbe51fac1513ec5',
   '../../packages/protocol/src/collaboration-conversation.ts':
-    '6b932da4985f8030b4699806ec586fa9f6d71b1a9c8b73e0e7ece1209fbc4acc',
+    '164d36d40da9e5ef983a7714f0b0369d7714c111bba2340a6504815a044297b3',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
     'f5ceb2396c016d3fc29364c93dc18175caf98b1eaef8d647ba473820e8d2fd2a',
   '../../packages/client/src/collaboration-api.ts':

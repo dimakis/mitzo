@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { CollaborationApplicationReviewResultSchema } from '@mitzo/protocol';
 import { createCollaborationRetainedArtifactFixture } from './fixtures/collaboration-retained-artifacts.js';
 import { createRetainedCollaborationArtifactSource } from '../collaboration-retained-artifact-source.js';
 import {
@@ -458,4 +459,27 @@ it('refuses oversized byte/serialized metadata budgets and unbounded paging', as
     sourcePath: 'p'.repeat(512 * 1024),
   }));
   await expect(f.bridge().metadata(f.pin)).rejects.toMatchObject({ code: 'capacity_refused' });
+});
+
+it('preserves exact labels from the actual retained owner across the shared response schema', () => {
+  const saved = fixture.store.save({
+    itemId: fixture.itemId,
+    filename: ' plan.md',
+    title: ' Plan ',
+    bytes: Buffer.from('exact'),
+    sessionId: 'current-conversation',
+  });
+  const label = {
+    kind: 'retainedArtifactVersion' as const,
+    artifactId: saved.id,
+    revision: saved.revision,
+    sha256: saved.sha256,
+    title: saved.title,
+    filename: saved.filename,
+  };
+  expect(saved.filename).toBe(' plan.md');
+  expect(saved.title).toBe(' Plan ');
+  expect(
+    CollaborationApplicationReviewResultSchema.shape.artifactLabels.unwrap().parse([label]),
+  ).toEqual([label]);
 });
