@@ -50,6 +50,8 @@ export interface ManagedSession {
     admit(command: unknown, preparationSignal?: AbortSignal): Promise<{ dispatched: boolean }>;
     retryInitial(command: unknown): Promise<{ dispatched: boolean }>;
     close(): void;
+    /** Optional original-driver idle release; rejects active preparation/work. */
+    closeIdle?(): Promise<void>;
   };
   transport: SessionTransport;
   abortController: AbortController;

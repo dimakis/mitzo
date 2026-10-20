@@ -11,6 +11,11 @@ import { loadAccountProfiles } from './account-profiles.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import { RepositoryWorkspaces } from './repository-workspaces.js';
+import {
+  inspectGithubRepositorySource,
+  prepareGithubRepositorySource,
+  type GithubRepositoryCommand,
+} from './github-repository-source.js';
 
 let service: RepositoryWorkspaces | undefined;
 let idleReleased = false;
@@ -85,8 +90,16 @@ export function repositoryWorkspaceCatalog(binding: AccountBinding) {
   return { available: true, repositories };
 }
 /** Lazy, explicit enrollment: importing the app performs no source acquisition or metadata writes. */
-export function getRepositoryWorkspaces(readOnly = false) {
+export function getRepositoryWorkspaces(
+  readOnly = false,
+  externalCommand?: GithubRepositoryCommand,
+) {
   if (idleReleased) throw Error('Repository workspace owner released');
+  // Select only external process effects at original owner construction. The
+  // canonical ledger, authorization, source parsing, integrity and custody
+  // remain original; an existing owner cannot be replaced by a later adapter.
+  if (externalCommand && (service || readOnly))
+    throw Error('Repository source command transport must be selected before owner construction');
   if (!repositoryWorkspacesEnabled() && !readOnly)
     throw new Error('Repository-backed chats are not enabled');
   if (
@@ -96,6 +109,19 @@ export function getRepositoryWorkspaces(readOnly = false) {
   )
     throw new Error('Repository preparation state is unavailable');
   service ??= new RepositoryWorkspaces(join(codexPrivateDirectory(), 'repository-sources'), {
+    ...(externalCommand
+      ? {
+          inspect: (repository: string, signal: AbortSignal) =>
+            inspectGithubRepositorySource(repository, signal, externalCommand),
+          prepare: (
+            input: Parameters<typeof prepareGithubRepositorySource>[0],
+            directory: string,
+            featureBranch: string,
+            signal: AbortSignal,
+          ) =>
+            prepareGithubRepositorySource(input, directory, featureBranch, signal, externalCommand),
+        }
+      : {}),
     ordinaryPreparation: {
       capture: captureOrdinaryRepositoryPreparation,
       assert: assertOrdinaryRepositoryPreparation,
