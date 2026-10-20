@@ -400,3 +400,81 @@ it('hides free text for restricted choices and masks secret input', () => {
   expect(document.querySelectorAll('.perm-banner textarea')).toHaveLength(0);
   expect(document.querySelector('.perm-banner input[type="password"]')).toBeTruthy();
 });
+
+describe('host session-grant display policy', () => {
+  it.each(['request', 'session', undefined] as const)(
+    'offers only Once and Deny when session grants are explicitly false (scope %s)',
+    (approvalScope) => {
+      const onRespond = vi.fn();
+      render(
+        <PermissionBanner
+          {...defaultProps}
+          approvalScope={approvalScope}
+          allowSessionGrant={false}
+          sessionGrantDescription="Keep this approval until the session ends."
+          onRespond={onRespond}
+        />,
+      );
+      expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+      expect(screen.queryByText('Keep this approval until the session ends.')).toBeNull();
+      expect(screen.getByText('Allow once covers the displayed request.')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+      expect(onRespond).toHaveBeenCalledOnce();
+      expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'Bash');
+    },
+  );
+  it('does not offer an account/model session search grant when explicitly false', () => {
+    render(
+      <PermissionBanner
+        {...defaultProps}
+        allowSessionGrant={false}
+        toolName="RequestWebAccess"
+        approvalScope="session"
+        toolInput={JSON.stringify({ operation: 'search', query: 'Pricing' })}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Allow searches for this session' })).toBeNull();
+    expect(screen.getByText('Allow once covers the displayed request.')).toBeTruthy();
+  });
+  it('keeps the existing conversation grant action when only session grants are unavailable', () => {
+    const onRespond = vi.fn();
+    render(
+      <PermissionBanner
+        {...defaultProps}
+        approvalScope="conversation"
+        allowSessionGrant={false}
+        onRespond={onRespond}
+      />,
+    );
+    expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+    expect(
+      screen.getByText(/This integration remains available to this conversation across reconnects/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Grant to conversation' }));
+    expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'Bash');
+  });
+  it('retains Deny for an explicitly once-only request', () => {
+    const onRespond = vi.fn();
+    render(<PermissionBanner {...defaultProps} allowSessionGrant={false} onRespond={onRespond} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Deny' }));
+    expect(onRespond).toHaveBeenCalledWith('p1', 'deny', 'Bash');
+  });
+  it.each([undefined, true])(
+    'preserves ordinary request-scope session allowance for %s',
+    (allowSessionGrant) => {
+      const onRespond = vi.fn();
+      render(
+        <PermissionBanner
+          {...defaultProps}
+          approvalScope="request"
+          allowSessionGrant={allowSessionGrant}
+          sessionGrantDescription="Keep workspace checks until the session ends."
+          onRespond={onRespond}
+        />,
+      );
+      expect(screen.getByText('Keep workspace checks until the session ends.')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+      expect(onRespond).toHaveBeenCalledWith('p1', 'always', 'Bash');
+    },
+  );
+});

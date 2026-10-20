@@ -659,6 +659,7 @@ export function ChatArea({
           displayName={permission.displayName}
           tier={permission.tier}
           approvalScope={permission.approvalScope}
+          allowSessionGrant={permission.allowSessionGrant}
           sessionGrantDescription={permission.sessionGrantDescription}
           responseError={permission.responseError}
           onRespond={onPermissionRespond}

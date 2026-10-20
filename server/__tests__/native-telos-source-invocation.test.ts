@@ -51,8 +51,10 @@ afterAll(async () => {
 
 /** Actual ordinary chat start, original CodexChat/native callback and real pending
  * permission. Only external native process/RPC is synthetic. This bounded probe
- * stops before operator approval; it does not claim the canonical App journey. */
-it('retains the signed native scope on the real source permission and refuses retirement before any source effect', async () => {
+ * stops before operator approval and retires the host registration, while the
+ * original native turn stays running. It does not claim native-owner retirement
+ * or the canonical App journey. */
+it('retains the signed native scope on the real source permission and refuses host configuration retirement before any source effect', async () => {
   const f = await ownedRuntimeFixture(cleanups, {
     chatRoute: true,
     tools: [{ id: 'mitzo:TelosAdoptSource', version: 1 }],
