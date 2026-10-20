@@ -357,3 +357,63 @@ it.each(['unchanged', 'replaced-root'] as const)(
     expect(f.native.forbidden).not.toHaveBeenCalled();
   },
 );
+
+it.each(['before-context', 'before-commit'] as const)(
+  'refuses recovered role custody changed %s after the asynchronous retained check',
+  async (phase) => {
+    const f = await fixture();
+    const prepare = f.native.events.prepareOrdinaryWorkspaceSession.bind(f.native.events);
+    vi.spyOn(f.native.events, 'prepareOrdinaryWorkspaceSession').mockImplementationOnce(
+      (...args) => {
+        prepare(...args);
+        throw Error('Injected lost committed preparation response');
+      },
+    );
+    await expect(f.owner.setup(f.actor, f.input, f.native.signal.signal)).rejects.toThrow(
+      'Injected lost committed preparation response',
+    );
+    const intent = f.work.prepareOrdinaryRoleSetup(f.input, f.actor);
+    const preparation = f.native.events.getOrdinaryWorkspaceSessionPreparation(
+      intent.setup.allocationOperationId,
+    )!;
+    let replaced = false;
+    const replaceAfterCheck = () => {
+      queueMicrotask(() => {
+        if (replaced) return;
+        replaced = true;
+        renameSync(f.native.taskRoot, f.native.taskRoot + '-retained');
+        mkdirSync(f.native.taskRoot, { mode: 0o700 });
+      });
+    };
+    if (phase === 'before-context') {
+      const settings = f.native.events.getOrdinaryWorkspaceConversationSettings.bind(
+        f.native.events,
+      );
+      vi.spyOn(f.native.events, 'getOrdinaryWorkspaceConversationSettings').mockImplementationOnce(
+        (...args) => {
+          const original = settings(...args);
+          replaceAfterCheck();
+          return original;
+        },
+      );
+    } else {
+      const append = f.native.events.append.bind(f.native.events);
+      vi.spyOn(f.native.events, 'append').mockImplementation((...args) => {
+        const result = append(...args);
+        if (args[1] === 'telos_work_role_context') replaceAfterCheck();
+        return result;
+      });
+    }
+    f.restart();
+    await expect(f.owner.setup(f.actor, f.input, f.native.signal.signal)).rejects.toThrow();
+    expect(replaced).toBe(true);
+    expect(f.work.prepareOrdinaryRoleSetup(f.input, f.actor).receipt).toBeNull();
+    expect(
+      f.native.events
+        .getSessionEvents(preparation.sessionId)
+        .filter((event) => event.type === 'telos_work_role_context'),
+    ).toHaveLength(phase === 'before-context' ? 0 : 1);
+    expect(f.native.first.launch).not.toHaveBeenCalled();
+    expect(f.native.forbidden).not.toHaveBeenCalled();
+  },
+);

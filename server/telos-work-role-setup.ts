@@ -93,6 +93,8 @@ export async function runTelosWorkRoleSetup<
     prepare(): { setup: T; receipt: TelosWorkCommandReceipt | null };
     authorize(scope: RoleScope<T>, signal: AbortSignal): Promise<void>;
     verifyRetained?(scope: RoleScope<T>): Promise<void>;
+    /** Original synchronous custody owner, including inside the final work transaction. */
+    assertRetained?(scope: RoleScope<T>): void;
     getReceipt(operationId: string): R | undefined;
     allocate(scope: RoleScope<T>, authorize: () => Promise<void>): Promise<R>;
     retainContext(
@@ -120,6 +122,8 @@ export async function runTelosWorkRoleSetup<
   await authorize();
   if (retained.receipt) {
     await deps.verifyRetained?.(scope());
+    signal.throwIfAborted();
+    deps.assertRetained?.(scope());
     return retained.receipt;
   }
   let receipt = deps.getReceipt(setup.allocationOperationId);
@@ -140,11 +144,14 @@ export async function runTelosWorkRoleSetup<
     await deps.verifyRetained?.(scope());
     await authorize();
   }
+  signal.throwIfAborted();
+  deps.assertRetained?.(scope());
   await deps.retainContext({ ...scope(), conversationId: receipt.sessionId }, signal);
   await authorize();
   const conversationId = receipt.sessionId;
   return deps.complete(setup, conversationId, () => {
     signal.throwIfAborted();
     deps.assertBeforeApply({ ...scope(), conversationId });
+    deps.assertRetained?.(scope());
   });
 }
