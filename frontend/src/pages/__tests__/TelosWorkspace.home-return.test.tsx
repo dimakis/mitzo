@@ -9,6 +9,7 @@ const records = createTelosWorkFixtures().homeStudio.items;
 const controls = vi.hoisted(() => ({
   unavailable: false,
   childRead: null as null | (() => Promise<Response>),
+  parentRead: null as null | (() => Promise<Response>),
   update: vi.fn(),
 }));
 vi.mock('../../hooks/useHomePreferences', () => ({
@@ -66,6 +67,7 @@ vi.mock('../../lib/api-fetch', async (original) => ({
   apiFetch: vi.fn(async (path: string) => {
     const id = path.match(/\/api\/telos\/work\/items\/([^/]+)\/record$/)?.[1];
     const record = records.find((value) => value.itemId === id);
+    if (id === records[0].itemId && controls.parentRead) return controls.parentRead();
     if (id === records[1].itemId && controls.childRead) return controls.childRead();
     if (id)
       return record && !controls.unavailable
@@ -137,6 +139,7 @@ async function back() {
 beforeEach(() => {
   controls.unavailable = false;
   controls.childRead = null;
+  controls.parentRead = null;
   controls.update.mockReset();
   sessionStorage.clear();
   localStorage.clear();
@@ -297,5 +300,63 @@ for (const mode of ['pending', 'unavailable'] as const)
     await back();
     await waitFor(() => expect(path()).toBe('/?section=pins#pinned'));
     expect(state()).toEqual(homeState);
+    expect(controls.update).not.toHaveBeenCalled();
+  });
+
+for (const mode of ['pending', 'unavailable'] as const)
+  it(`retains parent and Home context through legacy Milestones while the parent canonical read is ${mode}`, async () => {
+    const homeState = {
+      homeTab: 'home',
+      scrollTop: 144,
+      activeProfile: 'manual',
+      filesReturnState: { from: '/files?path=retained' },
+    };
+    let release!: (response: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const parentRead = vi.fn(() =>
+      mode === 'pending'
+        ? held
+        : Promise.resolve(Response.json({ error: 'unavailable' }, { status: 503 })),
+    );
+    controls.parentRead = parentRead;
+    sessionStorage.setItem(
+      'telos.item.history.fixture-studio-slice',
+      JSON.stringify(['stale-other-parent']),
+    );
+    show([{ pathname: '/', search: '?section=pins', hash: '#pinned', state: homeState }]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('link', { name: /^Home studio\s*Work/ }));
+    });
+    expect(parentRead).toHaveBeenCalledOnce();
+    expect(path()).toBe('/todos/fixture-studio');
+    expect(screen.getByRole('heading', { name: 'Task' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /^Milestones/ })).toBeTruthy();
+    const retained = state();
+    const milestone = screen.getByText(records[1].summary).closest('.todo-detail-child-row')!;
+    expect(milestone).toBeTruthy();
+    fireEvent.click(milestone);
+    await screen.findByRole('heading', { name: records[1].summary });
+    expect(path()).toBe('/todos/fixture-studio-slice');
+    await back();
+    await waitFor(() => expect(path()).toBe('/todos/fixture-studio'));
+    expect(screen.getByRole('heading', { name: 'Task' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: /^Milestones/ })).toBeTruthy();
+    expect(state().telosHistory).toEqual([]);
+    expect(state().telosItemReturn).toEqual(retained.telosItemReturn);
+    expect(JSON.parse(sessionStorage.getItem('telos.item.history.fixture-studio-slice')!)).toEqual([
+      'fixture-studio',
+    ]);
+    await back();
+    await waitFor(() => expect(path()).toBe('/?section=pins#pinned'));
+    expect(state()).toEqual(homeState);
+    if (mode === 'pending') {
+      await act(async () => {
+        release(Response.json(records[0]));
+      });
+      expect(path()).toBe('/?section=pins#pinned');
+      expect(state()).toEqual(homeState);
+    }
     expect(controls.update).not.toHaveBeenCalled();
   });

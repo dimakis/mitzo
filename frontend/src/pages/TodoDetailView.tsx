@@ -386,15 +386,11 @@ export function TodoDetailView() {
                 key={child.id}
                 className={`todo-detail-child-row${child.status === 'completed' ? ' todo-detail-child-row--done' : ''}`}
                 onClick={() => {
-                  const state = location.state as {
-                    activeProfile?: string;
-                    scrollTop?: number;
-                  } | null;
-                  navigate(`/todos/${child.id}`, {
+                  navigate(`/todos/${encodeURIComponent(child.id)}`, {
                     state: {
+                      ...location.state,
                       item: child,
-                      activeProfile: state?.activeProfile,
-                      scrollTop: state?.scrollTop,
+                      telosHistory: [...itemHistory(), currentItem.id],
                     },
                   });
                 }}
