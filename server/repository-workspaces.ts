@@ -938,7 +938,14 @@ export class RepositoryWorkspaces {
     )
       throw new Error('Ordinary preparation account changed');
     await this.deps.ordinaryPreparation.assert(proof, binding, signal, requireModelReadiness);
-    if (proof.sourceIdentity && !record.sourceReleased && record.state !== 'claimed') {
+    // Durable terminal records are metadata only. Discard/failure cleanup can
+    // remove their source; this does not assert that cleanup completed or grant
+    // another preparation. Current account/runtime checks above still apply.
+    if (
+      proof.sourceIdentity &&
+      !record.sourceReleased &&
+      !['claimed', 'discarded', 'failed'].includes(record.state)
+    ) {
       const info = await lstat(this.source(record));
       if (info.dev !== proof.sourceIdentity.dev || info.ino !== proof.sourceIdentity.ino)
         throw new Error('Prepared source physical identity changed');

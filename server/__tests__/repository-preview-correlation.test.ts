@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, mkdir, writeFile, rename } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
@@ -7,7 +8,10 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { AccountBindingSchema } from '@mitzo/protocol';
 import type { AccountBinding } from '@mitzo/protocol';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
-import type { OrdinaryRepositoryRuntimeSelection } from '../ordinary-repository-preparation.js';
+import type {
+  OrdinaryRepositoryRuntimeSelection,
+  OrdinaryRepositoryPreparation,
+} from '../ordinary-repository-preparation.js';
 
 const binding = AccountBindingSchema.parse({
   accountId: 'offline',
@@ -58,8 +62,10 @@ async function fixture() {
       credentialDigest: 'a'.repeat(64),
     }),
   );
-  const assert = vi.fn(async () => {});
-  const prepare = vi.fn(async () => {
+  const assert = vi.fn(async (_proof: OrdinaryRepositoryPreparation) => {});
+  const prepare = vi.fn<
+    typeof import('../github-repository-source.js').prepareGithubRepositorySource
+  >(async () => {
     throw Error('Preview must not acquire source');
   });
   const open = () => {
@@ -82,7 +88,7 @@ async function fixture() {
       db.close();
     }
   };
-  return { open, service: open(), authorize, inspect, capture, assert, prepare, rows };
+  return { root, open, service: open(), authorize, inspect, capture, assert, prepare, rows };
 }
 const signal = () => new AbortController().signal;
 it('recovers the original known preview across owners without reinspection or source acquisition', async () => {
@@ -254,3 +260,109 @@ it('rejects invalid request identity before metadata effects and preserves legac
   const legacy = await f.service.preview(binding, 'connection', 'example/repo', signal());
   expect(legacy.id).toMatch(/^[a-f0-9-]{36}$/);
 });
+
+async function ordinaryPreview(f: Awaited<ReturnType<typeof fixture>>) {
+  // Acquisition/authentication are synthetic dependencies; actual owner state,
+  // source identity, filesystem cleanup and SQLite receipts execute normally.
+  f.prepare.mockImplementation(async (preview, directory, featureBranch) => {
+    await mkdir(join(directory, '.git'), { recursive: true });
+    await writeFile(join(directory, '.git', 'HEAD'), `ref: refs/heads/${featureBranch}\n`);
+    await writeFile(join(directory, 'file.txt'), 'offline prepared source');
+    return { ...preview, directory, featureBranch };
+  });
+  const id = randomUUID();
+  await f.service.preview(binding, 'connection', 'example/repo', signal(), runtime, id);
+  return { id, directory: join(f.root, 'private', id, 'mgmt') };
+}
+it('recovers terminal ordinary metadata after actual prepare then discard without reacquisition', async () => {
+  const f = await fixture();
+  const original = await ordinaryPreview(f);
+  expect(await f.service.prepare(original.id, binding, signal())).toMatchObject({
+    id: original.id,
+    state: 'ready',
+  });
+  expect(f.service.get(original.id).ordinaryPreparation?.sourceIdentity).toBeDefined();
+  expect(existsSync(original.directory)).toBe(true);
+  await f.service.discard(original.id, binding);
+  expect(existsSync(original.directory)).toBe(false);
+  const before = f.rows(),
+    inspected = f.inspect.mock.calls.length,
+    captured = f.capture.mock.calls.length;
+  expect(
+    await f.open().preview(binding, 'connection', 'example/repo', signal(), runtime, original.id),
+  ).toMatchObject({ id: original.id, state: 'discarded' });
+  expect(await f.service.qualifiedStatus(original.id, binding)).toMatchObject({
+    id: original.id,
+    state: 'discarded',
+  });
+  expect(f.rows()).toEqual(before);
+  expect(f.prepare).toHaveBeenCalledOnce();
+  expect(f.inspect).toHaveBeenCalledTimes(inspected);
+  expect(f.capture).toHaveBeenCalledTimes(captured);
+  f.authorize.mockResolvedValue({ revision: 2, allowedBaseBranches: ['main'] });
+  await expect(
+    f.service.preview(binding, 'connection', 'example/repo', signal(), runtime, original.id),
+  ).rejects.toThrow();
+  expect(f.rows()).toEqual(before);
+  f.authorize.mockResolvedValue({ revision: 1, allowedBaseBranches: ['main'] });
+  f.assert.mockRejectedValue(Error('Runtime authorization revoked'));
+  await expect(
+    f.service.preview(binding, 'connection', 'example/repo', signal(), runtime, original.id),
+  ).rejects.toThrow('Runtime authorization revoked');
+  expect(f.rows()).toEqual(before);
+});
+it('recovers the failed original after post-capture refusal and actual owned cleanup', async () => {
+  const f = await fixture();
+  const original = await ordinaryPreview(f);
+  let refuse = true;
+  f.assert.mockImplementation(async (proof) => {
+    if (refuse && proof.sourceIdentity) throw Error('forced post-capture refusal');
+  });
+  await expect(f.service.prepare(original.id, binding, signal())).rejects.toThrow(
+    'forced post-capture refusal',
+  );
+  expect(f.service.get(original.id)).toMatchObject({
+    state: 'failed',
+    ordinaryPreparation: { sourceIdentity: expect.any(Object) },
+  });
+  expect(existsSync(original.directory)).toBe(false);
+  refuse = false;
+  const before = f.rows();
+  const recovered = await f.service.preview(
+    binding,
+    'connection',
+    'example/repo',
+    signal(),
+    runtime,
+    original.id,
+  );
+  expect(recovered).toMatchObject({ id: original.id, state: 'failed' });
+  expect(recovered).not.toHaveProperty('ordinaryRuntime');
+  expect(await f.open().qualifiedStatus(original.id, binding)).toMatchObject({
+    id: original.id,
+    state: 'failed',
+  });
+  expect(f.rows()).toEqual(before);
+  expect(f.prepare).toHaveBeenCalledOnce();
+});
+it.each(['missing', 'replaced'] as const)(
+  'still refuses unexplained %s source custody on a ready ordinary workspace',
+  async (fault) => {
+    const f = await fixture();
+    const original = await ordinaryPreview(f);
+    await f.service.prepare(original.id, binding, signal());
+    const before = f.rows();
+    if (fault === 'missing') await rm(original.directory, { recursive: true, force: true });
+    else {
+      await rename(original.directory, `${original.directory}-retained`);
+      await mkdir(original.directory);
+      await writeFile(join(original.directory, 'file.txt'), 'offline prepared source');
+    }
+    await expect(
+      f.service.preview(binding, 'connection', 'example/repo', signal(), runtime, original.id),
+    ).rejects.toThrow();
+    await expect(f.service.qualifiedStatus(original.id, binding)).rejects.toThrow();
+    expect(f.rows()).toEqual(before);
+    expect(f.prepare).toHaveBeenCalledOnce();
+  },
+);

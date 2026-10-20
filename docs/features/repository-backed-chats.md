@@ -38,6 +38,12 @@ that an earlier request stopped; retain its ID. Preparation continues through th
 existing explicit `/:id/prepare` operation. An expired, failed, discarded or uncertain
 original operation must not be silently replaced or rewound by preview recovery.
 
+Discarded and failed ordinary preparations remain recoverable as terminal metadata
+after their source directory is removed. Recovery still renews the original
+account, runtime and connection authorization. It neither marks cleanup complete
+nor clears the retained source identity, restarts preparation or returns a runnable
+runtime. Missing or replaced source custody on a ready preparation still refuses.
+
 The task starts at the previewed commit on `mitzo/repo-<preparation UUID>`. Host
 chats receive an independent copy beneath the configured repository's
 `.claude/repository-tasks/repo-<UUID>/mgmt`; that directory is a standalone Git repository,
