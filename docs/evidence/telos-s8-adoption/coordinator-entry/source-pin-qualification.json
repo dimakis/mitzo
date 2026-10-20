@@ -1,0 +1,24 @@
+{
+  "baseHead": "76e3291324c6c11448d80bea994dd97d38112e2d",
+  "runtimeBefore": "v1.0.334-telos-chat-routes",
+  "runtimeAfter": "v1.0.335-telos-coordinator-entry",
+  "updatedExistingPaths": [
+    {
+      "path": "../../frontend/src/components/TelosTreeConversationEntry.tsx",
+      "before": "e8311cc22e369d1f9c4d8db26e2f3da54c58a654bd2c8becdf8429504d81502a",
+      "after": "f5f6128d4539e61d7fc3e18144a8826f34949dee7d91b43bf6a3e06d07d015bf"
+    },
+    {
+      "path": "../../frontend/src/components/TelosItemRoleEntries.tsx",
+      "before": "380b4e7ebd8c1f35a01395651817c4f3e60e70c6742e3d28a33fcf5d45309c5e",
+      "after": "d19a53f26f66a44a47520475e2c9f3ff69c1ae8801253767f0ad88045bb7a819"
+    }
+  ],
+  "newHelper": {
+    "path": "../../frontend/src/lib/telos-work-entry-role.ts",
+    "sha256": "1116a555e86fbd95a99c4addd1d00c55480928d4d277d9c33bb11e7b430465af"
+  },
+  "allOtherPinsPreserved": true,
+  "approvedRefsAndProtectionsUnchanged": true,
+  "limits": "UI routes explicit coordinator kind to existing backendlead, explicit assign vs additional only. No coordinator-specific mandate/control acceptance claimed."
+}

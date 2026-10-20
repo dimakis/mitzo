@@ -1,0 +1,29 @@
+{
+  "kind": "frontend consumer overlay, not complete application merge",
+  "acceptedMain": "8a7dab62d502665b9fd349ead8f9895364b04a66",
+  "symposium": "3882cd217daad3e61e3642f84f7377c1d2caef52",
+  "s5b": "688d9a57e756939b001ce41d7f3838997b3e1688",
+  "adoptionOverlayBase": "046fb5f1",
+  "routeHookCorrection": "3c2ec5d3",
+  "originalS5bBrowserFixtureSha256": "fe92ced6a45e9669efd70096a652af247f217da1764c10e5a86c0b1eae58d6d7",
+  "originalS5bBrowserFixtureUnchanged": true,
+  "frontendComposition": [
+    "useExplicitLocalChat: retain accepted RepositoryContext parser and incoming ordinaryWorkspaceId/V2 guard",
+    "DesktopChatView: retain adopted layout/accepted ConversationAgents, use incoming localRuntime.commandAvailable"
+  ],
+  "unresolvedBackendPaths": [
+    "server/app.ts",
+    "server/connections/reviewed-handler-artifacts.ts",
+    "server/repository-workspace-runtime.ts",
+    "server/repository-workspaces.ts"
+  ],
+  "focusedTestsPassed": 28,
+  "browserScenariosPassed": 12,
+  "browserStartupChecksPassed": 2,
+  "realModelCalls": 0,
+  "limits": [
+    "Four backend conflicts remain unresolved; no whole-application compile or accepted integration claimed",
+    "HTTP/events/runtime effects are synthetic; no actual workspace allocation or model call",
+    "Original ordinary-chat fixture write guard caught unexpected links POST; product now skips work lookup without an explicit item or bound role; original fixture passes unchanged"
+  ]
+}

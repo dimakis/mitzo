@@ -1,0 +1,30 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-coordinator
+
+ ❯ server/__tests__/connection-template-registry.test.ts (19 tests | 1 failed | 18 skipped) 31ms
+     × binds handler source outside golden inputs to reviewed artifacts 31ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/__tests__/connection-template-registry.test.ts > connection template registry > binds handler source outside golden inputs to reviewed artifacts
+AssertionError: expected 'c055de32814ff93f5d870b5193275be305023…' to be '5de770a510b65ea6764d59b171b8e4181aaab…' // Object.is equality
+
+Expected: "5de770a510b65ea6764d59b171b8e4181aaab9b10b4dc4dd656697fa5b037fae"
+Received: "c055de32814ff93f5d870b5193275be305023bbf83e92ae98fc9fdc54e209ad3"
+
+ ❯ server/__tests__/connection-template-registry.test.ts:768:87
+    766|     ) as Record<keyof typeof reviewedHandlerSourceArtifacts, string>;
+    767|     for (const [file, expected] of Object.entries(reviewedHandlerSourc…
+    768|       expect(reviewedHandlerSourceFingerprint(sources[file as keyof ty…
+       |                                                                                       ^
+    769|         expected,
+    770|       );
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 18 skipped (19)
+   Start at  00:32:20
+   Duration  579ms (transform 240ms, setup 0ms, import 456ms, tests 31ms, environment 0ms)
+

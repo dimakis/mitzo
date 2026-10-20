@@ -7,6 +7,11 @@ import { TelosItemWorkspace } from '../TelosItemWorkspace';
 vi.mock('../TelosItemRoleEntries', () => ({
   TelosItemRoleEntries: () => <div>Ordinary role entry</div>,
 }));
+// Workspace tab persistence stays isolated from the ordinary store/router owner;
+// TelosItemChatTab and the actual route chain have dedicated integration tests.
+vi.mock('../TelosItemChatTab', () => ({
+  TelosItemChatTab: () => <div>Ordinary role entry</div>,
+}));
 vi.mock('../WorkOutputs', () => ({ WorkOutputs: () => <div>Retained output revisions</div> }));
 vi.mock('../TelosItemSources', () => ({
   TelosItemSources: () => <div>Retained source exchange</div>,
@@ -17,6 +22,25 @@ afterEach(() => {
   sessionStorage.clear();
 });
 const records = createTelosWorkFixtures().homeStudio.items;
+it('restores an explicit Materials navigation snapshot over a later stored Chat preference', () => {
+  const record = records[0];
+  sessionStorage.setItem('telos.item.tab.' + record.itemId, 'Chat');
+  render(
+    <MemoryRouter initialEntries={[`/todos/${record.itemId}?view=Materials`]}>
+      <TelosItemWorkspace
+        refreshKey={0}
+        record={record}
+        records={records}
+        onOpen={vi.fn()}
+        onBack={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('button', { name: 'Materials' }).getAttribute('aria-pressed')).toBe(
+    'true',
+  );
+  expect(screen.getByText('Retained source exchange')).toBeTruthy();
+});
 it('retains the brief, original fields, exact dates, context and parent-only Work entry', () => {
   const onOpen = vi.fn();
   render(

@@ -17,6 +17,7 @@ import type {
   TelosWorkRoleSetupInput,
 } from '../../packages/protocol/src/telos-work-api';
 import { TelosWorkRoleSetupInputSchema } from '../../packages/protocol/src/telos-work-api';
+import { TelosWorkControlCommandSchema } from '../../packages/protocol/src/telos-work-controls';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
 // Each lead case also covers rejection/reload and explicit fresh confirmation.
@@ -38,7 +39,7 @@ const compiled = build({
 });
 const preparationId = '11111111-1111-4111-8111-111111111111';
 const boundId = '22222222-2222-4222-8222-222222222222';
-for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
+for (const journey of ['lead', 'refine', 'child', 'leaf', 'coordinator'] as const)
   for (const theme of ['dark', 'light'] as const)
     test(`ordinary ${journey} setup preserves the source and retained chat controls (${theme})`, async ({
       page,
@@ -49,12 +50,14 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         terminalBookkeeping: true,
       });
       const refining = journey === 'refine' || journey === 'leaf';
+      const leading = journey === 'lead' || journey === 'coordinator';
       let work: TelosWorkView = {
         ...data.work,
-        kind: journey === 'leaf' ? 'work_item' : 'outcome',
+        kind:
+          journey === 'leaf' ? 'work_item' : journey === 'coordinator' ? 'coordinator' : 'outcome',
       };
       const inventory = localInventoryFixture();
-      const actionLabel = journey === 'lead' ? 'Assign lead & open chat' : 'Start chat';
+      const actionLabel = leading ? 'Assign lead & open chat' : 'Start chat';
       let savedWork: TelosWorkView | null = null;
       let advisorPreview: { sha256: string; packet: typeof data.source.packet } | undefined;
       const advisorSaves: unknown[] = [];
@@ -62,12 +65,14 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         ...createTelosWorkFixtures().homeStudio.items[0],
         itemId: 'studio',
         summary: 'Home studio',
-        kind: journey === 'leaf' ? 'work_item' : 'outcome',
+        kind:
+          journey === 'leaf' ? 'work_item' : journey === 'coordinator' ? 'coordinator' : 'outcome',
         intent: 'Record clearly',
       };
       const calls: TelosWorkRoleSetupInput[] = [],
         unexpected: string[] = [],
         errors: string[] = [];
+      const inboxReads: unknown[] = [];
       const briefText = JSON.stringify({
         summary: 'Home studio',
         intent: 'Record clearly',
@@ -143,6 +148,13 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         if (path === '/api/telos/work/items/advisor-child')
           return route.fulfill({ json: savedWork });
         if (path === '/api/telos/work/items/studio') return route.fulfill({ json: work });
+        if (path === '/api/telos/work/controls' && route.request().method() === 'POST') {
+          const input: unknown = route.request().postDataJSON();
+          expect(journey).toBe('coordinator');
+          expect(input).toEqual({ operation: 'inbox', itemId: 'studio' });
+          inboxReads.push(TelosWorkControlCommandSchema.parse(input));
+          return route.fulfill({ json: [] });
+        }
         if (path === '/api/telos/work/roles/context' || path === '/api/telos/work/roles/review') {
           contextReviews++;
           const request = route.request().postDataJSON();
@@ -328,7 +340,16 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
             json: { actorId: 'operator:offline', commandId: 'saved-draft', work: savedWork },
           });
         }
-        if (path === '/api/telos/work/links') return route.fulfill({ json: [] });
+        if (path === '/api/telos/work/links') {
+          if (journey !== 'coordinator') return route.fulfill({ json: [] });
+          const selector = route.request().postDataJSON();
+          expect(selector.namespace).toBe('mitzo');
+          return route.fulfill({
+            json: work.links.filter(
+              (link) => link.conversation.conversationId === selector.conversationId,
+            ),
+          });
+        }
         if (path.startsWith('/api/telos/work/items/studio/sources/'))
           return route.fulfill({ json: data.source });
         if (path === '/api/telos/items/advisor-child/artifacts')
@@ -446,10 +467,10 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         if (path.endsWith('/messages'))
           return route.fulfill({
             json: {
-              messages: path.includes('/planning/') || journey !== 'lead' ? data.messages : [],
+              messages: path.includes('/planning/') || !leading ? data.messages : [],
               current: null,
               currents: [],
-              cursor: path.includes('/planning/') || journey !== 'lead' ? data.cursor : 0,
+              cursor: path.includes('/planning/') || !leading ? data.cursor : 0,
             },
           });
         if (path.endsWith('/meta'))
@@ -541,12 +562,11 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       }
       await page
         .getByRole('button', {
-          name:
-            journey === 'lead'
-              ? 'Choose lead collaborator'
-              : refining
-                ? 'Refine item'
-                : 'Add child with advisor',
+          name: leading
+            ? 'Choose lead collaborator'
+            : refining
+              ? 'Refine item'
+              : 'Add child with advisor',
         })
         .click();
       await expect(page.getByRole('button', { name: actionLabel })).toBeDisabled();
@@ -585,7 +605,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         includeHidden: true,
       });
       await expect(welcome).toBeHidden();
-      if (journey === 'lead') {
+      if (leading) {
         const roleUrl = new URL(page.url());
         const ordinaryUrl = new URL(roleUrl);
         for (const key of [...ordinaryUrl.searchParams.keys()])
@@ -665,7 +685,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       await settingsHome(page);
       await page.screenshot({ path: info.outputPath(`role-settings-${theme}.png`) });
       await settingsPanel.getByRole('button', { name: 'Done', exact: true }).click();
-      if (journey === 'lead') {
+      if (leading) {
         const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
         await composer.fill('Keep this unsent plan through reviewed-work recovery.');
         rejectBeforeAllocation = true;
@@ -706,16 +726,21 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       await reloadAfterHealth();
       await page.getByRole('button', { name: actionLabel }).click();
       await expect(page).toHaveURL(new RegExp(`/chat/${boundId}$`));
-      expect(calls).toHaveLength(journey === 'lead' ? 3 : 2);
+      expect(calls).toHaveLength(leading ? 3 : 2);
       expect(calls.at(-1)).toEqual(calls.at(-2));
-      if (journey === 'lead') {
+      if (leading) {
         expect(calls[1].requestId).not.toBe(calls[0].requestId);
         expect(calls[1].expectedRevision).toBe('e'.repeat(64));
         expect(calls[1].settings).toEqual(calls[0].settings);
       }
       expect(work.sources).toEqual(data.work.sources);
       expect(work.attempts).toEqual([]);
-      await expect(page.getByRole('link', { name: 'Home studio', exact: true })).toBeVisible();
+      if (journey === 'coordinator') {
+        expect(calls.at(-1)?.role).toBe('lead');
+        expect(calls.at(-1)?.expectedAssignmentRevision).toBe(0);
+        await expect(page.getByRole('button', { name: 'View item: Home studio' })).toBeVisible();
+      } else
+        await expect(page.getByRole('link', { name: 'Home studio', exact: true })).toBeVisible();
       await expect(page.getByRole('button', { name: 'Open session tray' })).toBeAttached();
       await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
       await page.getByText('Linked brief · goal & parent context', { exact: true }).click();
@@ -724,7 +749,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
         .fill('Unsent follow-up retained in this ordinary chat.');
       await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
       await page.screenshot({ path: info.outputPath(`role-bound-chat-${theme}.png`) });
-      if (journey !== 'lead') {
+      if (!leading) {
         await page
           .getByRole('button', {
             name: refining ? 'Propose refinement' : 'Suggest a draft',
@@ -764,4 +789,6 @@ for (const journey of ['lead', 'refine', 'child', 'leaf'] as const)
       ).toBe(true);
       expect(errors).toEqual([]);
       expect(unexpected).toEqual([]);
+      if (journey === 'coordinator') expect(inboxReads.length).toBeGreaterThan(0);
+      else expect(inboxReads).toEqual([]);
     });

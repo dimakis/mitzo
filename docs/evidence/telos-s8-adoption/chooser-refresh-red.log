@@ -1,0 +1,37 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-adoption
+
+ ❯ frontend/src/components/__tests__/TelosItemChatTab.test.tsx (4 tests | 1 failed) 120ms
+   × refreshes a chooser without silently selecting a conversation when only one remains 14ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  frontend/src/components/__tests__/TelosItemChatTab.test.tsx > refreshes a chooser without silently selecting a conversation when only one remains
+AssertionError: expected <output data-testid="chat-path"></output> to be null
+
+- Expected:
+null
+
++ Received:
+<output
+  data-testid="chat-path"
+>
+  /chat/worker?telosChatItem=slice
+</output>
+
+ ❯ frontend/src/components/__tests__/TelosItemChatTab.test.tsx:108:45
+    106|   fireEvent(document, new Event('visibilitychange'));
+    107|   await screen.findByRole('heading', { name: 'Chats · 1' });
+    108|   expect(screen.queryByTestId('chat-path')).toBeNull();
+       |                                             ^
+    109| });
+    110| it('opens an external origin explicitly and retains distinct ordinary …
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  23:44:29
+   Duration  999ms (transform 282ms, setup 0ms, import 483ms, tests 120ms, environment 305ms)
+

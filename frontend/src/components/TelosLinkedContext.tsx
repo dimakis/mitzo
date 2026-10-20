@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { z } from 'zod';
 import type {
   TelosWorkRoleContextSelection,
@@ -8,6 +8,7 @@ import type {
 } from '@mitzo/protocol';
 import { shareTelosArtifact } from '../lib/share-file';
 import { readTelosRolePresentation } from '../lib/telos-role-presentation';
+import { telosChatReturnState } from '../lib/telos-chat-return';
 
 const BriefFields = z.strictObject({
   summary: z.string(),
@@ -35,6 +36,7 @@ export function TelosLinkedContext({
   presentationRef?: TelosWorkRolePresentationRef;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const location = useLocation();
   let labels: TelosWorkRolePresentation | undefined;
   if (presentation !== undefined || presentationRef !== undefined) {
     try {
@@ -144,6 +146,12 @@ export function TelosLinkedContext({
               <Link
                 className="session-work-link"
                 to={`/chat/${encodeURIComponent(source.source.conversationId)}?${new URLSearchParams({ telosItem: context.itemId, telosSource: source.snapshotId }).toString()}`}
+                state={telosChatReturnState(
+                  location.state,
+                  context.itemId,
+                  source.source.conversationId,
+                  location.pathname + location.search,
+                )}
               >
                 Open original chat
               </Link>

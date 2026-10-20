@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-coordinator
+
+
+ Test Files  5 passed (5)
+      Tests  33 passed (33)
+   Start at  00:31:53
+   Duration  3.84s (transform 485ms, setup 0ms, import 1.41s, tests 534ms, environment 1.38s)
+

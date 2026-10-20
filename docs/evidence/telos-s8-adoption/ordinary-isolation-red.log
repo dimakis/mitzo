@@ -1,0 +1,50 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-adoption
+
+ ❯ frontend/src/components/__tests__/TelosChatRouteLayout.test.tsx (4 tests | 1 failed) 96ms
+   × leaves an ordinary chat without a work route or bound role on its existing read path 6ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  frontend/src/components/__tests__/TelosChatRouteLayout.test.tsx > leaves an ordinary chat without a work route or bound role on its existing read path
+AssertionError: expected "links" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st links call:
+
+    Array [
+      Object {
+        "conversationId": "worker",
+        "namespace": "mitzo",
+      },
+      AbortSignal {
+        Symbol(kEvents): Map {},
+        Symbol(events.maxEventTargetListeners): 0,
+        Symbol(events.maxEventTargetListenersWarned): false,
+        Symbol(kHandlers): Map {},
+        Symbol(kAborted): false,
+        Symbol(kReason): undefined,
+        Symbol(kComposite): false,
+      },
+    ]
+
+
+Number of calls: 1
+
+ ❯ frontend/src/components/__tests__/TelosChatRouteLayout.test.tsx:121:50
+    119|   mount('', false);
+    120|   await act(async () => { await Promise.resolve(); });
+    121|   expect(TelosWorkApiClient.prototype.links).not.toHaveBeenCalled();
+       |                                                  ^
+    122|   expect(screen.queryByRole('button', { name: /View item:/ })).toBeNul…
+    123|   expect(screen.getByRole('textbox', { name: 'Draft' })).toBeTruthy();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 3 passed (4)
+   Start at  23:57:17
+   Duration  1.23s (transform 308ms, setup 0ms, import 555ms, tests 96ms, environment 474ms)
+

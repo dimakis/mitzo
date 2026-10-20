@@ -1,0 +1,57 @@
+{
+  "beforeRuntime": "v1.0.333-prompt-startup",
+  "afterRuntime": "v1.0.334-telos-chat-routes",
+  "qualifiedExistingPaths": [
+    {
+      "path": "../../frontend/src/pages/TodoDetailView.tsx",
+      "before": "662a9f114e6a9078e13f1843bb437d3a3f244e287111d6fd9b5e4e081dc05b19",
+      "after": "91758e6e9e2f788022740f367787690e0a334ab3038826a485e5ce6ef69e3b14"
+    },
+    {
+      "path": "../../frontend/src/components/TelosSourceWorkLink.tsx",
+      "before": "50e403a3a6dc25eaf7a5a7080eb2865e04ab0da5c4571633b912bc260a4f6d25",
+      "after": "c1390c9b009c2aef271379608f667ffa6d520bcb87c4ce6bb1ae12a57aed8bc8"
+    },
+    {
+      "path": "../../frontend/src/pages/ChatView.tsx",
+      "before": "89a69c9cc39dbd8d4b38168c6546787b786b985f4658043de18210a23fdc0182",
+      "after": "b22e21edd226e3818309492daedcbe24bd0f70cbc3e2804cc64002036b562527"
+    },
+    {
+      "path": "../../frontend/src/pages/DesktopChatView.tsx",
+      "before": "102b1f4115a202b4643b8d878d559d1bac079ce71aca5b9301ae65fba4a7928d",
+      "after": "c03bd78cb1ac4de3c0ff4ff5448cae63e361bc9d811112c9a79d919d151631d8"
+    },
+    {
+      "path": "../../frontend/src/components/TelosItemRoleEntries.tsx",
+      "before": "d5cb3a3ccde005cc25050f96c60fbd4f573c18eb00a8ee2a8b131be0bd33eb3d",
+      "after": "380b4e7ebd8c1f35a01395651817c4f3e60e70c6742e3d28a33fcf5d45309c5e"
+    },
+    {
+      "path": "../../frontend/src/hooks/useTelosRecords.ts",
+      "before": "674f0cd52629afa64f40f6df8cf01e661f068204a9d5d43c4bd9a21ab04bbd49",
+      "after": "de8243e0d1d3714a92cd01d9119bf03a2f745781bf7c9e64a54bd6cef8b754fa"
+    },
+    {
+      "path": "../../frontend/src/components/TelosItemWorkspace.tsx",
+      "before": "ee25277ca2355bd595563219a10c06f4272b27895f6ef3bf48e12c524b9bf47e",
+      "after": "2298b75ba2ef32a6e86fc1adfdb8e96bd5983d619c0564c76b00b809f8b2f89d"
+    },
+    {
+      "path": "../../frontend/src/components/TelosItemSources.tsx",
+      "before": "5f2ded9f696d667a622dd59aa9d3a16ad01dc6364ac7d1d35a1ffdc7d2ff2d1e",
+      "after": "5de770a510b65ea6764d59b171b8e4181aaab9b10b4dc4dd656697fa5b037fae"
+    },
+    {
+      "path": "../../frontend/src/components/TelosLinkedContext.tsx",
+      "before": "6b3b655f44abe86906687c86e5606df3668012192097f0ceecd2a9f957ddc85a",
+      "after": "f4aad8cea312fd01d303d76470d752c93f8741458a829b8323522682ac5c8c49"
+    }
+  ],
+  "newSharedHelper": {
+    "path": "../../frontend/src/lib/telos-item-navigation.ts",
+    "sha256": "194170adf8cfc918b5b6d0482a413646641bce1de086616fb1a0ac32fa30b6f2"
+  },
+  "allOtherPinsPreserved": true,
+  "sourceAudit": "Six adopted UI files plus narrow unchanged S7 history extraction. Existing ordinary controllers/source authority remain; targeted source and actual-route regressions qualify this correction. No approved ledger/reference/protected-test hashes changed. Materials and linked-context source openers also carry the existing location.state verbatim; sourceHref/query/backend authority remain unchanged."
+}

@@ -1,0 +1,24 @@
+{
+  "baseProduction": "7ce99f2941cff65dacefa91caa3639479c5e8d64",
+  "runtimeBefore": "v1.0.336-telos-chat-return",
+  "runtimeAfter": "v1.0.337-telos-source-viewport",
+  "updatedExistingPaths": [
+    {
+      "path": "../../frontend/src/components/TelosItemWorkspace.tsx",
+      "before": "3dcb068e00437dd93304e63de8c740bfbcbcab88af215caf291c24831db041e1",
+      "after": "d2f3d3e96a0d74a044dd01aad1df4fe99d2fb76a8af563fe2880ee5a730674c8"
+    },
+    {
+      "path": "../../frontend/src/components/ChatArea.tsx",
+      "before": "7bf3ed3548c6e7d4bc2700a035897427e44d96cd3ec31e1ec87d911503fc6e80",
+      "after": "6265d9ba5bd3f684f0956b100a0b4eeffd421e9dcde7f2a9535818f9f14b06e3"
+    },
+    {
+      "path": "../../frontend/src/components/TelosItemSources.tsx",
+      "before": "c055de32814ff93f5d870b5193275be305023bbf83e92ae98fc9fdc54e209ad3",
+      "after": "03abba949c3cc42c377a136c268f049d74fc2a858821af07fb7ef26f59271ebc"
+    }
+  ],
+  "allOtherPinsPreserved": true,
+  "scope": "Caller-owned exact Overview/Materials return snapshot; viewport ResizeObserver retains existing reader following only with no source anchor; no source/backend or controls authority change."
+}

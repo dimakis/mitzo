@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-s5b-ui-validation
+
+
+ Test Files  5 passed (5)
+      Tests  28 passed (28)
+   Start at  00:00:29
+   Duration  4.19s (transform 434ms, setup 0ms, import 1.32s, tests 868ms, environment 1.51s)
+

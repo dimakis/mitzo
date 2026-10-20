@@ -13,7 +13,10 @@ import { TelosLinkedContext } from './TelosLinkedContext';
 import { readTelosRolePresentation } from '../lib/telos-role-presentation';
 
 /** The compact item row is shared by the mobile and desktop ordinary chat. */
-export function TelosSourceWorkLink({ conversationId }: { conversationId?: string } = {}) {
+export function TelosSourceWorkLink({
+  conversationId,
+  hideItemLink = false,
+}: { conversationId?: string; hideItemLink?: boolean } = {}) {
   const source = useTelosSourceNavigation();
   const [role, setRole] = useState<{
     conversationId: string;
@@ -68,7 +71,7 @@ export function TelosSourceWorkLink({ conversationId }: { conversationId?: strin
     if (!context) return null;
     return (
       <div className="telos-chat-context">
-        <SessionWorkLink taskId={context.itemId} />
+        {!hideItemLink && <SessionWorkLink taskId={context.itemId} />}
         {context.leadConversationId && (
           <Link to={`/chat/${encodeURIComponent(context.leadConversationId)}`}>
             Return to lead chat
@@ -81,7 +84,9 @@ export function TelosSourceWorkLink({ conversationId }: { conversationId?: strin
   return (
     <div className="telos-chat-context">
       {source.status === 'ready' ? (
-        <SessionWorkLink taskId={source.itemId} />
+        hideItemLink ? null : (
+          <SessionWorkLink taskId={source.itemId} />
+        )
       ) : (
         <span role="status">
           {source.status === 'loading'

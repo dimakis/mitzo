@@ -63,6 +63,44 @@ it('reports authoritative visibility while preserving hidden session metadata an
   expect(store.getSession('retained-briefing')?.isHidden).toBe(true);
   expect((await request(app).get('/api/sessions/missing/meta')).status).toBe(404);
 });
+it('projects the persisted conversation creation time without changing it on metadata reads or later updates', async () => {
+  const createdAt = Date.parse('2026-10-16T10:00:00Z');
+  store.upsertSession({
+    sessionId: 'chooser-created',
+    summary: 'Original conversation',
+    createdAt,
+  });
+  const before = store.getSession('chooser-created');
+  const first = await request(app).get('/api/sessions/chooser-created/meta');
+  expect(first.status).toBe(200);
+  expect(first.body.createdAt).toBe(createdAt);
+  expect(store.getSession('chooser-created')).toEqual(before);
+  store.upsertSession({ sessionId: 'chooser-created', summary: 'Renamed later' });
+  expect((await request(app).get('/api/sessions/chooser-created/meta')).body.createdAt).toBe(
+    createdAt,
+  );
+});
+it.each([undefined, -1, Number.NaN, Number.POSITIVE_INFINITY, 8640000000000001, '2026-10-16'])(
+  'omits an absent or invalid creation timestamp (%s) while preserving metadata',
+  async (createdAt) => {
+    store.upsertSession({ sessionId: 'chooser-invalid-created', summary: 'Retained' });
+    const original = store.getSession.bind(store);
+    const read = vi.spyOn(store, 'getSession').mockImplementation((id) => {
+      const meta = original(id);
+      return meta && id === 'chooser-invalid-created'
+        ? ({ ...meta, createdAt } as typeof meta)
+        : meta;
+    });
+    try {
+      const response = await request(app).get('/api/sessions/chooser-invalid-created/meta');
+      expect(response.status).toBe(200);
+      expect(response.body).toMatchObject({ sessionId: 'chooser-invalid-created' });
+      expect(response.body).not.toHaveProperty('createdAt');
+    } finally {
+      read.mockRestore();
+    }
+  },
+);
 it('observes deletion during optional catalog refresh before returning reuse eligibility', async () => {
   store.upsertSession({
     sessionId: 'during-refresh',

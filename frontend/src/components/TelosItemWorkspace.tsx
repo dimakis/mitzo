@@ -8,15 +8,18 @@ import { UiIcon } from './UiIcon';
 import { TelosOutcomesTree } from './TelosOutcomesTree';
 import { telosKindLabel } from '../lib/telos-kind-label';
 import { TelosItemRoleEntries } from './TelosItemRoleEntries';
+import { TelosItemChatTab } from './TelosItemChatTab';
 import { TelosItemSources } from './TelosItemSources';
 import { WorkOutputs } from './WorkOutputs';
 import { SavedArtifactRouteDialog } from './SavedArtifactRouteDialog';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { artifactViewerUrl } from '../lib/file-paths';
 import './TelosWorkspace.css';
 
 type Tab = 'Overview' | 'Chat' | 'Work' | 'Materials';
-function initialTab(key: string): Tab {
+function initialTab(key: string, search: string): Tab {
+  const requested = new URLSearchParams(search).get('view');
+  if (['Overview', 'Chat', 'Work', 'Materials'].includes(requested ?? '')) return requested as Tab;
   try {
     const saved = sessionStorage.getItem(key);
     if (['Overview', 'Chat', 'Work', 'Materials'].includes(saved ?? '')) return saved as Tab;
@@ -48,8 +51,9 @@ export function TelosItemWorkspace({
   prioritySaveState?: TodoPrioritySaveState;
 }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const key = 'telos.item.tab.' + record.itemId;
-  const [tab, setTab] = useState<Tab>(() => initialTab(key));
+  const [tab, setTab] = useState<Tab>(() => initialTab(key, location.search));
   const [error, setError] = useState('');
   const descendants = new Set([record.itemId]);
   for (let i = 0; i < records.length; i++)
@@ -65,6 +69,15 @@ export function TelosItemWorkspace({
   const current = tabs.includes(tab) ? tab : 'Overview';
   function select(next: Tab) {
     setTab(next);
+    const params = new URLSearchParams(location.search);
+    if (params.has('view') || params.has('chooseChat')) {
+      params.delete('view');
+      params.delete('chooseChat');
+      navigate(
+        { pathname: location.pathname, search: params.toString() },
+        { replace: true, state: location.state },
+      );
+    }
     try {
       sessionStorage.setItem(key, next);
     } catch {
@@ -80,11 +93,14 @@ export function TelosItemWorkspace({
   }));
   const artifactLinks = record.links.filter((l) => l.type === 'artifact');
   const links = record.links.filter((l) => l.type !== 'artifact');
+  const sourceReturnParams = new URLSearchParams(location.search);
+  sourceReturnParams.set('view', current);
   const sources = (
     <TelosItemSources
       itemId={record.itemId}
       legacySources={originalSources}
       onOpenExternal={(url) => window.open(url, '_blank', 'noopener,noreferrer')}
+      returnPath={`${location.pathname}?${sourceReturnParams}`}
     />
   );
   const materials = (
@@ -193,7 +209,12 @@ export function TelosItemWorkspace({
       <div className="telos-dashboard">
         <div>
           {current === 'Chat' ? (
-            <TelosItemRoleEntries key={record.itemId} itemId={record.itemId} />
+            <TelosItemChatTab
+              key={record.itemId}
+              itemId={record.itemId}
+              title={record.summary}
+              refreshKey={refreshKey}
+            />
           ) : current === 'Materials' ? (
             materials
           ) : current === 'Work' ? (

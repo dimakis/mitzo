@@ -1,0 +1,638 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-coordinator
+
+ ❯ frontend/src/components/__tests__/TelosItemChatTab.test.tsx (9 tests | 4 failed) 161ms
+   × routes a coordinator Choose lead collaborator through ordinary lead setup, assigned=assign 14ms
+   × routes a coordinator New chat through ordinary lead setup, assigned=additional 10ms
+   × routes a coordinator Change lead collaborator through ordinary lead setup, assigned=assign 10ms
+   × routes a coordinator New chat through ordinary lead setup, assigned=additional 9ms
+ ❯ frontend/src/components/__tests__/TelosItemRoleEntries.test.tsx (3 tests | 1 failed) 1092ms
+   × offers an explicit ordinary lead assignment for a coordinator without turning New chat into authority 1017ms
+ ❯ frontend/src/components/__tests__/TelosTreeConversationEntry.test.tsx (4 tests | 1 failed) 1069ms
+   × reads a coordinator current assignment from the retained lead role while preserving its display kind 1004ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  frontend/src/components/__tests__/TelosItemChatTab.test.tsx > routes a coordinator Choose lead collaborator through ordinary lead setup, assigned=assign
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "Choose lead collaborator"
+
+Here are the accessible roles:
+
+  region:
+
+  Name "Chats for Contributor controls":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Chats for Contributor controls"[39m
+    [33mclass[39m=[32m"telos-chat-list"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "Chats · 2":
+  [36m<h2 />[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "New chat":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Open Originating conversation":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Open Originating conversation"[39m
+    [33mclass[39m=[32m"telos-chat-row"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Open Lead conversation":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Open Lead conversation"[39m
+    [33mclass[39m=[32m"telos-chat-row"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "":
+  [36m<ul />[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"telos-chat-note"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<section[39m
+      [33maria-label[39m=[32m"Chats for Contributor controls"[39m
+      [33mclass[39m=[32m"telos-chat-list"[39m
+    [36m>[39m
+      [36m<h2>[39m
+        [0mChats · [0m
+        [0m2[0m
+      [36m</h2>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"telos-chat-actions"[39m
+      [36m>[39m
+        [36m<button[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"ui-icon"[39m
+            [33mdata-icon[39m=[32m"plus"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mfocusable[39m=[32m"false"[39m
+            [33mheight[39m=[32m"16"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"1.7"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"16"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M12 5v14M5 12h14"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0mNew chat[0m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<ul>[39m
+        [36m<li>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Open Originating conversation"[39m
+            [33mclass[39m=[32m"telos-chat-row"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ui-icon"[39m
+              [33mdata-icon[39m=[32m"chats"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"20"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"20"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M4 4h16v12H9l-5 4Z"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"telos-chat-copy"[39m
+            [36m>[39m
+              [36m<strong>[39m
+                [0mOriginating conversation[0m
+              [36m</strong>[39m
+              [36m<small>[39m
+                [0mSettings unavailable[0m
+              [36m</small>[39m
+              [36m<small>[39m
+                [0mLinked date unknown[0m
+                [0m [0m
+                [0m· [0m
+                [0mAuthor unknown[0m
+              [36m</small>[39m
+            [36m</span>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ui-icon"[39m
+              [33mdata-icon[39m=[32m"arrowUpRight"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"16"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M7 7h10v10M7 17 17 7"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+          [36m</button>[39m
+        [36m</li>[39m
+        [36m<li>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Open Lead conversation"[39m
+            [33mclass[39m=[32m"telos-chat-row"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ui-icon"[39m
+              [33mdata-icon[39m=[32m"chats"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"20"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"20"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M4 4h16v12H9l-5 4Z"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"telos-chat-copy"[39m
+            [36m>[39m
+              [36m<strong>[39m
+                [0mLead conversation[0m
+              [36m</strong>[39m
+              [36m<small>[39m
+                [0mSettings unavailable[0m
+              [36m</small>[39m
+              [36m<small>[39m
+                [0mLinked date unknown[0m
+                [0m [0m
+                [0m· [0m
+                [0mAuthor unknown[0m
+              [36m</small>[39m
+            [36m</span>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ui-icon"[39m
+              [33mdata-icon[39m=[32m"arrowUpRight"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"16"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M7 7h10v10M7 17 17 7"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+          [36m</button>[39m
+        [36m</li>[39m
+      [36m</ul>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"telos-chat-note"[39m
+      [36m>[39m
+        [0mEach chat retains its own history, settings and workspace. New chat keeps the assigned worker; Change worker assigns a replacement.[0m
+      [36m</p>[39m
+    [36m</section>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ frontend/src/components/__tests__/TelosItemChatTab.test.tsx:166:26
+    164|   await screen.findByRole('heading', { name: 'Chats · 2' });
+    165|   expect(newSession).not.toHaveBeenCalled();
+    166|   fireEvent.click(screen.getByRole('button', { name: action }));
+       |                          ^
+    167|   await screen.findByTestId('setup');
+    168|   const params = new URLSearchParams(listChatDrafts()[0].settings.sear…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  frontend/src/components/__tests__/TelosItemChatTab.test.tsx > routes a coordinator New chat through ordinary lead setup, assigned=additional
+ FAIL  frontend/src/components/__tests__/TelosItemChatTab.test.tsx > routes a coordinator New chat through ordinary lead setup, assigned=additional
+AssertionError: expected 'advisor' to be 'lead' // Object.is equality
+
+Expected: "lead"
+Received: "advisor"
+
+ ❯ frontend/src/components/__tests__/TelosItemChatTab.test.tsx:170:35
+    168|   const params = new URLSearchParams(listChatDrafts()[0].settings.sear…
+    169|   expect(params.get('telosRoleItem')).toBe('slice');
+    170|   expect(params.get('telosRole')).toBe('lead');
+       |                                   ^
+    171|   expect(params.get('telosRoleMode')).toBe(mode);
+    172|   expect(work.assignments).toEqual(before);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  frontend/src/components/__tests__/TelosItemChatTab.test.tsx > routes a coordinator Change lead collaborator through ordinary lead setup, assigned=assign
+TestingLibraryElementError: Unable to find an accessible element with the role "button" and name "Change lead collaborator"
+
+Here are the accessible roles:
+
+  region:
+
+  Name "Chats for Contributor controls":
+  [36m<section[39m
+    [33maria-label[39m=[32m"Chats for Contributor controls"[39m
+    [33mclass[39m=[32m"telos-chat-list"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  heading:
+
+  Name "Chats · 2":
+  [36m<h2 />[39m
+
+  --------------------------------------------------
+  button:
+
+  Name "New chat":
+  [36m<button[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Open Originating conversation":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Open Originating conversation"[39m
+    [33mclass[39m=[32m"telos-chat-row"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  Name "Open Assigned lead":
+  [36m<button[39m
+    [33maria-label[39m=[32m"Open Assigned lead"[39m
+    [33mclass[39m=[32m"telos-chat-row"[39m
+    [33mtype[39m=[32m"button"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+  list:
+
+  Name "":
+  [36m<ul />[39m
+
+  --------------------------------------------------
+  listitem:
+
+  Name "":
+  [36m<li />[39m
+
+  Name "":
+  [36m<li />[39m
+
+  --------------------------------------------------
+  strong:
+
+  Name "":
+  [36m<strong />[39m
+
+  Name "":
+  [36m<strong />[39m
+
+  --------------------------------------------------
+  paragraph:
+
+  Name "":
+  [36m<p[39m
+    [33mclass[39m=[32m"telos-chat-note"[39m
+  [36m/>[39m
+
+  --------------------------------------------------
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<section[39m
+      [33maria-label[39m=[32m"Chats for Contributor controls"[39m
+      [33mclass[39m=[32m"telos-chat-list"[39m
+    [36m>[39m
+      [36m<h2>[39m
+        [0mChats · [0m
+        [0m2[0m
+      [36m</h2>[39m
+      [36m<div[39m
+        [33mclass[39m=[32m"telos-chat-actions"[39m
+      [36m>[39m
+        [36m<button[39m
+          [33mtype[39m=[32m"button"[39m
+        [36m>[39m
+          [36m<svg[39m
+            [33maria-hidden[39m=[32m"true"[39m
+            [33mclass[39m=[32m"ui-icon"[39m
+            [33mdata-icon[39m=[32m"plus"[39m
+            [33mfill[39m=[32m"none"[39m
+            [33mfocusable[39m=[32m"false"[39m
+            [33mheight[39m=[32m"16"[39m
+            [33mstroke[39m=[32m"currentColor"[39m
+            [33mstroke-linecap[39m=[32m"round"[39m
+            [33mstroke-linejoin[39m=[32m"round"[39m
+            [33mstroke-width[39m=[32m"1.7"[39m
+            [33mviewBox[39m=[32m"0 0 24 24"[39m
+            [33mwidth[39m=[32m"16"[39m
+          [36m>[39m
+            [36m<path[39m
+              [33md[39m=[32m"M12 5v14M5 12h14"[39m
+            [36m/>[39m
+          [36m</svg>[39m
+          [0mNew chat[0m
+        [36m</button>[39m
+      [36m</div>[39m
+      [36m<ul>[39m
+        [36m<li>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Open Originating conversation"[39m
+            [33mclass[39m=[32m"telos-chat-row"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ui-icon"[39m
+              [33mdata-icon[39m=[32m"chats"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"20"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"20"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M4 4h16v12H9l-5 4Z"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"telos-chat-copy"[39m
+            [36m>[39m
+              [36m<strong>[39m
+                [0mOriginating conversation[0m
+              [36m</strong>[39m
+              [36m<small>[39m
+                [0mSettings unavailable[0m
+              [36m</small>[39m
+              [36m<small>[39m
+                [0mLinked date unknown[0m
+                [0m [0m
+                [0m· [0m
+                [0mAuthor unknown[0m
+              [36m</small>[39m
+            [36m</span>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ui-icon"[39m
+              [33mdata-icon[39m=[32m"arrowUpRight"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"16"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M7 7h10v10M7 17 17 7"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+          [36m</button>[39m
+        [36m</li>[39m
+        [36m<li>[39m
+          [36m<button[39m
+            [33maria-label[39m=[32m"Open Assigned lead"[39m
+            [33mclass[39m=[32m"telos-chat-row"[39m
+            [33mtype[39m=[32m"button"[39m
+          [36m>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ui-icon"[39m
+              [33mdata-icon[39m=[32m"chats"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"20"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"20"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M4 4h16v12H9l-5 4Z"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+            [36m<span[39m
+              [33mclass[39m=[32m"telos-chat-copy"[39m
+            [36m>[39m
+              [36m<strong>[39m
+                [0mAssigned lead[0m
+              [36m</strong>[39m
+              [36m<small>[39m
+                [0mSettings unavailable[0m
+              [36m</small>[39m
+              [36m<small>[39m
+                [0mLinked date unknown[0m
+                [0m [0m
+                [0m· [0m
+                [0mAuthor unknown[0m
+              [36m</small>[39m
+            [36m</span>[39m
+            [36m<svg[39m
+              [33maria-hidden[39m=[32m"true"[39m
+              [33mclass[39m=[32m"ui-icon"[39m
+              [33mdata-icon[39m=[32m"arrowUpRight"[39m
+              [33mfill[39m=[32m"none"[39m
+              [33mfocusable[39m=[32m"false"[39m
+              [33mheight[39m=[32m"16"[39m
+              [33mstroke[39m=[32m"currentColor"[39m
+              [33mstroke-linecap[39m=[32m"round"[39m
+              [33mstroke-linejoin[39m=[32m"round"[39m
+              [33mstroke-width[39m=[32m"1.7"[39m
+              [33mviewBox[39m=[32m"0 0 24 24"[39m
+              [33mwidth[39m=[32m"16"[39m
+            [36m>[39m
+              [36m<path[39m
+                [33md[39m=[32m"M7 7h10v10M7 17 17 7"[39m
+              [36m/>[39m
+            [36m</svg>[39m
+          [36m</button>[39m
+        [36m</li>[39m
+      [36m</ul>[39m
+      [36m<p[39m
+        [33mclass[39m=[32m"telos-chat-note"[39m
+      [36m>[39m
+        [0mEach chat retains its own history, settings and workspace. New chat keeps the assigned worker; Change worker assigns a replacement.[0m
+      [36m</p>[39m
+    [36m</section>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ Object.getElementError ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/config.js:37:19
+ ❯ ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/query-helpers.js:76:38
+ ❯ ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/query-helpers.js:52:17
+ ❯ ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/query-helpers.js:95:19
+ ❯ frontend/src/components/__tests__/TelosItemChatTab.test.tsx:166:26
+    164|   await screen.findByRole('heading', { name: 'Chats · 2' });
+    165|   expect(newSession).not.toHaveBeenCalled();
+    166|   fireEvent.click(screen.getByRole('button', { name: action }));
+       |                          ^
+    167|   await screen.findByTestId('setup');
+    168|   const params = new URLSearchParams(listChatDrafts()[0].settings.sear…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  frontend/src/components/__tests__/TelosItemRoleEntries.test.tsx > offers an explicit ordinary lead assignment for a coordinator without turning New chat into authority
+TestingLibraryElementError: Unable to find role="button" and name "Choose lead collaborator"
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<output[39m
+      [33mdata-testid[39m=[32m"location"[39m
+    [36m>[39m
+      [0m/todos/selected[0m
+    [36m</output>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<output[39m
+      [33mdata-testid[39m=[32m"location"[39m
+    [36m>[39m
+      [0m/todos/selected[0m
+    [36m</output>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ waitForWrapper ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ frontend/src/components/__tests__/TelosItemRoleEntries.test.tsx:50:32
+     48| it('offers an explicit ordinary lead assignment for a coordinator with…
+     49|   const f = fixture('coordinator');
+     50|   fireEvent.click(await screen.findByRole('button', { name: 'Choose le…
+       |                                ^
+     51|   const location = new URL(screen.getByTestId('location').textContent!…
+     52|   expect(location.searchParams.get('telosRole')).toBe('lead');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+ FAIL  frontend/src/components/__tests__/TelosTreeConversationEntry.test.tsx > reads a coordinator current assignment from the retained lead role while preserving its display kind
+TestingLibraryElementError: Unable to find an element with the text: Coordinator assigned. This could be because the text is broken up by multiple elements. In this case, you can provide a function for your text matcher to make your matcher more flexible.
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"telos-tree-conversation"[39m
+    [36m>[39m
+      [36m<span[39m
+        [33mclass[39m=[32m"telos-node-meta"[39m
+      [36m>[39m
+        [0mNo coordinator assigned[0m
+      [36m</span>[39m
+      [36m<button>[39m
+        [0mView coordinator[0m
+      [36m</button>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+
+Ignored nodes: comments, script, style
+[36m<body>[39m
+  [36m<div>[39m
+    [36m<div[39m
+      [33mclass[39m=[32m"telos-tree-conversation"[39m
+    [36m>[39m
+      [36m<span[39m
+        [33mclass[39m=[32m"telos-node-meta"[39m
+      [36m>[39m
+        [0mNo coordinator assigned[0m
+      [36m</span>[39m
+      [36m<button>[39m
+        [0mView coordinator[0m
+      [36m</button>[39m
+    [36m</div>[39m
+  [36m</div>[39m
+[36m</body>[39m
+ ❯ waitForWrapper ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/wait-for.js:163:27
+ ❯ ../../../2026-10-17/read-and-execute-this-handover-users-2/mitzo-s7/node_modules/@testing-library/dom/dist/query-helpers.js:86:33
+ ❯ frontend/src/components/__tests__/TelosTreeConversationEntry.test.tsx:50:23
+     48|   const open = vi.fn();
+     49|   render(<TelosTreeConversationEntry refreshKey={0} itemId={item.itemI…
+     50|   expect(await screen.findByText('Coordinator assigned')).toBeTruthy();
+       |                       ^
+     51|   fireEvent.click(screen.getByRole('button', { name: 'Coordinator chat…
+     52|   expect(open).toHaveBeenCalledOnce();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/6]⎯
+
+
+ Test Files  3 failed (3)
+      Tests  6 failed | 10 passed (16)
+   Start at  00:20:48
+   Duration  4.64s (transform 325ms, setup 0ms, import 913ms, tests 2.32s, environment 1.09s)
+

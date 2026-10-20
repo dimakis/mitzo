@@ -7,6 +7,7 @@ export interface TelosChatRow {
   links: TelosWorkSessionLink[];
   sources: TelosWorkSourceSnapshot[];
   availability: TelosWorkSessionLink['availability'];
+  unknownAssignmentRoles?: Array<'lead' | 'worker'>;
 }
 const identity = (ref: TelosChatRow['conversation']) =>
   JSON.stringify([ref.namespace, ref.conversationId]);
@@ -25,6 +26,7 @@ export function telosChatRows(work: TelosWorkView): TelosChatRow[] {
         links: [],
         sources: [],
         availability: 'unknown',
+        unknownAssignmentRoles: [],
       });
     return rows.get(key)!;
   }
@@ -42,18 +44,23 @@ export function telosChatRows(work: TelosWorkView): TelosChatRow[] {
       (assignment) =>
         assignment.role === link.role && identity(assignment.conversation) === entry.key,
     );
-    const label =
-      link.role === 'origin'
-        ? 'Originating conversation'
-        : assigned
-          ? `Assigned ${link.role}`
-          : link.role === 'worker'
-            ? 'Worker conversation'
-            : link.role === 'lead'
-              ? 'Lead conversation'
-              : link.role === 'advisor'
-                ? 'Advisor'
-                : 'Reviewer';
+    let label: string;
+    if (link.role === 'origin') label = 'Originating conversation';
+    else if (assigned) label = `Assigned ${link.role}`;
+    else if (link.role === 'lead' || link.role === 'worker') {
+      const history = work.assignmentHistory?.[link.role];
+      const previous =
+        link.conversation.namespace === 'mitzo' &&
+        history?.conversationIds.includes(link.conversation.conversationId);
+      if (previous) label = 'Previous conversation';
+      else if (history?.complete === true)
+        label = link.role === 'lead' ? 'Additional lead conversation' : 'Additional worker';
+      else {
+        label = link.role === 'lead' ? 'Lead conversation' : 'Worker conversation';
+        const unknown = (entry.unknownAssignmentRoles ??= []);
+        if (!unknown.includes(link.role)) unknown.push(link.role);
+      }
+    } else label = link.role === 'advisor' ? 'Advisor' : 'Reviewer';
     if (!entry.labels.includes(label)) entry.labels.push(label);
   }
   for (const source of work.sources) {
