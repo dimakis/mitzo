@@ -1143,3 +1143,87 @@ it('bounds native and MCP Telos inline approval cards without hiding destination
   expect(input.content).toHaveLength(20000);
   expect(permissionDisplayInput('Other', input)).toBeUndefined();
 });
+
+it.each([false, true, undefined])(
+  'projects explicit session-grant policy %s without changing the retained approval owner',
+  async (allowSessionGrant) => {
+    const registry = new SessionRegistry();
+    const transport = fakeTransport();
+    registry.register('display-client', {
+      sessionId: 'display-session',
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const pending = buildPermissionHandler('display-client', registry)(
+      'mcp__fixture__operation',
+      { original: true },
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'original-display-call',
+        forcePrompt: true,
+        allowSessionGrant,
+      },
+    );
+    await Promise.resolve();
+    const card = transport.sent.find((e) => e.type === 'permission_request')!;
+    try {
+      expect(card.allowSessionGrant).toBe(allowSessionGrant === false ? false : undefined);
+      expect(resolvePending(card.permId as string, 'once', undefined, 'display-session')).toBe(
+        true,
+      );
+      expect(await pending).toMatchObject({ behavior: 'allow', updatedInput: { original: true } });
+      expect(registry.get('display-client')!.sessionAllowList.size).toBe(0);
+    } finally {
+      resolvePending(card.permId as string, 'deny', undefined, 'display-session');
+      await pending;
+      registry.dispose();
+    }
+  },
+);
+
+it.each(['session', 'conversation'] as const)(
+  'preserves caller-owned %s consent without granting a generic tool allowance',
+  async (approvalScope) => {
+    const registry = new SessionRegistry(),
+      transport = fakeTransport();
+    registry.register('retained-client', {
+      sessionId: 'retained-session',
+      transport,
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const pending = buildPermissionHandler('retained-client', registry)(
+      'mcp__fixture__retained',
+      {},
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'caller-owned-consent',
+        forcePrompt: true,
+        allowSessionGrant: false,
+        rememberSessionGrant: false,
+        approvalScope,
+      },
+    );
+    await Promise.resolve();
+    const card = transport.sent.find((e) => e.type === 'permission_request')!;
+    try {
+      expect(card.approvalScope).toBe(approvalScope);
+      expect(card).not.toHaveProperty('allowSessionGrant');
+      expect(resolvePending(card.permId as string, 'always', undefined, 'retained-session')).toBe(
+        true,
+      );
+      expect(await pending).toMatchObject({
+        behavior: 'allow',
+        decisionClassification: 'user_permanent',
+      });
+      expect(registry.get('retained-client')!.sessionAllowList.size).toBe(0);
+    } finally {
+      resolvePending(card.permId as string, 'deny', undefined, 'retained-session');
+      await pending;
+      registry.dispose();
+    }
+  },
+);

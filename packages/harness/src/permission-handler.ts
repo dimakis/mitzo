@@ -395,6 +395,8 @@ export function buildPermissionHandler(
       };
       opts.signal.addEventListener('abort', onAbort, { once: true });
 
+      const approvalScope =
+        opts.approvalScope ?? (opts.allowSessionGrant === false ? 'request' : 'session');
       const request: PermissionRequest = {
         ...(telosReview ? { reviewKind: 'telos_source' as const } : {}),
         permId,
@@ -404,8 +406,12 @@ export function buildPermissionHandler(
         description: opts.description,
         displayName: opts.displayName,
         tier,
-        approvalScope:
-          opts.approvalScope ?? (opts.allowSessionGrant === false ? 'request' : 'session'),
+        approvalScope,
+        // Explicit retained scopes can belong to the caller rather than this
+        // handler's generic allow list (web search, URL access, publication).
+        ...(opts.allowSessionGrant === false && approvalScope === 'request'
+          ? { allowSessionGrant: false }
+          : {}),
         ...(opts.sessionGrantDescription
           ? { sessionGrantDescription: opts.sessionGrantDescription }
           : {}),

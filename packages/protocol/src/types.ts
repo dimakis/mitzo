@@ -233,6 +233,9 @@ export interface PermissionRequest {
   displayName?: string;
   tier?: ToolTier;
   approvalScope?: 'session' | 'conversation' | 'request';
+  /** Display restriction only; absence preserves legacy retained-scope choices.
+   * Never grants or changes the server's retained approval authority. */
+  allowSessionGrant?: boolean;
   /** Server-supplied human description of the retained session scope. */
   sessionGrantDescription?: string;
   responseError?: string;
