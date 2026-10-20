@@ -135,6 +135,8 @@ vi.mock('../../lib/haptics', () => ({ impactMedium: vi.fn() }));
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(async () => new Response('[]')),
   getApiBaseUrl: () => '',
+  // These ordinary-route fixtures have no authenticated joining authority.
+  currentVerifiedAuthSessionId: () => null,
   AUTH_LOST_EVENT: 'auth-lost',
   AUTH_RESTORED_EVENT: 'auth-restored',
 }));

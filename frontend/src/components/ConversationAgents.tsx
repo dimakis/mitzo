@@ -61,8 +61,10 @@ export function ConversationAgents(props: {
   onPreview?(id: string): void;
   onDraftProfile?(id: string): void;
   unavailableReason?: string;
-  /** Rechecks observational setup metadata; never starts preparation or joining. */
+  /** Checks metadata or the original relationship request; never prepares a target or starts a response. */
   onRetryJoiningSetup?(): void;
+  /** Explicit Add may begin only the original relationship; never a model turn. */
+  onAddAgent?(): void;
   renderPreview?(agent: ConversationAgent): ReactNode;
   onPolicyChange?(id: string, policy: { reads: boolean; replies: boolean }): void;
   /** Confirmed policy state and explicit recovery controls from the existing owner. */
@@ -93,6 +95,7 @@ function ConversationAgentsBody({
   onDraftProfile,
   unavailableReason,
   onRetryJoiningSetup,
+  onAddAgent,
   renderPreview,
   onPolicyChange,
   policyFeedback,
@@ -129,7 +132,8 @@ function ConversationAgentsBody({
       setupStatus.current?.focus({ preventScroll: true });
     }
   }, [onRetryJoiningSetup]);
-  const joining = useConversationJoiningReview(joiningOwner, () => {
+  const joining = useConversationJoiningReview(joiningOwner, (join) => {
+    joiningOwner?.onLinked?.(join);
     setOpen(false);
     setView('agents');
     setSetup(initial());
@@ -166,6 +170,9 @@ function ConversationAgentsBody({
     /^[A-Za-z][A-Za-z0-9_-]{0,23}$/.test(setup.name) &&
     setup.name.toLowerCase() !== 'all' &&
     !agents.some((a) => a.name.toLowerCase() === setup.name.toLowerCase());
+  const reviewSetup = joiningCatalog?.catalog?.sourceRepository
+    ? { ...setup, sourceRepository: joiningCatalog.catalog.sourceRepository.repository }
+    : setup;
   const title =
     view === 'add'
       ? 'Add agent'
@@ -495,7 +502,11 @@ function ConversationAgentsBody({
                 </fieldset>
                 <div className="conversation-agent-field">
                   <span>Repository</span>
-                  <strong>{repository || 'Not selected'}</strong>
+                  <strong>
+                    {joiningCatalog
+                      ? (joiningCatalog.catalog?.sourceRepository?.repository ?? 'Not verified')
+                      : repository || 'Not selected'}
+                  </strong>
                 </div>
                 <h3>Starting context</h3>
                 <label className="conversation-agent-field">
@@ -741,9 +752,14 @@ function ConversationAgentsBody({
                     className="conversation-agents-primary"
                     onClick={() => {
                       if (joining.join?.state === 'linked') {
-                        setView(joining.startNew() ? 'add' : 'review');
-                      } else
-                        setView(joining.locked || joining.hasAttemptFor(setup) ? 'review' : 'add');
+                        const fresh = joining.startNew();
+                        setView(fresh ? 'add' : 'review');
+                        if (fresh) onAddAgent?.();
+                      } else {
+                        const resume = joining.locked || joining.hasAttemptFor(reviewSetup);
+                        setView(resume ? 'review' : 'add');
+                        if (!resume) onAddAgent?.();
+                      }
                     }}
                   >
                     Add agent
@@ -760,6 +776,9 @@ function ConversationAgentsBody({
                       type="button"
                       disabled={
                         !joiningOwner ||
+                        joining.locked ||
+                        !!joining.pending ||
+                        (joiningCatalog && !joiningCatalog.catalog?.sourceRepository) ||
                         !nameValid ||
                         !setup.purpose.trim() ||
                         !setup.selection?.accountId ||
@@ -769,7 +788,7 @@ function ConversationAgentsBody({
                       onClick={() => {
                         setView('review');
                         void joining.prepare(
-                          setup,
+                          reviewSetup,
                           joiningOwner?.kind === 'application'
                             ? initialConversationJoiningBrief({
                                 name: setup.name,

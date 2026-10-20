@@ -30,6 +30,7 @@ import {
   conversationArtifactKey,
   sameConversationArtifact,
 } from '../lib/conversation-joining-artifacts';
+import { ConversationJoiningTargetError } from '../lib/conversation-joining-target-intent';
 
 type State = {
   review: ConversationJoiningReviewResult | null;
@@ -84,6 +85,10 @@ function ready(state: State) {
     snapshot.capacity.assessments.some((a) => equal(a.settings, settings))
   );
 }
+const repositoryCurrent = (owner: ConversationJoiningOwner, setup: ConversationAgentSetup | null) =>
+  owner.kind !== 'application' ||
+  setup?.sourceRepository === undefined ||
+  owner.sourceRepository === setup.sourceRepository;
 function readReview(
   raw: ConversationJoiningReviewResult,
   owner: ConversationJoiningOwner,
@@ -378,6 +383,14 @@ export function useConversationJoiningReview(
                 },
               }
             : {}),
+          ...(previous && owner.kind === 'application' && current.current.review
+            ? {
+                previousSource: {
+                  boundary: structuredClone(current.current.review.snapshot.boundary),
+                  expectedMembershipRevision: previous.expectedMembershipRevision,
+                },
+              }
+            : {}),
         };
     lastReview.current = {
       input: structuredClone(input),
@@ -419,6 +432,13 @@ export function useConversationJoiningReview(
         });
       }
     } catch {
+      // A pending ordinary preparation can refuse a changed draft. Retrying
+      // must still recover its original stored review, never the rejected ID.
+      if (retained.current)
+        lastReview.current = {
+          input: structuredClone(retained.current.reviewRequest),
+          previous: retained.current.previousReview,
+        };
       update({
         setup: captured,
         ...(brief !== undefined ? { brief } : {}),
@@ -432,6 +452,9 @@ export function useConversationJoiningReview(
       if (owner.kind === 'application') {
         if (retained.current?.version !== 2) throw new Error('Application intent unavailable');
         if (retained.current.application.state === 'capture_pending') {
+          if (owner.prepareReview)
+            await owner.prepareReview(structuredClone(input), controller.signal);
+          if (!canPublish(operation, identity)) return;
           const raw = await owner.captureReview(structuredClone(input), controller.signal);
           if (!canPublish(operation, identity)) return;
           const normalized = CollaborationApplicationReviewInputSchema.parse(raw);
@@ -470,11 +493,14 @@ export function useConversationJoiningReview(
       const accepted = readReview(result, owner, captured, brief, previous);
       save({ ...retained.current!, acceptedReview: joiningReviewFence(accepted) });
       update({ review: accepted, brief: accepted.snapshot.joiningBrief, pending: null });
-    } catch {
+    } catch (cause) {
       if (!canPublish(operation, identity)) return;
       update({
         pending: null,
-        error: 'The joining brief could not be checked. Your setup and edits stay here.',
+        error:
+          cause instanceof ConversationJoiningTargetError
+            ? cause.message
+            : 'The joining brief could not be checked. Your setup and edits stay here.',
       });
     }
   };
@@ -488,7 +514,8 @@ export function useConversationJoiningReview(
     const identity = ownerIdentity(owner)!;
     let input = state.submission;
     if (!input) {
-      if (!ready(state) || !state.review || !state.setup) return;
+      if (!ready(state) || !state.review || !state.setup || !repositoryCurrent(owner, state.setup))
+        return;
       input = CollaborationJoinInputSchema.parse({
         requestId: createBrowserId(),
         expectedMembershipRevision: state.review.expectedMembershipRevision,
@@ -571,7 +598,7 @@ export function useConversationJoiningReview(
     ...state,
     review: ownerAvailable ? state.review : null,
     requiresRecovery: restored.current && state.join !== null,
-    canConfirm: ownerAvailable && ready(state),
+    canConfirm: ownerAvailable && !!owner && repositoryCurrent(owner, state.setup) && ready(state),
     locked:
       state.submission !== null ||
       storageBlocked.current ||
