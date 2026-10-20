@@ -35,6 +35,7 @@ export function createCollaborationContextSource(deps: {
     assertVisible(sessionId);
   }
   function exactOutput(pin: Parameters<AuthorizedCollaborationContext['authorizeArtifact']>[0]) {
+    if ('kind' in pin) throw new CollaborationContractError('snapshot_changed');
     if (!openedSession) throw new CollaborationContractError('snapshot_changed');
     const output = deps.store.getSessionOutput(openedSession, pin.artifactId);
     if (

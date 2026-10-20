@@ -1,16 +1,15 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
-import { CollaborationContractError, CollaborationSnapshotSelectionSchema } from '@mitzo/protocol';
+import {
+  CollaborationContractError,
+  CollaborationRetainedArtifactPinSchema,
+} from '@mitzo/protocol';
 import type { TelosArtifactMetadata, TelosArtifactStore } from './telos-artifact-store.js';
 import type { RetainedCollaborationArtifactSource } from './collaboration-retained-artifact-source.js';
 
-/** Local integration seam until the shared joining schema consumes this tag.
- * Public selectors contain no item, association, privacy or retention authority. */
-export const JoiningRetainedArtifactPinSchema =
-  CollaborationSnapshotSelectionSchema.shape.artifacts.element.extend({
-    kind: z.literal('retainedArtifactVersion'),
-  });
+/** Shared public selector contains no item, association, privacy or retention authority. */
+export const JoiningRetainedArtifactPinSchema = CollaborationRetainedArtifactPinSchema;
 export type JoiningRetainedArtifactPin = z.infer<typeof JoiningRetainedArtifactPinSchema>;
 export interface JoiningRetainedArtifactMetadata extends JoiningRetainedArtifactPin {
   retention: 'independent';

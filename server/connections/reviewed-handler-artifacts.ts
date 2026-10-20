@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.394-symposium-source-preview';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.395-symposium-retained-joining-contract';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../collaboration-joining-retained-artifacts.ts':
+    '696cd73f112bf49fba37c06f7d5bc771f617d75749bb39e3551ac95ec1c468b0',
   '../../packages/protocol/src/collaboration-source-setup.ts':
     '721a2ac2183d4ca5e9f73aeb6657bb8021c173440a799299f668a88621b28eb2',
   '../../packages/protocol/src/collaboration-source-setup-owner.ts':
@@ -129,9 +132,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SavedArtifactDialog.tsx':
     '4f3cb5204c11db0ce409eb7469e359cbbd5440c63a09b0ab9ad91b3e99a70ce8',
   '../collaboration-retained-artifact-source.ts':
-    'e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470',
+    '817f3b03bacbec5ca607d04c352e1271ebc87f93b668f92054c443151858b2c1',
   '../collaboration-forwarding.ts':
-    '8eb6d7b32dab93b30b92241c9e83b9bd24ef644c38b0648c363847679e2ccdcb',
+    'c59e30f6d9dc3d91106491e7848c18f4d62f8dc70b88e09fb1bab72e5364a4ac',
   '../sandbox-ownership-review.ts':
     '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
   '../../frontend/src/components/SandboxOwnershipReview.tsx':
@@ -217,7 +220,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '599f1574e4fb2deace9d5b0aa19e639d6bd7aed727837d404f44ff916eba8a5f',
   '../codex-session-events.ts': 'ac907391d5427c054eb4b2d5d64e28c853b5b5c52cf5bc689467aec994e532d9',
   '../collaboration-context-source.ts':
-    '4315a579a1741c55d7c62b9b43fdde35967ad1b6e630eb1d1b5389221cac0995',
+    'd695e89693d7eaccb03754d707ccbf6a3b1f86e0d7557ad64a533677dc37ae02',
   '../../packages/protocol/src/collaboration-visible-source.ts':
     '8747b800cf069cad636dc5ae6e92a347e55b59c9f01fe64af84587e047af1567',
   '../telos-work-conversation.ts':
@@ -264,17 +267,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../api-schemas.ts': '1f036d99280f706a1a0aa5bf9115bf748c57654afc16d9e1540a3f3b79374961',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   '../collaboration-context-compiler.ts':
-    'd52551cd2b7515c93b86acdcba09ca46118d6632c698831e2bc5540dd866e572',
+    '917b32aa231511e6391a7e722723642794a547aa1b2e543ab86d99b889d184b6',
   '../../packages/protocol/src/collaboration-forward-custody.ts':
     '63368fb15184ad9424eb91ef60a6bf8d37fd9ae67a6305eea46cef8e34d56d95',
   '../../packages/protocol/package.json':
     'a61c766103f7c7ba441d67bc52ea1d583e42f57ba8ad1ca2c90d50bdd25fb746',
   '../../packages/protocol/src/collaboration-forward.ts':
-    '400794ca0ec65ee75f153787d18ffbf1bdca81f0187959e69fade002b9c18271',
+    '24fa815ce9f2b2673bfd4e656c455b239e5ad2fd26d22a3d5bbe51fac1513ec5',
   '../../packages/protocol/src/collaboration-conversation.ts':
-    '2dbb2919ab9f5afe75ef015d255808116a38d4b61000eae0793508f78e6cb87d',
+    '6b932da4985f8030b4699806ec586fa9f6d71b1a9c8b73e0e7ece1209fbc4acc',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
-    '0d650294683d000155f3ccb013eb71715c9476457a8667a42bfb800b8ef73d5c',
+    'f5ceb2396c016d3fc29364c93dc18175caf98b1eaef8d647ba473820e8d2fd2a',
   '../../packages/client/src/collaboration-api.ts':
     '7f3bf72a97b268a687dab4cd3f6593d510d4e601fc1306504c9bb8e708de5b6c',
   '../../packages/client/src/collaboration-projection.ts':

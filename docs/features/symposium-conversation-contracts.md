@@ -83,6 +83,23 @@ A summary is a new review object with attribution and the exact original snapsho
 digest and source pins. It never replaces the original evidence in place.
 An artifact pin establishes a version reference, not retained bytes or read access.
 
+Joining selectors also have a strict `kind: retainedArtifactVersion` branch with
+the exact artifact ID, revision and SHA256. Bare legacy inline selectors and
+historical snapshots retain their original representation. A frozen retained
+version carries independent retention, item, filename, title and original
+provenance; it has no fabricated source-conversation field. The snapshot root
+separately names the visible conversation selected for review. Compiler and
+snapshot-store duplicate checks include the artifact kind, so equal IDs from
+different owners cannot collapse into one artifact. In Conversation so far, a
+retained version must be an exact visible reference; origin association alone
+belongs to explicit Selected context.
+
+The retained bridge reads and pages exact versions through the existing artifact
+owner, with final callback-free byte/metadata renewal after authority callbacks.
+Its source association and live access capabilities remain host obligations.
+The shared schema/compiler/save boundary and private bridge do not themselves
+install a production source catalog, grant artifact access or enable joining.
+
 The host-only compiler is implemented in `server/collaboration-context-compiler.ts`.
 It accepts public selectors and separately supplied trusted source/capacity ports.
 It verifies complete prefix counts/digests, ordered bounded pagination, exact

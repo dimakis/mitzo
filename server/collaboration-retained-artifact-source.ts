@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
-import { CollaborationContractError, CollaborationSnapshotSelectionSchema } from '@mitzo/protocol';
+import { CollaborationContractError, CollaborationInlineArtifactPinSchema } from '@mitzo/protocol';
 import type { TelosArtifactStore, TelosArtifactMetadata } from './telos-artifact-store.js';
 
-const pinSchema = CollaborationSnapshotSelectionSchema.shape.artifacts.element;
+const pinSchema = CollaborationInlineArtifactPinSchema;
 export type RetainedCollaborationArtifactPin = z.infer<typeof pinSchema>;
 export interface RetainedCollaborationArtifact {
   artifactId: string;
