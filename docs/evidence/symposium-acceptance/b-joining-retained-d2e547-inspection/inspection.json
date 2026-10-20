@@ -1,0 +1,86 @@
+{
+  "observedAt": "2026-10-20T01:49:56.443800+00:00",
+  "commit": "d2e547ca1082b544042552096d66919829ce6c34",
+  "tree": "47512694447fb25170b6eec4672df09aa3e8c545",
+  "parent": "390d259c978e2de80e641ea7c9265e2cd3ca7a48",
+  "sourceHashes": {
+    "server/__tests__/collaboration-joining-retained-artifacts.test.ts": "816b37fe73d9071e2b89d8ce42c69dd2d523ab2305da81335fb5d8c6a1be0973",
+    "server/collaboration-joining-retained-artifacts.ts": "ee94e95933027b54b3da6e8858450f96c3cedbac4d14ad9d7a988f2d78db427c",
+    "server/collaboration-retained-artifact-source.ts": "e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470",
+    "server/telos-artifact-store.ts": "fc6594b9c886fb95dba1d2b715abfaeb2da98696c7058a10777eb54f03d6f08c",
+    "packages/protocol/src/collaboration-conversation.ts": "2dbb2919ab9f5afe75ef015d255808116a38d4b61000eae0793508f78e6cb87d",
+    "server/__tests__/fixtures/collaboration-retained-artifacts.ts": "dc2a4ee3e6149f083053ef9b49852734250e33ed7c7f85ac6a0daf6ba1229fbb",
+    "server/__tests__/fixtures/canonical-artifact-owner.json": "39b3c3a0de8dbf4ed861744fc91c810a3306b58760ac7545e4b4c762bdcb1314"
+  },
+  "patchSHA256": "3dae9a19be1218a77e67adb5f9bca85b2b088b1cef39b9c82cc892bcf8b72f0e",
+  "producerEvidence": {
+    "receipt.json": {
+      "sha256": "a608e2bce9d210cc652f67de53639d6da36951cc280289562d8ade78441d25e3",
+      "bytes": 2924
+    },
+    "joining-retained-artifacts.patch": {
+      "sha256": "3dae9a19be1218a77e67adb5f9bca85b2b088b1cef39b9c82cc892bcf8b72f0e",
+      "bytes": 26623
+    },
+    "red.log": {
+      "sha256": "41ddc390a8ab71a35e18f0a34a92b622ad57195ceab258c6a17ba03861cfff53",
+      "bytes": 1272
+    },
+    "green.log": {
+      "sha256": "5f36e3e52d491f8b72808dab1eb2209da14f562e6c715b64de92463373df9bc1",
+      "bytes": 298
+    },
+    "types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "producerResults": {
+    "passed": 29,
+    "skipped": 0,
+    "files": 1,
+    "seconds": 0.521,
+    "worker": 1,
+    "heapMiB": 1024,
+    "red": "Missing-module import failure,0 tests; retained as startup/TDD diagnostic, not29 failing behavioral assertions.",
+    "types": "Producer reported PASS; empty stdout alone not independently observed exit-code proof."
+  },
+  "independentScope": [
+    "Real TelosArtifactStore exact metadata/bounded byte owner and existing retained source; canonical synthetic backup checksum/real initializer verified.",
+    "Strict retainedArtifactVersion selector and kind-prefixed identity; no caller item/provenance/permission fields become grants. Legacy/shared joining schema and cross-kind production compiler are not changed.",
+    "Exact r2 bytes/metadata while r3 exists, independent retention, origin session only provenance; source capture/LifeOps and oversized data refuse.",
+    "Copies protect private pin/metadata from caller/authority argument mutation; sync checks reject Promise/nonvoid return values.",
+    "Metadata/keyset paging bounds/ordering/no hydration and async earlier-entry drift guards inspected.",
+    "Port association/access mocks are explicit stand-ins. Actual origin transcript removal, real canonical association, review/refreeze/save/recovery/admission and mounted application are NOT exercised. Store restart proves retained read reconstruction only."
+  ],
+  "findings": [
+    {
+      "id": "CB-retained-last-byte-fence",
+      "priority": 2,
+      "location": 176,
+      "problem": "read.assertCurrent invokes final observed.assertCurrent (including host authorization callback) after retained custody/hash check. Equal-length BLOB mutation by that last callback leaves all metadata unchanged, so final metadata checks can pass with lost byte custody.",
+      "sourceCounterexample": "On the second authorization.assertCurrent during returned read.assertCurrent(), write same-length replacement r2 bytes while leaving stored size/sha unchanged, return undefined. First metadata/authority and custody checks passed; last authority mutates bytes; actual() only checks metadata/type/length, and method returns.",
+      "existingAssertionLimit": "Existing final-byte corruption test writes different-length corrupt bytes, detected by length/custody metadata checks. It does not exercise equal-length mutation in last callback.",
+      "requestedFix": "Final callback-free actual byte/hash custody revalidation after all host callbacks, preserving source/access/privacy checks; add targeted equal-length late-callback control.",
+      "status": "Sent directly to B/core/feature owner; no C execution."
+    },
+    {
+      "id": "CB-page-last-synchronous-fence",
+      "priority": 2,
+      "location": 219,
+      "problem": "Final page forEach validates earlier entries before the last entry synchronous authority callback, which can mutate an already-checked earlier metadata row and still return old page observations.",
+      "sourceCounterexample": "When revision1 authorization.assertCurrent runs for its second/final observation, mutate revision3 source_path. Earlier3 final check already passed; row1 remains unchanged; page returns stale3 projection.",
+      "existingAssertionLimit": "Earlier-page drift fixture mutates during async authorization before final loop; this is caught, but does not cover mutation by final synchronous callback.",
+      "requestedFix": "Finish page with callback-free actual metadata comparisons for all retained observations after every callback; keep page metadata-only and add targeted late synchronous mutation control.",
+      "status": "Sent directly to B/core/feature owner; no C execution."
+    }
+  ],
+  "remainingIntegration": [
+    "Core must provide genuine current-conversation origin/reference association, live item/operator authority and atomic save/source fence; source-only association/custody cannot grant access.",
+    "Kind collision prevention must hold in final shared tagged schema/compiler identity, beyond helper key prefix test.",
+    "512KiB byte/JSON budgets are host payload bounds, not native capacity/model/count authority.",
+    "A supplies actual owner/catalog UI only after real API; C complete saved-r2/refreeze/recovery/no-inference journey remains pending genuine composition."
+  ],
+  "independentActivity": "Read exact source/callers/assertions/fixture provenance/log hashes only. No C test/build/Rust/browser/model/provider call or new campaign.",
+  "acceptance": "Source/assertion review identifies TWO concrete final-fence blockers in current B candidate; targeted corrections requested. No actual association/capacity/application qualification."
+}
