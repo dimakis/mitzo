@@ -1,0 +1,42 @@
+{
+  "producerSource": "4f904dc0fe21d7a5fa1d31a248ae842f9df43aaa",
+  "scope": "Synthetic canonical DB plus real ordinary once permission; original exact-main contract uncertainty only, no remote effect",
+  "receipt": {
+    "pins": {
+      "input": {
+        "requestId": "publish",
+        "itemId": "studio",
+        "pullRequest": 9,
+        "sourceHead": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "mainHead": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "workRevision": "bc0c6330be1e8df49699ada2ef2ae55634d3f7c711c308022aa233b05258e2f2"
+      },
+      "authority": {
+        "operatorId": "canonical-offline-operator",
+        "conversationId": "planning",
+        "accountBinding": {
+          "accountId": "offline-component-account",
+          "provider": "openai-codex",
+          "model": "offline-fixture",
+          "profileRevision": "profile-1"
+        },
+        "runtimeId": "offline-component-runtime",
+        "connectionId": "configured-connection",
+        "capabilityId": "configured-merge",
+        "repository": "owner/project",
+        "assignmentRevision": 1,
+        "attemptId": null
+      },
+      "resource": {
+        "repositoryId": 101,
+        "repositoryNodeId": "R_original",
+        "pullRequestId": 901,
+        "pullRequestNodeId": "PR_original"
+      },
+      "baseBranch": "main",
+      "method": "squash"
+    },
+    "state": "uncertain",
+    "approvalReceiptId": "a0a76417-fd35-494f-a075-1f5fa674aead"
+  }
+}

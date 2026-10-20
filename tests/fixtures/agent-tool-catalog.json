@@ -3,7 +3,7 @@
     "id": "mitzo:AskUserQuestion",
     "version": 1,
     "name": "AskUserQuestion",
-    "description": "Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.",
+    "description": "Ask structured questions in Mitzo and wait for the user\u2019s answers. Questions do not authorize tool execution.",
     "source": "Workspace",
     "required": true,
     "behavior": "interaction",
@@ -168,7 +168,7 @@
     "id": "mitzo:ListRepositories",
     "version": 1,
     "name": "ListRepositories",
-    "description": "Discover repositories authorized for this chat’s current AI account. Returns repository names and connection labels, without credentials or filesystem paths.",
+    "description": "Discover repositories authorized for this chat\u2019s current AI account. Returns repository names and connection labels, without credentials or filesystem paths.",
     "source": "Repositories",
     "required": false,
     "behavior": "read",
@@ -278,7 +278,7 @@
     "id": "mitzo:SaveKnowledgeDraft",
     "version": 1,
     "name": "SaveKnowledgeDraft",
-    "description": "Save proposed updates to existing accepted documents in Knowledge → Drafts. First use ReadKnowledge to identify and read the intended document and exact accepted revision. Clarify ambiguous destinations; do not substitute an observations note. Supply complete revised text and preserve existing material. Retry with the same requestId and payload. Link the returned Library location and name the exact documents and current receipt status. Draft saved, sent for review, accepted, published and adopted by a chat are distinct states; claim only what the receipt proves. This tool only saves a visible draft. The user sends it for review in Knowledge; this tool does not submit review, merge, publish or refresh other chats. A local file or commit cannot substitute for a Library receipt. If saving fails, explain that no Library update was confirmed and preserve local work.",
+    "description": "Save proposed updates to existing accepted documents in Knowledge \u2192 Drafts. First use ReadKnowledge to identify and read the intended document and exact accepted revision. Clarify ambiguous destinations; do not substitute an observations note. Supply complete revised text and preserve existing material. Retry with the same requestId and payload. Link the returned Library location and name the exact documents and current receipt status. Draft saved, sent for review, accepted, published and adopted by a chat are distinct states; claim only what the receipt proves. This tool only saves a visible draft. The user sends it for review in Knowledge; this tool does not submit review, merge, publish or refresh other chats. A local file or commit cannot substitute for a Library receipt. If saving fails, explain that no Library update was confirmed and preserve local work.",
     "source": "Knowledge",
     "required": false,
     "behavior": "write",
@@ -297,6 +297,17 @@
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
+    "id": "mitzo:RequestGithubMainPublication",
+    "version": 1,
+    "name": "RequestGithubMainPublication",
+    "description": "Request an exact reviewed GitHub PR squash merge for your current Telos work. Approval binds repository, PR, source head, squash and current work authority; main may advance under current normal remote CI/review/strict up-to-date protections. Requires a separately configured selected merge capability and one-use operator approval. Holds and currentness are checked at effect admission. Changed source requires fresh approval. Retain requestId after uncertainty; retry observes the original operation without repeating its merge.",
+    "source": "Telos",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires a current Telos lead or worker role, an explicitly selected native tool, separately configured account-bound merge capability and one-use operator approval."
+  },
+  {
     "id": "mitzo:TelosCreateOutcome",
     "version": 1,
     "name": "TelosCreateOutcome",
@@ -304,8 +315,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosAdoptSource",
@@ -315,8 +326,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosGetItem",
@@ -348,8 +359,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosFindArtifacts",
@@ -370,8 +381,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "read",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosStartSlice",

@@ -23,7 +23,7 @@ interface PendingEntry {
   tier?: ToolTier;
   sessionId?: string;
   request?: PermissionRequest;
-  review?: { toolUseId: string; canApprove?(): boolean };
+  review?: { toolUseId: string; operatorId?: string; canApprove?(): boolean };
 }
 
 const pending = new Map<string, PendingEntry>();
@@ -58,7 +58,7 @@ export function registerPending(
   tier?: ToolTier,
   sessionId?: string,
   request?: PermissionRequest,
-  review?: { toolUseId: string; canApprove?(): boolean },
+  review?: { toolUseId: string; operatorId?: string; canApprove?(): boolean },
 ) {
   pending.set(permId, {
     resolver,
@@ -213,6 +213,43 @@ export function getPendingTelosSourceReview(
     toolInput: structuredClone(entry.toolInput),
     expiresAt: entry.request.expiresAt,
   };
+}
+
+/** Private renewal of the ORIGINAL permission entry, not authority from public
+ * proof fields. Native-bound entries also retain their original signed operator.
+ * Completed receipts use their existing read/recovery paths instead of this fence.
+ */
+export function capturePendingTelosSourceReviewCurrent(
+  proof: PendingTelosSourceReview,
+  operatorId: string,
+): ((() => void) & Readonly<{ requiresLiveNativeCall: boolean }>) | undefined {
+  if (typeof operatorId !== 'string' || !operatorId.trim()) return;
+  const original = pending.get(proof.permId);
+  const expected = structuredClone(proof);
+  const current = () => {
+    try {
+      return (
+        !!original &&
+        pending.get(expected.permId) === original &&
+        (original.review?.operatorId === undefined || original.review.operatorId === operatorId) &&
+        isDeepStrictEqual(
+          getPendingTelosSourceReview(expected.permId, expected.sessionId),
+          expected,
+        )
+      );
+    } catch {
+      return false;
+    }
+  };
+  if (!current()) return;
+  return Object.freeze(
+    Object.assign(
+      () => {
+        if (!current()) throw Error('Original reviewed source invocation is no longer current');
+      },
+      { requiresLiveNativeCall: original!.review?.operatorId !== undefined },
+    ),
+  );
 }
 
 /** Called only after the source owner has durably retained the exact approval. */

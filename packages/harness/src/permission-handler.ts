@@ -168,6 +168,8 @@ export function buildPermissionHandler(
       controlPlane?: boolean;
       /** Provider adapter supplies validated questions, preserving provider IDs. */
       questions?: UserQuestion[];
+      /** Private original native scope, never permission response or tool JSON. */
+      nativeSourceScope?: { readonly operatorId: string; assertCurrentSync(): void };
     },
   ): Promise<PermissionResult> => {
     const session = registry.get(clientId);
@@ -178,6 +180,33 @@ export function buildPermissionHandler(
       'TelosAdoptSource',
       'mcp__telos__TelosAdoptSource',
     ].includes(toolName);
+    const nativeScope = opts.nativeSourceScope;
+    const nativeOperatorId = nativeScope?.operatorId;
+    const nativeAssertion = nativeScope?.assertCurrentSync;
+    const nativeScopeCurrent = () => {
+      if (!nativeScope) return true;
+      try {
+        if (
+          !telosReview ||
+          typeof nativeOperatorId !== 'string' ||
+          !nativeOperatorId.trim() ||
+          nativeScope.operatorId !== nativeOperatorId ||
+          typeof nativeAssertion !== 'function' ||
+          nativeScope.assertCurrentSync !== nativeAssertion
+        )
+          return false;
+        const result: unknown = nativeAssertion.call(nativeScope);
+        if (result !== undefined) {
+          void Promise.resolve(result).catch(() => {});
+          return false;
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (!nativeScopeCurrent())
+      return { behavior: 'deny', message: 'Original native source scope is unavailable' };
     if (telosReview) {
       opts = {
         ...opts,
@@ -307,7 +336,7 @@ export function buildPermissionHandler(
       };
 
     return new Promise<PermissionResult>((resolve) => {
-      if (opts.signal.aborted) {
+      if (opts.signal.aborted || !nativeScopeCurrent()) {
         resolve({ behavior: 'deny', message: 'Aborted' });
         return;
       }
@@ -324,7 +353,9 @@ export function buildPermissionHandler(
         if (result.behavior === 'allow') {
           const activeClient = currentClientId();
           const modeDenial = askDenial();
-          if (!activeClient)
+          if (!nativeScopeCurrent())
+            result = { behavior: 'deny', message: 'Original native source scope changed' };
+          else if (!activeClient)
             result = { behavior: 'deny', message: 'Session permissions changed; retry the tool' };
           else if (modeDenial) result = modeDenial;
           else if (
@@ -393,7 +424,9 @@ export function buildPermissionHandler(
         telosReview
           ? {
               toolUseId: opts.toolUseID,
+              ...(nativeScope ? { operatorId: nativeOperatorId } : {}),
               canApprove: () =>
+                nativeScopeCurrent() &&
                 !opts.signal.aborted &&
                 !!currentClientId() &&
                 !askDenial() &&

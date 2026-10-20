@@ -1,6 +1,7 @@
 import { databaseBackupWatermark, backupOwnedDatabase } from '@mitzo/protocol/database-backup';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { extname } from 'node:path';
 import {
@@ -131,14 +132,22 @@ export class TelosArtifactStore {
   static borrowConnection(database: Database.Database): TelosArtifactStore {
     return new TelosArtifactStore('', database);
   }
-  constructor(path: string, borrowedDatabase?: Database.Database) {
+  /** Observe an already initialized canonical owner without migration or writes. */
+  static openReadOnly(path: string): TelosArtifactStore {
+    return new TelosArtifactStore(path, undefined, true);
+  }
+  constructor(path: string, borrowedDatabase?: Database.Database, readOnly = false) {
     this.ownsConnection = borrowedDatabase === undefined;
-    this.db = borrowedDatabase ?? new Database(path, { fileMustExist: true });
+    this.db = borrowedDatabase ?? new Database(path, { fileMustExist: true, readonly: readOnly });
     this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
     try {
       this.db.prepare('SELECT id FROM items LIMIT 1').get();
       this.db.prepare('SELECT id FROM links LIMIT 1').get();
+      if (readOnly) {
+        this.db.prepare('SELECT id FROM telos_artifact_revisions LIMIT 0').all();
+        return;
+      }
       this.db.exec(`CREATE TABLE IF NOT EXISTS telos_artifact_revisions (
         id TEXT NOT NULL, revision INTEGER NOT NULL, item_id TEXT NOT NULL REFERENCES items(id),
         filename TEXT NOT NULL, title TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL,
@@ -154,7 +163,8 @@ export class TelosArtifactStore {
           PRIMARY KEY(session_id, request_id),
           FOREIGN KEY(session_id, request_id) REFERENCES telos_artifact_save_requests(session_id, request_id));
         CREATE INDEX IF NOT EXISTS telos_artifacts_item ON telos_artifact_revisions(item_id);
-        CREATE INDEX IF NOT EXISTS telos_artifacts_source_page ON telos_artifact_revisions(session_id,created_at,id,revision);`);
+        CREATE INDEX IF NOT EXISTS telos_artifacts_source_page ON telos_artifact_revisions(session_id,created_at,id,revision);
+        CREATE INDEX IF NOT EXISTS telos_artifacts_origin ON telos_artifact_revisions(id,item_id,session_id);`);
     } catch (error) {
       if (this.ownsConnection) this.db.close();
       throw error;
@@ -328,6 +338,69 @@ export class TelosArtifactStore {
       })
       .immediate();
   }
+  /** Private owned-native composition only. The supplied scope is real host
+   * authority, never JSON. This method owns the actual outer commit; a borrowed
+   * active work transaction must retain its own final commit fence instead. */
+  saveGuarded(
+    input: Parameters<TelosArtifactStore['save']>[0],
+    assertScopeCurrent: () => void,
+  ): TelosArtifactMetadata {
+    if (this.db.inTransaction)
+      throw new Error('Guarded artifact save requires the actual outer commit owner');
+    const detached = { ...input, bytes: Buffer.from(input.bytes) };
+    const assertCurrent = () => {
+      const result: unknown = assertScopeCurrent();
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => {});
+        throw new Error('Synchronous artifact authority required');
+      }
+    };
+    const policy = () => {
+      if (!this.userUploadAllowed(detached.itemId))
+        throw Object.assign(new Error('Private item material is unavailable'), { status: 403 });
+    };
+    const links = this.db.prepare('SELECT * FROM links WHERE id=?');
+    const requests = this.db.prepare(
+      'SELECT * FROM telos_artifact_save_requests WHERE session_id=? AND request_id=?',
+    );
+    const inputs = this.db.prepare(
+      'SELECT * FROM telos_artifact_request_inputs WHERE session_id=? AND request_id=?',
+    );
+    return this.db
+      .transaction(() => {
+        assertCurrent();
+        policy();
+        const saved = this.save(detached);
+        const link = links.get(`artifact-${saved.id}`);
+        const request = requests.get(detached.sessionId, detached.requestId ?? null);
+        const requestInput = inputs.get(detached.sessionId, detached.requestId ?? null);
+        assertCurrent();
+        // Finish with callback-free real policy/byte/receipt observations. A late
+        // scope callback cannot corrupt staged rows while retaining their digest.
+        policy();
+        const { bytes, ...current } = this.readBoundedRevision(
+          saved.id,
+          saved.revision,
+          MAX_TELOS_ARTIFACT_BYTES,
+        );
+        if (
+          !isDeepStrictEqual(current, saved) ||
+          createHash('sha256').update(bytes).digest('hex') !== saved.sha256 ||
+          !isDeepStrictEqual(links.get(`artifact-${saved.id}`), link) ||
+          !isDeepStrictEqual(
+            requests.get(detached.sessionId, detached.requestId ?? null),
+            request,
+          ) ||
+          !isDeepStrictEqual(
+            inputs.get(detached.sessionId, detached.requestId ?? null),
+            requestInput,
+          )
+        )
+          throw new Error('Guarded artifact custody changed');
+        return saved;
+      })
+      .immediate();
+  }
   private row(id: string, revision?: number): ArtifactRow {
     const row =
       revision === undefined
@@ -486,6 +559,30 @@ export class TelosArtifactStore {
         : null,
       hasMore: rows.length > 100,
     };
+  }
+  /** Metadata relation only, never live access or admission authority. An exact
+   * selected revision may follow an earlier revision created in this source.
+   * The item must match across revisions; another artifact or Work membership
+   * cannot supply association. No transcript, latest substitution or BLOB read.
+   */
+  hasConversationOrigin(id: string, revision: number, sessionId: string): boolean {
+    z.string()
+      .regex(/^[a-f0-9]{32}$/)
+      .parse(id);
+    z.number().int().positive().safe().parse(revision);
+    z.string().min(1).max(200).parse(sessionId);
+    return this.db.transaction(() => {
+      const row = this.db
+        .prepare(
+          `SELECT selected.item_id FROM telos_artifact_revisions selected
+        WHERE selected.id=? AND selected.revision=? AND EXISTS (
+          SELECT 1 FROM telos_artifact_revisions origin
+          WHERE origin.id=selected.id AND origin.item_id=selected.item_id
+            AND origin.session_id=? AND instr(origin.session_id,'source-capture:')<>1)`,
+        )
+        .get(id, revision, sessionId) as { item_id: string } | undefined;
+      return row !== undefined && this.userUploadAllowed(row.item_id);
+    })();
   }
   document(id: string, revision?: number) {
     const artifact = this.read(id, revision);

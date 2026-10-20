@@ -1,3 +1,7 @@
+import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
+import { captureNativeHostToolContext } from './native-host-tool-context.js';
+import { getTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
+import { githubMainPublicationTool } from './telos-main-publication.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import { TelosWorkControlToolInputSchema } from '@mitzo/protocol';
 import {
@@ -837,6 +841,34 @@ async function openCodexChatBound(
     options.ownedLocal || options.ownedOpenShell || options.contributorGuidance !== undefined
       ? resolveTelosWorkRoleContext(options.eventStore, options.conversationId, options.binding)
       : undefined;
+  const mainPublicationRuntime = getTelosMainPublicationRuntime();
+  const nativeTelosTools =
+    options.ownedLocal &&
+    options.assertAgentContextAuthorization &&
+    hasAgentToolSelection(options.session) &&
+    mainPublicationRuntime?.supportsHost(options.registry, options.eventStore)
+      ? [
+          telosCreateOutcomeDefinition,
+          telosAdoptSourceDefinition,
+          ...telosArtifactDefinitions.filter((tool) =>
+            ['TelosSaveArtifact', 'TelosReadArtifact'].includes(tool.name),
+          ),
+        ].filter((tool) => agentToolAllowed(options.session, tool.name))
+      : [];
+  const mainPublicationTools =
+    options.ownedLocal &&
+    options.assertAgentContextAuthorization &&
+    selectedTelosRole &&
+    ['lead', 'worker'].includes(selectedTelosRole.role) &&
+    hasAgentToolSelection(options.session) &&
+    agentToolAllowed(options.session, githubMainPublicationTool.name) &&
+    mainPublicationRuntime?.supports(
+      options.registry,
+      options.eventStore,
+      options.binding.accountId,
+    )
+      ? [githubMainPublicationTool]
+      : [];
   const leadWorkTools = selectedTelosRole?.role === 'lead' ? telosWorkDefinitions : [];
   const controlWorkTools =
     selectedTelosRole && ['lead', 'worker'].includes(selectedTelosRole.role)
@@ -1566,6 +1598,8 @@ async function openCodexChatBound(
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
+          ...mainPublicationTools,
+          ...nativeTelosTools,
         ].map((tool) => tool.name),
       )
     : undefined;
@@ -1749,6 +1783,8 @@ async function openCodexChatBound(
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
+          ...mainPublicationTools,
+          ...nativeTelosTools,
         ]
       : connectedOpenShell
         ? [
@@ -1768,6 +1804,7 @@ async function openCodexChatBound(
             githubPublishingDefinition,
           ],
   );
+  const nativeHostRuntimeId = randomUUID();
   const runtimeOptions: CodexConversationOptions = {
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
@@ -2216,6 +2253,72 @@ async function openCodexChatBound(
       // Refuse an unqualified helper before any owner await, approval or effect.
       if (ownedToolNames && !ownedToolNames.has(name))
         throw Error('Tool unavailable for owned local Codex chat');
+      const captureSignedContext = () => {
+        if (
+          !options.ownedLocal ||
+          !options.assertAgentContextAuthorization ||
+          !mainPublicationRuntime
+        )
+          throw Error('Original native Telos host unavailable');
+        const workspace = options.ordinaryWorkspace
+          ? {
+              kind: 'ordinary' as const,
+              id: options.ordinaryWorkspace.id,
+              directory: options.ordinaryWorkspace.directory,
+            }
+          : options.repositoryWorkspace?.directory
+            ? {
+                kind: 'repository' as const,
+                id: options.repositoryWorkspace.id,
+                directory: options.repositoryWorkspace.directory,
+              }
+            : undefined;
+        if (!workspace) throw Error('Original admitted workspace unavailable');
+        // Capture original callback authority before interpreting any tool intent.
+        const context = captureNativeHostToolContext({
+          events: options.eventStore,
+          native: store(),
+          registry: options.registry,
+          session: options.session,
+          conversationId: options.conversationId,
+          binding: options.binding,
+          runtime,
+          runtimeId: nativeHostRuntimeId,
+          currentRuntime: () => getCodexRuntime(options.session),
+          admission: options.ownedLocal,
+          assertAgentContextAuthorization: options.assertAgentContextAuthorization,
+          profile: options.agentProfile,
+          agentContext,
+          workspace,
+          toolName: name,
+          input,
+          call: callContext,
+          signal,
+        });
+        try {
+          return mainPublicationRuntime.bindNativeContext(context);
+        } catch (error) {
+          context.dispose();
+          throw error;
+        }
+      };
+      if (name === githubMainPublicationTool.name) {
+        if (
+          !options.ownedLocal ||
+          !options.assertAgentContextAuthorization ||
+          !mainPublicationRuntime ||
+          mainPublicationTools.length !== 1
+        )
+          throw Error('Configured native Telos publication unavailable');
+        const context = captureSignedContext();
+        try {
+          await context.assertCurrent();
+          const result = await mainPublicationRuntime.request(context, input);
+          return { content: JSON.stringify(result), isError: result.state !== 'accepted' };
+        } finally {
+          context.dispose();
+        }
+      }
       if (connectedOpenShell && isTelosWorkerTaskTool(name)) {
         const registration = telosWorkerTaskRegistration(name);
         if (!registration || !workerTaskContext || !options.assertAgentContextAuthorization)
@@ -2467,6 +2570,50 @@ async function openCodexChatBound(
           signal,
         );
       }
+      if (options.ownedLocal && (name === 'TelosSaveArtifact' || name === 'TelosReadArtifact')) {
+        if (!mainPublicationRuntime || !nativeTelosTools.some((tool) => tool.name === name))
+          throw Error('Original native Telos artifact tool unavailable');
+        const context = captureSignedContext();
+        try {
+          await context.assertCurrent();
+          const parsed = telosArtifactSchemas[name].safeParse(input);
+          if (!parsed.success)
+            return toolInputError('Telos artifact input', telosArtifactSchemas[name], parsed.error);
+          return await mainPublicationRuntime.withArtifacts(context, (owners) =>
+            executeNativeTelosArtifactOperation(
+              {
+                ...owners,
+                approve: async (toolName, parsedInput, permissionSignal) => {
+                  await owners.context.assertCurrent();
+                  const result = await buildPermissionHandler(context.clientId, options.registry, {
+                    onDemandCreate: options.onDemandCreate,
+                  })(toolName, parsedInput, {
+                    signal: permissionSignal,
+                    toolUseID:
+                      'native:' +
+                      createHash('sha256')
+                        .update(JSON.stringify([context.turnId, context.callId, toolName]))
+                        .digest('hex'),
+                    forcePrompt: true,
+                    allowSessionGrant: false,
+                    approvalScope: 'request',
+                    title:
+                      toolName === 'TelosSaveArtifact'
+                        ? 'Save this document in Telos?'
+                        : 'Read this exact Telos document revision?',
+                  });
+                  owners.context.assertCurrentSync();
+                  return result;
+                },
+              },
+              name,
+              input,
+            ),
+          );
+        } finally {
+          context.dispose();
+        }
+      }
       if (connectedOpenShell && isTelosArtifactTool(name)) {
         const parsed = telosArtifactSchemas[name].safeParse(input);
         if (!parsed.success)
@@ -2504,59 +2651,79 @@ async function openCodexChatBound(
         );
       }
       if (
-        connectedOpenShell &&
+        (connectedOpenShell ||
+          (options.ownedLocal && nativeTelosTools.some((tool) => tool.name === name))) &&
         (name === TELOS_CREATE_OUTCOME_TOOL || name === TELOS_ADOPT_SOURCE_TOOL)
       ) {
-        if (!callContext?.turnId || !callContext.callId)
-          return {
-            content: 'Verified provider invocation identity required for reviewed Telos capture.',
-            isError: true,
-          };
-        const schema =
-          name === TELOS_CREATE_OUTCOME_TOOL ? TelosOutcomeInput : TelosAdoptSourceInput;
-        const parsed = schema.safeParse(input);
-        if (!parsed.success) return toolInputError('Telos source input', schema, parsed.error);
-        const owner = options.registry.findBySessionId(options.conversationId);
-        if (!owner) return { content: 'Codex session unavailable', isError: true };
-        const permission = await buildPermissionHandler(owner.clientId, options.registry, {
-          onDemandCreate: options.onDemandCreate,
-        })(name, parsed.data, {
-          signal,
-          toolUseID:
-            'native:' +
-            createHash('sha256')
-              .update(JSON.stringify([callContext.turnId, callContext.callId]))
-              .digest('hex'),
-          forcePrompt: true,
-          allowSessionGrant: false,
-          title:
-            name === TELOS_CREATE_OUTCOME_TOOL
-              ? 'Create this outcome in live Telos?'
-              : 'Save source to this Telos item?',
-          description:
-            'This writes the approved outcome and milestones to the host Telos store linked to this Mitzo session.',
-        });
-        signal.throwIfAborted();
-        if (permission.behavior !== 'allow') return { content: permission.message, isError: true };
-        const { __mitzoTelosApproval, ...approvedProposal } = permission.updatedInput ?? {};
-        if (
-          typeof __mitzoTelosApproval !== 'string' ||
-          !isDeepStrictEqual(approvedProposal, parsed.data)
-        )
-          return { content: 'Telos input changed during approval; retry the tool', isError: true };
-        if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
-          return { content: 'Session permissions changed; retry the tool', isError: true };
-        await assertHostCurrent();
-        const port = Number.parseInt(process.env.PORT || '3100', 10);
-        return (
-          name === TELOS_CREATE_OUTCOME_TOOL ? executeTelosCreateOutcome : executeTelosAdoptSource
-        )(
-          localHttpBaseUrl(port, localServerUsesTls()),
-          owner.clientId,
-          INTERNAL_TOKEN,
-          { ...parsed.data, __mitzoTelosApproval },
-          signal,
-        );
+        const context = options.ownedLocal ? captureSignedContext() : undefined;
+        const sourceSignal = context?.signal ?? signal;
+        try {
+          await context?.assertCurrent();
+          if (!callContext?.turnId || !callContext.callId)
+            return {
+              content: 'Verified provider invocation identity required for reviewed Telos capture.',
+              isError: true,
+            };
+          const schema =
+            name === TELOS_CREATE_OUTCOME_TOOL ? TelosOutcomeInput : TelosAdoptSourceInput;
+          const parsed = schema.safeParse(input);
+          if (!parsed.success) return toolInputError('Telos source input', schema, parsed.error);
+          const owner = options.registry.findBySessionId(options.conversationId);
+          if (!owner) return { content: 'Codex session unavailable', isError: true };
+          const permission = await buildPermissionHandler(owner.clientId, options.registry, {
+            onDemandCreate: options.onDemandCreate,
+          })(name, parsed.data, {
+            ...(context
+              ? {
+                  nativeSourceScope: {
+                    operatorId: context.operatorId,
+                    assertCurrentSync: context.assertCurrentSync,
+                  },
+                }
+              : {}),
+            signal: sourceSignal,
+            toolUseID:
+              'native:' +
+              createHash('sha256')
+                .update(JSON.stringify([callContext.turnId, callContext.callId]))
+                .digest('hex'),
+            forcePrompt: true,
+            allowSessionGrant: false,
+            title:
+              name === TELOS_CREATE_OUTCOME_TOOL
+                ? 'Create this outcome in live Telos?'
+                : 'Save source to this Telos item?',
+            description:
+              'This writes the approved outcome and milestones to the host Telos store linked to this Mitzo session.',
+          });
+          sourceSignal.throwIfAborted();
+          if (permission.behavior !== 'allow')
+            return { content: permission.message, isError: true };
+          const { __mitzoTelosApproval, ...approvedProposal } = permission.updatedInput ?? {};
+          if (
+            typeof __mitzoTelosApproval !== 'string' ||
+            !isDeepStrictEqual(approvedProposal, parsed.data)
+          )
+            return {
+              content: 'Telos input changed during approval; retry the tool',
+              isError: true,
+            };
+          if (options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId)
+            return { content: 'Session permissions changed; retry the tool', isError: true };
+          await assertHostCurrent();
+          const port = Number.parseInt(process.env.PORT || '3100', 10);
+          return await (
+            name === TELOS_CREATE_OUTCOME_TOOL ? executeTelosCreateOutcome : executeTelosAdoptSource
+          )(
+            localHttpBaseUrl(port, localServerUsesTls()),
+            owner.clientId,
+            INTERNAL_TOKEN,
+            { ...parsed.data, __mitzoTelosApproval },
+            sourceSignal,
+          );
+        } finally {
+          context?.dispose();
+        }
       }
       if (openShell && runtimeManager && managedOpenShell && name === GRANT_INTEGRATION_TOOL) {
         const provider = typeof input.provider === 'string' ? input.provider : '';

@@ -2487,6 +2487,56 @@ export class CodexConversationStore {
       return true;
     })();
   }
+  /** Read-only custody of an already claimed actual native callback. Generic
+   * native ACK metadata supplies identity; no capacity row/turn is created here.
+   * Only the original verified host-tool entry may capture and retain this proof. */
+  pendingNativeHostTool(
+    id: string,
+    binding: AccountBinding,
+    callId: string,
+    identity: { turnId: string; toolName: string; requestHash: string },
+  ) {
+    return this.db.transaction(() => {
+      this.read(id, binding);
+      const row = this.db
+        .prepare(
+          `SELECT t.command_id AS commandId,
+        t.turn_id AS turnId,t.tool_name AS toolName,t.request_hash AS requestHash,
+        t.result_content AS resultContent,t.result_is_error AS resultIsError,c.attempt
+        FROM codex_tools t JOIN codex_commands c
+        ON c.conversation_id=t.conversation_id AND c.id=t.command_id
+        WHERE t.conversation_id=? AND t.call_id=? AND c.status='running'`,
+        )
+        .get(id, callId) as
+        | {
+            commandId: string;
+            turnId: string | null;
+            toolName: string | null;
+            requestHash: string | null;
+            resultContent: string | null;
+            resultIsError: number | null;
+            attempt: number;
+          }
+        | undefined;
+      if (
+        !row ||
+        row.resultContent !== null ||
+        row.resultIsError !== null ||
+        row.turnId !== identity.turnId ||
+        row.toolName !== identity.toolName ||
+        row.requestHash !== identity.requestHash
+      )
+        return;
+      const target = this.nativeTurnTarget(id, binding, row.commandId, row.attempt);
+      if (!target || target.turnId !== identity.turnId) return;
+      return Object.freeze({
+        ...target,
+        callId,
+        toolName: row.toolName,
+        requestHash: row.requestHash,
+      });
+    })();
+  }
   /** A completed host result is persisted before it is exposed to the transport.
    * A duplicate RPC can replay exactly the same result after a lost response. */
   recordToolResult(

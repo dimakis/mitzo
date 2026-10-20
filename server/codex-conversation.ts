@@ -130,7 +130,13 @@ export interface CodexConversationOptions {
     input: ObjectValue,
     signal: AbortSignal,
     /** Identifiers verified against the active provider turn, never model input. */
-    context: { turnId: string; callId: string },
+    context: Readonly<{
+      turnId: string;
+      callId: string;
+      /** Actual native callbacks supply this fence. Legacy non-native bridges
+       * keep labels only; new authority-bearing owners must refuse its absence. */
+      assertCurrentSync?(): void;
+    }>,
   ): Promise<{ content: string; isError: boolean }>;
   /** Called only after an exact host tool result can be replayed durably. */
   onToolResultDurable?: (
@@ -2688,16 +2694,62 @@ export class CodexConversation {
       call.arguments,
     );
     let result: { content: string; isError: boolean };
+    let callbackOpen = true;
+    const callbackBinding = this.binding!;
+    // Keep existing label-only JSON/strict store contracts unchanged. Spreading
+    // or cloning labels deliberately cannot carry this private callback fence.
+    const invocation = Object.freeze(
+      Object.defineProperty(
+        {
+          turnId: call.turnId,
+          callId: call.callId,
+        },
+        'assertCurrentSync',
+        {
+          value: () => {
+            toolSignal.throwIfAborted();
+            if (
+              !callbackOpen ||
+              this.closed ||
+              this.paused ||
+              !this.ready ||
+              this.active !== active ||
+              active.interruptRequested ||
+              this.binding !== callbackBinding ||
+              this.threadId !== call.threadId ||
+              active.turnId !== call.turnId ||
+              createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex') !==
+                toolIdentity.requestHash
+            )
+              throw new Error('Original native tool callback is no longer current');
+            const pending = this.opts.store.pendingNativeHostTool(
+              this.opts.conversationId,
+              callbackBinding,
+              call.callId,
+              toolIdentity,
+            );
+            if (
+              !pending ||
+              pending.commandId !== active.command.id ||
+              pending.attempt !== active.command.attempt ||
+              pending.threadId !== call.threadId
+            )
+              throw new Error('Original native tool claim is no longer current');
+          },
+        },
+      ),
+    );
     try {
-      result = await this.opts.executeTool(call.tool, call.arguments, toolSignal, {
-        turnId: call.turnId,
-        callId: call.callId,
-      });
+      result = await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation);
     } catch {
       result = {
         content: 'Tool failed or was interrupted. Inspect current state before retrying.',
         isError: true,
       };
+    } finally {
+      // No retained closure can outlive the original executor, including a
+      // subsequent durable-result write failure while the native turn stays live.
+      callbackOpen = false;
     }
     if (this.opts.ownerKind === 'symposium') {
       try {
@@ -2766,6 +2818,27 @@ export class CodexConversation {
           isError: true,
         };
       }
+    }
+    if (
+      this.opts.ownerKind !== 'symposium' &&
+      !this.opts.store.replayToolResult(
+        this.opts.conversationId,
+        this.binding!,
+        active.command.id,
+        call.callId,
+        toolIdentity,
+      )
+    ) {
+      // Close the original ordinary callback before exposing its result. Keep an
+      // existing continuation receipt; ordinary duplicate calls still refuse.
+      this.opts.store.recordToolResult(
+        this.opts.conversationId,
+        this.binding!,
+        active.command.id,
+        call.callId,
+        toolIdentity,
+        result,
+      );
     }
     this.mapper!.toolResult(publicId, result.content, result.isError);
     return {
