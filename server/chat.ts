@@ -218,14 +218,20 @@ export function resolveOwnedTelosWorkCommandScope(sessionId: string, forNewComma
       hasAcceptedProviderTurn: (id: string, account: AccountBinding | undefined) =>
         account?.provider === 'openai-codex' &&
         getCodexConversationStore().hasAcceptedProviderTurn(id, account),
-      work: () =>
-        (work ??= new TelosWorkStore(
-          process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
-          {
-            ordinaryConversation: (id) =>
-              isAvailableTelosWorkConversation(eventStore.getSession(id)),
-          },
-        )),
+      work: () => {
+        if (work) return work;
+        const path =
+          process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db');
+        const policy = {
+          ordinaryConversation: (id: string) =>
+            isAvailableTelosWorkConversation(eventStore.getSession(id)),
+        };
+        // New-command admission can retain control-denial evidence. Running-turn
+        // scope checks only read authority and may run inside artifact COMMIT.
+        return (work = forNewCommand
+          ? new TelosWorkStore(path, policy)
+          : TelosWorkStore.openReadOnly(path, policy));
+      },
     };
     if (forNewCommand)
       assertTelosWorkCommandAdmission(

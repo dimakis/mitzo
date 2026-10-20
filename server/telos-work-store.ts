@@ -99,25 +99,40 @@ function invalid(message: string): never {
   throw new TelosWorkError('invalid', message);
 }
 
+type TelosWorkStorePolicy = {
+  ordinaryConversation(id: string): boolean;
+  sourceConversation?(id: string): boolean;
+};
+
 /** Extends the canonical Telos database, not session allocation or composition.
  * parent_id stays on items. No event/session/task store write occurs here.
  * Command results and allocation intents commit in the same SQLite transaction.
  */
 export class TelosWorkStore {
   private db: Database.Database;
+  /** Observe initialized canonical authority without acquiring a schema writer.
+   * Used by running-turn guards, including inside another owner's commit fence.
+   * SQLite enforces read-only access; missing schema remains unavailable.
+   */
+  static openReadOnly(path: string, policy: TelosWorkStorePolicy): TelosWorkStore {
+    return new TelosWorkStore(path, policy, true);
+  }
   constructor(
     path: string,
-    private readonly policy: {
-      ordinaryConversation(id: string): boolean;
-      sourceConversation?(id: string): boolean;
-    },
+    private readonly policy: TelosWorkStorePolicy,
+    readOnly = false,
   ) {
-    this.db = new Database(path, { fileMustExist: true });
+    this.db = new Database(path, { fileMustExist: true, readonly: readOnly });
     this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
     try {
       this.db.prepare('SELECT id,parent_id,updated_at FROM items LIMIT 1').get();
-      initializeTelosWorkSchema(this.db);
+      if (readOnly) {
+        this.db.prepare('SELECT data FROM telos_work_attempts LIMIT 0').all();
+        this.db.prepare('SELECT intent FROM telos_work_delegation_requests LIMIT 0').all();
+      } else {
+        initializeTelosWorkSchema(this.db);
+      }
     } catch (error) {
       this.db.close();
       throw error;
