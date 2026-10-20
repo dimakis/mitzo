@@ -106,6 +106,11 @@ import {
 import { sessionProfileTools, profileToolDefinitions } from './session-profile-tools.js';
 import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
+import {
+  combineMcpToolPeers,
+  connectSelectedTaskMcpTools,
+  selectedTaskMcpReferences,
+} from './task-mcp-selection.js';
 import { admitConfiguredTools } from './configured-tool-admission.js';
 import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
 import type { ConfiguredCatalogOptions } from './configured-tool-catalog.js';
@@ -1445,8 +1450,8 @@ async function openCodexChatBound(
     connect: options.configuredTools?.connect,
     assertRuntimeCurrent: assertMcpCurrent,
   };
-  let configuredAdmissions: Awaited<ReturnType<typeof admitConfiguredTools>>['admitted'] = [];
-  const mcp = connectedOpenShell
+  let configuredAdmissions: Parameters<typeof bindConfiguredAgentTools>[1] = [];
+  let mcp: ReturnType<typeof combineMcpToolPeers> = connectedOpenShell
     ? {
         definitions: [],
         displayName: (name: string) => name,
@@ -1479,6 +1484,42 @@ async function openCodexChatBound(
         startupReservation?.();
         throw error;
       });
+  const taskRefs = selectedTaskMcpReferences(selectedProfile?.definition);
+  if (taskRefs.length) {
+    let taskPeer: Awaited<ReturnType<typeof connectSelectedTaskMcpTools>> | undefined;
+    try {
+      const owner = options.registry.findBySessionId(options.conversationId);
+      const taskId = options.session.taskContext?.currentTaskId;
+      if (!options.ownedLocal || !owner || owner.session !== options.session || !taskId)
+        throw Error('Selected task tools require the original owned local task');
+      const assertTaskCurrent = () => {
+        assertMcpCurrent();
+        if (
+          options.registry.findBySessionId(options.conversationId)?.clientId !== owner.clientId ||
+          options.session.taskContext?.currentTaskId !== taskId
+        )
+          throw Error('Original task tool scope changed');
+      };
+      taskPeer = await connectSelectedTaskMcpTools(
+        taskRefs,
+        options.mcpServers,
+        { clientId: owner.clientId, sessionId: options.conversationId, taskId },
+        {
+          assertRuntimeCurrent: assertTaskCurrent,
+          cwd: options.session.cwd!,
+          env: options.env,
+          signal,
+        },
+      );
+      mcp = combineMcpToolPeers(mcp, taskPeer);
+      configuredAdmissions.push(...taskPeer.admitted);
+    } catch (error) {
+      await Promise.allSettled([mcp.close(), taskPeer?.close()]);
+      dispose();
+      startupReservation?.();
+      throw error;
+    }
+  }
   let apiTools: ReturnType<typeof admitApiTools> | undefined;
   try {
     const apiRefs =

@@ -326,6 +326,48 @@ it.each(['create', 'adopt'] as const)(
       const body = JSON.parse(result.content);
       expect(body.artifact.sha256).toBe(selected.sha256);
       expect(hash(body.artifact.content)).toBe(selected.sha256);
+      // The delegated role may select the original same-item source snapshot;
+      // this must not depend on the earlier Create/Adopt permission receipt.
+      const roleContext = {
+        ...context,
+        selectedRole: {
+          version: 1 as const,
+          itemId: source.itemId,
+          role: 'worker' as const,
+          leadConversationId: 'lead',
+          brief: {
+            revision: 'r1',
+            text: 'Exact selected source',
+            sha256: hash('Exact selected source'),
+          },
+          parentCriteria: [],
+          overallGoal: { itemId: source.itemId, revision: 'r1', text: 'Exact selected source' },
+          artifacts: [],
+          sources: [source],
+        },
+      };
+      const selectedResult = await executeNativeTelosArtifactOperation(
+        { ...a.owners, approvals: undefined, context: roleContext },
+        'TelosReadArtifact',
+        raw,
+      );
+      expect(selectedResult.isError).toBe(false);
+      expect(JSON.parse(selectedResult.content).artifact.sha256).toBe(selected.sha256);
+      if (selected === packet) {
+        const wrongScope = {
+          ...roleContext,
+          selectedRole: { ...roleContext.selectedRole, itemId: 'another-item' },
+        };
+        expect(
+          (
+            await executeNativeTelosArtifactOperation(
+              { ...a.owners, approvals: undefined, context: wrongScope },
+              'TelosReadArtifact',
+              raw,
+            )
+          ).isError,
+        ).toBe(true);
+      }
       for (const wrong of [
         { operatorId: 'another-signed-operator' },
         { conversationId: 'another-conversation' },

@@ -1,5 +1,49 @@
 [
   {
+    "id": "mitzo:TaskStatus",
+    "version": 1,
+    "name": "TaskStatus",
+    "description": "Inspect only this exact delegated task and its progress.",
+    "source": "Task Board",
+    "required": false,
+    "behavior": "read",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
+  },
+  {
+    "id": "mitzo:TaskComplete",
+    "version": 1,
+    "name": "TaskComplete",
+    "description": "Save the exact delegated task result and summary for pending_review. This is not verified outcome completion, acceptance, merge or deployment.",
+    "source": "Task Board",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
+  },
+  {
+    "id": "mitzo:TaskBlock",
+    "version": 1,
+    "name": "TaskBlock",
+    "description": "Record a blocker on this exact delegated task with its reason.",
+    "source": "Task Board",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
+  },
+  {
+    "id": "mitzo:TaskArtifact",
+    "version": 1,
+    "name": "TaskArtifact",
+    "description": "Retain an attributed structured evidence reference on this exact delegated task.",
+    "source": "Task Board",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
+  },
+  {
     "id": "mitzo:AskUserQuestion",
     "version": 1,
     "name": "AskUserQuestion",

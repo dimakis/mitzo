@@ -4813,3 +4813,178 @@ it('CT12: a retained ordinary lead gets the scoped control tool with unchanged-i
     f.eventStore.close();
   }
 });
+
+it('composes explicitly selected native artifacts and task MCP on the same owned local worker', async () => {
+  const { AgentLibraryStore } = await import('../agent-library-store.js');
+  const { SessionRegistry } = await import('@mitzo/harness');
+  const { installTelosMainPublicationRuntime, closeTelosMainPublicationRuntime } =
+    await import('../telos-main-publication-runtime.js');
+  const { PublicationCredentialCustodian } =
+    await import('../symposium-publication-credentials.js');
+  const { credentials } = await import('../credentials.js');
+  const actualMcp =
+    await vi.importActual<typeof import('../codex-mcp-tools.js')>('../codex-mcp-tools.js');
+  const root = mkdtempSync(join(tmpdir(), 'owned-explicit-task-mcp-'));
+  const library = new AgentLibraryStore(':memory:');
+  const draft = library.saveDraft('user', {
+    profileId: 'owned-agent',
+    expectedVersion: 0,
+    expectedRevision: 0,
+    idempotencyKey: 'task-draft',
+    definition: {
+      name: 'Artifact worker',
+      role: 'agent',
+      instructions: 'Retain exact evidence and report this task.',
+      expectedOutput: 'Evidence',
+      acceptanceCriteria: ['Original task and artifact authority'],
+      modelPolicyRole: 'agent',
+      tools: [
+        'TelosReadArtifact',
+        'TelosSaveArtifact',
+        'Write',
+        'TaskStatus',
+        'TaskArtifact',
+        'TaskComplete',
+      ].map((name) => ({ id: `mitzo:${name}`, version: 1 })),
+    },
+  });
+  const profile = library.publish('user', {
+    profileId: draft.profileId,
+    expectedVersion: draft.version,
+    idempotencyKey: 'task-publish',
+  });
+  const f = ownedLocalOptions(root, profile);
+  const registry = new SessionRegistry();
+  registry.register('owned-client', {
+    ...f.opts.session,
+    sessionId: 'owned-session',
+    sessionAllowList: new Set<string>(),
+    transport: { send: () => {}, isOpen: () => true },
+  });
+  f.opts.registry = registry;
+  f.opts.session = registry.get('owned-client')!;
+  f.opts.session.taskContext = { currentTaskId: 'exact-task', goalId: 'exact-task' };
+  f.opts.assertAgentContextAuthorization = () => {};
+  installTelosMainPublicationRuntime({
+    registry,
+    events: f.eventStore,
+    databasePath: () => join(root, 'telos.sqlite'),
+    registrations: [],
+    custodian: new PublicationCredentialCustodian(credentials),
+  });
+  const taskConfig = {
+    command: 'original-task-stdio',
+    args: [
+      '--client-id',
+      'owned-client',
+      '--session-id',
+      'owned-session',
+      '--task-id',
+      'exact-task',
+    ],
+    env: { MITZO_INTERNAL_TOKEN: 'synthetic-task-owner' },
+  };
+  f.opts.mcpServers = { 'task-board': taskConfig, ambient: { command: 'unselected-peer' } };
+  const taskCall = vi.fn(async ({ name }: { name: string }) => ({
+    content: [{ type: 'text', text: `original ${name} receipt` }],
+  }));
+  const taskClose = vi.fn(async () => {});
+  const connect = vi.fn(async (config: unknown) => {
+    expect(config).toEqual(taskConfig);
+    return {
+      listTools: async () => ({
+        tools: ['TaskStatus', 'TaskArtifact', 'TaskComplete', 'TaskBlock', 'TaskSet'].map(
+          (name) => ({ name, inputSchema: { type: 'object' } }),
+        ),
+      }),
+      callTool: taskCall,
+      close: taskClose,
+    };
+  });
+  mocks.connect.mockImplementation((configs, options) =>
+    actualMcp.connectCodexMcpTools(configs, { ...options, connect }),
+  );
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.permissionHandler.mockImplementation(async (_name, input) => ({
+    behavior: 'allow',
+    updatedInput: input,
+  }));
+  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    query = await openCodexChat(f.opts);
+    const defs = mocks.conversationOptions!.tools as { name: string; description: string }[];
+    expect(
+      defs
+        .filter((d) => !d.name.startsWith('mitzo_mcp_'))
+        .map((d) => d.name)
+        .sort(),
+    ).toEqual(['AskUserQuestion', 'TelosReadArtifact', 'TelosSaveArtifact', 'Write'].sort());
+    expect(connect).toHaveBeenCalledOnce();
+    const execute = mocks.conversationOptions!.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      context: { turnId: string; callId: string },
+    ) => Promise<{ content: string; isError: boolean }>;
+    for (const [name, input] of [
+      ['TaskStatus', {}],
+      ['TaskArtifact', { key: 'r1', value: 'exact-evidence' }],
+      ['TaskComplete', { summary: 'pending review' }],
+    ] as const) {
+      const wire = defs.find((d) => d.description.startsWith(`mcp__task-board__${name}:`))!.name;
+      expect(
+        await execute(wire, input, new AbortController().signal, {
+          turnId: 'original-turn',
+          callId: name,
+        }),
+      ).toMatchObject({ content: `original ${name} receipt`, isError: false });
+      expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+        `mcp__task-board__${name}`,
+        input,
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+      expect(taskCall).toHaveBeenLastCalledWith(
+        { name, arguments: input },
+        expect.any(AbortSignal),
+      );
+    }
+    expect(defs).toHaveLength(7);
+    const status = defs.find((d) => d.description.startsWith('mcp__task-board__TaskStatus:'))!.name;
+    taskCall.mockClear();
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'deny', message: 'Denied' });
+    expect(
+      await execute(status, {}, new AbortController().signal, {
+        turnId: 'original-turn',
+        callId: 'denied',
+      }),
+    ).toMatchObject({ isError: true });
+    expect(taskCall).not.toHaveBeenCalled();
+    await expect(
+      execute('mcp__task-board__TaskBlock', {}, new AbortController().signal, {
+        turnId: 'original-turn',
+        callId: 'unselected',
+      }),
+    ).rejects.toThrow(/not selected/);
+    mocks.permissionHandler.mockImplementationOnce(async (_name, input) => {
+      vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
+        throw Error('Original worker revoked');
+      });
+      return { behavior: 'allow', updatedInput: input };
+    });
+    expect(
+      await execute(status, {}, new AbortController().signal, {
+        turnId: 'original-turn',
+        callId: 'revoked',
+      }),
+    ).toMatchObject({ isError: true });
+    expect(taskCall).not.toHaveBeenCalled();
+  } finally {
+    query?.close();
+    closeTelosMainPublicationRuntime();
+    f.eventStore.close();
+    library.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+  expect(taskClose).toHaveBeenCalledOnce();
+});

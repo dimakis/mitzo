@@ -1011,6 +1011,12 @@ CI without increasing the local limit. No production or staging changes were mad
 
 ## Agent tool selection
 
+The editor and Tool library project the catalog’s supported local API and local
+Codex routes consistently. Codex-only tools can be selected; unknown or unsupported
+routes remain disabled. Task tools still require a current delegated task and the
+existing runtime and permission checks. This changes compatibility text and existing
+Add-button availability, with the same rows, controls, tokens and motion.
+
 Agent Library keeps its advisor above the editor. The Tools tab and Tool library
 view reuse the existing collection heading, tabs, form controls and grouped quiet
 rows. The inline picker uses MotionPresence, labelled search and Add/Remove

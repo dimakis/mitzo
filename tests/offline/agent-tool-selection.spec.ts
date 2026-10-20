@@ -135,6 +135,22 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Add Read', exact: true }).click();
     await search.fill('GetConnectionGuide');
     await page.getByRole('button', { name: 'Add GetConnectionGuide', exact: true }).click();
+    await search.fill('TaskStatus');
+    await expect(
+      page.getByText(/Selection grants no task access or completion authority/),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Add TaskStatus', exact: true }).click();
+    await search.press('Escape');
+    const removeTask = page.getByRole('button', { name: 'Remove TaskStatus', exact: true });
+    await expect(removeTask).toBeVisible();
+    if (isMobile) expect((await removeTask.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await removeTask.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: info.outputPath(`task-tool-selection-${theme}.png`),
+      animations: 'disabled',
+    });
+    await removeTask.click();
+    await page.getByRole('button', { name: 'Add tools', exact: true }).click();
     await search.fill('ConnectionRequest');
     await expect(page.getByText(/No active service connection/)).toBeVisible();
     await search.press('Escape');

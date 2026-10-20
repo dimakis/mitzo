@@ -1,3 +1,4 @@
+import { taskMcpToolCatalog } from './task-mcp-selection.js';
 import { githubMainPublicationTool } from './telos-main-publication.js';
 import { agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import { agentCommunicationDefinitions } from './agent-communication-tools.js';
@@ -63,7 +64,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       ],
     },
   ];
-  return groups.flatMap(({ source, definitions }) =>
+  const builtin = groups.flatMap(({ source, definitions }) =>
     definitions.map((tool) => ({
       id: `mitzo:${tool.name}`,
       version: 1,
@@ -133,4 +134,5 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                           : 'Existing session permissions, cancellation and runtime admission apply.',
     })),
   );
+  return [...taskMcpToolCatalog(), ...builtin];
 }
