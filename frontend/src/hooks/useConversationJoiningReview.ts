@@ -589,7 +589,7 @@ export function useConversationJoiningReview(
       (!!owner && !journal.current),
     hasAttemptFor: (setup: ConversationAgentSetup) =>
       current.current.setup !== null && equal(current.current.setup, setup),
-    prepare: (setup: ConversationAgentSetup) => {
+    prepare: (setup: ConversationAgentSetup, initialBrief?: string) => {
       if (!ownerAvailable) return Promise.resolve();
       try {
         ensureRecovery();
@@ -607,7 +607,9 @@ export function useConversationJoiningReview(
           ? review(saved.input.setup, saved.input.joiningBrief, saved.previous, saved.input)
           : Promise.resolve();
       }
-      return review(setup);
+      // Initial application intent needs explicit editable brief bytes. A resumed
+      // attempt above always retains its original request, including empty edits.
+      return review(setup, initialBrief);
     },
     prepareFreshReview: (setup: ConversationAgentSetup) => {
       const state = current.current;

@@ -1102,6 +1102,7 @@ export function DesktopChatView() {
           {activeSessionId && !isSymposium && !controlsBlocked && (
             <ConversationAgents
               compact
+              conversationTitle={conversationTitle}
               repository={conversationRepository}
               scope={activeSessionId}
               agents={[

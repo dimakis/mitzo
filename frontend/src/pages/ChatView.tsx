@@ -1137,6 +1137,7 @@ export function ChatView() {
           {activeSessionId && !isSymposium && !controlsBlocked && (
             <ConversationAgents
               compact
+              conversationTitle={conversationTitle}
               repository={conversationRepository}
               scope={activeSessionId}
               agents={[

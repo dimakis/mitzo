@@ -5,6 +5,7 @@ import type {
   ConversationJoiningOwner,
 } from '../lib/conversation-joining-review';
 import { useConversationJoiningReview } from '../hooks/useConversationJoiningReview';
+import { initialConversationJoiningBrief } from '../lib/conversation-joining-brief';
 import {
   ConversationJoiningReview,
   ConversationJoiningReviewActions,
@@ -44,6 +45,7 @@ export function ConversationAgents(props: {
   scope: string;
   agents: ConversationAgent[];
   messages: FinishedMessage[];
+  conversationTitle?: string;
   repository?: string;
   compact?: boolean;
   leading?: ReactNode;
@@ -70,6 +72,7 @@ function ParticipantHeaderFrame({ compact, children }: { compact?: boolean; chil
 function ConversationAgentsBody({
   agents,
   messages,
+  conversationTitle,
   repository,
   compact,
   leading,
@@ -604,7 +607,17 @@ function ConversationAgentsBody({
                       title={!joiningOwner ? unavailable : undefined}
                       onClick={() => {
                         setView('review');
-                        void joining.prepare(setup);
+                        void joining.prepare(
+                          setup,
+                          joiningOwner?.kind === 'application'
+                            ? initialConversationJoiningBrief({
+                                name: setup.name,
+                                purpose: setup.purpose,
+                                conversationTitle,
+                                participantNames: agents.map((agent) => agent.name),
+                              })
+                            : undefined,
+                        );
                       }}
                     >
                       Review joining brief

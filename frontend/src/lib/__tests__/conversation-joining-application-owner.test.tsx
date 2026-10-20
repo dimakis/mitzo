@@ -149,6 +149,28 @@ async function harness() {
   };
 }
 
+it('retains the explicit initial application brief through a lost response and Back/Review retry', async () => {
+  const h = await harness();
+  h.loseResponse();
+  const first = renderHook(() => useConversationJoiningReview(h.owner));
+  await act(() => first.result.current.prepare(input().setup, brief));
+  const posted = h.fetch.mock.calls.filter(([url]) => url.endsWith('/reviews'));
+  expect(posted).toHaveLength(1);
+  const original = JSON.parse(posted[0][1]!.body as string);
+  expect(original.selection.joiningBrief).toBe(brief);
+  expect(conversationJoiningRecovery('source-chat').read()?.reviewRequest.joiningBrief).toBe(brief);
+  first.unmount();
+  const restored = renderHook(() => useConversationJoiningReview(h.owner));
+  await act(() => restored.result.current.prepare(input().setup, 'New visible metadata'));
+  const retries = h.fetch.mock.calls.filter(([url]) => url.endsWith('/reviews'));
+  expect(retries).toHaveLength(2);
+  expect(JSON.parse(retries[1][1]!.body as string)).toEqual(original);
+  expect(h.fetch.mock.calls.filter(([url]) => !url.endsWith('/reviews'))).toHaveLength(2);
+  expect(restored.result.current.brief).toBe(brief);
+  expect(restored.result.current.canConfirm).toBe(false);
+  expect(h.fetch.mock.calls.some(([url]) => url.includes('/joins'))).toBe(false);
+});
+
 it('captures exact public intent using only the typed durable source and current view reads', async () => {
   const h = await harness(),
     controller = new AbortController();
