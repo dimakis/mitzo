@@ -62,7 +62,9 @@ it('rechecks unavailable setup without clearing the editable draft or enabling a
   fireEvent.change(screen.getByRole('textbox', { name: 'Purpose' }), {
     target: { value: 'Keep this setup draft.' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Check setup again' }));
+  const retryButton = screen.getByRole('button', { name: 'Check setup again' });
+  retryButton.focus();
+  fireEvent.click(retryButton);
   expect(retry).toHaveBeenCalledOnce();
   view.rerender(
     <ConversationAgents
@@ -71,6 +73,7 @@ it('rechecks unavailable setup without clearing the editable draft or enabling a
       onRetryJoiningSetup={undefined}
     />,
   );
+  expect(document.activeElement).toBe(screen.getByRole('status'));
   expect((screen.getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).value).toBe(
     'Keep this setup draft.',
   );

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FinishedMessage } from '@mitzo/protocol';
 import type {
   ConversationAgentSetup,
@@ -98,6 +98,14 @@ function ConversationAgentsBody({
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewAgent = agents.find((agent) => agent.id === previewId);
   const [profileReason, setProfileReason] = useState<string>();
+  const setupStatus = useRef<HTMLParagraphElement>(null);
+  const restoreSetupFocus = useRef(false);
+  useEffect(() => {
+    if (!onRetryJoiningSetup && restoreSetupFocus.current) {
+      restoreSetupFocus.current = false;
+      setupStatus.current?.focus({ preventScroll: true });
+    }
+  }, [onRetryJoiningSetup]);
   const joining = useConversationJoiningReview(joiningOwner, () => {
     setOpen(false);
     setView('agents');
@@ -555,9 +563,19 @@ function ConversationAgentsBody({
                     reserved.
                   </p>
                 )}
-                {!joiningOwner && <p role="status">{unavailable}</p>}
+                {!joiningOwner && (
+                  <p role="status" ref={setupStatus} tabIndex={-1}>
+                    {unavailable}
+                  </p>
+                )}
                 {!joiningOwner && onRetryJoiningSetup && (
-                  <button type="button" onClick={onRetryJoiningSetup}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      restoreSetupFocus.current = true;
+                      onRetryJoiningSetup();
+                    }}
+                  >
                     Check setup again
                   </button>
                 )}
