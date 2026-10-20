@@ -312,10 +312,18 @@
     {
       "file": "native-pending-fixture-explicit-assertions.patch",
       "sha256": "f3e45065d91fe1032cf6b1d62cc96b3c0084fa72b9871d4d82f8b9a2e5993d8c"
+    },
+    {
+      "file": "native-effective-mcp-registry-policy.patch",
+      "sha256": "8957a196d018d3ba59619b114fb6e92d970d884cbff5bfe19028908e02c7f6c5"
+    },
+    {
+      "file": "native-pending-command-fixture-identity.patch",
+      "sha256": "f4f113471f2404a412a0bc7d6a261c39c6fca373c7c258fd2c42ef69bd7ec2a0"
     }
   ],
-  "sourceTree": "61df68bdcee6a1939367e2ed54e61082d4ef3241",
-  "localSourceCommit": "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
+  "sourceTree": "900c92af991875072ff94fe76c1df8fa76ca684d",
+  "localSourceCommit": "46df3041feb4fbf9bf6f47d41452abe341de61e9",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -398,7 +406,9 @@
     "712955521527345f477abb11f1c54be80bf64a27",
     "68d9e80ad6dbbbadf76312e8b685e6dd66b1f085",
     "f75d65a1a6133ed3eecc42b92c9f74e84741e835",
-    "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14"
+    "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
+    "865e2f6fb59451d834a7b31fe7a0b9eac4396afc",
+    "46df3041feb4fbf9bf6f47d41452abe341de61e9"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -791,6 +801,42 @@
       "fix": "Explicit pretty_assertions::assert_eq imports in effects and guarded_commit children, preserving actual parent assertion semantics",
       "rustCompilationOrTestsRunLocally": false,
       "executionQualification": "pending exact-source CI"
+    },
+    "effectiveRegistryCorrection": {
+      "finding": "CEN-487055AFEF4D",
+      "nativeCommit": "865e2f6fb59451d834a7b31fe7a0b9eac4396afc",
+      "ordinaryPolicy": "Same private helper preserves explicit policy > actual source/default guardian isolation; ordinary spawn still selects the original registry branch",
+      "preSession": "Refuse effective Isolated before manager/env/registry proof, retain actual resolved source and Inherit in original options",
+      "regressionsAuthored": 2,
+      "nativeTestsExecutedLocally": false,
+      "compiledLocally": false,
+      "executionQualification": "pending exact-source CI",
+      "lineage": "Same exact correction patch as native60+61, now native77+78; no test qualification transferred"
+    },
+    "pendingFixtureCommandIdentity": {
+      "nativeCommit": "46df3041feb4fbf9bf6f47d41452abe341de61e9",
+      "productionChanges": false,
+      "fix": "Independent pending/ordinary fixture cases now each use a fresh request with a distinct binding.command_id. Consumed command-root uniqueness and every pool-local/ordinary uncertainty assertion remain unchanged.",
+      "observedFailure": {
+        "run": 39357179342,
+        "linuxJob": 118414639970,
+        "macJob": 118414639835,
+        "diagnostic": "Executed fixture failed SQLite2067 prepared_requests_consumed_command_root at effects.rs:375; not a compile failure",
+        "linux": {
+          "run": 6205,
+          "passed": 6204,
+          "failed": 1,
+          "skipped": 11
+        },
+        "mac": {
+          "run": 5984,
+          "passed": 5983,
+          "failed": 1,
+          "skipped": 27
+        }
+      },
+      "rustCompilationOrTestsRunLocally": false,
+      "executionQualification": "pending exact new source CI"
     }
   },
   "runtimeQualified": false,
@@ -1365,6 +1411,14 @@
           }
         }
       }
+    },
+    {
+      "sourceTree": "61df68bdcee6a1939367e2ed54e61082d4ef3241",
+      "localSourceCommit": "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
+      "patchCount": 77,
+      "publishedPr": 1063,
+      "nativeCi": 39357179342,
+      "qualification": "Both OS jobs executed fixtures and failed the pending-custody fixture reusing one command root; no native77 qualification. Separate original fixture results retained."
     }
   ],
   "history": [

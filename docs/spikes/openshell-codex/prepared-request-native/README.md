@@ -6,10 +6,27 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 70 patches
+## Current composed source: 79 patches
 
-The 70 ordered patches reconstruct native tree
-`9ce8eecf782809ae5d33f63715000e8396ab2e55` (local source `d615a63d687555242ede9cb3874d2699f99520c3`).
+The 79 ordered patches reconstruct native tree
+`900c92af991875072ff94fe76c1df8fa76ca684d` (local source `46df3041feb4fbf9bf6f47d41452abe341de61e9`).
+Patches 71–73 add the source-only pending-effect state gate; 74–76 add
+synchronous SQLite commitment inside actual credential custody and independent
+committed-row observation fixtures. Patch 77 fixes two child assertion imports.
+Its exact CI run `39357179342` executed fixtures on both platforms and failed one
+case: independent pending/ordinary subcases reused a consumed command root.
+Linux ran 6,205 tests (6,204 passed, one failed, 11 skipped); Mac ran 5,984
+(5,983 passed, one failed, 27 skipped). Counts overlap. Formatting was skipped.
+Those results do not qualify source 77 or this new source.
+
+Patch 78 carries the exact effective-MCP-registry correction already published
+on the native60 lineage: capture refuses an ordinary isolated registry and
+retains the actual inherited selection. Patch 79 assigns distinct command IDs
+to the two independent custody fixture cases. The consumed-command uniqueness
+guard and every original pool-local and ordinary uncertainty assertion remain.
+No production code changes in patch 79. These 79 patches require fresh exact-tree
+CI; no compilation or Rust tests ran locally. No runtime is installed or adopted.
+
 Patch 54 adds an extension-registry input contract for pre-session inventory.
 The owning extension can register its real executable tools with `fixed_tools`;
 the registry retains their definitions for both ordinary planning and capture.

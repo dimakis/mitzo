@@ -1,0 +1,227 @@
+diff --git a/codex-rs/core/src/mcp/pre_session.rs b/codex-rs/core/src/mcp/pre_session.rs
+index 4ed3c3e..4e1a7f7 100644
+--- a/codex-rs/core/src/mcp/pre_session.rs
++++ b/codex-rs/core/src/mcp/pre_session.rs
+@@ -57,6 +57,8 @@ impl PreSessionMcpSources {
+ pub enum PreSessionMcpError {
+     #[error("MCP preparation requires fresh, non-inherited native start inputs")]
+     RequiresFreshInputs,
++    #[error("MCP preparation requires the ordinary inherited extension registry")]
++    RequiresInheritedExtensions,
+     #[error("configured MCP, Apps or plugin sources require unresolved inventory")]
+     ConfiguredSources,
+     #[error("selected capability roots require unresolved inventory")]
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index 7e18529..643f748 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -318,6 +318,22 @@ impl StartThreadOptions {
+     }
+ }
+ 
++fn session_isolation(
++    extension_init: &ExtensionDataInit,
++    session_source: &SessionSource,
++) -> codex_extension_api::SessionIsolation {
++    extension_init
++        .get::<codex_extension_api::SessionIsolation>()
++        .map(|policy| *policy)
++        .unwrap_or_else(|| {
++            if crate::guardian::is_basic_session_source(session_source) {
++                codex_extension_api::SessionIsolation::Isolated
++            } else {
++                codex_extension_api::SessionIsolation::Inherit
++            }
++        })
++}
++
+ struct ThreadSpawnRequest {
+     startup: Option<Arc<crate::session::startup::SessionStartup>>,
+     options: StartThreadOptions,
+@@ -2079,16 +2095,7 @@ impl ThreadManagerState {
+         let session_source = session_source.unwrap_or_else(|| self.session_source.clone());
+         // Older callers and saved reviewers identify isolation through their source.
+         // New internal callers supply an explicit runtime policy before startup.
+-        let isolation = thread_extension_init
+-            .get::<codex_extension_api::SessionIsolation>()
+-            .map(|policy| *policy)
+-            .unwrap_or_else(|| {
+-                if crate::guardian::is_basic_session_source(&session_source) {
+-                    codex_extension_api::SessionIsolation::Isolated
+-                } else {
+-                    codex_extension_api::SessionIsolation::Inherit
+-                }
+-            });
++        let isolation = session_isolation(&thread_extension_init, &session_source);
+         thread_extension_init.insert(isolation);
+         let environments = environments
+             .or_else(|| {
+diff --git a/codex-rs/core/src/thread_manager/pre_session_inputs.rs b/codex-rs/core/src/thread_manager/pre_session_inputs.rs
+index c308dd9..7f9c7d1 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_inputs.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_inputs.rs
+@@ -10,8 +10,23 @@ impl ThreadManager {
+     /// absence. This neither starts a Session nor qualifies a prepared request.
+     pub fn capture_pre_session_mcp_sources(
+         &self,
+-        options: StartThreadOptions,
++        mut options: StartThreadOptions,
+     ) -> Result<PreSessionMcpSources, PreSessionMcpError> {
++        // Ordinary isolated startup constructs another MCP manager from its
++        // explicit isolated registry. This capture only qualifies the actual
++        // inherited manager; never certify a different registry's absence.
++        let session_source = options
++            .session_source
++            .clone()
++            .unwrap_or_else(|| self.state.session_source.clone());
++        let isolation = super::session_isolation(&options.thread_extension_init, &session_source);
++        if isolation == codex_extension_api::SessionIsolation::Isolated {
++            return Err(PreSessionMcpError::RequiresInheritedExtensions);
++        }
++        // Retain the actual resolved ordinary defaults so release cannot select
++        // another source/registry policy if the manager's default later changes.
++        options.session_source = Some(session_source);
++        options.thread_extension_init.insert(isolation);
+         self.state
+             .mcp_manager
+             .capture_pre_session_fresh_sources(options, self.state.environment_manager.clone())
+diff --git a/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs b/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
+index 307cd0c..258a5fc 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
+@@ -318,3 +318,135 @@ async fn new_default_or_selected_remote_refuses_without_starting_its_provider()
+     assert_eq!(calls.load(Ordering::SeqCst), 0);
+     assert_eq!(manager.state.threads.read().await.len(), 0);
+ }
++
++fn unexpected_inherited_plan(_context: McpPreSessionContext<'_, Config>) -> McpPreSessionOverlay {
++    panic!("isolated pre-session capture reached the inherited registry")
++}
++
++#[tokio::test]
++async fn isolated_registry_refuses_before_inherited_plans_or_runtime_callbacks() {
++    use codex_extension_api::IsolatedSessionExtensions;
++    use codex_extension_api::SessionIsolation;
++    use codex_protocol::protocol::InternalSessionSource;
++    use codex_protocol::protocol::SessionSource;
++
++    let config = config().await;
++    let mut manager = manager(&config);
++    let calls = Arc::new(AtomicUsize::new(0));
++    let mut inherited = ExtensionRegistryBuilder::new();
++    inherited.mcp_server_contributor_with_pre_session_plan(
++        Arc::new(RuntimeSource(calls.clone())),
++        unexpected_inherited_plan,
++    );
++    let state = Arc::get_mut(&mut manager.state).expect("unshared owner");
++    state.mcp_manager = Arc::new(McpManager::new_with_extensions(
++        state.plugins_manager.clone(),
++        Arc::new(inherited.build()),
++        state.mcp_manager.codex_apps_tools_cache(),
++    ));
++    let mut isolated = ExtensionRegistryBuilder::new();
++    isolated.mcp_server_contributor(Arc::new(RuntimeSource(calls.clone())));
++    let isolated = Arc::new(isolated.build());
++    assert!(matches!(
++        isolated.pre_session_mcp_overlays(McpPreSessionContext::new(&config, &[])),
++        Err(indices) if indices == vec![0]
++    ));
++    let mut created = manager.state.thread_created_tx.subscribe();
++    // Explicit policy, explicit guardian source, and the manager's actual
++    // guardian default all select the isolated branch in ordinary startup.
++    for selection in 0..3 {
++        let mut options = StartThreadOptions::new(config.clone());
++        options
++            .thread_extension_init
++            .insert(IsolatedSessionExtensions(isolated.clone()));
++        match selection {
++            0 => {
++                options
++                    .thread_extension_init
++                    .insert(SessionIsolation::Isolated);
++            }
++            1 => {
++                options.session_source =
++                    Some(SessionSource::Internal(InternalSessionSource::Guardian));
++            }
++            2 => {
++                Arc::get_mut(&mut manager.state)
++                    .expect("unshared owner")
++                    .session_source = SessionSource::Internal(InternalSessionSource::Guardian);
++            }
++            _ => unreachable!(),
++        }
++        assert_eq!(
++            manager.capture_pre_session_mcp_sources(options).err(),
++            Some(PreSessionMcpError::RequiresInheritedExtensions)
++        );
++    }
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert_eq!(manager.state.threads.read().await.len(), 0);
++    assert!(matches!(
++        created.try_recv(),
++        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
++    ));
++}
++
++#[tokio::test]
++async fn retained_source_and_isolation_do_not_reselect_manager_defaults() {
++    use codex_extension_api::SessionIsolation;
++    use codex_protocol::protocol::InternalSessionSource;
++    use codex_protocol::protocol::SessionSource;
++
++    let config = config().await;
++    let mut manager = manager(&config);
++    let sources = manager
++        .capture_pre_session_mcp_sources(StartThreadOptions::new(config.clone()))
++        .expect("ordinary inherited registry");
++    Arc::get_mut(&mut manager.state)
++        .expect("unshared owner")
++        .session_source = SessionSource::Internal(InternalSessionSource::Guardian);
++    manager
++        .validate_pre_session_mcp_sources(&sources)
++        .expect("retained original policy");
++    let retained = manager
++        .release_pre_session_start_inputs(sources)
++        .expect("original inputs");
++    assert_eq!(retained.session_source, Some(SessionSource::Exec));
++    assert_eq!(
++        retained
++            .thread_extension_init
++            .get::<SessionIsolation>()
++            .as_deref(),
++        Some(&SessionIsolation::Inherit)
++    );
++    // Ordinary precedence remains exact: an explicit source or policy overrides
++    // the manager/source default, using the same helper as real spawn_thread.
++    let mut explicit_source = StartThreadOptions::new(config.clone());
++    explicit_source.session_source = Some(SessionSource::Exec);
++    let sources = manager
++        .capture_pre_session_mcp_sources(explicit_source)
++        .expect("explicit ordinary source");
++    manager
++        .release_pre_session_start_inputs(sources)
++        .expect("original explicit source");
++    let mut explicit_policy = StartThreadOptions::new(config);
++    explicit_policy
++        .thread_extension_init
++        .insert(SessionIsolation::Inherit);
++    let sources = manager
++        .capture_pre_session_mcp_sources(explicit_policy)
++        .expect("explicit inherited policy");
++    let retained = manager
++        .release_pre_session_start_inputs(sources)
++        .expect("original explicit policy");
++    assert_eq!(
++        retained.session_source,
++        Some(SessionSource::Internal(InternalSessionSource::Guardian))
++    );
++    assert_eq!(
++        retained
++            .thread_extension_init
++            .get::<SessionIsolation>()
++            .as_deref(),
++        Some(&SessionIsolation::Inherit)
++    );
++    assert_eq!(manager.state.threads.read().await.len(), 0);
++}

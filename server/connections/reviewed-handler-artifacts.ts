@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.350-symposium-fixture-assertions';
+  'v1.0.351-symposium-pending-command-identity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-pending-command-fixture-identity.patch':
+    'f4f113471f2404a412a0bc7d6a261c39c6fca373c7c258fd2c42ef69bd7ec2a0',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-effective-mcp-registry-policy.patch':
+    '8957a196d018d3ba59619b114fb6e92d970d884cbff5bfe19028908e02c7f6c5',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-pending-fixture-explicit-assertions.patch':
     'f3e45065d91fe1032cf6b1d62cc96b3c0084fa72b9871d4d82f8b9a2e5993d8c',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-guarded-commit-durable-observer-fixture.patch':
