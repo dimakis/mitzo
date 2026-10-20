@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { SaveAgentTaskSchema } from '../../packages/protocol/src/agent-tasks';
 
 // CI-only browser execution. Do not import/--list this spec locally: like the
@@ -12,6 +13,7 @@ const bundle = build({
   outfile: '/tmp/agent-settings-bounded.js',
   jsx: 'automatic',
   minify: true,
+  external: ['/*.png', '/*.svg'],
   define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
   alias: {
     '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),
@@ -113,6 +115,11 @@ for (const appearance of [
         unexpected.push(url.href);
         return route.abort();
       }
+      if (url.pathname === '/openai-mark.svg' || url.pathname === '/claude-mark.svg')
+        return route.fulfill({
+          body: await readFile(resolve('frontend/public', url.pathname.slice(1))),
+          contentType: 'image/svg+xml',
+        });
       if (url.pathname === '/api/chat/runtime/capabilities') {
         await inventoryGate;
         return route.fulfill({ json: inventory });
