@@ -8,7 +8,8 @@ import {
   joiningReviewFixture,
   joiningSetupFixture,
 } from '../../preview/conversation-joining-fixture';
-import type { ConversationJoiningOwner } from '../../lib/conversation-joining-review';
+import type { LegacyConversationJoiningOwner as ConversationJoiningOwner } from '../../lib/conversation-joining-review';
+import { markAuthLost, restoreCookieAuthentication } from '../../lib/api-fetch';
 
 vi.mock('../AccountModelPicker', () => ({
   AccountModelPicker: ({
@@ -24,7 +25,13 @@ vi.mock('../AccountModelPicker', () => ({
 vi.mock('../ChatAgentProfilePicker', () => ({
   ChatAgentProfilePicker: () => <span>Default Mitzo</span>,
 }));
-beforeEach(() => {
+beforeEach(async () => {
+  markAuthLost();
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ ok: true, authSessionId: 'offline-login' })),
+  );
+  await restoreCookieAuthentication();
   HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
   };
@@ -32,7 +39,11 @@ beforeEach(() => {
     this.open = false;
   };
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  sessionStorage.clear();
+  vi.unstubAllGlobals();
+});
 function mount() {
   let revision = 1;
   const owner: ConversationJoiningOwner = {
@@ -244,7 +255,7 @@ it('invalidates the old brief and frozen source only when setup is explicitly ch
   fireEvent.change(screen.getByRole('textbox', { name: 'Purpose' }), {
     target: { value: 'Check authentication.' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Back to Agents' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
   expect(screen.getByRole('dialog', { name: 'Add agent' })).toBeTruthy();
   expect((screen.getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).value).toBe(
@@ -274,6 +285,40 @@ it('invalidates the old brief and frozen source only when setup is explicitly ch
   expect(changed.joiningBrief).toBeUndefined();
   expect(changed.previousSnapshot).toBeUndefined();
   expect(owner.confirm).not.toHaveBeenCalled();
+});
+
+it('restores the original editable setup and exact lost review when the actual dialog remounts', async () => {
+  const owner = mount();
+  vi.mocked(owner.review).mockRejectedValueOnce(new Error('Saved response was lost'));
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  await screen.findByRole('alert');
+  const original = structuredClone(vi.mocked(owner.review).mock.calls[0][0]);
+  cleanup();
+  render(
+    <MemoryRouter>
+      <ConversationAgents
+        scope="source-chat"
+        joiningOwner={owner}
+        agents={[{ id: 'source-chat', name: 'Mitzo', state: 'Current conversation' }]}
+        messages={[]}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
+  const review = screen.getByRole('dialog', { name: 'Before joining' });
+  expect(owner.review).toHaveBeenCalledTimes(1);
+  expect(owner.confirm).not.toHaveBeenCalled();
+  fireEvent.click(within(review).getByRole('button', { name: /^Back$/ }));
+  expect(
+    (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
+  ).toBe(original.setup.name);
+  expect((screen.getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).value).toBe(
+    original.setup.purpose,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  await waitFor(() => expect(owner.review).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(owner.review).mock.calls[1][0]).toEqual(original);
 });
 
 it('closes only after linked confirmation and offers the next agent a fresh editable setup', async () => {
@@ -313,3 +358,146 @@ it('closes only after linked confirmation and offers the next agent a fresh edit
     screen.getByRole('button', { name: 'Review joining brief' }).hasAttribute('disabled'),
   ).toBe(true);
 });
+
+it('rechecks a restored linked receipt before retiring it for another fresh agent', async () => {
+  const owner = mount();
+  let linked: import('@mitzo/protocol').CollaborationJoin | undefined;
+  vi.mocked(owner.confirm).mockImplementationOnce(async (input) => {
+    linked = {
+      version: 1,
+      joinId: '00000000-0000-4000-8000-000000000010',
+      name: input.name,
+      settings: input.settings,
+      snapshot: input.snapshot,
+      membershipRevision: input.expectedMembershipRevision,
+      allocationOperationId: '00000000-0000-4000-8000-000000000011',
+      state: 'linked',
+      sessionId: 'prepared-reviewer',
+      linkedFromRevision: input.expectedMembershipRevision,
+      execution: COLLABORATION_EXECUTION_DISABLED,
+    };
+    return linked;
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Join conversation' }).hasAttribute('disabled')).toBe(
+      false,
+    ),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Join conversation' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  cleanup();
+  render(
+    <MemoryRouter>
+      <ConversationAgents
+        scope="source-chat"
+        joiningOwner={owner}
+        agents={[{ id: 'source-chat', name: 'Mitzo', state: 'Current conversation' }]}
+        messages={[]}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
+  const review = screen.getByRole('dialog', { name: 'Before joining' });
+  expect(owner.confirm).toHaveBeenCalledTimes(1);
+  expect(owner.recover).not.toHaveBeenCalled();
+  vi.mocked(owner.recover).mockResolvedValueOnce(linked!);
+  fireEvent.click(within(review).getByRole('button', { name: 'Check again' }));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
+  fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
+  expect(screen.getByRole('dialog', { name: 'Add agent' })).toBeTruthy();
+  expect(
+    (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
+  ).toBe('');
+  expect(owner.confirm).toHaveBeenCalledTimes(1);
+});
+
+it.each(['review', 'uncertain', 'linked'] as const)(
+  'restores the actual dialog’s original %s setup when its owner arrives late',
+  async (kind) => {
+    const owner = mount();
+    let linked: import('@mitzo/protocol').CollaborationJoin | undefined;
+    if (kind === 'review') vi.mocked(owner.review).mockRejectedValueOnce(new Error('Lost review'));
+    if (kind === 'uncertain')
+      vi.mocked(owner.confirm).mockRejectedValueOnce(new Error('Lost confirmation'));
+    if (kind === 'linked')
+      vi.mocked(owner.confirm).mockImplementationOnce(async (input) => {
+        linked = {
+          version: 1,
+          joinId: '00000000-0000-4000-8000-000000000010',
+          allocationOperationId: '00000000-0000-4000-8000-000000000011',
+          name: input.name,
+          membershipRevision: input.expectedMembershipRevision,
+          settings: input.settings,
+          snapshot: input.snapshot,
+          state: 'linked',
+          sessionId: 'prepared-reviewer',
+          linkedFromRevision: input.expectedMembershipRevision,
+          execution: COLLABORATION_EXECUTION_DISABLED,
+        };
+        return linked;
+      });
+    fireEvent.click(screen.getByRole('button', { name: 'Review joining brief' }));
+    if (kind === 'review') await screen.findByRole('alert');
+    else {
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Join conversation' }).hasAttribute('disabled'),
+        ).toBe(false),
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Join conversation' }));
+      if (kind === 'uncertain') await screen.findByRole('alert');
+      else await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    }
+    const original = structuredClone(vi.mocked(owner.review).mock.calls[0][0]);
+    const submission =
+      kind === 'review' ? undefined : structuredClone(vi.mocked(owner.confirm).mock.calls[0][0]);
+    cleanup();
+    const element = (available: boolean) => (
+      <MemoryRouter>
+        <ConversationAgents
+          scope="source-chat"
+          joiningOwner={available ? owner : undefined}
+          agents={[{ id: 'source-chat', name: 'Mitzo', state: 'Current conversation' }]}
+          messages={[]}
+        />
+      </MemoryRouter>
+    );
+    const dialog = render(element(false));
+    dialog.rerender(element(true));
+    expect(owner.review).toHaveBeenCalledTimes(1);
+    expect(owner.confirm).toHaveBeenCalledTimes(kind === 'review' ? 0 : 1);
+    fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
+    expect(screen.getByRole('dialog', { name: 'Before joining' })).toBeTruthy();
+    if (kind === 'review') {
+      fireEvent.click(screen.getByRole('button', { name: /^Back$/ }));
+      expect(
+        (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
+      ).toBe(original.setup.name);
+      expect((screen.getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).value).toBe(
+        original.setup.purpose,
+      );
+      fireEvent.change(screen.getByRole('textbox', { name: 'Name in this chat' }), {
+        target: { value: 'ExplicitlyEdited' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      fireEvent.click(screen.getByRole('button', { name: /^Add agent$/ }));
+      expect(
+        (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
+      ).toBe('ExplicitlyEdited');
+    } else if (kind === 'uncertain') {
+      fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+      await waitFor(() => expect(owner.confirm).toHaveBeenCalledTimes(2));
+      expect(vi.mocked(owner.confirm).mock.calls[1][0]).toEqual(submission);
+    } else {
+      vi.mocked(owner.recover).mockResolvedValueOnce(linked!);
+      fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      expect(owner.recover).toHaveBeenCalledWith(linked!.joinId, expect.any(AbortSignal));
+      expect(owner.confirm).toHaveBeenCalledTimes(1);
+    }
+  },
+);

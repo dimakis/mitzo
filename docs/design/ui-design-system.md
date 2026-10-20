@@ -59,6 +59,12 @@ Dynamic route JavaScript uses direct imports rather than Vite modulepreload link
 
 ## Appearance preferences
 
+The existing adviser-account dialog reuses its shared secondary buttons and action
+row for **Retry connection** when a retained ChatGPT grant needs attention. Recovery
+is separate from **Sign in again** and does not open a browser or send terminal input.
+The terminal offline fixture covers keyboard activation, mobile/desktop layouts,
+dark/light themes and alternate accent/font preferences for this recovery state.
+
 Settings exposes eight curated accents and seven locally available UI font stacks. Preset values live in the same token file, including the light/dark accent shades. The preference hook stores validated preset IDs in local storage and applies root data attributes immediately; startup restores them before React renders. The UI says these choices are saved on the current device. Code remains monospace, and Reset appearance restores System theme, Lavender accent and System font. Browser tests verify every accent pair meets 4.5:1 contrast for filled controls and that selections survive route changes and reloads.
 
 ## Mobile composition
@@ -1567,7 +1573,11 @@ The approved additive priority amendment uses `TodoPrioritySelect` in the curren
 item header and a compact `P<n>` badge in each recursive item card. The native
 select inherits the shared font, semantic colors, control height and focus rule.
 Pending saves disable the field; failures announce uncertainty beside the field
-and preserve the last confirmed value. Existing grouping, sorting and navigation
+and preserve the last confirmed value. The item route owns this pending/error
+state across the legacy-to-canonical header handoff. Hydrating a canonical record
+must not discard a refusal warning or enable another write while one is pending;
+the current record remains authoritative for the displayed confirmed value.
+Existing grouping, sorting and navigation
 remain unchanged. This is not the later S7/S8 workspace implementation.
 
 The intercepted `telos-priority.spec.ts` fixture covers the actual responsive workspace

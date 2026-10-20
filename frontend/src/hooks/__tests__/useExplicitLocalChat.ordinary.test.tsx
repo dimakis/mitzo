@@ -32,6 +32,21 @@ function fixture() {
   );
   return { metadata, inventory };
 }
+it('recognizes the server-qualified repository preparation as a first command while preserving its original repository identity', async () => {
+  const f = fixture();
+  Object.assign(f.metadata, { ordinaryWorkspaceId: undefined, repositoryWorkspaceId: workspaceId });
+  const { result } = renderHook(() =>
+    useExplicitLocalChat('draft', null, 'prepared-repository', true),
+  );
+  await waitFor(() => expect(result.current.metadataPending).toBe(false));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.preparedFirst).toBe(true);
+  expect(result.current.commandAvailable).toBe(true);
+  expect(result.current.continuation).toBe(false);
+  expect(result.current.repositoryWorkspaceId).toBe(workspaceId);
+  expect(result.current.ordinaryWorkspaceId).toBeUndefined();
+  expect(result.current.reason).toBeUndefined();
+});
 it('uses the original ordinary prepared identity for its explicit first command, then refreshes into continuation', async () => {
   const f = fixture();
   const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'prepared-chat', true));

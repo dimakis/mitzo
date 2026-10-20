@@ -1,5 +1,9 @@
 import { z } from 'zod';
-import { SourceSnapshotsSchema } from '@mitzo/protocol';
+import {
+  SourceSnapshotsSchema,
+  SessionCollaborationIdSchema,
+  CollaborationMessageInputSchema,
+} from '@mitzo/protocol';
 import { createBrowserId } from './browser-crypto';
 import { getDefaultAccountModel } from './account-preference';
 import {
@@ -24,6 +28,13 @@ export const ChatDraftSchema = z.object({
   contextBlocks: z.array(z.string()),
   updatedAt: z.number(),
   settings: z.object({
+    // Draft routing intent only; this never grants read or execution authority.
+    collaborationResponders: z
+      .object({
+        collaborationId: SessionCollaborationIdSchema,
+        responders: CollaborationMessageInputSchema.shape.responders,
+      })
+      .optional(),
     sourceSnapshots: SourceSnapshotsSchema.optional(),
     launch: z
       .object({
@@ -128,7 +139,8 @@ export function saveChatDraft(draft: ChatDraft): boolean {
       !draft.settings.repositoryWorkspaceId &&
       !draft.settings.launch &&
       !draft.settings.sourceSnapshots?.length &&
-      !draft.settings.retainRuntimeIntent
+      !draft.settings.retainRuntimeIntent &&
+      !draft.settings.collaborationResponders
     )
       localStorage.removeItem(PREFIX + draft.id);
     else

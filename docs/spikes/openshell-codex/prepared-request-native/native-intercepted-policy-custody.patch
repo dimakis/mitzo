@@ -1,0 +1,401 @@
+From 888e9aaddb645b1b365fde844f89c65c3289a3d2 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 16:48:30 +0100
+Subject: [PATCH] refactor(core): retain intercepted policy evaluation identity
+
+---
+ .../runtimes/zsh_fork/current_prompt_tests.rs | 285 ++++++++++++++++++
+ .../runtimes/zsh_fork/unix_escalation.rs      |  18 +-
+ .../zsh_fork/unix_escalation_tests.rs         |   8 +-
+ 3 files changed, 301 insertions(+), 10 deletions(-)
+ create mode 100644 codex-rs/core/src/tools/runtimes/zsh_fork/current_prompt_tests.rs
+
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/current_prompt_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/current_prompt_tests.rs
+new file mode 100644
+index 0000000..838c61c
+--- /dev/null
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/current_prompt_tests.rs
+@@ -0,0 +1,285 @@
++//! Actual intercepted review owners; no model requests or parent receipts.
++use super::*;
++use crate::session::step_context::StepContext;
++use crate::session::tests::make_session_and_context_with_auth_and_config_and_rx;
++use crate::tasks::SessionTask;
++use crate::tasks::SessionTaskResult;
++use codex_extension_api::ApprovalDecision;
++use codex_extension_api::ApprovalReviewContributor;
++use codex_protocol::config_types::ApprovalsReviewer;
++use codex_protocol::protocol::Event;
++use codex_protocol::protocol::EventMsg;
++use codex_protocol::protocol::TurnAbortReason;
++use pretty_assertions::assert_eq;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++use tokio::sync::Notify;
++use tokio::time::Duration;
++
++struct PendingTask;
++impl SessionTask for PendingTask {
++    fn kind(&self) -> crate::state::TaskKind {
++        crate::state::TaskKind::Regular
++    }
++    fn span_name(&self) -> &'static str {
++        "intercepted_context_test"
++    }
++    async fn run(
++        self: Arc<Self>,
++        _session: Arc<crate::session::session::Session>,
++        _turn: Arc<crate::session::turn_context::TurnContext>,
++        _input: Vec<crate::session::TurnInput>,
++        cancellation: CancellationToken,
++    ) -> SessionTaskResult {
++        cancellation.cancelled().await;
++        Ok(None)
++    }
++}
++struct Contributor {
++    calls: Arc<AtomicUsize>,
++    decision: Option<ApprovalDecision>,
++    entered: Arc<Notify>,
++    release: Option<Arc<Notify>>,
++}
++impl ApprovalReviewContributor for Contributor {
++    fn decide<'a>(
++        &'a self,
++        _input: &'a codex_extension_api::ApprovalDecisionInput<'_>,
++    ) -> codex_extension_api::ExtensionFuture<'a, Option<ApprovalDecision>> {
++        Box::pin(async move {
++            self.calls.fetch_add(1, Ordering::SeqCst);
++            self.entered.notify_one();
++            if let Some(release) = &self.release {
++                release.notified().await;
++            }
++            self.decision.clone()
++        })
++    }
++}
++struct Fixture {
++    provider: CoreShellActionProvider,
++    events: async_channel::Receiver<Event>,
++    calls: Arc<AtomicUsize>,
++    entered: Arc<Notify>,
++    release: Arc<Notify>,
++    cancellation: CancellationToken,
++    program: AbsolutePathBuf,
++}
++impl Drop for Fixture {
++    fn drop(&mut self) {
++        self.release.notify_one();
++        self.cancellation.cancel();
++    }
++}
++impl Fixture {
++    async fn new(
++        policy: AskForApproval,
++        prefix: bool,
++        decision: Option<ApprovalDecision>,
++        gated: bool,
++    ) -> anyhow::Result<Self> {
++        let (mut session, turn, events) = make_session_and_context_with_auth_and_config_and_rx(
++            codex_login::CodexAuth::from_api_key("offline-test"),
++            Vec::new(),
++            |config| {
++                config.permissions.approval_policy = codex_config::Constrained::allow_any(policy);
++                config.approvals_reviewer = ApprovalsReviewer::User;
++                config.features.disable(codex_features::Feature::GuardianV2);
++                config
++                    .permissions
++                    .set_permission_profile(PermissionProfile::read_only())
++                    .unwrap();
++            },
++        )
++        .await;
++        let calls = Arc::new(AtomicUsize::new(0));
++        let entered = Arc::new(Notify::new());
++        let release = Arc::new(Notify::new());
++        let mut registry = codex_extension_api::ExtensionRegistryBuilder::new();
++        registry.approval_review_contributor(Arc::new(Contributor {
++            calls: Arc::clone(&calls),
++            decision,
++            entered: Arc::clone(&entered),
++            release: gated.then(|| Arc::clone(&release)),
++        }));
++        Arc::get_mut(&mut session).unwrap().services.extensions = Arc::new(registry.build());
++        let step = StepContext::for_test(Arc::clone(&turn));
++        let program = AbsolutePathBuf::current_dir()?.join("offline-intercepted-program");
++        let mut parser = codex_execpolicy::PolicyParser::new();
++        if prefix {
++            parser.parse(
++                "test.rules",
++                &format!(
++                    "prefix_rule(pattern=[{}], decision=\"prompt\")",
++                    serde_json::to_string(&program.to_string_lossy())?
++                ),
++            )?;
++        }
++        let parent_exec_policy = Arc::new(parser.build());
++        session.start_task(turn, Vec::new(), PendingTask).await;
++        let environments = &session.services.turn_environments;
++        environments.snapshot().await;
++        assert!(
++            environments
++                .observe_selected()
++                .snapshot()
++                .primary()
++                .is_some()
++        );
++        let cancellation = session
++            .active_turn
++            .lock()
++            .await
++            .as_ref()
++            .unwrap()
++            .task
++            .as_ref()
++            .unwrap()
++            .cancellation_token
++            .clone();
++        Ok(Self {
++            provider: CoreShellActionProvider {
++                parent_approval: None,
++                policy: Arc::new(RwLock::new(Arc::clone(&parent_exec_policy))),
++                parent_exec_policy,
++                session,
++                review_context: GuardianReviewContext::from(&step),
++                call_id: "retained-launch".into(),
++                environment_id: step
++                    .environments
++                    .primary()
++                    .unwrap()
++                    .selection
++                    .environment_id
++                    .clone(),
++                source: GuardianCommandSource::UnifiedExec,
++                tool_name: ToolName::plain("exec_command"),
++                approval_policy: AskForApproval::OnRequest,
++                permission_profile: PermissionProfile::read_only(),
++                sandbox_permissions: SandboxPermissions::RequireEscalated,
++                approval_sandbox_permissions: SandboxPermissions::RequireEscalated,
++                prompt_permissions: None,
++                stopwatch: Stopwatch::unlimited(),
++            },
++            events,
++            calls,
++            entered,
++            release,
++            cancellation,
++            program,
++        })
++    }
++    async fn run(&self) -> anyhow::Result<EscalationDecision> {
++        self.provider
++            .determine_action(
++                &self.program,
++                &["argv-zero".into(), "argument".into()],
++                &AbsolutePathBuf::current_dir()?.join("child-cwd"),
++            )
++            .await
++    }
++    fn no_manual_events(&self) {
++        assert!(
++            !std::iter::from_fn(|| self.events.try_recv().ok())
++                .any(|event| matches!(event.msg, EventMsg::ExecApprovalRequest(_)))
++        );
++    }
++    async fn close(&self) {
++        self.provider
++            .session
++            .abort_all_tasks(TurnAbortReason::Interrupted)
++            .await;
++    }
++    fn trusted_hook(&self) -> anyhow::Result<tempfile::TempDir> {
++        let home = tempfile::tempdir()?;
++        let config_path =
++            AbsolutePathBuf::try_from(home.path().join(codex_config::CONFIG_TOML_FILE))?;
++        let stack = self
++            .provider
++            .review_context
++            .turn()
++            .config
++            .config_layer_stack
++            .with_user_config(&config_path, serde_json::from_value(serde_json::json!({}))?)?;
++        let marker = home.path().join("hook-called");
++        std::fs::write(home.path().join("hooks.json"), serde_json::json!({"hooks":{"PermissionRequest":[{"matcher":"Bash","hooks":[{"type":"command","command":format!("printf called >> '{}'; printf '{{}}'", marker.display())}]}]}}).to_string())?;
++        let listed = codex_hooks::list_hooks(codex_hooks::HooksConfig {
++            feature_enabled: true,
++            config_layer_stack: Some(stack.clone()),
++            ..Default::default()
++        });
++        assert_eq!(listed.hooks.len(), 1);
++        let states = listed
++            .hooks
++            .iter()
++            .map(|hook| {
++                (
++                    hook.key.clone(),
++                    serde_json::json!({"trusted_hash":hook.current_hash}),
++                )
++            })
++            .collect::<serde_json::Map<_, _>>();
++        let stack = stack.with_user_config(
++            &config_path,
++            serde_json::from_value(serde_json::json!({"hooks":{"state":states}}))?,
++        )?;
++        let hooks = self
++            .provider
++            .session
++            .hooks()
++            .reconfigured(codex_hooks::HooksConfig {
++                feature_enabled: true,
++                config_layer_stack: Some(stack),
++                shell_program: Some("/bin/sh".into()),
++                shell_args: vec!["-c".into()],
++                ..Default::default()
++            });
++        self.provider.session.services.hooks.store(Arc::new(hooks));
++        Ok(home)
++    }
++}
++
++#[tokio::test]
++async fn current_on_request_without_parent_runs_original_callbacks_and_user_once()
++-> anyhow::Result<()> {
++    let fixture = Fixture::new(
++        AskForApproval::OnRequest,
++        /*prefix*/ false,
++        /*decision*/ None,
++        /*gated*/ false,
++    )
++    .await?;
++    // This asserts the configured provider owner, not the manager-to-launch pipeline.
++    let configured = fixture.provider.policy.read().await;
++    assert!(Arc::ptr_eq(
++        &configured,
++        &fixture.provider.parent_exec_policy
++    ));
++    drop(configured);
++    let hooks = fixture.trusted_hook()?;
++    let run = fixture.run();
++    tokio::pin!(run);
++    let result = tokio::time::timeout(Duration::from_secs(5), async {
++        loop { tokio::select! {
++            result = &mut run => panic!("expected pending user approval: {result:?}"),
++            event = fixture.events.recv() => if let EventMsg::ExecApprovalRequest(request) = event?.msg {
++                assert_eq!(request.call_id, "retained-launch");
++                let approval_id = request.approval_id.as_deref().unwrap_or(&request.call_id);
++                fixture.provider.session.notify_approval(approval_id, ReviewDecision::Approved).await;
++                return run.await;
++            }
++        }}
++    }).await??;
++    assert_eq!(
++        result,
++        EscalationDecision::escalate(EscalationExecution::Unsandboxed)
++    );
++    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
++    assert_eq!(
++        std::fs::read_to_string(hooks.path().join("hook-called"))?,
++        "called"
++    );
++    fixture.no_manual_events();
++    fixture.close().await;
++    Ok(())
++}
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+index 99191d7..aed14d0 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+@@ -121,7 +121,7 @@ pub(crate) async fn prepare_unified_exec_zsh_fork(
+                 == crate::exec_policy::AllowPrefixRules::Honor
+             && candidate.matches_original_exec_policy(&parent_exec_policy)
+     });
+-    let exec_policy = Arc::new(RwLock::new(parent_exec_policy.as_ref().clone()));
++    let exec_policy = Arc::new(RwLock::new(Arc::clone(&parent_exec_policy)));
+     // TODO(anp): Keep PathUri through the zsh-fork executor boundary.
+     let cwd = exec_request
+         .cwd
+@@ -189,7 +189,7 @@ struct CoreShellActionProvider {
+     // Retained only; child resolution does not consume this evidence yet.
+     parent_approval: Option<InitialParentApprovalCandidate>,
+     parent_exec_policy: Arc<Policy>,
+-    policy: Arc<RwLock<Policy>>,
++    policy: Arc<RwLock<Arc<Policy>>>,
+     session: Arc<crate::session::session::Session>,
+     review_context: GuardianReviewContext,
+     call_id: String,
+@@ -431,10 +431,11 @@ impl CoreShellActionProvider {
+             "Determining escalation action for command {program:?} with args {argv:?} in {workdir:?}"
+         );
+ 
+-        let evaluation = {
++        let (evaluation, _evaluated_policy) = {
+             let policy = self.policy.read().await;
+-            evaluate_intercepted_exec_policy(
+-                &policy,
++            let evaluated_policy = Arc::clone(&policy);
++            let evaluation = evaluate_intercepted_exec_policy(
++                &evaluated_policy,
+                 program,
+                 argv,
+                 InterceptedExecPolicyContext {
+@@ -445,7 +446,8 @@ impl CoreShellActionProvider {
+                     enable_shell_wrapper_parsing:
+                         ENABLE_INTERCEPTED_EXEC_POLICY_SHELL_WRAPPER_PARSING,
+                 },
+-            )
++            );
++            (evaluation, evaluated_policy)
+         };
+         // When true, means the Evaluation was due to *.rules, not the
+         // fallback function.
+@@ -882,3 +884,7 @@ fn join_program_and_argv(program: &AbsolutePathBuf, argv: &[String]) -> Vec<Stri
+ #[cfg(test)]
+ #[path = "unix_escalation_tests.rs"]
+ mod tests;
++
++#[cfg(test)]
++#[path = "current_prompt_tests.rs"]
++mod current_prompt_tests;
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation_tests.rs
+index e041a89..67c82a9 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation_tests.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation_tests.rs
+@@ -445,7 +445,7 @@ async fn preapproved_additional_permissions_escalate_intercepted_exec() -> anyho
+     let parent_exec_policy = Arc::new(codex_execpolicy::Policy::empty());
+     let provider = CoreShellActionProvider {
+         parent_approval: None,
+-        policy: Arc::new(RwLock::new(parent_exec_policy.as_ref().clone())),
++        policy: Arc::new(RwLock::new(Arc::clone(&parent_exec_policy))),
+         parent_exec_policy,
+         session: Arc::new(session),
+         review_context: GuardianReviewContext::from(Arc::new(turn_context)),
+@@ -616,7 +616,7 @@ async fn execve_permission_request_hook_short_circuits_prompt() -> anyhow::Resul
+     let parent_exec_policy = Arc::new(codex_execpolicy::Policy::empty());
+     let provider = CoreShellActionProvider {
+         parent_approval: None,
+-        policy: std::sync::Arc::new(RwLock::new(parent_exec_policy.as_ref().clone())),
++        policy: std::sync::Arc::new(RwLock::new(Arc::clone(&parent_exec_policy))),
+         parent_exec_policy,
+         session: Arc::clone(&session),
+         review_context: GuardianReviewContext::from(turn_context),
+@@ -830,7 +830,7 @@ prefix_rule(pattern = ["{cat_path_literal}"], decision = "allow")
+     let parent_exec_policy = Arc::new(policy);
+     let provider = CoreShellActionProvider {
+         parent_approval: None,
+-        policy: Arc::new(RwLock::new(parent_exec_policy.as_ref().clone())),
++        policy: Arc::new(RwLock::new(Arc::clone(&parent_exec_policy))),
+         parent_exec_policy,
+         session: Arc::new(session),
+         review_context: GuardianReviewContext::from(Arc::new(turn_context)),
+@@ -870,7 +870,7 @@ async fn denied_reads_keep_granular_sandbox_rejection_for_escalation() -> anyhow
+     let parent_exec_policy = Arc::new(PolicyParser::new().build());
+     let provider = CoreShellActionProvider {
+         parent_approval: None,
+-        policy: Arc::new(RwLock::new(parent_exec_policy.as_ref().clone())),
++        policy: Arc::new(RwLock::new(Arc::clone(&parent_exec_policy))),
+         parent_exec_policy,
+         session: Arc::new(session),
+         review_context: GuardianReviewContext::from(Arc::new(turn_context)),
+-- 
+2.54.0 (Apple Git-157)
+

@@ -12,6 +12,12 @@ function setup(enabled = true) {
     status: vi.fn(() => ({ id: 'attempt-a', state: 'connected' })),
     cancel: vi.fn(async () => {}),
     disconnect: vi.fn(async () => ({ revoked: true })),
+    retryConnection: vi.fn(async () => ({
+      id: 'plan-a',
+      label: 'Personal',
+      state: 'connected',
+      email: 'user@example.test',
+    })),
   };
   const app = express();
   app.use(express.json());
@@ -58,6 +64,29 @@ it('exposes sign-in metadata only to the operator and keeps the disabled host cl
     .set('authorization', 'Bearer operator')
     .send({ label: 'Personal' })
     .expect(503);
+});
+it('retries a saved connection under operator authorization without starting sign-in', async () => {
+  const { app, host } = setup();
+  await request(app).post('/api/terminals/subscriptions/plan-a/retry').send({}).expect(403);
+  await request(app)
+    .post('/api/terminals/subscriptions/plan-a/retry')
+    .set('authorization', 'Bearer operator')
+    .set('origin', 'https://untrusted.test')
+    .send({})
+    .expect(403);
+  await request(app)
+    .post('/api/terminals/subscriptions/plan-a/retry')
+    .set('authorization', 'Bearer operator')
+    .send({ accessToken: 'never-adopt' })
+    .expect(400);
+  expect(host.retryConnection).not.toHaveBeenCalled();
+  await request(app)
+    .post('/api/terminals/subscriptions/plan-a/retry')
+    .set('authorization', 'Bearer operator')
+    .send({})
+    .expect(200);
+  expect(host.retryConnection).toHaveBeenCalledWith('plan-a', expect.any(AbortSignal));
+  expect(host.start).not.toHaveBeenCalled();
 });
 it('uses deliberate same-origin sign-in with no caller-supplied credentials, URLs or host paths', async () => {
   const { app, host } = setup();

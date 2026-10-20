@@ -136,6 +136,17 @@ second scheduler is introduced.
 These private adapters remain dependent, unaccepted source. Public HTTP/client/UI
 adoption and the complete CT07–CT09 journeys are still separate requirements.
 
+Accepted-main idle persistence release is shared by repository and ordinary
+workspaces. Ordinary prepare, qualify, reserve, revalidate and claim remain active until their asynchronous
+readiness work settles. Validation retains its synchronous custody contract. Idle release refuses those operations
+without cancellation or replacement. After release, every ordinary entrypoint
+fails before readiness acquisition or private persistence access; reads cannot
+lazily reopen custody. This adds no cleanup, deletion or task lifecycle operation.
+
+## Assignment history read contract
+
+Work reads may include `assignmentHistory` for lead and worker, each with `complete` and `conversationIds`. A previous assignment requires a schema-valid, non-conflicting recorded identity already disclosed by a same-role link. Incomplete legacy history remains unknown; additional-conversation labels require complete role history. Current assignments remain the sole current assignment and action authority. The optional projection does not change the original work revision facts or fill absent fields in old cached receipts. It exposes no new conversation IDs, actors or timestamps.
+
 ## Bound ordinary first-command source handoff
 
 A validated, matching consumed V2 first-command acknowledgement finalizes the
@@ -152,3 +163,27 @@ shared client store and SendOutbox, with synthetic HTTP/SSE and the outbox stora
 interface backed directly by localStorage. Production bootstrap storage adapter
 adoption is separately covered by the ordinary-chat consumer tests. No source
 storage keys, retry owner, server permission or model invocation changes here.
+
+## Prepared repository first-command delivery
+
+A prepared repository first command retains its existing strict V1 wire body and
+original first-command route. Its existing outbox additionally retains strict
+local delivery metadata `{ version: 1, phase: 'first', sessionId }`; this metadata
+is not a wire grant. Admission requires the already selected conversation, and
+a consumed acknowledgment must name that same prepared conversation. It does
+not assign a launch draft or switch the active chat. Response loss retains the
+original command, local session scope and first route for explicit retry after
+store recreation; a different chat acknowledgment cannot consume it. Ordinary
+V2 first/continuation delivery keeps its existing separate strict local metadata
+and routes. Both forms share the same outbox, pending-command exclusion and
+source-handoff owner.
+
+The repository prepared-first metadata hint is read-only eligibility. It requires
+current persistent interactive authority, the original strict V1 preparation,
+matching session/binding/reservation and verified source/root readiness. The
+ordinary hint retains its canonical role/task incompleteness checks. Authority
+and original identity are checked again after awaited qualification; metadata
+inspection does not allocate, claim or launch. The first guarded POST remains
+the admission authority. A consumed exact retry reconciles the original V1
+preparation fingerprint and retained role launch context without another native
+effect; changed request data cannot reuse that receipt.

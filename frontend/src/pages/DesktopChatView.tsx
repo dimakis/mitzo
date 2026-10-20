@@ -6,6 +6,7 @@ import { AgentLibraryChatLink } from '../components/AgentLibraryChatSource';
 import { markAgentBuilderAssigned } from '../lib/agent-builder-chat';
 import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
 import { ConversationAgents } from '../components/ConversationAgents';
+import { conversationRepositoryLabel } from '../lib/conversation-repository-label';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
 import {
@@ -162,6 +163,7 @@ export function DesktopChatView() {
   const localCommand = useMitzoStore((s) => s.localCommand);
   const localTransportAvailable = useMitzoStore((s) => s.localFirstCommandTransportAvailable);
   const sendLocalFirstCommand = useMitzoStore((s) => s.sendLocalFirstCommand);
+  const sendPreparedRepositoryCommand = useMitzoStore((s) => s.sendPreparedRepositoryCommand);
   const sendOrdinaryWorkspaceCommand = useMitzoStore((s) => s.sendOrdinaryWorkspaceCommand);
   const recoverLocalCommand = useMitzoStore((s) => s.recoverLocalCommand);
   const localRuntime = useExplicitLocalChat(
@@ -173,6 +175,14 @@ export function DesktopChatView() {
     newChatDraft.restored ? newChatDraft.draft.settings.selection : undefined,
   );
   const explicitNew = localRuntime.visible && !activeSessionId;
+  const conversationRepository = conversationRepositoryLabel({
+    routeConversationId: sessionId,
+    conversationId: activeSessionId,
+    repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
+    repositoryContext: localRuntime.repositoryContext,
+    metadataPending: localRuntime.metadataPending,
+    repoNames: messages.activeWorktrees.map(({ repoName }) => repoName),
+  });
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew || localRuntime.preparedFirst;
@@ -186,8 +196,10 @@ export function DesktopChatView() {
       localCommand.state !== 'consumed' ||
       localCommand.sessionId !== activeSessionId ||
       !request ||
-      !('workspace' in request) ||
-      request.version !== 2
+      !(
+        ('workspace' in request && request.version === 2) ||
+        localCommand.preparedSessionId === activeSessionId
+      )
     )
       return;
     const key = JSON.stringify([activeSessionId, request.clientMsgId]);
@@ -708,6 +720,22 @@ export function DesktopChatView() {
         )
       );
     }
+    if (localRuntime.preparedFirst && localRuntime.repositoryWorkspaceId && activeSessionId) {
+      if (ctxBlocks?.length || launching || localRuntime.reason) return false;
+      const command = prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
+        clientMsgId: createBrowserId(),
+        repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
+        mode: localRuntime.mode ?? 'agent',
+        retainedAgentProfile: localRuntime.agentProfile,
+        retainedAgentContext: localRuntime.agentContext,
+        text,
+        images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
+      });
+      return (
+        !!command.request &&
+        sendPreparedRepositoryCommand(command.request, activeSessionId, { onDelivery })
+      );
+    }
     if (localRuntime.continuation && activeSessionId) {
       if (
         ctxBlocks?.length ||
@@ -1158,6 +1186,7 @@ export function DesktopChatView() {
           {activeSessionId && !isSymposium && !controlsBlocked && (
             <ConversationAgents
               compact
+              repository={conversationRepository}
               scope={activeSessionId}
               agents={[
                 {
@@ -1423,6 +1452,7 @@ export function DesktopChatView() {
               navigate(path);
             }}
             conversationLayout={{
+              repository: conversationRepository,
               settings: workspaceControls,
               showHeader: isSymposium,
               actions: (
