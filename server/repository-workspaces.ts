@@ -11,6 +11,7 @@ import {
 } from '@mitzo/protocol';
 import {
   OrdinaryRepositoryPreparationSchema,
+  OrdinaryRepositoryRuntimeSelectionSchema,
   OrdinarySilentPreparationSelectionSchema,
   ordinaryPreparationFingerprint,
   type OrdinaryRepositoryPreparation,
@@ -41,6 +42,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { SessionRuntimeBindingV2, AccountBinding } from '@mitzo/protocol';
 import {
   canonicalRepositorySelection,
+  GithubRepositoryPreviewSchema,
   inspectGithubRepositorySource,
   prepareGithubRepositorySource,
   type GithubRepositoryPreview,
@@ -63,6 +65,8 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
     | 'discarded';
   hostReservation?: HostTaskReservationMarker;
   createdAt: number;
+  /** Server-derived original preview intent; private correlation, never a grant. */
+  previewIntentFingerprint?: string;
   sourceDigest?: string;
   sourceReleased?: boolean;
   conversationId?: string;
@@ -945,7 +949,14 @@ export class RepositoryWorkspaces {
     )
       throw new Error('Ordinary preparation account changed');
     await this.deps.ordinaryPreparation.assert(proof, binding, signal, requireModelReadiness);
-    if (proof.sourceIdentity && !record.sourceReleased && record.state !== 'claimed') {
+    // Durable terminal records are metadata only. Discard/failure cleanup can
+    // remove their source; this does not assert that cleanup completed or grant
+    // another preparation. Current account/runtime checks above still apply.
+    if (
+      proof.sourceIdentity &&
+      !record.sourceReleased &&
+      !['claimed', 'discarded', 'failed'].includes(record.state)
+    ) {
       const info = await lstat(this.source(record));
       if (info.dev !== proof.sourceIdentity.dev || info.ino !== proof.sourceIdentity.ino)
         throw new Error('Prepared source physical identity changed');
@@ -999,23 +1010,76 @@ export class RepositoryWorkspaces {
     selected: string,
     signal: AbortSignal,
     ordinaryRuntime?: OrdinaryRepositoryRuntimeSelection,
+    requestId?: string,
   ) {
     return this.runOperation(async () => {
+      // Persist the caller-known identity in this existing owner row. Snapshot
+      // the parsed intent before any asynchronous metadata/authorization work.
+      const id = requestId === undefined ? randomUUID() : z.uuid().parse(requestId);
+      binding =
+        requestId === undefined ? structuredClone(binding) : AccountBindingSchema.parse(binding);
+      ordinaryRuntime =
+        ordinaryRuntime === undefined
+          ? undefined
+          : OrdinaryRepositoryRuntimeSelectionSchema.parse(ordinaryRuntime);
       const repository = canonicalRepositorySelection(selected);
-      const authorized = await this.deps.authorize(binding, connectionId, repository, signal);
-      const preview = await (this.deps.inspect ?? inspectGithubRepositorySource)(
+      const fingerprint = ordinaryPreparationFingerprint({
+        binding,
+        connectionId,
         repository,
-        signal,
+        ordinaryRuntime: ordinaryRuntime ?? null,
+      });
+      const assertIntent = (record: RepositoryWorkspace) => {
+        if (
+          record.id !== id ||
+          record.featureBranch !== `mitzo/repo-${id}` ||
+          record.previewIntentFingerprint !== fingerprint ||
+          record.connectionId !== connectionId ||
+          record.repository !== repository ||
+          !isDeepStrictEqual(record.binding, binding) ||
+          (ordinaryRuntime === undefined
+            ? record.ordinaryPreparation !== undefined
+            : !record.ordinaryPreparation ||
+              !isDeepStrictEqual(record.ordinaryPreparation.originalBinding, binding) ||
+              !isDeepStrictEqual(
+                record.ordinaryPreparation.runtimeBinding.account,
+                ordinaryRuntime.runtime.account,
+              ) ||
+              record.ordinaryPreparation.runtimeBinding.harness.implementation !==
+                ordinaryRuntime.runtime.harness ||
+              record.ordinaryPreparation.runtimeBinding.execution.location !==
+                ordinaryRuntime.runOn ||
+              record.ordinaryPreparation.runtimeBinding.execution.targetId !==
+                ordinaryRuntime.runtime.targetId)
+        )
+          throw new Error('Repository preview identity conflict; preserve the original selection');
+      };
+      const recover = async (record: RepositoryWorkspace) => {
+        assertIntent(record);
+        await this.authorize(record, binding, signal);
+        this.assertUnchangedHostRecord(record);
+        return publicRepositoryWorkspace(record);
+      };
+      if (requestId !== undefined) {
+        const retained = this.db.prepare('SELECT id FROM repository_workspaces WHERE id=?').get(id);
+        if (retained) return recover(this.getHostRecord(id));
+      }
+      const authorized = await this.deps.authorize(binding, connectionId, repository, signal);
+      const preview = GithubRepositoryPreviewSchema.parse(
+        await (this.deps.inspect ?? inspectGithubRepositorySource)(repository, signal),
       );
+      if (preview.repository !== repository)
+        throw new Error('Repository preview selection changed');
       const record: RepositoryWorkspace = {
         ...preview,
-        id: randomUUID(),
+        id,
         connectionId,
         connectionRevision: authorized.revision,
         binding: structuredClone(binding),
         featureBranch: '',
         state: 'preview',
         createdAt: Date.now(),
+        ...(requestId === undefined ? {} : { previewIntentFingerprint: fingerprint }),
         ...(ordinaryRuntime
           ? {
               ordinaryPreparation: OrdinaryRepositoryPreparationSchema.parse(
@@ -1026,6 +1090,17 @@ export class RepositoryWorkspaces {
       };
       record.featureBranch = `mitzo/repo-${record.id}`;
       await this.authorize(record, binding, signal);
+      if (requestId !== undefined) {
+        assertIntent(record);
+        // Metadata capture may overlap across processes. The first committed
+        // owner wins; never upsert over its pin, proof or later lifecycle state.
+        this.db
+          .prepare(
+            'INSERT INTO repository_workspaces(id,record,conversation_id) VALUES(?,?,NULL) ON CONFLICT(id) DO NOTHING',
+          )
+          .run(id, JSON.stringify(record));
+        return recover(this.getHostRecord(id));
+      }
       this.save(record);
       return publicRepositoryWorkspace(record);
     });
