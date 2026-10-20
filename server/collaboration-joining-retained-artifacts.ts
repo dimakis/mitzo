@@ -116,17 +116,22 @@ export function createJoiningRetainedArtifacts(deps: {
     await deps.association.assertAssociated(copy(pin));
     sourceCurrent(pin);
     const original = structuredClone(actual(pin));
+    // Real revision/privacy reads only: no supplied authority callback may run
+    // in this final comparison, including when checking a whole metadata page.
+    function assertMetadataCurrent() {
+      if (!isDeepStrictEqual(actual(pin), original)) changed();
+    }
     function assertCurrent() {
       sourceCurrent(pin);
-      if (!isDeepStrictEqual(actual(pin), original)) changed();
+      assertMetadataCurrent();
       synchronous(() => deps.authorization.assertCurrent(copy(pin), structuredClone(original)));
       // An authority callback must not be able to change custody during its check.
       sourceCurrent(pin);
-      if (!isDeepStrictEqual(actual(pin), original)) changed();
+      assertMetadataCurrent();
     }
     await deps.authorization.authorize(copy(pin), structuredClone(original));
     assertCurrent();
-    return { original, assertCurrent, value: projection(pin, original) };
+    return { original, assertCurrent, assertMetadataCurrent, value: projection(pin, original) };
   }
   return {
     async metadata(raw: unknown): Promise<JoiningRetainedArtifactMetadata> {
@@ -177,6 +182,11 @@ export function createJoiningRetainedArtifacts(deps: {
         observed.assertCurrent();
         synchronous(custody);
         observed.assertCurrent();
+        // The existing retained owner's currentBytes renewal is callback-free:
+        // it rereads bounded bytes, exact metadata, hash and public eligibility.
+        // Finish there so the last authority callback cannot replace equal-size
+        // bytes after the last hash check. Core still owns atomic access/save.
+        synchronous(custody);
       }
       await deps.association.assertAssociated(copy(pin));
       assertCurrent();
@@ -217,6 +227,10 @@ export function createJoiningRetainedArtifacts(deps: {
       };
       bounded(result);
       observations.forEach((item) => item.assertCurrent());
+      // A late entry's synchronous callback may change an earlier entry. Finish
+      // the entire page with real metadata comparisons, without more callbacks
+      // or content hydration after any of these final comparisons.
+      observations.forEach((item) => item.assertMetadataCurrent());
       return result;
     },
   };

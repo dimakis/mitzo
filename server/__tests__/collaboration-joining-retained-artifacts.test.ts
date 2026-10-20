@@ -275,6 +275,54 @@ it('refuses changed exact metadata or bytes at the final save fence', async () =
   expect(() => result.assertCurrent()).toThrow();
 });
 
+it('refuses equal-length bytes changed by the late synchronous authority callback', async () => {
+  const f = setup();
+  const result = await f.bridge().read(f.pin);
+  const replacement = Buffer.alloc(f.selected.size, 33);
+  let callbacks = 0;
+  f.authorization.assertCurrent.mockImplementation(() => {
+    // The second authority callback runs after the underlying custody callback.
+    if (++callbacks !== 2) return;
+    const fault = new Database(fixture.path);
+    try {
+      fault
+        .prepare('UPDATE telos_artifact_revisions SET bytes=? WHERE id=? AND revision=?')
+        .run(replacement, f.pin.artifactId, f.pin.revision);
+    } finally {
+      fault.close();
+    }
+  });
+  expect(() => result.assertCurrent()).toThrow();
+  expect(callbacks).toBe(2);
+  expect(fixture.store.metadataForRevision(f.pin.artifactId, f.pin.revision)).toMatchObject({
+    size: replacement.length,
+    sha256: f.pin.sha256,
+  });
+});
+
+it('refuses earlier page metadata changed by the late synchronous last-entry callback', async () => {
+  const f = setup();
+  const bytes = vi.spyOn(fixture.store, 'readBoundedRevision');
+  let lastEntryCallbacks = 0;
+  f.authorization.assertCurrent.mockImplementation((...args: unknown[]) => {
+    const metadata = args[1] as { revision: number };
+    // First: revision1's observation. Second: the final whole-page callback pass,
+    // after revision3 has already had its authority and metadata checked.
+    if (metadata.revision !== 1 || ++lastEntryCallbacks !== 2) return;
+    const fault = new Database(fixture.path);
+    try {
+      fault
+        .prepare('UPDATE telos_artifact_revisions SET source_path=? WHERE id=? AND revision=3')
+        .run('/changed-by-last-synchronous-callback', f.pin.artifactId);
+    } finally {
+      fault.close();
+    }
+  });
+  await expect(f.bridge().revisionPage(f.pin)).rejects.toMatchObject({ code: 'snapshot_changed' });
+  expect(lastEntryCallbacks).toBe(2);
+  expect(bytes).not.toHaveBeenCalled();
+});
+
 it('refuses metadata drift in the last asynchronous artifact authorization', async () => {
   const f = setup();
   const read = f.source.read.bind(f.source);
