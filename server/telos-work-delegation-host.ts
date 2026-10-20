@@ -17,7 +17,7 @@ import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import type { TaskStore } from './task-store.js';
 
-type OwnerDependencies = ConstructorParameters<typeof TelosWorkDelegation>[0];
+type OwnerDependencies = ConstructorParameters<typeof TelosWorkDelegation<'repository'>>[0];
 export interface TelosWorkDelegationHostDependencies {
   dbPath(): string;
   events: EventStore;
@@ -221,7 +221,7 @@ export function createTelosWorkDelegationHost(deps: TelosWorkDelegationHostDepen
               throw new TelosWorkError('unauthorized', 'Original bound lead settings changed');
           }
         };
-        const owner = new TelosWorkDelegation({
+        const owner = new TelosWorkDelegation<'repository'>({
           work,
           events: deps.events,
           tasks: deps.tasks,

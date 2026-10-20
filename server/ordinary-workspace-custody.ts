@@ -34,6 +34,7 @@ interface Readiness {
     binding: AccountBinding,
     signal: AbortSignal,
     requireModelReadiness?: boolean,
+    selection?: Pick<OrdinaryWorkspaceSettings['selection'], 'model' | 'thinking'>,
   ): Promise<void>;
 }
 const identity = z.strictObject({
@@ -74,16 +75,18 @@ const workspace = z.strictObject({
     .optional(),
 });
 export type OrdinaryWorkspaceRecord = z.infer<typeof workspace>;
-export interface OrdinaryWorkspaceReservationInput {
+export interface OrdinaryWorkspaceSelectionInput {
   preparationId: string;
-  allocationOperationId: string;
   binding: AccountBinding;
   settings: OrdinaryWorkspaceSettings;
   agentProfile: AgentLibraryVersion;
-  taskRoot: string;
   /** Trusted operation requirements may only narrow the server-derived capability set. */
   requiredCapabilities?: readonly string[];
   signal: AbortSignal;
+}
+export interface OrdinaryWorkspaceReservationInput extends OrdinaryWorkspaceSelectionInput {
+  allocationOperationId: string;
+  taskRoot: string;
 }
 export interface OrdinaryWorkspaceClaimInput {
   id: string;
@@ -190,7 +193,12 @@ export class OrdinaryWorkspaceCustody {
       throw Error('Ordinary preparation identity changed');
     return saved;
   }
-  private async assertReadiness(id: string, binding: AccountBinding, signal: AbortSignal) {
+  private async assertReadiness(
+    id: string,
+    binding: AccountBinding,
+    signal: AbortSignal,
+    selection?: Pick<OrdinaryWorkspaceSettings['selection'], 'model' | 'thinking'>,
+  ) {
     signal.throwIfAborted();
     const saved = this.readPreparation(id);
     if (!this.readiness || !isDeepStrictEqual(saved.proof.originalBinding, binding))
@@ -200,6 +208,7 @@ export class OrdinaryWorkspaceCustody {
       structuredClone(binding),
       signal,
       true,
+      selection,
     );
     signal.throwIfAborted();
     if (!isDeepStrictEqual(saved, this.readPreparation(id)))
@@ -238,16 +247,14 @@ export class OrdinaryWorkspaceCustody {
     if (result.changes !== 1) throw Error('Ordinary workspace reservation changed');
     return this.get(next.id);
   }
-  async reserve(raw: OrdinaryWorkspaceReservationInput) {
+  async qualify(raw: OrdinaryWorkspaceSelectionInput) {
     const signal = raw.signal;
     signal.throwIfAborted();
     const selected = {
       preparationId: z.uuid().parse(raw.preparationId),
-      allocationOperationId: z.uuid().parse(raw.allocationOperationId),
       binding: AccountBindingSchema.parse(structuredClone(raw.binding)),
       settings: OrdinaryWorkspaceSettingsSchema.parse(structuredClone(raw.settings)),
       agentProfile: AgentLibraryVersionSchema.parse(structuredClone(raw.agentProfile)),
-      taskRoot: canonicalPath.parse(raw.taskRoot),
       requiredCapabilities: [...new Set(raw.requiredCapabilities ?? [])].sort(),
     };
     if (
@@ -273,9 +280,25 @@ export class OrdinaryWorkspaceCustody {
       })
     )
       throw Error('Original supported ordinary workspace settings required');
-    const prepared = await this.assertReadiness(selected.preparationId, binding, signal);
+    const prepared = await this.assertReadiness(
+      selected.preparationId,
+      binding,
+      signal,
+      selected.settings.selection,
+    );
     if (!isDeepStrictEqual(prepared.proof.runtimeBinding, settings.binding))
       throw Error('Ordinary runtime identity changed');
+    return selected;
+  }
+  async reserve(raw: OrdinaryWorkspaceReservationInput) {
+    const signal = raw.signal;
+    const selection = await this.qualify(raw);
+    const selected = {
+      ...selection,
+      allocationOperationId: z.uuid().parse(raw.allocationOperationId),
+      taskRoot: canonicalPath.parse(raw.taskRoot),
+    };
+    const { settings, binding, agentProfile } = selected;
     const rootIdentity = privateDirectory(selected.taskRoot);
     const fingerprint = ordinaryPreparationFingerprint(selected);
     signal.throwIfAborted();
@@ -352,16 +375,30 @@ export class OrdinaryWorkspaceCustody {
     sameDirectory(directory, record.taskIdentity.root);
     return record;
   }
+  /** Synchronous custody fence for retained receipts and final work commits. */
+  validateRetained(conversationId: string) {
+    const record = this.forConversation(conversationId);
+    if (!record || !['reserved', 'claimed'].includes(record.state))
+      throw Error('Ordinary workspace claim is uncertain; preserve its original identity');
+    sameDirectory(record.hostReservation.taskRoot, record.hostReservation.rootIdentity);
+    if (record.state === 'claimed') this.validate(conversationId, record.directory);
+    return record;
+  }
   /** Recheck an existing reservation without allocation or materialization. */
   async revalidate(input: OrdinaryWorkspaceClaimInput) {
     const original = this.get(input.id);
     this.assertClaimScope(original, input);
     if (!['reserved', 'claimed'].includes(original.state))
       throw Error('Ordinary workspace claim is uncertain; preserve its original identity');
-    await this.assertReadiness(original.preparationId, input.binding, input.signal);
+    await this.assertReadiness(
+      original.preparationId,
+      input.binding,
+      input.signal,
+      original.settings.selection,
+    );
     this.unchanged(original);
     this.assertClaimScope(original, input);
-    if (original.state === 'claimed') this.validate(original.conversationId, original.directory);
+    this.validateRetained(original.conversationId);
     return original;
   }
   async claim(input: OrdinaryWorkspaceClaimInput) {
@@ -372,7 +409,12 @@ export class OrdinaryWorkspaceCustody {
     this.assertClaimScope(original, selected);
     if (original.state === 'claiming')
       throw Error('Ordinary workspace claim is uncertain; preserve its original identity');
-    await this.assertReadiness(original.preparationId, binding, input.signal);
+    await this.assertReadiness(
+      original.preparationId,
+      binding,
+      input.signal,
+      original.settings.selection,
+    );
     this.unchanged(original);
     this.assertClaimScope(original, selected);
     if (original.state === 'claimed')
@@ -386,7 +428,12 @@ export class OrdinaryWorkspaceCustody {
     // overwrite an existing directory when materialization is interrupted.
     mkdirSync(claiming.directory, { mode: 0o700 });
     const root = privateDirectory(claiming.directory);
-    await this.assertReadiness(claiming.preparationId, binding, input.signal);
+    await this.assertReadiness(
+      claiming.preparationId,
+      binding,
+      input.signal,
+      claiming.settings.selection,
+    );
     this.assertClaimScope(claiming, selected);
     sameDirectory(claiming.directory, root);
     input.signal.throwIfAborted();

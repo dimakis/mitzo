@@ -355,7 +355,7 @@ it('retains the original identity and files when authority is lost after directo
   );
 });
 
-it.each(['prepare', 'reserve', 'claim', 'revalidate'] as const)(
+it.each(['prepare', 'reserve', 'claim', 'qualify', 'revalidate'] as const)(
   'keeps shared persistence active across suspended ordinary %s',
   async (stage) => {
     const f = await fixture();
@@ -385,9 +385,11 @@ it.each(['prepare', 'reserve', 'claim', 'revalidate'] as const)(
         ? f.prepare()
         : stage === 'reserve'
           ? f.owner.reserveOrdinaryWorkspace(input!)
-          : stage === 'revalidate'
-            ? f.owner.revalidateOrdinaryWorkspace(claim!)
-            : f.owner.claimOrdinaryWorkspace(claim!);
+          : stage === 'qualify'
+            ? f.owner.qualifyOrdinaryWorkspace(input!)
+            : stage === 'revalidate'
+              ? f.owner.revalidateOrdinaryWorkspace(claim!)
+              : f.owner.claimOrdinaryWorkspace(claim!);
     try {
       await vi.waitFor(() => expect(f.assert).toHaveBeenCalledOnce());
       expect(() => f.owner.closeIdle()).toThrow('active');
@@ -425,7 +427,11 @@ it('fences ordinary entrypoints after shared persistence is released without rea
   expect(() =>
     f.owner.validateOrdinaryWorkspace(reservation.conversationId, materialized.directory),
   ).toThrow('released');
+  await expect(async () => f.owner.qualifyOrdinaryWorkspace(input)).rejects.toThrow('released');
   await expect(async () => f.owner.revalidateOrdinaryWorkspace(claim)).rejects.toThrow('released');
+  expect(() => f.owner.validateRetainedOrdinaryWorkspace(reservation.conversationId)).toThrow(
+    'released',
+  );
   expect(f.capture).not.toHaveBeenCalled();
   expect(f.assert).not.toHaveBeenCalled();
 });
