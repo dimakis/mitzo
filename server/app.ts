@@ -75,6 +75,7 @@ import {
   getRepositoryWorkspaces,
   repositoryWorkspaceBinding,
   repositoryWorkspaceCatalog,
+  readConversationRepositoryIntent,
 } from './repository-workspace-runtime.js';
 import { createSdkConversationImportRouter } from './sdk-conversation-import-routes.js';
 import {
@@ -215,6 +216,7 @@ import { createOutputContributors } from './output-contributors.js';
 import { createOutputContributorRouter } from './output-contributor-routes.js';
 import { createSessionCollaborationRouter } from './session-collaboration-router.js';
 import { CollaborationApplicationReview } from './collaboration-application-review.js';
+import { CollaborationSourceCatalog } from './collaboration-source-catalog.js';
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
@@ -3268,16 +3270,40 @@ app.get(
   }),
 );
 
+/** Missing/uninitialized retained storage is explicitly unavailable; reads never
+ * create its database or run the artifact schema initializer. */
+function openCollaborationRetainedArtifacts() {
+  try {
+    return TelosArtifactStore.openReadOnly(telosDatabasePath());
+  } catch {
+    return undefined;
+  }
+}
 app.use(
   '/api/session-collaborations',
   operatorAuthMiddleware,
   createSessionCollaborationRouter({
     store: eventStore,
-    review: () =>
-      new CollaborationApplicationReview({
+    catalog: () =>
+      new CollaborationSourceCatalog({
         store: eventStore,
-        workspaces: getRepositoryWorkspaces(true),
+        openArtifacts: openCollaborationRetainedArtifacts,
+        repositoryIntent: readConversationRepositoryIntent,
       }),
+    review: () => ({
+      async review(...args) {
+        const retainedArtifacts = openCollaborationRetainedArtifacts();
+        try {
+          return await new CollaborationApplicationReview({
+            store: eventStore,
+            workspaces: getRepositoryWorkspaces(true),
+            retainedArtifacts,
+          }).review(...args);
+        } finally {
+          retainedArtifacts?.close();
+        }
+      },
+    }),
   }),
 );
 

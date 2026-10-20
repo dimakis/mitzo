@@ -42,12 +42,7 @@ import { fileURLToPath } from 'url';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
 import { WebSocketServer, WebSocket } from 'ws';
 import { WsTransport } from './ws-transport.js';
-import {
-  authenticateWs,
-  registerAuthSession,
-  setAuthRevocationStore,
-  type AuthSession,
-} from './auth.js';
+import { authenticateWs, registerAuthSession, setAuthRevocationStore } from './auth.js';
 import {
   claimTransportConnection,
   releaseTransportConnection,
@@ -157,9 +152,7 @@ import {
 } from './development-isolation.js';
 import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
-import { SseTransport } from './sse-transport.js';
-import { createChatRestRouter } from './chat-rest-handler.js';
-import { createOwnedOrdinaryWorkspaceCommandRouter } from './ordinary-local-codex-entry.js';
+import { mountApplicationChatTransport } from './chat-rest-handler.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 
 const log = createLogger('server');
@@ -720,94 +713,8 @@ const v2Ctx: V2HandlerContext = {
 // SSE (server→client) + HTTP POST (client→server) transport for chat events.
 // Runs alongside WS during migration. Feature-flagged on the client side.
 
-app.get('/api/chat/events', (req, res) => {
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no',
-  });
-
-  const connectionId = `conn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const transport = new SseTransport(connectionId, chatSseRegistry);
-  const authSession = res.locals.authSession as AuthSession | undefined;
-
-  chatSseRegistry.add(connectionId, res, authSession?.id);
-  const releaseLibrary = authSession
-    ? bindAgentLibraryTransport(connectionId, authSession)
-    : () => undefined;
-  if (authSession) claimTransportConnection(connectionId, authSession.id);
-  connRegistry.register(connectionId, transport);
-  let cleaned = false;
-  let unregisterAuth: () => void = () => undefined;
-  const cleanup = () => {
-    if (cleaned) return;
-    cleaned = true;
-    releaseLibrary();
-    unregisterAuth();
-    if (authSession) releaseTransportConnection(connectionId, authSession.id);
-    chatSseRegistry.remove(connectionId);
-
-    const conn = connRegistry.get(connectionId);
-    const watchedSessions = conn ? [...conn.watchedSessions] : [];
-
-    connRegistry.remove(connectionId);
-    registry.removeObserver(transport);
-
-    withSpan('sse.disconnect', { 'sse.connectionId': connectionId }, () => {
-      for (const sessionId of watchedSessions) {
-        const found = registry.findBySessionId(sessionId);
-        if (!found) continue;
-
-        if (registry.isSuspended(found.clientId)) {
-          log.info('SSE closed for suspended session (expected)', { connectionId, sessionId });
-          continue;
-        }
-
-        if (detachChatIfCurrentTransport(found.clientId, transport)) {
-          log.info('SSE session detached (surviving)', { connectionId, sessionId });
-        }
-      }
-    });
-
-    log.info('SSE chat stream disconnected', { connectionId });
-  };
-  req.on('close', cleanup);
-  unregisterAuth = authSession
-    ? registerAuthSession(authSession, (reason) => {
-        chatSseRegistry.sendTo(connectionId, { type: 'auth_expired', reason });
-        res.end();
-        cleanup();
-      })
-    : () => undefined;
-  if (cleaned) {
-    unregisterAuth();
-    return;
-  }
-
-  // Send welcome with connectionId — client uses this in X-Connection-ID header on POSTs
-  chatSseRegistry.sendTo(connectionId, {
-    type: 'welcome',
-    protocolVersion: 2,
-    connectionId,
-    eventAckBatchSize: 50,
-  });
-
-  // Reconnect is handled via POST /api/chat/reconnect — the client sends
-  // a reconnect POST on every welcome event. The old ?sessions= query param
-  // path was removed because EventSource auto-reconnect reuses the original
-  // URL (without the param), making it unreliable.
-
-  log.info('SSE chat stream connected', { connectionId });
-});
-
-// Mount HTTP POST chat endpoints (authenticated)
-const chatRestRouter = createChatRestRouter(chatSseRegistry, v2Ctx);
-app.use('/api/chat', chatRestRouter);
-app.use(
-  '/api/ordinary/workspaces/commands',
-  createOwnedOrdinaryWorkspaceCommandRouter(chatSseRegistry, v2Ctx),
-);
+// Mount the original SSE stream and HTTP POST chat endpoints (authenticated)
+mountApplicationChatTransport(app, chatSseRegistry, v2Ctx);
 
 /**
  * Handle a v2 WebSocket connection (after hello handshake detected).

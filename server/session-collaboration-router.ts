@@ -15,6 +15,10 @@ import {
   CollaborationBeginSchema,
   CollaborationSourceSetupQuerySchema,
   CollaborationSourceSetupSchema,
+  CollaborationSourceCatalogRequestSchema,
+  CollaborationSourceCatalogSchema,
+  CollaborationSourceArtifactVersionsRequestSchema,
+  CollaborationSourceArtifactVersionsSchema,
   COLLABORATION_EXECUTION_DISABLED,
 } from '@mitzo/protocol';
 import { z } from 'zod';
@@ -24,6 +28,7 @@ import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import type { OrdinaryCollaborationJoiningPort } from './collaboration-joining-owner.js';
 import type { CollaborationApplicationReview } from './collaboration-application-review.js';
+import type { CollaborationSourceCatalog } from './collaboration-source-catalog.js';
 import type { EventStore } from './event-store.js';
 import { recentAuthorizationSession, requireSameOriginJson } from './connections-router.js';
 
@@ -52,11 +57,13 @@ export function createSessionCollaborationRouter({
   store,
   joining,
   review,
+  catalog,
 }: {
   store: EventStore;
   joining?: OrdinaryCollaborationJoiningPort;
   /** Lazy construction uses the existing real workspace owner, never caller settings. */
-  review?: () => CollaborationApplicationReview;
+  review?: () => Pick<CollaborationApplicationReview, 'review'>;
+  catalog?: () => Pick<CollaborationSourceCatalog, 'read' | 'versions'>;
 }) {
   const router = Router();
   router.use((_req, res, next) => {
@@ -88,6 +95,60 @@ export function createSessionCollaborationRouter({
       return failure(res, error);
     }
   });
+  for (const operation of ['read', 'versions'] as const) {
+    router.post(
+      operation === 'read' ? '/source-catalog' : '/source-artifact-versions',
+      requireSameOriginJson,
+      async (req, res) => {
+        const auth = recentAuthorizationSession(res);
+        if (!auth) return;
+        const parsed = (
+          operation === 'read'
+            ? CollaborationSourceCatalogRequestSchema
+            : CollaborationSourceArtifactVersionsRequestSchema
+        ).safeParse(req.body);
+        if (!parsed.success)
+          return res.status(400).json({ error: 'Invalid source catalog request' });
+        const controller = new AbortController();
+        const cancel = () => controller.abort();
+        const unregister = registerAuthSession(auth, cancel);
+        const ownerSignal = custodianRequestSignal(req);
+        ownerSignal?.addEventListener('abort', cancel, { once: true });
+        if (ownerSignal?.aborted || req.aborted) cancel();
+        const close = () => {
+          if (!res.writableEnded) cancel();
+        };
+        req.once('aborted', cancel);
+        res.once('close', close);
+        const timer = setTimeout(
+          cancel,
+          Math.min(120000, Math.max(0, auth.expiresAt - Date.now())),
+        );
+        try {
+          controller.signal.throwIfAborted();
+          if (!catalog) throw new CollaborationContractError('execution_unavailable');
+          const result = await catalog()[operation](auth, parsed.data, controller.signal);
+          controller.signal.throwIfAborted();
+          if (!isAuthSessionCurrent(auth))
+            throw new CollaborationContractError('execution_unavailable');
+          return res.json(
+            (operation === 'read'
+              ? CollaborationSourceCatalogSchema
+              : CollaborationSourceArtifactVersionsSchema
+            ).parse(result),
+          );
+        } catch (error) {
+          if (!res.destroyed) return failure(res, error);
+        } finally {
+          clearTimeout(timer);
+          unregister();
+          ownerSignal?.removeEventListener('abort', cancel);
+          req.off('aborted', cancel);
+          res.off('close', close);
+        }
+      },
+    );
+  }
   /** First Add agent retains relationship identity only. The existing owner
    * arbitrates exact retries and one source enrollment without creating a chat. */
   router.post('/:id/begin', requireSameOriginJson, (req, res) => {

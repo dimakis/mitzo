@@ -4,7 +4,7 @@ import { z } from 'zod';
 import {
   CollaborationContractError,
   CollaborationSnapshotMessageSchema,
-  CollaborationSnapshotSelectionSchema,
+  CollaborationInlineArtifactPinSchema,
   CollaborationForwardSelectionSchema,
   type CollaborationForwardSelection,
 } from '@mitzo/protocol';
@@ -16,7 +16,7 @@ import type {
 } from './collaboration-retained-artifact-source.js';
 
 const sha = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
-const artifactPin = CollaborationSnapshotSelectionSchema.shape.artifacts.element;
+const artifactPin = CollaborationInlineArtifactPinSchema;
 // The existing protocol owner supplies the selector shared with durable storage.
 export { CollaborationForwardSelectionSchema };
 export type { CollaborationForwardSelection };
@@ -215,6 +215,7 @@ export async function prepareCollaborationForward(
     if (!source || !opened) changed();
     await source.authorizeArtifact(pin);
     const artifact = await source.readArtifact(pin);
+    if ('kind' in artifact) changed();
     if (
       artifact.artifactId !== pin.artifactId ||
       artifact.revision !== pin.revision ||

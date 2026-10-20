@@ -5,6 +5,10 @@ import {
   CollaborationBeginSchema,
   CollaborationSourceSetupQuerySchema,
   CollaborationSourceSetupSchema,
+  CollaborationSourceCatalogRequestSchema,
+  CollaborationSourceCatalogSchema,
+  CollaborationSourceArtifactVersionsRequestSchema,
+  CollaborationSourceArtifactVersionsSchema,
   CollaborationPolicyUpdateSchema,
   CollaborationPolicySchema,
   CollaborationViewSchema,
@@ -116,6 +120,48 @@ export class CollaborationApiClient {
         'Collaboration source setup identity changed',
       ),
       signal,
+    );
+  }
+  sourceCatalog(
+    input: z.input<typeof CollaborationSourceCatalogRequestSchema>,
+    signal?: AbortSignal,
+  ) {
+    const body = CollaborationSourceCatalogRequestSchema.parse(input);
+    return this.request(
+      '/api/session-collaborations/source-catalog',
+      CollaborationSourceCatalogSchema.refine(
+        (value) => value.sourceConversationId === body.sourceConversationId,
+        'Collaboration source catalog identity changed',
+      ),
+      signal,
+      { method: 'POST', body },
+    );
+  }
+  sourceArtifactVersions(
+    input: z.input<typeof CollaborationSourceArtifactVersionsRequestSchema>,
+    signal?: AbortSignal,
+  ) {
+    const body = CollaborationSourceArtifactVersionsRequestSchema.parse(input);
+    return this.request(
+      '/api/session-collaborations/source-artifact-versions',
+      CollaborationSourceArtifactVersionsSchema.refine((value) => {
+        if (
+          value.sourceConversationId !== body.sourceConversationId ||
+          value.boundary.sequence !== body.boundary.sequence ||
+          value.boundary.messageId !== body.boundary.messageId ||
+          value.artifacts.length > (body.limit ?? 50)
+        )
+          return false;
+        let previous = body.beforeRevision ?? Number.POSITIVE_INFINITY;
+        for (const artifact of value.artifacts) {
+          if (artifact.artifactId !== body.artifact.artifactId || artifact.revision >= previous)
+            return false;
+          previous = artifact.revision;
+        }
+        return value.cursor === null || value.cursor === previous;
+      }, 'Collaboration artifact version page changed'),
+      signal,
+      { method: 'POST', body },
     );
   }
   /** Relationship preparation only; this does not allocate an agent or start a turn. */

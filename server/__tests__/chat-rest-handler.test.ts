@@ -19,7 +19,7 @@ import { EventStore } from '../event-store.js';
 import request from 'supertest';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 import { SseTransport } from '../sse-transport.js';
-import { createChatRestRouter } from '../chat-rest-handler.js';
+import { mountApplicationChatRestTransport } from '../chat-rest-handler.js';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import { SseConnection } from '@mitzo/client';
 import type { V2HandlerContext } from '../ws-handler-v2.js';
@@ -103,7 +103,7 @@ function buildApp(sseRegistry: SessionSseRegistry, connRegistry: ConnectionRegis
       res.locals.authSession = { id: 'consent-login' };
     next();
   });
-  app.use('/api/chat', createChatRestRouter(sseRegistry, ctx));
+  mountApplicationChatRestTransport(app, sseRegistry, ctx);
   return { app, ctx };
 }
 

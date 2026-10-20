@@ -12,6 +12,9 @@ import {
   CollaborationSnapshotDraftSchema,
   CollaborationSnapshotMessageSchema,
   CollaborationSnapshotSelectionSchema,
+  CollaborationInlineArtifactPinSchema,
+  CollaborationRetainedArtifactMetadataSchema,
+  type CollaborationRetainedArtifactMetadata,
   type CollaborationSettings,
   type CollaborationSnapshotSelection,
 } from '@mitzo/protocol';
@@ -63,9 +66,13 @@ export interface AuthorizedCollaborationContext {
   }>;
   authorizeArtifact(pin: ArtifactPin): Promise<void>;
   readArtifact(pin: ArtifactPin): Promise<
-    ArtifactPin & {
-      sourceConversationId: string;
-      mediaType: string;
+    (
+      | (z.infer<typeof CollaborationInlineArtifactPinSchema> & {
+          sourceConversationId: string;
+          mediaType: string;
+        })
+      | CollaborationRetainedArtifactMetadata
+    ) & {
       bytes: Uint8Array;
       /** Private synchronous original-source/custody renewal. Missing means this
        * source cannot support a final local forwarding fence. Not dispatch authority. */
@@ -134,7 +141,8 @@ function bounded(value: unknown) {
 function unique(values: string[]) {
   if (new Set(values).size !== values.length) changed();
 }
-const artifactKey = (pin: ArtifactPin) => `${pin.artifactId}:${pin.revision}`;
+const artifactKey = (pin: ArtifactPin) =>
+  `${'kind' in pin ? pin.kind : 'inlineOutput'}:${pin.artifactId}:${pin.revision}`;
 
 export interface CollaborationCompilationOptions {
   reviewIdentity?: z.infer<typeof CollaborationReviewIdentitySchema>;
@@ -274,6 +282,10 @@ async function compileSource(
       )
     )
       changed();
+    // Independent retained versions are included in So far only when that exact
+    // version is visibly referenced. Origin association alone is Selected intent.
+    for (const pin of input.artifacts)
+      if ('kind' in pin && !isDeepStrictEqual(referenced.get(artifactKey(pin)), pin)) changed();
   } else if (input.messageIds.length) {
     const selected = z
       .array(CollaborationSnapshotMessageSchema)
@@ -299,13 +311,30 @@ async function compileSource(
       sha(artifact.bytes) !== pin.sha256
     )
       changed();
-    context.artifacts.push({
-      ...pin,
-      sourceConversationId: artifact.sourceConversationId,
-      mediaType: artifact.mediaType,
-      sizeBytes: artifact.bytes.byteLength,
-      contentBase64: Buffer.from(artifact.bytes).toString('base64'),
-    });
+    if ('kind' in pin) {
+      if (
+        !('kind' in artifact) ||
+        artifact.kind !== pin.kind ||
+        artifact.sizeBytes !== artifact.bytes.byteLength
+      )
+        changed();
+      const { bytes, assertCurrent, ...metadata } = artifact;
+      // The source/save owner retains this private callback; it is never packet data.
+      void assertCurrent;
+      context.artifacts.push({
+        ...CollaborationRetainedArtifactMetadataSchema.parse(metadata),
+        contentBase64: Buffer.from(bytes).toString('base64'),
+      });
+    } else {
+      if ('kind' in artifact) changed();
+      context.artifacts.push({
+        ...pin,
+        sourceConversationId: artifact.sourceConversationId,
+        mediaType: artifact.mediaType,
+        sizeBytes: artifact.bytes.byteLength,
+        contentBase64: Buffer.from(artifact.bytes).toString('base64'),
+      });
+    }
     bounded(context);
   }
   const draft: Draft = {

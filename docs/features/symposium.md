@@ -319,3 +319,17 @@ shared route has not been accepted by this documentation change.
 Production activation, provider enrollment and retained-owner/resource settlement
 remain separate, operation-specific requirements. Live model tests explicitly
 use a supported Luna model with the exact charged account announced beforehand.
+
+The source catalog now observes the actual completed visible prefix and existing
+retained artifact owner under the same recent operator and live transport checks
+as source setup. `sourceCatalog` returns exact tagged retained versions and inline
+output labels, with origin metadata pages of 100 and associated revision pages
+of at most 50. It does not hydrate artifact bytes or substitute a latest revision
+for an unversioned visible link. Missing retained storage is explicitly unavailable.
+The canonical source repository hint comes only from the existing claimed
+repository ledger, without opening its checkout; it is target setup intent and
+requires independent account, connection and fresh workspace authorization.
+Application review dispatches labels by artifact kind and renews retained item
+privacy and exact metadata on recovery. These observational reads allocate no
+session and grant no capacity or execution authority. Native capacity remains
+unverified and the production joining/delivery composition remains incomplete.

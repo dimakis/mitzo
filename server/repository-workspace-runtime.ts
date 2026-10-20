@@ -11,6 +11,11 @@ import { loadAccountProfiles } from './account-profiles.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import { RepositoryWorkspaces } from './repository-workspaces.js';
+import {
+  inspectGithubRepositorySource,
+  prepareGithubRepositorySource,
+  type GithubRepositoryCommand,
+} from './github-repository-source.js';
 
 let service: RepositoryWorkspaces | undefined;
 let idleReleased = false;
@@ -85,8 +90,15 @@ export function repositoryWorkspaceCatalog(binding: AccountBinding) {
   return { available: true, repositories };
 }
 /** Lazy, explicit enrollment: importing the app performs no source acquisition or metadata writes. */
-function workspaceOwner(readOnly = false, ordinary = false) {
+function workspaceOwner(
+  readOnly = false,
+  ordinary = false,
+  externalCommand?: GithubRepositoryCommand,
+) {
   if (idleReleased) throw Error('Repository workspace owner released');
+  // External Git effects are selected only once by the original repository owner.
+  if (externalCommand && (service || readOnly || ordinary))
+    throw Error('Repository source command transport must be selected before owner construction');
   if (
     !readOnly &&
     (ordinary
@@ -105,6 +117,19 @@ function workspaceOwner(readOnly = false, ordinary = false) {
   )
     throw new Error('Repository preparation state is unavailable');
   service ??= new RepositoryWorkspaces(join(codexPrivateDirectory(), 'repository-sources'), {
+    ...(externalCommand
+      ? {
+          inspect: (repository: string, signal: AbortSignal) =>
+            inspectGithubRepositorySource(repository, signal, externalCommand),
+          prepare: (
+            input: Parameters<typeof prepareGithubRepositorySource>[0],
+            directory: string,
+            featureBranch: string,
+            signal: AbortSignal,
+          ) =>
+            prepareGithubRepositorySource(input, directory, featureBranch, signal, externalCommand),
+        }
+      : {}),
     ordinaryPreparation: {
       capture: captureOrdinaryRepositoryPreparation,
       assert: assertOrdinaryRepositoryPreparation,
@@ -196,10 +221,26 @@ export function readRepositoryWorkspaceForConversation(
 }
 
 /** Existing repository callers keep their original enrollment gate. */
-export function getRepositoryWorkspaces(readOnly = false) {
-  return workspaceOwner(readOnly);
+export function getRepositoryWorkspaces(
+  readOnly = false,
+  externalCommand?: GithubRepositoryCommand,
+) {
+  return workspaceOwner(readOnly, false, externalCommand);
 }
 /** Same allocation/custody owner and SQLite, without requiring a Git feature grant. */
 export function getOrdinaryWorkspaces(readOnly = false) {
   return workspaceOwner(readOnly, true);
+}
+
+/** Source repository intent only; the new target must authorize its own claim. */
+export function readConversationRepositoryIntent(
+  conversationId: string,
+  expectedWorkspaceId: string,
+) {
+  if (idleReleased) throw Error('Repository workspace owner released');
+  return RepositoryWorkspaces.readConversationRepositoryIntent(
+    join(codexPrivateDirectory(), 'repository-sources', 'workspaces.db'),
+    conversationId,
+    expectedWorkspaceId,
+  );
 }

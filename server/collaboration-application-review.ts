@@ -24,6 +24,8 @@ import {
 import { assertOrdinarySilentPreparationAuthority } from './ordinary-repository-preparation-authority.js';
 import { OrdinaryCollaborationReview } from './collaboration-review-owner.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
+import { createCollaborationRetainedContext } from './collaboration-retained-context-source.js';
+import type { TelosArtifactStore } from './telos-artifact-store.js';
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 
@@ -34,7 +36,13 @@ const unavailable = () => new CollaborationContractError('execution_unavailable'
  * No native capacity adapter is installed, so every new review is unverified.
  */
 export class CollaborationApplicationReview {
-  constructor(private readonly owners: { store: EventStore; workspaces: RepositoryWorkspaces }) {}
+  constructor(
+    private readonly owners: {
+      store: EventStore;
+      workspaces: RepositoryWorkspaces;
+      retainedArtifacts?: TelosArtifactStore;
+    },
+  ) {}
 
   async review(
     auth: AuthSession,
@@ -67,13 +75,50 @@ export class CollaborationApplicationReview {
         throw unavailable();
     };
     assertObservation();
-    const result = (
+    const result = async (
       snapshot: CollaborationSnapshot,
       settings: CollaborationSettings,
       expectedMembershipRevision: number,
     ) => {
       assertObservation();
-      const artifactLabels = snapshot.artifacts.map((pin) => {
+      const visible = this.owners.store.openCollaborationVisibleSource(
+        snapshot.sourceConversationId,
+        snapshot.boundary,
+      );
+      const retainedSource = createCollaborationRetainedContext({
+        source: visible,
+        artifacts: this.owners.retainedArtifacts,
+        authorize: async () => assertObservation(),
+        assertSourceCurrent: assertObservation,
+      });
+      const outputs = new Map<string, ReturnType<EventStore['getSessionOutput']>>();
+      const artifactLabels = [];
+      for (const pin of snapshot.artifacts) {
+        if ('kind' in pin) {
+          const metadata = await retainedSource.metadata({
+            kind: pin.kind,
+            artifactId: pin.artifactId,
+            revision: pin.revision,
+            sha256: pin.sha256,
+          });
+          const { contentBase64, ...frozen } = pin;
+          const bytes = Buffer.from(contentBase64, 'base64');
+          if (
+            !isDeepStrictEqual(metadata, frozen) ||
+            bytes.byteLength !== metadata.sizeBytes ||
+            createHash('sha256').update(bytes).digest('hex') !== pin.sha256
+          )
+            throw new CollaborationContractError('snapshot_changed');
+          artifactLabels.push({
+            kind: pin.kind,
+            artifactId: pin.artifactId,
+            revision: pin.revision,
+            sha256: pin.sha256,
+            title: metadata.title,
+            filename: metadata.filename,
+          });
+          continue;
+        }
         const output = this.owners.store.getSessionOutput(
           snapshot.sourceConversationId,
           pin.artifactId,
@@ -87,13 +132,25 @@ export class CollaborationApplicationReview {
           output.source.messageEndSeq > snapshot.boundary.sequence
         )
           throw new CollaborationContractError('snapshot_changed');
-        return {
+        outputs.set(pin.artifactId, output);
+        artifactLabels.push({
           artifactId: pin.artifactId,
           revision: pin.revision,
           sha256: pin.sha256,
           title: output.title,
-        };
-      });
+        });
+      }
+      assertObservation();
+      visible.assertCurrent();
+      retainedSource.assertOwnedCurrent();
+      for (const [id, output] of outputs)
+        if (
+          !isDeepStrictEqual(
+            this.owners.store.getSessionOutput(snapshot.sourceConversationId, id),
+            output,
+          )
+        )
+          throw new CollaborationContractError('snapshot_changed');
       return CollaborationApplicationReviewResultSchema.parse({
         snapshot,
         settings,
@@ -156,6 +213,7 @@ export class CollaborationApplicationReview {
       throw new CollaborationContractError('snapshot_changed');
     const source = createCollaborationContextSource({
       store: this.owners.store,
+      retainedArtifacts: this.owners.retainedArtifacts,
       authorizeConversation: async () => {
         assertObservation();
       },
