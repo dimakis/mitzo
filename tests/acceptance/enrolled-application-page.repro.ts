@@ -21,6 +21,7 @@ const sha = (bytes: Uint8Array | string) => createHash('sha256').update(bytes).d
 
 async function exactBrowserBundle(directory: string) {
   const entry = 'tests/acceptance/symposium-page-entry.tsx';
+  const defines = { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' };
   if (process.env.CI === 'true') {
     await mkdir(directory, { recursive: true });
     const bundled = await build({
@@ -32,7 +33,7 @@ async function exactBrowserBundle(directory: string) {
       external: ['/*.png', '/*.svg'],
       jsx: 'automatic',
       minify: true,
-      define: { 'process.env.NODE_ENV': '"production"', 'import.meta.env': '{}' },
+      define: defines,
       alias: {
         '@mitzo/client/hooks': resolve('packages/client/src/hooks/index.ts'),
         '@mitzo/client': resolve('packages/client/src/index.ts'),
@@ -40,8 +41,13 @@ async function exactBrowserBundle(directory: string) {
       },
     });
     const inputs: Record<string, string> = {};
+    const virtualInputs: Record<string, string> = {};
     const dependencies = await realpath(resolve('node_modules'));
     for (const input of Object.keys(bundled.metafile!.inputs)) {
+      if (input === '<define:import.meta.env>') {
+        virtualInputs[input] = sha(defines['import.meta.env']);
+        continue;
+      }
       const absolute = await realpath(resolve(input));
       const logical = absolute.startsWith(dependencies + '/')
         ? 'node_modules/' + relative(dependencies, absolute)
@@ -59,7 +65,14 @@ async function exactBrowserBundle(directory: string) {
     await writeFile(
       join(directory, 'source-manifest.json'),
       JSON.stringify(
-        { entry, inputs, files, scope: 'Actual UI bundle only; no approved reference render.' },
+        {
+          entry,
+          inputs,
+          virtualInputs,
+          defines,
+          files,
+          scope: 'Actual UI bundle only; no approved reference render.',
+        },
         null,
         2,
       ),
@@ -72,9 +85,15 @@ async function exactBrowserBundle(directory: string) {
   const manifest = JSON.parse(await readFile(join(directory, 'source-manifest.json'), 'utf8')) as {
     entry: string;
     inputs: Record<string, string>;
+    virtualInputs: Record<string, string>;
+    defines: Record<string, string>;
     files: Record<string, string>;
   };
   expect(manifest.entry).toBe(entry);
+  expect(manifest.defines).toEqual(defines);
+  expect(manifest.virtualInputs).toEqual({
+    '<define:import.meta.env>': sha(defines['import.meta.env']),
+  });
   for (const [input, expected] of Object.entries(manifest.inputs))
     expect(sha(await readFile(resolve(input))), input).toBe(expected);
   const assets = new Map<string, { contentType: string; bytes: Uint8Array | string }>();
@@ -409,7 +428,9 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
           if ((response.headers()['content-type'] ?? '').includes('application/json'))
             record.body = await response.json();
           responses.push(record);
-        })().catch((error) => browserErrors.push(`Response capture: ${String(error)}`)),
+        })().catch((error) => {
+          browserErrors.push(`Response capture: ${String(error)}`);
+        }),
       );
     });
     await page.goto(`${http.baseUrl}/chat/${sessionId}`);
