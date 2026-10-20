@@ -677,7 +677,12 @@ export function ChatView() {
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
-    if (roleSetupRequested || controlsBlocked || builderSourceReason || joiningFlow.sendUnavailable)
+    if (
+      roleSetupRequested ||
+      controlsBlocked ||
+      builderSourceReason ||
+      !joiningFlow.canSendOrdinary()
+    )
       return false;
     if (localRuntime.continuation && activeSessionId) {
       if (
@@ -829,7 +834,7 @@ export function ChatView() {
     ctxBlocks?: string[],
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
   ): void {
-    if (controlsBlocked || explicitNew || localBound || joiningFlow.sendUnavailable) {
+    if (controlsBlocked || explicitNew || localBound || !joiningFlow.canSendOrdinary()) {
       onDelivery?.('failed');
       return;
     }
@@ -1111,6 +1116,7 @@ export function ChatView() {
         : null,
     clientId: connectionId,
     routeKey: joiningRoute.key,
+    ordinarySourceConversationId: !isSymposium ? (sessionId ?? activeSessionId) : null,
   });
   const workspaceControls = (
     <WorkspaceControls

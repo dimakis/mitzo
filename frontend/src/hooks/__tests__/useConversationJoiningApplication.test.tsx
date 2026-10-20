@@ -179,3 +179,135 @@ it('retire-and-restores same-ID auth without permitting the old Review action to
   expect(hook.result.current.flow.review).toBeNull();
   expect(effectPaths(h)).toHaveLength(0);
 });
+
+it.each(['deferred', 'failed', 'reload'] as const)(
+  'holds ordinary Send/Interrupt while verified existing membership is %s without creating replacement IDs',
+  async (state) => {
+    const h = harness('00000000-0000-4000-8000-000000000010', ['source-chat', 'peer']);
+    const pending = deferred();
+    h.after((path) => {
+      if (path !== '/api/session-collaborations/source-setup') return;
+      if (state === 'failed') throw Error('Membership read failed');
+      return pending.promise.then(() => {});
+    });
+    let hook = mount();
+    expect(hook.result.current.app.sendUnavailable).toBeTruthy();
+    expect(hook.result.current.app.canSendOrdinary()).toBe(false);
+    const stale = hook.result.current.app.canSendOrdinary;
+    await waitFor(() => expect(hook.result.current.app.catalog.catalog).not.toBeNull());
+    if (state === 'failed')
+      await waitFor(() => expect(hook.result.current.app.canRetry).toBe(true));
+    if (state === 'reload') {
+      hook.unmount();
+      hook = mount();
+      expect(hook.result.current.app.canSendOrdinary()).toBe(false);
+    }
+    expect(h.journal.readBegin()).toBeNull();
+    expect(h.journal.readTarget()).toBeNull();
+    expect(effectPaths(h)).toHaveLength(0);
+    if (state !== 'failed') {
+      await act(async () => {
+        pending.resolve(Response.json({}));
+      });
+      await waitFor(() => expect(hook.result.current.app.owner).toBeDefined());
+    }
+    expect(hook.result.current.app.canSendOrdinary()).toBe(false);
+    expect(stale()).toBe(false);
+  },
+);
+
+it.each([null, '00000000-0000-4000-8000-000000000010'])(
+  'allows canonical single-source ordinary behavior only after current confirmation (%s)',
+  async (group) => {
+    const h = harness(group);
+    const hook = mount();
+    const unresolved = hook.result.current.app.canSendOrdinary;
+    expect(unresolved()).toBe(false);
+    await waitFor(() => expect(hook.result.current.app.canSendOrdinary()).toBe(true));
+    expect(hook.result.current.app.sendUnavailable).toBeUndefined();
+    expect(unresolved()).toBe(false);
+    expect(effectPaths(h)).toHaveLength(0);
+  },
+);
+
+it('retires confirmed ordinary callbacks synchronously on refresh and never revives them after a new single-source read', async () => {
+  const h = harness();
+  const hook = mount();
+  await waitFor(() => expect(hook.result.current.app.canSendOrdinary()).toBe(true));
+  const old = hook.result.current.app.canSendOrdinary;
+  const pending = deferred();
+  h.after((path) =>
+    path === '/api/session-collaborations/source-setup'
+      ? pending.promise.then(() => {})
+      : undefined,
+  );
+  act(() => {
+    hook.result.current.app.retry();
+    expect(old()).toBe(false);
+  });
+  expect(hook.result.current.app.canSendOrdinary()).toBe(false);
+  await act(async () => {
+    pending.resolve(Response.json({}));
+  });
+  await waitFor(() => expect(hook.result.current.app.canSendOrdinary()).toBe(true));
+  expect(old()).toBe(false);
+});
+
+it('holds a verified source during same-ID auth restoration until a new canonical read, rejecting retained callbacks', async () => {
+  const h = harness();
+  const hook = mount();
+  await waitFor(() => expect(hook.result.current.app.canSendOrdinary()).toBe(true));
+  const old = hook.result.current.app.canSendOrdinary;
+  const pending = deferred();
+  h.after((path) =>
+    path === '/api/session-collaborations/source-setup'
+      ? pending.promise.then(() => {})
+      : undefined,
+  );
+  await act(async () => {
+    auth.markAuthLost();
+    expect(old()).toBe(false);
+    await auth.restoreCookieAuthentication();
+    expect(old()).toBe(false);
+  });
+  expect(hook.result.current.app.canSendOrdinary()).toBe(false);
+  await act(async () => {
+    pending.resolve(Response.json({}));
+  });
+  await waitFor(() => expect(hook.result.current.app.canSendOrdinary()).toBe(true));
+  expect(old()).toBe(false);
+});
+
+it('keeps a visible verified source interlocked through loss of its connected reader and route/client ABA', async () => {
+  harness();
+  const hook = renderHook((input) => useConversationJoiningApplication(input), {
+    initialProps: { ...props, ordinarySourceConversationId: 'source-chat' },
+  });
+  await waitFor(() => expect(hook.result.current.canSendOrdinary()).toBe(true));
+  const old = hook.result.current.canSendOrdinary;
+  hook.rerender({
+    ...props,
+    sourceConversationId: null,
+    clientId: null,
+    ordinarySourceConversationId: 'source-chat',
+  });
+  expect(hook.result.current.canSendOrdinary()).toBe(false);
+  hook.rerender({ ...props, ordinarySourceConversationId: 'source-chat', routeKey: 'route-b' });
+  hook.rerender({ ...props, ordinarySourceConversationId: 'source-chat' });
+  await waitFor(() => expect(hook.result.current.canSendOrdinary()).toBe(true));
+  expect(old()).toBe(false);
+});
+
+it('preserves a verified new draft and an initially unverified legacy source without inventing membership authority', async () => {
+  const h = harness();
+  const fresh = renderHook(() =>
+    useConversationJoiningApplication({ ...props, sourceConversationId: null }),
+  );
+  expect(fresh.result.current.canSendOrdinary()).toBe(true);
+  fresh.unmount();
+  act(() => auth.markAuthLost());
+  const legacy = renderHook(() => useConversationJoiningApplication(props));
+  expect(legacy.result.current.canSendOrdinary()).toBe(true);
+  expect(legacy.result.current.sendUnavailable).toBeUndefined();
+  expect(effectPaths(h)).toHaveLength(0);
+});

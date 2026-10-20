@@ -23,13 +23,24 @@ export function useConversationJoiningApplication(options: {
   sourceConversationId: string | null;
   clientId: string | null | undefined;
   routeKey: string;
+  /** Visible ordinary source even while its connected reader is unavailable. */
+  ordinarySourceConversationId?: string | null;
 }) {
   const source = useConversationJoiningSourceSetup(options);
   const catalog = useConversationJoiningCatalog(options);
+  const ordinarySource =
+    options.ordinarySourceConversationId === undefined
+      ? options.sourceConversationId
+      : options.ordinarySourceConversationId;
   const basis = useMemo(
-    () => ({ scope: catalog.scope, routeKey: options.routeKey }),
-    [catalog.scope, options.routeKey],
+    () => ({ scope: catalog.scope, routeKey: options.routeKey, ordinarySource }),
+    [catalog.scope, options.routeKey, ordinarySource],
   );
+  const membershipRequired = useRef({ key: '', value: false });
+  const membershipScope = JSON.stringify([options.routeKey, ordinarySource, catalog.scope.base]);
+  if (membershipRequired.current.key !== membershipScope)
+    membershipRequired.current = { key: membershipScope, value: false };
+  if (ordinarySource && currentVerifiedAuthSessionId()) membershipRequired.current.value = true;
   const currentBasis = useRef(basis);
   const currentClient = useRef(options.clientId);
   currentClient.current = options.clientId;
@@ -235,6 +246,30 @@ export function useConversationJoiningApplication(options: {
   )
     heldShared.current = { key: sharedScope, sourceId: options.sourceConversationId, value: false };
   if (shared) heldShared.current.value = true;
+  // This gate is consulted at the effect boundary, not only rendered into the
+  // controls. It reads the genuine reader's current attempt and rejects a
+  // retired route/auth/client/action closure even after A-B-A or same-ID restore.
+  const currentSourceSetup = source.currentSourceSetup;
+  const canSendOrdinary = useCallback(() => {
+    if (!isCurrent()) return false;
+    if (heldShared.current.value) return false;
+    if (!membershipRequired.current.value) return true;
+    if (
+      !ordinarySource ||
+      ordinarySource !== basis.scope.sourceConversationId ||
+      (latestAction.current?.basis === basis && latestAction.current.pending)
+    )
+      return false;
+    const current = currentSourceSetup();
+    return (
+      current?.sourceConversationId === ordinarySource &&
+      (current.state === 'unstarted' ||
+        (current.state === 'selected' &&
+          current.collaboration.participantSessionIds.length === 1 &&
+          current.collaboration.participantSessionIds[0] === ordinarySource))
+    );
+  }, [isCurrent, ordinarySource, basis, currentSourceSetup]);
+  const ordinaryAllowed = canSendOrdinary();
   return {
     owner,
     catalog,
@@ -252,8 +287,11 @@ export function useConversationJoiningApplication(options: {
     canRetry: !visible?.pending && (!!visible?.error || source.canRefresh || !!catalog.reason),
     // Canonical membership/validated linked receipt can only refuse ordinary
     // fallback. They never enable group sending or establish admission.
-    sendUnavailable: heldShared.current.value
-      ? 'Shared discussion sending is unavailable. Your draft stays here.'
-      : undefined,
+    canSendOrdinary,
+    sendUnavailable: ordinaryAllowed
+      ? undefined
+      : heldShared.current.value
+        ? 'Shared discussion sending is unavailable. Your draft stays here.'
+        : 'Verify this conversation’s membership before sending. Your draft stays here.',
   };
 }

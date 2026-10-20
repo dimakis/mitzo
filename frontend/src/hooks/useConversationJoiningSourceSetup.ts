@@ -35,6 +35,7 @@ export function useConversationJoiningSourceSetup(options: {
   const readEpoch = useRef(0);
   const base = getApiBaseUrl();
   const [attempt, setAttempt] = useState(0);
+  const currentAttempt = useRef(0);
   const owner = useMemo(
     () => ({ sourceConversationId, clientId, login, base, attempt, loginEpoch }),
     [sourceConversationId, clientId, login, base, attempt, loginEpoch],
@@ -83,6 +84,7 @@ export function useConversationJoiningSourceSetup(options: {
       !controller.signal.aborted &&
       currentOwner.current === owner &&
       readEpoch.current === epoch &&
+      currentAttempt.current === owner.attempt &&
       currentVerifiedAuthSessionId() === owner.login &&
       getApiBaseUrl() === owner.base;
     void (async () => {
@@ -122,9 +124,25 @@ export function useConversationJoiningSourceSetup(options: {
     : loading
       ? 'Checking fresh-agent setup…'
       : (visible?.error ?? (data?.state === 'unavailable' ? unavailable[data.reason] : undefined));
-  const refresh = useCallback(() => setAttempt((value) => value + 1), []);
+  // Retire a confirmed read synchronously, before React publishes the next
+  // attempt. Action callbacks must not use it in that interval.
+  const refresh = useCallback(() => setAttempt(++currentAttempt.current), []);
+  const currentSourceSetup = useCallback(
+    () =>
+      valid &&
+      currentOwner.current === owner &&
+      readEpoch.current === owner.loginEpoch &&
+      currentAttempt.current === owner.attempt &&
+      currentVerifiedAuthSessionId() === owner.login &&
+      getApiBaseUrl() === owner.base &&
+      result?.owner === owner
+        ? result.data
+        : null,
+    [valid, owner, result],
+  );
   return {
     sourceSetup: data,
+    currentSourceSetup,
     loading,
     reason,
     canRefresh: valid && (!!visible?.error || data?.state === 'unavailable'),
