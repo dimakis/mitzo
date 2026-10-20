@@ -173,6 +173,8 @@ it('runs successive user turns with a private credential and closes its input qu
       expect.objectContaining({ name: 'RequestGithubPublish' }),
       expect.objectContaining({ name: 'SymposiumProposeProfile' }),
       expect.objectContaining({ name: 'SymposiumReadProfiles' }),
+      expect.objectContaining({ name: 'ReadKnowledge' }),
+      expect.objectContaining({ name: 'SaveKnowledgeDraft' }),
     ]),
   );
   registry.dispose();

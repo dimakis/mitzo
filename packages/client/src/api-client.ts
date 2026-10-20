@@ -5,7 +5,11 @@
  * Uses a TransportAdapter.fetch so it works in both browser and Theia.
  */
 
-import { SymposiumProvenanceSchema } from '@mitzo/protocol';
+import {
+  CollaborationDurableTranscriptSchema,
+  COLLABORATION_DURABLE_TRANSCRIPT_MAX_WIRE_BYTES,
+  SymposiumProvenanceSchema,
+} from '@mitzo/protocol';
 import { CollaborationApiClient } from './collaboration-api.js';
 import type { FinishedBlock, FinishedMessage, Session, SymposiumProvenance } from '@mitzo/protocol';
 import type { Task } from './slices/tasks.js';
@@ -160,8 +164,58 @@ export class MitzoApiClient {
     return this.readTranscript(`/api/sessions/${sessionId}/messages?transcript=1`, signal);
   }
 
+  /** Retained completed ordinary text only. Old arrays/SDK restore are not source proof. */
+  async getDurableSessionTranscript(sessionId: string, signal?: AbortSignal) {
+    const id = CollaborationDurableTranscriptSchema.shape.sourceConversationId.parse(sessionId);
+    return this.readTranscriptResponse(
+      `/api/sessions/${encodeURIComponent(id)}/messages?transcript=durable`,
+      signal,
+      async (response, requestSignal) => {
+        requestSignal.throwIfAborted();
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('Invalid durable transcript');
+        const cancel = () => {
+          void reader.cancel().catch(() => {});
+        };
+        requestSignal.addEventListener('abort', cancel, { once: true });
+        const decoder = new TextDecoder('utf-8', { fatal: true });
+        let bytes = 0;
+        let text = '';
+        try {
+          for (;;) {
+            const part = await reader.read();
+            if (part.done) break;
+            bytes += part.value.byteLength;
+            if (bytes > COLLABORATION_DURABLE_TRANSCRIPT_MAX_WIRE_BYTES)
+              throw new Error('Durable transcript exceeds byte limit');
+            text += decoder.decode(part.value, { stream: true });
+          }
+          text += decoder.decode();
+          const result = CollaborationDurableTranscriptSchema.parse(JSON.parse(text));
+          if (result.sourceConversationId !== id)
+            throw new Error('Durable source identity changed');
+          return result;
+        } finally {
+          requestSignal.removeEventListener('abort', cancel);
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
+        }
+      },
+    );
+  }
+
+  private readTranscript(url: string, signal?: AbortSignal): Promise<ReconnectTranscript> {
+    return this.readTranscriptResponse(url, signal, async (response) =>
+      this.normalizeTranscript(await response.json()),
+    );
+  }
+
   /** Bound fetch, error bodies and JSON parsing even for transports ignoring AbortSignal. */
-  private async readTranscript(url: string, signal?: AbortSignal): Promise<ReconnectTranscript> {
+  private async readTranscriptResponse<T>(
+    url: string,
+    signal: AbortSignal | undefined,
+    read: (response: Response, requestSignal: AbortSignal) => Promise<T>,
+  ): Promise<T> {
     if (signal?.aborted) throw new DOMException('Transcript request cancelled', 'AbortError');
     const controller = new AbortController();
     let rejectRead!: (error: Error) => void;
@@ -186,7 +240,7 @@ export class MitzoApiClient {
               signal: controller.signal,
             }),
           );
-          return this.normalizeTranscript(await response.json());
+          return read(response, controller.signal);
         })(),
         stopped,
       ]);

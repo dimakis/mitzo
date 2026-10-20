@@ -1,0 +1,33 @@
+{
+  "extends": "../../frontend/tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@mitzo/client": ["../../packages/client/src/index.ts"],
+      "@mitzo/client/hooks": ["../../packages/client/src/hooks/index.ts"],
+      "@mitzo/protocol": ["../../packages/protocol/src/index.ts"],
+      "@mitzo/protocol/*": ["../../packages/protocol/src/*"]
+    }
+  },
+  "references": [],
+  "include": [
+    "../../frontend/src/components/CollaborationTranscript.tsx",
+    "../../frontend/src/components/ComposerResponders.tsx",
+    "../../frontend/src/components/ChatArea.tsx",
+    "../../frontend/src/components/__tests__/ComposerRespondersPolicy.test.tsx",
+    "../../frontend/src/components/__tests__/CollaborationTranscript.test.tsx",
+    "../../frontend/src/components/__tests__/ChatAreaMetadata.test.tsx",
+    "../../frontend/src/lib/conversation-presentation.ts",
+    "../../frontend/src/lib/__tests__/conversation-presentation.test.ts",
+    "../../frontend/src/vite-env.d.ts",
+    "../../frontend/src/components/__tests__/ChatInputResponders.test.tsx",
+    "./symposium-shared-conversation.tsx",
+    "./symposium-shared-conversation-data.ts",
+    "../../packages/client/src/__tests__/collaboration-projection-replay.test.ts",
+    "../../tests/offline/symposium-shared-conversation.spec.ts",
+    "../../frontend/src/components/__tests__/ConversationAgentsHeader.test.tsx",
+    "../../frontend/src/hooks/useConversationPresentation.ts",
+    "../../frontend/src/hooks/__tests__/useConversationPresentation.test.tsx",
+    "../../frontend/src/lib/__tests__/conversation-draft-intent.test.ts",
+    "../../frontend/src/components/__tests__/ConversationPolicyFeedback.test.tsx"
+  ]
+}

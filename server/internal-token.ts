@@ -1,9 +1,12 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { dirname, join } from 'path';
+import { dirname, isAbsolute, join } from 'path';
 import { homedir } from 'os';
 
-const TOKEN_PATH = join(homedir(), '.mitzo', 'internal-token');
+const configuredTokenPath = process.env.MITZO_INTERNAL_TOKEN_PATH;
+if (configuredTokenPath !== undefined && !isAbsolute(configuredTokenPath))
+  throw new Error('MITZO_INTERNAL_TOKEN_PATH must be an absolute path');
+const TOKEN_PATH = configuredTokenPath ?? join(homedir(), '.mitzo', 'internal-token');
 export const TOKEN_LENGTH = 64; // 32 bytes as hex
 
 /** Load existing token from disk or generate a new one.

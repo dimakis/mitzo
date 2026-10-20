@@ -131,3 +131,22 @@ it.each(['exact', 'absent', 'stale'] as const)(
     expect(existsSync(snapshot)).toBe(false);
   },
 );
+
+it('traces initial reconciliation and upload preparation before sandbox creation', async () => {
+  const { tracer } = await import('../tracing.js');
+  const { preparePublishedOpenShellSeed } = await import('../openshell-runtime.js');
+  const spans = vi.spyOn(tracer, 'startSpan');
+  try {
+    const prepared = await preparePublishedOpenShellSeed(fixture(), new AbortController().signal);
+    expect(spans.mock.calls.map(([name]) => name)).toEqual(
+      expect.arrayContaining([
+        'knowledge.initial_reconcile',
+        'knowledge.verify_host',
+        'knowledge.freeze_upload',
+      ]),
+    );
+    prepared.cleanup();
+  } finally {
+    spans.mockRestore();
+  }
+});

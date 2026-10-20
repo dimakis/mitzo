@@ -1,0 +1,399 @@
+diff --git a/codex-rs/core/src/agents_md.rs b/codex-rs/core/src/agents_md.rs
+index 8e0c475..bf0f474 100644
+--- a/codex-rs/core/src/agents_md.rs
++++ b/codex-rs/core/src/agents_md.rs
+@@ -26,7 +26,6 @@ use codex_config::merge_toml_values;
+ use codex_config::project_root_markers_from_config;
+ use codex_exec_server::ExecutorFileSystem;
+ use codex_exec_server::GetMetadataOptions;
+-use codex_exec_server::ReadFileOptions;
+ use codex_extension_api::Instructions;
+ use codex_file_system::FileSystemSandboxContext;
+ use codex_file_system::FindUpErrorPolicy;
+@@ -117,10 +116,15 @@ pub(crate) async fn load_project_instructions(
+ 
+ /// Attempt to locate and load AGENTS.md documentation.
+ ///
+-/// On success returns `Ok(Some(loaded))` where `loaded` contains every
+-/// discovered doc. If no documentation file is found the function returns
+-/// `Ok(None)`. Unexpected I/O failures bubble up as `Err` so callers can
+-/// decide how to handle them.
++/// Retains only each selected document's configured byte prefix. Filesystem
++/// streams can read one bounded chunk beyond that prefix to detect overflow;
++/// their skipped tails are not read. Tail errors and whole-file read limits
++/// therefore do not apply after overflow is observed. This is ordinary prompt
++/// loading, not a complete or version-attested source capture.
++///
++/// If no nonblank instructions are found, returns `Ok(None)`. Open/read errors
++/// encountered before the prefix and its EOF/overflow probe completes propagate,
++/// except a vanished file is skipped as in ordinary full-file loading.
+ #[tracing::instrument(name = "agents_md.load", skip_all, fields(max_total = max_total))]
+ async fn read_agents_md(
+     config: &Config,
+@@ -142,22 +146,36 @@ async fn read_agents_md(
+     let mut remaining: u64 = max_total as u64;
+     let mut loaded = LoadedAgentsMd::default();
+ 
+-    for p in paths {
++    'documents: for p in paths {
+         if remaining == 0 {
+             break;
+         }
+ 
+-        let mut data = match fs.read_file(&p, ReadFileOptions::default(), sandbox).await {
+-            Ok(data) => data,
++        let mut stream = match fs.read_file_stream(&p, sandbox).await {
++            Ok(stream) => stream,
+             Err(err) if err.kind() == io::ErrorKind::NotFound => continue,
+             Err(err) => return Err(err),
+         };
+-        let size = data.len() as u64;
+-        if size > remaining {
+-            data.truncate(remaining as usize);
++        let mut data = Vec::new();
++        let mut truncated = false;
++        while let Some(chunk) = stream.next().await {
++            let chunk = match chunk {
++                Ok(chunk) => chunk,
++                Err(err) if err.kind() == io::ErrorKind::NotFound => continue 'documents,
++                Err(err) => return Err(err),
++            };
++            let available = remaining as usize - data.len();
++            data.extend_from_slice(&chunk[..chunk.len().min(available)]);
++            if chunk.len() > available {
++                truncated = true;
++                break;
++            }
+         }
++        // Release local descriptors and let remote streams schedule handle cleanup,
++        // including when the needed prefix is much smaller than the source file.
++        drop(stream);
+ 
+-        if size > remaining {
++        if truncated {
+             tracing::warn!(
+                 path = %p,
+                 remaining_bytes = remaining,
+diff --git a/codex-rs/core/src/agents_md_tests.rs b/codex-rs/core/src/agents_md_tests.rs
+index 353da53..6d434d1 100644
+--- a/codex-rs/core/src/agents_md_tests.rs
++++ b/codex-rs/core/src/agents_md_tests.rs
+@@ -45,6 +45,8 @@ use std::ops::DerefMut;
+ use std::path::PathBuf;
+ use std::sync::Arc;
+ use std::sync::Mutex;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
+ use tempfile::TempDir;
+ use tokio::sync::Notify;
+ use tokio::sync::Semaphore;
+@@ -57,6 +59,12 @@ enum InjectedFailure {
+     MetadataBlockedByFilenamePrefix(&'static str),
+     MetadataPending,
+     Read(io::ErrorKind),
++    ReadStream {
++        chunk: &'static [u8],
++        chunks: usize,
++        pending_tail: bool,
++        error_tail: Option<io::ErrorKind>,
++    },
+ }
+ 
+ struct FailingFileSystem {
+@@ -69,6 +77,10 @@ struct MetadataCallCounts {
+     paths: Mutex<Vec<PathUri>>,
+     started: Notify,
+     release: Semaphore,
++    full_reads: AtomicUsize,
++    stream_polls: AtomicUsize,
++    stream_drops: AtomicUsize,
++    stream_pending: Notify,
+ }
+ 
+ impl Default for MetadataCallCounts {
+@@ -77,6 +89,10 @@ impl Default for MetadataCallCounts {
+             paths: Mutex::new(Vec::new()),
+             started: Notify::new(),
+             release: Semaphore::new(0),
++            full_reads: AtomicUsize::new(0),
++            stream_polls: AtomicUsize::new(0),
++            stream_drops: AtomicUsize::new(0),
++            stream_pending: Notify::new(),
+         }
+     }
+ }
+@@ -96,6 +112,14 @@ impl FailingFileSystem {
+         options: ReadFileOptions,
+         sandbox: Option<&FileSystemSandboxContext>,
+     ) -> io::Result<Vec<u8>> {
++        self.metadata_calls
++            .full_reads
++            .fetch_add(1, Ordering::SeqCst);
++        if matches!(self.failure, InjectedFailure::ReadStream { .. }) {
++            return Err(io::Error::other(
++                "full-file reads are forbidden in this fixture",
++            ));
++        }
+         if path.to_abs_path()? == self.path
+             && let InjectedFailure::Read(kind) = self.failure
+         {
+@@ -174,6 +198,7 @@ impl FailingFileSystem {
+             | InjectedFailure::MetadataBlocked
+             | InjectedFailure::MetadataBlockedByFilenamePrefix(_)
+             | InjectedFailure::MetadataPending
++            | InjectedFailure::ReadStream { .. }
+             | InjectedFailure::Read(_) => LOCAL_FS.get_metadata(path, options, sandbox).await,
+         }
+     }
+@@ -226,14 +251,41 @@ impl ExecutorFileSystem for FailingFileSystem {
+ 
+     fn read_file_stream<'a>(
+         &'a self,
+-        _path: &'a PathUri,
+-        _sandbox: Option<&'a FileSystemSandboxContext>,
++        path: &'a PathUri,
++        sandbox: Option<&'a FileSystemSandboxContext>,
+     ) -> ExecutorFileSystemFuture<'a, FileSystemReadStream> {
+-        Box::pin(async {
+-            Err(io::Error::new(
+-                io::ErrorKind::Unsupported,
+-                "failing filesystem does not support streaming reads",
+-            ))
++        Box::pin(async move {
++            if path.to_abs_path()? == self.path {
++                if let InjectedFailure::Read(kind) = self.failure {
++                    return Err(io::Error::new(kind, "injected read failure"));
++                }
++                if let InjectedFailure::ReadStream {
++                    chunk,
++                    chunks,
++                    pending_tail,
++                    error_tail,
++                } = self.failure
++                {
++                    let guard = InstructionStreamGuard(Arc::clone(&self.metadata_calls));
++                    return Ok(FileSystemReadStream::new(futures::stream::unfold(
++                        (guard, 0),
++                        move |(guard, index)| async move {
++                            guard.0.stream_polls.fetch_add(1, Ordering::SeqCst);
++                            if index < chunks {
++                                Some((Ok(chunk.to_vec().into()), (guard, index + 1)))
++                            } else if pending_tail {
++                                guard.0.stream_pending.notify_one();
++                                std::future::pending().await
++                            } else if let Some(kind) = error_tail {
++                                Some((Err(io::Error::new(kind, "unread tail")), (guard, index + 1)))
++                            } else {
++                                None
++                            }
++                        },
++                    )));
++                }
++            }
++            LOCAL_FS.read_file_stream(path, sandbox).await
+         })
+     }
+ 
+@@ -314,6 +366,14 @@ impl ExecutorFileSystem for FailingFileSystem {
+     }
+ }
+ 
++struct InstructionStreamGuard(Arc<MetadataCallCounts>);
++
++impl Drop for InstructionStreamGuard {
++    fn drop(&mut self) {
++        self.0.stream_drops.fetch_add(1, Ordering::SeqCst);
++    }
++}
++
+ struct TestConfig {
+     config: Config,
+     user_instructions: Option<Instructions>,
+@@ -663,6 +723,187 @@ async fn project_doc_invalid_utf8_uses_lossy_text() {
+     assert_eq!(res, "project\u{FFFD} doc");
+ }
+ 
++#[tokio::test]
++async fn project_doc_stream_reads_only_the_needed_prefix_and_eof_probe() {
++    for (chunk, chunks, limit, expected, polls) in [
++        (b"abcd".as_slice(), 2, 8, "abcdabcd", 3),
++        (b"abcd".as_slice(), 3, 8, "abcdabcd", 3),
++        (b"abcd".as_slice(), 100_000, 3, "abc", 1),
++        (b"\xe2\x82\xacx".as_slice(), 100_000, 2, "\u{fffd}", 1),
++    ] {
++        let tmp = tempfile::tempdir().unwrap();
++        fs::write(tmp.path().join("AGENTS.md"), "fixture").unwrap();
++        let config = make_config(&tmp, limit, None).await;
++        let counts = Arc::new(MetadataCallCounts::default());
++        let filesystem = FailingFileSystem {
++            path: config.cwd.join("AGENTS.md"),
++            failure: InjectedFailure::ReadStream {
++                chunk,
++                chunks,
++                pending_tail: false,
++                error_tail: None,
++            },
++            metadata_calls: Arc::clone(&counts),
++        };
++        let loaded = read_agents_md(
++            &config.config,
++            &filesystem,
++            "local",
++            &PathUri::from_abs_path(&config.cwd),
++            limit,
++            None,
++        )
++        .await
++        .unwrap()
++        .unwrap();
++        assert_eq!(loaded.text(), expected);
++        assert_eq!(counts.full_reads.load(Ordering::SeqCst), 0);
++        assert_eq!(counts.stream_polls.load(Ordering::SeqCst), polls);
++        assert_eq!(counts.stream_drops.load(Ordering::SeqCst), 1);
++    }
++}
++
++#[tokio::test]
++async fn project_doc_stream_skips_tail_errors_only_after_detecting_a_sufficient_prefix() {
++    for (limit, succeeds, polls) in [(3, true, 1), (4, false, 2), (5, false, 2)] {
++        let tmp = tempfile::tempdir().unwrap();
++        fs::write(tmp.path().join("AGENTS.md"), "fixture").unwrap();
++        let config = make_config(&tmp, limit, None).await;
++        let counts = Arc::new(MetadataCallCounts::default());
++        let filesystem = FailingFileSystem {
++            path: config.cwd.join("AGENTS.md"),
++            failure: InjectedFailure::ReadStream {
++                chunk: b"abcd",
++                chunks: 1,
++                pending_tail: false,
++                error_tail: Some(io::ErrorKind::PermissionDenied),
++            },
++            metadata_calls: Arc::clone(&counts),
++        };
++        let result = read_agents_md(
++            &config.config,
++            &filesystem,
++            "local",
++            &PathUri::from_abs_path(&config.cwd),
++            limit,
++            None,
++        )
++        .await;
++        if succeeds {
++            assert_eq!(result.unwrap().unwrap().text(), "abc");
++        } else {
++            assert_eq!(result.unwrap_err().kind(), io::ErrorKind::PermissionDenied);
++        }
++        assert_eq!(counts.full_reads.load(Ordering::SeqCst), 0);
++        assert_eq!(counts.stream_polls.load(Ordering::SeqCst), polls);
++        assert_eq!(counts.stream_drops.load(Ordering::SeqCst), 1);
++    }
++}
++
++#[tokio::test]
++async fn project_doc_stream_is_dropped_when_loading_is_cancelled() {
++    let tmp = tempfile::tempdir().unwrap();
++    fs::write(tmp.path().join("AGENTS.md"), "fixture").unwrap();
++    let config = make_config(&tmp, 8, None).await;
++    let counts = Arc::new(MetadataCallCounts::default());
++    let filesystem = FailingFileSystem {
++        path: config.cwd.join("AGENTS.md"),
++        failure: InjectedFailure::ReadStream {
++            chunk: b"abcd",
++            chunks: 1,
++            pending_tail: true,
++            error_tail: None,
++        },
++        metadata_calls: Arc::clone(&counts),
++    };
++    let cwd = PathUri::from_abs_path(&config.cwd);
++    {
++        let loading = read_agents_md(&config.config, &filesystem, "local", &cwd, 8, None);
++        tokio::pin!(loading);
++        tokio::select! {
++            result = &mut loading => panic!("instruction stream should wait: {result:?}"),
++            () = counts.stream_pending.notified() => {}
++        }
++        assert_eq!(counts.stream_drops.load(Ordering::SeqCst), 0);
++    }
++    assert_eq!(counts.full_reads.load(Ordering::SeqCst), 0);
++    assert_eq!(counts.stream_drops.load(Ordering::SeqCst), 1);
++}
++
++#[tokio::test]
++async fn project_doc_stream_skips_a_file_that_vanishes_during_reading() {
++    let tmp = tempfile::tempdir().unwrap();
++    fs::write(tmp.path().join("AGENTS.md"), "fixture").unwrap();
++    let config = make_config(&tmp, 8, None).await;
++    let counts = Arc::new(MetadataCallCounts::default());
++    let filesystem = FailingFileSystem {
++        path: config.cwd.join("AGENTS.md"),
++        failure: InjectedFailure::ReadStream {
++            chunk: b"abcd",
++            chunks: 1,
++            pending_tail: false,
++            error_tail: Some(io::ErrorKind::NotFound),
++        },
++        metadata_calls: Arc::clone(&counts),
++    };
++    assert!(
++        read_agents_md(
++            &config.config,
++            &filesystem,
++            "local",
++            &PathUri::from_abs_path(&config.cwd),
++            8,
++            None,
++        )
++        .await
++        .unwrap()
++        .is_none()
++    );
++    assert_eq!(counts.full_reads.load(Ordering::SeqCst), 0);
++    assert_eq!(counts.stream_drops.load(Ordering::SeqCst), 1);
++}
++
++#[tokio::test]
++async fn project_doc_stream_keeps_the_budget_after_a_blank_prefix() {
++    let tmp = tempfile::tempdir().unwrap();
++    fs::write(tmp.path().join(".git"), "").unwrap();
++    fs::write(tmp.path().join("AGENTS.md"), "     ").unwrap();
++    let nested = tmp.path().join("nested");
++    fs::create_dir(&nested).unwrap();
++    fs::write(nested.join("AGENTS.md"), "abcdef").unwrap();
++    let mut config = make_config(&tmp, 2, None).await;
++    config.cwd = nested.abs();
++    assert_eq!(load_agents_md(&config).await.unwrap().text(), "ab");
++}
++
++#[tokio::test]
++async fn project_doc_zero_budget_never_opens_or_discovers_sources() {
++    let tmp = tempfile::tempdir().unwrap();
++    let config = make_config(&tmp, 0, None).await;
++    let counts = Arc::new(MetadataCallCounts::default());
++    let filesystem = FailingFileSystem {
++        path: config.cwd.join("AGENTS.md"),
++        failure: InjectedFailure::Read(io::ErrorKind::PermissionDenied),
++        metadata_calls: Arc::clone(&counts),
++    };
++    assert!(
++        read_agents_md(
++            &config.config,
++            &filesystem,
++            "local",
++            &PathUri::from_abs_path(&config.cwd),
++            0,
++            None,
++        )
++        .await
++        .unwrap()
++        .is_none()
++    );
++    assert!(counts.paths.lock().unwrap().is_empty());
++    assert_eq!(counts.full_reads.load(Ordering::SeqCst), 0);
++    assert_eq!(counts.stream_polls.load(Ordering::SeqCst), 0);
++}
++
+ /// Oversize file is truncated to `project_doc_max_bytes`.
+ #[tokio::test]
+ async fn doc_larger_than_limit_is_truncated() {
