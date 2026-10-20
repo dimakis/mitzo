@@ -17,6 +17,8 @@ import {
   type TelosOrdinaryWorkRoleSetupIntent,
 } from '@mitzo/protocol';
 import Database from 'better-sqlite3';
+import { TelosWorkControls } from './telos-work-controls.js';
+import type { TelosWorkControlScope } from '@mitzo/protocol';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
@@ -121,6 +123,51 @@ export class TelosWorkStore {
   }
   close() {
     if (this.db.open) this.db.close();
+  }
+  private controls() {
+    return new TelosWorkControls(
+      this.db,
+      (id) => this.snapshot(id),
+      this.policy.ordinaryConversation,
+    );
+  }
+  controlInbox(itemId: string, actor: TelosWorkActor) {
+    return this.controls().inbox(itemId, actor);
+  }
+  requestControl(raw: unknown, actor: TelosWorkActor) {
+    return this.controls().request(raw, actor);
+  }
+  readControl(id: string, actor: TelosWorkActor) {
+    return this.controls().read(id, actor);
+  }
+  acknowledgeControl(raw: unknown, actor: TelosWorkActor) {
+    return this.controls().acknowledge(raw, actor);
+  }
+  releaseControl(raw: unknown, actor: TelosWorkActor) {
+    return this.controls().release(raw, actor);
+  }
+  assertControlAction(itemId: string, scope: TelosWorkControlScope, mainCommit?: string) {
+    this.controls().assertAction(itemId, scope, mainCommit);
+  }
+  enforceControlAction(
+    itemId: string,
+    scope: TelosWorkControlScope,
+    conversationId: string,
+    mainCommit?: string,
+  ) {
+    this.controls().enforceAction(itemId, scope, conversationId, mainCommit);
+  }
+  recordControlAppliedForHost(
+    raw: unknown,
+    verify: Parameters<TelosWorkControls['recordApplied']>[1],
+  ) {
+    this.controls().recordApplied(raw, verify);
+  }
+  recordControlRevalidationForHost(
+    raw: unknown,
+    verify: Parameters<TelosWorkControls['recordRevalidation']>[1],
+  ) {
+    this.controls().recordRevalidation(raw, verify);
   }
   /** Internal operator-only advisor save port. Receipt identity shares the
    * existing command owner; no conversation capability or dispatch is granted. */
@@ -1338,11 +1385,13 @@ export class TelosWorkStore {
         'SELECT 1 FROM telos_work_delegation_requests WHERE attempt_id=? AND receipt IS NOT NULL LIMIT 1',
       )
       .get(intent.attemptId);
-    if (!receipt)
+    if (!receipt) {
+      this.assertControlAction(input.leadItemId, 'new_worker_dispatch');
       for (const pin of intent.recordRevisions) {
         if (hash(this.item(pin.itemId)) !== pin.sha256)
           conflict('Reviewed delegation context changed');
       }
+    }
   }
   delegationRequestForHost(
     requestId: string,
@@ -1706,13 +1755,45 @@ export class TelosWorkStore {
   executionTaskBinding(
     executionTaskId: string,
     workerConversationId: string,
+    requireCurrentAuthority = false,
   ): TelosWorkAttempt | null {
     const row = this.db
       .prepare(
         "SELECT data FROM telos_work_attempts WHERE json_extract(data,'$.executionTaskId')=? AND json_extract(data,'$.workerConversationId')=?",
       )
       .get(executionTaskId, workerConversationId) as JsonRow | undefined;
-    return row ? TelosWorkAttemptSchema.parse(JSON.parse(row.data)) : null;
+    const attempt = row ? TelosWorkAttemptSchema.parse(JSON.parse(row.data)) : null;
+    if (attempt && requireCurrentAuthority) {
+      const child = this.snapshot(attempt.childItemId);
+      const assigned = child.assignments.find((assignment) => assignment.role === 'worker');
+      const latest = child.attempts.at(-1);
+      if (
+        !this.policy.ordinaryConversation(workerConversationId) ||
+        latest?.attemptId !== attempt.attemptId ||
+        (assigned && assigned.conversation.conversationId !== workerConversationId)
+      )
+        throw new TelosWorkError('unauthorized', 'Worker execution authority has been superseded');
+    }
+    return attempt;
+  }
+  /** New-command/physical-dispatch fence only. Running output callbacks retain
+   * their original reviewed context. A scope change requires an explicit newly
+   * reviewed retry; neither this guard nor a source save can rewrite a packet. */
+  assertExecutionBriefCurrent(executionTaskId: string, workerConversationId: string): void {
+    this.db.transaction(() => {
+      const attempt = this.executionTaskBinding(executionTaskId, workerConversationId, true);
+      if (!attempt) throw new TelosWorkError('unauthorized', 'Exact delegated worker required');
+      const row = this.db
+        .prepare('SELECT intent FROM telos_work_delegation_requests WHERE attempt_id=? LIMIT 1')
+        .get(attempt.attemptId) as { intent: string } | undefined;
+      if (!row) conflict('Reviewed execution context unavailable');
+      const intent = JSON.parse(row.intent) as TelosWorkDelegationIntent;
+      for (const pin of intent.recordRevisions)
+        if (hash(this.item(pin.itemId)) !== pin.sha256)
+          conflict(
+            'Reviewed execution context changed; explicitly review and adopt a new worker attempt',
+          );
+    })();
   }
   /** Host-only task-owner reconciliation. This binds retained allocation authority;
    * it does not start execution, assign a worker, or rewrite role context.

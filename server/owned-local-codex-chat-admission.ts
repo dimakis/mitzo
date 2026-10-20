@@ -387,7 +387,10 @@ export class OwnedLocalCodexChatAdmission {
   }
   canClaimCommand(commandId: string): boolean {
     this.assertCurrentSync();
-    if (commandId === this.owner.commandId) return true;
+    if (commandId === this.owner.commandId)
+      return (
+        this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId)?.state === 'consumed'
+      );
     const continuation = this.#continuations.get(commandId);
     if (!continuation) return false;
     continuation.assertCurrentSync();
@@ -402,12 +405,8 @@ export class OwnedLocalCodexChatAdmission {
       return;
     }
     this.assertCurrentSync();
-    this.assertReceipt(!this.#continuation);
-    if (
-      this.#continuation &&
-      !this.#resume &&
-      this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId)?.state !== 'consumed'
-    )
+    this.assertReceipt();
+    if (this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId)?.state !== 'consumed')
       throw unavailable();
     if (!this.#enqueued || this.#dispatched || commandId !== this.owner.commandId)
       throw unavailable();

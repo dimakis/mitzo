@@ -452,6 +452,40 @@ export class CodexConversationStore {
   hasConversation(id: string): boolean {
     return Boolean(this.db.prepare('SELECT 1 FROM codex_conversations WHERE id=?').get(id));
   }
+  /** Existing native ACK history also covers workers started before dispatch
+   * boundary events were added. Queue/claim/thread creation alone prove no turn. */
+  hasAcceptedProviderTurn(id: string, binding: AccountBinding): boolean {
+    if (!this.hasConversation(id)) return false;
+    this.read(id, binding);
+    return Boolean(
+      this.db
+        .prepare('SELECT 1 FROM codex_capacity_native_acks WHERE conversation_id=? LIMIT 1')
+        .get(id),
+    );
+  }
+  acceptedProviderTurnForCommand(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+    expectedPrompt?: string,
+  ) {
+    this.read(id, binding);
+    return this.db
+      .prepare(
+        `SELECT a.thread_id AS threadId,a.turn_id AS turnId FROM codex_capacity_native_acks a
+         JOIN codex_commands c ON c.conversation_id=a.conversation_id AND c.id=a.command_id
+         WHERE a.conversation_id=? AND a.command_id=?
+         AND (? IS NULL OR (json_extract(c.input,'$.prompt')=? AND COALESCE(json_extract(c.input,'$.intent'),json_extract(c.input,'$.prompt'))=?))
+         ORDER BY a.attempt DESC LIMIT 1`,
+      )
+      .get(
+        id,
+        commandId,
+        expectedPrompt ?? null,
+        expectedPrompt ?? null,
+        expectedPrompt ?? null,
+      ) as { threadId: string; turnId: string } | undefined;
+  }
   read(id: string, b: AccountBinding): Conversation {
     const row = this.db
       .prepare(

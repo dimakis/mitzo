@@ -82,7 +82,7 @@ it('requires retained worker context and matching durable task and work owners w
   expect(() =>
     assertTelosWorkExecutionAuthority(f.owners, 'worker', account, 'task'),
   ).not.toThrow();
-  expect(f.executionTaskBinding).toHaveBeenCalledWith('task', 'worker');
+  expect(f.executionTaskBinding).toHaveBeenCalledWith('task', 'worker', true);
   expect(JSON.stringify(f.events)).toBe(before);
   for (const key of [
     'attemptId',

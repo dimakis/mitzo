@@ -76,3 +76,34 @@ export function resolveTelosWorkCommandScope(
   );
   return { currentTaskId: taskId, goalId: taskId };
 }
+
+/** Called for new queue admission and immediately before physical provider
+ * dispatch. Do not use for tools/completion inside an already running turn. */
+export function assertTelosWorkCommandAdmission(
+  owners: Omit<Owners, 'work' | 'events'> & {
+    /** Trusted native history for conversations predating dispatch events. */
+    hasAcceptedProviderTurn?(sessionId: string, account: AccountBinding | undefined): boolean;
+    events: Owners['events'] & Pick<EventStore, 'hasProviderDispatchForConversation'>;
+    work(): Pick<
+      TelosWorkStore,
+      | 'executionTaskBinding'
+      | 'delegationAllocationForHost'
+      | 'assertExecutionBriefCurrent'
+      | 'enforceControlAction'
+    >;
+  },
+  sessionId: string,
+  account: AccountBinding | undefined,
+): void {
+  const scope = resolveTelosWorkCommandScope(owners, sessionId, account);
+  const selected = resolveTelosWorkRoleContext(owners.events, sessionId, account);
+  if (!selected) return;
+  owners.work().enforceControlAction(selected.itemId, 'safe_point', sessionId);
+  if (
+    scope &&
+    !owners.events.hasProviderDispatchForConversation(sessionId) &&
+    !owners.hasAcceptedProviderTurn?.(sessionId, account)
+  )
+    owners.work().enforceControlAction(selected.itemId, 'new_worker_dispatch', sessionId);
+  if (scope) owners.work().assertExecutionBriefCurrent(scope.currentTaskId, sessionId);
+}

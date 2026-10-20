@@ -256,6 +256,7 @@ function options(abortController: AbortController) {
     mcpServers: {},
     profile: { planType: 'api', credentialRef: '/test/login' },
     eventStore: {
+      append: vi.fn(),
       getRecentConversationText: () => [],
       getSession: () => undefined,
       getSessionEvents: () => [],
@@ -3164,6 +3165,7 @@ it('rechecks owned command authority immediately before native enqueue and provi
   try {
     const query = await openCodexChat({ ...f.opts, assertAgentContextAuthorization: guard });
     const callbacks = mocks.conversationOptions!;
+    expect(f.eventStore.hasProviderDispatchForConversation('owned-session')).toBe(false);
     current = false;
     expect(() => (callbacks.beforeEnqueue as (input: unknown) => void)({})).toThrow(
       'scope revoked',
@@ -3173,6 +3175,7 @@ it('rechecks owned command authority immediately before native enqueue and provi
     );
     expect(enqueue).not.toHaveBeenCalled();
     expect(dispatch).not.toHaveBeenCalled();
+    expect(f.eventStore.hasProviderDispatchForConversation('owned-session')).toBe(false);
     expect(callbacks.environmentContinuationOwner).toBeUndefined();
     current = true;
     query.close();
@@ -3222,7 +3225,10 @@ it('uses the already verified owned client locally regardless of global OpenShel
       model: 'owned-model',
       reasoningEffort: null,
     });
+    expect(f.eventStore.hasProviderDispatchForConversation('owned-session')).toBe(false);
+    f.eventStore.completeOrdinaryLocalCommand('owned-command');
     (config.onProviderDispatch as (id: string) => void)('owned-command');
+    expect(f.eventStore.hasProviderDispatchForConversation('owned-session')).toBe(true);
     const source = {
       commandId: 'owned-command',
       messageId: 'visible-owned-reply',
@@ -3373,6 +3379,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         ...profileToolDefinitions.map((tool) => tool.name),
         'AgentReadTasks',
         'AgentProposeTask',
+        'AgentCommunication',
         'RequestGithubPublish',
         mcpDefinition.name,
       ].sort(),
@@ -4711,3 +4718,98 @@ it.each([false, true])(
     }
   },
 );
+
+it('CT10/CT12: fences a newly queued or dispatching work command separately from an active turn context', async () => {
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const f = ownedLocalOptions();
+  let current = true;
+  const guard = vi.fn(() => {
+    if (!current) throw Error('Reviewed work admission changed');
+  });
+  const context = vi.fn();
+  const dispatch = vi.spyOn(f.ownedLocal, 'assertBeforeDispatch');
+  try {
+    const query = await openCodexChat({
+      ...f.opts,
+      assertAgentContextAuthorization: context,
+      assertWorkTurnAdmission: guard,
+    });
+    const callbacks = mocks.conversationOptions!;
+    current = false;
+    expect(() => (callbacks.beforeEnqueue as (input: unknown) => void)({})).toThrow(
+      'work admission changed',
+    );
+    expect(() => (callbacks.onProviderDispatch as (id: string) => void)('owned-command')).toThrow(
+      'work admission changed',
+    );
+    expect(dispatch).not.toHaveBeenCalled();
+    // Active-turn context authorization is independent of later brief saves.
+    await (callbacks.prepareAgentContext as (signal: AbortSignal) => Promise<void>)(
+      new AbortController().signal,
+    );
+    current = true;
+    query.close();
+  } finally {
+    f.eventStore.close();
+  }
+});
+
+it('CT12: a retained ordinary lead gets the scoped control tool with unchanged-input approval and current-owner checks', async () => {
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const f = ownedLocalOptions();
+  retainTelosWorkRoleContext(f.eventStore, f.opts.conversationId, f.opts.binding, {
+    version: 1,
+    itemId: 'outcome',
+    role: 'lead',
+    brief: {
+      revision: 'r1',
+      text: 'Reviewed lead brief',
+      sha256: createHash('sha256').update('Reviewed lead brief').digest('hex'),
+    },
+    parentCriteria: [],
+    overallGoal: { itemId: 'outcome', revision: 'r1', text: 'Outcome' },
+    sources: [],
+    artifacts: [],
+  });
+  let ownerId = 'lead-client';
+  f.opts.registry = {
+    findBySessionId: () => ({ clientId: ownerId, session: f.opts.session }),
+    get: () => f.opts.session,
+  } as never;
+  const chat = await openCodexChat(f.opts);
+  try {
+    expect(mocks.conversationOptions?.tools).toContainEqual(
+      expect.objectContaining({ name: 'TelosWorkControl' }),
+    );
+    const execute = mocks.conversationOptions!.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+    ) => Promise<{ content: string; isError: boolean }>;
+    const input = { command: { operation: 'inbox', itemId: 'outcome' } };
+    const fetch = vi.fn().mockResolvedValue(new Response('[]'));
+    vi.stubGlobal('fetch', fetch);
+    mocks.permissionHandler.mockResolvedValueOnce({ behavior: 'allow', updatedInput: input });
+    expect((await execute('TelosWorkControl', input, new AbortController().signal)).isError).toBe(
+      false,
+    );
+    fetch.mockClear();
+    mocks.permissionHandler.mockImplementationOnce(async () => {
+      ownerId = 'replacement';
+      return { behavior: 'allow', updatedInput: input };
+    });
+    await expect(execute('TelosWorkControl', input, new AbortController().signal)).rejects.toThrow(
+      /owner changed/i,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  } finally {
+    chat.close();
+    f.eventStore.close();
+  }
+});

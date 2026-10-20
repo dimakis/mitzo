@@ -2,7 +2,10 @@ import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import type { LocalWorkspaceRecord } from './ordinary-local-workspace-owner.js';
 import type { LocalWorkspaceKind } from './ordinary-local-workspace-owner.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
-import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
+import {
+  resolveTelosWorkCommandScope,
+  assertTelosWorkCommandAdmission,
+} from './telos-work-command-scope.js';
 import { TelosWorkStore } from './telos-work-store.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
@@ -12,7 +15,7 @@ import {
 } from './ordinary-local-vertex-sdk-query.js';
 import { LocalVertexClaudeFirstCommandSchema } from '@mitzo/protocol';
 import type { OrdinaryLocalVertexCommandOwner } from './ordinary-local-vertex-command-owner.js';
-import type { OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
+import type { AccountBinding, OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
 import { OrdinaryLocalVertexSdkAuthority } from './ordinary-local-vertex-sdk-authority.js';
 import {
   OrdinaryLocalResponsesOwnedRuntime,
@@ -202,22 +205,32 @@ export function setTaskStore(store: TaskStore): void {
 /** Existing ordinary admission calls this before effects and after awaits.
  * Only a proven durable mapping can attach task-tool context to a live chat.
  */
-export function resolveOwnedTelosWorkCommandScope(sessionId: string) {
+export function resolveOwnedTelosWorkCommandScope(sessionId: string, forNewCommand = false) {
   let work: TelosWorkStore | undefined;
   try {
+    const owners = {
+      events: eventStore,
+      tasks: _taskStore,
+      hasAcceptedProviderTurn: (id: string, account: AccountBinding | undefined) =>
+        account?.provider === 'openai-codex' &&
+        getCodexConversationStore().hasAcceptedProviderTurn(id, account),
+      work: () =>
+        (work ??= new TelosWorkStore(
+          process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
+          {
+            ordinaryConversation: (id) =>
+              isAvailableTelosWorkConversation(eventStore.getSession(id)),
+          },
+        )),
+    };
+    if (forNewCommand)
+      assertTelosWorkCommandAdmission(
+        owners,
+        sessionId,
+        eventStore.getSession(sessionId)?.accountBinding ?? undefined,
+      );
     const scope = resolveTelosWorkCommandScope(
-      {
-        events: eventStore,
-        tasks: _taskStore,
-        work: () =>
-          (work ??= new TelosWorkStore(
-            process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
-            {
-              ordinaryConversation: (id) =>
-                isAvailableTelosWorkConversation(eventStore.getSession(id)),
-            },
-          )),
-      },
+      owners,
       sessionId,
       eventStore.getSession(sessionId)?.accountBinding ?? undefined,
     );
@@ -3152,7 +3165,7 @@ export async function startOwnedLocalCodexCommand(
           session.ownedLocalAuthSessionId !== ownerAuthSessionId
         )
           throw unavailable();
-        resolveOwnedTelosWorkCommandScope(sessionId);
+        resolveOwnedTelosWorkCommandScope(sessionId, !!dispatch.agentMessageId);
         await native.admitExplicitSend(
           {
             id: dispatch.commandId,
@@ -3171,19 +3184,20 @@ export async function startOwnedLocalCodexCommand(
         );
         dispatch.preparationSignal?.throwIfAborted();
         resolveOwnedTelosWorkCommandScope(sessionId);
-        storeAndEchoIfNew(
-          sessionId,
-          dispatch.commandId,
-          dispatch.payload.text,
-          current.clientId,
-          session.transport,
-          session.observers,
-          imagePreviews(dispatch.payload.images),
-          undefined,
-          dispatch.payload.sourceSnapshots,
-          'user',
-          false,
-        );
+        if (!dispatch.agentMessageId)
+          storeAndEchoIfNew(
+            sessionId,
+            dispatch.commandId,
+            dispatch.payload.text,
+            current.clientId,
+            session.transport,
+            session.observers,
+            imagePreviews(dispatch.payload.images),
+            undefined,
+            dispatch.payload.sourceSnapshots,
+            'user',
+            false,
+          );
       },
       dispatch: async (dispatch) => {
         if (prepared || released || !driver) throw unavailable();
@@ -3217,6 +3231,8 @@ export async function startOwnedLocalCodexCommand(
       initialPreparationOperationId: preparationOperationId,
       initialResume: resume,
       admit: (command, signal) => retainedDriver.admitContinuation(command, signal),
+      admitAgentMessage: (messageId, assertSenderCurrent, signal) =>
+        retainedDriver.admitAgentMessage(messageId, assertSenderCurrent, signal),
       retryInitial: (command) =>
         preparationOperationId !== undefined
           ? retainedDriver.admitPreparedFirst(preparationOperationId, command)
@@ -3498,6 +3514,10 @@ export async function prepareOwnedCodexChat(
         admission.assertCurrentSync();
         resolveOwnedTelosWorkCommandScope(sessionId);
       },
+      assertWorkTurnAdmission: () => {
+        admission.assertCurrentSync();
+        resolveOwnedTelosWorkCommandScope(sessionId, true);
+      },
       assertAgentContextAuthorization: () => {
         admission.assertCurrentSync();
         resolveOwnedTelosWorkCommandScope(sessionId);
@@ -3591,6 +3611,15 @@ export async function prepareOwnedCodexChat(
         }
       };
       try {
+        if (localAdmission) {
+          // openCodexChat can enqueue and attempt a pump while the owning
+          // admission is uncertain. Consumption does not itself wake that
+          // native FIFO: release the original queue here, exactly once, after
+          // this owner's consumed/identity checks. Never resume paused work.
+          const native = getCodexRuntime(session);
+          if (!native) throw unavailable();
+          await native.startQueued();
+        }
         await runQueryLoop(
           safeEvents(),
           currentClientId,

@@ -15,9 +15,10 @@ import { openCodexChat } from '../codex-chat-session.js';
 import { createWorktree } from '../worktree.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
+const nativeQueues = vi.hoisted(() => new WeakMap<object, { startQueued(): Promise<void> }>());
 vi.mock('../codex-chat-session.js', () => ({
   openCodexChat: vi.fn(),
-  getCodexRuntime: () => undefined,
+  getCodexRuntime: (session: object) => nativeQueues.get(session),
   publicCodexStartupError: () => 'Offline native startup failure',
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
@@ -234,8 +235,10 @@ function fixture(store?: EventStore, withContext = false) {
     commandId,
   };
   const transport = { send: vi.fn(), isOpen: () => true };
+  const nativeState = { dispatchCount: 0 };
   const nativeQuery = {
     [Symbol.asyncIterator]: vi.fn(async function* () {
+      expect(nativeState.dispatchCount).toBe(1);
       yield { type: 'system', subtype: 'init', session_id: id };
       yield {
         type: 'stream_event',
@@ -276,16 +279,27 @@ function fixture(store?: EventStore, withContext = false) {
       model: options.model,
       reasoningEffort: options.reasoningEffort,
     });
-    options.ownedLocal!.assertBeforeDispatch(options.messageId);
-    if (withContext) {
-      await options.prepareAgentContext?.(options.session.abortController.signal);
-      options.onAgentContextAccepted?.(
-        options.messageId,
-        'retained-thread',
-        'accepted-turn',
-        'f'.repeat(64),
-      );
-    }
+    expect(options.ownedLocal!.canClaimCommand(options.messageId)).toBe(false);
+    expect(() => options.ownedLocal!.assertBeforeDispatch(options.messageId)).toThrow();
+    // Model the original native queue. Only the production prepared run may
+    // wake it after its coordinator commits consumed; tests never pump it.
+    nativeQueues.set(options.session, {
+      startQueued: async () => {
+        expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('consumed');
+        expect(options.ownedLocal!.canClaimCommand(options.messageId)).toBe(true);
+        options.ownedLocal!.assertBeforeDispatch(options.messageId);
+        nativeState.dispatchCount++;
+        if (withContext) {
+          await options.prepareAgentContext?.(options.session.abortController.signal);
+          options.onAgentContextAccepted?.(
+            options.messageId,
+            'retained-thread',
+            'accepted-turn',
+            'f'.repeat(64),
+          );
+        }
+      },
+    });
     return nativeQuery;
   });
   const ended = vi.fn();
@@ -296,6 +310,7 @@ function fixture(store?: EventStore, withContext = false) {
     commandId,
     transport,
     nativeQuery,
+    nativeState,
     lease,
     ended,
     serverOptions: { onEnded: ended },
@@ -313,6 +328,7 @@ it('prepares exact existing native ownership under uncertainty and runs shared s
   });
   expect(f.events.getOrdinaryLocalCommandAdmission(f.commandId)?.state).toBe('uncertain');
   expect(f.nativeQuery[Symbol.asyncIterator]).not.toHaveBeenCalled();
+  expect(f.nativeState.dispatchCount).toBe(0);
   const options = vi.mocked(openCodexChat).mock.calls.at(-1)![0];
   expect(options).toMatchObject({
     ownedLocal: f.input.admission,
@@ -332,6 +348,7 @@ it('prepares exact existing native ownership under uncertainty and runs shared s
   await expect(prepared.run()).rejects.toThrow('Owned local Codex chat unavailable');
   f.events.completeOrdinaryLocalCommand(f.commandId);
   await prepared.run();
+  expect(f.nativeState.dispatchCount).toBe(1);
   expect(f.nativeQuery[Symbol.asyncIterator]).toHaveBeenCalledOnce();
   expect(
     f.events.getSessionEvents(f.id).filter((event) => event.type === 'user_message'),
@@ -674,6 +691,12 @@ it('delivers the pinned context through shared owned startup and records only pr
   );
   const options = vi.mocked(openCodexChat).mock.calls.at(-1)![0];
   expect(options.agentContext).toEqual(f.input.expected.agentContext);
+  expect(JSON.parse(f.events.getSession(f.id)!.bootContext!).receipt.status).toBe('prepared');
+  expect(
+    f.events.getSessionEvents(f.id).some((event) => event.type === 'agent_context_accepted'),
+  ).toBe(false);
+  f.events.completeOrdinaryLocalCommand(f.commandId);
+  await prepared.run();
   expect(JSON.parse(f.events.getSession(f.id)!.bootContext!).receipt.status).toBe('accepted');
   expect(
     f.events.getSessionEvents(f.id).find((event) => event.type === 'agent_context_accepted')
@@ -684,6 +707,4 @@ it('delivers the pinned context through shared owned startup and records only pr
     providerTurnId: 'accepted-turn',
     payloadHash: f.input.expected.agentContext!.payloadHash,
   });
-  f.events.completeOrdinaryLocalCommand(f.commandId);
-  await prepared.run();
 });
