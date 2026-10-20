@@ -172,6 +172,31 @@ export function buildPermissionHandler(
   ): Promise<PermissionResult> => {
     const session = registry.get(clientId);
     if (!session) return { behavior: 'deny', message: 'Session not found' };
+    const telosReview = [
+      'TelosCreateOutcome',
+      'mcp__telos__TelosCreateOutcome',
+      'TelosAdoptSource',
+      'mcp__telos__TelosAdoptSource',
+    ].includes(toolName);
+    if (telosReview) {
+      opts = {
+        ...opts,
+        forcePrompt: true,
+        allowSessionGrant: false,
+        rememberSessionGrant: false,
+        approvalScope: 'request',
+      };
+      if (
+        !session.sessionId ||
+        !opts.toolUseID ||
+        Object.hasOwn(_toolInput, '__mitzoTelosApproval')
+      )
+        return {
+          behavior: 'deny',
+          message:
+            'A registered conversation and fresh host invocation are required for reviewed Telos capture.',
+        };
+    }
     const currentClientId = (): string | undefined => {
       if (!session.sessionId) return registry.get(clientId) === session ? clientId : undefined;
       const owner = registry.findBySessionId(session.sessionId, true);
@@ -245,7 +270,22 @@ export function buildPermissionHandler(
       };
     }
 
-    const displayInput = questions ? '' : permissionDisplayInput(toolName, _toolInput);
+    const displayInput = questions
+      ? ''
+      : telosReview
+        ? JSON.stringify(
+            {
+              operation: toolName,
+              summary: _toolInput.summary ?? null,
+              itemId: _toolInput.itemId ?? null,
+              proposalSha256: createHash('sha256').update(JSON.stringify(_toolInput)).digest('hex'),
+              review:
+                'Review the complete host proposal and select its original exchange before saving.',
+            },
+            null,
+            2,
+          )
+        : permissionDisplayInput(toolName, _toolInput);
     if (displayInput === undefined)
       return {
         behavior: 'deny',
@@ -253,14 +293,24 @@ export function buildPermissionHandler(
       };
     const inputSummary = summarizeToolInput(toolName, _toolInput);
     const tier = getToolTier(toolName);
+    const permId = telosReview
+      ? 'perm-telos-' +
+        createHash('sha256')
+          .update(JSON.stringify([session.sessionId, toolName, opts.toolUseID]))
+          .digest('hex')
+      : `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    if (telosReview && hasPending(permId))
+      return {
+        behavior: 'deny',
+        message:
+          'This exact Telos source approval is already pending. Use its existing review card.',
+      };
 
     return new Promise<PermissionResult>((resolve) => {
       if (opts.signal.aborted) {
         resolve({ behavior: 'deny', message: 'Aborted' });
         return;
       }
-
-      const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       let resolutionEvent = 'permission_resolved';
       let untrackScope = () => {};
@@ -296,7 +346,7 @@ export function buildPermissionHandler(
             void pending.acceptRetainedGrant();
         }
         const resolved = { type: resolutionEvent, permId, sessionId: session.sessionId };
-        for (const transport of new Set([session.transport, ...session.observers]))
+        for (const transport of registry.getPermissionTransports(session))
           transportSend(transport, resolved);
         resolve(result);
         return result;
@@ -315,6 +365,7 @@ export function buildPermissionHandler(
       opts.signal.addEventListener('abort', onAbort, { once: true });
 
       const request: PermissionRequest = {
+        ...(telosReview ? { reviewKind: 'telos_source' as const } : {}),
         permId,
         toolName,
         toolInput: displayInput,
@@ -339,6 +390,17 @@ export function buildPermissionHandler(
         tier,
         session.sessionId,
         request,
+        telosReview
+          ? {
+              toolUseId: opts.toolUseID,
+              canApprove: () =>
+                !opts.signal.aborted &&
+                !!currentClientId() &&
+                !askDenial() &&
+                (opts.controlPlane ||
+                  checkSkillPolicy(registry, currentClientId()!, toolName) !== 'deny'),
+            }
+          : undefined,
       );
 
       if (ntfyConfigured() || pushoverConfigured()) {
@@ -410,7 +472,7 @@ export function buildPermissionHandler(
         });
       }
       const event = { type: 'permission_request', ...request };
-      for (const transport of new Set([session.transport, ...session.observers]))
+      for (const transport of registry.getPermissionTransports(session))
         transportSend(transport, event);
     });
   };

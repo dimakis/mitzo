@@ -1,0 +1,11 @@
+{
+  "repository": "dimakis/mgmt",
+  "commit": "3077b7b4dcdf0ef097062794b2ab93d33c1d89ad",
+  "sourceFilesMatchCommit": true,
+  "generation": "Actual TodoStore fresh initialization and _migrate(), empty disposable database. No user rows. Not a fixture-only schema patch or migration acceptance.",
+  "files": {
+    "command_center/lib/todo/store.py": "5d3c950b0c5f8c8e9233530c2d7fb170c65f271ff48d78727187d2baf9899a9e",
+    "command_center/lib/todo/models.py": "82638fb8d9b955b311468a84d09524be4ed22e64f4727b30ed312fbf76ddccd0"
+  },
+  "schemaSha256": "d3c1c89e850731217b0cd66a57adc5832b2994e12b2f60b6f5c6cb3405cac7f7"
+}

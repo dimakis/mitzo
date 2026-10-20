@@ -12,7 +12,7 @@ afterEach(() => {
   pool?.close();
   if (root) rmSync(root, { recursive: true, force: true });
 });
-function fixture() {
+function fixture(physicalInventory?: (signal: AbortSignal) => Promise<unknown>) {
   root = mkdtempSync(join(tmpdir(), 'pool-router-'));
   const prepare = vi.fn();
   pool = new OpenShellWarmPool(join(root, 'pool.db'), {
@@ -36,6 +36,7 @@ function fixture() {
         next();
       },
       conversations: () => [],
+      physicalInventory,
     }),
   );
   return { app, prepare };
@@ -46,6 +47,27 @@ it('requires operator authorization even for inventory and never provisions on G
   const r = await request(f.app).get('/api/sandboxes').set('operator', 'yes').expect(200);
   expect(r.body.settings.enabled).toBe(false);
   expect(f.prepare).not.toHaveBeenCalled();
+});
+it('reports the physical gateway count separately from pool and conversation ledgers', async () => {
+  const physicalInventory = vi.fn(async () => ({
+    available: true,
+    total: 122,
+    counts: { Ready: 42, Stopped: 74, Error: 6 },
+    items: [],
+  }));
+  const f = fixture(physicalInventory);
+  const r = await request(f.app).get('/api/sandboxes').set('operator', 'yes').expect(200);
+  expect(r.body.physicalInventory.total).toBe(122);
+  expect(f.prepare).not.toHaveBeenCalled();
+});
+it('reports unknown physical count on gateway failure while retaining recorded inventory', async () => {
+  const f = fixture(async () => {
+    throw Error('offline');
+  });
+  const r = await request(f.app).get('/api/sandboxes').set('operator', 'yes').expect(200);
+  expect(r.body.physicalInventory.available).toBe(false);
+  expect(r.body.physicalInventory.total).toBeUndefined();
+  expect(r.body.settings).toBeDefined();
 });
 it('validates saves, persists configuration and rejects stale writes', async () => {
   const f = fixture(),
@@ -77,4 +99,36 @@ it('does not accept an internal agent token as operator authorization', async ()
     .send({ action: 'prepare', revision: 0, requestId: 'agent' })
     .expect(403);
   expect(f.prepare).not.toHaveBeenCalled();
+});
+it('gates read-only ownership reviews behind operator authentication and preserves failures', async () => {
+  const review = vi.fn(async (_physicalId: string, _signal: AbortSignal) => ({
+    canDelete: false,
+    blockers: ['owner_unresolved'],
+  }));
+  const app = express();
+  app.use(
+    '/api/sandboxes',
+    createWarmPoolRouter({
+      pool: () => null,
+      conversations: () => [],
+      authorize: (req, res, next) =>
+        req.header('operator') === 'yes' ? next() : void res.sendStatus(403),
+      ownershipReview: review,
+    }),
+  );
+  await request(app).get('/api/sandboxes/physical/ownership').expect(403);
+  expect(review).not.toHaveBeenCalled();
+  const response = await request(app)
+    .get('/api/sandboxes/physical/ownership')
+    .set('operator', 'yes')
+    .expect(200);
+  expect(response.body.canDelete).toBe(false);
+  expect(review.mock.calls[0][0]).toBe('physical');
+  review.mockRejectedValueOnce(Error('private runtime details'));
+  const failed = await request(app)
+    .get('/api/sandboxes/physical/ownership')
+    .set('operator', 'yes')
+    .expect(409);
+  expect(failed.body.error).toContain('resources are retained');
+  expect(failed.text).not.toContain('private runtime details');
 });

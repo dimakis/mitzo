@@ -1,0 +1,366 @@
+{
+  "version": 1,
+  "surfaces": [
+    {
+      "id": "chat-settings",
+      "activeRevision": "quick-sheet-2026-10-17",
+      "revisions": [
+        {
+          "id": "quick-sheet-2026-10-17",
+          "approvedBy": "User (originating Codex conversation)",
+          "approvedOn": "2026-10-17",
+          "approval": {
+            "thread": "01a14967-a90d-7691-8b06-3e00950ef9ca",
+            "quote": "So I really, really like this design.",
+            "scope": "Quick sheet variant with OpenAI and Claude model marks and the existing OpenShell mark in Run on."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/chat-settings/quick-sheet.html",
+              "sha256": "281eaad8d89684cd7c16583cb9ca2c082cdfb64ab1cd3acb7647abc289c2736e"
+            },
+            {
+              "path": "docs/design/approved/chat-settings/approved-mock-dark.png",
+              "sha256": "c93d33e6512dd8894a8e27aca542b5a88579f37534a6b8c5eca225ec7e6a4847"
+            }
+          ],
+          "mainRows": [
+            "account",
+            "model",
+            "thinking",
+            "agent",
+            "execution",
+            "repository",
+            "more",
+            "defaults"
+          ],
+          "invariants": [
+            "One Chat settings sheet opened from the chat header; composer remains separate.",
+            "Quiet neutral header and rows; no tinted form groups or permanently expanded editors.",
+            "One field editor at a time with Back; Escape leaves an editor before closing the sheet.",
+            "Visual and keyboard row order agree; mobile targets are at least 44px.",
+            "OpenAI and Claude marks identify their models; existing OpenShell mark accompanies Run on.",
+            "Preserve all account, model, thinking, agent, execution, repository, permissions, web, voice, session and default actions, including unavailable and locked states.",
+            "Opening, closing and navigating retain editor state and composer drafts.",
+            "Shared theme, accent, font, motion and reduced-motion preferences remain effective."
+          ],
+          "sources": [
+            "frontend/src/components/WorkspaceControls.tsx",
+            "frontend/src/components/QuickChatSettings.tsx",
+            "frontend/src/components/QuickChatSettings.css",
+            "frontend/src/components/AccountModelPicker.tsx",
+            "frontend/src/components/ChatAgentProfilePicker.tsx",
+            "frontend/src/components/ChatExecutionPicker.tsx",
+            "frontend/src/components/RepositoryChatPicker.tsx",
+            "frontend/src/components/SettingsBrandMark.tsx",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx",
+            "frontend/src/styles/workspace-chat.css",
+            "frontend/src/styles/tokens.css",
+            "frontend/src/components/AgentSettingsPicker.tsx",
+            "frontend/src/components/SettingsBrandMark.css",
+            "frontend/src/lib/quick-settings-context.ts"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/QuickChatSettings.test.tsx",
+            "tests/offline/chat-settings-surface.spec.ts",
+            "tests/offline/multi-runtime-picker.spec.ts",
+            "tests/offline/local-first-command.spec.ts"
+          ],
+          "implementationEvidence": [
+            {
+              "path": "docs/design/approved/chat-settings/implemented-mobile-webkit-dark.png",
+              "kind": "offline implementation capture",
+              "appearance": "dark",
+              "browser": "mobile-webkit"
+            },
+            {
+              "path": "docs/design/approved/chat-settings/implemented-desktop-chromium-light.png",
+              "kind": "offline implementation capture",
+              "appearance": "light",
+              "browser": "desktop-chromium"
+            }
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/QuickChatSettings.test.tsx",
+              "sha256": "beb34896b1fb88690215c0a04a766993f53e2b6b2e9db4157b9644a205d63462"
+            },
+            {
+              "path": "tests/offline/chat-settings-surface.spec.ts",
+              "sha256": "723801bf293794ea06ca3cff7a5fe9287bfc69e75982102464d269c4c0396d08"
+            },
+            {
+              "path": "frontend/src/styles/__tests__/approved-designs.test.ts",
+              "sha256": "ee25f7e4111e60dd4cfb4d0da5d9d30a4d6dbd745eae6c0cfeabaa85f9b7b941"
+            }
+          ],
+          "validation": "docs/design/approved/chat-settings/VALIDATION.md"
+        }
+      ]
+    },
+    {
+      "id": "telos-priority-scale",
+      "activeRevision": "priority-scale-focused-contract-2026-10-18",
+      "revisions": [
+        {
+          "id": "priority-scale-2026-10-17",
+          "approvedBy": "User (current Codex conversation)",
+          "approvedOn": "2026-10-17",
+          "approval": {
+            "thread": "01a14b56-e8c7-7e21-aafb-e9b5b63ae917",
+            "quote": "Fine. That works. Implement this and only this.",
+            "scope": "Replace the binary priority affordance with a 1\u201310 selector in the existing item header and show the selected value as a compact P<n> badge in the existing Work tree. Preserve the rest of the approved Telos interface."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/telos-priority-scale/priority-scale.svg",
+              "sha256": "2bc9fb6bda585f4f66c8f7eab3f8dfdfa7881d6ab52da8b86831de8de2bb62a1"
+            }
+          ],
+          "invariants": [
+            "Priority is an integer from 1 to 10, with larger numbers displayed as higher priority.",
+            "The item header contains one labelled Priority selector showing the selected value out of 10.",
+            "The existing Work tree shows the same value as a compact P<n> badge.",
+            "The surrounding Telos layout, navigation, content and controls remain unchanged.",
+            "The priority amendment preserves existing grouping, urgency sorting and navigation."
+          ],
+          "sources": [
+            "frontend/src/pages/TodoDetailView.tsx",
+            "frontend/src/components/TodoCard.tsx",
+            "frontend/src/hooks/useTodoData.ts",
+            "frontend/src/types/todo.ts",
+            "frontend/src/styles/global.css",
+            "server/api-schemas.ts",
+            "server/app.ts",
+            "frontend/src/components/TodoPrioritySelect.tsx",
+            "frontend/src/lib/todo-utils.ts"
+          ],
+          "checks": [
+            "frontend/src/pages/__tests__/TodoDetailView.test.tsx",
+            "frontend/src/components/__tests__/TodoCard.test.tsx",
+            "frontend/src/pages/__tests__/TodoView.test.tsx",
+            "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+            "frontend/src/hooks/__tests__/useTodoData.test.ts",
+            "server/__tests__/todo-priority-schema.test.ts",
+            "tests/offline/telos-priority.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+              "sha256": "c1ab0bd0174975e67a3af37692e06c9851aa694295b54281b6d6c9e4c741382a"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/TodoView.test.tsx",
+              "sha256": "52bf6f956ff61077d8e788534b3cbb295071b1c7df19852185da7d9b4d255241"
+            },
+            {
+              "path": "tests/offline/telos-priority.spec.ts",
+              "sha256": "2d4627337c106756dfe92b98e5a7174cca1078d5ae8fd6e2806cfe118b83e893"
+            }
+          ]
+        },
+        {
+          "id": "priority-scale-focused-contract-2026-10-18",
+          "approvedBy": "Dimitri (explicit approval in review thread)",
+          "approvedOn": "2026-10-18",
+          "approval": {
+            "thread": "01a14bab-fcdb-7ab3-bfbc-ebfc74e42d59",
+            "quote": "Yea. I approve.",
+            "scope": "Isolate the verbatim priority grouping/urgency invariant in a dedicated protected test; apply shown S7 legacy expectation adaptations with draft/error assertions preserved; adapt protected browser coverage to the approved focused Back/P7/reopen navigation using the real shells and canonical records, preserving save/failure/reload/accessibility checks. Original SVG, selector protection and prior revision history remain unchanged.",
+            "turn": "01a14c29-d6d1-7fa2-8586-50692aae94ca",
+            "message": "01a14c2a-2235-77d3-9f61-e6eb82360675",
+            "proposalSha256": "1d4f869897f0f69028f0ee4b82e630bbd1da4f56893595d58cf48d2813232b91",
+            "checksumManifestSha256": "83198c980e034646e45a664071ab60d245dc2ffa3d118cb9660431571bf50a09"
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/telos-priority-scale/priority-scale.svg",
+              "sha256": "2bc9fb6bda585f4f66c8f7eab3f8dfdfa7881d6ab52da8b86831de8de2bb62a1"
+            }
+          ],
+          "invariants": [
+            "Priority is an integer from 1 to 10, with larger numbers displayed as higher priority.",
+            "The item header contains one labelled Priority selector showing the selected value out of 10.",
+            "The existing Work tree shows the same value as a compact P<n> badge.",
+            "The surrounding Telos layout, navigation, content and controls remain unchanged.",
+            "The priority amendment preserves existing grouping, urgency sorting and navigation."
+          ],
+          "sources": [
+            "frontend/src/pages/TodoDetailView.tsx",
+            "frontend/src/components/TodoCard.tsx",
+            "frontend/src/hooks/useTodoData.ts",
+            "frontend/src/types/todo.ts",
+            "frontend/src/styles/global.css",
+            "server/api-schemas.ts",
+            "server/app.ts",
+            "frontend/src/components/TodoPrioritySelect.tsx",
+            "frontend/src/lib/todo-utils.ts"
+          ],
+          "checks": [
+            "frontend/src/pages/__tests__/TodoDetailView.test.tsx",
+            "frontend/src/components/__tests__/TodoCard.test.tsx",
+            "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+            "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+            "frontend/src/hooks/__tests__/useTodoData.test.ts",
+            "server/__tests__/todo-priority-schema.test.ts",
+            "tests/offline/telos-priority.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+              "sha256": "c1ab0bd0174975e67a3af37692e06c9851aa694295b54281b6d6c9e4c741382a"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+              "sha256": "779365ef8c25b4fdfd90fb68839b0236fc06076b471b47012bc8251c85495970"
+            },
+            {
+              "path": "tests/offline/telos-priority.spec.ts",
+              "sha256": "a69a0647dfa64f4b4504a5693c3e435c4981cd4612bfd2d761fae6e5d0011894"
+            }
+          ],
+          "reason": "Allow already approved S7 navigation/layout expectations while retaining exact priority ordering and confirmed-value consistency safeguards."
+        }
+      ]
+    },
+    {
+      "id": "symposium-fresh-agent",
+      "activeRevision": "fresh-agent-review-2026-10-18-test-syntax",
+      "revisions": [
+        {
+          "id": "fresh-agent-review-2026-10-16",
+          "approvedBy": "User (originating Codex conversation)",
+          "approvedOn": "2026-10-16",
+          "approval": {
+            "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
+            "quote": "Looks decent. Let’s update telos and give a handover to start",
+            "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/symposium/fresh-agent-review.html",
+              "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc"
+            },
+            {
+              "path": "docs/design/approved/symposium/approved-context-review.png",
+              "sha256": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a"
+            }
+          ],
+          "invariants": [
+            "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
+            "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
+            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
+            "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
+            "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
+            "Shared tokens, components, native actions, focus restoration and motion preferences remain effective; body scrolls independently while footer stays reachable."
+          ],
+          "sources": [
+            "frontend/src/components/ConversationAgents.tsx",
+            "frontend/src/components/ConversationAgents.css",
+            "frontend/src/components/ConversationJoiningReview.tsx",
+            "frontend/src/components/SymposiumConversation.tsx",
+            "frontend/src/components/ComposerResponders.tsx",
+            "frontend/src/hooks/useConversationJoiningReview.ts",
+            "frontend/src/lib/conversation-joining-review.ts",
+            "frontend/src/lib/conversation-joining-recovery.ts",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+            "frontend/src/components/__tests__/ConversationAgents.test.tsx",
+            "frontend/src/components/__tests__/ConversationJoiningReview.test.tsx",
+            "tests/offline/symposium-approved-design.spec.ts",
+            "tests/offline/symposium-joining-review.spec.ts"
+          ],
+          "implementationEvidence": [],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+              "sha256": "c599aa4860389afb98e55cff7972264a8777c2b9d99f25a50fee3499e40cffd2"
+            },
+            {
+              "path": "tests/offline/symposium-approved-design.spec.ts",
+              "sha256": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b"
+            }
+          ],
+          "validation": "docs/design/approved/symposium/VALIDATION.md"
+        },
+        {
+          "id": "fresh-agent-review-2026-10-18-test-syntax",
+          "approvedBy": "Original design: user; syntax-only protection amendment: Symposium review orchestrator under the user's specific delegation",
+          "approvedOn": "2026-10-18",
+          "approval": {
+            "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
+            "quote": "Looks decent. Let’s update telos and give a handover to start",
+            "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/symposium/fresh-agent-review.html",
+              "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc"
+            },
+            {
+              "path": "docs/design/approved/symposium/approved-context-review.png",
+              "sha256": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a"
+            }
+          ],
+          "invariants": [
+            "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
+            "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
+            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
+            "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
+            "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
+            "Shared tokens, components, native actions, focus restoration and motion preferences remain effective; body scrolls independently while footer stays reachable."
+          ],
+          "sources": [
+            "frontend/src/components/ConversationAgents.tsx",
+            "frontend/src/components/ConversationAgents.css",
+            "frontend/src/components/ConversationJoiningReview.tsx",
+            "frontend/src/components/SymposiumConversation.tsx",
+            "frontend/src/components/ComposerResponders.tsx",
+            "frontend/src/hooks/useConversationJoiningReview.ts",
+            "frontend/src/lib/conversation-joining-review.ts",
+            "frontend/src/lib/conversation-joining-recovery.ts",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+            "frontend/src/components/__tests__/ConversationAgents.test.tsx",
+            "frontend/src/components/__tests__/ConversationJoiningReview.test.tsx",
+            "tests/offline/symposium-approved-design.spec.ts",
+            "tests/offline/symposium-joining-review.spec.ts"
+          ],
+          "implementationEvidence": [],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+              "sha256": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb"
+            },
+            {
+              "path": "tests/offline/symposium-approved-design.spec.ts",
+              "sha256": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b"
+            }
+          ],
+          "validation": "docs/design/approved/symposium/VALIDATION.md",
+          "reason": "Syntax-only correction required by current Testing Library types; retains exact accessible-name assertions and original design protections/history.",
+          "protectionAmendment": {
+            "thread": "01a14b49-df1f-7b82-be70-10be0789161c",
+            "message": "01a14c2b-6257-7402-a9e4-69876688f0ab",
+            "quote": "You should ask the orchestrator",
+            "scope": "User delegates this exact protected-test syntax/hash decision to the orchestrator; no redesign or broader protection waiver.",
+            "delegatedDecision": {
+              "thread": "01a14bab-6771-79e1-b832-6575ca1d2e6e",
+              "decision": "Approved exact five-line syntax correction and append-only protection-hash revision.",
+              "record": "docs/design/approved/symposium/test-syntax-approval-2026-10-18.md"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

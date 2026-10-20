@@ -4,6 +4,7 @@ import { mkdirSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { TaskStore } from '../task-store.js';
 import { TaskOrchestrator } from '../task-orchestrator.js';
+import { handleTaskArtifact, handleTaskComplete } from '../task-tools.js';
 import type { OrchestratorDeps, LoopStatus } from '../task-orchestrator.js';
 
 // Mock sendToChat
@@ -16,6 +17,7 @@ import { sendToChat } from '../chat.js';
 const TEST_DIR = join(tmpdir(), `mitzo-orchestrator-test-${process.pid}`);
 
 let store: TaskStore;
+let storePath: string;
 let orchestrator: TaskOrchestrator;
 let mockDeps: OrchestratorDeps;
 let broadcastedStatuses: LoopStatus[];
@@ -35,7 +37,8 @@ function createTestDeps(store: TaskStore): OrchestratorDeps {
 beforeEach(() => {
   vi.mocked(sendToChat).mockReset().mockResolvedValue(true);
   mkdirSync(TEST_DIR, { recursive: true });
-  store = new TaskStore(join(TEST_DIR, `tasks-${Date.now()}.db`));
+  storePath = join(TEST_DIR, `tasks-${Date.now()}.db`);
+  store = new TaskStore(storePath);
   mockDeps = createTestDeps(store);
   orchestrator = new TaskOrchestrator(mockDeps);
 });
@@ -50,6 +53,281 @@ afterEach(() => {
 });
 
 describe('TaskOrchestrator', () => {
+  describe('mapped Telos review rejection', () => {
+    function createReviewTask(sessionId: string | null = null) {
+      const binding = {
+        attemptId: 'retained-attempt',
+        childItemId: 'exact-child',
+        leadConversationId: 'lead-conversation',
+        workerConversationId: 'worker-conversation',
+        contextSnapshotId: 'reviewed-context',
+        contextHash: 'a'.repeat(64),
+      };
+      const task = store.createOrRecoverTelosExecutionTask(
+        {
+          title: 'Exact reviewed slice',
+          description: 'Retained reviewed worker objective',
+          annotations: ['retained provenance', 'review_feedback: earlier feedback'],
+        },
+        binding,
+      );
+      if (sessionId) store.setSessionId(task.id, sessionId);
+      expect(handleTaskArtifact(store, task.id, 'evidence', 'retained/offline-proof.txt')).toBe(
+        'Artifact stored: evidence = retained/offline-proof.txt',
+      );
+      expect(handleTaskComplete(store, task.id, 'Original completed worker summary')).toContain(
+        'pending_review',
+      );
+      return { task: store.get(task.id)!, binding };
+    }
+
+    it.each([null, 'worker-conversation'])(
+      'retains idle mapped review feedback and allocation evidence across reopen with session %s',
+      (sessionId) => {
+        const { task, binding } = createReviewTask(sessionId);
+        const loopBefore = orchestrator.getStatus();
+        mockDeps.spawnSession = vi.fn();
+        mockDeps.getClientId = vi.fn(() => {
+          throw Error('Review rejection must not choose a conversation');
+        });
+        const tick = vi.spyOn(orchestrator, 'tick');
+        const createTask = vi.spyOn(store, 'createOrRecoverTelosExecutionTask');
+        const setSessionId = vi.spyOn(store, 'setSessionId');
+
+        expect(orchestrator.rejectTask(task.id, 'Add the missing acceptance evidence')).toBe(true);
+        const retained = store.get(task.id)!;
+        expect(retained).toEqual({
+          ...task,
+          status: 'pending',
+          annotations: [
+            ...task.annotations,
+            'review_feedback: Add the missing acceptance evidence',
+          ],
+          updatedAt: expect.any(Number),
+        });
+        expect(store.getTelosExecutionBinding(task.id)).toEqual(binding);
+        expect(store.getTelosExecutionTaskForConversation(binding.workerConversationId)).toBe(
+          task.id,
+        );
+        expect(store.getTree()).toHaveLength(1);
+        expect(orchestrator.getStatus()).toEqual(loopBefore);
+        expect(mockDeps.broadcastTasks).toHaveBeenCalledTimes(1);
+        expect(broadcastedStatuses).toEqual([]);
+        expect(mockDeps.getClientId).not.toHaveBeenCalled();
+        expect(mockDeps.setTaskContext).not.toHaveBeenCalled();
+        expect(mockDeps.clearTaskContext).not.toHaveBeenCalled();
+        expect(mockDeps.spawnSession).not.toHaveBeenCalled();
+        expect(createTask).not.toHaveBeenCalled();
+        expect(setSessionId).not.toHaveBeenCalled();
+        expect(tick).not.toHaveBeenCalled();
+        expect(sendToChat).not.toHaveBeenCalled();
+
+        store.close();
+        store = new TaskStore(storePath);
+        expect(store.get(task.id)).toEqual(retained);
+        expect(store.getTelosExecutionBinding(task.id)).toEqual(binding);
+        expect(store.getTelosExecutionTaskForConversation(binding.workerConversationId)).toBe(
+          task.id,
+        );
+        const recoveredDeps = createTestDeps(store);
+        const recovered = new TaskOrchestrator(recoveredDeps);
+        expect(recovered.rejectTask(task.id, 'Duplicate rejection')).toBe(false);
+        expect(store.get(task.id)).toEqual(retained);
+        expect(recoveredDeps.broadcastTasks).not.toHaveBeenCalled();
+        expect(sendToChat).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['running', 'paused'] as const)(
+      'keeps a mapped rejection out of an unrelated %s legacy loop',
+      (loopState) => {
+        const goal = store.create({ title: 'Independent legacy workflow' });
+        const child = store.create({ title: 'Legacy active child', parentId: goal.id });
+        orchestrator.start(goal.id);
+        if (loopState === 'paused') orchestrator.pause();
+        const { task, binding } = createReviewTask('worker-conversation');
+        const loopBefore = orchestrator.getStatus();
+        const legacyBefore = store.get(child.id);
+        const statusBroadcastCount = broadcastedStatuses.length;
+        vi.mocked(sendToChat).mockClear();
+        vi.mocked(mockDeps.setTaskContext).mockClear();
+        vi.mocked(mockDeps.broadcastTasks).mockClear();
+        mockDeps.spawnSession = vi.fn();
+        mockDeps.assertTaskExecutionScope = vi.fn();
+        const tick = vi.spyOn(orchestrator, 'tick');
+        const setSessionId = vi.spyOn(store, 'setSessionId');
+
+        expect(orchestrator.rejectTask(task.id, 'Keep review feedback in the exact worker')).toBe(
+          true,
+        );
+        expect(store.get(task.id)).toEqual({
+          ...task,
+          status: 'pending',
+          annotations: [
+            ...task.annotations,
+            'review_feedback: Keep review feedback in the exact worker',
+          ],
+          updatedAt: expect.any(Number),
+        });
+        expect(store.getTelosExecutionBinding(task.id)).toEqual(binding);
+        expect(store.get(child.id)).toEqual(legacyBefore);
+        expect(orchestrator.getStatus()).toEqual(loopBefore);
+        expect(orchestrator.getPinnedClientId()).toBe('test-client');
+        expect(broadcastedStatuses).toHaveLength(statusBroadcastCount);
+        expect(mockDeps.broadcastTasks).toHaveBeenCalledTimes(1);
+        expect(mockDeps.setTaskContext).not.toHaveBeenCalled();
+        expect(mockDeps.clearTaskContext).not.toHaveBeenCalled();
+        expect(mockDeps.assertTaskExecutionScope).not.toHaveBeenCalled();
+        expect(mockDeps.spawnSession).not.toHaveBeenCalled();
+        expect(setSessionId).not.toHaveBeenCalled();
+        expect(tick).not.toHaveBeenCalled();
+        expect(sendToChat).not.toHaveBeenCalled();
+        if (loopState === 'paused') {
+          orchestrator.resume();
+          expect(store.get(task.id)?.status).toBe('pending');
+          expect(sendToChat).not.toHaveBeenCalled();
+        }
+      },
+    );
+
+    it('fails closed without review mutation if durable mapping lookup fails', () => {
+      const { task } = createReviewTask();
+      vi.spyOn(store, 'getTelosExecutionBinding').mockImplementation(() => {
+        throw Error('Durable mapping unavailable');
+      });
+      expect(() => orchestrator.rejectTask(task.id, 'Do not lose this feedback')).toThrow(
+        'Durable mapping unavailable',
+      );
+      expect(store.get(task.id)).toEqual(task);
+      expect(orchestrator.getStatus().state).toBe('idle');
+      expect(mockDeps.broadcastTasks).not.toHaveBeenCalled();
+      expect(mockDeps.setTaskContext).not.toHaveBeenCalled();
+      expect(sendToChat).not.toHaveBeenCalled();
+    });
+
+    it('keeps mapped approval and unbound idle rejection behavior', () => {
+      const { task, binding } = createReviewTask();
+      expect(orchestrator.approveTask(task.id)).toBe(true);
+      expect(store.get(task.id)).toEqual({
+        ...task,
+        status: 'done',
+        completedAt: expect.any(Number),
+        updatedAt: expect.any(Number),
+      });
+      expect(store.getTelosExecutionBinding(task.id)).toEqual(binding);
+      const legacy = store.create({ title: 'Unbound review', annotations: ['legacy provenance'] });
+      store.update(legacy.id, { status: 'pending_review', summary: 'Legacy review summary' });
+      const legacyBefore = store.get(legacy.id);
+      expect(orchestrator.rejectTask(legacy.id, 'Legacy loop is idle')).toBe(false);
+      expect(store.get(legacy.id)).toEqual(legacyBefore);
+      expect(orchestrator.getStatus().state).toBe('idle');
+      expect(mockDeps.broadcastTasks).toHaveBeenCalledTimes(1);
+      expect(mockDeps.setTaskContext).not.toHaveBeenCalled();
+      expect(sendToChat).not.toHaveBeenCalled();
+    });
+  });
+
+  it('provisions a canonical delegated slice without consulting or changing the legacy loop', async () => {
+    const receipt = {
+      version: 1 as const,
+      state: 'chat_ready' as const,
+      execution: 'not_started' as const,
+      workerConversationId: 'worker',
+      workerPath: '/chat/worker',
+      itemPath: '/todos/child',
+      leadPath: '/chat/lead',
+      attempt: {
+        version: 1 as const,
+        requestId: 'request',
+        attemptId: 'attempt',
+        predecessorAttemptId: null,
+        leadConversationId: 'lead',
+        childItemId: 'child',
+        contextSnapshotId: 'snapshot',
+        state: 'chat_ready' as const,
+        workerConversationId: 'worker',
+        allocationReceiptId: 'receipt',
+        executionTaskId: 'task',
+        accountingGoalId: null,
+        turnCommandId: null,
+      },
+    };
+    const owner = { delegate: vi.fn(async () => receipt) };
+    const actor = { kind: 'conversation' as const, id: 'lead' };
+    const input = { requestId: 'request' };
+    const signal = new AbortController().signal;
+    mockDeps.getClientId = vi.fn(() => {
+      throw Error('must not choose loop recipient');
+    });
+    const before = orchestrator.getStatus();
+    expect(await orchestrator.delegateSlice(owner, actor, input, signal)).toEqual(receipt);
+    expect(owner.delegate).toHaveBeenCalledExactlyOnceWith(actor, input, signal);
+    expect(orchestrator.getStatus()).toEqual(before);
+    expect(mockDeps.getClientId).not.toHaveBeenCalled();
+    expect(mockDeps.setTaskContext).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+    owner.delegate.mockResolvedValueOnce({ ...receipt, execution: 'started' as 'not_started' });
+    await expect(orchestrator.delegateSlice(owner, actor, input, signal)).rejects.toThrow();
+  });
+
+  it('rejects mapped S5 leaves and mapped descendants before spec or ordinary loop admission', () => {
+    const mapped = store.createOrRecoverTelosExecutionTask(
+      { title: 'Exact slice' },
+      {
+        attemptId: 'attempt',
+        childItemId: 'child',
+        leadConversationId: 'lead',
+        workerConversationId: 'worker',
+        contextSnapshotId: 'snapshot',
+        contextHash: 'a'.repeat(64),
+      },
+    );
+    const goal = store.create({ title: 'Legacy goal' });
+    const children = vi.spyOn(store, 'getChildren');
+    children.mockImplementation((id) => (id === goal.id ? [mapped] : []));
+    mockDeps.getClientId = vi.fn(() => {
+      throw Error('must reject before recipient lookup');
+    });
+    for (const id of [mapped.id, goal.id]) {
+      for (const specMode of [true, false])
+        expect(() => orchestrator.start(id, { specMode })).toThrow(/explicit.*worker command/i);
+    }
+    expect(orchestrator.getStatus().state).toBe('idle');
+    expect(store.get(mapped.id)?.status).toBe('pending');
+    expect(mockDeps.getClientId).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
+  it('rejects a role-scoped execution target before changing the workflow or sending a child', () => {
+    const goal = store.create({ title: 'Outcome' });
+    const child = store.create({ title: 'Exact child', parentId: goal.id });
+    const assertTaskExecutionScope = vi.fn(() => {
+      throw new Error('The lead must use a separate worker conversation');
+    });
+    Object.assign(mockDeps, { assertTaskExecutionScope });
+
+    expect(() => orchestrator.start(goal.id)).toThrow('separate worker conversation');
+    expect(orchestrator.getStatus().state).toBe('idle');
+    expect(store.get(child.id)?.status).toBe('pending');
+    expect(mockDeps.setTaskContext).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
+  it('rechecks the exact child scope before giving a reuse chat its task context', () => {
+    const goal = store.create({ title: 'Outcome' });
+    const child = store.create({ title: 'Outside selected worker scope', parentId: goal.id });
+    const assertTaskExecutionScope = vi.fn((_clientId: string, taskId: string) => {
+      if (taskId !== goal.id) throw new Error('Exact task scope denied');
+    });
+    Object.assign(mockDeps, { assertTaskExecutionScope });
+
+    const status = orchestrator.start(goal.id);
+    expect(status.state).toBe('paused');
+    expect(store.get(child.id)?.status).toBe('pending');
+    expect(mockDeps.setTaskContext).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
   it('starts in idle state', () => {
     const status = orchestrator.getStatus();
     expect(status.state).toBe('idle');

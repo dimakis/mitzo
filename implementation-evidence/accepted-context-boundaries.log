@@ -1,0 +1,61 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-parallel-workstream-read-2/mitzo
+
+ ❯ server/__tests__/custom-tool-admission.test.ts (6 tests | 1 failed) 90ms
+   × projects only published custom versions through the real catalog and keeps exports opaque 7ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/__tests__/custom-tool-admission.test.ts > projects only published custom versions through the real catalog and keeps exports opaque
+TypeError: Cannot read properties of null (reading 'port')
+ ❯ Test.serverAddress ../../../../../tools/mitzo-releases/main-d0b06dc200a1/node_modules/supertest/lib/test.js:67:31
+ ❯ new Test ../../../../../tools/mitzo-releases/main-d0b06dc200a1/node_modules/supertest/lib/test.js:49:14
+ ❯ Object.obj.<computed> [as get] ../../../../../tools/mitzo-releases/main-d0b06dc200a1/node_modules/supertest/index.js:40:18
+ ❯ server/__tests__/custom-tool-admission.test.ts:203:38
+    201|   app.use('/library', createAgentLibraryRouter(library, { toolBuilder:…
+    202|   try {
+    203|     const tools = await request(app).get('/library/tools').expect(200);
+       |                                      ^
+    204|     expect(tools.body.tools).toContainEqual(f.publication.entry);
+    205|     const definition = profile(f.publication.reference);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: listen EPERM: operation not permitted 0.0.0.0
+ ❯ Server.setupListenHandle [as _listen2] node:net:1918:21
+ ❯ listenInCluster node:net:1997:12
+ ❯ Server.listen node:net:2102:7
+ ❯ Test.serverAddress ../../../../../tools/mitzo-releases/main-d0b06dc200a1/node_modules/supertest/lib/test.js:63:35
+ ❯ new Test ../../../../../tools/mitzo-releases/main-d0b06dc200a1/node_modules/supertest/lib/test.js:49:14
+ ❯ Object.obj.<computed> [as get] ../../../../../tools/mitzo-releases/main-d0b06dc200a1/node_modules/supertest/index.js:40:18
+ ❯ server/__tests__/custom-tool-admission.test.ts:203:38
+    201|   app.use('/library', createAgentLibraryRouter(library, { toolBuilder:…
+    202|   try {
+    203|     const tools = await request(app).get('/library/tools').expect(200);
+       |                                      ^
+    204|     expect(tools.body.tools).toContainEqual(f.publication.entry);
+    205|     const definition = profile(f.publication.reference);
+ ❯ processTicksAndRejections node:internal/process/task_queues:105:5
+ ❯ ../../../../../tools/mitzo-releases/main-d0b06dc200a1/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'EPERM', errno: -1, syscall: 'listen', address: '0.0.0.0' }
+This error originated in "server/__tests__/custom-tool-admission.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "retains exact admitted definitions and mappings on cold resume and refuses replacement source". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 10 passed (11)
+     Errors  1 error
+   Start at  10:47:25
+   Duration  4.73s (transform 1.28s, setup 0ms, import 3.21s, tests 287ms, environment 882ms)
+

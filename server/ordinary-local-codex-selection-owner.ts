@@ -1,10 +1,12 @@
+import {
+  OrdinaryLocalWorkspaceOwner,
+  type LocalWorkspaceKind,
+} from './ordinary-local-workspace-owner.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
 import { resolveChatAgentContext } from './agent-context-binding.js';
 import type { AgentContextSnapshot } from '@mitzo/protocol';
 import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
-import { lstatSync, realpathSync } from 'node:fs';
-import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { AgentLibraryStore } from './agent-library-store.js';
 import type { EventStore } from './event-store.js';
@@ -27,6 +29,7 @@ const unavailable = () => new Error('Ordinary local Codex selection unavailable'
  */
 export class OrdinaryLocalCodexSelectionOwner {
   readonly #reservation: Omit<HostRepositoryReservationInput, 'signal'>;
+  readonly #workspace: OrdinaryLocalWorkspaceOwner<LocalWorkspaceKind>;
   readonly #permission: symbol | undefined;
   #snapshot?: OrdinaryLocalCodexAdmissionExpectation;
   #context?: AgentContextSnapshot;
@@ -35,6 +38,7 @@ export class OrdinaryLocalCodexSelectionOwner {
       events: EventStore;
       library: AgentLibraryStore;
       workspace: RepositoryWorkspaces;
+      workspaceKind?: LocalWorkspaceKind;
       reservation: Omit<HostRepositoryReservationInput, 'signal'>;
       /** Captured from authenticated transport by captureAgentLibraryAuthorization. */
       operator: { assertCurrent(): void };
@@ -42,11 +46,17 @@ export class OrdinaryLocalCodexSelectionOwner {
       commandId: string;
       /** Cold owner independently verified original native custody before construction. */
       continuation?: boolean;
+      preparationOperationId?: string;
       responses?: boolean;
       vertex?: boolean;
     },
   ) {
     this.#reservation = structuredClone(owners.reservation);
+    this.#workspace = new OrdinaryLocalWorkspaceOwner(
+      owners.workspace,
+      owners.workspaceKind ?? 'repository',
+      this.#reservation,
+    );
     this.#permission = permissionRevision(owners.events, this.#reservation.conversationId);
   }
   assertCurrentSync(input: Readonly<OrdinaryLocalCodexAdmissionExpectation>): void {
@@ -59,7 +69,11 @@ export class OrdinaryLocalCodexSelectionOwner {
       if (this.#snapshot && !isDeepStrictEqual(identity, this.#snapshot)) throw unavailable();
       assertAgentToolRoute(
         expected.agentProfile?.definition,
-        this.owners.responses ? 'local-api' : this.owners.vertex ? 'claude-sdk' : 'codex',
+        this.owners.responses
+          ? 'local-api'
+          : this.owners.vertex
+            ? 'claude-sdk'
+            : 'codex-owned-local',
       );
       assertOrdinaryCodexContextIdentity(
         expected.agentProfile,
@@ -87,58 +101,7 @@ export class OrdinaryLocalCodexSelectionOwner {
         expected.selection.agent,
       );
       if (!published || !isDeepStrictEqual(published, expected.agentProfile)) throw unavailable();
-      const descriptor = this.owners.workspace.getHostReservation(reservation);
-      if (
-        !isDeepStrictEqual(descriptor.binding, reservation.binding) ||
-        descriptor.conversationId !== reservation.conversationId ||
-        descriptor.id !== reservation.id ||
-        descriptor.directory !== expected.workspace.cwd ||
-        descriptor.hostReservation.taskRoot !== reservation.taskRoot ||
-        !['reserved', 'claimed'].includes(descriptor.state)
-      )
-        throw unavailable();
-      const root = lstatSync(reservation.taskRoot);
-      if (
-        !root.isDirectory() ||
-        root.isSymbolicLink() ||
-        realpathSync(reservation.taskRoot) !== reservation.taskRoot ||
-        root.dev !== descriptor.hostReservation.rootIdentity.dev ||
-        root.ino !== descriptor.hostReservation.rootIdentity.ino
-      )
-        throw unavailable();
-      if (descriptor.state === 'claimed') {
-        // The existing repository ledger owns the materialized checkout identity.
-        // Do not accept another directory merely because its reservation path matches.
-        const claimed = this.owners.workspace.getForConversation(reservation.conversationId);
-        const identity = claimed?.taskIdentity;
-        if (
-          !claimed ||
-          claimed.id !== descriptor.id ||
-          claimed.conversationId !== descriptor.conversationId ||
-          claimed.directory !== descriptor.directory ||
-          claimed.sandbox ||
-          !isDeepStrictEqual(claimed.binding, reservation.binding) ||
-          claimed.featureBranch !== descriptor.featureBranch ||
-          !identity ||
-          identity.directory !== descriptor.directory ||
-          identity.featureBranch !== claimed.featureBranch
-        )
-          throw unavailable();
-        for (const [path, retained] of [
-          [identity.directory, identity.root],
-          [join(identity.directory, '.git'), identity.git],
-        ] as const) {
-          const current = lstatSync(path);
-          if (
-            !current.isDirectory() ||
-            current.isSymbolicLink() ||
-            realpathSync(path) !== path ||
-            current.dev !== retained.dev ||
-            current.ino !== retained.ino
-          )
-            throw unavailable();
-        }
-      }
+      this.#workspace.assertCurrentSync(expected.workspace.cwd);
       const session = this.owners.events.getSession(reservation.conversationId);
       if (session) {
         const admission = this.owners.vertex
@@ -146,8 +109,36 @@ export class OrdinaryLocalCodexSelectionOwner {
           : this.owners.responses
             ? this.owners.events.getOrdinaryLocalResponsesCommandAdmission(this.owners.commandId)
             : this.owners.events.getOrdinaryLocalCommandAdmission(this.owners.commandId);
+        let prepared = false;
+        if (!admission && this.owners.preparationOperationId) {
+          const receipt = (
+            this.owners.workspaceKind === 'ordinary'
+              ? this.owners.events.assertPreparedOrdinaryWorkspaceSession.bind(this.owners.events)
+              : this.owners.events.assertPreparedOrdinarySession.bind(this.owners.events)
+          )(
+            this.owners.preparationOperationId,
+            {
+              sessionId: reservation.conversationId,
+              ...(this.owners.workspaceKind === 'ordinary'
+                ? { ordinaryWorkspaceId: reservation.id }
+                : { repositoryWorkspaceId: reservation.id }),
+              cwd: expected.workspace.cwd,
+              accountBinding: reservation.binding,
+              agentProfile: expected.agentProfile,
+              agentContext: expected.agentContext,
+              selectedModel: expected.selection.model,
+              reasoningEffort: expected.selection.thinking,
+              mode: expected.selection.permission.mode,
+            },
+            expected.binding,
+            expected.selection,
+          );
+          prepared =
+            receipt.firstCommandId === null &&
+            receipt.preparationFingerprint === reservation.commandFingerprint;
+        }
         if (
-          (!admission && !this.owners.continuation) ||
+          (!admission && !this.owners.continuation && !prepared) ||
           admission?.state === 'reserved' ||
           (admission &&
             (!isDeepStrictEqual(admission.binding, expected.binding) ||
@@ -226,20 +217,8 @@ export class OrdinaryLocalCodexSelectionOwner {
   async assertCurrent(expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>): Promise<void> {
     this.assertCurrentSync(expected);
     try {
-      // Revalidate the existing reservation's account/GitHub/source authority;
-      // the precheck forbids this method from making a new reservation.
-      await this.owners.workspace.reserveHostTask({
-        ...structuredClone(this.#reservation),
-        signal: this.owners.signal,
-      });
+      await this.#workspace.revalidate(this.owners.signal);
       this.assertCurrentSync(expected);
-      if (this.owners.workspace.getHostReservation(this.#reservation).state === 'claimed') {
-        await this.owners.workspace.validateHostTask(
-          this.#reservation.conversationId,
-          expected.workspace.cwd,
-        );
-        this.assertCurrentSync(expected);
-      }
     } catch {
       throw unavailable();
     }

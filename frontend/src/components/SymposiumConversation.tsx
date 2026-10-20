@@ -145,9 +145,11 @@ export function SymposiumConversation({
   chat,
   ordinaryComposer,
   ordinaryConfirmed = false,
+  ordinaryProfileProposalReview = false,
   ordinaryExcluded = false,
   onContinueInNewChat,
   pendingSettings,
+  pendingFeedback,
   ordinaryAfterMessages,
   profileToolsTarget,
   readOnly = false,
@@ -158,10 +160,14 @@ export function SymposiumConversation({
   ordinaryComposer: ReactNode;
   /** Current-session authoritative ordinary metadata; never inferred from intent. */
   ordinaryConfirmed?: boolean;
+  /** Platform-owned profile review only; runtime collaboration stays read-only. */
+  ordinaryProfileProposalReview?: boolean;
   /** Authoritative current-session special classification excludes ordinary send. */
   ordinaryExcluded?: boolean;
   onContinueInNewChat?(draft: string): void;
   pendingSettings?: ReactNode;
+  /** Pure presentation only; never mounts ordinary queue/send owners before qualification. */
+  pendingFeedback?: ReactNode;
   ordinaryAfterMessages?: ReactNode;
   profileToolsTarget: HTMLElement | null;
   readOnly?: boolean;
@@ -603,8 +609,31 @@ export function SymposiumConversation({
     [shareSource],
   );
 
+  const ordinaryReviewQualified =
+    ordinaryProfileProposalReview &&
+    ordinaryConfirmed &&
+    !ordinaryExcluded &&
+    statusFresh &&
+    status?.sessionId === sessionId &&
+    status.config === null;
+  // Retain the exact editor/receipt after initial qualification. A temporary
+  // read failure removes write authority, not the user's unsaved review.
+  const ordinaryProposalOwner = useRef<string | null>(null);
+  if (
+    ordinaryProposalOwner.current !== sessionId ||
+    ordinaryExcluded ||
+    (status?.sessionId === sessionId && status.config !== null)
+  )
+    ordinaryProposalOwner.current = null;
+  if (ordinaryReviewQualified) ordinaryProposalOwner.current = sessionId;
+  const canReviewProfileProposals =
+    !readOnly ||
+    (ordinaryProposalOwner.current === sessionId &&
+      !!sessionId &&
+      status?.sessionId === sessionId &&
+      status.config === null);
   const profileDrafts =
-    !readOnly && sessionId && status?.sessionId === sessionId ? (
+    canReviewProfileProposals && sessionId && status?.sessionId === sessionId ? (
       <>
         <div ref={setProfileInlineTarget} />
         {createPortal(
@@ -613,6 +642,7 @@ export function SymposiumConversation({
             id={profilesPanelId}
             sessionId={sessionId}
             pendingOnly={!profilesOpen}
+            disabled={readOnly && !ordinaryReviewQualified}
             refreshKey={chat.messages.length}
             seatSeed={seatSeed}
             onSeatSeedDone={() => setSeatSeed(null)}
@@ -724,6 +754,7 @@ export function SymposiumConversation({
             </>
           }
         />
+        {pendingFeedback}
         {/* Keep the input area visible without mounting queue/send effects. */}
         <div className="chat-input" aria-busy="true">
           <div className="chat-input-row">

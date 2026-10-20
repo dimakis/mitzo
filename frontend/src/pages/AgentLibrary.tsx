@@ -1,7 +1,8 @@
+import { ApiToolEditor } from '../components/ApiToolEditor';
 import { AgentToolsEditor } from '../components/AgentToolsEditor';
 import { ToolLibraryCatalog } from '../components/ToolLibraryCatalog';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   agentProfileLabel,
   type AgentToolCatalogEntry,
@@ -16,9 +17,11 @@ import { apiFetch } from '../lib/api-fetch';
 import { agentChatHref, agentLibraryTemplates, newAgentDefinition } from '../lib/agent-library';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { AgentProfileEditor } from '../components/AgentProfileEditor';
-import { AgentCreationAdvisor } from '../components/AgentCreationAdvisor';
+import { openAgentBuilderChat } from '../lib/agent-builder-chat';
 import { AgentContextPreview } from '../components/AgentContextPreview';
 import { AgentTaskEditor } from '../components/AgentTaskEditor';
+import { AgentTaskProposalReview } from '../components/AgentTaskProposal';
+import { parseAgentTaskProposalLocation } from '../lib/agent-task-proposal-link';
 import { AgentTaskList } from '../components/AgentTaskList';
 import { useAgentTasks } from '../hooks/useAgentTasks';
 import {
@@ -34,7 +37,8 @@ import {
 import '../styles/agent-library.css';
 
 type Editor = AgentLibraryEditor;
-type Tab = 'tools' | 'identity' | 'instructions' | 'context' | 'preview' | 'versions' | 'tasks';
+type Tab =
+  'profile' | 'tools' | 'identity' | 'instructions' | 'context' | 'preview' | 'versions' | 'tasks';
 async function read<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await apiFetch(
     path,
@@ -113,19 +117,56 @@ function navigateTabs(event: KeyboardEvent<HTMLDivElement>) {
   tabs[next].focus();
 }
 export function AgentLibrary() {
-  const taskState = useAgentTasks();
-  const [collection, setCollection] = useState<'profiles' | 'tasks'>(() =>
-    loadAgentTaskWorkingCopy() ? 'tasks' : 'profiles',
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const proposalRequested = ['proposal', 'session', 'revision'].some((key) =>
+    searchParams.has(key),
   );
+  const proposalIdentity = useMemo(
+    () => parseAgentTaskProposalLocation(searchParams),
+    [searchParams],
+  );
+  const linkedTaskId = searchParams.get('task');
+  const handledTaskLink = useRef<string | null>(null);
+  const [taskLinkError, setTaskLinkError] = useState('');
+  const taskState = useAgentTasks();
+  const { tasks: linkedTasks, update: updateLinkedTask } = taskState;
+  const [collection, setCollection] = useState<'profiles' | 'tasks'>(() =>
+    proposalRequested || linkedTaskId || loadAgentTaskWorkingCopy() ? 'tasks' : 'profiles',
+  );
+  useEffect(() => {
+    if (proposalRequested) {
+      handledTaskLink.current = null;
+      setCollection('tasks');
+      return;
+    }
+    if (!linkedTaskId) {
+      handledTaskLink.current = null;
+      return;
+    }
+    if (handledTaskLink.current === linkedTaskId || !linkedTasks) return;
+    const task = linkedTasks.find((row) => row.taskId === linkedTaskId);
+    setCollection('tasks');
+    if (!task) {
+      setTaskLinkError(
+        'This Library task is unavailable. Refresh tasks to retry. Your retained input is unchanged.',
+      );
+      return;
+    }
+    const retained = loadAgentTaskWorkingCopy(task.taskId);
+    updateLinkedTask(retained ?? editAgentTask(task));
+    handledTaskLink.current = linkedTaskId;
+    setTaskLinkError('');
+  }, [proposalRequested, linkedTaskId, linkedTasks, updateLinkedTask]);
   const [recovered] = useState(loadAgentLibraryWorkingCopy);
   const [catalog, setCatalog] = useState<AgentLibraryCatalog | null>(null);
   const [catalogError, setCatalogError] = useState('');
   const [catalogAttempt, setCatalogAttempt] = useState(0);
   const [editor, setEditor] = useState<Editor | null>(recovered?.editor ?? null);
-  const [advisorOpen, setAdvisorOpen] = useState(
-    !!recovered && !recovered.editor.publishedRevision,
-  );
-  const [tab, setTab] = useState<Tab>('identity');
+  const recoveredEditing =
+    !!recovered && (recovered.dirty !== false || recovered.editor.publishedRevision === null);
+  const [tab, setTab] = useState<Tab>(recoveredEditing ? 'identity' : 'profile');
+  const [editingProfile, setEditingProfile] = useState(recoveredEditing);
   const [query, setQuery] = useState('');
   const [view, setView] = useState<'agents' | 'tools'>('agents');
   const [toolFilters, setToolFilters] = useState({ query: '', source: '' });
@@ -201,11 +242,14 @@ export function AgentLibrary() {
       if (mounted.current) setDiscovering(false);
     }
   }
-  const [dirty, setDirty] = useState(!!recovered);
+  const [dirty, setDirty] = useState(recovered ? (recovered.dirty ?? true) : false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [preview, setPreview] = useState('');
+  const [reviewedContext, setReviewedContext] = useState<string | undefined>(
+    recovered?.reviewedContext,
+  );
   const [compiledPreview, setCompiledPreview] = useState<CompiledAgentContext | null>(null);
   const [portable, setPortable] = useState('');
   const [importing, setImporting] = useState(false);
@@ -241,9 +285,12 @@ export function AgentLibrary() {
       publishedRevision: 'revision' in version ? version.revision : null,
     });
     setDirty(false);
+    setEditingProfile('version' in version);
+    setTab('version' in version ? 'identity' : 'profile');
     setError('');
     setPreview('');
     setCompiledPreview(null);
+    setReviewedContext(undefined);
     setPortable('');
     saveKey.current = crypto.randomUUID();
     publishKey.current = crypto.randomUUID();
@@ -286,8 +333,10 @@ export function AgentLibrary() {
     saveAgentLibraryWorkingCopy({ editor: next, saveKey: saveKey.current });
     setEditor(next);
     setDirty(true);
+    setEditingProfile(true);
     setPreview('');
     setCompiledPreview(null);
+    setReviewedContext(undefined);
     publishKey.current = crypto.randomUUID();
   };
   const save = () =>
@@ -346,12 +395,44 @@ export function AgentLibrary() {
     saveAgentLibraryWorkingCopy({ editor: next, saveKey: saveKey.current });
     setEditor(next);
     setDirty(true);
+    setEditingProfile(true);
     setTab('identity');
-    setAdvisorOpen(true);
     setError('');
     setPreview('');
     setCompiledPreview(null);
+    setReviewedContext(undefined);
     setPortable('');
+    return next;
+  };
+  const builderOpening = useRef(false);
+  const openBuilder = async (target: Editor, isDirty: boolean, contentHash?: string) => {
+    if (builderOpening.current) return;
+    const sourceContext = target.profileId === editor?.profileId ? reviewedContext : undefined;
+    // Navigation keeps even a pristine selection, so Back returns to this profile.
+    if (
+      !saveAgentLibraryWorkingCopy({
+        editor: target,
+        saveKey: saveKey.current,
+        dirty: isDirty,
+        reviewedContext: sourceContext,
+      })
+    ) {
+      setError('Could not retain your profile edits. Retry before opening Agent Builder.');
+      return;
+    }
+    builderOpening.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      const path = await openAgentBuilderChat(target, isDirty, contentHash, sourceContext);
+      if (mounted.current) navigate(path);
+    } catch (cause) {
+      if (mounted.current)
+        setError(cause instanceof Error ? cause.message : 'Could not open Agent Builder.');
+    } finally {
+      builderOpening.current = false;
+      if (mounted.current) setBusy(false);
+    }
   };
   const latest = new Map<string, AgentLibraryVersion>();
   for (const version of catalog?.versions ?? [])
@@ -376,8 +457,9 @@ export function AgentLibrary() {
   );
   const canUse = !!selectedVersion && !dirty;
   const openTask = (task: Parameters<typeof editAgentTask>[0]) => {
+    navigate(`/agent-library?task=${encodeURIComponent(task.taskId)}`);
     const retained = loadAgentTaskWorkingCopy(task.taskId);
-    taskState.update(retained ?? editAgentTask(task));
+    updateLinkedTask(retained ?? editAgentTask(task));
     setCollection('tasks');
   };
   const newerTask =
@@ -388,8 +470,13 @@ export function AgentLibrary() {
     );
   const assign = () => {
     if (!selectedVersion) return;
+    if (proposalRequested || linkedTaskId !== null) navigate('/agent-library');
     taskState.update(createAgentTaskWorkingCopy(selectedVersion));
     setCollection('tasks');
+  };
+  const closeTaskEditor = () => {
+    if (!taskState.copy?.dirty || window.confirm('Discard unsaved task input?'))
+      taskState.update(null);
   };
   const valid =
     !!editor?.definition.name.trim() &&
@@ -409,30 +496,30 @@ export function AgentLibrary() {
             <>
               <button
                 type="button"
-                disabled={!catalog || busy}
-                onClick={() => {
-                  setCollection('profiles');
-                  if (!editor) create();
-                  setAdvisorOpen(true);
-                }}
+                className="agent-library-heading-action"
+                disabled={!catalog || busy || dirty}
+                onClick={() => openBuilder(create(), true)}
               >
-                Create with advisor
+                Create with Agent Builder
               </button>
-              <button className="btn-primary" disabled={busy || dirty || !catalog} onClick={create}>
+              <button
+                className="agent-library-heading-action"
+                disabled={busy || dirty || !catalog}
+                onClick={create}
+              >
                 New agent
               </button>
             </>
           )
         }
       />
-      <div className="agent-library-tabs" aria-label="Library views">
-        <button type="button" aria-pressed={view === 'agents'} onClick={() => setView('agents')}>
-          Agent library
-        </button>
-        <button type="button" aria-pressed={view === 'tools'} onClick={() => setView('tools')}>
-          Tool library
-        </button>
-      </div>
+      {view === 'tools' && (
+        <div className="agent-library-actions">
+          <button type="button" onClick={() => setView('agents')}>
+            Agent library
+          </button>
+        </div>
+      )}
       {(view === 'tools' || tab === 'tools') && (
         <section aria-label="Configured tool discovery">
           <div className="agent-library-actions">
@@ -473,6 +560,9 @@ export function AgentLibrary() {
           {discoveryNotice && <p role="status">{discoveryNotice}</p>}
         </section>
       )}
+      <div hidden={view !== 'tools'}>
+        <ApiToolEditor onPublished={() => setToolAttempt((value) => value + 1)} />
+      </div>
       {view === 'tools' && (
         <section aria-label="Tool library">
           <p className="tool-library-intro">
@@ -507,27 +597,51 @@ export function AgentLibrary() {
         <p role="status">Loading tool library…</p>
       )}
       <div hidden={view !== 'agents'}>
-        <div
-          className="agent-library-tabs"
-          role="tablist"
-          onKeyDown={navigateTabs}
-          aria-label="Library collections"
-        >
-          {(['profiles', 'tasks'] as const).map((view) => (
-            <button
-              type="button"
-              role="tab"
-              tabIndex={collection === view ? 0 : -1}
-              id={`library-${view}`}
-              aria-selected={collection === view}
-              aria-controls={`library-panel-${view}`}
-              key={view}
-              onClick={() => setCollection(view)}
-            >
-              {view === 'profiles' ? 'Profiles' : 'Tasks & schedules'}
-            </button>
-          ))}
+        <div className="agent-library-navigation">
+          <div
+            className="agent-library-tabs"
+            role="tablist"
+            onKeyDown={navigateTabs}
+            aria-label="Library collections"
+          >
+            {(['profiles', 'tasks'] as const).map((view) => (
+              <button
+                type="button"
+                role="tab"
+                tabIndex={collection === view ? 0 : -1}
+                id={`library-${view}`}
+                aria-selected={collection === view}
+                aria-controls={`library-panel-${view}`}
+                key={view}
+                onClick={() => setCollection(view)}
+              >
+                {view === 'profiles' ? 'Profiles' : 'Tasks & schedules'}
+              </button>
+            ))}
+          </div>
         </div>
+        <details className="agent-library-discovery">
+          <summary>Library options</summary>
+          <div className="agent-library-actions">
+            <button type="button" onClick={() => setView('tools')}>
+              Tool library
+            </button>
+          </div>
+          <div className="agent-library-toolbar" hidden={collection !== 'profiles'}>
+            <input
+              aria-label="Search agents"
+              placeholder="Search names and descriptors…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            <button disabled={busy || dirty || !catalog} onClick={() => setImporting(!importing)}>
+              Import profile
+            </button>
+            <Link to="/tasks" className="workspace-text-link">
+              Agent taskboard
+            </Link>
+          </div>
+        </details>
         <section
           role="tabpanel"
           id="library-panel-tasks"
@@ -544,57 +658,79 @@ export function AgentLibrary() {
               Refresh tasks
             </button>
           </div>
-          {taskState.error && <p role="alert">{taskState.error}</p>}
-          {taskState.storageError && <p role="alert">{taskState.storageError}</p>}
-          {taskState.notice && <p role="status">{taskState.notice}</p>}
-          {taskState.loading && <p role="status">Loading tasks…</p>}
-          {taskState.copy && (
-            <AgentTaskEditor
-              copy={taskState.copy}
-              versions={catalog?.versions ?? []}
-              update={taskState.update}
-              save={() => void taskState.save()}
-              busy={taskState.busy}
-            />
-          )}
-          {newerTask && (
-            <div className="agent-library-actions">
-              <p>A newer saved task revision is available. Your input is retained.</p>
-              <button
-                type="button"
-                disabled={taskState.busy}
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      'Replace task input with the saved revision? This discards device-only choices.',
-                    )
-                  )
-                    taskState.update(editAgentTask(newerTask));
-                }}
-              >
-                Reload saved task
-              </button>
-            </div>
-          )}
-          {taskState.copy && (
-            <button
-              type="button"
-              disabled={taskState.busy}
-              onClick={() => {
-                if (!taskState.copy?.dirty || window.confirm('Discard unsaved task input?'))
-                  taskState.update(null);
-              }}
-            >
-              Close task editor
-            </button>
-          )}
-          {taskState.tasks && (
-            <AgentTaskList
-              tasks={taskState.tasks}
-              versions={catalog?.versions ?? []}
-              onEdit={openTask}
-              disabled={taskState.busy || !!taskState.copy?.dirty}
-            />
+          {proposalRequested ? (
+            <>
+              <div className="agent-library-actions">
+                {proposalIdentity && (
+                  <Link
+                    className="workspace-text-link"
+                    to={`/chat/${encodeURIComponent(proposalIdentity.sessionId)}`}
+                  >
+                    Back to Agent Builder
+                  </Link>
+                )}
+                <Link className="workspace-text-link" to="/agent-library">
+                  Close task review
+                </Link>
+              </div>
+              {proposalIdentity ? (
+                <AgentTaskProposalReview
+                  identity={proposalIdentity}
+                  versions={catalog?.versions ?? []}
+                  onClose={() => navigate('/agent-library')}
+                  onSaved={() => void taskState.refresh()}
+                />
+              ) : (
+                <p role="alert">
+                  Task review link is incomplete or invalid. Your retained input is unchanged.
+                </p>
+              )}
+            </>
+          ) : (
+            <>
+              {taskLinkError && <p role="alert">{taskLinkError}</p>}
+              {taskState.error && <p role="alert">{taskState.error}</p>}
+              {taskState.storageError && <p role="alert">{taskState.storageError}</p>}
+              {taskState.notice && <p role="status">{taskState.notice}</p>}
+              {taskState.loading && <p role="status">Loading tasks…</p>}
+              {taskState.copy && (
+                <AgentTaskEditor
+                  copy={taskState.copy}
+                  versions={catalog?.versions ?? []}
+                  update={taskState.update}
+                  save={() => void taskState.save()}
+                  busy={taskState.busy}
+                  onClose={closeTaskEditor}
+                />
+              )}
+              {newerTask && (
+                <div className="agent-library-actions">
+                  <p>A newer saved task revision is available. Your input is retained.</p>
+                  <button
+                    type="button"
+                    disabled={taskState.busy}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          'Replace task input with the saved revision? This discards device-only choices.',
+                        )
+                      )
+                        taskState.update(editAgentTask(newerTask));
+                    }}
+                  >
+                    Reload saved task
+                  </button>
+                </div>
+              )}
+              {taskState.tasks && (
+                <AgentTaskList
+                  tasks={taskState.tasks}
+                  versions={catalog?.versions ?? []}
+                  onEdit={openTask}
+                  disabled={taskState.busy || !!taskState.copy?.dirty}
+                />
+              )}
+            </>
           )}
         </section>
         <section
@@ -603,20 +739,6 @@ export function AgentLibrary() {
           aria-labelledby="library-profiles"
           hidden={collection !== 'profiles'}
         >
-          <div className="agent-library-toolbar">
-            <input
-              aria-label="Search agents"
-              placeholder="Search names and descriptors…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <button disabled={busy || dirty || !catalog} onClick={() => setImporting(!importing)}>
-              Import profile
-            </button>
-            <Link to="/tasks" className="workspace-text-link">
-              Agent taskboard
-            </Link>
-          </div>
           {error && (
             <p role="alert" className="agent-library-error">
               {error}
@@ -680,7 +802,6 @@ export function AgentLibrary() {
                     disabled={busy || dirty}
                     onClick={() => {
                       adopt(entry);
-                      setTab('identity');
                     }}
                   >
                     <strong>{entry.definition.name}</strong>
@@ -697,26 +818,11 @@ export function AgentLibrary() {
                 ))}
                 {!visible.length && (
                   <p>
-                    {query
-                      ? 'No matching agents.'
-                      : 'Create your first agent, or start with the advisor.'}
+                    {query ? 'No matching agents.' : 'Create your first agent with Agent Builder.'}
                   </p>
                 )}
               </section>
               <div className="agent-library-workbench">
-                {editor && (
-                  <AgentCreationAdvisor
-                    key={editor.profileId}
-                    definition={editor.definition}
-                    onApply={(definition) => {
-                      update(definition);
-                      setTab('identity');
-                    }}
-                    open={advisorOpen}
-                    onOpenChange={setAdvisorOpen}
-                    disabled={busy || historical}
-                  />
-                )}
                 <section className="agent-library-detail" aria-label="Agent profile editor">
                   {editor ? (
                     <>
@@ -735,11 +841,22 @@ export function AgentLibrary() {
                               : `Draft · saved ${editor.expectedVersion}`}
                         </span>
                       </div>
+                      {editingProfile && (
+                        <div className="agent-library-actions">
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => openBuilder(editor, dirty, selectedVersion?.contentHash)}
+                          >
+                            Refine with Agent Builder
+                          </button>
+                        </div>
+                      )}
                       {canUse && (
                         <div className="agent-library-actions">
                           {' '}
                           <Link
-                            className="btn-primary"
+                            className="workspace-text-link"
                             to={agentChatHref(editor.profileId, editor.publishedRevision!)}
                           >
                             Use in session
@@ -759,16 +876,17 @@ export function AgentLibrary() {
                         onKeyDown={navigateTabs}
                         aria-label="Profile sections"
                       >
-                        {(
-                          [
-                            'identity',
-                            'instructions',
-                            'context',
-                            'tools',
-                            'preview',
-                            'tasks',
-                            'versions',
-                          ] as const
+                        {(editingProfile
+                          ? ([
+                              'identity',
+                              'instructions',
+                              'context',
+                              'tools',
+                              'preview',
+                              'tasks',
+                              'versions',
+                            ] as const)
+                          : (['profile', 'tasks', 'versions'] as const)
                         ).map((item) => (
                           <button
                             key={item}
@@ -780,7 +898,9 @@ export function AgentLibrary() {
                             onClick={() => setTab(item)}
                           >
                             {item === 'tasks'
-                              ? 'Assigned tasks'
+                              ? editingProfile
+                                ? 'Assigned tasks'
+                                : 'Tasks'
                               : item === 'preview'
                                 ? 'Prompt preview'
                                 : item[0].toUpperCase() + item.slice(1)}
@@ -792,6 +912,45 @@ export function AgentLibrary() {
                         role="tabpanel"
                         aria-labelledby={`agent-library-tab-${tab}`}
                       >
+                        {tab === 'profile' && (
+                          <div className="agent-library-profile-guidance">
+                            <h3>Instructions</h3>
+                            <p>{editor.definition.instructions}</p>
+                            <h3>Expected output</h3>
+                            <p>{editor.definition.expectedOutput}</p>
+                            <h3>Success criteria</h3>
+                            <ul>
+                              {editor.definition.acceptanceCriteria.map((criterion, index) => (
+                                <li key={index}>{criterion}</li>
+                              ))}
+                            </ul>
+                            <div className="agent-library-actions">
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() =>
+                                  openBuilder(editor, dirty, selectedVersion?.contentHash)
+                                }
+                              >
+                                Refine with Agent Builder
+                              </button>
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  setEditingProfile(true);
+                                  setTab('identity');
+                                }}
+                              >
+                                Edit profile
+                              </button>
+                            </div>
+                            <p>
+                              Available when choosing agents within a session. Task settings are
+                              saved with each task.
+                            </p>
+                          </div>
+                        )}
                         {(['identity', 'instructions', 'context'] as string[]).includes(tab) && (
                           <AgentProfileEditor
                             value={editor.definition}
@@ -820,6 +979,7 @@ export function AgentLibrary() {
                                 void execute(async () => {
                                   setPreview('');
                                   setCompiledPreview(null);
+                                  setReviewedContext(undefined);
                                   const result = await read<{
                                     profilePrompt: string;
                                     assembledPrompt?: string;
@@ -831,6 +991,7 @@ export function AgentLibrary() {
                                     ? CompiledAgentContextSchema.parse(result.compiledContext)
                                     : null;
                                   setCompiledPreview(compiled);
+                                  setReviewedContext(compiled?.context.fullMarkdown);
                                   setPreview(result.assembledPrompt ?? result.profilePrompt);
                                 })
                               }
@@ -845,6 +1006,7 @@ export function AgentLibrary() {
                         )}
                         {tab === 'tasks' && (
                           <>
+                            {taskLinkError && <p role="alert">{taskLinkError}</p>}
                             {taskState.error && <p role="alert">{taskState.error}</p>}
                             {taskState.tasks && (
                               <AgentTaskList
@@ -878,7 +1040,7 @@ export function AgentLibrary() {
                           </>
                         )}
                       </div>
-                      {!historical && (
+                      {editingProfile && !historical && (
                         <div className="agent-library-actions">
                           <button
                             disabled={busy || !valid || (!dirty && editor.expectedVersion > 0)}

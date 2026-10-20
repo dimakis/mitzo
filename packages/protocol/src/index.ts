@@ -1,3 +1,4 @@
+export * from './markdown-paths.js';
 export * from './agent-tasks.js';
 // @mitzo/protocol — shared types, schemas, and utilities for the Mitzo v2 protocol.
 export type {
@@ -283,6 +284,9 @@ export type {
 export {
   SourceSnapshotSchema,
   SourceSnapshotsSchema,
+  AgentLibrarySourceSnapshotSchema,
+  AgentLibrarySourceContentSchema,
+  type AgentLibrarySourceContent,
   type SourceSnapshot,
 } from './source-snapshot.js';
 
@@ -345,6 +349,12 @@ export * from './ordinary-local-vertex-admission.js';
 export * from './ordinary-local-vertex-custody.js';
 export type { ContextCompaction } from './context-compaction.js';
 export * from './collaboration-conversation.js';
+export {
+  CollaborationSourceSetupQuerySchema,
+  CollaborationSourceSetupSchema,
+  type CollaborationSourceSetup,
+} from './collaboration-source-setup.js';
+export * from './collaboration-forward.js';
 
 export * from './agent-tools.js';
 export {
@@ -358,3 +368,17 @@ export {
 export * from './telos-work.js';
 
 export * from './telos-work-api.js';
+export * from './telos-work-advisor.js';
+
+export * from './ordinary-prepared-session.js';
+export * from './telos-source.js';
+export * from './telos-outcome.js';
+
+export * from './telos-work-role-context.js';
+export * from './telos-work-delegation.js';
+export { AgentLibraryEditableDefinitionSchema } from './agent-library-editable.js';
+export * from './telos-work-role-presentation.js';
+export * from './ordinary-workspace.js';
+
+export * from './telos-ordinary-work.js';
+export * from './ordinary-workspace-public.js';

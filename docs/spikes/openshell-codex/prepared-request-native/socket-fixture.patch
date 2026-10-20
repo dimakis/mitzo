@@ -1,0 +1,12 @@
+diff --git a/codex-rs/http-client/src/single_attempt_tests.rs b/codex-rs/http-client/src/single_attempt_tests.rs
+index 03cc532..2dcda2e 100644
+--- a/codex-rs/http-client/src/single_attempt_tests.rs
++++ b/codex-rs/http-client/src/single_attempt_tests.rs
+@@ -158,6 +158,7 @@ async fn single_attempt_redirects_never_reissue_the_retained_request() {
+                     }
+                     Err(error) => panic!("fixture accept failed: {error}"),
+                 };
++                socket.set_nonblocking(false).unwrap();
+                 socket
+                     .set_read_timeout(Some(Duration::from_secs(/*secs*/ 1)))
+                     .unwrap();

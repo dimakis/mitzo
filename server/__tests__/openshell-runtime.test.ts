@@ -56,6 +56,60 @@ const providerList = (sandbox: string, providers: string[]) =>
     : `No providers attached to sandbox ${sandbox}.`;
 
 describe('OpenShell runtime lifecycle', () => {
+  it('qualifies the existing API provider identity without creating a sandbox or reading a key', async () => {
+    const provider = {
+      id: 'saved-provider',
+      name: 'openai-work',
+      workspace: 'mitzo',
+      type: 'mitzo-openai-keychain-spike',
+    };
+    const run = vi
+      .fn<(args: readonly string[]) => Promise<string>>()
+      .mockResolvedValue(JSON.stringify([provider]));
+    const manager = new OpenShellRuntimeManager(config, run);
+    await manager.verifyAPIAccountProvider('saved-provider', new AbortController().signal);
+    expect(run).toHaveBeenCalledOnce();
+    expect(run.mock.calls[0][0]).toEqual(expect.arrayContaining(['provider', 'list']));
+    for (const change of [
+      { id: 'another' },
+      { workspace: 'another' },
+      { type: 'another' },
+      { name: 'another' },
+    ]) {
+      run.mockResolvedValueOnce(JSON.stringify([{ ...provider, ...change }]));
+      await expect(
+        manager.verifyAPIAccountProvider('saved-provider', new AbortController().signal),
+      ).rejects.toThrow('binding changed');
+    }
+    run.mockResolvedValueOnce(JSON.stringify([provider, provider]));
+    await expect(
+      manager.verifyAPIAccountProvider('saved-provider', new AbortController().signal),
+    ).rejects.toThrow('binding changed');
+    const cancelled = new AbortController();
+    cancelled.abort();
+    const before = run.mock.calls.length;
+    await expect(
+      manager.verifyAPIAccountProvider('saved-provider', cancelled.signal),
+    ).rejects.toThrow();
+    expect(run.mock.calls.length).toBe(before);
+  });
+  it('lists all workspace resources beyond the first page, including unassigned and historical providers', async () => {
+    const records = Array.from({ length: 122 }, (_, i) => ({
+      id: String(i),
+      name: 'old-' + i,
+      phase: i < 74 ? 'Stopped' : 'Ready',
+      workspace: 'mitzo',
+      labels: i % 2 ? {} : { 'mitzo.account_provider': 'retired-provider' },
+    }));
+    const run = vi.fn(async (args: readonly string[]) => {
+      const offset = Number(args[args.indexOf('--offset') + 1]);
+      return JSON.stringify(records.slice(offset, offset + 100));
+    });
+    const manager = new OpenShellRuntimeManager(config, run);
+    expect(await manager.inventory(new AbortController().signal, true)).toHaveLength(122);
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(await manager.inventory(new AbortController().signal)).toEqual([]);
+  });
   it('reads a bounded task capability inventory over the selected sandbox transport', async () => {
     const observation = { mgmtCli: false, meetingPrep: false, gws: true };
     const runSsh = vi.fn(async () => JSON.stringify(observation));
@@ -2992,4 +3046,17 @@ it('creates an explicitly named migration candidate without falling back to the 
       .filter(([args]) => args.includes('get'))
       .map(([args]) => args[args.indexOf('get') + 1]),
   ).toEqual(['mitzo-migrate-offline']);
+});
+
+it('makes native search available for consent by default while respecting the deployment kill switch', () => {
+  const env = {
+    MITZO_OPENSHELL_ENABLED: '1',
+    MITZO_OPENSHELL_IMAGE: 'runtime:1',
+    MITZO_OPENSHELL_POLICY: '/policy',
+    MITZO_OPENSHELL_SEED: '/seed',
+  };
+  expect(openShellRuntimeConfig(env)?.webSearch).toBe('live');
+  expect(
+    openShellRuntimeConfig({ ...env, MITZO_OPENSHELL_WEB_SEARCH: 'disabled' })?.webSearch,
+  ).toBe('disabled');
 });

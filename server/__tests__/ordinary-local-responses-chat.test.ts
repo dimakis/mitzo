@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { AccountProfiles } from '../account-profiles.js';
+import { agentLibrarySource } from './fixtures/agent-library-source.js';
 const services = vi.hoisted(() => ({
   authId: '',
   workspace: undefined as unknown,
@@ -14,9 +15,10 @@ vi.mock('../agent-library-runtime.js', async (original) => ({
   ...(await original<object>()),
   getAgentLibrary: () => services.library,
 }));
-vi.mock('../connections-runtime.js', () => ({
-  getConnectionsRuntime: () => ({ openAIEnrollmentAuthority: services.manager }),
-}));
+vi.mock('../connections-runtime.js', () => {
+  const runtime = { openAIEnrollmentAuthority: services.manager };
+  return { getConnectionsRuntime: () => runtime };
+});
 vi.mock('../auth.js', async (original) => ({
   ...(await original<object>()),
   hasPersistentRevocationAuthority: () => true,
@@ -84,6 +86,7 @@ it('dispatches consumed API commands through the actual chat owner and retains t
   const { ownedResponsesRuntimeFixture } =
     await import('./fixtures/owned-local-responses-runtime.js');
   const f = await ownedResponsesRuntimeFixture(cleanups, { chatRoute: true });
+  Object.assign(f.request.payload, { sourceSnapshots: [agentLibrarySource] });
   services.workspace = f.workspace;
   services.library = f.library;
   services.authId = f.auth.id;
@@ -203,6 +206,16 @@ it('dispatches consumed API commands through the actual chat owner and retains t
   ).resolves.toMatchObject({ dispatched: false });
   expect(chat.registry.get(liveClientId)?.ordinaryRuntimeOwner).toBeDefined();
   await vi.waitFor(() => expect(requests).toHaveLength(1));
+  expect(JSON.stringify(requests[0].input)).toContain(
+    agentLibrarySource.content.replaceAll('"', '\\"'),
+  );
+  const publicUser = chat.eventStore
+    .getSessionEvents(f.reservation.conversationId)
+    .find((event) => event.type === 'user_message');
+  expect(publicUser?.payload).toMatchObject({
+    text: f.request.payload.text,
+    sourceSnapshots: [agentLibrarySource],
+  });
   expect(openChat).toHaveBeenCalled();
   for (const [options] of openChat.mock.calls) {
     expect(options.configuredSourceEnv).toBeDefined();

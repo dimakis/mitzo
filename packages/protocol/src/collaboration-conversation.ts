@@ -5,6 +5,7 @@ import {
 } from './session-collaboration.js';
 import { SessionRuntimeBindingV2Schema } from './session-runtime-binding.js';
 import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.js';
+import { AgentProfileSelectionSchema } from './agent-library.js';
 
 const id = z.string().min(1).max(200).regex(/^\S+$/);
 const sequence = z
@@ -41,6 +42,24 @@ export const CollaborationSettingsSchema = z.strictObject({
   selection: OrdinaryLocalCommandSelectionSchema,
   repositoryWorkspaceId: id,
 });
+/** Trusted existing review reservation identity; not accepted from public routes. */
+export const CollaborationReviewIdentitySchema = z.strictObject({
+  collaborationId: SessionCollaborationIdSchema,
+  operatorId: id,
+  requestId: z.uuid(),
+});
+/** Schema normalization supplies stable key order; source bytes are deliberately
+ * excluded so changed unfinished input conflicts under the original native operation. */
+export function collaborationCapacityOperationKey(rawIdentity: unknown, rawSettings: unknown) {
+  const identity = CollaborationReviewIdentitySchema.parse(rawIdentity);
+  const settings = CollaborationSettingsSchema.parse(rawSettings);
+  return JSON.stringify([
+    identity.collaborationId,
+    identity.operatorId,
+    identity.requestId,
+    settings,
+  ]);
+}
 export const CollaborationPolicyUpdateSchema = z.strictObject({
   ...request,
   expectedRevision: sequence,
@@ -81,6 +100,27 @@ export const CollaborationSnapshotSelectionSchema = z.strictObject({
   purpose: z.string().trim().min(1).max(4000),
   joiningBrief: z.string().max(20_000),
 });
+/** Application review intent only. Actual owners resolve settings, source access
+ * and the unused prepared workspace; these selectors confer no capacity or send right. */
+export const CollaborationApplicationReviewInputSchema = z.strictObject({
+  selection: CollaborationSnapshotSelectionSchema,
+  target: z.strictObject({
+    runOn: z.enum(['local', 'openshell']),
+    accountId: id,
+    model: id,
+    reasoningEffort: id.nullable(),
+    agent: AgentProfileSelectionSchema.nullable(),
+    repositoryWorkspaceId: id,
+    permissionMode: OrdinaryLocalCommandSelectionSchema.shape.permission.shape.mode,
+  }),
+  previousSnapshot: CollaborationSnapshotReferenceSchema.optional(),
+});
+export type CollaborationApplicationReviewInput = z.infer<
+  typeof CollaborationApplicationReviewInputSchema
+>;
+/** Transport correlation only; the server checks its existing live login binding. */
+export const CollaborationApplicationReviewRequestSchema =
+  CollaborationApplicationReviewInputSchema.extend({ clientId: id });
 export const CollaborationMessageInputSchema = z.strictObject({
   ...request,
   expectedPolicySequence: sequence,
@@ -120,6 +160,11 @@ export const CollaborationDeliverySchema = z.strictObject({
   commandId: id.nullable(),
   reason: z.string().max(1000).nullable(),
 });
+/** Reference only. Exact retained forwarding bytes stay with the host storage owner. */
+export const CollaborationForwardReferenceSchema = z.strictObject({
+  forwardId: z.uuid(),
+  packetSha256: digest,
+});
 export const CollaborationMessageSchema = z
   .strictObject({
     version: z.literal(1),
@@ -127,7 +172,8 @@ export const CollaborationMessageSchema = z
     projectionId: z.uuid(),
     sequence,
     author,
-    text: z.string().min(1).max(100_000),
+    text: z.string().max(100_000),
+    forward: CollaborationForwardReferenceSchema.optional(),
     // Replies must originate in an explicitly mapped ordinary command, never all session activity.
     source: CollaborationMessageSourceSchema.nullable(),
     replyToDeliveryId: z.uuid().nullable(),
@@ -141,6 +187,18 @@ export const CollaborationMessageSchema = z
     deliveries: z.array(CollaborationDeliverySchema).max(16),
   })
   .superRefine((message, context) => {
+    if (
+      message.forward
+        ? message.author !== 'operator' ||
+          message.source !== null ||
+          message.replyToDeliveryId !== null ||
+          message.snapshot !== null ||
+          message.responders.length !== 0 ||
+          message.readers.length === 0 ||
+          message.deliveries.some((delivery) => delivery.purpose !== 'context')
+        : message.text.length === 0
+    )
+      context.addIssue({ code: 'custom', message: 'Invalid forwarding context message' });
     if (
       message.responders.some((id) => !message.readers.includes(id)) ||
       Object.keys(message.settings).sort().join('\0') !== [...message.readers].sort().join('\0') ||
@@ -171,6 +229,54 @@ export const CollaborationSnapshotMessageSchema = z.strictObject({
   source: CollaborationMessageSourceSchema.nullable(),
   blocks: z.array(block).min(1).max(100),
 });
+/** Completed ordinary visible text at one durable read boundary. This carries
+ * no private source witness, provider identity, admission or joining authority. */
+export const COLLABORATION_DURABLE_TRANSCRIPT_MAX_MATERIAL_BYTES = 512 * 1024;
+// IDs have at most 200 UTF-16 code units. JSON control-character escaping
+// costs at most six bytes per unit; the largest safe sequence has 16 digits.
+// Charge this fixed public envelope separately from the existing message budget.
+export const COLLABORATION_DURABLE_TRANSCRIPT_MAX_WIRE_BYTES =
+  COLLABORATION_DURABLE_TRANSCRIPT_MAX_MATERIAL_BYTES +
+  new TextEncoder().encode(
+    JSON.stringify({
+      sourceConversationId: '\u0000'.repeat(200),
+      boundary: { sequence: Number.MAX_SAFE_INTEGER - 1, messageId: '\u0000'.repeat(200) },
+      messages: [],
+    }),
+  ).byteLength -
+  2;
+export const CollaborationDurableTranscriptSchema = z
+  .strictObject({
+    sourceConversationId: id,
+    boundary: z.strictObject({ sequence: sequence.min(1), messageId: id }),
+    messages: z.array(CollaborationSnapshotMessageSchema).min(1).max(500),
+  })
+  .superRefine((value, context) => {
+    let previous = 0;
+    const seen = new Set<string>();
+    for (const message of value.messages) {
+      if (
+        message.conversationId !== value.sourceConversationId ||
+        (message.author !== 'operator' &&
+          message.author.sessionId !== value.sourceConversationId) ||
+        message.source !== null ||
+        message.sequence <= previous ||
+        message.sequence > value.boundary.sequence ||
+        seen.has(message.messageId)
+      )
+        context.addIssue({ code: 'custom', message: 'Durable source identity changed' });
+      previous = message.sequence;
+      seen.add(message.messageId);
+    }
+    if (value.messages.at(-1)?.messageId !== value.boundary.messageId)
+      context.addIssue({ code: 'custom', message: 'Durable source boundary changed' });
+    if (
+      new TextEncoder().encode(JSON.stringify(value.messages)).byteLength >
+      COLLABORATION_DURABLE_TRANSCRIPT_MAX_MATERIAL_BYTES
+    )
+      context.addIssue({ code: 'custom', message: 'Durable source exceeds byte limit' });
+  });
+export type CollaborationDurableTranscript = z.infer<typeof CollaborationDurableTranscriptSchema>;
 const artifact = z.strictObject({
   artifactId: id,
   revision: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
@@ -184,44 +290,84 @@ const artifact = z.strictObject({
     .max(512 * 1024)
     .optional(),
 });
+/** Public fit evidence only. This review scope can never authorize command consumption. */
+export const CollaborationNativeCapacityAssessmentSchema = z
+  .strictObject({
+    kind: z.literal('nativePreparedRequest'),
+    scope: z.literal('reviewContext'),
+    settings: CollaborationSettingsSchema,
+    measurementId: z.uuid(),
+    inputTokens: z.number().int().nonnegative().safe(),
+    maxOutputTokens: z.number().int().positive().safe(),
+    contextWindowTokens: z.number().int().positive().safe(),
+  })
+  .refine(
+    (value) =>
+      Number.isSafeInteger(value.inputTokens + value.maxOutputTokens) &&
+      value.inputTokens + value.maxOutputTokens <= value.contextWindowTokens,
+    'Native capacity accounting mismatch',
+  );
+/** Trusted host persistence only; never included in a snapshot or public replay. */
+export const CollaborationNativeCapacityWitnessSchema = z.strictObject({
+  assessment: CollaborationNativeCapacityAssessmentSchema,
+  nativeOperationId: z.string().regex(/^collaboration-review:[a-f0-9]{64}$/),
+  contextSha256: digest,
+  nativeWitness: z.strictObject({ preparationId: id, requestIdentity: digest, witnessId: id }),
+});
+export type CollaborationNativeCapacityWitness = z.infer<
+  typeof CollaborationNativeCapacityWitnessSchema
+>;
 const capacity = z.discriminatedUnion('status', [
   z.strictObject({
     status: z.literal('ready'),
     assessments: z
       .array(
-        z
-          .strictObject({
-            settings: CollaborationSettingsSchema,
-            availableTokens: sequence,
-            estimatedTokens: sequence,
-            estimatorRevision: id,
-            components: z
-              .strictObject({
-                contextTokens: sequence,
-                adapterTokens: sequence,
-                bootTokens: sequence,
-                toolTokens: sequence,
-                reservedOutputTokens: sequence,
-                contextWindowTokens: sequence,
-              })
-              .optional(),
-          })
-          .refine((c) => c.estimatedTokens <= c.availableTokens)
-          .refine(
-            (c) =>
-              !c.components ||
-              (c.estimatedTokens ===
-                c.components.contextTokens +
-                  c.components.adapterTokens +
-                  c.components.bootTokens +
-                  c.components.toolTokens &&
-                c.availableTokens ===
-                  c.components.contextWindowTokens - c.components.reservedOutputTokens),
-            'Capacity accounting mismatch',
-          ),
+        z.union([
+          CollaborationNativeCapacityAssessmentSchema,
+          z
+            .strictObject({
+              settings: CollaborationSettingsSchema,
+              availableTokens: sequence,
+              estimatedTokens: sequence,
+              estimatorRevision: id,
+              components: z
+                .strictObject({
+                  contextTokens: sequence,
+                  adapterTokens: sequence,
+                  bootTokens: sequence,
+                  toolTokens: sequence,
+                  reservedOutputTokens: sequence,
+                  contextWindowTokens: sequence,
+                })
+                .optional(),
+            })
+            .refine((c) => c.estimatedTokens <= c.availableTokens)
+            .refine(
+              (c) =>
+                !c.components ||
+                (c.estimatedTokens ===
+                  c.components.contextTokens +
+                    c.components.adapterTokens +
+                    c.components.bootTokens +
+                    c.components.toolTokens &&
+                  c.availableTokens ===
+                    c.components.contextWindowTokens - c.components.reservedOutputTokens),
+              'Capacity accounting mismatch',
+            ),
+        ]),
       )
       .min(1)
-      .max(16),
+      .max(16)
+      .refine((assessments) => {
+        const native = assessments.filter(
+          (assessment) => 'kind' in assessment && assessment.kind === 'nativePreparedRequest',
+        );
+        return (
+          new Set(
+            native.map((assessment) => 'measurementId' in assessment && assessment.measurementId),
+          ).size === native.length
+        );
+      }, 'Duplicate native measurement ID'),
   }),
   z.strictObject({
     status: z.enum(['unverified', 'refused', 'needs_reviewed_summary']),
@@ -258,10 +404,35 @@ export const CollaborationSnapshotSchema = CollaborationSnapshotDraftSchema.omit
   snapshotId: z.uuid(),
   sha256: digest,
 });
+export const CollaborationApplicationReviewResultSchema = z.strictObject({
+  snapshot: CollaborationSnapshotSchema,
+  settings: CollaborationSettingsSchema,
+  expectedMembershipRevision: sequence,
+  artifactLabels: z
+    .array(
+      z.strictObject({
+        artifactId: id,
+        revision: z.number().int().positive().safe(),
+        sha256: digest,
+        title: z.string().trim().min(1).max(1000),
+        filename: z.string().trim().min(1).max(1000).optional(),
+      }),
+    )
+    .max(100)
+    .optional(),
+});
+export type CollaborationApplicationReviewResult = z.infer<
+  typeof CollaborationApplicationReviewResultSchema
+>;
 export const CollaborationJoinInputSchema = z.strictObject({
   ...request,
   name: z.string().trim().min(1).max(100),
   settings: CollaborationSettingsSchema,
+  snapshot: CollaborationSnapshotReferenceSchema,
+});
+/** Explicit membership-only approval of an existing allocation's original frozen review. */
+export const CollaborationJoinReconcileInputSchema = z.strictObject({
+  ...request,
   snapshot: CollaborationSnapshotReferenceSchema,
 });
 export const CollaborationAllocationSchema = z.strictObject({
@@ -353,6 +524,7 @@ export type CollaborationMessageInput = z.infer<typeof CollaborationMessageInput
 export type CollaborationReplyInput = z.infer<typeof CollaborationReplyInputSchema>;
 export type CollaborationMessageSource = z.infer<typeof CollaborationMessageSourceSchema>;
 export type CollaborationJoinInput = z.infer<typeof CollaborationJoinInputSchema>;
+export type CollaborationJoinReconcileInput = z.infer<typeof CollaborationJoinReconcileInputSchema>;
 export type CollaborationSnapshotSelection = z.infer<typeof CollaborationSnapshotSelectionSchema>;
 export class CollaborationContractError extends Error {
   constructor(

@@ -49,13 +49,20 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 /** Requests are data only. Browser approval can grant bounded reads; publication always uses the existing artifact review/credential flow. */
 export class SymposiumAccessRequests {
   private db: Database.Database;
+  private activeOperations = 0;
   private pending = new Map<
     string,
     { verify(): void; finish(approved: boolean): void; cancel(): void }
   >();
   constructor(
     path: string,
-    private deps: Dependencies = { resolve: resolveApprovedUrl, fetch: fetchApprovedUrl },
+    private deps: Dependencies = {
+      resolve: resolveApprovedUrl,
+      // Seats have no full-view input. Preserve their bounded complete response
+      // rather than applying an ordinary-chat summary they cannot recover from.
+      fetch: (url, target, signal) =>
+        fetchApprovedUrl(url, target, signal, undefined, undefined, 'full'),
+    },
   ) {
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');
@@ -72,6 +79,11 @@ export class SymposiumAccessRequests {
   close() {
     for (const request of [...this.pending.values()]) request.cancel();
     this.db.close();
+  }
+  /** Idle release does not cancel approval, resolve a URL or drain a read. */
+  closeIdle(): void {
+    if (this.activeOperations || this.pending.size) throw new Error('Access requests are active');
+    if (this.db.open) this.db.close();
   }
   private row(id: string): Row | undefined {
     return this.db.prepare('SELECT * FROM symposium_access_requests WHERE id=?').get(id) as
@@ -304,7 +316,9 @@ export class SymposiumAccessRequests {
       instructions:
         'Use RequestWebAccess with request_access, the exact URL and reason to ask the user for website read access. Wait for the result, then use fetch. Access lasts 15 minutes within this executing seat attempt and grants credential-free reads only; private addresses and custom ports are shown to the user. Use revoke_access to remove it. Use RequestGithubPublish to ask the user to review the artifact and publish it using Symposium artifact review. A request is not a publication, grant or approval; do not claim a push or PR has happened until the reviewed-artifact publication succeeds. Direct GitHub writes remain unavailable.',
       executeTool: async (name, arguments_, callerSignal, call) => {
+        this.activeOperations++;
         try {
+          if (!this.db.open) throw new Error('Access request owner released');
           const signal = AbortSignal.any([execution.signal, callerSignal]);
           signal.throwIfAborted();
           verify();
@@ -405,6 +419,8 @@ export class SymposiumAccessRequests {
               'Seat access request did not complete or its executing claim changed. No direct publication was performed.',
             isError: true,
           };
+        } finally {
+          this.activeOperations--;
         }
       },
     };

@@ -36,7 +36,11 @@ historical releases or uncertainty records to satisfy disk admission.
 
 ## Required merge gate
 
-Green CI is insufficient to merge. Require Centaur's final LGTM and `merge` recommendation for the exact current PR head, with zero new or unresolved blocking findings. Missing, stale, dismissed, `fix`, and `human_decision` reviews block merge. Pushing a fix does not verify it. If the automatic review limit is reached, request an explicit final Centaur review. Recheck after every push, and use `--match-head-commit` when merging. Never bypass the gate with an admin merge. MGMT provides `python -m mgmt_lib.pr_merge_gate OWNER/REPO NUMBER [--merge]` for this check.
+Green CI is insufficient to merge. Follow [the canonical landing policy](skills/land-pr/SKILL.md): one thorough approved review plus verification of later changes; a second independent full pass for concrete high-impact risks or stronger repository rules. Main advancing does not erase the baseline. Use targeted integration review for relevant upstream changes and trusted continuity reconciliation only when unchanged reviewed work can be proved. Conflict resolutions and extra edits require review.
+
+Require Centaur's final LGTM and `merge` recommendation for the exact current PR head, with zero new or unresolved blocking findings. Its current-head report may reuse the baseline through verified follow-ups or explicit continuity evidence; every new SHA does not require a new whole-PR pass. Missing, stale, dismissed, `fix`, and `human_decision` reports block merge. If the automatic cycle limit is reached, request the documented forced follow-up with a concrete reason; the cap alone does not justify a full rescan. Never fabricate a current-head approval. Recheck before merge, use `--match-head-commit`, and never use an admin bypass. MGMT provides `python -m mgmt_lib.pr_merge_gate OWNER/REPO NUMBER [--merge]` for this check.
+
+Combined-result CI remains mandatory. Prefer a fully wired native merge queue where supported; otherwise preserve strict up-to-date protection and integrate main at the final landing turn. Do not refresh all waiting PRs on every main update. Batch fixes, cancel superseded runs and retain the conservative affected-job selection contract. Only actual merges need coordination; coding, checks, review and preparation remain concurrent within resource limits.
 
 Production activation requires reviewed, accepted sources. A publication is distinct from consumer adoption: verify the selected knowledge and actual runtime before delivering it between turns. Keep published knowledge separate from writable task roots. Repair only the selected invalid content-addressed knowledge cache under its owning sandbox's lifecycle fence; preserve task data and unrelated views.
 
@@ -63,3 +67,14 @@ Host configuration selects the knowledge store and pinned format adapter. Contex
 Enrolled ordinary OpenShell Codex chats select fresh knowledge at command admission. For an eligible new explicit command, sandbox creation or a verified new neutral-pool claim and its first turn share the exact verified publication selected for that command through a one-use, identity-bound receipt. Reattach, recovery, failed or cancelled attempts, later commands, externally prepared seeds and unclaimed warmups cannot inherit that receipt and reconcile afresh. An active turn keeps its selected version. Use the published knowledge root supplied in application context for shared instructions and retrieval; it supersedes older accepted knowledge copied into the writable task checkout. Keep edits and observations in the task workspace and submit them through the store's normal acceptance process. A local commit must reach the configured accepted remote ref before other chats can select it.
 
 Publication preserves task branches, dirty worktrees, checkpoints and provider history. Do not pull, reset or rebase task roots to refresh shared knowledge. Selection is not delivery: an adoption receipt is recorded only after the provider acknowledges the exact turn and context, including source, bundle, sandbox and runtime identities. Missing configuration retains legacy behavior; incompatible runtime/publication or failed reconciliation blocks enrolled admission. Host, Responses, Claude and Symposium enrollment require separate implementation. See `docs/operations/mgmt-knowledge-publication.md` for configuration and rollout.
+
+## Approved designs survive feature work and rebases
+
+Before changing an existing UI or resolving a UI conflict, read
+[the approved-design ledger](docs/design/approved/README.md) and the relevant entry
+in `docs/design/approved/ledger.json`. Preserve the active approved design while
+integrating feature behavior. Incoming branch history does not grant design approval.
+Run its checks again on the final combined branch. Do not rewrite references,
+weaken checks or update the active revision to make a regression pass. An intentional
+redesign or a change to these protections requires new explicit user approval;
+append the new approval and retain earlier revisions and references.

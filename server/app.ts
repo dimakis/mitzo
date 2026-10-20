@@ -1,3 +1,23 @@
+import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
+import { ordinaryWorkspacePreparedCommandStatus } from './ordinary-workspace-prepared-command.js';
+import { requireSameOriginJson } from './connections-router.js';
+import {
+  ordinaryWorkspaceArtifactRoot,
+  hasOrdinaryWorkspaceArtifactScope,
+} from './ordinary-workspace-artifact-root.js';
+import { hasPersistentRevocationAuthority, isAuthSessionCurrent } from './auth.js';
+import { createOrdinaryWorkspacePreparationRouter } from './ordinary-workspace-router.js';
+import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
+import { getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
+import { assertAgentToolRoute } from './agent-tool-selection.js';
+import { OrdinaryWorkspaceSettingsSchema } from '@mitzo/protocol';
+import { readSandboxOwnershipReview } from './sandbox-ownership-review.js';
+import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
+import { summarizeSandboxInventory } from './sandbox-inventory.js';
+import { readOpenShellSandboxInventory } from './openshell-lifecycle-controller.js';
+import { getApiToolCatalog } from './api-tool-runtime.js';
+import { getToolBuilderStore } from './tool-builder-runtime.js';
+import { createTelosOutcomeHandler } from './telos-outcome-handler.js';
 import { getConfiguredToolCatalog } from './configured-tool-runtime.js';
 import { loadMcpServers } from './mcp-config.js';
 
@@ -24,6 +44,7 @@ import {
   cancelOwnedResponsesQueuedCommand,
 } from './ordinary-local-responses-queue.js';
 import { ownedLocalCodexMetadata } from './ordinary-local-codex-metadata.js';
+import { repositoryPreparedCommandStatus } from './repository-prepared-command.js';
 import { ordinaryCodexContinuationStatus } from './ordinary-codex-continuation-status.js';
 import { createTelemetryRelay } from './telemetry-relay.js';
 import { traceAuthCheck } from './auth-check-tracing.js';
@@ -48,7 +69,9 @@ import {
   type SymposiumPersonalConnectionService,
 } from './symposium-personal-connection-router.js';
 import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
+import { canonicalRepositorySelection } from './github-repository-source.js';
 import {
+  closeIdleRepositoryWorkspaces,
   getRepositoryWorkspaces,
   repositoryWorkspaceBinding,
   repositoryWorkspaceCatalog,
@@ -74,6 +97,7 @@ import {
 import { createGithubPublicationOperatorRouter } from './github-publication-operator-router.js';
 import { createKnowledgeLibraryRouter } from './knowledge-library-router.js';
 import { knowledgeLibraryFromEnvironment } from './knowledge-library-runtime.js';
+import { installKnowledgeDraftRuntime } from './session-knowledge-tools.js';
 import { createKnowledgeLibraryLoader } from './knowledge-library-loader.js';
 import { requestOperatorGithubPublication } from './github-publishing-tool.js';
 import { createCredentialConnectionsRouter } from './credential-connections-router.js';
@@ -81,6 +105,8 @@ import { bindConnectionSetupApplication } from './credential-setup-application.j
 import { getResponsesRuntime } from './responses-chat-session.js';
 import {
   getCredentialConnectionsRuntime,
+  keychainConnectionConfig,
+  createCredentialConnectionsRuntime,
   setCredentialConnectionsRuntime as setActiveCredentialConnectionsRuntime,
 } from './credential-connections-runtime.js';
 import type { CredentialConnections } from './credential-connections.js';
@@ -101,8 +127,27 @@ import {
 import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { createTelosItemRouter } from './telos-item-routes.js';
-import { createTelosWorkRouter } from './telos-work-routes.js';
-import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
+import { createTelosWorkRouter, type TelosWorkRoleRequest } from './telos-work-routes.js';
+import { createTelosWorkRoleHost } from './telos-work-role-host.js';
+import { createTelosWorkDelegationHost } from './telos-work-delegation-host.js';
+import type { TelosWorkDelegationScope } from './telos-work-delegation.js';
+import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
+import { resolveTelosWorkRolePresentation } from './telos-work-role-presentation.js';
+import { resolveTelosWorkTaskToolContext } from './telos-work-execution-authority.js';
+import { TelosWorkError, TelosWorkStore } from './telos-work-store.js';
+import { TelosWorkAdvisorDraft } from './telos-work-advisor-draft.js';
+import { TelosArtifactStore } from './telos-artifact-store.js';
+import { resolveOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
+import { OrdinarySilentPreparationSelectionSchema } from './ordinary-repository-preparation.js';
+import { assertOrdinarySilentPreparationAuthority } from './ordinary-repository-preparation-authority.js';
+import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
+import { isDeepStrictEqual } from 'node:util';
+import { createTelosSourceRouter } from './telos-source-routes.js';
+import { createCanonicalTelosOutcome } from './telos-outcome-owner.js';
+import {
+  isAvailableTelosWorkConversation,
+  isAvailableTelosSourceConversation,
+} from './telos-work-conversation.js';
 import { writeHostArtifact } from './host-artifact-writer.js';
 import { writeOpenShellArtifact } from './artifact-writer.js';
 import { custodianPublicationApproval } from './symposium-custodian-authority.js';
@@ -149,8 +194,8 @@ import { AccountAliases } from './account-aliases.js';
 import { SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
 import { authorizeSymposiumSeat } from './symposium-seat-authorization.js';
-import { getAgentLibrary } from './agent-library-runtime.js';
-import { getAgentTasks } from './agent-task-runtime.js';
+import { closeAgentLibrary, getAgentLibrary } from './agent-library-runtime.js';
+import { closeAgentTasks, getAgentTasks } from './agent-task-runtime.js';
 import { createAgentTaskRouter } from './agent-task-router.js';
 import { createAgentLibraryRouter } from './agent-library-router.js';
 import { createContextPackRouter } from './context-pack-router.js';
@@ -169,6 +214,7 @@ import { createSessionOutputRouter } from './session-output-routes.js';
 import { createOutputContributors } from './output-contributors.js';
 import { createOutputContributorRouter } from './output-contributor-routes.js';
 import { createSessionCollaborationRouter } from './session-collaboration-router.js';
+import { CollaborationApplicationReview } from './collaboration-application-review.js';
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
@@ -286,7 +332,7 @@ import {
 import { DEFAULT_AGENT_NAME } from './constants.js';
 import { createGitInfoDiscovery, createGitInfoHandler } from './git-discovery.js';
 import { isValidInternalToken } from './internal-token.js';
-import { createConnectionsRouter } from './connections-router.js';
+import { createConnectionsRouter, recentAppReauthorizationHandlers } from './connections-router.js';
 import { createConnectionsAccessRouter } from './connections-access-router.js';
 import {
   personalInventorySource,
@@ -303,7 +349,12 @@ import {
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
 import { requestPerformance } from './request-performance.js';
 import { authenticationRoute } from './auth-route-boundary.js';
-import { resolvePending, getPendingRequestsBySession } from './permissions.js';
+import {
+  resolvePending,
+  getPendingRequestsBySession,
+  configureTelosSourcePermissionRecovery,
+} from './permissions.js';
+import { createTelosSourcePermissionRecovery } from './telos-source-recovery.js';
 import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
 import { createLogger } from './logger.js';
 import {
@@ -421,11 +472,30 @@ export function invalidateSkillRegistries(): void {
 }
 
 const app = express();
+let idleApplicationClosing = false;
+let idleApplicationClose: Promise<void> | undefined;
+let activeApplicationRequests = 0;
 app.use(requestPerformance((message, fields) => log.warn(message, fields)));
 
 const codexReattachments = new Map<string, Promise<void>>();
 
 app.use(createAppSecurityHeaders());
+app.use((_req, res, next) => {
+  if (idleApplicationClosing) {
+    res.status(503).json({ error: 'Application resources are unavailable' });
+    return;
+  }
+  activeApplicationRequests++;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeApplicationRequests--;
+  };
+  res.once('finish', release);
+  res.once('close', release);
+  next();
+});
 
 // --- CORS for non-same-origin clients (Capacitor iOS, etc.) ---
 // Mounted before yapper proxy so cross-origin voice requests get CORS headers.
@@ -567,6 +637,31 @@ export function setCredentialConnectionsRuntime(service: CredentialConnections |
     ? createCredentialConnectionsRouter(service, credentialSetupApplication)
     : null;
 }
+/** Both ordinary startup and the retained owner install the same private runtime.
+ * The supervised app child receives no Keychain configuration or metadata store. */
+export function configureCredentialConnectionsRuntime() {
+  setCredentialConnectionsRuntime(null);
+  let runtime: ReturnType<typeof createCredentialConnectionsRuntime> | undefined;
+  try {
+    const config = keychainConnectionConfig(process.env);
+    if (!config) return null;
+    runtime = createCredentialConnectionsRuntime(config);
+    setCredentialConnectionsRuntime(runtime.service);
+    return runtime;
+  } catch {
+    setCredentialConnectionsRuntime(null);
+    runtime?.store.close();
+    log.error('Apple Keychain connections disabled: invalid signed helper configuration');
+    return null;
+  }
+}
+// Reauthorization belongs to the authenticated browser process, even when the
+// connection owner is retained elsewhere. It creates no connection runtime.
+app.post(
+  '/api/credential-connections/reauthorize',
+  operatorAuthMiddleware,
+  ...recentAppReauthorizationHandlers(),
+);
 app.use('/api/credential-connections', operatorAuthMiddleware, (req, res, next) => {
   if (!res.locals.authSession)
     return res.status(401).json({ error: 'Browser authentication required' });
@@ -616,6 +711,7 @@ const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>
   }),
 );
 installContextPackRuntime(getKnowledgeLibraryRuntime);
+installKnowledgeDraftRuntime(getKnowledgeLibraryRuntime);
 app.use(
   '/api/knowledge',
   operatorAuthMiddleware,
@@ -1085,6 +1181,11 @@ app.use(
   '/api/agent-library',
   operatorAuthMiddleware,
   createAgentLibraryRouter(getAgentLibrary(), {
+    toolBuilder: () => (custodianOwnerMode ? undefined : getToolBuilderStore()),
+    apiTools: () => {
+      const service = getCredentialConnectionsRuntime();
+      return service ? { catalog: getApiToolCatalog(), service } : undefined;
+    },
     configuredTools: () => ({
       catalog: getConfiguredToolCatalog(),
       cwd: BASE_REPO,
@@ -1626,6 +1727,26 @@ app.use(
   createWarmPoolRouter({
     pool: getOpenShellWarmPool,
     authorize: operatorAuthMiddleware,
+    ownershipReview: async (physicalId, signal) => {
+      const physical = (await readOpenShellSandboxInventory(signal)).find(
+        (item) => item.id === physicalId,
+      );
+      if (!physical) throw new Error('Physical sandbox is no longer present');
+      const managed = summarizeSandboxInventory(
+        [physical],
+        openShellLifecycleService?.inventory() ?? [],
+        getOpenShellWarmPool()?.snapshot().spares ?? [],
+      ).items[0];
+      if (managed?.management !== 'needs_review')
+        throw new Error('Resource is now managed; refresh inventory');
+      return readSandboxOwnershipReview(physical, getCodexConversationStore(), eventStore);
+    },
+    physicalInventory: async (signal) =>
+      summarizeSandboxInventory(
+        await readOpenShellSandboxInventory(signal),
+        openShellLifecycleService?.inventory() ?? [],
+        getOpenShellWarmPool()?.snapshot().spares ?? [],
+      ),
     conversations: () => {
       const records = new Map<string, Omit<SandboxConversation, 'title'>>(
         (openShellLifecycleService?.inventory() ?? []).map((record) => [
@@ -1664,6 +1785,7 @@ app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => 
       await openShellLifecycleService.preview(
         req.params.conversationId,
         AbortSignal.timeout(120_000),
+        req.query.intent === 'delete' ? 'delete' : 'policy',
       ),
     );
   } catch (error) {
@@ -1839,7 +1961,32 @@ function resolveTaskContext(req: express.Request): string | null {
   const clientId = req.headers['x-client-id'] as string | undefined;
   if (!clientId) return null;
   const session = registry.get(clientId);
-  return session?.taskContext?.currentTaskId ?? null;
+  const taskId = session?.taskContext?.currentTaskId;
+  if (!session?.sessionId || !taskId) return null;
+  let work: TelosWorkStore | undefined;
+  try {
+    return resolveTelosWorkTaskToolContext(
+      {
+        events: eventStore,
+        tasks: taskStore,
+        work: () =>
+          (work ??= new TelosWorkStore(telosDatabasePath(), {
+            ordinaryConversation: (id) =>
+              isAvailableTelosWorkConversation(eventStore.getSession(id)),
+          })),
+      },
+      {
+        sessionId: session.sessionId,
+        taskId,
+        accountBinding: eventStore.getSession(session.sessionId)?.accountBinding ?? undefined,
+      },
+      { sessionId: req.headers['x-task-session-id'], taskId: req.headers['x-task-id'] },
+    );
+  } catch {
+    return null;
+  } finally {
+    work?.close();
+  }
 }
 
 app.post('/api/internal/task-tools/set', (req, res) => {
@@ -1933,6 +2080,333 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
 
 const telosDatabasePath = () =>
   process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db');
+
+/** Compose ordinary role setup with the existing profile, preparation and runtime
+ * owners. This is independent of Symposium joining and grants no first command. */
+async function resolveTelosOrdinaryPreparation(
+  raw: unknown,
+  signal: AbortSignal,
+  operatorConnectionId?: string,
+  retainedLeadId?: string,
+) {
+  const settings = OrdinarySilentPreparationSelectionSchema.parse(raw);
+  signal.throwIfAborted();
+  const location = settings.binding.execution.location;
+  if (
+    custodianControllerClient ||
+    custodianOwnerMode ||
+    (location === 'local'
+      ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED
+      : process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED) !== '1'
+  )
+    throw new Error('Selected ordinary role route unavailable');
+  const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
+  const inventory = ordinaryRepositoryRuntimeInventory(location, 'codex');
+  const resolved = inventory.catalog.resolve({
+    account: settings.binding.account,
+    harness: 'codex',
+    targetId: settings.binding.execution.targetId,
+    mode: settings.selection.permission.mode,
+  });
+  if (
+    resolved.status !== 'compatible' ||
+    !isDeepStrictEqual(resolved.binding, settings.binding) ||
+    !inventory.result.routes.some(
+      (route) =>
+        isDeepStrictEqual(route.account, settings.binding.account) &&
+        route.targetId === settings.binding.execution.targetId,
+    )
+  )
+    throw new Error('Selected ordinary role binding unavailable');
+  signal.throwIfAborted();
+  const binding = repositoryWorkspaceBinding(
+    settings.binding.account.accountId,
+    settings.selection.model,
+  );
+  if (
+    !isDeepStrictEqual(settings.binding.account, {
+      accountId: binding.accountId,
+      provider: binding.provider,
+      profileRevision: binding.profileRevision,
+    })
+  )
+    throw new Error('Original role account unavailable');
+  loadAccountProfiles().validateModelSelection(
+    binding,
+    settings.selection.model,
+    settings.selection.thinking,
+  );
+  const agentProfile = await resolveOrdinaryCodexAgentProfile({
+    requested: settings.selection.agent,
+    provider: binding.provider,
+    execution: resolved.binding.execution,
+    ...(retainedLeadId
+      ? { stored: eventStore.getSession(retainedLeadId)?.agentProfile ?? undefined, resume: true }
+      : {}),
+    lookup: (selection) => {
+      if (retainedLeadId)
+        throw new TelosWorkError('unauthorized', 'Original lead profile unavailable');
+      return readAgentLibraryProfile(selection, operatorConnectionId);
+    },
+  });
+  signal.throwIfAborted();
+  if (!agentProfile) throw new Error('Selected ordinary agent revision unavailable');
+  const sandboxWorkdir =
+    settings.binding.execution.location === 'openshell'
+      ? loadOrdinaryOpenShellCodexTarget()?.config.workdir
+      : undefined;
+  if (settings.binding.execution.location === 'openshell' && !sandboxWorkdir)
+    throw new Error('Original ordinary OpenShell target unavailable');
+  return {
+    binding,
+    taskRoot: join(BASE_REPO, '.claude', 'repository-tasks'),
+    agentProfile,
+    ...(sandboxWorkdir ? { sandboxWorkdir } : {}),
+  };
+}
+async function authorizeTelosOrdinaryPreparation(
+  raw: unknown,
+  signal: AbortSignal,
+  operatorConnectionId?: string,
+  retainedLeadId?: string,
+) {
+  const settings = OrdinarySilentPreparationSelectionSchema.parse(raw);
+  const selected = await resolveTelosOrdinaryPreparation(
+    settings,
+    signal,
+    operatorConnectionId,
+    retainedLeadId,
+  );
+  const record = getRepositoryWorkspaces().get(settings.repositoryWorkspaceId);
+  if (!record.ordinaryPreparation) throw new Error('Original ordinary preparation unavailable');
+  await assertOrdinarySilentPreparationAuthority(
+    record.ordinaryPreparation,
+    selected.binding,
+    settings,
+    signal,
+  );
+}
+async function resolveTelosOrdinaryWorkspaceSelection(
+  raw: unknown,
+  signal: AbortSignal,
+  operatorConnectionId?: string,
+  retainedLeadId?: string,
+) {
+  const settings = OrdinaryWorkspaceSettingsSchema.parse(raw);
+  signal.throwIfAborted();
+  if (
+    custodianControllerClient ||
+    custodianOwnerMode ||
+    process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' ||
+    settings.binding.execution.location !== 'local' ||
+    settings.binding.harness.implementation !== 'codex' ||
+    settings.binding.account.provider !== 'openai-codex'
+  )
+    throw new TelosWorkError(
+      'invalid',
+      'Ordinary workspaces currently require a supported Local Mac Codex account and target',
+    );
+  const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
+  const inventory = ordinaryRepositoryRuntimeInventory('local', 'codex');
+  const resolved = inventory.catalog.resolve({
+    account: settings.binding.account,
+    harness: 'codex',
+    targetId: settings.binding.execution.targetId,
+    mode: settings.selection.permission.mode,
+  });
+  if (
+    resolved.status !== 'compatible' ||
+    !isDeepStrictEqual(resolved.binding, settings.binding) ||
+    !inventory.result.routes.some(
+      (route) =>
+        isDeepStrictEqual(route.account, settings.binding.account) &&
+        route.targetId === settings.binding.execution.targetId,
+    )
+  )
+    throw new TelosWorkError(
+      'invalid',
+      'The selected ordinary account or target is unavailable; confirm the current execution choices',
+    );
+  const profiles = loadAccountProfiles(),
+    binding = profiles.resolve(settings.binding.account.accountId, settings.selection.model);
+  profiles.validateModelSelection(binding, settings.selection.model, settings.selection.thinking);
+  const agentProfile = await resolveOrdinaryCodexAgentProfile({
+    requested: settings.selection.agent,
+    provider: binding.provider,
+    execution: resolved.binding.execution,
+    ...(retainedLeadId
+      ? { stored: eventStore.getSession(retainedLeadId)?.agentProfile ?? undefined, resume: true }
+      : {}),
+    lookup: (selection) => {
+      if (retainedLeadId)
+        throw new TelosWorkError('unauthorized', 'Original ordinary lead profile unavailable');
+      return readAgentLibraryProfile(selection, operatorConnectionId);
+    },
+  });
+  if (!agentProfile) throw new TelosWorkError('invalid', 'Select a published ordinary agent');
+  assertAgentToolRoute(agentProfile.definition, 'codex-owned-local');
+  const selected = {
+    binding,
+    agentProfile,
+    taskRoot: ordinaryWorkspaceTaskRoot(),
+    requiredCapabilities: ['ordinary_conversation', 'retained_artifacts', 'task_execution'],
+  };
+  await getOrdinaryWorkspaces().qualifyOrdinaryWorkspace({
+    ...selected,
+    preparationId: settings.workspace.preparationId,
+    settings,
+    signal,
+  });
+  signal.throwIfAborted();
+  ordinaryWorkspaceTaskRoot(true);
+  return selected;
+}
+function telosRoleHost(operatorConnectionId?: string, ordinary = false) {
+  return createTelosWorkRoleHost({
+    dbPath: telosDatabasePath,
+    events: eventStore,
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+    workspaces: () => (ordinary ? getOrdinaryWorkspaces() : getRepositoryWorkspaces()),
+    ordinary: {
+      resolveSelection: (scope, signal) =>
+        resolveTelosOrdinaryWorkspaceSelection(scope.input.settings, signal, operatorConnectionId),
+      authorizeSettings: async (scope, signal) => {
+        await resolveTelosOrdinaryWorkspaceSelection(
+          scope.setup.input.settings,
+          signal,
+          operatorConnectionId,
+        );
+      },
+    },
+    resolvePreparation: async (scope, signal) => {
+      const selected = await resolveTelosOrdinaryPreparation(
+        scope.setup.input.settings,
+        signal,
+        operatorConnectionId,
+      );
+      if (scope.setup.input.settings.binding.execution.location === 'local') {
+        if (!BASE_REPO) throw new Error('Ordinary task root unavailable');
+        mkdirSync(selected.taskRoot, { recursive: true, mode: 0o700 });
+      }
+      return selected;
+    },
+    authorizeSettings: (scope, signal) =>
+      authorizeTelosOrdinaryPreparation(scope.setup.input.settings, signal, operatorConnectionId),
+  });
+}
+async function setupTelosRole(request: TelosWorkRoleRequest, reviewed = false, ordinary = false) {
+  request.assertAuthorized();
+  if (!request.authorization)
+    throw new TelosWorkError('unauthorized', 'Interactive operator required');
+  return withAgentLibraryRecoveryAuthorization(request.authorization, (connectionId) =>
+    ordinary
+      ? reviewed
+        ? telosRoleHost(connectionId, true).setupReviewedOrdinary(request)
+        : telosRoleHost(connectionId, true).setupOrdinary(request)
+      : reviewed
+        ? telosRoleHost(connectionId).setupReviewed(request)
+        : telosRoleHost(connectionId).setup(request),
+  );
+}
+async function delegateTelosSlice(request: TelosWorkRoleRequest, explicitOrdinary = false) {
+  request.assertAuthorized();
+  const ordinary =
+    explicitOrdinary ||
+    (request.actor.kind === 'conversation' &&
+      eventStore.getSession(request.actor.id)?.ordinaryWorkspaceId != null);
+  const run = (connectionId?: string) => {
+    const leadId = request.actor.kind === 'conversation' ? request.actor.id : undefined;
+    const resolve = async (scope: TelosWorkDelegationScope, signal: AbortSignal) => {
+      const selected = await resolveTelosOrdinaryPreparation(
+        scope.settings,
+        signal,
+        connectionId,
+        leadId,
+      );
+      if (scope.settings.binding.execution.location === 'local') {
+        if (!BASE_REPO) throw new Error('Ordinary task root unavailable');
+        mkdirSync(selected.taskRoot, { recursive: true, mode: 0o700 });
+      }
+      return selected;
+    };
+    const host = createTelosWorkDelegationHost({
+      dbPath: telosDatabasePath,
+      events: eventStore,
+      tasks: taskStore,
+      workspaces: () => (ordinary ? getOrdinaryWorkspaces() : getRepositoryWorkspaces()),
+      ordinary: {
+        qualifySettings: (scope, signal) =>
+          resolveTelosOrdinaryWorkspaceSelection(
+            scope.input.settings,
+            signal,
+            connectionId,
+            leadId,
+          ),
+        resolvePreparation: (scope, signal) =>
+          resolveTelosOrdinaryWorkspaceSelection(scope.settings, signal, connectionId, leadId),
+        authorizeSettings: async (scope, signal) => {
+          await resolveTelosOrdinaryWorkspaceSelection(
+            scope.settings,
+            signal,
+            connectionId,
+            leadId,
+          );
+        },
+        dispatch: (owner, actor, input, signal) => {
+          if (!orchestrator)
+            throw new TelosWorkError('conflict', 'Ordinary delegation dispatcher unavailable');
+          return orchestrator.delegateSlice(owner, actor, input, signal);
+        },
+      },
+      ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+      sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+      resolvePreparation: resolve,
+      authorizeSettings: (scope, signal) =>
+        authorizeTelosOrdinaryPreparation(scope.settings, signal, connectionId, leadId),
+      dispatch: (owner, actor, input, signal) => {
+        if (!orchestrator)
+          throw new TelosWorkError('conflict', 'Ordinary delegation dispatcher unavailable');
+        return orchestrator.delegateSlice(owner, actor, input, signal);
+      },
+    });
+    return explicitOrdinary ? host.delegateOrdinary(request) : host.delegate(request);
+  };
+  return request.actor.kind === 'operator'
+    ? withAgentLibraryRecoveryAuthorization(request.authorization, run)
+    : run();
+}
+async function saveTelosAdvisorDraft(operation: 'preview' | 'save', request: TelosWorkRoleRequest) {
+  request.assertAuthorized();
+  const work = new TelosWorkStore(telosDatabasePath(), {
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+  });
+  let artifacts: TelosArtifactStore | undefined;
+  try {
+    artifacts = new TelosArtifactStore(telosDatabasePath());
+    const owner = new TelosWorkAdvisorDraft({
+      events: eventStore,
+      work,
+      artifacts,
+      assertAuthorized: request.assertAuthorized,
+      authorizeSource: (actor, id) =>
+        actor.kind === 'operator' &&
+        actor.id === request.actor.id &&
+        isAvailableTelosWorkConversation(eventStore.getSession(id)),
+      authorizeArtifact: (actor, itemId) =>
+        actor.kind === 'operator' &&
+        actor.id === request.actor.id &&
+        artifacts!.userUploadAllowed(itemId),
+    });
+    const receipt = await owner[operation](structuredClone(request.raw), request.actor);
+    request.assertAuthorized();
+    return receipt;
+  } finally {
+    artifacts?.close();
+    work.close();
+  }
+}
 /** Host-only capture capability. No route, scheduler or upload is enabled here. */
 export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
   events: eventStore,
@@ -1946,6 +2420,8 @@ app.use(
   createBackupRouter(createHostBackupService(captureMitzoTelosCoreBackup), operatorAuthMiddleware),
 );
 
+app.use(createOrdinaryWorkspacePreparationRouter());
+
 app.use(
   createTelosWorkRouter({
     dbPath: telosDatabasePath,
@@ -1953,6 +2429,26 @@ app.use(
     verifyInternal: verifyInternalToken,
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+    ordinaryRoleSetup: (request) => setupTelosRole(request, false, true),
+    ordinaryRoleSetupReviewed: (request) => setupTelosRole(request, true, true),
+    roleSetup: setupTelosRole,
+    roleSetupReviewed: (request) => setupTelosRole(request, true),
+    delegateSlice: delegateTelosSlice,
+    ordinaryDelegateSlice: (request) => delegateTelosSlice(request, true),
+    roleContext: (request) => telosRoleHost().context(request),
+    roleReview: (request) => telosRoleHost().review(request),
+    advisorPreview: (request) => saveTelosAdvisorDraft('preview', request),
+    advisorSave: (request) => saveTelosAdvisorDraft('save', request),
+    assertRoleAssignment: (itemId, role, conversationId) => {
+      const context = resolveTelosWorkRoleContext(
+        eventStore,
+        conversationId,
+        eventStore.getSession(conversationId)?.accountBinding ?? undefined,
+      );
+      if (context?.itemId !== itemId || context.role !== role)
+        throw new TelosWorkError('unauthorized', 'Reviewed ordinary role context required');
+    },
   }),
 );
 
@@ -1963,6 +2459,33 @@ app.use(
     sessionId: (clientId) => registry.get(clientId)?.sessionId,
   }),
 );
+
+app.use(
+  createTelosSourceRouter({
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    dbPath: telosDatabasePath,
+    events: eventStore,
+    operatorAuth: operatorAuthMiddleware,
+    ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
+    sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+    createOutcome: (input) =>
+      createCanonicalTelosOutcome(
+        {
+          script: TODO_SCRIPT,
+          timeoutMs: TODO_TIMEOUT_MS,
+          maxBufferBytes: TODO_MAX_BUFFER_BYTES,
+          execute: (command, args, options) =>
+            execFileAsync(command, args, {
+              ...options,
+              env: { ...process.env, TELOS_DB_PATH: telosDatabasePath() },
+            }),
+        },
+        input,
+      ),
+  }),
+);
+configureTelosSourcePermissionRecovery(createTelosSourcePermissionRecovery(telosDatabasePath));
 
 app.use(
   createTelosArtifactRouter({
@@ -2001,48 +2524,14 @@ app.use(
   }),
 );
 
-app.post('/api/internal/telos/outcomes', async (req, res) => {
-  if (!verifyInternalToken(req)) {
-    res.status(401).json({ ok: false, error: 'Internal token required' });
-    return;
-  }
-  const body = TodoOutcomeCreateBody.omit({ idempotencyKey: true }).safeParse(req.body);
-  if (!body.success) {
-    res.status(400).json({ ok: false, error: body.error.issues[0]?.message ?? 'Invalid input' });
-    return;
-  }
-  const clientId = req.headers['x-client-id'] as string | undefined;
-  const sessionId =
-    (clientId && registry.get(clientId)?.sessionId) || clientId || 'unknown-session';
-  const canonical = JSON.stringify(body.data);
-  const idempotencyKey = `${sessionId}:${createHash('sha256').update(canonical).digest('hex')}`;
-  const contextHints = body.data.contextHints ?? {};
-  const payload = {
-    ...body.data,
-    idempotencyKey,
-    contextHints: {
-      ...contextHints,
-      sessionIds: [...new Set([...(contextHints.sessionIds ?? []), sessionId])],
-    },
-  };
-  const script = join(BASE_REPO, 'command_center', 'todo_api.py');
-  if (!existsSync(script)) {
-    res.status(500).json({ ok: false, error: 'Todo script not found' });
-    return;
-  }
-  try {
-    const { stdout } = await execFileAsync(
-      'python3',
-      [script, '--create-outcome-json', JSON.stringify(payload)],
-      { timeout: TODO_TIMEOUT_MS, maxBuffer: TODO_MAX_BUFFER_BYTES },
-    );
-    const result = JSON.parse(stdout);
-    res.status(result.ok ? 200 : 400).json(result);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(500).json({ ok: false, error: message });
-  }
-});
+app.post(
+  '/api/internal/telos/outcomes',
+  createTelosOutcomeHandler({
+    verifyInternal: verifyInternalToken,
+    sessionId: (clientId) => registry.get(clientId)?.sessionId,
+    availableSource: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
+  }),
+);
 
 // --- Loop orchestrator API ---
 
@@ -2124,11 +2613,18 @@ app.post('/api/loop/start', (req, res) => {
     });
     return;
   }
-  const result = orchestrator.start(body.data.goalId, {
-    specMode: body.data.specMode,
-    clientId,
-  });
-  res.json(result);
+  try {
+    const result = orchestrator.start(body.data.goalId, {
+      specMode: body.data.specMode,
+      clientId,
+    });
+    res.json(result);
+  } catch {
+    res.status(403).json({
+      code: 'work_scope_denied',
+      error: 'The selected conversation does not authorize this task execution',
+    });
+  }
 });
 
 app.post('/api/loop/pause', (_req, res) => {
@@ -2406,7 +2902,12 @@ app.post(
   ),
 );
 
-app.get('/api/auth/check', (_req, res) => res.json({ ok: true }));
+app.get('/api/auth/check', (_req, res) => {
+  // Public correlation only: authentication and revocation retain the actual token.
+  const session = res.locals.authSession as import('./auth.js').AuthSession | undefined;
+  res.set('Cache-Control', 'private, no-store');
+  res.json({ ok: true, ...(session ? { authSessionId: session.id } : {}) });
+});
 
 const accountAliases = new AccountAliases(join(BASE_REPO || '.', '.mitzo', 'account-aliases.json'));
 
@@ -2599,8 +3100,15 @@ app.use(
       const binding = repositoryWorkspaceBinding(record.binding.accountId, record.binding.model);
       return { repositoryChat: service.chatPreparation(id, binding) };
     },
-    preview: (binding, connectionId, repository, signal, ordinaryRuntime) =>
-      getRepositoryWorkspaces().preview(binding, connectionId, repository, signal, ordinaryRuntime),
+    preview: (binding, connectionId, repository, signal, ordinaryRuntime, requestId) =>
+      getRepositoryWorkspaces().preview(
+        binding,
+        connectionId,
+        repository,
+        signal,
+        ordinaryRuntime,
+        requestId,
+      ),
     prepare: (id, binding, signal) => getRepositoryWorkspaces().prepare(id, binding, signal),
     status: (id, binding) => getRepositoryWorkspaces(true).qualifiedStatus(id, binding),
     discard: (id, binding) => getRepositoryWorkspaces(true).discard(id, binding),
@@ -2753,6 +3261,7 @@ app.get('/api/sessions/:id/context', (req, res) => {
 app.get(
   '/api/sessions/:id/messages',
   createSessionMessagesHandler({
+    getDurableSessionTranscript: (sessionId) => eventStore.getDurableSessionTranscript(sessionId),
     getMessages: (sessionId) => getMessages(sessionId),
     getSessionTranscript: (sessionId) => getSessionTranscript(sessionId),
     getReconnectTranscript: (sessionId, cursor) => getReconnectTranscript(sessionId, cursor),
@@ -2762,7 +3271,14 @@ app.get(
 app.use(
   '/api/session-collaborations',
   operatorAuthMiddleware,
-  createSessionCollaborationRouter({ store: eventStore }),
+  createSessionCollaborationRouter({
+    store: eventStore,
+    review: () =>
+      new CollaborationApplicationReview({
+        store: eventStore,
+        workspaces: getRepositoryWorkspaces(true),
+      }),
+  }),
 );
 
 app.use(
@@ -2804,13 +3320,29 @@ app.use(
   }),
 );
 
-app.delete('/api/sessions/:id', (req, res) => {
-  hideSession(req.params.id as string);
-  clearPublicationControllerSessionGrants(registry, req.params.id as string);
-  overviewEmitter?.scheduleBroadcast();
-  sseRegistry.broadcast('sessions_changed', {});
-  res.json({ ok: true });
-});
+app.use(
+  '/api/sessions',
+  createSessionRemovalRouter({
+    authorize: operatorAuthMiddleware,
+    lifecycle: () => openShellLifecycleService,
+    hasSandbox: (id) => {
+      const meta = eventStore.getSession(id);
+      return sessionNeedsSandboxReview(meta, {
+        runtimeLocation:
+          registry.findBySessionId(id)?.session.ordinaryRuntimeOwner?.location ??
+          (meta ? eventStore.getSessionRuntimeBinding(id)?.execution.location : undefined),
+        legacyOpenShellConfigured:
+          !!process.env.MITZO_OPENSHELL_SANDBOX_NAME || process.env.MITZO_OPENSHELL_ENABLED === '1',
+      });
+    },
+    hide: hideSession,
+    changed: (id) => {
+      clearPublicationControllerSessionGrants(registry, id);
+      overviewEmitter?.scheduleBroadcast();
+      sseRegistry.broadcast('sessions_changed', {});
+    },
+  }),
+);
 
 app.use(
   '/api/sessions/:id/access',
@@ -2843,8 +3375,22 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     meta.sessionId,
     res.locals.authSession?.id,
   );
+  let routingMetadata: ReturnType<typeof ownedLocalCodexMetadata>;
+  try {
+    routingMetadata = ownedLocalCodexMetadata(
+      eventStore,
+      meta.sessionId,
+      continuationStatus.available,
+    );
+  } catch {
+    res.status(409).json({
+      error:
+        'The original conversation workspace identity is unavailable. Preserve this conversation and recover its original settings.',
+    });
+    return;
+  }
   const runtimeMetadata = {
-    ...ownedLocalCodexMetadata(eventStore, meta.sessionId, continuationStatus.available),
+    ...routingMetadata,
     ...(continuationStatus.reason ? { runtimeCommandReason: continuationStatus.reason } : {}),
     ...(meta.accountBinding?.provider === 'google-vertex' &&
     eventStore.getSessionRuntimeBinding(meta.sessionId)?.harness.implementation === 'gemini'
@@ -2936,15 +3482,117 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       // Keep metadata available when the optional account catalog is temporarily unreadable.
     }
   }
+  let telosWorkRoleContext: ReturnType<typeof resolveTelosWorkRoleContext>;
+  let telosWorkRolePresentation: ReturnType<typeof resolveTelosWorkRolePresentation>;
+  try {
+    telosWorkRoleContext = resolveTelosWorkRoleContext(
+      eventStore,
+      meta.sessionId,
+      meta.accountBinding ?? undefined,
+    );
+    telosWorkRolePresentation = resolveTelosWorkRolePresentation(
+      eventStore,
+      meta.sessionId,
+      meta.accountBinding ?? undefined,
+    );
+  } catch {
+    res.status(503).json({ error: 'Work conversation context unavailable' });
+    return;
+  }
+  let repositoryContext: { workspaceId: string; repository: string } | undefined;
+  if (
+    meta.sessionId === req.params.id &&
+    typeof meta.repositoryWorkspaceId === 'string' &&
+    /^\S{1,200}$/.test(meta.repositoryWorkspaceId) &&
+    meta.accountBinding
+  ) {
+    try {
+      const current = eventStore.getSession(meta.sessionId);
+      const workspace = getRepositoryWorkspaces(true).get(meta.repositoryWorkspaceId);
+      if (
+        current?.repositoryWorkspaceId === meta.repositoryWorkspaceId &&
+        isDeepStrictEqual(current.accountBinding, meta.accountBinding) &&
+        workspace.id === meta.repositoryWorkspaceId &&
+        workspace.state === 'claimed' &&
+        workspace.conversationId === meta.sessionId &&
+        isDeepStrictEqual(workspace.binding, meta.accountBinding) &&
+        typeof workspace.repository === 'string' &&
+        workspace.repository.length <= 201 &&
+        canonicalRepositorySelection(workspace.repository) === workspace.repository
+      )
+        repositoryContext = {
+          workspaceId: workspace.id,
+          repository: workspace.repository,
+        };
+    } catch {
+      // Repository presentation is optional; preserve ordinary metadata on read failure.
+    }
+  }
+  const preparedController = new AbortController();
+  const abortPreparedStatus = () => preparedController.abort();
+  res.once('close', abortPreparedStatus);
+  let preparedWork: TelosWorkStore | undefined;
+  let preparedStatus: Awaited<ReturnType<typeof ordinaryWorkspacePreparedCommandStatus>>;
+  try {
+    preparedStatus = await (
+      meta.repositoryWorkspaceId
+        ? repositoryPreparedCommandStatus
+        : ordinaryWorkspacePreparedCommandStatus
+    )({
+      events: eventStore,
+      workspaces: () =>
+        meta.repositoryWorkspaceId ? getRepositoryWorkspaces(true) : getOrdinaryWorkspaces(true),
+      sessionId: meta.sessionId,
+      signal: preparedController.signal,
+      assertCurrent: () => {
+        const auth = res.locals.authSession;
+        if (
+          !auth ||
+          !hasPersistentRevocationAuthority() ||
+          !isAuthSessionCurrent(auth) ||
+          custodianControllerClient ||
+          custodianOwnerMode ||
+          process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
+        )
+          throw Error('Current ordinary operator unavailable');
+        resolveTelosWorkCommandScope(
+          {
+            events: eventStore,
+            tasks: taskStore,
+            work: () =>
+              (preparedWork ??= new TelosWorkStore(telosDatabasePath(), {
+                ordinaryConversation: (id) =>
+                  isAvailableTelosWorkConversation(eventStore.getSession(id)),
+              })),
+          },
+          meta.sessionId,
+          eventStore.getSession(meta.sessionId)?.accountBinding ?? undefined,
+        );
+      },
+    });
+  } finally {
+    preparedWork?.close();
+    res.removeListener('close', abortPreparedStatus);
+  }
+  if (res.destroyed) return;
   res.json({
     sessionId: meta.sessionId,
+    ...(repositoryContext ? { repositoryContext } : {}),
+    ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
+    ...(telosWorkRolePresentation ? { telosWorkRolePresentation } : {}),
     ...runtimeMetadata,
+    ...(preparedStatus.prepared
+      ? { runtimeCommandScope: 'prepared-first-command', runtimeCommandReason: undefined }
+      : preparedStatus.reason
+        ? { runtimeCommandScope: 'first-command-only', runtimeCommandReason: preparedStatus.reason }
+        : {}),
     ...(meta.agentProfile ? { agentProfile: meta.agentProfile } : {}),
     sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,
     branch: meta.branch,
     wtId: meta.wtId,
     cwd: meta.cwd,
     repositoryWorkspaceId: meta.repositoryWorkspaceId,
+    ordinaryWorkspaceId: meta.ordinaryWorkspaceId,
     mode: meta.mode,
     isActive: meta.isActive,
     // Optional catalog refresh may yield while this conversation is deleted.
@@ -3260,6 +3908,8 @@ const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 
 function isRemoteSessionArtifact(sessionId: string) {
   const meta = eventStore.getSession(sessionId);
+  // The ordinary owner is local and must fail closed there, never as a sandbox fallback.
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return false;
   if (!meta?.accountBinding)
     return Boolean(meta?.cwd?.startsWith('/sandbox/') && !isConfiguredAllowedPath(meta.cwd));
   if (!['openai', 'openai-codex'].includes(meta.accountBinding.provider)) return false;
@@ -3470,6 +4120,12 @@ function containsPath(root: string, target: string): boolean {
  */
 function sessionArtifactRoot(sessionId: string | undefined): string | null {
   if (!sessionId) return null;
+  const ordinary = ordinaryWorkspaceArtifactRoot(
+    eventStore,
+    () => getOrdinaryWorkspaces(true),
+    sessionId,
+  );
+  if (ordinary) return ordinary.root;
   const cwd = eventStore.getSession(sessionId)?.cwd;
   if (!cwd || !isAbsolute(cwd) || resolve(cwd) === dirname(resolve(cwd))) return null;
   return isConfiguredAllowedPath(cwd) ? cwd : null;
@@ -3513,6 +4169,7 @@ function sessionArtifactBrowserRoot(
   sessionId: string | undefined,
 ): string {
   const workspace = sessionArtifactRoot(sessionId);
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return workspace!;
   if (!workspace || !sessionId || !dir) return workspace ?? BASE_REPO;
   const target = resolveArtifactPath(dir, sessionId);
   if (containsPath(workspace, target)) return workspace;
@@ -3532,6 +4189,7 @@ function resolveArtifactPath(filePath: string, sessionId: string | undefined): s
   const workspace = sessionArtifactRoot(sessionId);
   if (!isAbsolute(filePath)) return resolve(workspace ?? BASE_REPO, filePath);
   const requested = resolve(filePath);
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return requested;
   if (!workspace || existsSync(requested) || !isAllowedPath(requested, sessionId)) return requested;
 
   // Agents sometimes post the repository path after writing in its worktree.
@@ -3577,7 +4235,13 @@ function resolveArtifactPath(filePath: string, sessionId: string | undefined): s
 
 function createAllowedPathChecker(sessionId?: string) {
   const isPrivate = privatePathSnapshot();
-  const artifactRoot = sessionArtifactRoot(sessionId);
+  const ordinary = hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId);
+  let artifactRoot: string | null;
+  try {
+    artifactRoot = sessionArtifactRoot(sessionId);
+  } catch {
+    return () => false;
+  }
   return (filePath: string): boolean => {
     try {
       if (isPrivate(filePath)) return false;
@@ -3585,7 +4249,7 @@ function createAllowedPathChecker(sessionId?: string) {
     } catch {
       return false;
     }
-    return isConfiguredAllowedPath(filePath);
+    return ordinary ? false : isConfiguredAllowedPath(filePath);
   };
 }
 export function isAllowedPath(filePath: string, sessionId?: string): boolean {
@@ -3624,8 +4288,48 @@ app.get(
   })),
 );
 
-app.get('/api/files/roots', (_req, res) => {
-  res.json(getRepoConfig().roots);
+// Browser file access adds no agent capability; internal artifact routes retain their own scopes.
+app.use('/api/files', (req, res, next) => {
+  const sessionId =
+    req.method === 'PUT' && typeof req.body?.sessionId === 'string'
+      ? req.body.sessionId
+      : req.method !== 'PUT' && typeof req.query.sessionId === 'string'
+        ? req.query.sessionId
+        : undefined;
+  if (!hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return next();
+  const auth = res.locals.authSession;
+  if (!auth || !hasPersistentRevocationAuthority() || !isAuthSessionCurrent(auth))
+    return res
+      .status(403)
+      .json({ error: 'A current interactive operator is required for this conversation’s files.' });
+  const validate = () => {
+    try {
+      ordinaryWorkspaceArtifactRoot(eventStore, () => getOrdinaryWorkspaces(true), sessionId);
+      res.setHeader('Cache-Control', 'private, no-store');
+      const unregister = registerAuthSession(auth, () => res.destroy());
+      res.once('close', unregister);
+      next();
+    } catch (error) {
+      res.status(409).json({
+        error:
+          error instanceof SessionArtifactUnavailableError
+            ? error.message
+            : 'This conversation’s workspace is unavailable.',
+      });
+    }
+  };
+  return req.method === 'PUT' ? requireSameOriginJson(req, res, validate) : validate();
+});
+app.get('/api/files/roots', (req, res) => {
+  const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : undefined;
+  const ordinary = ordinaryWorkspaceArtifactRoot(
+    eventStore,
+    () => getOrdinaryWorkspaces(true),
+    sessionId,
+  );
+  res.json(
+    ordinary ? [{ label: 'Conversation files', path: ordinary.root }] : getRepoConfig().roots,
+  );
 });
 
 app.get('/api/files/list', (req, res) => {
@@ -4184,7 +4888,7 @@ const legacyExecFileAsync = promisify(execFile);
 async function execFileAsync(
   command: string,
   args: string[],
-  options: { timeout: number; maxBuffer?: number },
+  options: { timeout: number; maxBuffer?: number; env?: NodeJS.ProcessEnv; encoding?: 'utf8' },
 ) {
   // Mutable workspace entrypoints run with the same authority fence as hooks.
   // An unavailable enrolled fence must never fall back to controller execution.
@@ -4193,7 +4897,7 @@ async function execFileAsync(
     return protectedRunner(command, args, {
       ...options,
       cwd: process.cwd(),
-      env: process.env,
+      env: options.env ?? process.env,
     });
   return legacyExecFileAsync(command, args, options);
 }
@@ -4397,6 +5101,9 @@ app.post('/api/todos/:id/action', async (req, res) => {
     if (body.data.action === 'snooze' && body.data.days) {
       args.push(String(body.data.days));
     }
+    if (body.data.action === 'priority' && body.data.priority !== undefined) {
+      args.push(String(body.data.priority));
+    }
 
     const { stdout } = await execFileAsync('python3', args, {
       timeout: TODO_TIMEOUT_MS,
@@ -4567,5 +5274,56 @@ app.get('*', (_req, res, next) => {
     if (err) next();
   });
 });
+
+/** Release an idle, unbootstrapped application without starting or draining work.
+ * A configured host or active owner requires its existing shutdown protocol.
+ * Once release begins, HTTP admission stays fenced even if an owner refuses;
+ * this is not a general server shutdown or a runtime cleanup fallback.
+ */
+export function closeIdleApplicationResources(): Promise<void> {
+  if (idleApplicationClose) return idleApplicationClose;
+  if (
+    activeApplicationRequests ||
+    !registry.entries(true).next().done ||
+    codexReattachments.size ||
+    symposiumSessionRuntimes.size ||
+    symposiumProductionHost ||
+    custodianControllerClient ||
+    connectionsRouter ||
+    capabilityOperationsRouter ||
+    credentialConnectionsRouter ||
+    getCredentialConnectionsRuntime() ||
+    getConnectionRegistry() ||
+    orchestrator ||
+    templateStore ||
+    signalProcessor ||
+    overviewEmitter ||
+    healthMonitor ||
+    openShellLifecycleService ||
+    skillWatcher
+  )
+    return Promise.reject(new Error('Application resource owners are active'));
+  idleApplicationClosing = true;
+  idleApplicationClose = (async () => {
+    await terminalService.closeIdle();
+    notificationCenter.closeIdle();
+    symposiumAccessRequests.closeIdle();
+    closeIdleRepositoryWorkspaces();
+    sseRegistry.destroy();
+    chatSseRegistry.destroy();
+    registry.dispose();
+    closeAgentTasks();
+    closeAgentLibrary();
+    symposiumProfileStore.close();
+    symposiumAgentContextStore.close();
+    symposiumProfileProposalStore.close();
+    symposiumHostGrants.close();
+    symposiumReviewStore.close();
+    notificationCenter.store.close();
+    taskStore.close();
+    eventStore.close();
+  })();
+  return idleApplicationClose;
+}
 
 export { app };

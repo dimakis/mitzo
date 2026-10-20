@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TelosWorkStore } from '../telos-work-store.js';
 import { TelosArtifactStore } from '../telos-artifact-store.js';
+import { TelosWorkItemSchema } from '@mitzo/protocol';
+import { projectTelosWorkRecord } from '../telos-work-record.js';
 import { readFileSync } from 'node:fs';
 import {
   reviewedHandlerSourceArtifacts,
@@ -88,6 +90,45 @@ function fixture() {
 }
 
 describe('lossless Telos workspace record', () => {
+  it.each(Array.from({ length: 10 }, (_, index) => index + 1))(
+    'projects persisted numeric priority %s and refreshes the same canonical item/revision',
+    (priority) => {
+      const f = fixture();
+      f.db.exec('ALTER TABLE items ADD COLUMN priority INTEGER NOT NULL DEFAULT 5');
+      const before = f.store.read('item', operator).revision;
+      f.db.prepare('UPDATE items SET priority=? WHERE id=?').run(priority, 'item');
+      const record = f.store.readRecord('item', operator);
+      expect(record.priority).toBe(priority);
+      expect((record.legacyFields.item as Record<string, unknown>).priority).toBe(priority);
+      if (priority !== 5) expect(f.store.read('item', operator).revision).not.toBe(before);
+      f.db.prepare('UPDATE items SET priority=8 WHERE id=?').run('item');
+      expect(f.store.readRecord('item', operator).priority).toBe(8);
+    },
+  );
+
+  it('keeps old wire records compatible and maps missing stored values using legacy defaults', () => {
+    const f = fixture();
+    const record = f.store.readRecord('item', operator);
+    expect(record.priority).toBe(10);
+    const legacy = { ...record };
+    delete legacy.priority;
+    expect(TelosWorkItemSchema.safeParse(legacy).success).toBe(true);
+    f.db.prepare('UPDATE items SET starred=0 WHERE id=?').run('item');
+    expect(f.store.readRecord('item', operator).priority).toBe(5);
+  });
+
+  it.each([0, 11, 1.5, true, '7', null])(
+    'rejects malformed stored numeric priority %s rather than publishing an invalid record',
+    (priority) => {
+      const f = fixture();
+      const row = f.db.prepare('SELECT * FROM items WHERE id=?').get('item') as Record<
+        string,
+        unknown
+      >;
+      expect(() => projectTelosWorkRecord({ ...row, priority }, [], [], null)).toThrow();
+    },
+  );
+
   it('pins the new projection and its existing authorization/API owners in the reviewed manifest', () => {
     const manifest: Record<string, string> = reviewedHandlerSourceArtifacts;
     for (const file of [
@@ -107,7 +148,10 @@ describe('lossless Telos workspace record', () => {
   it('leaves actual retained material IDs, bytes, hashes, revisions and provenance under the existing artifact owner', () => {
     const f = fixture();
     const artifacts = new TelosArtifactStore(f.path);
+    const firstDate = '2026-10-20T09:00:00.000Z';
+    const revisionDate = '2026-10-20T10:00:00.000Z';
     try {
+      vi.useFakeTimers({ toFake: ['Date'] });
       const save = (bytes: Buffer, requestId: string) =>
         artifacts.save({
           itemId: 'item',
@@ -118,25 +162,31 @@ describe('lossless Telos workspace record', () => {
           sourcePath: 'original-mock.html',
           requestId,
         });
+      vi.setSystemTime(firstDate);
       const original = save(Buffer.from('<html>Exact approved source</html>\n'), 'r1');
+      vi.setSystemTime(revisionDate);
       const later = save(Buffer.from('<html>Later revision</html>\n'), 'r2');
+      expect(original.createdAt).toBe(firstDate);
+      expect(later.createdAt).toBe(revisionDate);
+      expect(later.createdAt).not.toBe(original.createdAt);
       expect(later.id).toBe(original.id);
       expect(later.revision).toBe(2);
       const before = [artifacts.read(original.id, 1), artifacts.read(original.id, 2)];
       const canonical = f.retained();
       const record = f.store.readRecord('item', operator);
-      // The legacy owner's general artifact link is unpinned. Preserve it as-is;
-      // its immutable revisions remain available through the artifact owner.
+      // The unpinned association keeps its original Added date; each immutable
+      // revision retains its own creation date under the artifact owner.
       expect(record.links).toContainEqual(
         expect.objectContaining({
           url: '/api/telos/artifacts/' + later.id,
-          addedAt: later.createdAt,
+          addedAt: original.createdAt,
         }),
       );
       expect([artifacts.read(original.id, 1), artifacts.read(original.id, 2)]).toEqual(before);
       expect(f.retained()).toEqual(canonical);
       expect(f.store.readRecord('item', operator)).toEqual(record);
     } finally {
+      vi.useRealTimers();
       artifacts.close();
     }
   });

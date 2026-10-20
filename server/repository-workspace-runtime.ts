@@ -1,6 +1,7 @@
 import {
   captureOrdinaryRepositoryPreparation,
   assertOrdinaryRepositoryPreparation,
+  assertOrdinarySilentPreparationAuthority,
 } from './ordinary-repository-preparation-authority.js';
 import { githubRepositoryConnections } from './github-repository-connections.js';
 import { existsSync } from 'node:fs';
@@ -12,6 +13,13 @@ import { codexPrivateDirectory } from './codex-private-path.js';
 import { RepositoryWorkspaces } from './repository-workspaces.js';
 
 let service: RepositoryWorkspaces | undefined;
+let idleReleased = false;
+/** Release only the existing idle singleton; never create persistence to close it. */
+export function closeIdleRepositoryWorkspaces(): void {
+  if (!service) return;
+  service.closeIdle();
+  idleReleased = true;
+}
 export function repositoryWorkspacesEnabled() {
   return process.env.MITZO_REPOSITORY_WORKSPACES_ENABLED === '1';
 }
@@ -77,9 +85,19 @@ export function repositoryWorkspaceCatalog(binding: AccountBinding) {
   return { available: true, repositories };
 }
 /** Lazy, explicit enrollment: importing the app performs no source acquisition or metadata writes. */
-export function getRepositoryWorkspaces(readOnly = false) {
-  if (!repositoryWorkspacesEnabled() && !readOnly)
-    throw new Error('Repository-backed chats are not enabled');
+function workspaceOwner(readOnly = false, ordinary = false) {
+  if (idleReleased) throw Error('Repository workspace owner released');
+  if (
+    !readOnly &&
+    (ordinary
+      ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
+      : !repositoryWorkspacesEnabled())
+  )
+    throw new Error(
+      ordinary
+        ? 'Ordinary local workspaces are not enabled'
+        : 'Repository-backed chats are not enabled',
+    );
   if (
     readOnly &&
     !service &&
@@ -90,6 +108,7 @@ export function getRepositoryWorkspaces(readOnly = false) {
     ordinaryPreparation: {
       capture: captureOrdinaryRepositoryPreparation,
       assert: assertOrdinaryRepositoryPreparation,
+      assertSilent: assertOrdinarySilentPreparationAuthority,
     },
     authorize: async (binding, connectionId, repository, signal) => {
       const profiles = loadAccountProfiles();
@@ -163,6 +182,7 @@ export function readRepositoryWorkspaceForConversation(
   conversationId: string,
   expectedWorkspaceId?: string | null,
 ) {
+  if (idleReleased) throw Error('Repository workspace owner released');
   const directory = join(codexPrivateDirectory(), 'repository-sources');
   if (!existsSync(join(directory, 'workspaces.db'))) {
     if (expectedWorkspaceId)
@@ -173,4 +193,13 @@ export function readRepositoryWorkspaceForConversation(
   if (expectedWorkspaceId && record?.id !== expectedWorkspaceId)
     throw new Error('Repository claim ledger is unavailable or changed; preserve the conversation');
   return record;
+}
+
+/** Existing repository callers keep their original enrollment gate. */
+export function getRepositoryWorkspaces(readOnly = false) {
+  return workspaceOwner(readOnly);
+}
+/** Same allocation/custody owner and SQLite, without requiring a Git feature grant. */
+export function getOrdinaryWorkspaces(readOnly = false) {
+  return workspaceOwner(readOnly, true);
 }

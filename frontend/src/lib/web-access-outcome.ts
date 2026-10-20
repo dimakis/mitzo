@@ -1,5 +1,17 @@
 import type { ToolBlock } from './tool-status';
 
+/** Completed reads can join activity; approvals, search suggestions and failures stay visible. */
+export function completedWebsiteRead(block: ToolBlock): boolean {
+  return (
+    ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
+      block.toolName ?? '',
+    ) &&
+    block.toolResult !== undefined &&
+    !block.toolError &&
+    webRequest(block.toolInput ?? '')?.operation === 'fetch'
+  );
+}
+
 /** Uses server-authored outcomes; unknown failures never imply approval succeeded. */
 export function webAccessOutcome(block: ToolBlock): string | undefined {
   if (

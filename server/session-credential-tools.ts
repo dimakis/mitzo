@@ -1,4 +1,10 @@
+import { sessionAgentTaskTools, agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import { agentToolAllowed, filterAgentTools } from './agent-tool-selection.js';
+import {
+  sessionKnowledgeTools,
+  knowledgeToolDefinitions,
+  KNOWLEDGE_TOOL_INSTRUCTIONS,
+} from './session-knowledge-tools.js';
 import {
   sessionProfileTools,
   profileToolDefinitions,
@@ -21,8 +27,9 @@ import { getCredentialConnectionsRuntime } from './credential-connections-runtim
 import { connectionGuide } from './connection-guide.js';
 
 export const CONNECTION_TOOL_INSTRUCTIONS =
-  '\nFor services, call ListConnections first; GetConnectionGuide explains setup/use. Credentials belong only in secure setup cards, never chat or workspace files. Request session access before use.\n' +
-  REPOSITORY_CHAT_INSTRUCTIONS;
+  '\nListConnections first. Use attached/approved access directly; request access otherwise. GetConnectionGuide covers setup/use. Enter credentials only in secure setup cards.\n' +
+  REPOSITORY_CHAT_INSTRUCTIONS +
+  KNOWLEDGE_TOOL_INSTRUCTIONS;
 /** Native API tools run on the host; shared OpenShell CLI guidance cannot grant their shell egress. */
 export const API_CONNECTION_INSTRUCTIONS =
   '\nThis is a host API chat. For live Jira, call ListConnections and use approved ConnectionRequest reads through a Keychain connection. Load GetConnectionGuide for Jira setup and pagination. Shared ./mgmt jira guidance applies to the OpenShell transport; API Bash has no network or credentials. Do not install requests or search editor configuration to make that CLI work.\n';
@@ -47,7 +54,27 @@ export function sessionCredentialTools(
   },
   assertRuntimeCurrent?: () => Promise<void>,
   assertRuntimeCurrentSync?: () => void,
+  enableAgentTasks = false,
 ) {
+  const taskToolsEnabled = enableAgentTasks && !!assertRuntimeCurrent && !!assertRuntimeCurrentSync;
+  const taskTools = taskToolsEnabled
+    ? sessionAgentTaskTools(
+        sessionId,
+        session,
+        registry,
+        toolPrefix,
+        assertRuntimeCurrent,
+        assertRuntimeCurrentSync,
+      )
+    : undefined;
+  const knowledgeTools = sessionKnowledgeTools(
+    sessionId,
+    session,
+    registry,
+    toolPrefix,
+    assertRuntimeCurrent,
+    assertRuntimeCurrentSync,
+  );
   const profileTools = sessionProfileTools(
     sessionId,
     session,
@@ -117,6 +144,8 @@ export function sessionCredentialTools(
       ...credentialConnectionToolDefinitions,
       ...repositoryTools.definitions,
       ...profileToolDefinitions,
+      ...(taskToolsEnabled ? agentTaskToolDefinitions : []),
+      ...knowledgeToolDefinitions,
     ]),
     async execute(
       name: string,
@@ -130,8 +159,12 @@ export function sessionCredentialTools(
           content: 'Tool is not selected by this session’s published agent profile',
           isError: true,
         };
+      const taskResult = await taskTools?.execute(name, input, signal, call);
+      if (taskResult) return taskResult;
       const profileResult = await profileTools.execute(name, input, signal, call);
       if (profileResult) return profileResult;
+      const knowledgeResult = await knowledgeTools.execute(name, input, signal);
+      if (knowledgeResult) return knowledgeResult;
       const repositoryResult = await repositoryTools.execute(name, input, signal);
       if (repositoryResult) return repositoryResult;
       if (!credentialConnectionToolDefinitions.some((t) => t.name === name)) return undefined;
@@ -183,7 +216,7 @@ export function sessionCredentialTools(
           if (name !== 'RequestConnectionAccess')
             return {
               content:
-                'This connection uses its OpenShell provider client. Request session access, then use that client in the sandbox.',
+                'This connection uses its OpenShell provider client, not ConnectionRequest. If ListConnections reports attached access, use that client directly in the sandbox; otherwise request session access first.',
               isError: true,
             };
           try {

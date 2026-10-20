@@ -54,6 +54,19 @@ for (const theme of ['dark', 'light'] as const)
         observedAt: Date.now(),
       });
       const state = {
+        physicalInventory: {
+          available: true,
+          total: 122,
+          counts: { Ready: 42, Stopped: 74, Error: 6 },
+          items: [
+            {
+              id: 'historical',
+              name: 'legacy-sandbox-needing-ownership-review',
+              state: 'Stopped',
+              management: 'needs_review',
+            },
+          ],
+        },
         revision: 1,
         settings: {
           enabled: true,
@@ -148,6 +161,7 @@ for (const theme of ['dark', 'light'] as const)
       await page.getByRole('link', { name: 'Sandboxes', exact: true }).click();
       const main = page.locator('.sandboxes-page');
       await expect(main.getByRole('heading', { name: 'Sandboxes', exact: true })).toBeVisible();
+      await expect(main.getByText('122 sandboxes on this gateway')).toBeVisible();
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
       await page.screenshot({ path: info.outputPath('sandbox-initial-' + theme + '.png') });
       expect(writes).toHaveLength(0);
@@ -264,7 +278,12 @@ for (const theme of ['dark', 'light'] as const)
       await expect(
         dialog.getByText('Cleanup is blocked: active session.', { exact: true }),
       ).toBeVisible();
-      await expect(dialog.getByRole('button', { name: /Delete|Remove/ })).toHaveCount(0);
+      await expect(dialog.getByRole('button', { name: 'Delete sandbox', exact: true })).toHaveCount(
+        0,
+      );
+      await expect(
+        dialog.getByRole('button', { name: 'Delete sandbox…', exact: true }),
+      ).toBeVisible();
       await page.keyboard.press('Escape');
       await main
         .getByRole('button', { name: 'Resources per sandbox', exact: true })

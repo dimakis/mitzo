@@ -5,12 +5,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { TelosWorkStore, type TelosWorkActor } from '../telos-work-store.js';
 import { EventStore } from '../event-store.js';
-import { isAvailableTelosWorkConversation } from '../telos-work-conversation.js';
+import {
+  isAvailableTelosWorkConversation,
+  isAvailableTelosSourceConversation,
+} from '../telos-work-conversation.js';
 import { SessionService, childInputHash } from '../session-service.js';
 import { TaskStore } from '../task-store.js';
 import { TelosArtifactStore } from '../telos-artifact-store.js';
 import { captureMitzoTelosCore } from '../backup/mitzo-telos.js';
 import { createTelosWorkFixtures } from './fixtures/telos-work-fixtures.js';
+import { createHash } from 'node:crypto';
 
 const cleanups: Array<() => void> = [];
 afterEach(() =>
@@ -49,6 +53,7 @@ function fixture() {
     });
   }
   const policy = {
+    sourceConversation: (id: string) => isAvailableTelosSourceConversation(events.getSession(id)),
     ordinaryConversation: (id: string) => isAvailableTelosWorkConversation(events.getSession(id)),
   };
   const stores: TelosWorkStore[] = [];
@@ -79,7 +84,176 @@ function fixture() {
   return { root, path, db, events, store, open, command, link };
 }
 
+it('bounds delegation reads to the current lead exact child and ancestry', () => {
+  const f = fixture();
+  f.db.exec(
+    "ALTER TABLE items ADD COLUMN status TEXT DEFAULT 'active'; CREATE TABLE sources(id TEXT PRIMARY KEY,item_id TEXT,type TEXT,url TEXT,title TEXT,raw_snippet TEXT,timestamp TEXT);",
+  );
+  f.command('outcome', { operation: 'classify', kind: 'outcome' });
+  f.command('slice', { operation: 'classify', kind: 'work_item' });
+  f.link('outcome', 'lead', 'lead');
+  f.command('outcome', {
+    operation: 'assign',
+    role: 'lead',
+    conversationId: 'lead',
+    expectedAssignmentRevision: 0,
+  });
+  expect(f.store.readDelegationTarget('lead', 'slice', 'slice').record.itemId).toBe('slice');
+  expect(f.store.readDelegationTarget('lead', 'slice', 'outcome').record.itemId).toBe('outcome');
+  expect(f.store.readDelegationTarget('lead', 'slice', 'overall').record.itemId).toBe('overall');
+  expect(() => f.store.readDelegationTarget('lead', 'slice', 'other')).toThrow(/scope/);
+  expect(() => f.store.readDelegationTarget('worker-a', 'slice', 'slice')).toThrow(/lead/);
+  expect(() => f.store.readSourceTarget('slice', { kind: 'conversation', id: 'lead' })).toThrow(
+    /Operator/,
+  );
+  f.link('outcome', 'lead', 'worker-b');
+  f.command('outcome', {
+    operation: 'assign',
+    role: 'lead',
+    conversationId: 'worker-b',
+    expectedAssignmentRevision: 1,
+  });
+  expect(() => f.store.readDelegationTarget('lead', 'slice', 'outcome')).toThrow(/lead/);
+});
+
 describe('durable Telos work relationships (offline, existing SQLite owners)', () => {
+  it('retains one exact-child delegation across distinct requests and requires an explicit retry predecessor', () => {
+    const f = fixture();
+    f.command('outcome', { operation: 'classify', kind: 'outcome' });
+    f.command('slice', { operation: 'classify', kind: 'work_item' });
+    f.link('outcome', 'lead', 'lead');
+    f.command('outcome', {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: 'lead',
+      expectedAssignmentRevision: 0,
+    });
+    const revision = f.store.read('slice', operator).revision;
+    const config = createTelosWorkFixtures().multipleChats.conversations[0];
+    const text = 'Exact reviewed slice one';
+    const input = {
+      requestId: 'delegate-1',
+      leadItemId: 'outcome',
+      childItemId: 'slice',
+      leadConversationId: 'lead',
+      expectedRevision: revision,
+      mode: 'start',
+      predecessorAttemptId: null,
+      settings: {
+        binding: {
+          ...config.binding,
+          version: 2,
+          execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+        },
+        selection: config.selection,
+        repositoryWorkspaceId: 'lead-workspace',
+      },
+      contextSelection: {
+        version: 1,
+        itemId: 'slice',
+        role: 'worker',
+        leadConversationId: 'lead',
+        brief: { revision, text, sha256: createHash('sha256').update(text).digest('hex') },
+        parentCriteria: [],
+        overallGoal: { itemId: 'overall', revision: 'r1', text: 'Goal' },
+        sources: [],
+        artifacts: [],
+      },
+    };
+    const first = f.store.prepareDelegation(input, operator);
+    expect(first.receipt).toBeNull();
+    const alias = f.open().prepareDelegation({ ...input, requestId: 'delegate-2' }, operator);
+    expect(alias.intent).toEqual(first.intent);
+    expect(f.store.read('slice', operator).attempts).toHaveLength(1);
+    expect(f.store.read('other', operator).attempts).toHaveLength(0);
+    expect(() =>
+      f.store.prepareDelegation(
+        { ...input, requestId: 'delegate-3', mode: 'retry', predecessorAttemptId: 'wrong' },
+        operator,
+      ),
+    ).toThrow(/predecessor/i);
+    const retryRevision = f.store.read('slice', operator).revision;
+    const retry = f.store.prepareDelegation(
+      {
+        ...input,
+        contextSelection: {
+          ...input.contextSelection,
+          brief: { ...input.contextSelection.brief, revision: retryRevision },
+        },
+        requestId: 'delegate-retry',
+        expectedRevision: retryRevision,
+        mode: 'retry',
+        predecessorAttemptId: first.intent.attemptId,
+      },
+      operator,
+    );
+    expect(retry.intent.attemptId).not.toBe(first.intent.attemptId);
+    expect(f.store.read('slice', operator).attempts).toHaveLength(2);
+    expect(() =>
+      f.store.prepareDelegation(
+        {
+          ...input,
+          requestId: 'wrong-parent',
+          childItemId: 'other',
+          expectedRevision: f.store.read('other', operator).revision,
+          contextSelection: {
+            ...input.contextSelection,
+            itemId: 'other',
+            brief: {
+              ...input.contextSelection.brief,
+              revision: f.store.read('other', operator).revision,
+            },
+          },
+        },
+        operator,
+      ),
+    ).toThrow(/child/i);
+  });
+  it('keeps a native Symposium origin available without granting worker or conversation read authority', () => {
+    const f = fixture();
+    f.events.upsertSession({ sessionId: 'symposium', conversationSource: 'mitzo' });
+    f.events.setSymposiumConfig('symposium', {
+      version: 1,
+      revision: 1,
+      state: 'draft',
+      seats: [
+        {
+          id: 'builder',
+          name: 'Builder',
+          role: 'primary',
+          model: 'offline',
+          systemPrompt: 'Build.',
+          color: '#8040cc',
+        },
+        {
+          id: 'reviewer',
+          name: 'Reviewer',
+          role: 'reviewer',
+          model: 'offline',
+          systemPrompt: 'Review.',
+          color: '#008888',
+        },
+      ],
+      turnRules: { mode: 'directed', maxTurns: 4 },
+      interceptMode: 'manual',
+    });
+    f.link('slice', 'origin', 'symposium');
+    expect(f.store.read('slice', operator).links[0].availability).toBe('available');
+    expect(() => f.link('slice', 'worker', 'symposium')).toThrow(/ordinary/);
+    expect(() => f.store.read('slice', { kind: 'conversation', id: 'symposium' })).toThrow(
+      /authorized/,
+    );
+    f.events.hideSession('symposium');
+    expect(f.store.read('slice', operator).links[0].availability).toBe('unavailable');
+    expect(
+      isAvailableTelosSourceConversation({
+        isHidden: false,
+        conversationSource: 'external_import',
+        sessionType: 'symposium',
+      }),
+    ).toBe(false);
+  });
+
   it('adopts the origin backlink atomically with source references without assigning or allocating a collaborator', () => {
     const f = fixture();
     const before = f.events.getSession('lead');
@@ -629,6 +803,139 @@ describe('durable Telos work relationships (offline, existing SQLite owners)', (
     ).toThrow(/lead/i);
     expect(f.store.read('slice', operator)).toEqual(before);
     expect(f.store.pendingAllocations(operator)).toHaveLength(1);
+  });
+
+  it('durably binds only the exact verified chat_ready worker to one execution task atomically', () => {
+    const f = fixture();
+    f.link('outcome', 'lead', 'lead');
+    f.command('outcome', {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: 'lead',
+      expectedAssignmentRevision: 0,
+    });
+    f.command('slice', {
+      operation: 'source',
+      snapshot: {
+        ...createTelosWorkFixtures().homeStudio.snapshots[0],
+        itemId: 'slice',
+        snapshotId: 'context',
+      },
+    });
+    const config = createTelosWorkFixtures().multipleChats.conversations[0];
+    const request = (attemptId: string, predecessorAttemptId: string | null) =>
+      f.command('slice', {
+        operation: 'request_attempt',
+        attemptId,
+        predecessorAttemptId,
+        leadConversationId: 'lead',
+        contextSnapshotId: 'context',
+        configuration: { binding: config.binding, selection: config.selection },
+      });
+    const receipt = request('execution-attempt', null);
+    expect(f.store.attemptForHost('execution-attempt')).toEqual(receipt.work.attempts[0]);
+    expect(f.store.attemptForHost('missing-attempt')).toBeNull();
+    const binding = {
+      childItemId: 'slice',
+      leadConversationId: 'lead',
+      workerConversationId: 'worker-a',
+      executionTaskId: 'task-1',
+    };
+    expect(() => f.store.recordExecutionTask('execution-attempt', binding, () => true)).toThrow(
+      /chat_ready/,
+    );
+    f.store.recordAllocation(
+      'execution-attempt',
+      { workerConversationId: 'worker-a', allocationReceiptId: 'allocation' },
+      () => true,
+    );
+    const before = f.store.read('slice', operator);
+    for (const wrong of [
+      { workerConversationId: 'lead' },
+      { workerConversationId: 'worker-b' },
+      { childItemId: 'other' },
+      { leadConversationId: 'reviewer' },
+      { executionTaskId: '' },
+    ]) {
+      expect(() =>
+        f.store.recordExecutionTask('execution-attempt', { ...binding, ...wrong }, () => true),
+      ).toThrow();
+      expect(f.store.read('slice', operator)).toEqual(before);
+    }
+    expect(() => f.store.recordExecutionTask('execution-attempt', binding, () => false)).toThrow(
+      /verified/i,
+    );
+    expect(() =>
+      f.store.recordExecutionTask('execution-attempt', binding, () => {
+        throw Error('task owner unavailable');
+      }),
+    ).toThrow(/unavailable/);
+    expect(f.store.read('slice', operator)).toEqual(before);
+    f.db.exec(
+      "CREATE TRIGGER fail_execution_binding BEFORE UPDATE ON telos_work_attempts BEGIN SELECT RAISE(ABORT, 'injected binding failure'); END",
+    );
+    expect(() => f.store.recordExecutionTask('execution-attempt', binding, () => true)).toThrow(
+      /injected/,
+    );
+    expect(f.store.read('slice', operator)).toEqual(before);
+    f.db.exec('DROP TRIGGER fail_execution_binding');
+    const bound = f.store.recordExecutionTask('execution-attempt', binding, (evidence) => {
+      expect(evidence).toEqual({
+        attemptId: 'execution-attempt',
+        ...binding,
+        allocationReceiptId: 'allocation',
+      });
+      return true;
+    });
+    expect(bound).toEqual({ ...before.attempts[0], executionTaskId: 'task-1' });
+    const restarted = f.open();
+    expect(
+      restarted.recordExecutionTask('execution-attempt', binding, () => {
+        throw Error('replay must be durable');
+      }),
+    ).toEqual(bound);
+    expect(restarted.read('slice', operator).attempts).toEqual([bound]);
+    expect(restarted.executionTaskBinding('task-1', 'worker-a')).toEqual(bound);
+    for (const [taskId, workerId] of [
+      ['task-2', 'worker-a'],
+      ['task-1', 'worker-b'],
+      ['task-1', 'lead'],
+      ['', 'worker-a'],
+      ['task-1', ''],
+    ]) {
+      expect(restarted.executionTaskBinding(taskId, workerId)).toBeNull();
+    }
+    expect(restarted.read('slice', operator).attempts).toEqual([bound]);
+    expect(() =>
+      restarted.recordExecutionTask(
+        'execution-attempt',
+        { ...binding, executionTaskId: 'task-2' },
+        () => true,
+      ),
+    ).toThrow(/conflict/i);
+    expect(f.store.read('slice', operator).links).toEqual(before.links);
+    expect(f.store.read('slice', operator).assignments).toEqual(before.assignments);
+    request('execution-retry', 'execution-attempt');
+    f.store.recordAllocation(
+      'execution-retry',
+      { workerConversationId: 'worker-b', allocationReceiptId: 'allocation-retry' },
+      () => true,
+    );
+    expect(() =>
+      f.store.recordExecutionTask(
+        'execution-retry',
+        { ...binding, workerConversationId: 'worker-b' },
+        () => true,
+      ),
+    ).toThrow(/conflict/i);
+    expect(f.store.read('slice', operator).attempts).toMatchObject([
+      { ...bound, requestId: receipt.work.attempts[0].requestId },
+      {
+        attemptId: 'execution-retry',
+        predecessorAttemptId: 'execution-attempt',
+        executionTaskId: null,
+      },
+    ]);
   });
 
   it('restores relationship history, source bytes and pending command receipts through the existing backup group', async () => {

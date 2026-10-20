@@ -1,3 +1,4 @@
+import { createApiToolRouter, type ApiToolOwner } from './api-tool-router.js';
 import type { ConfiguredToolCatalog, ConfiguredCatalogOptions } from './configured-tool-catalog.js';
 import { agentToolCatalog } from './agent-tool-catalog.js';
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
@@ -11,6 +12,8 @@ import { registerAuthSession, isAuthSessionCurrent, type AuthSession } from './a
 import { requireSameOriginJson } from './connections-router.js';
 import { AgentAdviceBody, type AgentLibraryAdviser } from './agent-library-adviser.js';
 import { custodianRequestSignal } from './symposium-custodian-authority.js';
+import { createToolBuilderRouter } from './tool-builder-router.js';
+import type { ToolBuilderStore } from './tool-builder-store.js';
 
 const OWNER = 'user'; // Stable authenticated subject, never the rotating login JTI.
 function failure(res: Response, error: unknown) {
@@ -28,6 +31,8 @@ function failure(res: Response, error: unknown) {
 export function createAgentLibraryRouter(
   store: AgentLibraryStore,
   options: {
+    apiTools?: () => ApiToolOwner | undefined;
+    toolBuilder?: () => ToolBuilderStore | undefined;
     workspaceRoot?: string;
     contexginUrl?: string;
     contextPacks?: (signal: AbortSignal) => Promise<AuthorizedContextPacks>;
@@ -43,6 +48,8 @@ export function createAgentLibraryRouter(
       return res.status(403).json({ error: 'Interactive operator authentication is required' });
     next();
   });
+  router.use('/api-tools', createApiToolRouter(options.apiTools ?? (() => undefined)));
+  router.use('/tool-builder', createToolBuilderRouter(options.toolBuilder ?? (() => undefined)));
   router.get('/', (_req, res) => {
     try {
       res.json(store.list(OWNER));
@@ -88,7 +95,29 @@ export function createAgentLibraryRouter(
           };
         }
       }) ?? [];
-    return { tools: [...builtins, ...saved] };
+    const api = options.apiTools?.();
+    const published =
+      api?.catalog.list().map((tool) => {
+        try {
+          api.catalog.resolve(tool, api.service);
+          return tool;
+        } catch {
+          return {
+            ...tool,
+            routes: [],
+            requirement:
+              'API tool unavailable. Check its saved configuration, verification and connection access; publish again and start a new session.',
+          };
+        }
+      }) ?? [];
+    return {
+      tools: [
+        ...builtins,
+        ...saved,
+        ...published,
+        ...(options.toolBuilder?.()?.listTools(OWNER) ?? []),
+      ],
+    };
   }
   router.get('/tools', (_req, res) => {
     try {

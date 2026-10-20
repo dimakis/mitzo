@@ -1,0 +1,80 @@
+{
+  "testedMergeHead": "82235f313024184cb450a1581370faf4eb7b81c0",
+  "acceptedBase": "0a048b5b0ef096e181a7ddb09b088c956870aab8",
+  "originalRepair": "eacc2396184cf8e0a89ee0e43cfa69e5e1e2bd15",
+  "sourceAndArtifactUiUnchangedFromCleanHead": [
+    "server/collaboration-forwarding.ts",
+    "server/__tests__/collaboration-forwarding.test.ts",
+    "frontend/src/components/SavedArtifactDialog.tsx",
+    "frontend/src/components/SavedArtifactDialog.css",
+    "frontend/src/components/WorkOutputs.tsx"
+  ],
+  "acceptedSourcePreservedExceptDocumentedUnions": [
+    "docs/design/ui-design-system.md",
+    "frontend/src/types/todo.ts",
+    "server/connections/reviewed-handler-artifacts.ts"
+  ],
+  "combinedTodoTypeSha256": "d09fc1d04089d1b429c7ddaabb6f65a6ed782b0a0381e8f7b1619caedc621ea5",
+  "checks": {
+    "sourceAndComponents": {
+      "passed": 194,
+      "files": 7,
+      "skipped": 0
+    },
+    "acceptedPriorityContract": {
+      "passed": 105,
+      "files": 6,
+      "skipped": 0
+    },
+    "design": {
+      "passed": 108,
+      "skipped": 1,
+      "existingSkip": true
+    },
+    "browser": {
+      "journeys": 12,
+      "startupChecks": 2,
+      "failed": 0,
+      "workers": 1,
+      "heapMiB": 1024,
+      "outsideSeatbelt": true
+    },
+    "sourceClosure": "all fingerprints verified",
+    "targetedTypes": "zero diagnostics; no full frontend build rerun"
+  },
+  "historicalCleanReview": {
+    "id": 5561003331,
+    "head": "34f04ef3c074110a93013cc5ae650407ccffde46",
+    "publishedAt": "2026-10-18T01:48:54Z",
+    "recommendation": "merge",
+    "newBlocking": 0,
+    "unresolvedBlocking": 0,
+    "verifiedResolved": 1,
+    "distinctCleanRoundsObserved": 1,
+    "requiredDistinctRounds": 2,
+    "qualification": "Historical qualifying candidate; new exact-head whole-PR review/CI and App gate required"
+  },
+  "historicalOrdinaryCi": {
+    "run": 39086843568,
+    "head": "34f04ef3c074110a93013cc5ae650407ccffde46",
+    "allJobsSucceeded": 8
+  },
+  "requiredCentaurAppBinding": 5169606,
+  "historicalAppStatus": "pending; public App lookup404, no additional identity assertion or status mutation",
+  "resolvedOutdatedThread": "PRRT_kwDOR2Rn9s6tlPMq (CEN-873972402DBA, source fixed and actual trusted report verified resolved)",
+  "queueRead": "Read-only immutable SQLite snapshot before push; may omit live/WAL updates; no control/request authority inferred",
+  "reviewRequestsMade": 0,
+  "credentialOrQueueMutation": false,
+  "existingCapturesAndApprovedReferencesPreserved": true,
+  "evidenceSha256": {
+    "priority-base-refresh-focused.log": "486ba780e8f76254749adef6860d942dbfa4ad6a6da449344f89e193af163d23",
+    "priority-base-refresh-priority-contract.log": "fe9bde996d6a4cc8c89d470962243b64ba54be56e1cb7948a2b6576546b898ce",
+    "priority-base-refresh-design.log": "8889fb5eda95ed60f07e66becc9aa671c837f18caa6db2c215f714b3f825f1c7",
+    "priority-base-refresh-browser.log": "aa4d8032587bb8ba9a5b8a3b63908d3c709f8787a011cf8ea4b93b89559969cb",
+    "priority-base-refresh-source-closure.log": "bdf1f1ecbcd20c5367113d090591cd004bfb7ad4ce5999eba2f9db6f7a3a7a0f",
+    "priority-base-refresh-protocol-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "priority-base-refresh-targeted-types.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "mergeAuthorized": false,
+  "runtimeActivationOrStagingOrDeployment": false
+}

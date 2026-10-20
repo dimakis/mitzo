@@ -1,0 +1,10 @@
+{
+  "control": "Omitted only actual GET collection mount; no replacement route/store response",
+  "route": "server/session-collaboration-router.ts",
+  "originalSha256": "32e8788aa3c8c932d4f2641bec8889e7c6dd742e51cde56c6fc7cf9a79eef7ab",
+  "restoredSha256": "32e8788aa3c8c932d4f2641bec8889e7c6dd742e51cde56c6fc7cf9a79eef7ab",
+  "restoredByteForByte": true,
+  "expectedExitCode": 1,
+  "actualExitCode": 1,
+  "scope": "Negative control only. New actual metadata read fails with Collaboration unavailable; second required case fails its unmet review prerequisite. No joining outcome is inferred from this control. Restored-source positive run independently reaches joining503."
+}

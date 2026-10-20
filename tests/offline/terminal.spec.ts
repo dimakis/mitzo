@@ -352,6 +352,69 @@ test('preserves the next pending sign-in recovered during an older completion re
   expect(mutations.filter((item) => item.path.endsWith('/input'))).toHaveLength(0);
 });
 
+test('recovers a saved adviser connection without another browser sign-in', async ({
+  page,
+}, testInfo) => {
+  let restored = false;
+  const writes: string[] = [];
+  await page.route('**/api/terminals/subscriptions**', async (route) => {
+    const request = route.request(),
+      path = new URL(request.url()).pathname;
+    if (request.method() === 'POST') {
+      writes.push(path);
+      expect(request.postDataJSON()).toEqual({});
+      expect(path).toBe('/api/terminals/subscriptions/plan-offline/retry');
+      restored = true;
+      return route.fulfill({
+        json: {
+          id: 'plan-offline',
+          label: 'Personal ChatGPT',
+          email: 'user@example.test',
+          state: 'connected',
+        },
+      });
+    }
+    return route.fulfill({
+      json: {
+        enabled: true,
+        pendingAttempt: null,
+        accounts: [
+          {
+            id: 'plan-offline',
+            label: 'Personal ChatGPT',
+            email: 'user@example.test',
+            state: restored ? 'connected' : 'reauth_required',
+          },
+        ],
+      },
+    });
+  });
+  await page.goto('/terminal');
+  await page.getByRole('button', { name: 'Show Minion' }).click();
+  await page.getByRole('button', { name: 'Manage adviser accounts' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Adviser accounts' });
+  const retry = dialog.getByRole('button', { name: 'Retry connection to Personal ChatGPT' });
+  await expect(retry).toBeVisible();
+  expect(
+    await retry.evaluate((element) => element.getBoundingClientRect().height),
+  ).toBeGreaterThanOrEqual(44);
+  await page.screenshot({ path: testInfo.outputPath('adviser-retry-dark.png') });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.accent = 'teal';
+    document.documentElement.dataset.font = 'georgia';
+  });
+  await retry.focus();
+  await page.screenshot({ path: testInfo.outputPath('adviser-retry-light.png') });
+  await retry.press('Enter');
+  await expect(dialog.getByRole('status')).toContainText('ChatGPT adviser connected');
+  await expect(retry).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Refresh adviser accounts' })).toBeFocused();
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(writes).toEqual(['/api/terminals/subscriptions/plan-offline/retry']);
+  expect(mutations.filter((item) => item.path.endsWith('/input'))).toHaveLength(0);
+});
+
 test('connects a subscription adviser through compact account management without terminal input', async ({
   page,
 }, testInfo) => {
@@ -433,7 +496,7 @@ test('keeps the shared masthead and gives the terminal most of the mobile viewpo
   const before = await brand.boundingBox();
   await page.getByRole('link', { name: 'Terminal', exact: true }).last().click();
   await expect(page.getByRole('heading', { name: 'Terminal', exact: true })).toBeVisible();
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   expect(await brand.boundingBox()).toEqual(before);
   expect(
     await page
@@ -466,7 +529,7 @@ test('reviews adviser output and stages commands before explicit execution', asy
   page,
 }, testInfo) => {
   await page.goto('/terminal?sessionId=chat-a&returnTo=%2Fchat%2Fchat-a');
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   await expect(page.getByRole('link', { name: 'Back to chat' })).toHaveAttribute(
     'href',
     '/chat/chat-a',
@@ -503,7 +566,7 @@ test('keeps command and adviser input reachable when the phone keyboard reduces 
 }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith('mobile'), 'Phone keyboard layout');
   await page.goto('/terminal');
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   const original = page.viewportSize()!;
   await page.getByLabel('Command', { exact: true }).focus();
   await page.setViewportSize({ ...original, height: 420 });
@@ -559,7 +622,7 @@ test('scrolls long tmux output with touch and wheel while keeping controls compa
     (window as unknown as { terminalLongOutput: boolean }).terminalLongOutput = true;
   });
   await page.goto('/terminal');
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   await expect(page.locator('.xterm-rows')).toContainText('Retained row 081');
   const output = page.getByLabel('Interactive terminal');
   await output.dispatchEvent('wheel', { ctrlKey: true, deltaY: 100, deltaMode: 0 });
@@ -617,7 +680,7 @@ test('returns to live output after navigating away from retained history', async
     (window as unknown as { terminalLongOutput: boolean }).terminalLongOutput = true;
   });
   await page.goto('/terminal');
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   await page
     .getByLabel('Interactive terminal')
     .dispatchEvent('wheel', { deltaY: -160, deltaMode: 0 });
@@ -626,7 +689,7 @@ test('returns to live output after navigating away from retained history', async
   // Exercise a fresh attachment, including a new window's transient component state.
   await page.goto('/more');
   await page.goto('/terminal');
-  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.terminal-status')).toContainText('Connected');
   await expect(page.locator('.xterm-rows')).not.toContainText('Retained row 100');
   await page.getByRole('button', { name: 'Terminal options' }).click();
   await page.getByRole('button', { name: 'Return to live output' }).click();

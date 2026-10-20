@@ -1,5 +1,6 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { startKnowledgePrewarming } from './knowledge-prewarming.js';
 import { startWarmPoolHost } from './openshell-warm-pool-host.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import {
@@ -14,11 +15,7 @@ import {
 } from './terminal-plan-adviser.js';
 import { bindAgentLibraryTransport } from './agent-library-transport.js';
 import { configuredGithubSeedBaselinePaths } from './github-seed-baselines.js';
-import {
-  keychainConnectionConfig,
-  createCredentialConnectionsRuntime,
-} from './credential-connections-runtime.js';
-import { setCredentialConnectionsRuntime as setAppCredentialConnectionsRuntime } from './app.js';
+import { configureCredentialConnectionsRuntime } from './app.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
 import { finishAppShutdown } from './symposium-app-exit.js';
 import { closeCapabilityOperationStores } from './capability-operation-owner.js';
@@ -134,6 +131,9 @@ import { SkillWatcher } from './skill-watcher.js';
 import { WorkflowTemplateStore, seedBuiltInTemplates } from './workflow-templates.js';
 import { SignalProcessor } from './signal-processor.js';
 import { TaskOrchestrator } from './task-orchestrator.js';
+import { assertTelosWorkExecutionAuthority } from './telos-work-execution-authority.js';
+import { TelosWorkStore } from './telos-work-store.js';
+import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { SessionOverviewEmitter } from './session-overview.js';
 import { HealthMonitor } from './health-monitor.js';
 import { IncomingWsMessage } from './ws-schemas.js';
@@ -159,6 +159,7 @@ import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { SseTransport } from './sse-transport.js';
 import { createChatRestRouter } from './chat-rest-handler.js';
+import { createOwnedOrdinaryWorkspaceCommandRouter } from './ordinary-local-codex-entry.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 
 const log = createLogger('server');
@@ -267,14 +268,7 @@ function configureConnectionsRuntime(): void {
   }
 }
 configureConnectionsRuntime();
-setAppCredentialConnectionsRuntime(null);
-try {
-  const config = keychainConnectionConfig(process.env);
-  if (config)
-    setAppCredentialConnectionsRuntime(createCredentialConnectionsRuntime(config).service);
-} catch {
-  log.error('Apple Keychain connections disabled: invalid signed helper configuration');
-}
+configureCredentialConnectionsRuntime();
 
 const nativeCommands = new NativeCommandRegistry();
 const connRegistry = new ConnectionRegistry();
@@ -283,6 +277,10 @@ setConnectionRegistry(connRegistry);
 // Lifecycle construction happens only after the authoritative session, event,
 // task and queue readers exist. It is still inert unless OpenShell is enabled.
 const configuredOpenShellRuntime = openShellRuntimeConfig(process.env);
+const knowledgePrewarming = startKnowledgePrewarming(configuredOpenShellRuntime?.knowledgeStore, {
+  onError: () =>
+    log.warn('Knowledge conversion prewarming unavailable; commands retain fresh admission'),
+});
 const warmPoolHost = startWarmPoolHost(configuredOpenShellRuntime, {
   root: codexPrivateDirectory(),
   enrolled: process.env.MITZO_OPENSHELL_WARM_POOL_ENABLED === '1',
@@ -459,6 +457,37 @@ setSignalProcessor(signalProc);
 // --- Task Orchestrator ---
 const orchestrator = new TaskOrchestrator({
   store: taskStore,
+  assertTaskExecutionScope: (clientId, taskId) => {
+    const id = registry.get(clientId)?.sessionId;
+    if (!id) {
+      if (taskStore.getTelosExecutionBinding(taskId))
+        throw new Error('Mapped Telos task requires its retained worker session');
+      return;
+    }
+    let work: TelosWorkStore | undefined;
+    try {
+      assertTelosWorkExecutionAuthority(
+        {
+          events: eventStore,
+          tasks: taskStore,
+          work: () =>
+            (work ??= new TelosWorkStore(
+              process.env.TELOS_DB_PATH ||
+                join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
+              {
+                ordinaryConversation: (conversationId) =>
+                  isAvailableTelosWorkConversation(eventStore.getSession(conversationId)),
+              },
+            )),
+        },
+        id,
+        eventStore.getSession(id)?.accountBinding ?? undefined,
+        taskId,
+      );
+    } finally {
+      work?.close();
+    }
+  },
   workloadStore,
   watchSignal: (taskId, gateConfig) => signalProc.watch(taskId, gateConfig),
   getClientId: () => {
@@ -775,6 +804,10 @@ app.get('/api/chat/events', (req, res) => {
 // Mount HTTP POST chat endpoints (authenticated)
 const chatRestRouter = createChatRestRouter(chatSseRegistry, v2Ctx);
 app.use('/api/chat', chatRestRouter);
+app.use(
+  '/api/ordinary/workspaces/commands',
+  createOwnedOrdinaryWorkspaceCommandRouter(chatSseRegistry, v2Ctx),
+);
 
 /**
  * Handle a v2 WebSocket connection (after hello handshake detected).
@@ -1433,6 +1466,7 @@ async function shutdown(signal: string) {
   server.close();
   await terminalPlanAdviserHost?.close();
   lifecycleAbort.abort();
+  await knowledgePrewarming?.close();
   if (lifecycleTimer) clearInterval(lifecycleTimer);
   try {
     await warmPoolHost?.close();

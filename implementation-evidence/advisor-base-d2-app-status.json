@@ -1,0 +1,12 @@
+{
+  "sha": "d2c47c71b9c7452d0d4bc9f4f5ffec3737ab371e",
+  "state": "pending",
+  "statuses": [
+    {
+      "context": "Centaur final LGTM",
+      "description": "Waiting for final Centaur review of this commit",
+      "state": "pending",
+      "updated_at": "2026-10-18T10:09:21Z"
+    }
+  ]
+}

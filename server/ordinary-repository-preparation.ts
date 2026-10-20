@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { CollaborationSettingsSchema } from '@mitzo/protocol';
 import { AccountBindingSchema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
 import { z } from 'zod';
 
@@ -24,3 +26,27 @@ export const OrdinaryRepositoryPreparationSchema = z.strictObject({
     .optional(),
 });
 export type OrdinaryRepositoryPreparation = z.infer<typeof OrdinaryRepositoryPreparationSchema>;
+
+/** Exact silent-allocation selection. Queue-creating API/SDK adapters are excluded. */
+export const OrdinarySilentPreparationSelectionSchema = CollaborationSettingsSchema.refine(
+  (value) =>
+    value.binding.harness.implementation === 'codex' &&
+    ['local', 'openshell'].includes(value.binding.execution.location) &&
+    value.selection.context.source === 'none',
+  'Silent ordinary preparation is unavailable for this route or context recipe',
+);
+export function ordinaryPreparationFingerprint(value: unknown): string {
+  const canonical = (item: unknown): unknown =>
+    Array.isArray(item)
+      ? item.map(canonical)
+      : item && typeof item === 'object'
+        ? Object.fromEntries(
+            Object.entries(item)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([key, child]) => [key, canonical(child)]),
+          )
+        : item;
+  return createHash('sha256')
+    .update(JSON.stringify(canonical(value)))
+    .digest('hex');
+}

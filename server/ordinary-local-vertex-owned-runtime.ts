@@ -1,3 +1,4 @@
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import { assertOrdinaryLocalVertexHistory } from './ordinary-local-vertex-native-history.js';
@@ -273,6 +274,7 @@ export class OrdinaryLocalVertexOwnedRuntime {
     if (continuation && !resume && (!this.#initialized || !this.owners.dispatchContinuation))
       throw unavailable();
     const payload = Payload.parse(request.payload);
+    assembleSourceSnapshots(payload.text, payload.sourceSnapshots);
     const profiles = loadAccountProfiles(),
       original = this.owners.reservation.binding;
     const account = profiles.resolve(request.runtime.account.accountId, request.selection.model);

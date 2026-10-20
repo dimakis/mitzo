@@ -23,6 +23,11 @@ it('passes explicit app configuration without provider secrets or a second owned
     GOOGLE_APPLICATION_CREDENTIALS: '/private/adc.json',
     SYMPOSIUM_NATIVE_ATTEMPT_DIR: '/private/claims',
     NODE_OPTIONS: '--import unsafe',
+    MITZO_KEYCHAIN_CONNECTIONS_ENABLED: '1',
+    MITZO_KEYCHAIN_HELPER: '/private/owner-helper',
+    MITZO_KEYCHAIN_CONNECTIONS_DIR: '/private/owner-metadata',
+    MITZO_KEYCHAIN_TEAM_ID: 'ABCDEF1234',
+    MITZO_KEYCHAIN_CONNECTIONS_NAMESPACE: 'owner',
     MITZO_CODEX_PRIVATE_DIR: '/private/native-ledger',
   });
   expect(env).toMatchObject({
@@ -46,6 +51,11 @@ it('passes explicit app configuration without provider secrets or a second owned
     'GOOGLE_APPLICATION_CREDENTIALS',
     'SYMPOSIUM_NATIVE_ATTEMPT_DIR',
     'NODE_OPTIONS',
+    'MITZO_KEYCHAIN_CONNECTIONS_ENABLED',
+    'MITZO_KEYCHAIN_HELPER',
+    'MITZO_KEYCHAIN_CONNECTIONS_DIR',
+    'MITZO_KEYCHAIN_TEAM_ID',
+    'MITZO_KEYCHAIN_CONNECTIONS_NAMESPACE',
   ])
     expect(env[key]).toBeUndefined();
 });

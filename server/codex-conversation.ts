@@ -1,3 +1,9 @@
+import {
+  codexApplicationContextFragments,
+  codexDynamicToolsOption,
+  codexThreadOptions,
+  codexTurnStartParams,
+} from './codex-ordinary-packet.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import type { SourceSnapshot } from '@mitzo/protocol';
@@ -10,6 +16,7 @@ import { z } from 'zod';
 import { searchCodex } from './codex-approved-search.js';
 import { context, trace, SpanStatusCode, type Span, type Context } from '@opentelemetry/api';
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { performance } from 'node:perf_hooks';
 import { CodexUserInput } from './codex-user-input.js';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
@@ -25,12 +32,16 @@ import {
   CodexConversationStore,
   type CodexCommand,
   type CodexCommandInput,
+  CodexNativeTurnTargetSchema,
+  type CodexNativeTurnTarget,
+  type CodexTargetedInterruptReceipt,
 } from './codex-conversation-store.js';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
 import { classifyProviderFailure, ProviderFailureError } from './provider-failure.js';
 import { tracer } from './tracing.js';
 import { createLogger } from './logger.js';
+import { codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 const log = createLogger('codex-conversation');
 import {
   resolveWebSearchPolicy,
@@ -171,6 +182,8 @@ export interface CodexConversationOptions {
   runtimeCwd?: string;
   modelProvider?: string;
   runtimeConfig?: Record<string, unknown>;
+  /** Narrow selection ceiling; preserves the route's complete runtime policy. */
+  readonly disableWebSearch?: boolean;
   /** Independent document preference; suppress task-checkout AGENTS.md discovery. */
   readonly disableProjectDocuments?: boolean;
   webSearchBackend?: WebSearchBackend;
@@ -225,6 +238,7 @@ export interface CodexConversationOptions {
   onTransportClosed?: (diagnostic: {
     activeTurn: boolean;
     reason: 'closed' | 'timeout' | 'protocol';
+    failure?: Record<string, unknown>;
   }) => void;
 }
 
@@ -307,43 +321,32 @@ function requiresProviderThreadReplacement(error: unknown): boolean {
     !['rate_limit', 'authentication', 'context_limit', 'invalid_request'].includes(error.category)
   );
 }
-/** Pinned Codex truncates each additional-context value at 1,000 tokens.
- * UTF-8 byte bounds also bound token count. Version every part together so its
- * BTreeMap merge emits the complete changed selection, including unchanged parts.
- * See openai/codex 79b1b666 context-fragments/src/additional_context.rs and
- * core/src/state/additional_context.rs. No recipe text becomes ordinary user input.
- */
-function applicationContextFragments(value: string) {
-  const bytes = Buffer.byteLength(value);
-  if (bytes > 1048576) throw Error('Application context exceeds the supported delivery bound');
-  if (new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(value)) !== value)
-    throw Error('Application context contains invalid Unicode');
-  if (bytes <= 800)
-    return { 'mitzo.published-project-context': { kind: 'application' as const, value } };
-  const parts: string[] = [];
-  let part = '',
-    size = 0;
-  for (const character of value) {
-    const length = Buffer.byteLength(character);
-    if (size + length > 800) {
-      parts.push(part);
-      part = '';
-      size = 0;
-    }
-    part += character;
-    size += length;
-  }
-  if (part) parts.push(part);
-  const generation = createHash('sha256').update(value).digest('hex');
-  return Object.fromEntries(
-    parts.map((part, index) => [
-      `mitzo.published-project-context.${generation}.${String(index).padStart(6, '0')}`,
-      { kind: 'application' as const, value: part },
-    ]),
-  );
-}
-
 /** Owns one application conversation. The process, private store and public event sink are supplied by the server. */
+type ActiveCommand = {
+  command: CodexCommand;
+  turnId?: string;
+  accepted: boolean;
+  ownershipPending?: boolean;
+  completions: Map<string, { first: ObjectValue; conflict?: ObjectValue }>;
+  replySources: Map<string, string>;
+  completionHook?: 'pending' | 'done';
+  completionOperation?: Promise<void>;
+  interruptRequested?: boolean;
+  targetedInterruptClaimed?: boolean;
+  abort: AbortController;
+  span?: Span;
+  firstOutputSpan?: Span;
+  traceContext: Context;
+};
+const interruptTargetBrand = Symbol('native-interrupt-target');
+/** Identity only: host auth/admission remains required; serialized copies grant nothing. */
+export type CodexInterruptTarget = Readonly<CodexNativeTurnTarget> & {
+  readonly [interruptTargetBrand]: true;
+};
+export type CodexTargetedInterruptResult =
+  | { status: 'stale_target' }
+  | { status: 'claimed'; receipt: CodexTargetedInterruptReceipt; replayed: boolean };
+
 export class CodexConversation {
   private client: Rpc;
   private transportGeneration = 0;
@@ -362,21 +365,11 @@ export class CodexConversation {
   };
   private mapper?: CodexSessionEvents;
   private commandContexts = new Map<string, Context>();
-  private active?: {
-    command: CodexCommand;
-    turnId?: string;
-    accepted: boolean;
-    ownershipPending?: boolean;
-    completions: Map<string, { first: ObjectValue; conflict?: ObjectValue }>;
-    replySources: Map<string, string>;
-    completionHook?: 'pending' | 'done';
-    completionOperation?: Promise<void>;
-    interruptRequested?: boolean;
-    abort: AbortController;
-    span?: Span;
-    firstOutputSpan?: Span;
-    traceContext?: Context;
-  };
+  private active?: ActiveCommand;
+  private interruptTargets = new WeakMap<
+    CodexInterruptTarget,
+    { active: ActiveCommand; client: Rpc; transportGeneration: number }
+  >();
   private terminalTurns = new Map<string, { commandId: string; status: string }>();
   private paused = false;
   private closed = false;
@@ -387,15 +380,20 @@ export class CodexConversation {
   private pumping?: Promise<void>;
   private recovery?: Promise<void>;
   private automaticTransportRecoveryAttempted = false;
+  private automaticRecoveryTimer?: ReturnType<typeof setTimeout>;
+  private automaticRecoveryEpoch = 0;
+  private automaticRecoveryRunning?: { epoch: number };
   private explicitEnqueue: Promise<unknown> = Promise.resolve();
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   private appliedWebSearchAccess: WebSearchAccess = 'disabled';
   private webSearchDeploymentCeiling: WebSearchAccess = 'disabled';
+  private readonly disableWebSearch: boolean;
   private readonly disableProjectDocuments: boolean;
   private readonly agentContextSource?: string;
   constructor(private opts: CodexConversationOptions) {
     assertNativeCodexContextAdmission({ source: opts.agentContextSource });
     this.agentContextSource = opts.agentContextSource;
+    this.disableWebSearch = opts.disableWebSearch === true;
     this.disableProjectDocuments = opts.disableProjectDocuments === true;
     this.client = this.createClient();
   }
@@ -415,9 +413,13 @@ export class CodexConversation {
   }
   private transportClosed(generation: number, error: Error, requireRecoveryPersistence = false) {
     if (this.closed || generation !== this.transportGeneration) return;
+    const failure =
+      error instanceof CodexTransportError && error.diagnostic
+        ? { failure: codexRuntimeErrorTelemetry(error) }
+        : {};
     if (this.opts.transportClosure === 'terminal') {
       try {
-        this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed' });
+        this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed', ...failure });
       } finally {
         // Use the existing terminal owner: cancel host work, retain ambiguous
         // provider state, and notify the adapter so its stream and MCPs close.
@@ -432,6 +434,8 @@ export class CodexConversation {
     this.ready = false;
     this.stopCapacityScheduleForCleanup();
     const active = this.active;
+    const automatic =
+      !this.paused && !active?.interruptRequested && !this.automaticTransportRecoveryAttempted;
     const status = active?.accepted ? 'interrupted' : 'failed';
     this.finishTurnSpan(status, 'transport');
     const commandId = active?.command.id;
@@ -453,6 +457,8 @@ export class CodexConversation {
           undefined,
           true,
           true,
+          automatic ||
+            (this.automaticRecoveryRunning?.epoch === this.automaticRecoveryEpoch && !active),
         );
     } catch (persistenceError) {
       recoveryPersistenceFailed = true;
@@ -466,6 +472,7 @@ export class CodexConversation {
     this.opts.onQueueChange?.();
     this.opts.onTransportClosed?.({
       activeTurn: !!active,
+      ...failure,
       reason:
         error.message === 'Codex request timed out; retry explicitly'
           ? 'timeout'
@@ -479,6 +486,8 @@ export class CodexConversation {
     // it before dispatch; no provider turn has failed in that case.
     if (active)
       this.opts.onError?.(new Error('Codex transport disconnected; recovery is available'));
+    if (!recoveryPersistenceFailed && automatic && !this.automaticRecoveryRunning)
+      this.recoverSavedQueue();
   }
   private verifyCurrentBinding(stored?: AccountBinding) {
     return this.opts.verifyBinding
@@ -645,7 +654,16 @@ export class CodexConversation {
     await this.opts.prepareAgentContext?.(signal);
     signal.throwIfAborted();
     if (this.closed) throw Error('Codex context dispatch closed');
-    return client.request(method, params);
+    // Resuming/forking establishes execution ownership, not transcript delivery.
+    // Even one retained turn can contain more tool output than a bounded RPC
+    // frame. History remains native; Mitzo renders its durable event stream and
+    // recovery inspects metadata-only, paginated thread/turns/list responses.
+    return client.request(
+      method,
+      method === 'thread/resume' || method === 'thread/fork'
+        ? { ...params, excludeTurns: true }
+        : params,
+    );
   }
   private async repairThreadOwnership(client: Rpc, options: Record<string, unknown>) {
     const pending = this.opts.store.pendingThreadOwnership(this.opts.conversationId, this.binding!);
@@ -1190,10 +1208,72 @@ export class CodexConversation {
     await this.acknowledgeRecovery();
     return result;
   }
-  async acknowledgeRecovery() {
+  /** Recover only positively queued work after transport loss. Never retry the lost command. */
+  recoverSavedQueue(attempt = 0) {
+    if (
+      this.closed ||
+      !this.binding ||
+      !this.paused ||
+      this.active ||
+      this.recovery ||
+      this.automaticRecoveryTimer ||
+      this.automaticRecoveryRunning ||
+      this.opts.canClaimCommand ||
+      this.opts.transportClosure === 'terminal' ||
+      this.opts.ownerKind === 'symposium' ||
+      !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding) ||
+      this.opts.store.queueSummary(this.opts.conversationId, this.binding).queued === 0 ||
+      this.opts.store.capacityRecovery(this.opts.conversationId, this.binding)
+    )
+      return;
+    const delays = [1000, 2000, 5000, 10000, 30000];
+    if (attempt >= delays.length) {
+      this.recoveryPhase = undefined;
+      this.opts.onQueueChange?.();
+      return;
+    }
+    const epoch = this.automaticRecoveryEpoch;
+    this.recoveryPhase = 'reconnecting';
+    this.opts.onQueueChange?.();
+    this.automaticRecoveryTimer = setTimeout(() => {
+      this.automaticRecoveryTimer = undefined;
+      this.automaticRecoveryRunning = { epoch };
+      void Promise.resolve(this.pumping)
+        .then(async () => {
+          if (epoch !== this.automaticRecoveryEpoch || this.closed) return;
+          this.automaticTransportRecoveryAttempted = true;
+          await this.acknowledgeRecovery(epoch);
+        })
+        .catch((error: unknown) => {
+          if (epoch === this.automaticRecoveryEpoch && attempt === delays.length - 1)
+            this.opts.onError?.(
+              error instanceof Error ? error : new Error('Automatic reconnection failed'),
+            );
+        })
+        .finally(() => {
+          this.automaticRecoveryRunning = undefined;
+          if (epoch === this.automaticRecoveryEpoch && !this.closed)
+            this.recoverSavedQueue(attempt + 1);
+        })
+        .catch(() => {
+          this.recoveryPhase = undefined;
+          log.warn('Automatic transport recovery could not finish; saved work remains queued.');
+        });
+    }, delays[attempt]);
+    this.automaticRecoveryTimer.unref?.();
+  }
+  private cancelAutomaticRecovery(persist = true) {
+    ++this.automaticRecoveryEpoch;
+    clearTimeout(this.automaticRecoveryTimer);
+    this.automaticRecoveryTimer = undefined;
+    if (persist && this.binding)
+      this.opts.store.stopAutomaticRecovery(this.opts.conversationId, this.binding);
+    this.recoveryPhase = undefined;
+  }
+  async acknowledgeRecovery(automaticEpoch?: number) {
     if (this.recovery) return this.recovery;
     const span = tracer.startSpan('codex.transport.recovery');
-    const operation = this.continueRecovery().finally(() => span.end());
+    const operation = this.continueRecovery(automaticEpoch).finally(() => span.end());
     const shared = operation.finally(() => {
       if (this.recovery === shared) {
         this.recovery = undefined;
@@ -1204,16 +1284,41 @@ export class CodexConversation {
     this.recovery = shared;
     return shared;
   }
-  private async continueRecovery() {
+  private async continueRecovery(automaticEpoch?: number) {
     if (this.closed) throw new Error('Codex conversation unavailable');
     this.opts.store.assertNoPendingThreadDispatch(this.opts.conversationId, this.binding!);
     if (!this.ready) await this.reconnect();
+    const recoveryTransportGeneration = this.transportGeneration;
+    if (automaticEpoch !== undefined) {
+      const page = z
+        .object({ data: z.array(z.object({ id: z.string(), status: z.string() })) })
+        .parse(
+          await this.client.request('thread/turns/list', {
+            threadId: this.threadId,
+            limit: 1,
+            sortDirection: 'desc',
+            itemsView: 'notLoaded',
+          }),
+        );
+      if (page.data.some((turn) => !['completed', 'failed', 'interrupted'].includes(turn.status)))
+        throw new Error('Provider turn is still active; saved work remains queued');
+    }
     // A provider turn may continue after turn/start returns. Recovery progress
     // is only for workspace startup and transport reattachment, not generation.
     if (this.recoveryPhase) {
       this.recoveryPhase = undefined;
       this.opts.onQueueChange?.();
     }
+    // Neither metadata nor a progress observer may release work through a
+    // retired transport or undo a Stop that arrived during the reconnect.
+    if (this.closed || !this.ready || recoveryTransportGeneration !== this.transportGeneration)
+      throw new Error('Recovery transport is closed or replaced');
+    if (
+      automaticEpoch !== undefined &&
+      (automaticEpoch !== this.automaticRecoveryEpoch ||
+        !this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding!))
+    )
+      throw new Error('Automatic recovery was cancelled');
     this.opts.store.acknowledgeRecovery(this.opts.conversationId, this.binding!);
     this.paused = false;
     await this.pump();
@@ -1314,8 +1419,10 @@ export class CodexConversation {
   }
 
   private runtimeConfiguration(configuration: unknown): Record<string, unknown> {
-    if (!this.opts.runtimeConfig)
-      return codexRuntimeOverrides(configuration, this.opts.profile.workspaceId);
+    if (!this.opts.runtimeConfig) {
+      const config = codexRuntimeOverrides(configuration, this.opts.profile.workspaceId);
+      return this.disableWebSearch ? { ...config, web_search: 'disabled' } : config;
+    }
     const inherited = z
       .object({
         // config/read returns null when the preference is unset.
@@ -1325,6 +1432,7 @@ export class CodexConversation {
     return {
       model_reasoning_summary: inherited.model_reasoning_summary ?? 'auto',
       ...this.opts.runtimeConfig,
+      ...(this.disableWebSearch ? { web_search: 'disabled' } : {}),
     };
   }
 
@@ -1351,24 +1459,15 @@ export class CodexConversation {
       },
     });
     this.appliedWebSearchAccess = policy.effective;
-    return {
+    return codexThreadOptions({
       model: this.binding!.model,
       modelProvider,
       cwd: this.opts.runtimeCwd ?? this.opts.cwd,
-      config: {
-        // Explicit OpenShell/native runtime configs bypass codexRuntimeOverrides.
-        // Opt in on every route, while retaining an explicit summary preference.
-        model_reasoning_summary: 'auto',
-        ...runtimeConfig,
-        web_search: policy.effective,
-        // Native Codex loads project documents independently of Mitzo's compiler.
-        // Enforce pack isolation from thread birth and on every replacement/resume.
-        ...(this.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
-      },
-      approvalPolicy: 'never',
-      sandbox: 'read-only',
-      developerInstructions: this.opts.systemPrompt,
-    };
+      runtimeConfig,
+      webSearch: policy.effective,
+      disableProjectDocuments: this.disableProjectDocuments,
+      systemPrompt: this.opts.systemPrompt,
+    });
   }
 
   private async reconfigureWebSearchGrant(
@@ -1457,16 +1556,7 @@ export class CodexConversation {
   }
 
   private dynamicToolsOption() {
-    return this.opts.tools.length
-      ? {
-          dynamicTools: this.opts.tools.map((tool) => ({
-            type: 'function',
-            name: tool.name,
-            description: tool.description,
-            inputSchema: tool.input_schema,
-          })),
-        }
-      : {};
+    return codexDynamicToolsOption(this.opts.tools);
   }
 
   private toolSurfaceRevision() {
@@ -1852,7 +1942,7 @@ export class CodexConversation {
       this.binding!,
       command.id,
     );
-    const active = {
+    const active: ActiveCommand = {
       command,
       abort: new AbortController(),
       turnId: undefined as string | undefined,
@@ -1887,7 +1977,7 @@ export class CodexConversation {
         { kind: 'application' | 'untrusted'; value: string }
       > = {};
       if (systemPrompt !== undefined)
-        Object.assign(additionalContext, applicationContextFragments(systemPrompt));
+        Object.assign(additionalContext, codexApplicationContextFragments(systemPrompt));
       active.abort.signal.throwIfAborted();
       const preparedPrompt =
         (await this.opts.prepareTurn?.(
@@ -1964,26 +2054,22 @@ export class CodexConversation {
       let response: unknown;
       let dispatched = false;
       try {
-        const pendingAck = this.client.request('turn/start', {
-          threadId: this.threadId,
-          clientUserMessageId: command.id,
-          model,
-          input: continuation
-            ? []
-            : [
-                ...(attemptContext ? [{ type: 'text', text: attemptContext }] : []),
-                ...(savedSourceContext ? [{ type: 'text', text: savedSourceContext }] : []),
-                { type: 'text', text: preparedPrompt },
-                ...(command.images ?? []).map((image) => ({
-                  type: 'image',
-                  url: `data:${image.mediaType};base64,${image.data}`,
-                })),
-              ],
-          approvalPolicy: 'never',
-          sandboxPolicy: this.opts.turnSandboxPolicy ?? { type: 'readOnly' },
-          ...(command.reasoningEffort ? { effort: command.reasoningEffort } : {}),
-          ...(Object.keys(additionalContext).length ? { additionalContext } : {}),
-        });
+        const pendingAck = this.client.request(
+          'turn/start',
+          codexTurnStartParams({
+            threadId: this.threadId,
+            commandId: command.id,
+            model,
+            continuation: Boolean(continuation),
+            attemptContext,
+            savedSourceContext,
+            prompt: preparedPrompt,
+            images: command.images,
+            sandboxPolicy: this.opts.turnSandboxPolicy,
+            reasoningEffort: command.reasoningEffort,
+            additionalContext,
+          }),
+        );
         dispatchSpan.end();
         dispatched = true;
         response = await pendingAck;
@@ -2031,14 +2117,43 @@ export class CodexConversation {
             active.turnId,
           );
         }
-        this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
-        if (systemPrompt !== undefined)
-          this.opts.onApplicationContextAccepted?.(
-            command.id,
-            this.threadId!,
-            active.turnId,
-            systemPrompt,
-          );
+        // The exact native ACK owns acceptance even if a trusted observer's
+        // durable projection fails. Owned routes can disable capacity recovery.
+        active.accepted = true;
+        this.opts.store.recordNativeTurnAck(
+          this.opts.conversationId,
+          this.binding!,
+          command,
+          this.threadId!,
+          active.turnId,
+        );
+        let providerObserverFailed = false;
+        let providerObserverError: unknown;
+        try {
+          this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
+        } catch (error) {
+          providerObserverFailed = true;
+          providerObserverError = error;
+        }
+        try {
+          if (systemPrompt !== undefined)
+            this.opts.onApplicationContextAccepted?.(
+              command.id,
+              this.threadId!,
+              active.turnId,
+              systemPrompt,
+            );
+        } catch (error) {
+          if (!providerObserverFailed) throw error;
+          try {
+            log.warn('Application context acknowledgement observer also failed.');
+          } catch {
+            /* Preserve the provider observer's original failure when logging is unavailable. */
+          }
+        }
+        // Preserve the first observer's exact error/category, including falsy
+        // throws, after both ACK consumers had the chance to persist their proof.
+        if (providerObserverFailed) throw providerObserverError;
         active.accepted = true;
         if (pending) {
           try {
@@ -2114,10 +2229,11 @@ export class CodexConversation {
           return;
         }
         if (active.interruptRequested || active.abort.signal.aborted) {
-          await this.client.request('turn/interrupt', {
-            threadId: this.threadId,
-            turnId: active.turnId,
-          });
+          if (!active.targetedInterruptClaimed)
+            await this.client.request('turn/interrupt', {
+              threadId: this.threadId,
+              turnId: active.turnId,
+            });
           return;
         }
       }
@@ -2656,8 +2772,96 @@ export class CodexConversation {
       contentItems: [{ type: 'inputText', text: result.content }],
     };
   }
+  /** Accepted, durably correlated live turn only; no pending/startup target. */
+  captureInterruptTarget(): CodexInterruptTarget | undefined {
+    const active = this.active;
+    if (
+      this.closed ||
+      this.paused ||
+      !this.ready ||
+      !this.binding ||
+      !active?.accepted ||
+      active.ownershipPending ||
+      !active.turnId
+    )
+      return;
+    const value = this.opts.store.nativeTurnTarget(
+      this.opts.conversationId,
+      this.binding,
+      active.command.id,
+      active.command.attempt,
+    );
+    if (!value || value.threadId !== this.threadId || value.turnId !== active.turnId) return;
+    const target = Object.freeze({ ...value, [interruptTargetBrand]: true as const });
+    this.interruptTargets.set(target, {
+      active,
+      client: this.client,
+      transportGeneration: this.transportGeneration,
+    });
+    return target;
+  }
+  /** A durable claim is possibly attempted, never terminal evidence or replay
+   * permission. No public route or replacement FIFO is installed by this port. */
+  async interruptIfCurrent(
+    requestId: string,
+    target: CodexInterruptTarget,
+  ): Promise<CodexTargetedInterruptResult> {
+    const witness = this.interruptTargets.get(target);
+    if (this.closed || !this.binding || !witness) return { status: 'stale_target' };
+    const expected = CodexNativeTurnTargetSchema.parse(target);
+    const previous = this.opts.store.targetedInterruptReceipt(
+      this.opts.conversationId,
+      this.binding,
+      requestId,
+    );
+    if (previous) {
+      if (!isDeepStrictEqual(previous.target, expected))
+        throw Error('Interruption request reused with a different target');
+      return { status: 'claimed', receipt: previous, replayed: true };
+    }
+    const active = witness.active;
+    if (
+      this.active !== active ||
+      !active.accepted ||
+      active.ownershipPending ||
+      this.client !== witness.client ||
+      this.transportGeneration !== witness.transportGeneration ||
+      active.turnId !== expected.turnId ||
+      this.threadId !== expected.threadId
+    )
+      return { status: 'stale_target' };
+    // No await or supplied callback between identity comparison and the actual
+    // store's atomic compare/claim/pause. A persisted claim is never reissued.
+    const claim = this.opts.store.claimTargetedInterrupt(
+      this.opts.conversationId,
+      this.binding,
+      requestId,
+      expected,
+    );
+    if (!claim) return { status: 'stale_target' };
+    if (!claim.fresh) return { status: 'claimed', receipt: claim.receipt, replayed: true };
+    this.cancelAutomaticRecovery();
+    this.paused = true;
+    active.targetedInterruptClaimed = true;
+    active.interruptRequested = true;
+    active.abort.abort();
+    // Abort listeners may retire a transport. Never borrow a successor client.
+    if (
+      this.closed ||
+      this.client !== witness.client ||
+      this.transportGeneration !== witness.transportGeneration ||
+      this.active !== active
+    )
+      throw Error('Interruption transport retired; original claim is uncertain');
+    await witness.client.request('turn/interrupt', {
+      threadId: expected.threadId,
+      turnId: expected.turnId,
+    });
+    return { status: 'claimed', receipt: claim.receipt, replayed: false };
+  }
   async interrupt() {
     if (this.closed) return;
+    this.cancelAutomaticRecovery();
     this.paused = true;
     const active = this.active;
     // The interrupt request is not a terminal result. Keep active work running
@@ -2699,6 +2903,7 @@ export class CodexConversation {
       }
     };
     try {
+      attempt(() => this.cancelAutomaticRecovery(false));
       attempt(() => this.stopCapacityScheduleForCleanup());
       attempt(() =>
         this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced')),
@@ -2719,6 +2924,7 @@ export class CodexConversation {
               undefined,
               true,
               true,
+              this.opts.store.automaticRecoveryPending(this.opts.conversationId, this.binding),
             );
         } catch (error) {
           this.opts.onError?.(

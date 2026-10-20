@@ -408,3 +408,67 @@ it('refuses an older ambiguous route without choosing the first environment', ()
   expect(route.available).toBe(false);
   expect(route.reason).toContain('ambiguous');
 });
+
+it.each(['local', 'openshell'] as const)(
+  'keeps reviewed Builder context separate from the user prompt on %s first commands',
+  async (location) => {
+    const { ordinaryRuntimeInventoryFixture } =
+      await import('../../test-utils/ordinary-runtime-inventory-fixture');
+    const data = ordinaryRuntimeInventoryFixture();
+    const profile = {
+      kind: 'builtin' as const,
+      profileId: PROFILE_BUILDER_ID,
+      revision: PROFILE_BUILDER_REVISION,
+      definition: profileBuilderDefinition,
+      contentHash: sha256Hex(JSON.stringify(profileBuilderDefinition)),
+    };
+    const inventory = ExplicitLocalInventorySchema.parse({ ...data, agentProfiles: [profile] });
+    const selection = {
+      ...createChatRuntimeSelection(),
+      agentProfile: {
+        kind: 'builtin' as const,
+        profileId: PROFILE_BUILDER_ID,
+        revision: PROFILE_BUILDER_REVISION,
+      },
+      account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'high' },
+      execution: { location, targetId: location === 'local' ? 'mac' : 'sandbox' },
+      capabilityRevision: inventory.capabilityRevision,
+    };
+    const content = JSON.stringify({
+      version: 1,
+      source: {
+        kind: 'draft',
+        profileId: 'bob',
+        baseRevision: 3,
+        draftVersion: null,
+        expectedVersion: 2,
+      },
+      definition: {
+        ...data.agentProfiles[0].definition,
+        name: 'Working Bob',
+        instructions: 'Exact\n whitespace ',
+      },
+    });
+    const source = { kind: 'agent-library' as const, revision: sha256Hex(content), content };
+    const input = {
+      clientMsgId: 'reviewed-first',
+      repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
+      mode: 'agent' as const,
+      text: 'Help refine',
+      sourceSnapshots: [source],
+    };
+    const before = structuredClone(selection);
+    const request = prepareLocalFirstCommand(selection, inventory, input).request!;
+    expect(request.payload.text).toBe('Help refine');
+    expect(request.payload.sourceSnapshots).toEqual([source]);
+    expect(selection).toEqual(before);
+    const { sourceSnapshots: _source, ...nextInput } = input;
+    expect(_source).toEqual([source]);
+    const next = prepareLocalContinuationCommand(selection, inventory, {
+      ...nextInput,
+      clientMsgId: 'follow-up',
+      sessionId: 'assigned',
+    }).request!;
+    expect(next.payload.sourceSnapshots).toBeUndefined();
+  },
+);

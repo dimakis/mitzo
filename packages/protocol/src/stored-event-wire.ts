@@ -18,12 +18,18 @@ export function storedEventToClientMessage(
     startedSeq: payloadStartedSeq,
     ...payload
   } = event.payload;
-  if ((event.type ?? payloadType) === 'ordinary_reply_source') {
+  const privateType = event.type ?? payloadType;
+  if (
+    privateType === 'ordinary_reply_source' ||
+    privateType === 'ordinary_collaboration_context_staged' ||
+    privateType === 'ordinary_collaboration_context_prepared' ||
+    privateType === 'ordinary_collaboration_context_accepted'
+  ) {
     // The driver mapping stays private in EventStore. Keep its envelope so
     // reconnect acknowledgements and successor predecessors retain this cursor.
     const sessionId = event.sessionId ?? _payloadSessionId;
     return {
-      type: 'ordinary_reply_source',
+      type: privateType,
       ...(typeof sessionId === 'string' ? { sessionId } : {}),
       seq: event.seq,
       ...(event.prevSessionSeq !== undefined ? { prevSessionSeq: event.prevSessionSeq } : {}),

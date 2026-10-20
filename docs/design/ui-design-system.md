@@ -1,5 +1,41 @@
 # Mitzo UI design contract
 
+## Sandbox inventory and removal
+
+Sandboxes shows physical workspace totals separately from recorded conversations
+and pool spares. Needs ownership review is a native disclosure over quiet grouped
+rows; listing a resource does not enable destructive controls. Gateway failure
+shows an unknown count rather than zero. Details separates checkpoint/stop,
+explicit deletion, and automatic retention consent and date.
+
+`SessionRemovalDialog` is shared by Chats and the session panel. It uses HomeDialog,
+shared secondary controls and `home-inline-actions`. The common `home-danger`
+modifier takes its foreground/border from the semantic danger token; it introduces
+no palette, spacing or typography scale. Archive keeps resources, while deletion
+requires a fresh lifecycle review and retains the dialog/chat on failure. Copy
+explicitly states that saved history and recovery checkpoints remain.
+
+Focused component/API/design checks and intercepted browser checks cover mobile
+WebKit/Chromium and desktop Chromium, dark Mint/System and light Teal/Georgia,
+44px controls, keyboard focus/restoration, narrow wrapping and failure states.
+Inspected captures: [mobile removal](assets/sandbox-removal-mobile-dark.png) and
+[desktop inventory](assets/sandbox-inventory-desktop-light.png). These use
+synthetic fixture inventory and no backend, credentials or model calls. Full-app
+build/type/layout acceptance remains CI validation when the local 1 GiB heap is
+insufficient. See [sandbox lifecycle](sandbox-lifecycle.md) for operation semantics.
+
+The sandbox ownership review and selected-cleanup dialogs reuse HomeDialog,
+access-row-group, sandbox-check, sandbox-actions and existing semantic danger
+controls. They add no palette, font or private motion. Ownership review links
+saved chats and explains blockers; it exposes no adopt/delete action. Batch
+selection appears only for exact currently inventoried managed resources. Every
+selected item must pass review; an uncertain result stops the remaining batch,
+retains the result list and refreshes inventory. Cancelling requires no mutation.
+The all-intercept sandbox-cleanup-review fixture covers 320px WebKit/Chromium
+phones and 1280px desktop Chromium, light/dark Teal/Georgia and Mint/System,
+wrapping, keyboard focus, 44px confirmation controls, blocked resources and
+refreshed physical counts. These fixtures use no backend, credentials or models. Inspected captures: [mobile batch review](assets/sandbox-batch-review-mobile-dark.png) and [desktop ownership review](assets/sandbox-ownership-review-desktop-light.png).
+
 The Connections inventory is the starting point: quiet surfaces, clear type, grouped rows, restrained lavender actions, and detail views that expose context when requested.
 
 ## One theme source
@@ -15,7 +51,19 @@ The Connections inventory is the starting point: quiet surfaces, clear type, gro
 
 Stable agent identity colors use `--seat-color-*` in the same file. Persisted provider configuration is data, not a style declaration: the configuration adapter resolves the default identity color to the literal required by its existing API. Native status bars and browser theme metadata read the current background token rather than carrying their own copies.
 
+Route loading keeps shared Home controls and dialogs in the application entry stylesheet. Component styles load with their route; their control heights must use `--control-height` independently of global CSS ordering. Static markup browser fixtures include the styles owned by the components they represent. Offline regression captures show [shared Updates controls](assets/startup-shared-controls-mobile-light.png) and [profile controls loaded with the chat route](assets/startup-profile-controls-mobile-dark.png).
+
+If a route download fails, the existing error boundary explains the connection failure. Its Try Again control reloads the current document to clear rejected module promises; ordinary rendering errors retain the existing component reset. The offline route-recovery test blocks the Login chunk, restores connectivity and verifies sign-in after retry on all three browser projects.
+
+Dynamic route JavaScript uses direct imports rather than Vite modulepreload links: WebKit can retain a failed modulepreload across reloads. Initial HTML preloads and route CSS loading remain enabled, and the likely landing route still starts alongside authentication. Recovery acceptance must use the production Vite bundle because an esbuild fixture does not reproduce this preload behavior.
+
 ## Appearance preferences
+
+The existing adviser-account dialog reuses its shared secondary buttons and action
+row for **Retry connection** when a retained ChatGPT grant needs attention. Recovery
+is separate from **Sign in again** and does not open a browser or send terminal input.
+The terminal offline fixture covers keyboard activation, mobile/desktop layouts,
+dark/light themes and alternate accent/font preferences for this recovery state.
 
 Settings exposes eight curated accents and seven locally available UI font stacks. Preset values live in the same token file, including the light/dark accent shades. The preference hook stores validated preset IDs in local storage and applies root data attributes immediately; startup restores them before React renders. The UI says these choices are saved on the current device. Code remains monospace, and Reset appearance restores System theme, Lavender accent and System font. Browser tests verify every accent pair meets 4.5:1 contrast for filled controls and that selections survive route changes and reloads.
 
@@ -507,6 +555,32 @@ Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromiu
 light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.
 
+Reviewed Telos mutations use the same ordinary `PermissionBanner` on desktop and
+mobile, selected only by the host's `reviewKind` marker. Request details contains
+whole completed public messages and retained material revisions, with no initial
+selection. The exact compiled source text, boundary, brief and version pins remain
+inspectable before Once saves that packet. Changing a selection invalidates its
+preview. This request offers Once and Deny; a session allowance cannot approve
+unseen future source selections. Other tools retain their existing scope/actions.
+The source controls reuse shared fieldsets, semantic tokens, normal disclosure
+and the card's independently scrolling body with reachable 44px decisions. Late
+reads are fenced to the request/session/login. An uncertain save locks its exact
+request for recovery, even when the pending card resolves before its HTTP reply.
+Only the host can replay a prepared save as a recovery card. It restores its
+original packet after an authenticated read and offers Retry same save and
+Dismiss. Recovery continues that reviewed attempt; Dismiss neither undoes an
+uncertain item save nor discards its retained evidence. A fresh approval still
+uses its original deadline, explicit selection, Once and Deny. Source context and
+the proposed brief stay hidden until authentication is rechecked and clear on
+authentication loss. Retained source text wraps beside bounded native checkboxes;
+labels and decisions keep the shared touch target while the card body scrolls.
+Save to Telos leads with one structured brief in the existing Outcome, Why this
+matters, Done when and Milestones language. Source text, actual author/date and
+material title/revision/source lead the review; raw proposals, IDs, hashes and
+native generation/configuration proof stay under a closed Source details
+disclosure. Missing native provenance does not create unknown seat/configuration
+rows. Ordinary tools keep their original heading, raw request and scope controls.
+
 ## Artefact sharing links
 
 Markdown Telos artefact links reuse `FileShareLink` and a compact file-options
@@ -533,6 +607,59 @@ confirms the profile is in the Agent Library and provides a Library link. Editin
 never saves automatically. Offline fixtures cover direct save, empty/error states,
 long instructions, keyboard activation, 320px/390px mobile and desktop, dark/light
 themes and alternate accent/font preferences.
+
+### Task proposals in ordinary chat
+
+The native `AgentProposeTask` tool result opens detailed review in the Library,
+with a return to its originating ordinary Builder conversation. The tool disclosure
+uses the existing text-link treatment; it does not embed a task form, card or dialog
+in the transcript. Opening review performs an authenticated proposal read and no save.
+
+The Library reuses `AgentTaskEditor`, `AgentSettingsPicker`, account/model and
+execution controls. Task details have the quiet bordered surface, heading/Close
+and Save/Cancel placement shown in the original approved Library reference.
+Workspace/source references and notifications remain editable in a native disclosure.
+The task owns its retained execution intent independently of Builder settings.
+Shared semantic tokens, control-height targets and normal navigation motion remain
+in use. Proposal reviews and independent manual task drafts retain separate input.
+
+Published profile detail opens with readable Instructions, Expected output and
+Success criteria. Edit profile retains the full identity, instructions, context,
+tools and prompt-preview editors; drafts open in editing mode. The Library preserves
+Tools, import/export, search, version history and the existing taskboard link while
+keeping its primary Profiles / Tasks & schedules navigation together. Secondary
+catalog and import/search actions live in the native Library options disclosure;
+they do not squeeze the primary collection tabs into a vertical stack on phones.
+
+Explicit Save task returns its exact task identity and revision and links to the
+Library task. Confirmed receipts survive chat reload. Failed validation preserves
+editable input; a definitive owner rejection permits editing or discard. An
+uncertain save keeps its exact reviewed request for retry. Cancel save wait ends
+waiting and fences late responses without claiming that an accepted save was
+undone. Reads verify exact session/proposal/task/revision identity. Human Save uses
+current interactive operator and retained-owner authority; it can outlive a stopped
+Builder. A revoked or failed save retains its original request for an authorized retry.
+No control runs a task or enables its paused schedule.
+
+Offline actual-chat checks cover task creation/editing, independent Builder and
+task settings, validation, failure/retry, cancellation/revocation and reload.
+The 53-check Builder/settings matrix covers mobile WebKit/Chromium and desktop
+Chromium, dark/light with Teal/Georgia, 320px, larger text, keyboard activation,
+44px controls and the existing deleted-chat/discarded-draft/late-receipt regressions.
+Matched System/Lavender captures were inspected against the frozen references:
+[published profile](assets/agent-library-published-profile-mobile-dark.png),
+[desktop profile](assets/agent-library-published-profile-desktop-light.png),
+[native chat result](assets/agent-builder-native-task-result-mobile-dark.png),
+[Library task review](assets/agent-library-task-review-mobile-dark.png),
+[task actions](assets/agent-library-task-review-actions-mobile-dark.png),
+[retained retry](assets/agent-library-task-retry-mobile-dark.png) and
+[exact saved receipt](assets/agent-library-task-receipt-mobile-dark.png).
+The Library uses its normal page scroller; top/actions captures show separate
+viewport positions rather than claiming a full-page image of the internal scroller.
+The active `quick-sheet-2026-10-17` ledger references and protected checks remain
+unchanged. Browser evidence uses intercepted traffic and inert ordinary drivers;
+it does not establish live continuation, completion or runtime admission. Original
+approved references govern the layout; implementation captures are validation evidence.
 
 ## Google Workspace policy status
 
@@ -731,26 +858,43 @@ in dark/light appearance with Mint/Georgia. Inspected captures show the
 [fresh desktop chat](assets/fresh-chat-desktop-light.png), with briefing chrome
 restored only through the saved draft. No backend or model is used.
 
-## Agent creation advisor
+## Agent Builder entry from Library
 
-The Agent Library workbench stacks its advisor above the existing profile editor,
-including on mobile. New agent creation expands the panel; the labelled disclosure
-uses `useMotionPresence` to retain the conversation, question and picker on collapse.
-It reuses `AccountModelPicker` in adviser scope, `UiIcon`, the existing profile form,
-semantic colors, UI/mono fonts, spacing/radius scales and 44px control targets.
-The conversation has a bounded, keyboard-scrollable log. Proposed profiles expose
-review details and an explicit apply action before the ordinary Save draft and
-Publish revision actions. Stale proposals cannot replace newer form edits.
+Agent Library creation and refinement enter the existing ordinary Agent Builder
+chat. The Library keeps its manual profile editor, draft/publication lifecycle,
+version history and assigned tasks; it no longer stacks a separate advisor and
+adviser-only account setup above that editor. The shared ordinary settings own
+Agent, Account, Model, Thinking, Run on, derived Runs with and workspace controls.
+No alternate chat renderer, composer, account inventory or settings pattern is
+introduced.
 
-Offline Agent Library fixtures exercise advisor success/error, explicit selection,
-form application and draft recovery, keyboard focus, long content and scrolling,
-320px mobile and desktop layouts, light/dark themes and Teal/Georgia appearance.
-The ordinary Agent Builder chat profile retains its separate namespace fixture.
+A retained ordinary draft carries the exact profile/draft source snapshot through
+the existing source-context transport. Source context is disclosed in the ordinary
+chat and Resources; it stays separate from the editable short request. The normal
+conversation's profile proposal cards, approval controls and lifecycle remain
+available. Source content grants no runtime or publication authority. Setup never
+sends a model turn. Back navigation, repeated entry and acknowledgement retain
+the original draft/conversation rather than silently allocating another one.
 
-Inspected captures show [new agent creation on mobile](assets/agent-creation-mobile-dark.png)
-and [the desktop advisor above the profile form](assets/agent-creation-desktop-light.png).
-These are fully intercepted fixtures; no live model, backend or production service
-was used.
+Changes reuse existing shells, WorkspacePageHeading, UiIcon, shared source/context
+and resource controls, semantic tokens, motion and touch targets. Focused offline
+fixtures render the actual Library and responsive ordinary chat, with all traffic
+intercepted; broad application build and browser acceptance remain CI evidence.
+
+The focused Library/ordinary-chat fixture passes 17 checks across 320px mobile
+WebKit/Chromium and desktop Chromium in light/dark with Teal/Georgia. It covers
+exact source review, settings and draft retention, unavailable routes, accepted
+first command, proposal save failure/retry and acknowledged conversation reentry.
+Captures show [mobile source review](assets/agent-builder-mobile-source-dark.png),
+[shared mobile settings](assets/agent-builder-mobile-settings-light.png),
+[the saved proposal receipt](assets/agent-builder-mobile-saved-dark.png) and
+[ordinary desktop chat](assets/agent-builder-desktop-chat-light.png).
+These are intercepted fixtures, not live provider/device qualification. The saved
+receipt capture uses an intentionally first-command-only historical runtime to
+prove platform profile review remains available while unsupported sends stay
+blocked. Its inert event source leaves Stop visible. The shared narrow settings
+body retains an internal horizontal scrollbar; document bounds and 44px controls
+pass, and no Library-specific settings layout is introduced.
 
 ## Agent Library tasks and shared settings
 
@@ -762,7 +906,7 @@ Symposium selection stays inside a session.
 
 Task setup uses AgentSettingsPicker, controlled AccountModelPicker and
 ChatExecutionPicker with the ordinary runtime catalog. Its retained selection is
-separate from advisor and session defaults. The shared panel measures its own
+separate from Builder conversation and session defaults. The shared panel measures its own
 available space outside chat, keeps fields mounted when closed, scrolls internally,
 and restores trigger focus on Escape/Done. Library actions use quiet outlined or
 soft surfaces; type, spacing, radius, focus and touch heights use shared tokens.
@@ -1058,6 +1202,34 @@ reachable close/Done controls. Short-screen bounds are measured in rendered pixe
 Settings motion uses the shared popover presence and retains the mounted fields.
 The trigger’s accessible name includes its visible Settings label and selected context.
 
+The 17 October restoration brings back the earlier approved **Account & model**
+and **Agent & workspace** groups and accent-colored heading from
+[the retained approved design](assets/approved-chat-settings-teal.png).
+The compact popover geometry, full-width composer and primary Run on controls
+remain in place. Account defaults, clear-default and model refresh live in the
+closed **Account options** disclosure; required account confirmation and catalog
+warnings remain visible. This reuses `chat-settings-group`,
+`chat-settings-advanced`, `UiIcon` and the existing semantic/spacing/type tokens.
+Opening settings starts its scrolling body at Account while preserving mounted
+selections, confirmation state and composer drafts. Both mobile and desktop use
+the same field set.
+
+The restoration passes 107 design checks, 83 focused component/page regressions
+and 17 intercepted browser checks including browser startup. The browser fixture
+uses the real `AccountModelPicker` with synthetic catalog responses and covers
+saved defaults, refresh, account/model/thinking selection, dismissal/focus,
+retained drafts and reopening at Account. Inspected captures show
+[390px mobile dark](assets/restored-chat-settings-mobile-dark.png),
+[1280px desktop light](assets/restored-chat-settings-desktop-light.png),
+[320px mobile with larger text](assets/restored-chat-settings-short-mobile-light.png)
+and [300px-high desktop with larger text](assets/restored-chat-settings-short-desktop-dark.png).
+Constrained panels reduce header/footer padding using the shared spacing scale
+to keep a complete runtime row reachable while retaining 44px actions. Themes,
+Mint/Teal accents and Georgia/System fonts remain effective. Workspace builds and
+frontend TypeScript checks pass; `npm run test:ui` reaches Vite but exceeds the
+required local 1 GiB heap, so full production build acceptance remains with CI.
+These fixtures start no backend and make no model calls.
+
 New and existing composers use the full chat pane with the same shared gutters.
 Commands, image attachment, Terminal, Resources, collaboration, context, voice and
 send/queue/interrupt controls retain their original order and behavior. Resources
@@ -1097,6 +1269,23 @@ Inspected captures: [desktop popover](assets/compact-chat-desktop-dark.png),
 [retained profile draft editor](assets/compact-chat-profile-drafts.png).
 
 The shared Symposium transcript always uses All independently of the legacy compact-seat selection. Expanding an anchor-only chat must retain every agent’s finished and streaming replies. Independent previews refresh after completed replies, delivery changes and a five-second fallback; closing cancels their read and removes their timer/listener. Refreshing retains the existing history while the next page is read.
+
+## Retained Telos source navigation
+
+`TelosItemSources` keeps originating exchanges in Sources and preserves unknown
+legacy selection, author and dates explicitly. The existing output list excludes
+`source_capture` packets. Opening a reviewed source resolves its retained proof
+and navigates to the full ordinary chat at its recorded exchange; it creates no
+session and changes no account, model or assignment. `TelosSourceWorkLink` reuses
+`SessionWorkLink` in one compact contextual row with shared gutter, control-height,
+spacing and text tokens. It adds no second back action or settings surface.
+Generic conversation associations remain available in Resources through
+`ConversationWorkLinks`, including every item sharing one original discussion.
+S8 composes this same association into the complete approved item/chats/work row.
+Source navigation fences late responses on chat/item changes and leaves the
+ordinary transcript, composer, Resources, settings and history intact. Offline
+source browser fixtures cover narrow mobile and desktop, light/dark appearance,
+alternate accent/font, source anchoring and the return link.
 
 ## Frozen Symposium joining review (16 October 2026)
 
@@ -1146,3 +1335,512 @@ content, long brief scrolling, pinned/reachable controls and retained edits.
 The full browser acceptance run is recorded separately with the PR checks.
 These captures qualify this bounded presentation, not application admission,
 saved-file artifact access, all-account/runtime operation or native iOS behavior.
+
+## Native biometric enrollment
+
+Native login offers an unchecked **Enable Face ID on this device** option (or the
+device's biometric label). Its description states that the passphrase is saved in
+secure device storage and protected by the enrolled biometrics. Failed legacy
+unlocks explain how to enroll after signing in. Enrollment failures remain visible
+and let the user continue with passphrase login by unchecking the option. This
+uses the existing login form and buttons, shared semantic color/type/spacing
+scales, and a checkbox label with the shared minimum control height. No new
+palette, font, motion or dialog pattern is introduced.
+
+The all-intercept `login-biometric` fixture renders the actual login component
+with a synthetic native bridge, at 320/390px mobile WebKit/Chromium and 1280px
+desktop Chromium. Dark Mint/Georgia and light Teal/System checks cover unchecked
+consent, keyboard toggle, wrapping, horizontal overflow, visible actions, minimum
+label height and protected storage arguments after login. Inspected captures:
+[mobile dark](assets/face-id-enrollment-mobile-dark.png) and
+[desktop light](assets/face-id-enrollment-desktop-light.png).
+These offline checks use synthetic credentials and no backend or model calls;
+real iOS Keychain/Face ID prompts still require separately authorized device testing.
+
+## Cold launch and offline quote handoff
+
+`StartupScreen` is the single full-screen brand surface while `ProtectedRoute`
+validates the existing session. The underlying application root is inert only
+while this surface is visible; authentication success or login redirection restores
+normal interaction immediately. The decorative animation does not grant access,
+retain a ready page, or change existing timeout/retry/logout rules.
+
+`LiquidLogo` samples the existing wordmark into bounded round droplets. One fall,
+a shallow spread, and a gathering rebound resolve into the original wordmark.
+Sampling, theme color and geometry happen once; animation frames perform no
+layout reads. Device pixel ratio is capped at two, and resize, backgrounding,
+unmount and Reduce Motion stop the animation. The shared motion helper contracts
+the wordmark into the quote mark and flies that mark to the actual Today quote
+link if it appears within a bounded window. Input never waits for either flight.
+
+The sixteen approved absurd phrases are selected once and retained through retry.
+After the introductory motion, a locally available attributed literary quote
+appears. Published daily selections and the quote visibility preference are cached
+by API origin. After Today loads, optional, cancellable reads prepare the next
+seven server-selected dates. A bundled approved quote covers first launch or a
+cache miss without claiming to be that day's server selection. No workspace data
+or credentials enter this cache. Real connection failures retain an explicit
+message and Retry below the quote.
+
+The new decorative liquid/quote/handoff timings live in `tokens.css`. All colors,
+fonts, spacing and text sizes use the existing semantic tokens; the logo's 256:94
+geometry and bounded 32rem reading width are structural. The entrance phrase keeps
+its position when the quote appears. The standalone launch surface owns viewport
+coverage; it adds no second visible collection masthead or navigation.
+
+Offline actual-component browser checks cover 320px mobile WebKit/Chromium and
+1280px desktop Chromium, dark Mint/Georgia and light Teal/System, fast success,
+slow success, retry, missing cache, expiry/login redirection, Reduce Motion,
+larger text, scrolling, keyboard Retry, 44px touch controls and uninterrupted
+input during the home handoff. These fixtures intercept all requests and use no
+backend, credentials or model. Inspected captures:
+[mobile logo](assets/startup-logo-mobile-dark.png),
+[mobile quote](assets/startup-quote-mobile-dark.png), and
+[desktop quote](assets/startup-quote-desktop-light.png).
+
+Focused unit/design checks, workspace package builds and frontend type checking
+pass. `npm run test:ui` reached the production Vite build and exhausted the required
+1 GiB local heap; the full build/application browser suite remains CI validation.
+This verifies frontend behavior, not a measured iPhone cold-start speedup. Physical
+Face ID/Keychain and device startup timings remain separately authorized device
+checks. Staging and production are untouched.
+
+## Reviewed API tool configuration
+
+Tool library retains its compact cards, filters and profile usage. Configure API
+tool opens an inline `MotionPresence` disclosure with the existing labelled
+fields, quiet actions and status/error patterns. The first template reads one
+Home Assistant entity. Connection selection reuses existing managed connections;
+there are no endpoint, method, code, header or credential editors. Implementation,
+input/output mapping and documentation are available on request. Published cards
+retain their reviewed template, source path and fingerprint in Details.
+
+Save draft, Verify API read and Publish tool remain separate actions. Verification
+explains its API read and reuses the existing app reauthorization. Failed saves
+and verification retain input. Editing invalidates local proof; Escape/Done
+returns focus and closing preserves the mounted draft. Cancel aborts verification through the retained-owner IPC boundary; owner drain waits for the actual request cleanup. Request cancellation and its deadline use AbortController with listener/timer cleanup so supported older WebKit does not require newer static AbortSignal helpers.
+Colors, fonts, spacing, focus, control height and motion use shared styles; no
+new CSS or palette is introduced.
+
+The all-intercept actual-page fixture covers 320px mobile WebKit/Chromium and
+1280px desktop Chromium in dark Lavender/System and light Teal/Georgia, keyboard
+focus, retained edits, failure/retry, publication, 44px actions and scrolling.
+These checks use fake responses without backend, credentials or models. Full-app
+build/browser acceptance remains a separate CI gate. The application shell and
+advisor/editor placement are unchanged.
+
+## Approved interface contracts
+
+The [approved-design ledger](approved/README.md) records human approvals and pinned
+references separately from implementation captures. Read it before changing an
+existing surface or resolving a UI conflict. Feature work and rebases preserve the
+active design; intentional changes need a new explicit user approval and an appended
+revision. Tests and reference hashes are protections, not baselines to rewrite when
+an unrelated feature changes the screen.
+
+Chat settings uses the shared `QuickSettingsField` pattern: an ordered summary list
+opens one retained editor at a time. Back and Escape return through the sheet and
+restore focus. Account/model locks, explicit confirmation, repository preparation,
+existing action callbacks and unavailable choices retain their original authority.
+Summary rows are portaled into ordered slots so visual and keyboard order agree.
+The header and surfaces use neutral tokens; Done uses the selected action accent.
+`SettingsBrandMark` uses the existing OpenShell mask and vendored OpenAI/Claude SVG
+marks (LobeHub icon assets); unknown model identities remain unbranded. The 18px mark
+is icon geometry; controls still use the shared 44px minimum. Claude's brand role
+is defined for both themes in tokens.css and is independent of the user's accent.
+
+## Telos ordinary role setup
+
+Telos role entry reuses the existing item detail actions and opens the full ordinary
+chat settings, renderer, composer and Resources. It adds no settings menu, reduced
+advisor form or alternate runtime. Item/lead return links use the shared chat context
+row; exact reviewed pins are available in its native details disclosure. The context
+region is bounded to 35vh as structural viewport geometry so the ordinary transcript
+and composer remain reachable at large text sizes.
+
+Advisor proposals reuse RepositoryChatPicker controls inside the ordinary transcript.
+Its transcript modifier prevents flex shrinking and delegates scrolling to the chat,
+so proposal fields and Save remain reachable rather than collapsing into an inner
+scroll strip. Existing semantic tokens, type, focus, control geometry and appearance
+preferences remain effective. The ordinary draft owner retains text/images/context
+through silent role binding and first-send consumption.
+
+On the supported Local Mac OAuth Codex route, Repository None prepares an ordinary
+workspace from the server’s readiness receipt. Other execution choices retain their
+selected intent and an actionable refusal. The existing primary control confirms
+role setup after review; readiness and rendering never start a command. Draft storage
+retains the exact preparation, immutable reviewed settings, presentation and request
+identity across reload and unknown outcomes. Device-storage failures keep replacement
+locked. Only an exact durable pre-allocation rejection permits explicit re-review and
+a fresh confirmation. This reuses the existing setup card, status/alert text, composer
+and controls, with no new style or motion pattern.
+
+A bound ordinary workspace uses the same chat settings, transcript and composer.
+Its prepared first command keeps the original account, model, thinking, agent and
+execution choices fixed. A matching consumed receipt refreshes its command phase;
+future model/thinking choices then use the existing continuation controls. Unknown
+delivery keeps the original command and draft for explicit recovery in More options.
+Workspace details say Conversation files and show that a Git branch does not apply.
+No new settings, storage owner or motion pattern is introduced.
+The shared compact Agents control clips its flex label with the existing ellipsis
+pattern, preserving its full accessible name, fixed icon space and shared control
+height at narrow widths and large text sizes.
+
+Ordinary conversation files reuse the existing viewer, optimistic editor and file
+options. Root discovery retains the selected chat; verified ordinary metadata
+withholds Git/worktree controls, while unverified metadata withholds root choices.
+Loading a different chat or document retires the previous UI read and callbacks,
+including a return to a previously selected chat. Server file admission remains
+authoritative. Existing editor drafts, conflict review, download and return links
+keep their original session/path scope without a new editor or storage owner.
+
+The scoped offline role fixture checks source-only lead setup, full refinement/child
+advisor chat, uncertain setup/reload recovery, normal settings, retained unsent draft,
+expanded context pins and proposal saves at 320px WebKit/Chromium and desktop Chromium,
+dark Mint and light Teal/Georgia, larger light-theme text and keyboard activation.
+Traffic is intercepted; real transaction/admission behavior has separate inert-driver
+regressions. See [S4 ownership and qualification](../features/telos-s4-role-bindings.md).
+
+The combined branch preserves the separately approved ordinary Quick sheet and its
+protected checks. Current captures: [320px mobile settings](assets/telos-role-settings-quick-sheet-mobile-dark.png)
+and [desktop settings with larger text](assets/telos-role-settings-quick-sheet-desktop-light.png).
+These are implementation evidence; all approved Telos and settings references remain unchanged.
+
+Initial S4 captures: [mobile ordinary settings](assets/telos-role-settings-mobile-dark.png),
+[desktop settings with larger text](assets/telos-role-settings-desktop-light.png),
+[mobile proposal fields](assets/telos-advisor-fields-mobile-dark.png),
+[mobile child Save](assets/telos-advisor-save-mobile-light.png), and
+[desktop refinement Save](assets/telos-advisor-save-desktop-light.png).
+Leaf work items retain Choose worker and Refine item; Add child is reserved for
+explicit parent kinds. This follows the frozen leaf Overview/Work distinction,
+using canonical kinds rather than inferring kind from a child count. Fresh captures:
+[320px dark leaf](assets/telos-leaf-mobile-dark.png) and
+[desktop light leaf](assets/telos-leaf-desktop-light.png).
+The expanded run passed 24 route scenarios plus two browser startup dependencies;
+the startup checks are not additional role journeys.
+
+A durable server proof that a reviewed request was rejected before allocation
+retains its original input in device history and enables Review updated brief in
+the same primary control. Reload does not review or allocate automatically. An
+explicit review precedes a fresh confirmation and new request identity. Unknown
+or late conflicts retain the original request for exact replay; failed device
+storage keeps replacement locked. These states reuse the existing alert text,
+primary control, ordinary settings and composer without a new surface or tokens.
+
+## Retained Telos context readability
+
+`TelosLinkedContext` presents Overall goal, Parent outcome, This item and Done when
+in that order within its existing native disclosure. Human text explains the work;
+opaque source/message/block identifiers and hashes stay in retained context and
+exact navigation/material actions. Existing payloads without parent/material titles
+use truthful Parent item and Retained material revision labels. This presentation
+does not enrich the immutable DTO with guessed names or dates.
+
+Navigation reuses `session-work-link`; retained-material actions reuse
+`home-secondary`, both with the shared control height. The existing bounded chat
+context region leaves the ordinary composer reachable. The isolated actual-component
+fixture checks 320px WebKit/Chromium and desktop Chromium, dark Mint/System and light
+Teal/Georgia at 160% text, keyboard disclosure, scrolling, exact retained links,
+material error visibility and unchanged unsent composer text. Captures:
+[mobile context](assets/telos-linked-context-mobile-dark.png),
+[large-text material error](assets/telos-linked-context-mobile-light-error.png),
+[desktop context](assets/telos-linked-context-desktop-light.png).
+These focused renders omit the application shell. Final full-app context names,
+combined-source UX and S5a acceptance remain separate checks; frozen references and
+the approved Quick Settings sheet remain unchanged.
+
+New reviews retain human names in a separate immutable presentation, pinned to
+the complete reviewed selection. The existing disclosure uses authorized goal
+and parent titles, retained source title/date, and exact material revision
+title/filename/date. Source-capture records use Reviewed source record as their
+readable filename label; their original filename and exact download remain intact.
+Missing historical presentation retains the generic labels above. A present
+invalid presentation displays Reviewed context labels unavailable and never
+fetches current replacements. The versioned review envelope and setup wrapper
+leave retained role selections, guidance and task hashes unchanged. Focused
+canonical-data mobile/desktop light/dark renders cover the labels and existing
+actions; whole-shell qualification and complete S5a acceptance remain separate.
+
+An active Telos role setup omits the empty-chat welcome decoration on both
+layouts. Its canvas/wordmark must not overlap the preparation notice, review or
+recovery controls, including when navigating from an ordinary empty chat with
+normal motion. The ordinary empty chat retains its existing replay animation;
+settings, composer and drafts keep their existing behavior.
+
+## Telos numeric priority
+
+The approved additive priority amendment uses `TodoPrioritySelect` in the current
+item header and a compact `P<n>` badge in each recursive item card. The native
+select inherits the shared font, semantic colors, control height and focus rule.
+Pending saves disable the field; failures announce uncertainty beside the field
+and preserve the last confirmed value. The item route owns this pending/error
+state across the legacy-to-canonical header handoff. Hydrating a canonical record
+must not discard a refusal warning or enable another write while one is pending;
+the current record remains authoritative for the displayed confirmed value.
+Existing grouping, sorting and navigation
+remain unchanged. This is not the later S7/S8 workspace implementation.
+
+The intercepted `telos-priority.spec.ts` fixture covers the actual responsive workspace
+on 320px WebKit/Chromium and desktop Chromium in dark Mint/System and light
+Teal/Georgia with larger text, keyboard focus, save/reject/reload and matching
+badges after navigation and immediately in the mounted desktop tree after saving.
+The list cache publishes confirmed changes to all consumers; per-item writes
+remain ordered across detail remounts. See [the amendment](../features/telos-priority-scale.md)
+for API/persistence ownership and its relationship to the frozen r1 design.
+
+Inspected implementation captures: [phone header](assets/telos-priority-mobile-dark.png),
+[phone badge](assets/telos-priority-tree-mobile-dark.png) and
+[desktop with larger text](assets/telos-priority-desktop-light.png). These preserve
+synthetic fixture evidence rather than replacing the approved reference.
+
+## Device continuity
+
+Phone and web remain subscribed to the same conversation when a new message
+moves runtime control between them. Handoffs keep pending approvals, streaming
+content and the local composer draft. Legacy `session_takeover` notices produce
+no transcript card or local idle transition. Reconnect restores delivery without
+displacing a connected driver; exact command retries cannot displace a live newer
+driver. A disconnected driver can still be recovered.
+
+The isolated offline `device-continuity.spec.ts` fixture uses the actual protocol
+parser, message reducer, ChatArea, permission card and ChatInput. All six checks
+pass on 320px WebKit/Chromium phones and 1280px desktop Chromium in light/dark
+with Teal/Georgia. It verifies live and replayed notices, retained approvals,
+continued streaming, composer content and keyboard focus. Inspected captures show
+[phone continuity](assets/device-continuity-mobile-dark.png) and
+[desktop continuity](assets/device-continuity-desktop-light.png). These focused
+renders omit the shell. The full-app activity fixture also covers a legacy
+handoff during a reply; broad app builds and browser acceptance remain in CI
+under the host's 1 GiB local heap limit. No backend or model is used.
+
+Live approval requests, resolutions, expiry and abort events use the same current
+v2 subscriber list as both interfaces, alongside the owner and legacy observers.
+Physical attachment identity deduplicates decorated transports. Offline harness
+and real chat-registry fixtures resolve pending approvals after handoff, deliver
+later requests to both devices, and cover joining/unwatching subscribers, closed
+or failing sockets and expiry/cancellation. The browser continuity fixture also
+verifies resolved/expired cards disappear while the draft, focus and live reply
+remain intact. No approval scope or decision authority is added by subscription.
+
+## Research activity
+
+Ordinary tool use and reasoning share the existing Activity disclosure. Only groups
+with real delegated agents use Agents at work. The summary prefers the latest tool
+and its readable destination; reasoning-only groups use a short plain heading.
+Reasoning details start collapsed, including during streaming. Completed successful
+website reads join the group, while pending reads, errors, access decisions and
+search results (including Google suggestions) stay visible. Existing speaker
+boundaries, reply collapse, shared MotionPresence, focus restoration and setup cards
+remain in place. No new tokens, palette, layout scale or motion were introduced.
+
+Offline fixtures use the real ChatArea and shared styles on mobile WebKit/Chromium
+and desktop Chromium, dark Mint/System and light Teal/Georgia, including 320px,
+large text, keyboard activation and reduced motion. Inspected captures show
+[mobile activity](assets/research-activity-mobile-dark.png) and
+[desktop activity](assets/research-activity-desktop-light.png). These isolated
+renders use intercepted traffic and no backend, credentials or model calls.
+
+## Telos outcomes and item workspace (S7)
+
+The approved r1 Telos tree remains pinned by artifact identity and SHA-256 in
+[telos-workspaces/README.md](telos-workspaces/README.md). `TelosOutcomesTree` uses
+shared `UiIcon`, semantic tokens, spacing/type/radius scales, control height and
+keyboard focus. All outcomes stays first; category pins, discovery, query and
+expansion persist on this device. Categories come from canonical records, while
+legacy profile filtering remains available in the explicit original-record fallback.
+That fallback fills the desktop shell with one compact heading/action bar; it does
+not inherit the old fixed mobile page width after the focused-route migration.
+Kind labels never come from child counts or source profiles. Current-role links
+are read through the existing work client; the row enters the workspace Chat tab
+and the existing role owner performs setup. It never allocates from a tree read.
+Canonical discovery reads the full collection independently of the legacy profile
+filter. Recovery, direct navigation state and item Back retain cross-profile All
+outcomes while the filtered fallback keeps its own profile preference. Refresh
+rechecks both cache-backed collection owners; identical URLs share one HTTP read.
+
+Mounted conversation rows in the collection and the focused item's Overview/Work
+child trees share the canonical record owner's refresh generation. This prop is
+required through the detail workspace, tree and row so omitted callers fail typing.
+Refresh Telos, item updates and visible resume recheck failed reads, assignments
+and kinds without remounting the row or creating another event subscription.
+Superseded reads remain abort-fenced, including transports that resolve after abort.
+
+`TelosItemWorkspace` retains the original brief beside its content on desktop and
+below it on phones. One Back chevron returns through item history or the retained
+collection. Back retains the expanded collection's scroll offset after discovery
+and canonical records hydrate, including later row layout growth. Restoration
+stops on user input and does not restart for the same collection visit. The item trail is retained for this session independently of artifact-selector
+route state, so Files/dialog reloads preserve Back to the originating item. A fresh
+collection entry resets that trail. The focused desktop item stays inside `DesktopShell`; `MobileShell`
+continues to own collection branding/navigation. Parent kinds and legacy unclassified records with actual children expose Work; leaves
+expose Overview, Chat and Materials. Existing role, source and saved-output owners
+supply those entry points. Source exchanges, retained bytes and external links
+remain distinct. The shared output title selects one exact ID/revision/hash dialog on the Work URL.
+The workspace owns this dialog independently of the selected tab, so direct saved
+links also open or report unavailable versions with Chat or Work remembered. Closing
+removes only the saved selector and retains the current tab. The output list retains
+its route owner by default for legacy detail views; canonical tabs share exactly one
+workspace owner. Its File options Open bridges to the existing Files editor and preserves that Work
+selection on Back. Output title/selector/version/close navigation and Files URL updates
+carry the same collection scroll/profile/item-history state. Saving a new revision
+in Files retains the original pinned return selector. Explicit saved-document references continue to use Files links and carry the same
+collection return state through Files Back and item Back.
+The output disclosure shows exact revision/hash, recorded save
+time and source identity; unavailable author/date facts remain explicit. The original Context
+section is a native, initially collapsed disclosure with populated readable labels.
+New item restores an unsent planning prompt in the full ordinary chat composer.
+Canonical record views invalidate on item events and visible resume. The published
+priority owner supplies the selector, numeric projection and ordered confirmed-save
+notifications; S7 consumes them in the header and P<n> tree badges, fences older
+reads and retains acknowledged values through failed record refresh. The first
+successful read admitted after acknowledgement reconciles that value even when
+another client has since changed it. The existing work router promises private,
+no-store responses from a fresh canonical transaction; synchronous invalidation
+fences every earlier read. Numeric equality and timestamp guessing are not used as
+a convergence condition. On phones the
+priority control occupies a separate header row rather than collapsing beside long titles.
+The item itself is a query container: below 48rem of available reading width, the
+20rem brief stacks beneath the work area, including constrained desktop shells and
+enlarged text. The boundary leaves room for both reading columns plus gutters;
+viewport width alone cannot establish that room. Controls are checked against their
+main-column bounds so clipped overflow cannot hide an overlap.
+
+The brief's 20rem column is structural reading geometry. Search wraps before the
+actions at phone widths and uses five shared control heights as its preferred
+basis. Output actions move below the copy so full hashes cannot squeeze titles.
+On phones the existing row metadata/actions may wrap onto another line; short
+priority/status tokens remain intact rather than shrinking into split words beside
+a longer coordinator entry. Type size, indents and shared control height are retained.
+Category discovery and recursive branches use shared `MotionPresence` disclosures; Escape restores the category trigger focus. Native output disclosures require no extra animation lifecycle. No palette, typography,
+shared settings reference or frozen approval changed.
+
+Inspected all-intercept captures: [phone tree](assets/telos-s7-tree-mobile-dark.png),
+[desktop tree](assets/telos-s7-tree-desktop-light.png),
+[phone materials](assets/telos-s7-materials-mobile-light.png),
+[desktop materials](assets/telos-s7-materials-desktop-light.png) and
+[repository-backed brief](assets/telos-s7-software-desktop-dark.png) and
+[900px shell with enlarged text](assets/telos-s7-workspace-narrow-enlarged-light.png),
+[desktop retained-version dialog](assets/telos-s7-dialog-desktop-dark.png) and
+[phone retained-version dialog](assets/telos-s7-dialog-mobile-light.png).
+The focused fixture exercises actual pages/shells, schema-validated record/work
+DTOs and the accepted canonical projector, with an inert protocol transport.
+Checks cover 320px WebKit/Chromium, 1280px Chromium, light/dark, Mint/System and
+Teal/Georgia, touch geometry, bounded copy/search, failure/retry, empty states,
+recursive context search, pin persistence, navigation and reload. It makes no
+backend, credential or model calls. These captures document interim implementation,
+not a new approval or final CT13 acceptance.
+
+Accepted MGMT `3077b7b4` fresh/upgraded schema exports are pinned in the narrow
+S7 accepted-owner read test. It exercises the actual record router/client with
+synthetic rows, preserving original IDs/dates, ordered categories and priorities
+1–10. This proves read-side compatibility, with no live migration or new writer.
+
+Accepted dependencies now include priority #1009, canonical records #1027,
+recovery #1029, incident handling #1028, S5a reviewed presentation #1030 and
+Shared B saved-artifact/privacy fences #1020. The consumer preserves their
+published contracts; role setup and runtime ownership remain with foundation.
+S5a owned CT01–06 acceptance does not establish parent UX or live runtime acceptance.
+
+Open integration boundaries include the accepted S5b runtime contract, final CT14
+persistence and independent acceptance on the combined sources, the work API's
+missing authoritative attention classification (Needs you stays unavailable),
+collection-wide record/category projection (currently bounded per-record reads),
+and coordinator setup from its existing owner. S8 owns the chooser, ordinary
+header and collapsible chat tree. Full application builds and browser checks run
+in CI under the host resource limits. S7 and parent acceptance remain open; the
+fixture evidence does not establish staging, production or live runtime qualification.
+
+## Retained artifact inspection
+
+Work output titles open the shared `SavedArtifactDialog` through an exact
+artifact/revision/hash selector on the existing route. The dialog uses HomeDialog,
+UiIcon, shared motion and semantic tokens. Its bounded body scrolls while the
+header and native file actions remain reachable. The saved-version selector uses
+custom control geometry so WebKit retains the 44px touch target. Preview follows
+the existing safe document renderer policy; unsupported formats remain explicit.
+Provenance is collapsed until requested. The real Work link and Files editing
+bridge preserve existing associations and exact selected revisions across reload.
+Native export is separate from agent-delivery receipts.
+
+Focused synthetic actual-owner/browser checks cover 320px WebKit/Chromium and
+1280px desktop Chromium in dark Mint/System and light Teal/Georgia, large text,
+keyboard focus return, reduced motion, final-provenance scrolling and pinned Files
+Back navigation. Inspected captures show [mobile provenance](assets/symposium-artifact-mobile-dark.png)
+and [desktop inspection](assets/symposium-artifact-desktop-light.png). These are
+implementation evidence. The approved full Symposium participant-sharing flow
+still requires the core durable delivery contract and its own acceptance.
+
+## Telos worker creation receipt
+
+`TelosWorkerReceiptCard` renders the frozen Telos mock's worker material row inside
+its originating lead transcript: message icon, child title, retained profile/account/
+model/target metadata, creation provenance and the approved arrow to the worker conversation.
+The complete row links to the exact ordinary worker conversation; rendering it
+keeps the user and composer in the lead. Creation provenance describes the event
+without asserting current worker execution status. There is no execution action
+or automatic navigation.
+
+The row preserves the mock's `messagesSquare` and `arrowUpRight` shapes through
+`UiIcon`, with shared semantic colors, typography, spacing, focus and
+control-height tokens. Historical receipts without display metadata show a generic
+worker title. Wrong lead/child identities, malformed or failed results,
+and noncanonical paths produce no link. The intercepted actual-ToolPill fixture
+covers mobile/desktop, dark Mint/System and light Teal/Georgia, wrapping, keyboard
+navigation, retained lead draft and reduced motion without a backend or model.
+Implementation captures are review evidence, not a claim of pixel equivalence.
+
+Focused checks pass: 53 receipt/ToolPill/ChatArea unit checks, 108 design checks (one existing
+skip), and six intercepted browser scenarios plus two startup checks. Mobile
+WebKit/Chromium use actual touch navigation; desktop Chromium checks Tab/Enter.
+Inspected captures: [320px dark mobile](assets/telos-worker-receipt-mobile-dark.png)
+and [light desktop with Georgia](assets/telos-worker-receipt-desktop-light.png).
+The fixture renders the actual ChatArea, ToolPill and receipt components with a synthetic
+lead draft; full application shell and broad production build acceptance remain
+separate CI checks.
+
+The receipt's own row preserves the frozen `mock.r1:81–84` structural measurements:
+10px gap, 13px vertical padding, and a 30×36px icon enclosure with 6px corners.
+These bounded reference dimensions are a structural exception to the usual shared
+spacing/radius scale; they do not establish a new palette, font or reusable scale.
+Browser assertions protect these exact dimensions while shared control-height and
+focus rules remain effective.
+
+The ordinary Files metadata guard also withholds Git/worktree discovery when a
+matching modern runtime projection lacks both workspace identities. A retained
+runtime binding or command-scope flag cannot establish legacy repository scope.
+Repository identities must satisfy the existing command UUID schema. Valid explicit
+repository identities and legacy metadata without runtime routing remain
+on their existing Files path. This does not change server file permissions.
+
+## Queue recovery status
+
+`ChatStatusMessage` gives send progress, conversation loading and composer-blocking
+reasons one shared quiet treatment: semantic muted text, UiIcon, UI font and shared
+spacing/type tokens. Both chat pages place delivery feedback beside the composer;
+the queue owner gives active recovery priority over duplicate delivery progress.
+Normal progress has no bordered warning panel. The queue uses its existing actions
+with shared control-height targets and a close icon. Only current action failures,
+failed turns ready for review and exhausted/inspection-required recovery get the
+quiet outlined attention treatment. No generic earlier-step warning or successful
+restart/continue notice outlives the work it describes. Transient background
+reattach failures remain represented by current recovery metadata.
+
+A newer assistant snapshot clears preparation progress even if its message_start
+was lost during reconnect; foreign and older snapshots do not. This changes only
+UI progress, never a delivery receipt or permission decision. Drafts, queue review,
+cancellation, keyboard focus and genuine errors remain available.
+
+The intercepted actual-composer queue-status fixture covers mobile
+WebKit/Chromium and desktop Chromium in dark Mint/System and light Teal/Georgia,
+recovery, keyboard fallback activation, cleared status, quiet preparing progress
+and retained drafts. Shared motion supplies the loading icon and reduced-motion
+fallback. These checks use synthetic metadata, no backend and no model calls.
+
+Inspected captures: [phone progress](assets/chat-progress-mobile-dark.png) and
+[desktop progress](assets/chat-progress-desktop-light.png). These show isolated
+actual composer/status components, not a live chat or a change to approved settings.
+
+Pending chat-type qualification renders only pure progress/error feedback beside
+the disabled input; it does not mount the ordinary queue or send owner early.
+Outline warnings use the semantic warning foreground on a transparent background;
+filled controls retain their existing paired foreground contrast checks.

@@ -144,7 +144,9 @@ export function createCustodianIpcClient(
             ? serveControllerPublicationApproval(channel, { ...input, epoch: epoch! }, approval)
             : () => {};
         const inventoryRead = ['personal.list', 'account.catalog'].includes(input.operation);
-        const advice = ['library.advice', 'library.toolsRefresh'].includes(input.operation);
+        const advice = ['library.advice', 'library.toolsRefresh', 'library.apiVerify'].includes(
+          input.operation,
+        );
         const cancelPublication = () => {
           if (['publication.publish', 'publication.recover'].includes(input.operation) && !closed)
             send({ kind: 'publication-request-cancel', epoch, requestId: input.requestId });
@@ -338,9 +340,11 @@ export function serveCustodianController(
         ? new AbortController()
         : undefined;
       if (readAbort) reads.set(parsed.requestId, readAbort);
-      // Inference cancellation requests termination, but owner capacity and drain
+      // Cancellable owner work requests termination, but capacity and drain
       // remain attached to the real handler until it has settled.
-      const adviceAbort = ['library.advice', 'library.toolsRefresh'].includes(parsed.operation)
+      const adviceAbort = ['library.advice', 'library.toolsRefresh', 'library.apiVerify'].includes(
+        parsed.operation,
+      )
         ? new AbortController()
         : undefined;
       if (adviceAbort) advice.set(parsed.requestId, adviceAbort);

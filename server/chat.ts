@@ -1,3 +1,10 @@
+import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
+import type { LocalWorkspaceRecord } from './ordinary-local-workspace-owner.js';
+import type { LocalWorkspaceKind } from './ordinary-local-workspace-owner.js';
+import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
+import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
+import { TelosWorkStore } from './telos-work-store.js';
+import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
 import { assertAgentToolRoute, bindAgentToolSelection } from './agent-tool-selection.js';
 import {
   createOrdinaryLocalVertexSdkQuery,
@@ -39,8 +46,9 @@ import {
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { SourceSnapshotsSchema, type SourceSnapshot } from '@mitzo/protocol';
-import { publicProviderFailureMessage } from './provider-failure.js';
+import { recordAcceptedReplaySession, replayError } from './public-replay-error.js';
 import {
+  getOrdinaryWorkspaces,
   getRepositoryWorkspaces,
   readRepositoryWorkspaceForConversation,
 } from './repository-workspace-runtime.js';
@@ -189,6 +197,36 @@ import { loadAgentDef } from './agent-loader.js';
 let _taskStore: TaskStore | null = null;
 export function setTaskStore(store: TaskStore): void {
   _taskStore = store;
+}
+
+/** Existing ordinary admission calls this before effects and after awaits.
+ * Only a proven durable mapping can attach task-tool context to a live chat.
+ */
+export function resolveOwnedTelosWorkCommandScope(sessionId: string) {
+  let work: TelosWorkStore | undefined;
+  try {
+    const scope = resolveTelosWorkCommandScope(
+      {
+        events: eventStore,
+        tasks: _taskStore,
+        work: () =>
+          (work ??= new TelosWorkStore(
+            process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
+            {
+              ordinaryConversation: (id) =>
+                isAvailableTelosWorkConversation(eventStore.getSession(id)),
+            },
+          )),
+      },
+      sessionId,
+      eventStore.getSession(sessionId)?.accountBinding ?? undefined,
+    );
+    const session = registry.findBySessionId(sessionId)?.session;
+    if (scope && session) session.taskContext = scope;
+    return scope;
+  } finally {
+    work?.close();
+  }
 }
 
 type QueryInstance = AsyncIterable<Record<string, unknown>> &
@@ -648,7 +686,9 @@ const MODE_TO_SDK: Record<MitzoMode, string> = {
   auto: 'default',
 };
 
-export const registry = new SessionRegistry();
+export const registry = new SessionRegistry((sessionId) =>
+  (_connRegistry?.getConnectionsWatching(sessionId, true) ?? []).map(({ transport }) => transport),
+);
 
 /** Load repo config with short TTL cache — fresh enough for hot-reload, avoids redundant disk I/O. */
 let _cachedConfig: ReturnType<typeof loadRepoConfig> | null = null;
@@ -908,12 +948,22 @@ export function createSessionWorktrees(
 function buildTaskMcpServer(clientId: string): Record<string, McpServerConfig> | null {
   const session = registry.get(clientId);
   if (!session?.taskContext) return null;
-  const port = process.env.PORT || '3100';
+  const port = Number.parseInt(process.env.PORT || '3100', 10);
   const entrypoint = resolveBundledMcpEntrypoint(import.meta.url, 'task-mcp-server');
   return {
     [TASK_MCP_SERVER_NAME]: {
       command: entrypoint.command,
-      args: [...entrypoint.args, '--base-url', `http://localhost:${port}`, '--client-id', clientId],
+      args: [
+        ...entrypoint.args,
+        '--base-url',
+        localHttpBaseUrl(port, localServerUsesTls()),
+        '--client-id',
+        clientId,
+        ...(session.sessionId &&
+        _taskStore?.getTelosExecutionBinding(session.taskContext.currentTaskId)
+          ? ['--session-id', session.sessionId, '--task-id', session.taskContext.currentTaskId]
+          : []),
+      ],
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
   };
@@ -931,6 +981,9 @@ function buildTelosMcpServer(clientId: string): Record<string, McpServerConfig> 
         localHttpBaseUrl(port, localServerUsesTls()),
         '--client-id',
         clientId,
+        ...(registry.get(clientId)?.sessionId
+          ? ['--session-id', registry.get(clientId)!.sessionId!]
+          : []),
       ],
       env: { MITZO_INTERNAL_TOKEN: INTERNAL_TOKEN },
     },
@@ -1176,7 +1229,21 @@ export async function startChat(
   // repository, registry or transport effects. Keep one generated message ID so
   // the native path cannot later select an unchecked conversation identity.
   const initialMessageId = options.clientMsgId ?? randomUUID();
-  options = { ...options, clientMsgId: initialMessageId };
+  const onStartupAdmission = options.onStartupAdmission;
+  let startupAdmissionSettled = false;
+  options = {
+    ...options,
+    clientMsgId: initialMessageId,
+    ...(onStartupAdmission
+      ? {
+          onStartupAdmission: (error?: unknown) => {
+            if (startupAdmissionSettled) return;
+            startupAdmissionSettled = true;
+            onStartupAdmission(error);
+          },
+        }
+      : {}),
+  };
   const repositoryStartupId =
     options.repositoryWorkspaceId && !options.resume && !options.ordinarySdkAuthority
       ? nativeStartupSessionId(`repository:${options.repositoryWorkspaceId}`)
@@ -1330,6 +1397,7 @@ async function _startChatInner(
   let accountBinding;
   let agentProfile: AgentLibraryVersion | undefined;
   let codexProfile: CodexAccountProfile | undefined;
+  let toolRoute: string;
   let apiKey: string | undefined;
   let enrolledOpenAIAccount = false;
   let apiCredentialRef: Parameters<typeof credentials.resolve>[0] | undefined;
@@ -1357,9 +1425,17 @@ async function _startChatInner(
         options.contributorGuidance,
       ),
     };
-    const toolRoute =
+    if (options.resume ?? options.initialSessionId)
+      resolveTelosWorkRoleContext(
+        eventStore,
+        (options.resume ?? options.initialSessionId)!,
+        accountBinding ?? undefined,
+      );
+    toolRoute =
       accountBinding?.provider === 'openai-codex'
-        ? 'codex'
+        ? openShellAvailable
+          ? 'openshell'
+          : 'codex'
         : accountBinding?.provider === 'openai' &&
             openShellAvailable &&
             process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'
@@ -1881,7 +1957,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
-  bindAgentToolSelection(session, agentProfile?.definition);
+  bindAgentToolSelection(session, agentProfile?.definition, toolRoute);
   if (options.contributorGuidance !== undefined && session.sessionId)
     saveOrdinaryContributorGuidance(
       eventStore,
@@ -2261,6 +2337,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           ? acceptAgentContext
           : undefined,
         env: sessionEnv,
+        configuredSourceEnv: nativeExecutionEnv(),
         mcpServers: allMcpServers,
         eventStore,
         onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
@@ -2659,6 +2736,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
                     repositoryChatContext(repositoryWorkspace) + frozenPayload.text,
                     cwd,
                     frozenPayload.images,
+                    undefined,
+                    frozenPayload.sourceSnapshots,
                   );
             session.model = _admission.selection.model;
             storeAndEchoIfNew(
@@ -2670,7 +2749,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               session.observers,
               imagePreviews(frozenPayload.images),
               undefined,
-              undefined,
+              frozenPayload.sourceSnapshots,
               'user',
               false,
             );
@@ -2841,43 +2920,54 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     const publicMessage = native
       ? publicCodexStartupError(err instanceof Error ? err : new Error(message))
       : message;
-    // Admission rejection is also a client/span boundary. Never forward the
-    // internal exception or its cause to a second, unsanitized error path.
-    options.onStartupAdmission?.(native ? new Error(publicMessage) : err);
-    terminalizeUndispatchedStartup(initialProviderAdmission);
-    if (message.includes('No conversation found') && options.resume) {
-      log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
-      send(transport, {
-        type: 'error',
-        error: 'Session expired. Send your message again to start fresh.',
-      });
-    } else {
-      log.error('startChat failed after register, cleaning up', {
-        clientId,
-        sessionId: newSdkSessionId ?? session.sessionId,
-        ...(accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
-          ? codexRuntimeErrorTelemetry(err instanceof Error ? err : new Error(message))
-          : {}),
-        error: publicMessage,
-      });
-      send(transport, {
-        type: 'error',
-        ...(session.sessionId ? { sessionId: session.sessionId } : {}),
-        error: publicMessage,
-      });
+    try {
+      // Admission rejection is also a client/span boundary. Never forward the
+      // internal exception or its cause to a second, unsanitized error path.
+      options.onStartupAdmission?.(native ? new Error(publicMessage) : err);
+      terminalizeUndispatchedStartup(initialProviderAdmission);
+      if (message.includes('No conversation found') && options.resume) {
+        log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
+        send(transport, {
+          type: 'error',
+          error: 'Session expired. Send your message again to start fresh.',
+        });
+      } else {
+        log.error('startChat failed after register, cleaning up', {
+          clientId,
+          sessionId: newSdkSessionId ?? session.sessionId,
+          ...(accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
+            ? codexRuntimeErrorTelemetry(err instanceof Error ? err : new Error(message))
+            : {}),
+          error: publicMessage,
+        });
+        send(transport, {
+          type: 'error',
+          ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+          error: publicMessage,
+        });
+      }
+    } finally {
+      const failedSession = registry.get(clientId);
+      if (failedSession === session) {
+        // A resumed startup also entered CREATED. Retire its driver state while
+        // retaining native history, bindings and uncertainty records. A replaced
+        // registry owner must never be ended or aborted by this attempt's cleanup.
+        try {
+          const failedSessionId = newSdkSessionId ?? session.sessionId;
+          if (failedSessionId)
+            eventStore.setSessionState(failedSessionId, 'ENDED', {
+              clientId,
+              reason: 'startup_failed',
+            });
+          cleanupSessionWorktrees(failedSession);
+        } finally {
+          registry.abort(clientId);
+        }
+      }
     }
-    if (newSdkSessionId) {
-      // Retain its binding: the SDK may have written history before startup failed.
-      eventStore.setSessionState(newSdkSessionId, 'ENDED', {
-        clientId,
-        reason: 'startup_failed',
-      });
-    }
-    const failedSession = registry.get(clientId);
-    if (failedSession) cleanupSessionWorktrees(failedSession);
-    registry.abort(clientId);
   } finally {
-    _onSessionChange?.(clientId, 'end', session.sessionId);
+    const current = registry.get(clientId);
+    if (!current || current === session) _onSessionChange?.(clientId, 'end', session.sessionId);
   }
 }
 
@@ -2938,8 +3028,10 @@ export async function sendOwnedLocalCodexCommand(input: {
     const retained = registry.findBySessionId(input.sessionId)?.session.ordinaryRuntimeOwner;
     if (!retained || retained.location !== 'local' || retained.authSessionId !== captured.auth.id)
       throw unavailable();
+    resolveOwnedTelosWorkCommandScope(input.sessionId);
     const result = await retained.admit(structuredClone(input.command), input.signal);
     captured.assertCurrent();
+    resolveOwnedTelosWorkCommandScope(input.sessionId);
     if (result.dispatched) {
       const current = registry.findBySessionId(input.sessionId);
       const native = current && getCodexRuntime(current.session);
@@ -2961,6 +3053,7 @@ export async function startOwnedLocalCodexCommand(
   transport: SessionTransport,
   clientId: string,
   input: {
+    workspaceKind?: LocalWorkspaceKind;
     command: unknown;
     reservation: Omit<HostRepositoryReservationInput, 'signal'>;
     commandId: string;
@@ -2970,6 +3063,8 @@ export async function startOwnedLocalCodexCommand(
     signal: AbortSignal;
     /** Server-selected cold continuation, never legacy history adoption. */
     resume?: boolean;
+    /** Trusted silent allocation receipt; explicit first command only. */
+    preparationOperationId?: string;
   },
 ): Promise<{ dispatched: boolean; sessionId: string }> {
   const unavailable = () => new Error('Owned local Codex chat unavailable');
@@ -2980,7 +3075,7 @@ export async function startOwnedLocalCodexCommand(
     custodianOwnerMode
   )
     throw unavailable();
-  let driver: OrdinaryLocalCodexOwnedRuntime | undefined;
+  let driver: OrdinaryLocalCodexOwnedRuntime<LocalWorkspaceKind> | undefined;
   let prepared: Awaited<ReturnType<typeof prepareOwnedLocalCodexChat>> | undefined;
   let released = false;
   const release = () => {
@@ -2994,6 +3089,18 @@ export async function startOwnedLocalCodexCommand(
   };
   try {
     const commandId = input.commandId;
+    const preparationOperationId = input.preparationOperationId;
+    const requestedResume = input.resume;
+    const resume = requestedResume === true;
+    if (
+      (preparationOperationId !== undefined &&
+        (typeof preparationOperationId !== 'string' ||
+          preparationOperationId.length > 200 ||
+          !/^\S+$/.test(preparationOperationId))) ||
+      (requestedResume !== undefined && typeof requestedResume !== 'boolean') ||
+      (resume && preparationOperationId !== undefined)
+    )
+      throw unavailable();
     const operatorConnectionId = input.operatorConnectionId;
     const signal = input.signal;
     signal.throwIfAborted();
@@ -3004,21 +3111,30 @@ export async function startOwnedLocalCodexCommand(
     const reservation = structuredClone(input.reservation);
     const command = structuredClone(input.command);
     const sessionId = reservation.conversationId;
+    resolveOwnedTelosWorkCommandScope(sessionId);
     const liveOwner = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
     if (liveOwner) {
       if (
         liveOwner.location !== 'local' ||
         liveOwner.authSessionId !== ownerAuthSessionId ||
-        liveOwner.initialCommandId !== commandId
+        liveOwner.initialCommandId !== commandId ||
+        liveOwner.initialPreparationOperationId !== preparationOperationId ||
+        (liveOwner.initialResume ?? false) !== resume
       )
         throw unavailable();
-      return { ...(await liveOwner.retryInitial(command)), sessionId };
+      const result = await liveOwner.retryInitial(command);
+      resolveOwnedTelosWorkCommandScope(sessionId);
+      return { ...result, sessionId };
     }
-    driver = new OrdinaryLocalCodexOwnedRuntime({
+    driver = new OrdinaryLocalCodexOwnedRuntime<LocalWorkspaceKind>({
       enabled: true,
       eventStore,
       library: getAgentLibrary(),
-      workspace: getRepositoryWorkspaces(true),
+      workspaceKind: input.workspaceKind,
+      workspace:
+        input.workspaceKind === 'ordinary'
+          ? getOrdinaryWorkspaces(true)
+          : getRepositoryWorkspaces(true),
       reservation,
       commandId,
       operatorConnectionId,
@@ -3036,11 +3152,15 @@ export async function startOwnedLocalCodexCommand(
           session.ownedLocalAuthSessionId !== ownerAuthSessionId
         )
           throw unavailable();
+        resolveOwnedTelosWorkCommandScope(sessionId);
         await native.admitExplicitSend(
           {
             id: dispatch.commandId,
-            prompt: dispatch.payload.text,
-            intent: dispatch.payload.intent,
+            prompt: assembleSourceSnapshots(
+              dispatch.payload.text,
+              dispatch.payload.sourceSnapshots,
+            ),
+            intent: dispatch.payload.intent ?? dispatch.payload.text,
             images: dispatch.payload.images,
             model: dispatch.expected.selection.model,
             reasoningEffort: dispatch.expected.selection.thinking,
@@ -3050,6 +3170,7 @@ export async function startOwnedLocalCodexCommand(
             : session.abortController.signal,
         );
         dispatch.preparationSignal?.throwIfAborted();
+        resolveOwnedTelosWorkCommandScope(sessionId);
         storeAndEchoIfNew(
           sessionId,
           dispatch.commandId,
@@ -3059,7 +3180,7 @@ export async function startOwnedLocalCodexCommand(
           session.observers,
           imagePreviews(dispatch.payload.images),
           undefined,
-          undefined,
+          dispatch.payload.sourceSnapshots,
           'user',
           false,
         );
@@ -3073,7 +3194,12 @@ export async function startOwnedLocalCodexCommand(
         });
       },
     });
-    const result = input.resume ? await driver.admitResume(command) : await driver.admit(command);
+    const admitFirst = (command: unknown) =>
+      preparationOperationId !== undefined
+        ? driver!.admitPreparedFirst(preparationOperationId, command)
+        : driver!.admit(command);
+    const result = resume ? await driver.admitResume(command) : await admitFirst(command);
+    resolveOwnedTelosWorkCommandScope(sessionId);
     if (!result.dispatched) {
       if (prepared) throw unavailable();
       release();
@@ -3088,8 +3214,15 @@ export async function startOwnedLocalCodexCommand(
       authSessionId: ownerAuthSessionId,
       identity: retainedDriver,
       initialCommandId: commandId,
+      initialPreparationOperationId: preparationOperationId,
+      initialResume: resume,
       admit: (command, signal) => retainedDriver.admitContinuation(command, signal),
-      retryInitial: (command) => retainedDriver.admit(command),
+      retryInitial: (command) =>
+        preparationOperationId !== undefined
+          ? retainedDriver.admitPreparedFirst(preparationOperationId, command)
+          : resume
+            ? retainedDriver.admitResume(command)
+            : retainedDriver.admit(command),
       close: release,
     };
     const ownedQuery = prepared;
@@ -3136,10 +3269,16 @@ export async function startOwnedLocalCodexCommand(
  */
 export const prepareOwnedLocalCodexChat = prepareOwnedCodexChat;
 
+function isOrdinaryWorkspace(
+  value: LocalWorkspaceRecord<LocalWorkspaceKind>,
+): value is OrdinaryWorkspaceRecord {
+  return 'kind' in value && value.kind === 'ordinary';
+}
+
 export async function prepareOwnedCodexChat(
   transport: SessionTransport,
   clientId: string,
-  input: OrdinaryLocalCodexOwnedDispatch | OrdinaryOpenShellCodexOwnedDispatch,
+  input: OrdinaryLocalCodexOwnedDispatch<LocalWorkspaceKind> | OrdinaryOpenShellCodexOwnedDispatch,
   options: {
     ownerConnectionId?: string;
     ownerAuthSessionId?: string;
@@ -3165,7 +3304,7 @@ export async function prepareOwnedCodexChat(
   let selected: {
     expected:
       OrdinaryLocalCodexOwnedDispatch['expected'] | OrdinaryOpenShellCodexOwnedDispatch['expected'];
-    workspace: OrdinaryLocalCodexOwnedDispatch['workspace'];
+    workspace: OrdinaryLocalCodexOwnedDispatch<LocalWorkspaceKind>['workspace'];
     payload: OrdinaryLocalCodexOwnedDispatch['payload'];
     profile: OrdinaryLocalCodexOwnedDispatch['profile'];
   };
@@ -3183,6 +3322,7 @@ export async function prepareOwnedCodexChat(
     )
       throw unavailable();
     input.admission.assertConsumerOwner(eventStore, input.sessionId, input.commandId);
+    resolveOwnedTelosWorkCommandScope(input.sessionId);
     selected = structuredClone({
       expected: input.expected,
       workspace: input.workspace,
@@ -3194,7 +3334,7 @@ export async function prepareOwnedCodexChat(
       workspace.directory = expected.workspace.cwd;
     if (
       workspace.state !== 'claimed' ||
-      Boolean(workspace.sandbox) !== Boolean(openShellAdmission) ||
+      Boolean('sandbox' in workspace && workspace.sandbox) !== Boolean(openShellAdmission) ||
       workspace.conversationId !== input.sessionId ||
       workspace.id !== expected.workspace.workspaceId ||
       workspace.directory !== expected.workspace.cwd ||
@@ -3203,7 +3343,8 @@ export async function prepareOwnedCodexChat(
       throw unavailable();
     input.admission.assertPreparedOptions({
       ...selected.payload,
-      prompt: selected.payload.text,
+      intent: selected.payload.intent ?? selected.payload.text,
+      prompt: assembleSourceSnapshots(selected.payload.text, selected.payload.sourceSnapshots),
       conversationId: input.sessionId,
       messageId: input.commandId,
       resume,
@@ -3214,7 +3355,9 @@ export async function prepareOwnedCodexChat(
       reasoningEffort: expected.selection.thinking,
       agentProfile: expected.agentProfile,
       agentContext: expected.agentContext,
-      repositoryWorkspace: workspace,
+      ...(isOrdinaryWorkspace(workspace)
+        ? { ordinaryWorkspace: workspace }
+        : { repositoryWorkspace: workspace }),
     });
   } catch {
     throw unavailable();
@@ -3280,7 +3423,7 @@ export async function prepareOwnedCodexChat(
       cwd: expected.workspace.cwd,
       mode: expected.selection.permission.mode,
       model: expected.selection.model,
-      branch: workspace.featureBranch,
+      branch: 'featureBranch' in workspace ? workspace.featureBranch : undefined,
       agentName: expected.agentProfile?.definition.name,
       accountBinding: structuredClone(boundAccount),
       sessionAllowList: new Set(),
@@ -3288,6 +3431,7 @@ export async function prepareOwnedCodexChat(
       ownedLocalAuthSessionId: options.ownerAuthSessionId,
     });
     session = registry.get(clientId)!;
+    resolveOwnedTelosWorkCommandScope(sessionId);
     // Existing public stop/interrupt controls expect this lifecycle marker.
     // Native commands remain owned exclusively by CodexConversation's FIFO.
     session.inputQueue = {
@@ -3304,7 +3448,7 @@ export async function prepareOwnedCodexChat(
       type: 'session_info',
       sessionId,
       cwd: expected.workspace.cwd,
-      branch: workspace.featureBranch,
+      branch: 'featureBranch' in workspace ? workspace.featureBranch : undefined,
       worktree: false,
     });
     storeAndEchoIfNew(
@@ -3316,7 +3460,7 @@ export async function prepareOwnedCodexChat(
       session.observers,
       imagePreviews(payload.images),
       undefined,
-      undefined,
+      payload.sourceSnapshots,
       'user',
       false,
     );
@@ -3341,16 +3485,23 @@ export async function prepareOwnedCodexChat(
       profile,
       session,
       registry,
-      repositoryWorkspace: workspace,
+      ...(isOrdinaryWorkspace(workspace)
+        ? { ordinaryWorkspace: workspace }
+        : { repositoryWorkspace: workspace }),
       agentProfile: expected.agentProfile,
       agentContext: expected.agentContext,
       prepareAgentContext: async (signal) => {
         signal.throwIfAborted();
+        resolveOwnedTelosWorkCommandScope(sessionId);
         await admission.assertCurrent();
         signal.throwIfAborted();
         admission.assertCurrentSync();
+        resolveOwnedTelosWorkCommandScope(sessionId);
       },
-      assertAgentContextAuthorization: () => admission.assertCurrentSync(),
+      assertAgentContextAuthorization: () => {
+        admission.assertCurrentSync();
+        resolveOwnedTelosWorkCommandScope(sessionId);
+      },
       onBootContext: (context) => send(transport, { ...context, sessionId }),
       onAgentContextAccepted: (acceptedCommandId, threadId, turnId, contextSha256) => {
         admission.assertCurrentSync();
@@ -3367,19 +3518,26 @@ export async function prepareOwnedCodexChat(
         });
         send(transport, { ...context, sessionId });
       },
-      prompt: payload.text,
-      intent: payload.intent,
+      prompt: assembleSourceSnapshots(payload.text, payload.sourceSnapshots),
+      intent: payload.intent ?? payload.text,
       systemPrompt: payload.systemPrompt,
       model: expected.selection.model,
       reasoningEffort: expected.selection.thinking,
       images: payload.images,
       env,
-      mcpServers,
+      configuredSourceEnv: nativeExecutionEnv(),
+      mcpServers: {
+        ...mcpServers,
+        ...(supportsHostTaskTools(!!openShellAdmission) ? buildTaskMcpServer(clientId) : null),
+      },
       eventStore,
-      publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
-        .filter(Boolean)
-        .map((root) => join(root, '.git')),
+      publishingGitStorageRoots: isOrdinaryWorkspace(workspace)
+        ? undefined
+        : [BASE_REPO, ...Object.values(getRepoConfig().repos)]
+            .filter(Boolean)
+            .map((root) => join(root, '.git')),
     });
+    resolveOwnedTelosWorkCommandScope(sessionId);
     if (closed || abortController.signal.aborted) {
       queryInstance.close();
       throw unavailable();
@@ -3411,6 +3569,7 @@ export async function prepareOwnedCodexChat(
         )
           throw unavailable();
         admission.assertConsumerOwner(eventStore, sessionId, commandId);
+        resolveOwnedTelosWorkCommandScope(sessionId);
         const current = registry.findBySessionId(sessionId);
         if (!current || current.session !== session) throw unavailable();
         if (!session.transport.isOpen())
@@ -3464,6 +3623,7 @@ export function echoOwnedCodexCommand(
   commandId: string,
   payload: {
     text: string;
+    sourceSnapshots?: SourceSnapshot[];
     images?: Array<{ data: string; mediaType: string }>;
   },
 ): void {
@@ -3478,7 +3638,7 @@ export function echoOwnedCodexCommand(
     current.session.observers,
     imagePreviews(payload.images),
     undefined,
-    undefined,
+    payload.sourceSnapshots,
     'user',
     false,
   );
@@ -5064,6 +5224,8 @@ export interface RestoredMessage {
   role: string;
   timestamp?: number;
   startedSeq?: number;
+  /** Exact retained completion anchor; absent for interrupted/synthetic history. */
+  completedSeq?: number;
   images?: string[];
   contextBlocks?: string[];
   sourceSnapshots?: SourceSnapshot[];
@@ -5190,42 +5352,6 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
   };
 }
 
-/** Only an earlier durable user echo can authorize unclassified runtime feedback. */
-function recordAcceptedReplaySession(
-  event: import('./event-store.js').StoredEvent,
-  accepted: Set<string>,
-) {
-  const p = event.payload;
-  if (
-    event.type === 'user_message' &&
-    typeof p.messageId === 'string' &&
-    p.messageId.trim() &&
-    typeof p.text === 'string' &&
-    typeof event.sessionId === 'string' &&
-    event.sessionId.trim() &&
-    (p.sessionId === undefined || p.sessionId === event.sessionId)
-  )
-    accepted.add(event.sessionId);
-}
-
-function replayError(event: import('./event-store.js').StoredEvent, accepted: Set<string>) {
-  const p = event.payload;
-  if (p.providerFailure) {
-    return { prefix: 'provider-error', message: publicProviderFailureMessage(p.providerFailure) };
-  }
-  if (
-    p.v !== 2 ||
-    p.type !== 'error' ||
-    p.sessionId !== event.sessionId ||
-    !accepted.has(event.sessionId) ||
-    p.clientMsgId !== undefined ||
-    typeof p.error !== 'string' ||
-    !p.error.trim()
-  )
-    return null;
-  return { prefix: 'runtime-error', message: p.error };
-}
-
 /** Reconstruct the typed live turn from the same immutable event prefix as history. */
 function replaySingleEventsToTranscript(
   events: import('./event-store.js').StoredEvent[],
@@ -5338,6 +5464,7 @@ function replaySingleEventsToTranscript(
       role: 'user',
       timestamp: typeof payload.ts === 'number' ? payload.ts : event.createdAt,
       startedSeq: event.seq,
+      completedSeq: event.seq,
       images: Array.isArray(payload.images) ? (payload.images as string[]) : undefined,
       sourceSnapshots: SourceSnapshotsSchema.safeParse(payload.sourceSnapshots).data,
       contextBlocks: Array.isArray(payload.contextBlocks)
@@ -5361,12 +5488,13 @@ function replaySingleEventsToTranscript(
         };
     messages.push({
       ...prompt,
-      ...(hoistedPrompt ? { startedSeq: undefined } : {}),
+      ...(hoistedPrompt ? { startedSeq: undefined, completedSeq: undefined } : {}),
       timestamp: events[0]?.createdAt,
     });
   } else if (legacyInitial) {
     const hoisted = userMessage(legacyInitial);
     delete hoisted.startedSeq;
+    delete hoisted.completedSeq;
     messages.push(hoisted);
   }
 
@@ -5387,7 +5515,7 @@ function replaySingleEventsToTranscript(
       return { ...block, ...attachSubagent(turn!.messageId, restored, active) };
     });
   };
-  const finishTurn = () => {
+  const finishTurn = (completedSeq?: number) => {
     if (!turn) return;
     const blocks = materializeBlocks(false).map(({ done: _done, ...block }) => block);
     if (blocks.length > 0)
@@ -5396,6 +5524,7 @@ function replaySingleEventsToTranscript(
         role: 'assistant',
         timestamp: turn.timestamp,
         startedSeq: turn.startedSeq,
+        ...(completedSeq === undefined ? {} : { completedSeq }),
         blocks,
       };
     else messages.splice(turn.index, 1);
@@ -5464,7 +5593,7 @@ function replaySingleEventsToTranscript(
         break;
       }
       case 'message_end':
-        if (turn && payload.messageId === turn.messageId) finishTurn();
+        if (turn && payload.messageId === turn.messageId) finishTurn(event.seq);
         break;
       case 'error': {
         const failure = replayError(event, acceptedSessions);
@@ -5475,6 +5604,7 @@ function replaySingleEventsToTranscript(
             role: 'assistant',
             timestamp: event.createdAt,
             startedSeq: event.seq,
+            completedSeq: event.seq,
             blocks: [
               {
                 blockId: `${failure.prefix}-text-${event.seq}`,
@@ -6409,7 +6539,7 @@ export async function startOwnedLocalResponsesCommand(
       session!.observers,
       imagePreviews(selected.payload.images),
       undefined,
-      undefined,
+      selected.payload.sourceSnapshots,
       'user',
       false,
     );
@@ -6427,16 +6557,17 @@ export async function startOwnedLocalResponsesCommand(
       const commandId = await owner.claimNextCommand();
       if (!commandId || closed) return;
       const selected = owner.snapshot(commandId);
+      const providerPrompt = assembleSourceSnapshots(
+        selected.payload.text,
+        selected.payload.sourceSnapshots,
+      );
       const provider = admitProviderDispatch({
         store: eventStore,
         request: {
           sessionId,
           clientMsgId: commandId,
-          effectivePrompt: selected.payload.text,
-          fingerprintSource: providerFingerprintSource(
-            selected.payload.text,
-            selected.payload.images,
-          ),
+          effectivePrompt: providerPrompt,
+          fingerprintSource: providerFingerprintSource(providerPrompt, selected.payload.images),
           model: selected.expected.selection.model,
           reasoningEffort: selected.expected.selection.thinking,
           accountBinding: options.reservation.binding,
@@ -6444,7 +6575,7 @@ export async function startOwnedLocalResponsesCommand(
         prepare: () =>
           getResponsesRuntime(session!)!.prepare(
             commandId,
-            responsesUserContent(selected.payload.text, selected.payload.images),
+            responsesUserContent(providerPrompt, selected.payload.images),
             {
               model: selected.expected.selection.model,
               reasoningEffort: selected.expected.selection.thinking,
@@ -6455,7 +6586,7 @@ export async function startOwnedLocalResponsesCommand(
       trackResponsesProviderAdmission(session!, provider, eventStore);
       session!.model = selected.expected.selection.model;
       input.push({
-        message: { content: selected.payload.text },
+        message: { content: providerPrompt },
         mitzoMessageId: commandId,
         mitzoImages: selected.payload.images,
         providerAdmission: provider,

@@ -1,6 +1,10 @@
+import { useMitzoStore } from '@mitzo/client/hooks';
+import { newChatPathWithDraft } from '../lib/chat-drafts';
+import { TelosOutcomesTree } from '../components/TelosOutcomesTree';
+import { useTelosRecords } from '../hooks/useTelosRecords';
 import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { TodoCard } from '../components/TodoCard';
 import { EmptyState } from '../components/EmptyState';
@@ -70,7 +74,7 @@ function groupIntoSections(items: TodoItem[], sort: TodoSort): TodoSection[] {
 
 // ─── Create form ───────────────────────────────────────────────────────────
 
-function TodoCreateForm({
+export function TodoCreateForm({
   parentId,
   profile,
   profiles,
@@ -261,12 +265,30 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const location = useLocation();
   const restoredProfile = (location.state as { activeProfile?: string } | null)?.activeProfile;
   const [activeProfile, setActiveProfile] = useState<string | undefined>(restoredProfile);
-  const { loading, error, items, profiles, ack, done, star, create, createOutcome, refresh } =
+  // Canonical discovery covers every profile; the legacy selection remains a
+  // fallback preference, including when restored through item navigation.
+  const discovery = useTodoData();
+  const { loading, error, items, profiles, ack, done, create, createOutcome, refresh } =
     useTodoData(activeProfile);
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<TodoSort>('priority');
   const setPendingSession = useStageChatLaunch();
+  const newSession = useMitzoStore((state) => state.newSession);
+  const [planningError, setPlanningError] = useState('');
+  function startPlanning() {
+    try {
+      const path = newChatPathWithDraft(
+        'Help me plan a new Telos outcome. Ask questions before proposing its outcome, why it matters and done-when criteria. Save a draft only after I review it, retaining this planning conversation and agreed exchange as its source. Do not start work.',
+      );
+      newSession();
+      navigate(path);
+    } catch (error) {
+      setPlanningError(
+        error instanceof Error ? error.message : 'Planning conversation unavailable.',
+      );
+    }
+  }
   const scrollRef = useRef<HTMLDivElement>(null);
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     done: true,
@@ -313,13 +335,60 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   }, [items, query]);
   const sections = useMemo(() => groupIntoSections(filteredItems, sort), [filteredItems, sort]);
 
-  // Restore scroll position when returning from detail view
-  useEffect(() => {
-    const saved = (location.state as { scrollTop?: number } | null)?.scrollTop;
-    if (saved && scrollRef.current) {
-      scrollRef.current.scrollTop = saved;
+  const recordIds: string[] = [];
+  function collectIds(values: TodoItem[]) {
+    for (const item of values) {
+      recordIds.push(item.id);
+      collectIds(item.children);
     }
-  }, [location.state]);
+  }
+  collectIds(discovery.items);
+  const canonical = useTelosRecords(recordIds);
+  function refreshWorkspace() {
+    discovery.refresh();
+    refresh();
+    canonical.refresh();
+  }
+
+  // A short fallback or rows still growing cannot yet hold the saved offset.
+  // Keep this navigation's target through layout changes until user input owns it.
+  const restoredLocation = useRef<string | null>(null);
+  const scrollContentReady = !discovery.loading && !canonical.loading;
+  useLayoutEffect(() => {
+    if (restoredLocation.current === location.key) return;
+    const saved = (location.state as { scrollTop?: number } | null)?.scrollTop;
+    const container = scrollRef.current;
+    if (typeof saved !== 'number' || !Number.isFinite(saved) || saved < 0 || !container) return;
+    const inputScope = container.parentElement ?? container;
+    const inputs = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+    let watching = true;
+    let observer: ResizeObserver | undefined;
+    function cleanup() {
+      watching = false;
+      observer?.disconnect();
+      for (const input of inputs) inputScope.removeEventListener(input, takeControl);
+    }
+    function takeControl() {
+      restoredLocation.current = location.key;
+      cleanup();
+    }
+    const restore = () => {
+      if (!watching) return;
+      container.scrollTop = saved;
+      if (Math.abs(container.scrollTop - saved) <= 1) restoredLocation.current = location.key;
+    };
+    if (scrollContentReady && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(restore);
+      observer.observe(container);
+      for (const child of container.children) observer.observe(child);
+    }
+    for (const input of inputs) inputScope.addEventListener(input, takeControl, { passive: true });
+    if (scrollContentReady) {
+      restore();
+      if (!observer) takeControl();
+    }
+    return cleanup;
+  }, [location.key, location.state, scrollContentReady]);
 
   const saveScrollPosition = useCallback(() => {
     return scrollRef.current?.scrollTop ?? 0;
@@ -340,7 +409,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
 
   function handleTap(item: TodoItem) {
     navigate(`/todos/${item.id}`, {
-      state: { item, activeProfile, scrollTop: saveScrollPosition() },
+      state: { item, activeProfile, scrollTop: saveScrollPosition(), telosHistory: [] },
     });
   }
 
@@ -348,8 +417,75 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     setCreating({ parentId });
   }
 
+  if (canonical.records.length > 0 || (discovery.items.length === 0 && items.length === 0))
+    return (
+      <div className="todo-page telos-canonical-page">
+        <div className="todo-collection-heading">
+          <WorkspacePageHeading
+            title="Telos outcomes"
+            description="Your outcomes, their child work and the coordinators connecting them."
+            actions={
+              <div className="todo-collection-actions">
+                <button className="todo-add-btn" onClick={startPlanning}>
+                  New item
+                </button>
+                <button
+                  className="todo-refresh"
+                  onClick={refreshWorkspace}
+                  aria-label="Refresh Telos"
+                >
+                  <UiIcon name="retry" size={16} />
+                </button>
+              </div>
+            }
+          />
+        </div>
+        <div className="todo-scroll" ref={scrollRef}>
+          {planningError && <p role="alert">{planningError}</p>}
+          {creating && (
+            <TodoCreateForm
+              parentId={creating.parentId}
+              profile={activeProfile}
+              profiles={profiles}
+              onCreate={create}
+              onCreateOutcome={createOutcome}
+              onCancel={() => setCreating(null)}
+            />
+          )}
+
+          {discovery.error && canonical.records.length > 0 && (
+            <p role="alert">{discovery.error} Displayed records may be stale.</p>
+          )}
+          {canonical.unavailable.length > 0 && (
+            <p role="alert">
+              Some outcomes are unavailable. Refresh to retry. ({canonical.unavailable.length})
+            </p>
+          )}
+          <TelosOutcomesTree
+            records={canonical.records}
+            refreshKey={canonical.refreshKey}
+            loading={discovery.loading}
+            error={discovery.error && canonical.records.length === 0 ? discovery.error : undefined}
+            selectedId={selectedId}
+            onOpen={(id, view) => {
+              if (view) {
+                try {
+                  sessionStorage.setItem('telos.item.tab.' + id, view);
+                } catch {
+                  /* Entry remains navigable without device preferences. */
+                }
+              }
+              navigate(`/todos/${encodeURIComponent(id)}`, {
+                state: { activeProfile, scrollTop: saveScrollPosition(), telosHistory: [] },
+              });
+            }}
+          />
+        </div>
+      </div>
+    );
+
   return (
-    <div className="todo-page">
+    <div className="todo-page telos-legacy-page">
       <div className="todo-collection-heading">
         <WorkspacePageHeading
           title="Work"
@@ -364,7 +500,11 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
               >
                 + Add outcome
               </button>
-              <button className="todo-refresh" onClick={refresh} aria-label="Refresh Telos">
+              <button
+                className="todo-refresh"
+                onClick={refreshWorkspace}
+                aria-label="Refresh Telos"
+              >
                 <UiIcon name="retry" size={16} />
               </button>
             </div>
@@ -373,6 +513,12 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
       </div>
 
       <div className="todo-scroll" ref={scrollRef}>
+        {planningError && <p role="alert">{planningError}</p>}
+        {(canonical.unavailable.length > 0 || discovery.error) && (
+          <p role="alert">
+            Outcome workspace records unavailable. Original Telos fields remain available below.
+          </p>
+        )}
         <div className="todo-toolbar">
           <label className="todo-search">
             <span aria-hidden="true">
@@ -480,7 +626,6 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
                       selectedId={selectedId}
                       onAck={ack}
                       onDone={done}
-                      onStar={star}
                       onTap={handleTap}
                       onAddChild={handleAddChild}
                       onStartSession={handleStartSession}

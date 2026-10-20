@@ -1,0 +1,25 @@
+diff --git a/codex-rs/core/src/session/parent_approval.rs b/codex-rs/core/src/session/parent_approval.rs
+index 1c2b61e..470f165 100644
+--- a/codex-rs/core/src/session/parent_approval.rs
++++ b/codex-rs/core/src/session/parent_approval.rs
+@@ -8,7 +8,7 @@ use crate::config::Config;
+ use crate::environment_selection::TurnEnvironmentSnapshot;
+ use crate::guardian::GuardianReviewContext;
+ use crate::tools::ApprovalContext;
+-use crate::tools::approvals::parent_approval_gate;
++use crate::tools::parent_approval_gate;
+ use crate::tools::sandboxing::ApprovalAction;
+ use crate::tools::sandboxing::ToolError;
+ use codex_execpolicy::Policy;
+diff --git a/codex-rs/core/src/tools/mod.rs b/codex-rs/core/src/tools/mod.rs
+index ef3d3f3..05f2b05 100644
+--- a/codex-rs/core/src/tools/mod.rs
++++ b/codex-rs/core/src/tools/mod.rs
+@@ -30,6 +30,7 @@ use std::borrow::Cow;
+ use crate::session::turn_context::TurnContext;
+ pub(crate) use approvals::ApprovalContext;
+ pub(crate) use approvals::ApprovalResolution;
++pub(crate) use approvals::parent_approval_gate;
+ use codex_features::Feature;
+ use codex_protocol::exec_output::ExecToolCallOutput;
+ use codex_protocol::openai_models::ModelInfo;

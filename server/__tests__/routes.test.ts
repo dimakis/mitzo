@@ -101,6 +101,7 @@ vi.mock('../chat.js', async () => {
       append: vi.fn(),
       getLatestEvent: vi.fn().mockReturnValue(null),
       getEventsAfter: vi.fn().mockReturnValue([]),
+      getSessionEvents: vi.fn().mockReturnValue([]),
       getEventsOfType: vi.fn().mockReturnValue([]),
       getLatestWorktreePath: vi.fn().mockReturnValue(null),
       searchSessions: vi.fn().mockReturnValue([
@@ -381,6 +382,17 @@ describe('auth routes', () => {
 
   it('GET /api/auth/check — authenticated returns 200', async () => {
     const res = await request(app).get('/api/auth/check').set('Cookie', authCookie);
+    const { authenticateToken } = await import('../auth.js');
+    const session = await authenticateToken(authCookie.slice('cc_auth='.length));
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true, authSessionId: session!.id });
+    expect(res.headers['cache-control']).toBe('private, no-store');
+    expect(JSON.stringify(res.body)).not.toContain(authCookie.slice('cc_auth='.length));
+  });
+
+  it('GET /api/auth/check — internal callers receive no interactive recovery identity', async () => {
+    const { INTERNAL_TOKEN } = await import('../internal-token.js');
+    const res = await request(app).get('/api/auth/check').set('x-internal-token', INTERNAL_TOKEN);
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ ok: true });
   });
@@ -407,7 +419,10 @@ describe('bearer token auth', () => {
       .get('/api/auth/check')
       .set('Authorization', `Bearer ${bearerToken}`);
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({ ok: true });
+    const { authenticateToken } = await import('../auth.js');
+    const session = await authenticateToken(bearerToken);
+    expect(res.body).toEqual({ ok: true, authSessionId: session!.id });
+    expect(JSON.stringify(res.body)).not.toContain(bearerToken);
   });
 
   it('GET /api/sessions — works with Bearer token instead of cookie', async () => {
@@ -749,6 +764,21 @@ describe('session routes', () => {
     expect(overviewBroadcast).toHaveBeenCalledOnce();
   });
 
+  it('keeps Symposium deletion under its own custody and offers archive instead', async () => {
+    vi.mocked(eventStore.getSession).mockReturnValueOnce({
+      sessionId: 'symposium',
+      sessionType: 'symposium',
+      cwd: '/host/workspace',
+    } as ReturnType<typeof eventStore.getSession>);
+    const res = await request(app).delete('/api/sessions/symposium').set('Cookie', authCookie);
+    expect(res.status).toBe(409);
+    expect(hideSession).not.toHaveBeenCalled();
+    await request(app)
+      .delete('/api/sessions/symposium?archive=1')
+      .set('Cookie', authCookie)
+      .expect(200);
+  });
+
   it('DELETE /api/sessions — hides all sessions', async () => {
     const res = await request(app).delete('/api/sessions').set('Cookie', authCookie);
     expect(res.status).toBe(200);
@@ -848,6 +878,108 @@ describe('session routes', () => {
       totalCostUsd: 0.05,
       numTurns: 3,
     });
+  });
+
+  it.each([
+    'valid',
+    'wrong-id',
+    'wrong-conversation',
+    'wrong-account',
+    'wrong-revision',
+    'wrong-model',
+    'unclaimed',
+    'private-path',
+    'read-error',
+    'no-workspace',
+  ])(
+    'GET /api/sessions/:id/meta — repository presentation uses only the exact claimed owner: %s',
+    async (scenario) => {
+      const runtime = await import('../repository-workspace-runtime.js');
+      const accounts = await import('../account-profiles.js');
+      const catalog = vi
+        .spyOn(accounts, 'loadAccountProfiles')
+        .mockReturnValue({ refresh: async () => {}, catalog: () => [] } as unknown as ReturnType<
+          typeof accounts.loadAccountProfiles
+        >);
+      const { eventStore } = await import('../chat.js');
+      const original = vi.mocked(eventStore.getSession).getMockImplementation()!;
+      const binding = {
+        accountId: 'work',
+        provider: 'anthropic-vertex',
+        profileRevision: 'revision',
+        model: 'sonnet',
+      };
+      const workspaceId = '11111111-1111-4111-8111-111111111111';
+      const record = {
+        id: workspaceId,
+        conversationId: 's1',
+        state: 'claimed',
+        repository: 'example/owned-repository',
+        binding,
+        directory: '/private/controller/task',
+        connectionId: 'private-connection',
+      };
+      if (scenario === 'wrong-id') record.id = 'other-workspace';
+      if (scenario === 'wrong-conversation') record.conversationId = 'other-chat';
+      if (scenario === 'wrong-account') record.binding = { ...binding, accountId: 'other-account' };
+      if (scenario === 'wrong-revision')
+        record.binding = { ...binding, profileRevision: 'other-revision' };
+      if (scenario === 'wrong-model') record.binding = { ...binding, model: 'other-model' };
+      if (scenario === 'unclaimed') record.state = 'ready';
+      if (scenario === 'private-path') record.repository = '/private/controller/task';
+      const get = vi.fn(() => {
+        if (scenario === 'read-error') throw Error('Private ledger diagnostic');
+        return record;
+      });
+      const owner = vi
+        .spyOn(runtime, 'getRepositoryWorkspaces')
+        .mockReturnValue({ get } as unknown as ReturnType<typeof runtime.getRepositoryWorkspaces>);
+      vi.mocked(eventStore.getSession).mockImplementation((id) =>
+        id === 's1'
+          ? ({
+              ...original(id),
+              sessionId: id,
+              accountBinding: binding,
+              ...(scenario === 'no-workspace' ? {} : { repositoryWorkspaceId: workspaceId }),
+            } as ReturnType<typeof eventStore.getSession>)
+          : original(id),
+      );
+      try {
+        const response = await request(app).get('/api/sessions/s1/meta').set('Cookie', authCookie);
+        expect(response.status).toBe(200);
+        expect(response.body.sessionId).toBe('s1');
+        if (scenario === 'valid') {
+          expect(response.body.repositoryContext).toEqual({
+            workspaceId,
+            repository: 'example/owned-repository',
+          });
+          expect(owner).toHaveBeenCalledWith(true);
+          expect(get).toHaveBeenCalledWith(workspaceId);
+        } else expect(response.body).not.toHaveProperty('repositoryContext');
+        if (scenario === 'no-workspace') expect(owner).not.toHaveBeenCalled();
+        expect(JSON.stringify(response.body)).not.toMatch(
+          /private-connection|private\/controller|Private ledger/,
+        );
+      } finally {
+        catalog.mockRestore();
+        owner.mockRestore();
+        vi.mocked(eventStore.getSession).mockImplementation(original);
+      }
+    },
+  );
+
+  it('GET /api/sessions/:id/meta — role context read unavailable returns an explicit refusal', async () => {
+    const { eventStore } = await import('../chat.js');
+    vi.mocked(eventStore.getSessionEvents).mockImplementationOnce(() => {
+      throw new Error('Private retained context read failed');
+    });
+    const res = await request(app)
+      .get('/api/sessions/s1/meta')
+      .set('Cookie', authCookie)
+      .timeout({ response: 1000, deadline: 2000 });
+    expect(res.status).toBe(503);
+    expect(res.body).toEqual({ error: 'Work conversation context unavailable' });
+    expect(JSON.stringify(res.body)).not.toContain('Private');
   });
 
   it('GET /api/sessions/:id/meta — unknown session returns 404', async () => {

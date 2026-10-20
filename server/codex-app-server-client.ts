@@ -11,10 +11,11 @@ import { JIRA_API_ENDPOINT } from './connections-gateway.js';
 import { applicationVersion } from './application-version.js';
 import { spawn, spawnSync } from 'node:child_process';
 import { z } from 'zod';
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
-import { isAbsolute, posix } from 'node:path';
+import { dirname, isAbsolute, posix } from 'node:path';
+import { AccountBindingSchema, type AccountBinding } from '@mitzo/protocol';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import { createLogger } from './logger.js';
@@ -76,6 +77,21 @@ export interface CodexLifecycleTransport {
   onRequest(method: string, params: JsonObject, signal: AbortSignal): Promise<JsonObject>;
   onClose(error: Error): void;
 }
+
+/** The existing admission owner supplies an exclusively owned, new private home
+ * and its credential/revocation fence. API account/read reports only an auth
+ * mode, so it cannot replace that owner's proof of the selected billing account.
+ */
+export interface CodexApiBootstrapOptions {
+  privateHome: string;
+  executable: FrozenHostCodexExecutable;
+  binding: AccountBinding;
+  lifecycle: CodexLifecycleTransport;
+  signal: AbortSignal;
+  resolveKey(binding: Readonly<AccountBinding>, signal: AbortSignal): Promise<string>;
+  assertCurrent(binding: Readonly<AccountBinding>): Promise<void>;
+  base?: NodeJS.ProcessEnv;
+}
 interface Pending {
   method: string;
   resolve: (value: unknown) => void;
@@ -123,7 +139,16 @@ export class CodexRequestError extends Error {
 
 /** Local transport failures carry only a fixed reason, never a provider frame. */
 export class CodexTransportError extends Error {
-  constructor(readonly category: 'timeout' | 'connection' | 'protocol' | 'environment_pending') {
+  constructor(
+    readonly category: 'timeout' | 'connection' | 'protocol' | 'environment_pending',
+    readonly diagnostic?: {
+      reason:
+        'frame_too_large' | 'invalid_json' | 'invalid_envelope' | 'notification_handler_failed';
+      pendingRequestMethod?: string;
+      frameBytes?: number;
+      limitBytes?: number;
+    },
+  ) {
     super(
       {
         timeout: 'Codex request timed out; retry explicitly',
@@ -377,6 +402,7 @@ export class CodexAppServerClient {
   private readonly lifecycle?: CodexLifecycleTransport;
   private pending = new Map<number, Pending>();
   private buffer = Buffer.alloc(0);
+  private bufferedBytes = 0;
   private closed = false;
   private ready = false;
   private initializing?: Promise<void>;
@@ -436,6 +462,7 @@ export class CodexAppServerClient {
         this.retiredChildren.add(child);
         child.kill();
         this.buffer = Buffer.alloc(0);
+        this.bufferedBytes = 0;
         // Observe the actual same-launch environment instead of adding an entire
         // supervisor polling period after every miss. Only initialize is replayed;
         // every attempt still gates all required credentials in its own exec shell.
@@ -476,6 +503,26 @@ export class CodexAppServerClient {
     return this.launchHost(credentialRef, base, lifecycle, false);
   }
 
+  /** Metadata only, using the native executable selected by the owning runtime.
+   * No lifecycle means this transport cannot start threads or model turns.
+   */
+  static launchPreflight(
+    credentialRef: string,
+    executablePath: string,
+    base: NodeJS.ProcessEnv = process.env,
+  ) {
+    if (!isAbsolute(executablePath)) throw new Error('Codex executable must be absolute');
+    return this.launchHost(
+      credentialRef,
+      base,
+      undefined,
+      false,
+      undefined,
+      'chatgpt',
+      executablePath,
+    );
+  }
+
   /** Only the private bootstrap owner supplies this home, after durable effect
    * admission. File-only custody prevents a shared keychain login from replacing
    * the frozen account. The original configured profile remains routing identity.
@@ -492,28 +539,111 @@ export class CodexAppServerClient {
     return this.launchHost(privateHome, base, lifecycle, true, executable);
   }
 
+  /** New-account bootstrap only. Login is private to this operation; the returned
+   * transport cannot log in again or switch billing through its public RPC API.
+   * The caller retains workspace/command authority and owns subsequent custody,
+   * credential renewal and cold continuation. This does not enable a chat route.
+   */
+  static async launchIsolatedApi(options: CodexApiBootstrapOptions): Promise<{
+    client: CodexAppServerClient;
+    binding: Readonly<AccountBinding>;
+  }> {
+    let client: CodexAppServerClient | undefined;
+    const { privateHome, executable, signal, lifecycle } = options;
+    const assertCurrent = options.assertCurrent.bind(options);
+    const resolveKey = options.resolveKey.bind(options);
+    const base = { ...(options.base ?? process.env) };
+    const onAbort = () => client?.close();
+    try {
+      const binding = Object.freeze(AccountBindingSchema.parse(options.binding));
+      if (binding.provider !== 'openai') throw new Error('API account required');
+      signal.throwIfAborted();
+      const home = lstatSync(privateHome);
+      const assertNewHome = () => {
+        const current = lstatSync(privateHome);
+        if (
+          !isAbsolute(privateHome) ||
+          realpathSync(privateHome) !== privateHome ||
+          !current.isDirectory() ||
+          current.dev !== home.dev ||
+          current.ino !== home.ino ||
+          (current.mode & 0o077) !== 0 ||
+          current.uid !== process.getuid?.() ||
+          !(executable instanceof FrozenHostCodexExecutable) ||
+          dirname(executable.path) !== privateHome ||
+          lstatSync(`${privateHome}/auth.json`, { throwIfNoEntry: false }) ||
+          lstatSync(`${privateHome}/config.toml`, { throwIfNoEntry: false })
+        )
+          throw new Error('New private API home required');
+      };
+      assertNewHome();
+      await assertCurrent(binding);
+      signal.throwIfAborted();
+      const key = await resolveKey(binding, signal);
+      signal.throwIfAborted();
+      if (typeof key !== 'string' || !key.trim()) throw new Error('API credential required');
+      await assertCurrent(binding);
+      signal.throwIfAborted();
+      executable.assertLaunchCurrent();
+      assertNewHome();
+      client = this.launchHost(privateHome, base, lifecycle, true, executable, 'api');
+      signal.addEventListener('abort', onAbort, { once: true });
+      signal.throwIfAborted();
+      await client.initialize();
+      await assertCurrent(binding);
+      signal.throwIfAborted();
+      assertNewHome();
+      const login = await client.sendRequest('account/login/start', {
+        type: 'apiKey',
+        apiKey: key,
+      });
+      signal.throwIfAborted();
+      z.object({ type: z.literal('apiKey') }).parse(login);
+      const observed = await client.request('account/read', { refreshToken: false });
+      z.object({
+        account: z.object({ type: z.literal('apiKey') }),
+        requiresOpenaiAuth: z.literal(true),
+      }).parse(observed);
+      await assertCurrent(binding);
+      signal.throwIfAborted();
+      return { client, binding };
+    } catch {
+      client?.close();
+      // Neither credential-provider errors nor login frames are public diagnostics.
+      throw new Error('API Codex authentication unavailable');
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+
   private static launchHost(
     credentialRef: string,
     base: NodeJS.ProcessEnv,
     lifecycle: CodexLifecycleTransport | undefined,
     isolated: boolean,
     executable?: FrozenHostCodexExecutable,
+    authentication: 'chatgpt' | 'api' = 'chatgpt',
+    preflightExecutable?: string,
   ) {
     const env = codexEnvironment(credentialRef, base);
-    assertHostCodexRuntimeVersion(isolated ? env : base, executable?.path);
+    const executablePath = executable?.path ?? preflightExecutable;
+    assertHostCodexRuntimeVersion(isolated ? env : base, executablePath);
     executable?.assertCurrent();
     return new CodexAppServerClient(
       spawn(
-        executable?.path ?? 'codex',
+        executablePath ?? 'codex',
         [
           'app-server',
           '--stdio',
           '-c',
-          'forced_login_method="chatgpt"',
+          `forced_login_method="${authentication}"`,
           '-c',
           'model_provider="openai"',
+          ...(authentication === 'api'
+            ? ['-c', 'openai_base_url="https://api.openai.com/v1"']
+            : []),
           ...(isolated ? ['-c', 'cli_auth_credentials_store="file"'] : []),
-          ...(lifecycle
+          ...(lifecycle || authentication === 'api'
             ? Object.entries(codexRuntimeOverrides({})).flatMap(([key, value]) => [
                 '-c',
                 `${key}=${JSON.stringify(value)}`,
@@ -598,6 +728,7 @@ export class CodexAppServerClient {
     this.environmentRetryTimer = undefined;
     this.ready = false;
     this.buffer = Buffer.alloc(0);
+    this.bufferedBytes = 0;
     for (const request of this.pending.values()) {
       clearTimeout(request.timer);
       request.reject(error);
@@ -755,55 +886,99 @@ export class CodexAppServerClient {
   }
 
   private receive(chunk: Buffer) {
-    if (this.closed) return;
-    this.buffer = Buffer.concat([this.buffer, chunk]);
-    try {
-      let newline: number;
-      while ((newline = this.buffer.indexOf(10)) !== -1) {
-        if (newline > this.maxFrameBytes) throw new Error();
-        const frame: unknown = JSON.parse(this.buffer.subarray(0, newline).toString('utf8'));
-        this.buffer = this.buffer.subarray(newline + 1);
-        if (!frame || typeof frame !== 'object' || Array.isArray(frame)) throw new Error();
-        const message = frame as JsonObject;
-        if (typeof message.method === 'string') {
-          const params = message.params ?? {};
-          if (!params || typeof params !== 'object' || Array.isArray(params)) throw new Error();
-          if (message.id === undefined) {
-            this.lifecycle?.onNotification(message.method, params as JsonObject);
-          } else if (typeof message.id === 'string' || typeof message.id === 'number') {
-            this.handleHostRequest(message.id, message.method, params as JsonObject);
-          } else throw new Error();
-          continue;
-        }
-        if (typeof message.id !== 'number') throw new Error();
-        const request = this.pending.get(message.id);
-        if (!request) continue;
-        this.pending.delete(message.id);
-        clearTimeout(request.timer);
-        if (message.error) {
-          const parsed = z
-            .object({ code: z.number().int().optional(), message: z.string().optional() })
-            .passthrough()
-            .safeParse(message.error);
-          request.reject(
-            new CodexRequestError(
-              request.method,
-              requestErrorCategory(
-                parsed.success ? (parsed.data.message ?? '') : '',
-                request.method,
-              ),
-              parsed.success ? parsed.data.code : undefined,
-            ),
-          );
-        } else if ('result' in message) request.resolve(message.result);
-        else {
-          request.reject(new CodexTransportError('protocol'));
-          throw new Error();
-        }
+    let offset = 0;
+    while (!this.closed && offset < chunk.length) {
+      const newline = chunk.indexOf(10, offset);
+      const end = newline === -1 ? chunk.length : newline;
+      const part = chunk.subarray(offset, end);
+      const frameBytes = this.bufferedBytes + part.length;
+      if (frameBytes > this.maxFrameBytes) {
+        this.frameFailure('protocol', 'frame_too_large', frameBytes);
+        return;
       }
-      if (this.buffer.length > this.maxFrameBytes) throw new Error();
-    } catch {
-      this.close(new CodexTransportError('protocol'));
+      let frame = part;
+      if (this.bufferedBytes || newline === -1) {
+        // Grow geometrically, bounded by one frame. Repeated concatenation of
+        // a fragmented response copies the entire prefix on every chunk.
+        if (this.buffer.length < frameBytes) {
+          const capacity = Math.min(
+            this.maxFrameBytes,
+            Math.max(4096, this.buffer.length * 2, frameBytes),
+          );
+          const next = Buffer.allocUnsafe(capacity);
+          this.buffer.copy(next, 0, 0, this.bufferedBytes);
+          this.buffer = next;
+        }
+        part.copy(this.buffer, this.bufferedBytes);
+        this.bufferedBytes = frameBytes;
+        if (newline === -1) return;
+        frame = this.buffer.subarray(0, frameBytes);
+        this.buffer = Buffer.alloc(0);
+        this.bufferedBytes = 0;
+      }
+      offset = end + 1;
+      this.receiveFrame(frame);
     }
+  }
+
+  private frameFailure(
+    category: 'protocol' | 'connection',
+    reason: NonNullable<CodexTransportError['diagnostic']>['reason'],
+    frameBytes?: number,
+  ) {
+    const pending = this.pending.size === 1 ? this.pending.values().next().value : undefined;
+    this.close(
+      new CodexTransportError(category, {
+        reason,
+        ...(pending ? { pendingRequestMethod: pending.method } : {}),
+        ...(reason === 'frame_too_large' ? { frameBytes, limitBytes: this.maxFrameBytes } : {}),
+      }),
+    );
+  }
+
+  private receiveFrame(bytes: Buffer) {
+    let frame: unknown;
+    try {
+      frame = JSON.parse(bytes.toString('utf8'));
+    } catch {
+      this.frameFailure('protocol', 'invalid_json');
+      return;
+    }
+    const invalid = () => this.frameFailure('protocol', 'invalid_envelope');
+    if (!frame || typeof frame !== 'object' || Array.isArray(frame)) return invalid();
+    const message = frame as JsonObject;
+    if (typeof message.method === 'string') {
+      const params = message.params ?? {};
+      if (!params || typeof params !== 'object' || Array.isArray(params)) return invalid();
+      if (message.id === undefined) {
+        try {
+          this.lifecycle?.onNotification(message.method, params as JsonObject);
+        } catch {
+          this.frameFailure('connection', 'notification_handler_failed');
+        }
+      } else if (typeof message.id === 'string' || typeof message.id === 'number') {
+        this.handleHostRequest(message.id, message.method, params as JsonObject);
+      } else invalid();
+      return;
+    }
+    if (typeof message.id !== 'number') return invalid();
+    const request = this.pending.get(message.id);
+    if (!request) return;
+    if (!message.error && !('result' in message)) return invalid();
+    this.pending.delete(message.id);
+    clearTimeout(request.timer);
+    if (message.error) {
+      const parsed = z
+        .object({ code: z.number().int().optional(), message: z.string().optional() })
+        .passthrough()
+        .safeParse(message.error);
+      request.reject(
+        new CodexRequestError(
+          request.method,
+          requestErrorCategory(parsed.success ? (parsed.data.message ?? '') : '', request.method),
+          parsed.success ? parsed.data.code : undefined,
+        ),
+      );
+    } else request.resolve(message.result);
   }
 }

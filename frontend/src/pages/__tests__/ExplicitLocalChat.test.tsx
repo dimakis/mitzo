@@ -13,6 +13,14 @@ import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { getChatDraft } from '../../lib/chat-drafts';
 import '@testing-library/jest-dom/vitest';
 import userEvent from '@testing-library/user-event';
+// Route wiring tests exercise the existing controls directly. The real sheet
+// navigation, retained editors and summary layout are covered by QuickChatSettings
+// unit tests and the all-intercept local-first/multi-runtime browser suites.
+vi.mock('../../lib/quick-settings-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/quick-settings-context')>()),
+  useQuickSettings: () => null,
+}));
+
 vi.mock('../../components/DesktopShell', () => ({
   DesktopShell: ({ center }: { center: React.ReactNode }) => <div>{center}</div>,
 }));
@@ -122,12 +130,15 @@ vi.mock('../../components/ChatArea', () => ({
   ChatArea: ({
     messages,
     currentByMessage,
+    afterMessages,
   }: {
+    afterMessages?: React.ReactNode;
     messages: unknown[];
     currentByMessage?: Record<string, unknown>;
   }) => (
     <div>
       <span data-testid="chat-message-count">Messages: {messages.length}</span>
+      {afterMessages}
       <span data-testid="active-seats">
         Active seats: {Object.keys(currentByMessage ?? {}).length}
       </span>
@@ -207,6 +218,7 @@ function setup(
   metadataFailed = false,
   continuation = false,
   suppliedFixture?: import('../../lib/explicit-local-chat').ExplicitLocalInventory,
+  ordinary?: 'prepared' | 'conversation' | 'invalid',
 ) {
   const fixture = suppliedFixture ?? localInventoryFixture();
   const draft = createChatDraft();
@@ -254,8 +266,15 @@ function setup(
                 models: fixture.accounts[0].models,
                 reasoningEffort: 'low',
               },
-              runtimeCommandScope: continuation ? 'conversation' : 'first-command-only',
-              repositoryWorkspaceId: readyId,
+              runtimeCommandScope:
+                ordinary === 'prepared' || ordinary === 'invalid'
+                  ? 'prepared-first-command'
+                  : continuation || ordinary === 'conversation'
+                    ? 'conversation'
+                    : 'first-command-only',
+              ...(ordinary
+                ? { ordinaryWorkspaceId: ordinary === 'invalid' ? 'invalid' : readyId }
+                : { repositoryWorkspaceId: readyId }),
               mode: 'agent',
               agentProfile: fixture.agentProfiles[0],
               runtimeBinding: {
@@ -274,11 +293,19 @@ function setup(
   const localSend = vi.fn(
     (_request: import('@mitzo/protocol').OrdinaryCodexFirstCommand, _observers?: unknown) => true,
   );
+  const ordinarySend = vi.fn(
+    (
+      _request: import('@mitzo/protocol').OrdinaryWorkspaceFirstCommand,
+      _phase: 'first' | 'continue',
+      _observers?: unknown,
+    ) => true,
+  );
   const legacySend = vi.fn();
   store.setState({
     localFirstCommandTransportAvailable: true,
     connection: { status: 'connected', clientId: 'sse-current' },
     sendLocalFirstCommand: localSend,
+    sendOrdinaryWorkspaceCommand: ordinarySend,
     sendMessage: legacySend,
     ...(bound ? { sessions: { ...store.getState().sessions, active: 'bound-session' } } : {}),
   });
@@ -296,9 +323,13 @@ function setup(
   return {
     store,
     localSend,
+    ordinarySend,
     legacySend,
     draft,
     fixture,
+    setOrdinaryConversation: () => {
+      ordinary = 'conversation';
+    },
     recoverMetadata: () => {
       metadataFailed = false;
     },
@@ -308,6 +339,74 @@ for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it(`${name}: sends the ordinary prepared first command and refreshes into continuation without a repository`, async () => {
+    const { store, ordinarySend, localSend, legacySend, setOrdinaryConversation } = setup(
+      Screen,
+      false,
+      false,
+      true,
+      false,
+      false,
+      undefined,
+      'prepared',
+    );
+    const trigger = await screen.findByRole('button', { name: /^Workspace controls/ });
+    if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    expect(screen.getByRole('combobox', { name: 'Account' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Model' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Thinking level' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(ordinarySend).toHaveBeenCalledOnce();
+    const [request, phase, observers] = ordinarySend.mock.calls[0];
+    expect(phase).toBe('first');
+    expect(request).toMatchObject({
+      version: 2,
+      sessionId: 'bound-session',
+      workspace: { kind: 'ordinary', workspaceId: readyId },
+      selection: { model: 'luna-fixture', thinking: 'low' },
+      payload: { text: 'hello' },
+    });
+    expect(request).not.toHaveProperty('repositoryWorkspaceId');
+    expect(observers).not.toHaveProperty('onSessionAssigned');
+    setOrdinaryConversation();
+    act(() =>
+      store.setState({
+        localCommand: {
+          request,
+          ordinaryPhase: 'first',
+          state: 'consumed',
+          sessionId: 'bound-session',
+        },
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Thinking level' })).toBeEnabled(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(ordinarySend.mock.calls[1][1]).toBe('continue');
+    expect(ordinarySend.mock.calls[1][0].clientMsgId).not.toBe(request.clientMsgId);
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    expect(store.getState().sessions.active).toBe('bound-session');
+  });
+  it(`${name}: refuses malformed ordinary scope without repository or legacy send fallback`, async () => {
+    const { ordinarySend, localSend, legacySend } = setup(
+      Screen,
+      false,
+      false,
+      true,
+      false,
+      false,
+      undefined,
+      'invalid',
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(ordinarySend).not.toHaveBeenCalled();
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+  });
   it(`${name}: mounts one settings panel at the top and leaves the composer clear`, async () => {
     setup(Screen, true);
     const trigger = await screen.findByRole('button', { name: /^Workspace controls/ });
@@ -969,5 +1068,48 @@ for (const [name, Screen] of [
       expect.anything(),
     );
     expect(legacySend).not.toHaveBeenCalled();
+  });
+}
+
+for (const Screen of [ChatView, DesktopChatView]) {
+  it(`${Screen.name}: reviews platform proposals in first-command-only history while runtime send stays blocked`, async () => {
+    const { localSend, legacySend, store } = setup(Screen, false, false, true, false, false);
+    const original = vi.mocked(apiFetch).getMockImplementation()!;
+    const proposal = {
+      proposalId: 'first-only-proposal',
+      suggestedProfileId: 'reviewed-agent',
+      state: 'pending',
+      definition: {
+        name: 'Reviewed Agent',
+        role: 'agent',
+        instructions: 'Review first-command history',
+        expectedOutput: 'Report',
+        acceptanceCriteria: ['Cite evidence'],
+        modelPolicyRole: 'agent',
+      },
+    };
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).includes('/profile-proposals') && !init?.method)
+        return new Response(JSON.stringify([proposal]));
+      if (String(url) === '/api/symposium/profiles') return new Response('[]');
+      if (String(url).endsWith('/first-only-proposal/save') && init?.method === 'POST')
+        return new Response(JSON.stringify({ profileId: 'reviewed-agent', revision: 1 }));
+      return original(url, init);
+    });
+    await screen.findByDisplayValue('Reviewed Agent');
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    const save = screen.getByRole('button', { name: 'Save reusable profile' });
+    await waitFor(() => expect(save).toBeEnabled());
+    fireEvent.click(save);
+    await screen.findByText('Saved Reviewed Agent to your Agent Library.');
+    expect(localSend).not.toHaveBeenCalled();
+    expect(legacySend).not.toHaveBeenCalled();
+    act(() =>
+      store.setState({ sessions: { ...store.getState().sessions, active: 'other-session' } }),
+    );
+    // The old review remains available to read but loses write authorization.
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeDisabled();
   });
 }

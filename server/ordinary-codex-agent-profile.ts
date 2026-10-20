@@ -1,13 +1,15 @@
+import { resolveChatAgentProfile } from './agent-library-binding.js';
 import {
   AgentLibraryVersionSchema,
   PROFILE_BUILDER_ID,
-  PROFILE_BUILDER_REVISION,
+  PROFILE_BUILDER_REVISIONS,
   type AgentLibraryVersion,
   type AgentProfileSelection,
 } from '@mitzo/protocol';
 import type { AgentLibraryStore } from './agent-library-store.js';
 import { readBuiltinAgentLibraryProfile } from './agent-library-transport.js';
 import { contextDigest } from './agent-context-compiler.js';
+import { agentToolReferenceSupportsRoute } from './agent-tool-selection.js';
 import type { SandboxAgentPresets } from './agent-context-sandbox.js';
 
 /** Reuses the Library's existing namespaces; this projection cannot publish profiles. */
@@ -22,13 +24,11 @@ export function readOrdinaryCodexAgentProfile(
 export function ordinaryCodexAgentProfiles(
   versions: readonly AgentLibraryVersion[],
 ): AgentLibraryVersion[] {
-  const builtin = readBuiltinAgentLibraryProfile({
-    kind: 'builtin',
-    profileId: PROFILE_BUILDER_ID,
-    revision: PROFILE_BUILDER_REVISION,
-  })!;
+  const builtins = PROFILE_BUILDER_REVISIONS.map((revision) =>
+    readBuiltinAgentLibraryProfile({ kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision })!,
+  );
   return [
-    builtin,
+    ...builtins,
     ...versions.filter(
       (profile) =>
         AgentLibraryVersionSchema.safeParse(profile).success &&
@@ -45,7 +45,11 @@ export function ordinaryCodexAgentProfileRouteProjection(
   provider: string,
   location: 'local' | 'openshell',
   presets?: SandboxAgentPresets,
-  policy: { contextRecipes: 'supported' | 'none'; toolSelection?: boolean } = {
+  policy: {
+    contextRecipes: 'supported' | 'none';
+    toolSelection?: boolean;
+    toolRoute?: string;
+  } = {
     contextRecipes: 'supported',
   },
 ) {
@@ -67,7 +71,12 @@ export function ordinaryCodexAgentProfileRouteProjection(
     };
     const recipe = profile.definition.contextRecipe;
     const reason =
-      profile.definition.tools !== undefined && (!policy.toolSelection || location !== 'local')
+      profile.definition.tools !== undefined &&
+      (!policy.toolSelection ||
+        location !== 'local' ||
+        profile.definition.tools.some(
+          (ref) => !agentToolReferenceSupportsRoute(ref, policy.toolRoute ?? 'local-api'),
+        ))
         ? 'tool_selection_unavailable'
         : profile.definition.recipe &&
             !profile.definition.recipe.compatibleProviders.some(
@@ -87,4 +96,17 @@ export function ordinaryCodexAgentProfileRouteProjection(
     else agentProfiles.push(agent);
   }
   return { agentProfiles, agentProfileRejections };
+}
+
+/** Enrollment follows the authenticated execution target, independently of account provider. */
+export function resolveOrdinaryCodexAgentProfile(
+  input: Omit<Parameters<typeof resolveChatAgentProfile>[0], 'toolRoute'> & {
+    execution: { location: 'local' | 'openshell' };
+  },
+) {
+  const { execution, ...profile } = input;
+  return resolveChatAgentProfile({
+    ...profile,
+    toolRoute: execution.location === 'local' ? 'codex-owned-local' : 'openshell',
+  });
 }

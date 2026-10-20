@@ -1,12 +1,13 @@
 import {
-  OrdinaryRuntimeFirstCommandSchema,
-  OrdinaryRuntimeContinuationCommandSchema,
+  OrdinaryCommandDeliverySchema,
+  parseLocalCommandDelivery,
+  type OrdinaryCommandDelivery,
+} from './local-command-delivery.js';
+import {
+  SourceSnapshotsSchema,
   LocalCodexFirstCommandReceiptSchema,
   OrdinaryCodexRetainedCommandObservationSchema,
 } from '@mitzo/protocol';
-const localCommandSchema = OrdinaryRuntimeFirstCommandSchema.or(
-  OrdinaryRuntimeContinuationCommandSchema,
-);
 /** Ordered, acknowledged HTTP delivery. SSE state never gates prompt submission. */
 interface Entry {
   body: Record<string, unknown>;
@@ -14,6 +15,7 @@ interface Entry {
   uncertain?: boolean;
   localReceipt?: { sessionId: string; state: 'reserved' | 'uncertain' | 'consumed' };
   localDraftId?: string;
+  ordinaryDelivery?: OrdinaryCommandDelivery;
 }
 interface Config {
   url: string;
@@ -29,11 +31,12 @@ interface Config {
   localFirstCommand?: boolean;
 }
 
-function reviewedBriefing(body: Record<string, unknown>): boolean {
+export function hasReviewedSource(body: Record<string, unknown>): boolean {
   return (
     body.sessionId === null &&
     Array.isArray(body.sourceSnapshots) &&
-    body.sourceSnapshots[0]?.kind === 'briefing'
+    body.sourceSnapshots.length > 0 &&
+    SourceSnapshotsSchema.safeParse(body.sourceSnapshots).success
   );
 }
 
@@ -63,7 +66,14 @@ export class SendOutbox {
             typeof entry.uncertain !== 'boolean' ||
             Object.keys(entry).some(
               (key) =>
-                !['body', 'scope', 'uncertain', 'localReceipt', 'localDraftId'].includes(key),
+                ![
+                  'body',
+                  'scope',
+                  'uncertain',
+                  'localReceipt',
+                  'localDraftId',
+                  'ordinaryDelivery',
+                ].includes(key),
             )
           )
             throw Error('Invalid Local recovery');
@@ -72,7 +82,11 @@ export class SendOutbox {
             (typeof entry.localDraftId !== 'string' || !/^\S{1,200}$/.test(entry.localDraftId))
           )
             throw Error('Invalid Local draft identity');
-          const body = localCommandSchema.parse(entry.body);
+          const ordinaryDelivery =
+            entry.ordinaryDelivery === undefined
+              ? undefined
+              : OrdinaryCommandDeliverySchema.parse(entry.ordinaryDelivery);
+          const body = parseLocalCommandDelivery(entry.body, ordinaryDelivery);
           if (
             entry.localReceipt &&
             (!['reserved', 'uncertain', 'consumed'].includes(entry.localReceipt.state) ||
@@ -80,10 +94,17 @@ export class SendOutbox {
               !entry.localReceipt.sessionId.length ||
               entry.localReceipt.sessionId.length > 200 ||
               ('sessionId' in body && entry.localReceipt.sessionId !== body.sessionId) ||
+              (ordinaryDelivery?.version === 1 &&
+                entry.localReceipt.sessionId !== ordinaryDelivery.sessionId) ||
               Object.keys(entry.localReceipt).length !== 2)
           )
             throw Error('Invalid Local receipt');
-          return { ...entry, body, uncertain: true };
+          return {
+            ...entry,
+            body,
+            ...(ordinaryDelivery ? { ordinaryDelivery } : {}),
+            uncertain: true,
+          };
         });
       } else if (Array.isArray(saved))
         this.entries = saved.filter(
@@ -147,27 +168,38 @@ export class SendOutbox {
     // Pause new work; the bounded in-flight request may still acknowledge.
   }
 
-  enqueue(body: Record<string, unknown>, scope: number, localDraftId?: string): boolean {
+  enqueue(
+    body: Record<string, unknown>,
+    scope: number,
+    localDraftId?: string,
+    ordinaryDelivery?: OrdinaryCommandDelivery,
+  ): boolean {
     if (this.config.durableLaunches && body.sessionId !== null) return false;
     if (this.config.localFirstCommand) {
       if (localDraftId !== undefined && !/^\S{1,200}$/.test(localDraftId)) return false;
-      const parsed = localCommandSchema.safeParse(body);
-      if (!parsed.success || this.invalidLocalRecovery || this.entries.length || !this.active)
+      if (this.invalidLocalRecovery || this.entries.length || !this.active) return false;
+      try {
+        body = structuredClone(parseLocalCommandDelivery(body, ordinaryDelivery));
+        if (ordinaryDelivery)
+          ordinaryDelivery = OrdinaryCommandDeliverySchema.parse(ordinaryDelivery);
+      } catch {
         return false;
-      body = structuredClone(parsed.data);
+      }
     }
+    if (ordinaryDelivery && !this.config.localFirstCommand) return false;
     if (this.entries.length >= 100) return false;
     this.entries.push({
       body: { ...body },
       scope,
       ...(this.config.localFirstCommand ? { uncertain: false } : {}),
       ...(this.config.localFirstCommand && localDraftId ? { localDraftId } : {}),
+      ...(ordinaryDelivery ? { ordinaryDelivery: structuredClone(ordinaryDelivery) } : {}),
     });
     const durable = this.persist();
     if (
       (this.config.localFirstCommand ||
         this.config.durableLaunches ||
-        (this.config.requireDurableBriefings && reviewedBriefing(body))) &&
+        (this.config.requireDurableBriefings && hasReviewedSource(body))) &&
       !durable
     ) {
       this.entries.pop();
@@ -199,7 +231,7 @@ export class SendOutbox {
       if (
         (!this.config.localFirstCommand &&
           !this.config.durableLaunches &&
-          !reviewedBriefing(entry.body)) ||
+          !hasReviewedSource(entry.body)) ||
         (!entry.uncertain && !(hadInFlight && index === 0))
       )
         return false;
@@ -230,6 +262,9 @@ export class SendOutbox {
       state,
       ...(acknowledged ? { acknowledged: true } : {}),
       request: structuredClone(entry.body),
+      ...(entry.ordinaryDelivery
+        ? { ordinaryDelivery: structuredClone(entry.ordinaryDelivery) }
+        : {}),
       clientMsgId: entry.body.clientMsgId,
       ...(entry.localDraftId ? { originDraftId: entry.localDraftId } : {}),
       ...(entry.localReceipt ? { sessionId: entry.localReceipt.sessionId } : {}),
@@ -255,13 +290,15 @@ export class SendOutbox {
       if (!this.persist()) throw Error('Local intent could not be retained');
       const response = await Promise.race([
         this.config.fetch(
-          entry.body.runOn === 'openshell'
-            ? typeof entry.body.sessionId === 'string'
-              ? '/api/chat/runtime/continue'
-              : '/api/chat/runtime/send'
-            : typeof entry.body.sessionId === 'string'
-              ? this.config.url.replace(/\/send$/, '/continue')
-              : this.config.url,
+          entry.ordinaryDelivery?.version === 2
+            ? '/api/ordinary/workspaces/commands/' + entry.ordinaryDelivery.phase
+            : entry.body.runOn === 'openshell'
+              ? typeof entry.body.sessionId === 'string'
+                ? '/api/chat/runtime/continue'
+                : '/api/chat/runtime/send'
+              : typeof entry.body.sessionId === 'string'
+                ? this.config.url.replace(/\/send$/, '/continue')
+                : this.config.url,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...this.config.headers?.() },
@@ -282,6 +319,8 @@ export class SendOutbox {
       const observation = OrdinaryCodexRetainedCommandObservationSchema.safeParse(raw);
       const matching =
         raw?.clientMsgId === entry.body.clientMsgId &&
+        (entry.ordinaryDelivery?.version !== 1 ||
+          raw?.sessionId === entry.ordinaryDelivery.sessionId) &&
         (typeof entry.body.sessionId !== 'string' || raw?.sessionId === entry.body.sessionId);
       if (matching && response.status === 202 && success.success) {
         entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };
@@ -332,7 +371,7 @@ export class SendOutbox {
     let timeout: ReturnType<typeof setTimeout> | undefined;
     let receivedResponse = false;
     try {
-      if ((this.config.durableLaunches || reviewedBriefing(entry.body)) && !entry.uncertain) {
+      if ((this.config.durableLaunches || hasReviewedSource(entry.body)) && !entry.uncertain) {
         // Persist possible acceptance before admission, not only while fetch is
         // in flight. A lost response remains ambiguous during backoff/reload.
         entry.uncertain = true;
@@ -400,7 +439,11 @@ export class SendOutbox {
                 model: entry.body.model,
                 reasoningEffort: entry.body.reasoningEffort,
               }
-            : undefined;
+            : entry.body.sessionId === null &&
+                source?.kind === 'agent-library' &&
+                hasReviewedSource(entry.body)
+              ? { kind: 'agent-library', revision: source.revision }
+              : undefined;
         // A synchronous durable handoff must finish before dropping this exact command.
         // If it throws, replay the original clientMsgId/body for the same server receipt.
         this.config.notify({
@@ -416,7 +459,7 @@ export class SendOutbox {
             if (
               queued.scope === entry.scope &&
               queued.body.sessionId === null &&
-              !reviewedBriefing(queued.body)
+              !hasReviewedSource(queued.body)
             )
               queued.body.sessionId = receipt.sessionId;
           }

@@ -19,7 +19,7 @@ import {
 } from '../openshell-runtime-migration.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { AccountBinding } from '@mitzo/protocol';
-import { CodexRequestError } from '../codex-app-server-client.js';
+import { CodexRequestError, CodexTransportError } from '../codex-app-server-client.js';
 import { tracer } from '../tracing.js';
 import {
   context,
@@ -522,6 +522,7 @@ async function setup(
   shouldContinueAfterToolResult?: CodexConversationOptions['shouldContinueAfterToolResult'],
   canClaimCommand?: CodexConversationOptions['canClaimCommand'],
   transportClosure?: CodexConversationOptions['transportClosure'],
+  hostPolicy?: { disableWebSearch: boolean; workspaceId?: string },
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -597,6 +598,7 @@ async function setup(
       email: 'test@example.com',
       planType: 'test',
       model: 'test-model',
+      workspaceId: hostPolicy?.workspaceId,
     },
     store,
     getMode: () => 'agent',
@@ -619,6 +621,7 @@ async function setup(
     deferToolSurfaceReplacement,
     enableCapacityRecovery,
     runtimeConfig,
+    disableWebSearch: hostPolicy?.disableWebSearch,
     onThreadChanged,
     onProviderDispatch,
     onProviderComplete,
@@ -692,6 +695,84 @@ async function setup(
     conversationOptions,
   };
 }
+
+it('resumes a large retained conversation without hydrating history or replaying completed commands', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'completed-command', prompt: 'Original task' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  f.c.close();
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    // The pinned native runtime returns the entire retained tool history unless
+    // excluded. A single completed turn can exceed the transport's frame bound.
+    if (method === 'thread/resume' && params.excludeTurns !== true)
+      throw new Error('Full-history resume exceeds the bounded transport');
+    return request(method, params);
+  });
+  const resumed = new CodexConversation(f.conversationOptions);
+  try {
+    await resumed.initialize();
+    expect(f.store.read('app', f.getBinding()).threadId).toBe(f.getProviderThread());
+    expect(resumed.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+      { id: 'completed-command', status: 'completed' },
+    ]);
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    await resumed.send({ id: 'follow-up', prompt: 'Continue the same task' });
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+    expect(f.requests.at(-1)?.params.threadId).toBe(f.getProviderThread());
+  } finally {
+    resumed.close();
+  }
+});
+
+it('uses metadata-only resume for idle reconnect and web-search policy changes', async () => {
+  const f = await setup();
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/resume' && params.excludeTurns !== true)
+      throw new Error('Full-history resume exceeds the bounded transport');
+    return request(method, params);
+  });
+  await f.c.setWebSearchGrant(0, 'denied');
+  f.callbacks.onClose(new Error('Idle transport lost'));
+  await f.c.send({ id: 'after-idle-loss', prompt: 'Continue' });
+  const resumes = f.requests.filter(({ method }) => method === 'thread/resume');
+  expect(resumes).toHaveLength(2);
+  expect(resumes.every(({ params }) => params.excludeTurns === true)).toBe(true);
+});
+
+it('retains framing diagnostics without making an accepted turn eligible for replay', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'accepted', prompt: 'Perform the authorized task' });
+  f.callbacks.onClose(
+    new CodexTransportError('protocol', {
+      reason: 'frame_too_large',
+      frameBytes: 4_194_305,
+      limitBytes: 4_194_304,
+    }),
+  );
+  expect(f.onTransportClosed).toHaveBeenCalledWith(
+    expect.objectContaining({
+      activeTurn: true,
+      reason: 'protocol',
+      failure: {
+        transportErrorCategory: 'protocol',
+        transportFailureReason: 'frame_too_large',
+        transportFrameBytes: 4_194_305,
+        transportFrameLimitBytes: 4_194_304,
+      },
+    }),
+  );
+  expect(f.c.queue()).toContainEqual(
+    expect.objectContaining({ id: 'accepted', status: 'interrupted' }),
+  );
+  await expect(f.c.retryLatestFailed()).resolves.toBe('not_found');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
 
 it('preserves prior conversation text once when refreshing a stale tool surface', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-stale-tools-'));
@@ -5389,3 +5470,495 @@ it.each(['guarded', 'disabled'] as const)(
     }
   },
 );
+
+it('retains the full host policy with excluded search on actual start and resume packets', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[22] = {
+    mcp_servers: { inherited: { command: 'untrusted' } },
+    features: {
+      shell_tool: true,
+      unified_exec: true,
+      apps: true,
+      plugins: true,
+      hooks: true,
+      multi_agent: true,
+    },
+    model_reasoning_summary: 'concise',
+  };
+  args[30] = { disableWebSearch: true, workspaceId: 'selected-workspace' };
+  const first = await setup(...args);
+  Object.assign(first.conversationOptions, { disableWebSearch: false });
+  first.c.close();
+  args[0] = first.store;
+  const resumed = await setup(...args);
+  for (const [fixture, method] of [
+    [first, 'thread/start'],
+    [resumed, 'thread/resume'],
+  ] as const) {
+    expect(fixture.requests.find((entry) => entry.method === method)?.params.config).toMatchObject({
+      web_search: 'disabled',
+      'agents.enabled': false,
+      'mcp_servers.inherited.enabled': false,
+      'features.shell_tool': false,
+      'features.unified_exec': false,
+      'features.apps': false,
+      'features.plugins': false,
+      'features.hooks': false,
+      'features.multi_agent': false,
+      'features.code_mode_host': true,
+      forced_chatgpt_workspace_id: 'selected-workspace',
+      model_reasoning_summary: 'concise',
+    });
+    await expect(
+      fixture.c.searchWeb('unselected search', new AbortController().signal),
+    ).rejects.toThrow('Search is unavailable');
+  }
+});
+
+it.each([
+  [
+    { model_providers: { openai: { base_url: 'https://custom.invalid' } } },
+    'Custom OpenAI routing',
+  ],
+  [{ mcp_servers: { 'invalid.name': {} } }, 'Unsupported inherited Codex MCP server name'],
+])(
+  'still inspects and refuses invalid inherited host configuration when search is excluded: %j',
+  async (inherited, message) => {
+    const requests: string[] = [];
+    const args: Parameters<typeof setup> = [];
+    args[22] = inherited;
+    args[24] = (method) => requests.push(method);
+    args[30] = { disableWebSearch: true };
+    await expect(setup(...args)).rejects.toThrow(message);
+    expect(requests).toEqual(['account/read', 'config/read']);
+  },
+);
+
+it('claims an exact accepted target once and reconciles its original interruption without another RPC', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  expect(target).toMatchObject({
+    commandId: 'target-a',
+    attempt: 1,
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+    generation: 0,
+  });
+  const first = await f.c.interruptIfCurrent('stop-a', target);
+  expect(first).toMatchObject({
+    status: 'claimed',
+    replayed: false,
+    receipt: { requestId: 'stop-a', target: { commandId: 'target-a' } },
+  });
+  expect(await f.c.interruptIfCurrent('stop-a', target)).toMatchObject({
+    status: 'claimed',
+    replayed: true,
+  });
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toEqual([
+    { method: 'turn/interrupt', params: { threadId: target.threadId, turnId: target.turnId } },
+  ]);
+  expect(f.store.targetedInterruptReceipt('app', f.getBinding(), 'stop-a')).toEqual(
+    first.status === 'claimed' ? first.receipt : undefined,
+  );
+});
+it('refuses a retired target before pausing or cancelling the successor', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  await f.c.send({ id: 'target-b', prompt: 'Second' });
+  const before = f.store.read('app', f.getBinding());
+  expect(await f.c.interruptIfCurrent('stale-stop', target)).toEqual({ status: 'stale_target' });
+  expect(f.store.read('app', f.getBinding())).toEqual(before);
+  expect(f.c.isPaused()).toBe(false);
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(0);
+  expect(f.c.queue().find((c) => c.id === 'target-b')?.status).toBe('running');
+});
+it('refuses copied and foreign target metadata before any effect', async () => {
+  const f = await setup(),
+    other = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  await other.c.send({ id: 'target-a', prompt: 'Same labels, different owner' });
+  const target = f.c.captureInterruptTarget()!;
+  const before = f.store.read('app', f.getBinding());
+  expect(await f.c.interruptIfCurrent('copy', { ...target })).toEqual({ status: 'stale_target' });
+  expect(await f.c.interruptIfCurrent('foreign', other.c.captureInterruptTarget()!)).toEqual({
+    status: 'stale_target',
+  });
+  expect(f.store.read('app', f.getBinding())).toEqual(before);
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(0);
+});
+it('retains an ambiguous interruption claim after a lost RPC response without reissuing it', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/interrupt') {
+      f.requests.push({ method, params });
+      throw Error('Lost interruption response');
+    }
+    return original(method, params);
+  });
+  await expect(f.c.interruptIfCurrent('lost-stop', target)).rejects.toThrow(
+    'Lost interruption response',
+  );
+  expect(f.c.queue()[0].status).toBe('running');
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  expect(await f.c.interruptIfCurrent('lost-stop', target)).toMatchObject({
+    status: 'claimed',
+    replayed: true,
+  });
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+});
+it('refuses a changed durable attempt or generation before pause, abort or RPC', async () => {
+  for (const changed of ['attempt', 'generation'] as const) {
+    const f = await setup();
+    await f.c.send({ id: 'target-a', prompt: 'First' });
+    const target = f.c.captureInterruptTarget()!;
+    const privateStore = f.store as unknown as { db: Database.Database };
+    if (changed === 'attempt')
+      privateStore.db
+        .prepare('UPDATE codex_commands SET attempt=attempt+1 WHERE conversation_id=? AND id=?')
+        .run('app', 'target-a');
+    else
+      privateStore.db
+        .prepare('UPDATE codex_conversations SET thread_generation=thread_generation+1 WHERE id=?')
+        .run('app');
+    const before = f.store.read('app', f.getBinding());
+    expect(await f.c.interruptIfCurrent(`stale-${changed}`, target)).toEqual({
+      status: 'stale_target',
+    });
+    expect(f.store.read('app', f.getBinding())).toEqual(before);
+    expect(f.c.isPaused()).toBe(false);
+    expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(0);
+  }
+});
+it('refuses a retired transport and never borrows the successor client', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  f.callbacks.onClose(new Error('Retired original transport'));
+  const before = f.store.read('app', f.getBinding());
+  expect(await f.c.interruptIfCurrent('retired-stop', target)).toEqual({ status: 'stale_target' });
+  expect(f.store.read('app', f.getBinding())).toEqual(before);
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(0);
+});
+it('refuses an original interruption request reused against an actual successor turn', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const original = f.c.captureInterruptTarget()!;
+  await f.c.interruptIfCurrent('same-control', original);
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('interrupted'));
+  await f.c.send({ id: 'target-b', prompt: 'Second' });
+  await f.c.resumeAfterExplicitSend();
+  const successor = f.c.captureInterruptTarget()!;
+  expect(successor.commandId).toBe('target-b');
+  const before = f.store.read('app', f.getBinding());
+  await expect(f.c.interruptIfCurrent('same-control', successor)).rejects.toThrow(
+    /different target/,
+  );
+  expect(f.store.read('app', f.getBinding())).toEqual(before);
+  expect(f.c.isPaused()).toBe(false);
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+  expect(await f.c.interruptIfCurrent('same-control', original)).toMatchObject({
+    status: 'claimed',
+    replayed: true,
+  });
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+});
+it('has no cancellation target while the actual turn/start acknowledgement is pending', async () => {
+  const f = await setup();
+  expect(f.c.captureInterruptTarget()).toBeUndefined();
+  const original = f.rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start') await pending;
+    return original(method, params);
+  });
+  const send = f.c.send({ id: 'pending-ack', prompt: 'First' });
+  await vi.waitFor(() => expect(f.c.queue()[0]?.status).toBe('running'));
+  expect(f.c.captureInterruptTarget()).toBeUndefined();
+  release();
+  await send;
+  expect(f.c.captureInterruptTarget()?.commandId).toBe('pending-ack');
+});
+it('retains the original cancellation claim if an abort listener retires the actual transport', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  let toolSignal: AbortSignal | undefined;
+  f.execute.mockImplementation((_name, _input, signal) => {
+    toolSignal = signal;
+    return new Promise((resolve) =>
+      signal.addEventListener('abort', () => {
+        f.callbacks.onClose(new Error('Retired during abort'));
+        resolve({ content: 'cancelled', isError: true });
+      }),
+    );
+  });
+  const tool = f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: target.threadId,
+      turnId: target.turnId,
+      callId: 'abort-retirement',
+      namespace: null,
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  await vi.waitFor(() => expect(toolSignal).toBeDefined());
+  await expect(f.c.interruptIfCurrent('retired-during-abort', target)).rejects.toThrow(
+    /transport retired/,
+  );
+  await tool;
+  expect(toolSignal?.aborted).toBe(true);
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(0);
+  expect(
+    f.store.targetedInterruptReceipt('app', f.getBinding(), 'retired-during-abort'),
+  ).toMatchObject({ target: { commandId: 'target-a' }, disposition: 'claimed' });
+});
+it('does not duplicate a targeted cancellation invoked during the actual acceptance observer', async () => {
+  const f = await setup();
+  let interrupted: ReturnType<typeof f.c.interruptIfCurrent> | undefined;
+  f.conversationOptions.onProviderAccepted = () => {
+    const target = f.c.captureInterruptTarget()!;
+    expect(target.commandId).toBe('observer-target');
+    interrupted = f.c.interruptIfCurrent('observer-control', target);
+  };
+  await f.c.send({ id: 'observer-target', prompt: 'First' });
+  expect(interrupted).toBeDefined();
+  expect(await interrupted).toMatchObject({ status: 'claimed', replayed: false });
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+  expect(f.store.targetedInterruptReceipt('app', f.getBinding(), 'observer-control')).toMatchObject(
+    { target: { commandId: 'observer-target' }, disposition: 'claimed' },
+  );
+});
+
+it('automatically reconnects a dropped transport and dispatches saved FIFO work without replaying the interrupted turn', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onClose(new Error('connection closed'));
+  expect(f.c.isRecovering()).toBe(true);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'lost', status: 'interrupted' },
+    { id: 'saved', status: 'running' },
+  ]);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+  expect(f.c.isRecovering()).toBe(false);
+});
+
+it('retries transient reconnect failures with backoff without consuming saved commands', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.rpc.initialize.mockRejectedValueOnce(new Error('temporary outage'));
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(f.c.isRecovering()).toBe(true);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('running');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+});
+
+it('cancels pending automatic recovery when the user stops the conversation', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onClose(new Error('connection closed'));
+  await f.c.interrupt();
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.c.isRecovering()).toBe(false);
+});
+
+it('does not release saved work while provider metadata still reports an active turn', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? { data: [{ id: 'turn-1', status: 'inProgress' }], nextCursor: null }
+      : request(method, params),
+  );
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  f.rpc.request.mockImplementation(request);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('running');
+  expect(f.rpc.request).toHaveBeenCalledWith(
+    'thread/turns/list',
+    expect.objectContaining({ itemsView: 'notLoaded', limit: 1 }),
+  );
+});
+
+it('bounds automatic reconnect attempts and preserves the queue during a sustained outage', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.rpc.initialize.mockRejectedValue(new Error('still offline'));
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(f.rpc.initialize).toHaveBeenCalledTimes(6); // first initialization + five reconnects
+  expect(f.c.isRecovering()).toBe(false);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
+it('does not undo an explicit Stop when its idle transport later closes', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'first', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  await f.c.interrupt();
+  f.callbacks.onClose(new Error('idle transport expired'));
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.c.isPaused()).toBe(true);
+  expect(f.c.isRecovering()).toBe(false);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
+it('fences an in-flight automatic reconnect when Stop arrives during workspace startup', async () => {
+  vi.useFakeTimers();
+  let release!: () => void;
+  const args: Parameters<typeof setup> = [];
+  args[5] = () =>
+    new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  const f = await setup(...args);
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  await f.c.interrupt();
+  release();
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.c.isRecovering()).toBe(false);
+});
+
+it('retains qualified transport recovery across a cold reattach without replaying previous work', async () => {
+  vi.useFakeTimers();
+  const first = await setup();
+  await first.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await first.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  first.callbacks.onClose(new Error('connection closed'));
+  expect(first.store.automaticRecoveryPending('app', first.getBinding())).toBe(true);
+  first.c.close();
+  expect(first.store.automaticRecoveryPending('app', first.getBinding())).toBe(true);
+  const restored = await setup(first.store);
+  restored.c.recoverSavedQueue();
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(restored.c.queue().find(({ id }) => id === 'saved')?.status).toBe('running');
+  expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(first.store.automaticRecoveryPending('app', first.getBinding())).toBe(false);
+});
+
+it('does not restore automatic eligibility when a reconnect transport closes after Stop', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  let release!: () => void;
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/turns/list') {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { data: [], nextCursor: null };
+    }
+    return request(method, params);
+  });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  await f.c.interrupt();
+  f.callbacks.onClose(new Error('reconnect closed after Stop'));
+  expect(f.store.automaticRecoveryPending('app', f.getBinding())).toBe(false);
+  release();
+  await vi.advanceTimersByTimeAsync(60000);
+  f.c.close();
+  expect(f.store.automaticRecoveryPending('app', f.getBinding())).toBe(false);
+  const restored = await setup(f.store);
+  restored.c.recoverSavedQueue();
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(restored.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+});
+
+it('rejects recovery metadata from a transport that closes before its continuation runs', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/turns/list') {
+      f.callbacks.onClose(new Error('metadata transport closed'));
+      return { data: [], nextCursor: null };
+    }
+    return request(method, params);
+  });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(f.store.automaticRecoveryPending('app', f.getBinding())).toBe(true);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  f.rpc.request.mockImplementation(request);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('running');
+});
+
+it('leaves recovery of guarded ordinary routes to their existing runtime owner', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  f.conversationOptions.canClaimCommand = () => true;
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.c.isRecovering()).toBe(false);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
+it('does not drain further saved commands if the automatic follow-up loses its transport too', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'probe', prompt: 'Synthetic follow-up' });
+  await f.c.send({ id: 'preserved', prompt: 'Synthetic later work' });
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    const result = await request(method, params);
+    if (method === 'turn/start') f.callbacks.onClose(new Error('still offline'));
+    return result;
+  });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+  expect(f.c.queue().find(({ id }) => id === 'preserved')?.status).toBe('queued');
+  expect(f.c.isRecovering()).toBe(false);
+});

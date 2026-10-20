@@ -1,3 +1,6 @@
+import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
+import { SourceSnapshotsSchema } from '@mitzo/protocol';
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import {
   assertOrdinaryCodexSnapshotCustody,
   ordinaryCodexSnapshotCustody,
@@ -19,6 +22,7 @@ const Images = z
   .array(z.strictObject({ data: z.string().min(1), mediaType: z.string().min(1).max(128) }))
   .max(16);
 const Payload = z.strictObject({
+  sourceSnapshots: SourceSnapshotsSchema.optional(),
   text: z.string().min(1).max(1_000_000),
   systemPrompt: z.string().max(1_000_000),
   intent: z.string().max(1_000_000).optional(),
@@ -38,11 +42,13 @@ export interface OwnedLocalCodexChatOptions {
   images?: Array<{ data: string; mediaType: string }>;
   agentProfile?: AgentLibraryVersion;
   agentContext?: AgentContextSnapshot;
+  ordinaryWorkspace?: { kind: 'ordinary'; id: string; directory: string };
   repositoryWorkspace?: { id: string; directory?: string; sandbox?: boolean };
   resume?: boolean;
   reattachOnly?: boolean;
 }
 interface Owner {
+  workspaceKind?: 'repository' | 'ordinary';
   eventStore: EventStore;
   sessionId: string;
   commandId: string;
@@ -130,7 +136,8 @@ export class OwnedLocalCodexChatAdmission {
         child.assertReceipt();
         if (
           child.#payload.systemPrompt !== admission.#payload.systemPrompt ||
-          queued.prompt !== child.#payload.text ||
+          queued.prompt !==
+            assembleSourceSnapshots(child.#payload.text, child.#payload.sourceSnapshots) ||
           (queued.intent ?? queued.prompt) !== (child.#payload.intent ?? child.#payload.text) ||
           !isDeepStrictEqual(queued.images ?? [], child.#payload.images ?? []) ||
           queued.model !== child.#expected.selection.model ||
@@ -153,6 +160,7 @@ export class OwnedLocalCodexChatAdmission {
     }
   }
   private assertReceipt(initial = false): void {
+    resolveTelosWorkRoleContext(this.owner.eventStore, this.owner.sessionId, this.#binding);
     const receipt = this.owner.eventStore.getOrdinaryLocalCommandAdmission(this.owner.commandId);
     const send = this.owner.eventStore.getSendCommand(this.owner.commandId);
     const session = this.owner.eventStore.getSession(this.owner.sessionId);
@@ -163,6 +171,11 @@ export class OwnedLocalCodexChatAdmission {
       send.sessionId !== this.owner.sessionId ||
       send.error ||
       !session ||
+      (this.owner.workspaceKind === 'ordinary'
+        ? session.ordinaryWorkspaceId !== expected.workspace.workspaceId ||
+          session.repositoryWorkspaceId != null
+        : session.repositoryWorkspaceId !== expected.workspace.workspaceId ||
+          session.ordinaryWorkspaceId != null) ||
       (initial
         ? receipt.state !== 'uncertain'
         : !['uncertain', 'consumed'].includes(receipt.state)) ||
@@ -261,6 +274,15 @@ export class OwnedLocalCodexChatAdmission {
         profile.model,
       ];
       if (!isDeepStrictEqual(routing(options.profile), routing(this.#profile))) throw unavailable();
+      const ordinary = this.owner.workspaceKind === 'ordinary';
+      const workspace = ordinary ? options.ordinaryWorkspace : options.repositoryWorkspace;
+      if (
+        ordinary
+          ? options.repositoryWorkspace !== undefined ||
+            options.ordinaryWorkspace?.kind !== 'ordinary'
+          : options.ordinaryWorkspace !== undefined
+      )
+        throw unavailable();
       if (
         !!options.resume !== this.#resume ||
         options.reattachOnly ||
@@ -273,15 +295,16 @@ export class OwnedLocalCodexChatAdmission {
         options.session.mode !== expected.selection.permission.mode ||
         (options.model ?? options.binding.model) !== expected.selection.model ||
         (options.reasoningEffort ?? null) !== expected.selection.thinking ||
-        options.prompt !== this.#payload.text ||
+        options.prompt !==
+          assembleSourceSnapshots(this.#payload.text, this.#payload.sourceSnapshots) ||
         options.systemPrompt !== this.#payload.systemPrompt ||
         (options.intent ?? options.prompt) !== (this.#payload.intent ?? this.#payload.text) ||
         !isDeepStrictEqual(options.images ?? [], this.#payload.images ?? []) ||
         !isDeepStrictEqual(options.agentProfile, expected.agentProfile) ||
         !isDeepStrictEqual(options.agentContext, expected.agentContext) ||
-        options.repositoryWorkspace?.id !== expected.workspace.workspaceId ||
-        options.repositoryWorkspace.directory !== expected.workspace.cwd ||
-        options.repositoryWorkspace.sandbox === true
+        workspace?.id !== expected.workspace.workspaceId ||
+        workspace?.directory !== expected.workspace.cwd ||
+        (workspace && 'sandbox' in workspace && workspace.sandbox === true)
       )
         throw unavailable();
     } catch {
@@ -348,7 +371,7 @@ export class OwnedLocalCodexChatAdmission {
     if (
       this.#enqueued ||
       input.id !== this.owner.commandId ||
-      input.prompt !== this.#payload.text ||
+      input.prompt !== assembleSourceSnapshots(this.#payload.text, this.#payload.sourceSnapshots) ||
       (input.intent ?? input.prompt) !== (this.#payload.intent ?? this.#payload.text) ||
       !isDeepStrictEqual(input.images ?? [], this.#payload.images ?? []) ||
       (input.model ?? this.#expected.selection.model) !== this.#expected.selection.model ||

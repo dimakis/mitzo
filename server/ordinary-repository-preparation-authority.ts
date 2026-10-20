@@ -14,6 +14,7 @@ import {
 } from './ordinary-local-codex-host-runtime.js';
 import {
   OrdinaryRepositoryPreparationSchema,
+  OrdinarySilentPreparationSelectionSchema,
   type OrdinaryRepositoryPreparation,
   type OrdinaryRepositoryRuntimeSelection,
 } from './ordinary-repository-preparation.js';
@@ -209,6 +210,10 @@ export async function assertOrdinaryRepositoryPreparation(
   binding: AccountBinding,
   signal: AbortSignal,
   requireModelReadiness = false,
+  selection?: Pick<
+    import('@mitzo/protocol').OrdinaryWorkspaceSettings['selection'],
+    'model' | 'thinking'
+  >,
 ) {
   const saved = OrdinaryRepositoryPreparationSchema.parse(raw);
   if (
@@ -218,6 +223,21 @@ export async function assertOrdinaryRepositoryPreparation(
     )
   )
     throw unavailable();
+  // Explicit ordinary V2 selections qualify exact thinking before allocation.
+  // Legacy callers without this extra tuple retain their existing behavior.
+  const assertSelectionCurrent = () => {
+    if (!selection) return;
+    if (!requireModelReadiness || selection.model !== binding.model) throw unavailable();
+    const profiles = loadAccountProfiles();
+    profiles.validateModelSelection(binding, selection.model, selection.thinking);
+    const model = profiles
+      .catalog()
+      .find((account) => account.id === binding.accountId)
+      ?.models.find((model) => model.id === selection.model);
+    if (!model || (selection.thinking === null && model.reasoningEfforts?.length))
+      throw unavailable();
+  };
+  assertSelectionCurrent();
   const current = await captureOrdinaryRepositoryPreparation(
     binding,
     {
@@ -236,4 +256,24 @@ export async function assertOrdinaryRepositoryPreparation(
     current.credentialDigest !== saved.credentialDigest
   )
     throw unavailable();
+  assertSelectionCurrent();
+}
+
+/** Read-only requalification for silent allocation; API/SDK queue preparation and
+ * native recipes remain unavailable. The existing account/runtime custody owner
+ * is the authority, with model readiness rechecked before recording allocation. */
+export async function assertOrdinarySilentPreparationAuthority(
+  raw: OrdinaryRepositoryPreparation,
+  binding: AccountBinding,
+  settings: import('@mitzo/protocol').CollaborationSettings,
+  signal: AbortSignal,
+): Promise<void> {
+  const selection = OrdinarySilentPreparationSelectionSchema.parse(settings);
+  const proof = OrdinaryRepositoryPreparationSchema.parse(raw);
+  if (
+    !isDeepStrictEqual(proof.runtimeBinding, selection.binding) ||
+    binding.model !== selection.selection.model
+  )
+    throw unavailable();
+  await assertOrdinaryRepositoryPreparation(proof, binding, signal, true);
 }

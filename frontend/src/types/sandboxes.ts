@@ -1,3 +1,8 @@
+export interface SessionRemovalOptions {
+  archive?: boolean;
+  cleanupToken?: string;
+}
+
 export interface SandboxPoolSettings {
   enabled: boolean;
   capacity: number;
@@ -19,6 +24,7 @@ export interface SandboxSpare {
   observedAt?: number;
 }
 export interface SandboxConversation {
+  physicalId?: string | null;
   conversationId: string;
   sandboxName: string;
   state: string;
@@ -27,6 +33,14 @@ export interface SandboxConversation {
   canReviewCleanup: boolean;
 }
 export interface SandboxesInventory {
+  physicalInventory?: {
+    available: boolean;
+    error?: string;
+    total?: number;
+    counts?: Record<string, number>;
+    observedAt?: number;
+    items?: Array<{ id: string; name: string; state: string; management: string }>;
+  };
   revision: number;
   settings: SandboxPoolSettings;
   resting: boolean;
@@ -39,7 +53,24 @@ export interface SandboxesInventory {
 }
 export interface SandboxCleanupPreview {
   token: string;
-  action: 'stop' | 'delete' | 'none';
+  record?: { conversationId: string; sandboxName: string; physicalSandboxId: string | null };
+  action: 'stop' | 'stop_and_delete' | 'delete' | 'none';
   blockers: string[];
   expiresAt: number;
+  retention?: { enabled: boolean; deleteAfter: number | null; days: number };
+}
+
+export interface SandboxOwnershipReview {
+  physical: { id: string; name: string; state: string };
+  owners: Array<{
+    conversationId: string;
+    accountId: string;
+    accountLabel?: string;
+    title?: string;
+    ownerKind: string | null;
+    relation: string;
+  }>;
+  blockers: string[];
+  canDelete: false;
+  observedAt: number;
 }

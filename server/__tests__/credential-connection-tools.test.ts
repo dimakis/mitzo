@@ -1,6 +1,21 @@
+import { ConnectionRequestError } from '../connection-request-error.js';
 import { expect, it, vi } from 'vitest';
 import { createCredentialConnectionTools } from '../credential-connection-tools.js';
 import { DashboardRequestError } from '../home-assistant-dashboard.js';
+
+it('returns structured safe errors with retry guidance to the model', async () => {
+  const f = setup();
+  f.service.request.mockRejectedValueOnce(new ConnectionRequestError('response_too_large'));
+  const result = await f.tools.execute(
+    'ConnectionRequest',
+    { connectionId: 'ha', path: '/api/states', method: 'GET' },
+    new AbortController().signal,
+  );
+  expect(result?.isError).toBe(true);
+  expect(JSON.parse(result!.content)).toMatchObject({
+    error: { code: 'response_too_large', retry: 'after_change', mayHaveApplied: false },
+  });
+});
 
 it('prepares secret-free setup and reads only setup belonging to the owning chat', async () => {
   const f = setup();
@@ -71,6 +86,10 @@ function setup(
       homeAssistantDashboards: 'read-write',
     })),
     grant: vi.fn(),
+    observeSessionRevocation: vi.fn(() => ({
+      signal: new AbortController().signal,
+      close: vi.fn(),
+    })),
     request: vi.fn(async () => ({ status: 200, body: 'ok' })),
     dashboardRequest: vi.fn(async () => '{"operation":"read","config":{},"configHash":"fixture"}'),
   };

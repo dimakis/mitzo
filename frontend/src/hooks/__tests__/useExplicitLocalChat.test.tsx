@@ -7,8 +7,182 @@ import { localInventoryFixture } from '../../test-utils/local-inventory-fixture'
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { prepareLocalContinuationCommand } from '../../lib/explicit-local-chat';
 import { sha256Hex } from '../../lib/browser-crypto';
+import { setDefaultAccountModel } from '../../lib/account-preference';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
+
+it.each(['valid', 'wrong-workspace', 'wrong-conversation', 'private-path', 'oversized', 'missing'])(
+  'retains only bounded repository presentation for the exact metadata workspace: %s',
+  async (scenario) => {
+    const data = localInventoryFixture();
+    const workspaceId = '11111111-1111-4111-8111-111111111111';
+    const repositoryContext = { workspaceId, repository: 'example/owned-repository' };
+    if (scenario === 'wrong-workspace') repositoryContext.workspaceId = 'other-workspace';
+    if (scenario === 'private-path') repositoryContext.repository = '/private/task';
+    if (scenario === 'oversized') repositoryContext.repository = 'r'.repeat(201);
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      Response.json(
+        String(url).includes('/meta')
+          ? {
+              sessionId: scenario === 'wrong-conversation' ? 'other-chat' : 'current-chat',
+              repositoryWorkspaceId: workspaceId,
+              ...(scenario === 'missing' ? {} : { repositoryContext }),
+            }
+          : data,
+      ),
+    );
+    const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'current-chat', true));
+    await waitFor(() => expect(result.current.metadataPending).toBe(false));
+    expect(result.current.repositoryWorkspaceId).toBe(workspaceId);
+    expect(result.current).toHaveProperty(
+      'repositoryContext',
+      scenario === 'valid' ? repositoryContext : undefined,
+    );
+    expect(result.current.metadataUnavailable).toBe(false);
+  },
+);
+
+it('fences late repository presentation and clears it synchronously when the selected conversation changes', async () => {
+  const data = localInventoryFixture();
+  let finish!: (response: Response) => void;
+  const workspaceId = '11111111-1111-4111-8111-111111111111';
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).includes('/meta')
+      ? new Promise((resolve) => {
+          finish = resolve;
+        })
+      : Response.json(data),
+  );
+  const { result, rerender } = renderHook(
+    ({ sessionId }) => useExplicitLocalChat('draft', null, sessionId, true),
+    { initialProps: { sessionId: 'old-chat' as string | null } },
+  );
+  await waitFor(() => expect(finish).toBeDefined());
+  rerender({ sessionId: null });
+  await act(async () =>
+    finish(
+      Response.json({
+        sessionId: 'old-chat',
+        repositoryWorkspaceId: workspaceId,
+        repositoryContext: { workspaceId, repository: 'example/old-repository' },
+      }),
+    ),
+  );
+  expect(result.current).toHaveProperty('repositoryContext', undefined);
+  expect(result.current.repositoryWorkspaceId).toBeUndefined();
+});
+
+it('withholds repository presentation while metadata refresh is pending or fails', async () => {
+  const data = localInventoryFixture();
+  const workspaceId = '11111111-1111-4111-8111-111111111111';
+  let failRefresh = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (!String(url).includes('/meta')) return Response.json(data);
+    if (failRefresh) throw Error('Metadata read failed');
+    return Response.json({
+      sessionId: 'current-chat',
+      repositoryWorkspaceId: workspaceId,
+      repositoryContext: { workspaceId, repository: 'example/owned-repository' },
+    });
+  });
+  const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'current-chat', true));
+  await waitFor(() =>
+    expect(result.current).toHaveProperty('repositoryContext', {
+      workspaceId,
+      repository: 'example/owned-repository',
+    }),
+  );
+  failRefresh = true;
+  act(() => result.current.refresh());
+  expect(result.current).toHaveProperty('repositoryContext', undefined);
+  await waitFor(() => expect(result.current.metadataUnavailable).toBe(true));
+  expect(result.current).toHaveProperty('repositoryContext', undefined);
+  expect(result.current.repositoryWorkspaceId).toBe(workspaceId);
+});
+
+it.each(['', 'agentProfile=agent&profileRevision=1'])(
+  'seeds fresh runtime intent from browser defaults without confirming account identity: %s',
+  async (search) => {
+    const account = { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'high' };
+    setDefaultAccountModel(account);
+    vi.mocked(apiFetch).mockImplementation(
+      async () => new Response(JSON.stringify(localInventoryFixture())),
+    );
+    const { result } = renderHook(() => useExplicitLocalChat('fresh', null, null, true, search));
+    expect(result.current.intent.account).toEqual(account);
+    expect(result.current.intent.accountReference ?? null).toBeNull();
+    await waitFor(() => expect(result.current.inventory).not.toBeNull());
+    expect(result.current.accountNeedsConfirmation).toBe(true);
+    expect(result.current.reason).toContain('account identity is unconfirmed');
+    expect(result.current.intent.execution.targetId).toBeNull();
+  },
+);
+
+it.each([null, { accountId: 'saved', model: 'saved-model', reasoningEffort: 'low' }])(
+  'keeps retained draft intent ahead of browser defaults, including an explicitly empty account: %j',
+  async (account) => {
+    setDefaultAccountModel({ accountId: 'personal', model: 'luna-fixture' });
+    vi.mocked(apiFetch).mockImplementation(
+      async () => new Response(JSON.stringify(localInventoryFixture())),
+    );
+    const saved = { ...createChatRuntimeSelection(), account };
+    const { result } = renderHook(() => useExplicitLocalChat('saved', saved, null, true));
+    await waitFor(() => expect(result.current.inventory).not.toBeNull());
+    expect(result.current.intent.account).toEqual(account);
+  },
+);
+
+it('ignores malformed browser defaults and never seeds existing conversations from preferences', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async () => new Response(JSON.stringify(localInventoryFixture())),
+  );
+  setDefaultAccountModel({ accountId: 'bad account id', model: 'bad model id' });
+  const fresh = renderHook(() => useExplicitLocalChat('fresh', null, null, true));
+  expect(fresh.result.current.intent.account).toBeNull();
+  fresh.unmount();
+  setDefaultAccountModel({ accountId: 'personal', model: 'luna-fixture' });
+  const existing = renderHook(() => useExplicitLocalChat('existing', null, 'session', true));
+  expect(existing.result.current.intent.account).toBeNull();
+  existing.unmount();
+});
+
+it.each([null, { accountId: 'legacy', model: 'retained-model', reasoningEffort: 'high' }])(
+  'preserves older restored drafts without runtime metadata ahead of browser defaults: %j',
+  async (savedAccount) => {
+    setDefaultAccountModel({ accountId: 'personal', model: 'luna-fixture' });
+    vi.mocked(apiFetch).mockImplementation(
+      async () => new Response(JSON.stringify(localInventoryFixture())),
+    );
+    const { result } = renderHook(() =>
+      useExplicitLocalChat('legacy-draft', null, null, true, '', savedAccount),
+    );
+    await waitFor(() => expect(result.current.inventory).not.toBeNull());
+    expect(result.current.intent.account).toEqual(savedAccount);
+    expect(result.current.intent.accountReference ?? null).toBeNull();
+  },
+);
+
+it.each([false, true])(
+  'a browser preference alone does not enroll runtime setup, while a saved runtime choice stays blocked: %s',
+  async (retainedRuntime) => {
+    const account = { accountId: 'personal', model: 'luna-fixture' };
+    setDefaultAccountModel(account);
+    vi.mocked(apiFetch).mockImplementation(
+      async () => new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 }),
+    );
+    const saved = retainedRuntime ? { ...createChatRuntimeSelection(), account } : null;
+    const { result } = renderHook(() => useExplicitLocalChat('draft', saved, null, true));
+    await waitFor(() => expect(apiFetch).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(result.current.reason).not.toBe('Checking execution choices…');
+      expect(result.current.visible).toBe(retainedRuntime);
+    });
+    expect(result.current.intent.account).toEqual(account);
+  },
+);
 
 it('hydrates the original recipe snapshot on cold resume and changes only future thinking intent', async () => {
   const data = localInventoryFixture();

@@ -46,6 +46,11 @@ test.beforeEach(async ({ page }) => {
       return route.fulfill({
         json: { profiles: ['centaur', 'manual', 'personal', 'work'], items },
       });
+    if (path.startsWith('/api/telos/work/'))
+      return route.fulfill({
+        status: 404,
+        json: { error: 'Canonical records unavailable in this legacy fallback fixture' },
+      });
     if (path === '/api/home/preferences')
       return route.fulfill({
         json: { revision: 0, names: { briefing: 'Minion', terminal: 'Minion' }, pins: [] },
@@ -105,16 +110,24 @@ test('Telos keeps long handovers compact and actions reachable on iOS', async ({
   await expect(page.getByRole('button', { name: 'Pin to Today', exact: true })).toBeEnabled();
 });
 
-test('desktop and tablet Work lists retain a compact action bar without a second heading', async ({
+test('desktop and tablet legacy Work fallback retains a compact action bar without a second heading', async ({
   page,
   isMobile,
 }) => {
   test.skip(isMobile, 'Desktop collection layout');
   for (const width of [1280, 820]) {
     await page.setViewportSize({ width, height: 900 });
-    await expect(page.getByRole('heading', { name: 'Work with purpose' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Work', exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Telos', exact: true })).toBeHidden();
-    const list = page.getByRole('region', { name: 'Work items', exact: true });
+    const list = page.locator('.todo-page');
+    await expect(list.getByRole('heading', { name: 'Work', exact: true })).toHaveCount(1);
+    const pageBounds = (await list.boundingBox())!,
+      centerBounds = (await page.locator('.desktop-center').boundingBox())!;
+    expect(Math.abs(pageBounds.width - centerBounds.width)).toBeLessThanOrEqual(1);
+    expect(pageBounds.x).toBeGreaterThanOrEqual(centerBounds.x);
+    expect(pageBounds.x + pageBounds.width).toBeLessThanOrEqual(
+      centerBounds.x + centerBounds.width + 1,
+    );
     await expect(list.getByRole('button', { name: 'Add outcome' })).toBeVisible();
     await expect(list.getByRole('button', { name: 'Refresh Telos' })).toBeVisible();
     expect(

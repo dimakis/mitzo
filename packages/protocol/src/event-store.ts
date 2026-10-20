@@ -1,4 +1,11 @@
 import {
+  OrdinarySessionPreparationReceiptSchema,
+  OrdinarySessionPreparationReceiptV2Schema,
+  type OrdinarySessionPreparationReceipt,
+} from './ordinary-prepared-session.js';
+import { OrdinaryWorkspaceSessionStore } from './ordinary-workspace-session-store.js';
+import type { CollaborationSettings } from './collaboration-conversation.js';
+import {
   OrdinaryLocalVertexCustodySchema,
   type OrdinaryLocalVertexCustody,
 } from './ordinary-local-vertex-custody.js';
@@ -7,6 +14,7 @@ import {
   rowToSession,
   REGISTERED_CONVERSATION_SQL,
   LEGACY_CONVERSATION_EVIDENCE_SQL,
+  sessionWorkspaceId,
   type SessionRow,
   type SessionUpsert,
 } from './session-metadata-store.js';
@@ -18,6 +26,7 @@ import {
 } from './conversation-replay-store.js';
 export type { ConversationTextEvent, ReconnectState } from './conversation-replay-store.js';
 import {
+  createOrdinaryFreshPermission,
   OrdinaryLocalCommandAdmissionSchema,
   OrdinaryLocalResponsesCommandAdmissionSchema,
   type OrdinaryLocalCommandAdmission,
@@ -56,7 +65,10 @@ import { isDeepStrictEqual } from 'node:util';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
 import { SessionCollaborationStore } from './session-collaboration-store.js';
 import { CollaborationConversationStore } from './collaboration-conversation-store.js';
-import { openCollaborationVisibleSource } from './collaboration-visible-source.js';
+import {
+  captureCollaborationDurableTranscript,
+  openCollaborationVisibleSource,
+} from './collaboration-visible-source.js';
 import { CollaborationContractError } from './collaboration-conversation.js';
 import { SessionCollaborationError } from './session-collaboration.js';
 import {
@@ -379,6 +391,7 @@ export class EventStore {
   readonly collaborationConversation: CollaborationConversationStore;
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
+  private readonly ordinaryWorkspaceSessions: OrdinaryWorkspaceSessionStore;
   private readonly sessionLifecycle: SessionLifecycleStore;
   private readonly executionLedger: ExecutionLedger<SessionRow>;
   private log: EventStoreLogger;
@@ -464,6 +477,185 @@ export class EventStore {
     this.db!.prepare(
       'INSERT INTO send_commands (client_msg_id, session_id, payload) VALUES (?, ?, ?)',
     ).run(clientMsgId, sessionId, JSON.stringify(payload));
+  }
+
+  prepareOrdinaryWorkspaceSession(...args: Parameters<OrdinaryWorkspaceSessionStore['prepare']>) {
+    return this.ordinaryWorkspaceSessions.prepare(...args);
+  }
+  getOrdinaryWorkspaceSessionPreparation(operationId: string) {
+    return this.ordinaryWorkspaceSessions.get(operationId);
+  }
+  getOrdinaryWorkspaceSessionPreparationForConversation(sessionId: string) {
+    return this.ordinaryWorkspaceSessions.forConversation(sessionId);
+  }
+  getOrdinaryWorkspaceConversationSettings(sessionId: string) {
+    return this.ordinaryWorkspaceSessions.settings(sessionId);
+  }
+  assertPreparedOrdinaryWorkspaceSession(
+    ...args: Parameters<OrdinaryWorkspaceSessionStore['assert']>
+  ) {
+    return this.ordinaryWorkspaceSessions.assert(...args);
+  }
+  admitPreparedOrdinaryWorkspaceCommand(
+    ...args: Parameters<OrdinaryWorkspaceSessionStore['admit']>
+  ) {
+    return this.ordinaryWorkspaceSessions.admit(...args);
+  }
+
+  /** Trusted workspace owner only: reservation/source/runtime fences precede this commit.
+   * No command, event, native queue, execution admission or provider is created. */
+  prepareOrdinarySession(
+    meta: SessionUpsert,
+    input: {
+      allocationOperationId: string;
+      preparationFingerprint: string;
+      settings: CollaborationSettings;
+      delegationAttemptId?: string;
+    },
+  ): OrdinarySessionPreparationReceipt {
+    const receipt = OrdinarySessionPreparationReceiptSchema.parse({
+      version: 1,
+      ...input,
+      sessionId: meta.sessionId,
+      workspaceId: meta.repositoryWorkspaceId,
+      firstCommandId: null,
+    });
+    const account = AccountBindingSchema.parse(meta.accountBinding);
+    if (
+      !isDeepStrictEqual(receipt.settings.binding.account, {
+        accountId: account.accountId,
+        provider: account.provider,
+        profileRevision: account.profileRevision,
+      }) ||
+      account.model !== receipt.settings.selection.model ||
+      meta.selectedModel !== receipt.settings.selection.model ||
+      meta.mode !== receipt.settings.selection.permission.mode ||
+      (meta.reasoningEffort ?? null) !== receipt.settings.selection.thinking ||
+      !meta.cwd
+    )
+      throw Error('Prepared ordinary settings do not match session');
+    return this.db!.transaction(() => {
+      const previous = this.getOrdinarySessionPreparation(input.allocationOperationId);
+      if (previous) {
+        if (!isDeepStrictEqual({ ...previous, firstCommandId: null }, receipt))
+          throw Error('Prepared ordinary allocation cannot be replaced');
+        this.assertPreparedOrdinaryMetadata(previous, meta);
+        return previous;
+      }
+      if (
+        !isDeepStrictEqual(
+          receipt.settings.selection.permission,
+          createOrdinaryFreshPermission(receipt.settings.selection.permission.mode),
+        )
+      )
+        throw Error('Prepared ordinary allocation requires fresh permission');
+      if (this.getSession(meta.sessionId) || this.getSendCommand(input.allocationOperationId))
+        throw Error('Prepared ordinary allocation requires a new identity');
+      this.createSessionWithRuntimeBinding(meta, receipt.settings.binding);
+      this.db!.prepare('INSERT INTO ordinary_session_preparations VALUES (?,?,?,?,?)').run(
+        receipt.allocationOperationId,
+        receipt.sessionId,
+        receipt.workspaceId,
+        JSON.stringify(receipt),
+        JSON.stringify(meta),
+      );
+      return receipt;
+    }).immediate();
+  }
+  getOrdinarySessionPreparation(
+    operationId: string,
+  ): OrdinarySessionPreparationReceipt | undefined {
+    const row = this.db!.prepare(
+      'SELECT receipt FROM ordinary_session_preparations WHERE operation_id=?',
+    ).get(operationId) as { receipt: string } | undefined;
+    if (!row) return undefined;
+    const raw = JSON.parse(row.receipt);
+    if (raw?.version === 2) {
+      OrdinarySessionPreparationReceiptV2Schema.parse(raw);
+      return undefined;
+    }
+    return OrdinarySessionPreparationReceiptSchema.parse(raw);
+  }
+  private assertPreparedOrdinaryMetadata(
+    receipt: OrdinarySessionPreparationReceipt,
+    meta: SessionUpsert,
+  ) {
+    const row = this.db!.prepare(
+      'SELECT metadata FROM ordinary_session_preparations WHERE operation_id=?',
+    ).get(receipt.allocationOperationId) as { metadata: string } | undefined;
+    const saved = row && (JSON.parse(row.metadata) as SessionUpsert | undefined);
+    const session = this.getSession(receipt.sessionId);
+    const snapshot = (value: SessionUpsert) => ({
+      sessionId: value.sessionId,
+      repositoryWorkspaceId: value.repositoryWorkspaceId,
+      cwd: value.cwd,
+      accountBinding: value.accountBinding,
+      agentProfile: value.agentProfile,
+      agentContext: value.agentContext,
+      selectedModel: value.selectedModel,
+      reasoningEffort: value.reasoningEffort ?? null,
+      mode: value.mode,
+    });
+    if (
+      !saved ||
+      !session ||
+      !isDeepStrictEqual(snapshot(saved), snapshot(meta)) ||
+      !isDeepStrictEqual(snapshot(saved), snapshot(session)) ||
+      !isDeepStrictEqual(this.getSessionRuntimeBinding(receipt.sessionId), receipt.settings.binding)
+    )
+      throw Error('Prepared ordinary session changed');
+  }
+  assertPreparedOrdinarySession(
+    operationId: string,
+    meta: SessionUpsert,
+    binding: unknown,
+    selection: OrdinaryLocalCommandSelection,
+  ): OrdinarySessionPreparationReceipt {
+    const receipt = this.getOrdinarySessionPreparation(operationId);
+    if (
+      !receipt ||
+      receipt.sessionId !== meta.sessionId ||
+      !isDeepStrictEqual(receipt.settings.binding, binding) ||
+      !isDeepStrictEqual(receipt.settings.selection, selection)
+    )
+      throw Error('Original prepared ordinary session required');
+    this.assertPreparedOrdinaryMetadata(receipt, meta);
+    return receipt;
+  }
+  /** Explicit new-command transition; never continuation or legacy session adoption. */
+  admitPreparedOrdinaryCommand(
+    operationId: string,
+    meta: SessionUpsert,
+    binding: unknown,
+    input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
+  ) {
+    return this.db!.transaction(() => {
+      const receipt = this.getOrdinarySessionPreparation(operationId);
+      if (
+        !receipt ||
+        receipt.sessionId !== meta.sessionId ||
+        !isDeepStrictEqual(receipt.settings.binding, binding) ||
+        !isDeepStrictEqual(receipt.settings.selection, input.selection) ||
+        (receipt.firstCommandId !== null && receipt.firstCommandId !== input.clientMsgId) ||
+        input.clientMsgId === operationId
+      )
+        throw Error('Original prepared ordinary session required');
+      this.assertPreparedOrdinaryMetadata(receipt, meta);
+      const first = this.getOrdinaryInitialCommandId(meta.sessionId);
+      if (first && first !== input.clientMsgId)
+        throw Error('Prepared ordinary first command is frozen');
+      const admitted = this.admitOrdinaryCommand(
+        meta,
+        binding,
+        input,
+        receipt.settings.binding.execution.location === 'local' ? 'local' : 'openshell',
+        operationId,
+      );
+      this.db!.prepare(
+        'UPDATE ordinary_session_preparations SET receipt=? WHERE operation_id=?',
+      ).run(JSON.stringify({ ...receipt, firstCommandId: input.clientMsgId }), operationId);
+      return admitted;
+    }).immediate();
   }
 
   /** Caller must independently authorize account/context and reserve the workspace.
@@ -666,7 +858,13 @@ export class EventStore {
       payload: Record<string, unknown>;
     },
     location: 'local' | 'openshell' | 'responses' | 'vertex',
+    preparationOperationId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    if (meta.ordinaryWorkspaceId != null) {
+      if (location !== 'local' || !preparationOperationId)
+        throw Error('Ordinary workspace requires its original prepared local admission');
+      this.ordinaryWorkspaceSessions.assert(preparationOperationId, meta, binding, input.selection);
+    }
     const schema =
       location === 'vertex'
         ? OrdinaryLocalVertexCommandAdmissionSchema
@@ -678,7 +876,7 @@ export class EventStore {
     const admission = schema.parse({
       version: 1,
       binding,
-      workspace: { workspaceId: meta.repositoryWorkspaceId, cwd: meta.cwd },
+      workspace: { workspaceId: sessionWorkspaceId(meta), cwd: meta.cwd },
       selection: input.selection,
       requestFingerprint: input.requestFingerprint,
       state: 'reserved',
@@ -687,7 +885,7 @@ export class EventStore {
       throw new Error('Ordinary initial account model does not match command selection');
     return this.db!.transaction(() => {
       const existing = this.getSendCommand(input.clientMsgId);
-      if (!existing && this.getSession(meta.sessionId))
+      if (!existing && this.getSession(meta.sessionId) && !preparationOperationId)
         throw new Error('Ordinary guarded admission requires a new session');
       this.claimClientCommand(input.clientMsgId, input.requestFingerprint);
       this.createSessionWithRuntimeBinding(meta, admission.binding);
@@ -737,6 +935,16 @@ export class EventStore {
     input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
     location: 'local' | 'openshell' | 'responses' | 'vertex',
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    if (meta.ordinaryWorkspaceId != null) {
+      const prepared = this.ordinaryWorkspaceSessions.forConversation(meta.sessionId);
+      if (
+        location !== 'local' ||
+        !prepared ||
+        prepared.firstCommandId === null ||
+        prepared.workspaceId !== meta.ordinaryWorkspaceId
+      )
+        throw Error('Original prepared ordinary workspace continuation required');
+    }
     const schema =
       location === 'vertex'
         ? OrdinaryLocalVertexCommandAdmissionSchema
@@ -748,7 +956,7 @@ export class EventStore {
     const admission = schema.parse({
       version: 1,
       binding,
-      workspace: { workspaceId: meta.repositoryWorkspaceId, cwd: meta.cwd },
+      workspace: { workspaceId: sessionWorkspaceId(meta), cwd: meta.cwd },
       selection: input.selection,
       requestFingerprint: input.requestFingerprint,
       state: 'reserved',
@@ -822,9 +1030,54 @@ export class EventStore {
       : undefined;
   }
 
-  /** Last admitted settings for display and the next draft, never a rewrite of
-   * any active, queued or historical command snapshot.
-   */
+  /** Current ordinary settings from this owner's retained preparation/admission.
+   * It does not infer a binding or select an attached client. */
+  /** Retained operation identity only; consumers still verify current authority. */
+  getOrdinarySessionPreparationForConversation(sessionId: string) {
+    const row = this.db!.prepare(
+      'SELECT operation_id FROM ordinary_session_preparations WHERE session_id=?',
+    ).get(sessionId) as { operation_id: string } | undefined;
+    return row ? this.getOrdinarySessionPreparation(row.operation_id) : undefined;
+  }
+  getOrdinaryConversationSettings(id: string): CollaborationSettings | undefined {
+    if (this.getSession(id)?.ordinaryWorkspaceId) return undefined;
+    const db = this.db!;
+    const admission = this.getLatestOrdinaryCommandAdmission(id);
+    if (!admission) {
+      const row = db
+        .prepare('SELECT operation_id FROM ordinary_session_preparations WHERE session_id=?')
+        .get(id) as { operation_id: string } | undefined;
+      const prepared = row && this.getOrdinarySessionPreparation(row.operation_id);
+      if (!prepared || prepared.firstCommandId !== null) return undefined;
+      this.assertPreparedOrdinaryMetadata(
+        prepared,
+        JSON.parse(
+          (
+            db
+              .prepare('SELECT metadata FROM ordinary_session_preparations WHERE operation_id=?')
+              .get(row!.operation_id) as { metadata: string }
+          ).metadata,
+        ),
+      );
+      return prepared.settings;
+    }
+    const binding = this.getSessionRuntimeBinding(id);
+    const session = this.getSession(id);
+    if (
+      !admission ||
+      !binding ||
+      binding.version !== 2 ||
+      !isDeepStrictEqual(binding, admission.binding) ||
+      session?.repositoryWorkspaceId !== admission.workspace.workspaceId
+    )
+      return undefined;
+    return {
+      binding,
+      selection: admission.selection,
+      repositoryWorkspaceId: admission.workspace.workspaceId,
+    };
+  }
+  /** Last admitted settings for the next draft, never a historical rewrite. */
   getLatestOrdinaryCommandAdmission(sessionId: string): OrdinaryLocalCommandAdmission | undefined {
     this.assertConversationIdentity(sessionId);
     const row = this.db!.prepare(
@@ -857,7 +1110,8 @@ export class EventStore {
     const session = this.getSession(row.session_id);
     if (
       JSON.stringify(runtime) !== JSON.stringify(admission.binding) ||
-      session?.repositoryWorkspaceId !== admission.workspace.workspaceId ||
+      !session ||
+      sessionWorkspaceId(session) !== admission.workspace.workspaceId ||
       session?.cwd !== admission.workspace.cwd
     )
       throw new Error('Ordinary command admission does not match durable session identity');
@@ -954,10 +1208,10 @@ export class EventStore {
   recoverPendingSendCommands(options: { excludeSymposium?: boolean } = {}): void {
     const rows = this.db!.prepare(
       `SELECT client_msg_id, session_id, payload FROM send_commands c
-      WHERE error IS NULL AND session_id != '' AND NOT EXISTS (
+      WHERE error IS NULL AND session_id != '' AND (c.preparing = 1 OR NOT EXISTS (
         SELECT 1 FROM events e WHERE e.session_id = c.session_id AND e.type = 'user_message'
         AND json_extract(e.payload, '$.messageId') = c.client_msg_id
-      ) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id=c.session_id
+      )) AND (? = 0 OR NOT EXISTS (SELECT 1 FROM sessions s WHERE s.session_id=c.session_id
         AND (s.session_type='symposium' OR s.symposium_config IS NOT NULL)))`,
     ).all(options.excludeSymposium ? 1 : 0) as Array<{
       client_msg_id: string;
@@ -989,6 +1243,14 @@ export class EventStore {
       });
       this.setSessionState(row.session_id, 'ENDED', { force: true, reason: 'server_restart' });
     }
+  }
+
+  /** Retention is acknowledged separately from provider startup admission. */
+  setSendCommandPreparing(clientMsgId: string, preparing: boolean): void {
+    this.db!.prepare('UPDATE send_commands SET preparing=? WHERE client_msg_id=?').run(
+      preparing ? 1 : 0,
+      clientMsgId,
+    );
   }
 
   failSendCommand(clientMsgId: string, error: string): void {
@@ -1029,6 +1291,9 @@ export class EventStore {
     db.pragma('journal_mode = WAL');
     db.pragma('foreign_keys = ON');
     db.exec(SCHEMA);
+    db.exec(`CREATE TABLE IF NOT EXISTS ordinary_session_preparations (
+      operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL UNIQUE,
+      receipt TEXT NOT NULL, metadata TEXT NOT NULL);`);
 
     this.migratePromptTracking(db);
     this.migrateUsageTracking(db);
@@ -1046,6 +1311,12 @@ export class EventStore {
       )
     )
       db.exec('ALTER TABLE send_commands ADD COLUMN ordinary_admission TEXT');
+    if (
+      !(db.prepare('PRAGMA table_info(send_commands)').all() as Array<{ name: string }>).some(
+        (c) => c.name === 'preparing',
+      )
+    )
+      db.exec('ALTER TABLE send_commands ADD COLUMN preparing INTEGER NOT NULL DEFAULT 0');
     this.migrateSdkTranscriptVerification(db);
     this.migrateSymposium(db);
     this.migrateConversationSource(db);
@@ -1055,6 +1326,9 @@ export class EventStore {
       this.collaborationConversation.membershipChanged(membership),
     );
     this.collaborationConversation = new CollaborationConversationStore(db, {
+      sourceSetupAvailable: (id) =>
+        this.isCollaborationParticipantAvailable(id) &&
+        this.getSession(id)?.conversationSource !== 'external_import',
       membership: (id) => this.getSessionCollaboration(id),
       setMembership: (id, input) => this.setSessionCollaboration(id, input),
       beginMembership: (id, sourceSessionId) =>
@@ -1064,26 +1338,24 @@ export class EventStore {
       available: (id) => {
         return this.isCollaborationParticipantAvailable(id);
       },
-      settings: (id) => {
-        const admission = this.getLatestOrdinaryCommandAdmission(id);
-        const binding = this.getSessionRuntimeBinding(id);
-        const session = this.getSession(id);
-        if (
-          !admission ||
-          !binding ||
-          binding.version !== 2 ||
-          !isDeepStrictEqual(binding, admission.binding) ||
-          session?.repositoryWorkspaceId !== admission.workspace.workspaceId
-        )
-          return undefined;
-        return {
-          binding,
-          selection: admission.selection,
-          repositoryWorkspaceId: admission.workspace.workspaceId,
-        };
-      },
+      settings: (id) => this.getOrdinaryConversationSettings(id),
       allocation: (operationId) => {
+        const prepared = this.getOrdinarySessionPreparation(operationId);
+        if (prepared) {
+          const row = db
+            .prepare('SELECT metadata FROM ordinary_session_preparations WHERE operation_id=?')
+            .get(operationId) as { metadata: string };
+          this.assertPreparedOrdinaryMetadata(prepared, JSON.parse(row.metadata));
+          return {
+            kind: 'prepared',
+            sessionId: prepared.sessionId,
+            settings: prepared.settings,
+            firstCommandId: prepared.firstCommandId,
+          };
+        }
         const command = this.getSendCommand(operationId);
+        if (command?.sessionId && this.getSession(command.sessionId)?.ordinaryWorkspaceId)
+          return undefined;
         const admission = this.getOrdinaryCommandAdmission(operationId);
         if (!command?.sessionId || command.error || !admission) return undefined;
         const first = db
@@ -1093,6 +1365,7 @@ export class EventStore {
           .get(command.sessionId) as { client_msg_id: string } | undefined;
         if (first?.client_msg_id !== operationId) return undefined;
         return {
+          kind: 'first-command',
           sessionId: command.sessionId,
           settings: {
             binding: admission.binding,
@@ -1204,6 +1477,18 @@ export class EventStore {
       assertConversationIdentity: (id) => this.assertConversationIdentity(id),
       getInternalSdkExecution: (id) => this.getInternalSdkExecution(id),
       upsertSession: (meta) => this.upsertSession(meta),
+    });
+    this.ordinaryWorkspaceSessions = new OrdinaryWorkspaceSessionStore({
+      database: () => this.db,
+      getSession: (id) => this.getSession(id),
+      getSessionRuntimeBinding: (id) => this.getSessionRuntimeBinding(id),
+      createSessionWithRuntimeBinding: (meta, binding) =>
+        this.createSessionWithRuntimeBinding(meta, binding),
+      getSendCommand: (id) => this.getSendCommand(id),
+      getOrdinaryInitialCommandId: (id) => this.getOrdinaryInitialCommandId(id),
+      getLatestOrdinaryCommandAdmission: (id) => this.getLatestOrdinaryCommandAdmission(id),
+      admit: (meta, binding, command, operation) =>
+        this.admitOrdinaryCommand(meta, binding, command, 'local', operation),
     });
     this.executionLedger = new ExecutionLedger<SessionRow>({
       database: () => this.db,
@@ -1387,6 +1672,8 @@ export class EventStore {
       db.exec('ALTER TABLE sessions ADD COLUMN repository_workspace_id TEXT');
       this.log.info('migrated sessions table: added repository_workspace_id');
     }
+    if (!columnNames.has('ordinary_workspace_id'))
+      db.exec('ALTER TABLE sessions ADD COLUMN ordinary_workspace_id TEXT');
     if (!columnNames.has('selected_model')) {
       db.exec('ALTER TABLE sessions ADD COLUMN selected_model TEXT');
       this.log.info('migrated sessions table: added selected_model');
@@ -1790,6 +2077,10 @@ export class EventStore {
       db.exec(`CREATE INDEX IF NOT EXISTS idx_events_message_identity
         ON events(session_id, type, json_extract(payload, '$.messageId'), seq)
         WHERE type IN ('message_start', 'user_message', 'message_end')`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_ordinary_collaboration_command
+        ON events(session_id, json_extract(payload,'$.commandId'), type, seq)
+        WHERE type IN ('ordinary_collaboration_context_staged',
+          'ordinary_collaboration_context_prepared','ordinary_collaboration_context_accepted')`);
       db.exec(`DROP INDEX IF EXISTS idx_events_perspective_anchors`);
       db.exec(`CREATE INDEX IF NOT EXISTS idx_events_completed_perspective_anchors
         ON events(session_id, seq)
@@ -2202,6 +2493,56 @@ export class EventStore {
     return rows.map((row) => JSON.parse(row.payload));
   }
 
+  /** Private exact delivery ledger; never load unrelated conversation payloads. */
+  getOrdinaryCollaborationDeliveryEvents(sessionId: string, commandId: string): StoredEvent[] {
+    const rows = this.db!.prepare(
+      `SELECT * FROM events WHERE session_id=?
+       AND type IN ('ordinary_collaboration_context_staged',
+         'ordinary_collaboration_context_prepared','ordinary_collaboration_context_accepted')
+       AND json_extract(payload,'$.commandId')=? ORDER BY seq LIMIT 4`,
+    ).all(sessionId, commandId) as EventRow[];
+    if (rows.length > 3) throw new Error('Ambiguous ordinary collaboration delivery ledger');
+    return rows.map(rowToEvent);
+  }
+
+  /** Atomic private claims prevent two commands from carrying the same pending delivery.
+   * One immutable record per boundary also fences concurrent/restarted ACK effects.
+   */
+  recordOrdinaryCollaborationDeliveryEvent(
+    sessionId: string,
+    commandId: string,
+    type:
+      | 'ordinary_collaboration_context_staged'
+      | 'ordinary_collaboration_context_prepared'
+      | 'ordinary_collaboration_context_accepted',
+    payload: Record<string, unknown>,
+  ): void {
+    if (payload.commandId !== commandId)
+      throw new Error('Ordinary collaboration command identity changed');
+    this.db!.transaction(() => {
+      const previous = this.getOrdinaryCollaborationDeliveryEvents(sessionId, commandId).find(
+        (event) => event.type === type,
+      );
+      if (previous) {
+        if (!isDeepStrictEqual(previous.payload, payload))
+          throw new Error('Ordinary collaboration delivery receipt conflict');
+        return;
+      }
+      if (type === 'ordinary_collaboration_context_staged') {
+        const deliveries = payload.deliveries as Array<{ deliveryId: string }>;
+        for (const delivery of deliveries) {
+          const claimed = this.db!.prepare(
+            `SELECT 1 FROM events e, json_each(e.payload,'$.deliveries') d
+             WHERE e.type='ordinary_collaboration_context_staged'
+             AND json_extract(d.value,'$.deliveryId')=? LIMIT 1`,
+          ).get(delivery.deliveryId);
+          if (claimed) throw new Error('Ordinary collaboration delivery already claimed');
+        }
+      }
+      this.append(sessionId, type, payload);
+    }).immediate();
+  }
+
   getEventsAfter(sessionId: string, afterSeq: number, limit?: number): StoredEvent[] {
     return this.conversationReplay.getEventsAfter(sessionId, afterSeq, limit);
   }
@@ -2333,6 +2674,18 @@ export class EventStore {
   /** Read the immutable transcript prefix belonging to a reconnect boundary. */
   getSessionEventsThroughCursor(sessionId: string, cursor: number): StoredEvent[] {
     return this.conversationReplay.getSessionEventsThroughCursor(sessionId, cursor);
+  }
+
+  /** Pure completed visible-text read. The ordinary session/privacy identity and
+   * retained source boundary are observed in one transaction, without recovery. */
+  getDurableSessionTranscript(sessionId: string) {
+    return this.db!.transaction(() => {
+      this.assertConversationIdentity(sessionId);
+      if (!this.isCollaborationParticipantAvailable(sessionId))
+        throw new SessionCollaborationError('not_found');
+      const initialPrompt = this.getSession(sessionId)?.initialPrompt ?? null;
+      return captureCollaborationDurableTranscript(this.db!, sessionId, initialPrompt);
+    })();
   }
 
   /** Host-only visible source capability. The caller retains normal operator/session authorization. */
@@ -3629,6 +3982,19 @@ export class EventStore {
       WHERE session_id=? AND seat_id=? AND generation=?`,
     ).get(sessionId, seatId, generation) as Record<string, unknown> | undefined;
     return row ? this.rowToSymposiumSeatSandbox(row) : undefined;
+  }
+
+  /** Retained physical custody, including stopped/archived parents; no provider credentials. */
+  listRetainedSymposiumSandboxOwners(physicalId: string, sandboxName: string, workspace: string) {
+    return this.db!.prepare(
+      `SELECT session_id AS conversationId, provider_name AS accountId
+       FROM symposium_seat_sandboxes
+       WHERE physical_id=? AND sandbox_name=? AND workspace=?
+       ORDER BY session_id,seat_id,generation`,
+    ).all(physicalId, sandboxName, workspace) as Array<{
+      conversationId: string;
+      accountId: string;
+    }>;
   }
 
   listSymposiumSessionSandboxes(sessionId: string): SymposiumSeatSandboxRecord[] {

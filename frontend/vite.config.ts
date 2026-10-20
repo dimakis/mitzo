@@ -15,6 +15,13 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    modulePreload: {
+      // WebKit can retain a failed modulepreload across document reloads. Let
+      // route imports fetch their JavaScript directly so Try Again can recover.
+      // Vite retains route CSS dependencies; keep initial HTML preloads too.
+      resolveDependencies: (_filename, dependencies, { hostType }) =>
+        hostType === 'js' ? [] : dependencies,
+    },
     rollupOptions: {
       output: {
         manualChunks(id) {

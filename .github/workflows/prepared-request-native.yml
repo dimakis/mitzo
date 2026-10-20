@@ -1,0 +1,218 @@
+name: Prepared request native source
+
+on:
+  pull_request:
+    paths:
+      - 'docs/spikes/openshell-codex/prepared-request-native/**'
+      - '.github/workflows/prepared-request-native.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/spikes/openshell-codex/prepared-request-native/**'
+      - '.github/workflows/prepared-request-native.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepared-request-native-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  source:
+    name: Native offline fixtures (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Cold setup/builds need room for the complete offline fixture suite.
+    # Linux run 39215620265 exceeded 90 minutes while tests were still passing.
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-26]
+    env:
+      CARGO_BUILD_JOBS: 1
+      # Keep the broader Core fixture build within hosted-runner disk limits.
+      # This changes debug information only; test/debug assertions remain enabled.
+      CARGO_PROFILE_DEV_DEBUG: 0
+      CARGO_PROFILE_TEST_DEBUG: 0
+      NODE_OPTIONS: --max-old-space-size=1024
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: actions/checkout@v7
+        with:
+          repository: openai/codex
+          ref: a956835d020762cb2b570053af06f643a11c0ecc
+          path: .native-prepared-source
+          persist-credentials: false
+      - name: Reconstruct and verify pinned public source
+        run: |
+          node docs/spikes/openshell-codex/prepared-request-native/qualify-source.mjs "$PWD/.native-prepared-source"
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          import { resolve } from 'node:path';
+          const base = 'docs/spikes/openshell-codex/prepared-request-native';
+          const proof = JSON.parse(readFileSync(`${base}/source-evidence.json`, 'utf8'));
+          for (const patch of proof.patches) {
+            execFileSync('git', ['apply', '--index', resolve(base, patch.file)], { cwd: '.native-prepared-source', stdio: 'inherit' });
+          }
+          const tree = execFileSync('git', ['write-tree'], { cwd: '.native-prepared-source', encoding: 'utf8' }).trim();
+          if (tree !== proof.sourceTree) throw new Error('Tested native source tree mismatch');
+          execFileSync('git', ['diff', '--exit-code'], { cwd: '.native-prepared-source', stdio: 'inherit' });
+          JS
+      - name: Install pinned source test tools
+        working-directory: .native-prepared-source
+        run: |
+          rustup toolchain install 1.95.0 --profile minimal --component clippy,rustfmt
+          cargo +1.95.0 install --locked just --version 1.59.0
+          cargo +1.95.0 install --locked cargo-nextest --version 0.9.148
+      # Same immutable tool action as the pinned upstream setup-ci contract.
+      - uses: facebook/install-dotslash@1e4e7b3e07eaca387acb98f1d4720e0bee8dbb6a
+      - name: Make DotSlash available to native subprocess fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          native_dotslash="$(command -v dotslash)"
+          if [[ ! "$native_dotslash" -ef /usr/local/bin/dotslash ]]; then
+            if [[ -w /usr/local/bin ]]; then
+              cp "$native_dotslash" /usr/local/bin
+            else
+              sudo cp "$native_dotslash" /usr/local/bin
+            fi
+          fi
+      - name: Prepare Linux native test prerequisites
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends build-essential pkg-config libcap-dev libasound2-dev bubblewrap
+          # Enable the namespaces used by the actual upstream sandbox tests.
+          sudo sysctl -w kernel.unprivileged_userns_clone=1
+          if sudo sysctl kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Fetch locked public dependencies
+        working-directory: .native-prepared-source/codex-rs
+        run: cargo fetch --locked
+      - name: Check pinned V8 artifact dependency owner offline
+        shell: bash
+        working-directory: .native-prepared-source
+        run: |
+          set -euo pipefail
+          CODEX_REPO_ROOT="$PWD" python3 - <<'PY'
+          import os, sys, unittest
+          from pathlib import Path
+          sys.path.insert(0, str(Path(os.environ['CODEX_REPO_ROOT']) / 'scripts'))
+          suite = unittest.defaultTestLoader.loadTestsFromName('codex_package.test_v8')
+          result = unittest.TextTestRunner(verbosity=2).run(suite)
+          if not result.wasSuccessful():
+              raise SystemExit(1)
+          PY
+      - name: Prepare verified Codex V8 artifacts
+        shell: bash
+        working-directory: .native-prepared-source
+        run: |
+          set -euo pipefail
+          CODEX_REPO_ROOT="$PWD" python3 - <<'PY'
+          import hashlib, json, os, subprocess, sys
+          from pathlib import Path
+          source_root = Path(os.environ['CODEX_REPO_ROOT'])
+          sys.path.insert(0, str(source_root / 'scripts'))
+          from codex_package.targets import TARGET_SPECS
+          from codex_package.v8 import fetch_codex_v8_artifacts, resolved_v8_crate_version
+          compiler = subprocess.check_output(['rustc', '+1.95.0', '-vV'], text=True)
+          hosts = [line.removeprefix('host: ') for line in compiler.splitlines() if line.startswith('host: ')]
+          if len(hosts) != 1 or hosts[0] not in {'aarch64-apple-darwin', 'x86_64-unknown-linux-gnu'}:
+              raise RuntimeError(f'Unsupported native CI host: {hosts}')
+          if os.environ.get('V8_FROM_SOURCE', '').lower() in {'1', 'true', 'yes'}:
+              raise RuntimeError('V8 source-build override is unsupported in verified artifact CI')
+          host = hosts[0]
+          # This pinned owner verifies the source-pinned manifest, then BOTH files.
+          # Its convenience environment resolver permits overrides; use verified fetch directly.
+          pair = fetch_codex_v8_artifacts(
+              TARGET_SPECS[host],
+              cache_root=Path(os.environ['RUNNER_TEMP']) / 'native-rusty-v8',
+          )
+          def digest(path):
+              with path.open('rb') as source:
+                  return hashlib.file_digest(source, 'sha256').hexdigest()
+          proof = {
+              'host': host,
+              'v8_crate_version': resolved_v8_crate_version(),
+              'archive': str(pair.archive),
+              'archive_sha256': digest(pair.archive),
+              'binding': str(pair.binding),
+              'binding_sha256': digest(pair.binding),
+          }
+          (source_root / 'native-v8-artifacts.json').write_text(json.dumps(proof, indent=2) + '\n')
+          with Path(os.environ['GITHUB_ENV']).open('a') as environment:
+              environment.write(f'RUSTY_V8_ARCHIVE={pair.archive}\nRUSTY_V8_SRC_BINDING_PATH={pair.binding}\n')
+          print(json.dumps(proof))
+          PY
+      - name: Build standalone native test helpers
+        shell: bash
+        working-directory: .native-prepared-source/codex-rs
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          set -euo pipefail
+          export CARGO_TARGET_DIR="$PWD/target"
+          cargo build --locked --offline -p codex-cli --bin codex \
+            -p codex-rmcp-client --bin test_stdio_server --bin test_streamable_http_server \
+            -p codex-code-mode-host --bin codex-code-mode-host \
+            -p codex-shell-escalation --bin codex-execve-wrapper
+          for native_helper in codex test_stdio_server test_streamable_http_server codex-code-mode-host codex-execve-wrapper; do
+            test -x "$CARGO_TARGET_DIR/debug/$native_helper"
+          done
+          {
+            echo "CARGO_TARGET_DIR=$CARGO_TARGET_DIR"
+            echo "CARGO_BIN_EXE_codex=$CARGO_TARGET_DIR/debug/codex"
+            echo "CARGO_BIN_EXE_test_stdio_server=$CARGO_TARGET_DIR/debug/test_stdio_server"
+            echo "CARGO_BIN_EXE_test_streamable_http_server=$CARGO_TARGET_DIR/debug/test_streamable_http_server"
+            echo "CARGO_BIN_EXE_codex-code-mode-host=$CARGO_TARGET_DIR/debug/codex-code-mode-host"
+            echo "CARGO_BIN_EXE_codex_code_mode_host=$CARGO_TARGET_DIR/debug/codex-code-mode-host"
+            echo "CARGO_BIN_EXE_codex-execve-wrapper=$CARGO_TARGET_DIR/debug/codex-execve-wrapper"
+            echo "CARGO_BIN_EXE_codex_execve_wrapper=$CARGO_TARGET_DIR/debug/codex-execve-wrapper"
+          } >> "$GITHUB_ENV"
+          if [[ "$RUNNER_OS" == 'Linux' ]]; then
+            cargo build --locked --offline -p codex-linux-sandbox --bin codex-linux-sandbox
+            test -x "$CARGO_TARGET_DIR/debug/codex-linux-sandbox"
+            {
+              echo "CARGO_BIN_EXE_codex-linux-sandbox=$CARGO_TARGET_DIR/debug/codex-linux-sandbox"
+              echo "CARGO_BIN_EXE_codex_linux_sandbox=$CARGO_TARGET_DIR/debug/codex-linux-sandbox"
+            } >> "$GITHUB_ENV"
+          fi
+      - name: Run native crate fixtures without provider credentials
+        shell: bash
+        working-directory: .native-prepared-source/codex-rs
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          set -euo pipefail
+          native_packages=(-p codex-core -p codex-http-client -p codex-state -p codex-api -p codex-guardian-reviewer)
+          if [[ "$RUNNER_OS" == 'Linux' ]]; then
+            native_packages+=(-p codex-linux-sandbox)
+          fi
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            just test "${native_packages[@]}" \
+            --test-threads 1 --retries 0 2>&1 | tee native-fixtures.log
+      - name: Check native source formatting
+        working-directory: .native-prepared-source/codex-rs
+        run: cargo fmt --check -p codex-core -p codex-http-client -p codex-state -p codex-api -p codex-linux-sandbox -p codex-guardian-reviewer
+      - name: Retain exact-source fixture evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-fixtures-${{ matrix.os }}
+          path: |
+            .native-prepared-source/codex-rs/native-fixtures.log
+            .native-prepared-source/codex-rs/target/nextest/local/junit.xml
+            .native-prepared-source/native-v8-artifacts.json
+            docs/spikes/openshell-codex/prepared-request-native/source-evidence.json
+          if-no-files-found: warn

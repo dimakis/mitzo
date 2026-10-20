@@ -16,6 +16,12 @@ output was 10.45 seconds cold and 21.18 seconds warm across five pairs. See
 The source fixes below have offline qualification; post-fix live timings remain
 outstanding. Staging and its pipeline remain stood down.
 
+The application fixes support the existing pinned supervisor and need no OpenShell
+upgrade or credential migration. Qualify a Mitzo application release against that
+existing stack first. The separate supervisor wake-up patch is optional and
+deferred pending those measurements; actual provider refresh can still take a
+normal supervisor polling cycle with the existing image.
+
 On a separately selected and authorized host, `MITZO_OPENSHELL_WARM_POOL_ENABLED=1`
 permits operator preparation. It does not itself turn warming on. Save settings
 with warming enabled, or explicitly Prepare now, to allocate resources. An existing

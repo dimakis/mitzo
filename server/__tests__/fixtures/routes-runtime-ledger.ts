@@ -3,12 +3,18 @@ import { vi } from 'vitest';
 
 type RoutesRuntimeLedger = Pick<
   EventStore,
-  'getSessionRuntimeBinding' | 'getSendCommand' | 'getOrdinaryLocalCommandAdmission'
+  | 'getSessionRuntimeBinding'
+  | 'getSendCommand'
+  | 'getOrdinaryLocalCommandAdmission'
+  | 'getOrdinaryWorkspaceSessionPreparationForConversation'
 >;
 
 /** Legacy route fixtures start without a retained runtime or command receipt. */
 export function createRoutesRuntimeLedgerFixture() {
   return {
+    getOrdinaryWorkspaceSessionPreparationForConversation: vi
+      .fn<EventStore['getOrdinaryWorkspaceSessionPreparationForConversation']>()
+      .mockReturnValue(undefined),
     getSessionRuntimeBinding: vi.fn<EventStore['getSessionRuntimeBinding']>().mockReturnValue(null),
     getSendCommand: vi.fn<EventStore['getSendCommand']>().mockReturnValue(undefined),
     getOrdinaryLocalCommandAdmission: vi

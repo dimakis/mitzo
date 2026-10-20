@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TelosWorkApiClient } from '../telos-work-api.js';
-import { TelosWorkItemSchema, TelosWorkViewSchema } from '@mitzo/protocol';
+import {
+  TelosWorkItemSchema,
+  TelosWorkViewSchema,
+  TelosWorkDelegationInputSchema,
+} from '@mitzo/protocol';
 const view = TelosWorkViewSchema.parse({
   itemId: 'item',
   kind: null,
@@ -12,6 +16,134 @@ const view = TelosWorkViewSchema.parse({
   attempts: [],
 });
 describe('typed Telos work client', () => {
+  const delegation = TelosWorkDelegationInputSchema.parse({
+    requestId: 'start',
+    childItemId: 'slice',
+    leadItemId: 'outcome',
+    leadConversationId: 'lead',
+    expectedRevision: 'a'.repeat(64),
+    mode: 'start',
+    predecessorAttemptId: null,
+    settings: {
+      binding: {
+        version: 2,
+        account: { accountId: 'offline', provider: 'openai-codex', profileRevision: 'r1' },
+        harness: { implementation: 'codex' },
+        execution: { location: 'local', targetId: 'offline', targetRevision: 'r1' },
+      },
+      repositoryWorkspaceId: 'workspace',
+      selection: {
+        version: 1,
+        agent: { profileId: 'agent', revision: 1 },
+        context: { source: 'none', revision: null },
+        permission: { mode: 'agent', revision: 0 },
+        model: 'offline',
+        thinking: null,
+      },
+    },
+    contextSelection: {
+      version: 1,
+      itemId: 'slice',
+      role: 'worker',
+      brief: { revision: 'a'.repeat(64), sha256: 'b'.repeat(64), text: 'Reviewed' },
+      parentCriteria: [],
+      overallGoal: { itemId: 'outcome', revision: 'a'.repeat(64), text: 'Goal' },
+      sources: [],
+      artifacts: [],
+      leadConversationId: 'lead',
+    },
+  });
+  const delegated = {
+    version: 1,
+    state: 'chat_ready',
+    workerConversationId: 'worker',
+    workerPath: '/chat/worker',
+    itemPath: '/todos/slice',
+    leadPath: '/chat/lead',
+    execution: 'not_started',
+    attempt: {
+      version: 1,
+      requestId: 'start',
+      attemptId: 'attempt',
+      predecessorAttemptId: null,
+      leadConversationId: 'lead',
+      childItemId: 'slice',
+      contextSnapshotId: 'context',
+      state: 'chat_ready',
+      workerConversationId: 'worker',
+      allocationReceiptId: 'ordinary',
+      executionTaskId: 'task',
+      accountingGoalId: null,
+      turnCommandId: null,
+    },
+  };
+  it('delegates exact full reviewed input with its original request and abort signal', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(delegated)));
+    const api = new TelosWorkApiClient(fetch);
+    const signal = new AbortController().signal;
+    expect(await api.delegateSlice(delegation, signal)).toEqual(delegated);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]).toEqual([
+      '/api/telos/work/delegation/start',
+      {
+        credentials: 'include',
+        signal,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(delegation),
+      },
+    ]);
+  });
+  it('rejects malformed delegation input before sending and validates returned allocation receipts', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response('{}'));
+    const api = new TelosWorkApiClient(fetch);
+    expect(() =>
+      api.delegateSlice({ ...delegation, childItemId: ['slice', 'sibling'] } as never),
+    ).toThrow();
+    expect(fetch).not.toHaveBeenCalled();
+    await expect(api.delegateSlice(delegation)).rejects.toThrow();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+  it('exposes uncertain delegation failure without inventing or retrying a request', async () => {
+    const fetch = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ code: 'unavailable', error: 'Allocation uncertain' }), {
+        status: 503,
+      }),
+    );
+    const api = new TelosWorkApiClient(fetch);
+    await expect(api.delegateSlice(delegation)).rejects.toMatchObject({
+      status: 503,
+      code: 'unavailable',
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(JSON.parse(fetch.mock.calls[0][1].body).requestId).toBe('start');
+  });
+  it('reviews canonical role context through its dedicated authenticated endpoint without executing a command', async () => {
+    const context = {
+      version: 1,
+      itemId: 'item',
+      role: 'reviewer' as const,
+      brief: { revision: view.revision, sha256: 'b'.repeat(64), text: 'Reviewed work' },
+      parentCriteria: [],
+      overallGoal: { itemId: 'item', revision: view.revision, text: 'Goal' },
+      sources: [],
+      artifacts: [],
+    };
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify(context)));
+    const api = new TelosWorkApiClient(fetch);
+    const input = {
+      itemId: 'item',
+      role: 'reviewer' as const,
+      sourceSnapshotIds: [],
+      artifactRefs: [],
+    };
+    expect(await api.roleContext(input)).toEqual(context);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]).toMatchObject([
+      '/api/telos/work/roles/context',
+      { method: 'POST', credentials: 'include', body: JSON.stringify(input) },
+    ]);
+  });
   it('reads and validates the canonical workspace record without starting a chat or retrying', async () => {
     const record = TelosWorkItemSchema.parse({
       version: 1,

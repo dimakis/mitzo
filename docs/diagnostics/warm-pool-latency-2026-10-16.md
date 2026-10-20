@@ -40,3 +40,23 @@ and provider acknowledgement remain required.
 Both changes have offline regression coverage. They are not post-fix production
 measurements. Any accepted source activation and repeat benchmark need their
 normal explicit production action and supported Luna/account selection.
+
+## Mitzo-only qualification first
+
+The application changes work with the existing pinned OpenShell supervisor.
+Their first qualification needs a Mitzo application release, with the existing
+gateway, CLI, supervisor image and credential configuration. This change adds no
+credential migration and does not change sandbox account or ownership rules.
+
+Shorter retries remove avoidable sleeping after credentials become available;
+they do not accelerate the supervisor's periodic refresh. A healthy supervisor
+may still need its next polling cycle before a new shell has the attached
+provider. Offline coverage includes successful initialization when that refresh
+takes ten seconds, as well as cancellation and bounded failure.
+
+The separate supervisor wake-up patch in `dimakis/OpenShell` PR #4 is an optional,
+deferred optimization. It changes in-memory refresh signaling, not persisted
+credential formats or the credential protocol. Adopting its supervisor image
+would still be a separate runtime rollout. First measure the application change
+with the existing image; consider that rollout only if remaining provider-refresh
+latency warrants it. The baseline above cannot establish the resulting speedup.

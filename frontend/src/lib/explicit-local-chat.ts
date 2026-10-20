@@ -2,6 +2,7 @@ import { selectedRuntimeRoute } from './chat-runtime-route';
 import { sha256Hex } from './browser-crypto';
 import { z } from 'zod';
 import {
+  createOrdinaryFreshPermission,
   NativeContinuationConstraintSchema,
   type NativeContinuationConstraint,
   AgentLibraryVersionSchema,
@@ -9,6 +10,8 @@ import {
   type AgentLibraryVersion,
   type AgentContextSnapshot,
   OrdinaryRuntimeContinuationCommandSchema,
+  OrdinaryWorkspaceFirstCommandSchema,
+  LocalCodexFirstCommandSchema,
   OrdinaryRuntimeFirstCommandSchema,
   SessionRuntimeBindingV1Schema,
 } from '@mitzo/protocol';
@@ -171,19 +174,26 @@ export function normalizeLocalInventory(data: ExplicitLocalInventory): ChatRunti
     }),
   };
 }
-export function prepareLocalFirstCommand(
+type ExplicitCommandContent = {
+  clientMsgId: string;
+  mode: 'ask' | 'agent' | 'auto';
+  text: string;
+  images?: { data: string; mediaType: string }[];
+  sourceSnapshots?: import('@mitzo/protocol').SourceSnapshot[];
+  retainedAgentProfile?: AgentLibraryVersion;
+  retainedAgentContext?: AgentContextSnapshot;
+  nativeConstraint?: NativeContinuationConstraint;
+};
+type RepositoryCommandContent = ExplicitCommandContent & { repositoryWorkspaceId: string };
+type OrdinaryCommandContent = ExplicitCommandContent & {
+  sessionId: string;
+  ordinaryWorkspaceId: string;
+};
+function prepareExplicitCommand<T>(
   selection: ChatRuntimeSelection,
   inventory: ExplicitLocalInventory | null,
-  input: {
-    clientMsgId: string;
-    repositoryWorkspaceId: string;
-    mode: 'ask' | 'agent' | 'auto';
-    text: string;
-    images?: { data: string; mediaType: string }[];
-    retainedAgentProfile?: AgentLibraryVersion;
-    retainedAgentContext?: AgentContextSnapshot;
-    nativeConstraint?: NativeContinuationConstraint;
-  },
+  input: RepositoryCommandContent | OrdinaryCommandContent | ExplicitCommandContent,
+  schema: z.ZodType<T>,
 ) {
   if (!inventory || !selection.agentProfile)
     return { request: null, reason: 'Review the selected execution choices before sending.' };
@@ -257,9 +267,17 @@ export function prepareLocalFirstCommand(
   if (!configured || !route?.modes.includes(input.mode))
     return { request: null, reason: 'Review the selected execution choices before sending.' };
   const label = selection.execution.location === 'local' ? 'Local' : 'OpenShell';
-  const parsed = OrdinaryRuntimeFirstCommandSchema.safeParse({
+  const parsed = schema.safeParse({
     runOn: selection.execution.location,
-    repositoryWorkspaceId: input.repositoryWorkspaceId,
+    ...('ordinaryWorkspaceId' in input
+      ? {
+          version: 2,
+          sessionId: input.sessionId,
+          workspace: { kind: 'ordinary', workspaceId: input.ordinaryWorkspaceId },
+        }
+      : 'repositoryWorkspaceId' in input
+        ? { repositoryWorkspaceId: input.repositoryWorkspaceId }
+        : {}),
     clientMsgId: input.clientMsgId,
     capabilityRevision: route.capabilityRevision ?? inventory.capabilityRevision,
     runtime: {
@@ -278,9 +296,13 @@ export function prepareLocalFirstCommand(
       model: selection.account!.model,
       thinking: selection.account!.reasoningEffort ?? null,
       context,
-      permission: { mode: input.mode, revision: 0 },
+      permission: createOrdinaryFreshPermission(input.mode),
     },
-    payload: { text: input.text, ...(input.images?.length ? { images: input.images } : {}) },
+    payload: {
+      text: input.text,
+      ...(input.sourceSnapshots?.length ? { sourceSnapshots: input.sourceSnapshots } : {}),
+      ...(input.images?.length ? { images: input.images } : {}),
+    },
   });
   if (parsed.success) return { request: parsed.data, reason: undefined };
   const reason = parsed.error.issues.some((issue) => issue.message === 'Command exceeds bound')
@@ -291,6 +313,68 @@ export function prepareLocalFirstCommand(
         ? `Shorten the message before sending the ${label} command.`
         : 'Review the selected execution choices before sending.';
   return { request: null, reason };
+}
+
+export function prepareLocalFirstCommand(
+  selection: ChatRuntimeSelection,
+  inventory: ExplicitLocalInventory | null,
+  input: RepositoryCommandContent,
+) {
+  return prepareExplicitCommand(selection, inventory, input, OrdinaryRuntimeFirstCommandSchema);
+}
+const ordinarySelectionSchema = z.strictObject({
+  runOn: LocalCodexFirstCommandSchema.shape.runOn,
+  clientMsgId: LocalCodexFirstCommandSchema.shape.clientMsgId,
+  capabilityRevision: LocalCodexFirstCommandSchema.shape.capabilityRevision,
+  runtime: LocalCodexFirstCommandSchema.shape.runtime,
+  selection: LocalCodexFirstCommandSchema.shape.selection,
+  payload: LocalCodexFirstCommandSchema.shape.payload,
+});
+function ordinaryRouteReason(
+  selection: ChatRuntimeSelection,
+  inventory: ExplicitLocalInventory | null,
+) {
+  const route = inventory && selectedRuntimeRoute(selection, inventory);
+  return selection.execution.location !== 'local' ||
+    route?.harness !== 'codex' ||
+    selection.accountReference?.provider !== 'openai-codex'
+    ? 'Ordinary workspaces currently require a supported Local Mac Codex account and target. Choose those settings to continue.'
+    : undefined;
+}
+export function prepareOrdinaryWorkspaceSelection(
+  selection: ChatRuntimeSelection,
+  inventory: ExplicitLocalInventory | null,
+  input: ExplicitCommandContent,
+) {
+  const reason = ordinaryRouteReason(selection, inventory);
+  if (reason) return { request: null, reason };
+  const result = prepareExplicitCommand(selection, inventory, input, ordinarySelectionSchema);
+  if (result.request && result.request.selection.context.source !== 'none')
+    return {
+      request: null,
+      reason: 'Ordinary workspaces currently require an agent without a context recipe.',
+    };
+  return result;
+}
+export function prepareOrdinaryWorkspaceCommand(
+  selection: ChatRuntimeSelection,
+  inventory: ExplicitLocalInventory | null,
+  input: OrdinaryCommandContent,
+) {
+  const reason = ordinaryRouteReason(selection, inventory);
+  if (reason) return { request: null, reason };
+  const result = prepareExplicitCommand(
+    selection,
+    inventory,
+    input,
+    OrdinaryWorkspaceFirstCommandSchema,
+  );
+  if (result.request?.selection.context.source !== 'none' && result.request)
+    return {
+      request: null,
+      reason: 'Ordinary workspaces currently require an agent without a context recipe.',
+    };
+  return result;
 }
 
 export function buildLocalFirstCommand(...args: Parameters<typeof prepareLocalFirstCommand>) {

@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 const bundle = build({
   entryPoints: [resolve('frontend/src/preview/main.tsx')],
   bundle: true,
-  external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
+  external: ['/*.png', '/*.svg'],
   write: false,
   outfile: '/tmp/mitzo-symposium-design.js',
   jsx: 'automatic',
@@ -154,6 +154,14 @@ for (const theme of ['dark', 'light'])
       await page.getByRole('button', { name: 'Add agent', exact: true }).click();
       const add = page.getByRole('dialog', { name: 'Add agent', exact: true });
       await expect(add.getByRole('alert')).toHaveCount(0);
+      expect(
+        await add
+          .getByRole('radio')
+          .evaluateAll((radios) => radios.map((radio) => (radio as HTMLInputElement).value)),
+      ).toEqual(['local', 'openshell']);
+      await expect(
+        add.getByText('Fresh session · starts with a prompt.', { exact: true }),
+      ).toBeVisible();
       await add.getByRole('textbox', { name: 'Name in this chat' }).fill('Design reviewer');
       await add.getByRole('textbox', { name: 'Purpose' }).fill('Check the approved design.');
       await add.getByRole('combobox', { name: 'Context', exact: true }).selectOption('selected');
@@ -167,7 +175,7 @@ for (const theme of ['dark', 'light'])
       await add
         .locator('.conversation-agents-body')
         .evaluate((el) => (el.scrollTop = el.scrollHeight));
-      await expect(add.getByRole('button', { name: 'Back to Agents' })).toBeInViewport();
+      await expect(add.getByRole('button', { name: 'Cancel', exact: true })).toBeInViewport();
       await expect(add.getByRole('button', { name: 'Review joining brief' })).toBeInViewport();
       expect(await add.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
       expect(
@@ -179,7 +187,7 @@ for (const theme of ['dark', 'light'])
         style: '[data-ui-preview-banner] { visibility: hidden; }',
         path: info.outputPath(`fresh-setup-${width}-${theme}.png`),
       });
-      await add.getByRole('button', { name: 'Back to Agents' }).click();
+      await add.getByRole('button', { name: 'Cancel', exact: true }).click();
       await page.getByRole('button', { name: 'Close Agents' }).click();
       await expect(input).toHaveValue('Keep this reviewer draft.');
       expect(

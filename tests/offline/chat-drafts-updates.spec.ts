@@ -1,3 +1,5 @@
+import { waitForNewFixtureReads } from '../support/fixture-reads';
+import { settingRow, chooseSetting, openChatSetting } from '../support/chat-settings';
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
@@ -287,9 +289,9 @@ for (const theme of ['light', 'dark']) {
         'mitzo-accent': 'mint',
         'mitzo-font': 'georgia',
       });
-      await page.addInitScript((recovery) => {
+      await page.addInitScript(() => {
         const original = window.fetch.bind(window);
-        let failures = recovery === 'automatic' ? 2 : Infinity;
+        let failures = Infinity;
         Object.assign(window, {
           recoverOfflineAuthentication: () => {
             failures = 0;
@@ -302,7 +304,7 @@ for (const theme of ['light', 'dark']) {
             return Promise.reject(new TypeError('Load failed'));
           return original(input, init);
         };
-      }, recovery);
+      });
       await page.clock.install();
       await page.goto('/sessions');
       await expect(page.getByRole('alert')).toBeVisible();
@@ -310,6 +312,15 @@ for (const theme of ['light', 'dark']) {
         await page.clock.fastForward(delay);
         if (recovery === 'foreground' || delay === 1_000)
           await expect(page.getByRole('alert')).toBeVisible();
+        if (recovery === 'automatic' && delay === 1_000) {
+          // Entry-point preloading can fail before the route mounts. Keep the
+          // outage explicit, then prove the next scheduled retry recovers.
+          await page.evaluate(() =>
+            (
+              window as unknown as { recoverOfflineAuthentication: () => void }
+            ).recoverOfflineAuthentication(),
+          );
+        }
       }
       if (recovery === 'foreground') {
         await page.evaluate(() => {
@@ -366,7 +377,7 @@ for (const theme of ['light', 'dark']) {
       expect(fixture.errors).toEqual([]);
     });
   }
-  test(`authentication recovery: stalled startup stays recoverable across tabs (${theme})`, async ({
+  test(`authentication recovery: stalled startup stays recoverable and unlocks navigation (${theme})`, async ({
     page,
     isMobile,
   }, testInfo) => {
@@ -395,14 +406,11 @@ for (const theme of ['light', 'dark']) {
     });
     await page.clock.install();
     await page.goto('/sessions');
-    await expect(page.getByText('Checking authentication…')).toBeVisible();
-    if (isMobile) {
-      await page.getByRole('link', { name: 'Today', exact: true }).click();
-      await page.getByRole('link', { name: 'Chats', exact: true }).click();
-    }
+    await expect(page.getByText('Connecting to Mitzo…')).toBeVisible();
+    await expect(page.locator('#root')).toHaveAttribute('inert', '');
     await page.clock.fastForward(5_000);
     await expect(page.getByRole('alert')).toContainText('Mitzo could not be reached');
-    await expect(page.getByText('Checking authentication…')).toHaveCount(0);
+    await expect(page.getByText('Connecting to Mitzo…')).toHaveCount(0);
     const retry = page.getByRole('button', { name: 'Retry', exact: true });
     await expect(retry).toBeVisible();
     await page.screenshot({
@@ -419,6 +427,12 @@ for (const theme of ['light', 'dark']) {
     );
     await retry.click();
     await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
+    await expect(page.locator('#root')).not.toHaveAttribute('inert', '');
+    if (isMobile) {
+      await page.getByRole('link', { name: 'Today', exact: true }).click();
+      await page.getByRole('link', { name: 'Chats', exact: true }).click();
+      await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
+    }
     await expect(page.getByRole('link', { name: /Drafts/ })).toHaveCount(0);
     await layout(page);
     expect(fixture.mutations).toEqual([]);
@@ -639,29 +653,28 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
   await seed(page, { 'mitzo-chat-draft:briefing-draft': JSON.stringify(savedDraft()) });
   await page.goto('/sessions/drafts');
-  await page.getByRole('link', { name: /What is the story with my morning briefing/ }).click();
+  // Complete this chat mount's passive health read before the hard navigation
+  // below. WebKit reports an intercepted fetch cancelled by unload as a page
+  // error; keep that error assertion and the full leave/reopen journey intact.
+  await waitForNewFixtureReads(page, ['/api/service-health'], () =>
+    page.getByRole('link', { name: /What is the story with my morning briefing/ }).click(),
+  );
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue(message);
   await agentSettings(page);
-  await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
-    account.id,
-  );
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
-    'luna-alternate',
-  );
-  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
-    'high',
-  );
+  await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', account.id);
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'luna-alternate');
+  await expect(settingRow(page, 'Thinking level')).toHaveAttribute('data-value', 'high');
   const workspace = page.getByRole('button', { name: /^Workspace controls/ });
   if ((await workspace.getAttribute('aria-expanded')) !== 'true') await workspace.click();
-  await page.getByText('More settings', { exact: true }).click();
+  await openChatSetting(page, 'more');
   await expect(page.getByRole('button', { name: 'Ask', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true',
   );
   await expect(page.getByAltText('Attachment 1')).toBeVisible();
   await input.fill('Fix the morning briefing with this saved context');
-  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('low');
+  await chooseSetting(page, 'Thinking level', 'low');
   await expect
     .poll(async () =>
       page.evaluate(() =>
@@ -681,14 +694,12 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
     animations: 'disabled',
   });
   await page.goto('/sessions/drafts');
-  await page
-    .getByRole('link', { name: /Fix the morning briefing with this saved context/ })
-    .click();
+  await waitForNewFixtureReads(page, ['/api/service-health'], () =>
+    page.getByRole('link', { name: /Fix the morning briefing with this saved context/ }).click(),
+  );
   await expect(input).toHaveValue('Fix the morning briefing with this saved context');
   await agentSettings(page);
-  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
-    'low',
-  );
+  await expect(settingRow(page, 'Thinking level')).toHaveAttribute('data-value', 'low');
   await expect(page.getByAltText('Attachment 1')).toBeVisible();
   await layout(page);
   expect(fixture.mutations).toEqual([]);
@@ -795,6 +806,7 @@ test('updates: Settings owns available/current/loading/error/missing-action stat
   // Let the new chat's account-bound catalog finish before leaving. Safari
   // reports an intercepted request aborted during navigation as a page error.
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await openChatSetting(page, 'repository');
   await expect(
     page.getByText('Assign a GitHub connection with repository access to this AI account in'),
   ).toBeVisible();
@@ -947,6 +959,7 @@ test('drafts: clearing text removes stale draft and prompt URLs while leaving th
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('A text-only draft');
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await openChatSetting(page, 'repository');
   await expect(
     page.getByText('Assign a GitHub connection with repository access to this AI account in'),
   ).toBeVisible();
@@ -1043,6 +1056,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
   await page.getByRole('link', { name: /Untitled draft/ }).click();
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('');
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await openChatSetting(page, 'repository');
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -1055,6 +1069,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
     .toBe(preparationId);
   await page.reload();
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await openChatSetting(page, 'repository');
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -1360,12 +1375,16 @@ for (const theme of ['dark', 'light']) {
       'mitzo-font': 'georgia',
     });
     await page.route('**/api/home/briefing-chats*', (route) => route.fulfill({ json: [] }));
-    await page.goto('/chat?draft=unsent-launch');
+    // Finish the account-bound catalogue before the next document navigation.
+    // WebKit reports an intercepted fetch aborted by reload as a page error.
+    await waitForNewFixtureReads(page, ['/api/repository-workspaces/catalog'], () =>
+      page.goto('/chat?draft=unsent-launch'),
+    );
     await expect(
       page.getByRole('button', { name: 'Send launch prompt', exact: true }),
     ).toBeVisible();
     await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();
-    await page.reload();
+    await waitForNewFixtureReads(page, ['/api/repository-workspaces/catalog'], () => page.reload());
     await expect(
       page.getByRole('button', { name: 'Send launch prompt', exact: true }),
     ).toBeVisible();
@@ -1424,11 +1443,15 @@ test('launch drafts: generic preparation retains its chosen model and thinking t
     },
   };
   await seed(page, { 'mitzo-chat-draft:meeting-launch': JSON.stringify(draft) });
-  await page.goto('/chat?draft=meeting-launch');
+  // Finish each document's passive health read before its next unload. WebKit
+  // reports an intercepted fetch cancelled by reload as an access-control error.
+  await waitForNewFixtureReads(page, ['/api/service-health'], () =>
+    page.goto('/chat?draft=meeting-launch'),
+  );
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
-  await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption(account.id);
-  await page.getByRole('combobox', { name: 'Model', exact: true }).selectOption('luna-alternate');
-  await page.getByRole('combobox', { name: 'Thinking level', exact: true }).selectOption('high');
+  await chooseSetting(page, 'Account', account.id);
+  await chooseSetting(page, 'Model', 'luna-alternate');
+  await chooseSetting(page, 'Thinking level', 'high');
   await expect
     .poll(() =>
       page.evaluate(
@@ -1437,15 +1460,11 @@ test('launch drafts: generic preparation retains its chosen model and thinking t
       ),
     )
     .toEqual({ accountId: account.id, model: 'luna-alternate', reasoningEffort: 'high' });
-  await page.reload();
+  await waitForNewFixtureReads(page, ['/api/service-health'], () => page.reload());
   const controls = page.getByRole('button', { name: /^Workspace controls/ });
   if ((await controls.getAttribute('aria-expanded')) === 'false') await controls.click();
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
-    'luna-alternate',
-  );
-  await expect(page.getByRole('combobox', { name: 'Thinking level', exact: true })).toHaveValue(
-    'high',
-  );
+  await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'luna-alternate');
+  await expect(settingRow(page, 'Thinking level')).toHaveAttribute('data-value', 'high');
   await expect(page.getByRole('button', { name: 'Send launch prompt', exact: true })).toBeEnabled();
   expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
@@ -1511,3 +1530,75 @@ test('launch drafts: generic command survives tab replacement and keeps its orig
   expect(fixture.errors).toEqual([]);
   expect(recovered.errors).toEqual([]);
 });
+
+for (const theme of ['light', 'dark'])
+  test(`retained sends show preparation without retrying while startup waits (${theme})`, async ({
+    page,
+  }, testInfo) => {
+    const fixture = await offline(page);
+    const base = savedDraft('preparing-delivery', 'Prepare my response');
+    const draft = {
+      ...base,
+      images: [],
+      contextBlocks: [],
+      settings: {
+        ...base.settings,
+        search: '',
+        launch: {
+          prompt: base.text,
+          context: 'Offline preparation fixture',
+          accountSelection: base.settings.selection,
+        },
+      },
+    };
+    await seed(page, { 'mitzo-chat-draft:preparing-delivery': JSON.stringify(draft) });
+    let sends = 0;
+    let commandId = 'preparing-command';
+    await page.route('**/api/chat/send', async (route) => {
+      sends++;
+      const command = route.request().postDataJSON();
+      commandId = command.clientMsgId;
+      await route.fulfill({
+        status: 202,
+        json: {
+          ok: true,
+          accepted: true,
+          retained: true,
+          clientMsgId: command.clientMsgId,
+          sessionId: 'preparing-session',
+        },
+      });
+    });
+    await page.route('**/api/sessions/preparing-session/messages*', (route) =>
+      route.fulfill({
+        json: {
+          messages: [
+            {
+              role: 'user',
+              messageId: commandId,
+              startedSeq: 1,
+              blocks: [{ blockId: 'prompt', blockType: 'text', content: base.text }],
+            },
+          ],
+          currents: [],
+          current: null,
+          cursor: 1,
+        },
+      }),
+    );
+    await page.goto('/chat?draft=preparing-delivery');
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'light' ? 'teal' : 'mint';
+      document.documentElement.dataset.font = 'georgia';
+    }, theme);
+    await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
+    await expect(page.getByText('Preparing response…', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Reconnecting — your message/)).toHaveCount(0);
+    expect(sends).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: testInfo.outputPath(`prompt-preparation-${theme}.png`) });
+    expect(fixture.errors).toEqual([]);
+  });

@@ -8,6 +8,15 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
 
+// Isolate route authority and callback wiring from sheet navigation. Keep the
+// original editors directly accessible here, as in DesktopChatView.test.tsx.
+// QuickChatSettings unit tests and the offline settings/account/runtime journeys
+// exercise the actual retained editors, navigation and approved row layout.
+vi.mock('../../lib/quick-settings-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/quick-settings-context')>()),
+  useQuickSettings: () => null,
+}));
+
 function openAgentSettings() {
   const trigger = screen.getByRole('button', { name: /^Workspace controls,/ });
   if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
@@ -600,9 +609,7 @@ it('keeps account and permission controls in one top panel with no composer pick
   expect(within(panel).getByRole('combobox', { name: 'Model' })).toBeTruthy();
   expect(screen.getAllByRole('region', { name: 'Agent settings' })).toHaveLength(1);
   const advanced = screen.getByTestId('web-search-connection');
-  expect(advanced.closest('details')?.open).toBe(false);
-  fireEvent.click(screen.getByText('More settings'));
-  expect(advanced.closest('details')?.open).toBe(true);
+  expect(advanced.closest('[aria-label="Agent settings"]')).toBe(panel);
   expect(
     within(workspace.parentElement!.parentElement!).queryByRole('combobox', { name: 'Account' }),
   ).toBeTruthy();
@@ -933,3 +940,155 @@ vi.mock('../../hooks/useExplicitLocalChat', async () => {
   const { disabledLocalChat } = await import('../../test-utils/disabled-local-chat');
   return { useExplicitLocalChat: disabledLocalChat };
 });
+it('keeps a Telos lead draft in ordinary setup without allowing a first model send', () => {
+  const store = createTestStore();
+  const sendMessage = vi.fn();
+  store.setState({ sendMessage });
+  render(
+    <MemoryRouter initialEntries={['/chat?telosRoleItem=item&telosRole=lead&telosRoleMode=assign']}>
+      <MitzoStoreProvider value={store}>
+        <ChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  expect(
+    (screen.getByRole('button', { name: 'Assign lead & open chat' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+  expect(sendMessage).not.toHaveBeenCalled();
+});
+it.each(['unknown', 'advisor'])(
+  'refuses unsupported role setup %s without falling back to ordinary sending',
+  (role) => {
+    const store = createTestStore();
+    const sendMessage = vi.fn();
+    store.setState({ sendMessage });
+    render(
+      <MemoryRouter
+        initialEntries={[`/chat?telosRoleItem=item&telosRole=${role}&telosRoleMode=assign`]}
+      >
+        <MitzoStoreProvider value={store}>
+          <ChatView />
+        </MitzoStoreProvider>
+      </MemoryRouter>,
+    );
+    expect(
+      screen.getByText(
+        'This work conversation setup is unavailable. Return to the work item and choose a supported role.',
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(sendMessage).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['projected', 'unavailable', 'legacy', 'none', 'private-legacy', 'wrong-route'])(
+  'passes exact repository presentation through both agent entry paths: %s',
+  async (scenario) => {
+    const hookModule = await import('../../hooks/useExplicitLocalChat');
+    const actualHook = await vi.importActual<typeof hookModule>('../../hooks/useExplicitLocalChat');
+    const hook = vi
+      .spyOn(hookModule, 'useExplicitLocalChat')
+      .mockImplementation(actualHook.useExplicitLocalChat);
+    const agentModule = await import('../../components/ConversationAgents');
+    const symposiumModule = await import('../../components/SymposiumConversation');
+    const agents = vi
+      .spyOn(agentModule, 'ConversationAgents')
+      .mockImplementation(({ repository }) => (
+        <output data-testid="ordinary-repository">{repository ?? 'not supplied'}</output>
+      ));
+    const symposium = vi
+      .spyOn(symposiumModule, 'SymposiumConversation')
+      .mockImplementation(({ conversationLayout }) => (
+        <output data-testid="symposium-repository">
+          {conversationLayout?.repository ?? 'not supplied'}
+        </output>
+      ));
+    const workspaceId = '11111111-1111-4111-8111-111111111111';
+    const pendingMetadata: Array<() => void> = [];
+    const response = async (url: unknown) => {
+      if (scenario === 'wrong-route' && String(url).endsWith('/meta'))
+        await new Promise<void>((resolve) => pendingMetadata.push(resolve));
+      return Response.json(
+        String(url).endsWith('/meta')
+          ? {
+              sessionId: scenario === 'wrong-route' ? 'other-chat' : 'repository-chat',
+              sessionType: 'chat',
+              ...(scenario === 'projected' ||
+              scenario === 'unavailable' ||
+              scenario === 'wrong-route'
+                ? { repositoryWorkspaceId: workspaceId }
+                : {}),
+              ...(scenario === 'projected' || scenario === 'wrong-route'
+                ? { repositoryContext: { workspaceId, repository: 'example/owned-repository' } }
+                : {}),
+            }
+          : String(url).endsWith('/symposium/status')
+            ? { sessionId: 'repository-chat', config: null, seats: [] }
+            : [],
+      );
+    };
+    vi.mocked(apiFetch).mockImplementation(response);
+    const store = createTestStore();
+    store.setState({
+      sessions: {
+        ...store.getState().sessions,
+        active: scenario === 'wrong-route' ? 'other-chat' : 'repository-chat',
+      },
+      messages: {
+        ...store.getState().messages,
+        activeWorktrees: [
+          ...(scenario === 'legacy'
+            ? [{ repoName: 'known-legacy-repo', path: '/private/task/location' }]
+            : []),
+          ...(scenario === 'private-legacy'
+            ? [{ repoName: '/private/task/location', path: '/private/task/location' }]
+            : []),
+        ],
+      },
+      switchSession: vi.fn().mockResolvedValue(undefined),
+      fetchSessionMeta: vi.fn().mockResolvedValue(undefined),
+    });
+    try {
+      render(
+        <MemoryRouter initialEntries={['/chat/repository-chat']}>
+          <Routes>
+            <Route
+              path="/chat/:sessionId"
+              element={
+                <MitzoStoreProvider value={store}>
+                  <ChatView />
+                </MitzoStoreProvider>
+              }
+            />
+          </Routes>
+        </MemoryRouter>,
+      );
+      const expected =
+        scenario === 'projected'
+          ? 'example/owned-repository'
+          : scenario === 'unavailable'
+            ? 'Unavailable'
+            : scenario === 'legacy'
+              ? 'known-legacy-repo'
+              : 'not supplied';
+      if (scenario === 'wrong-route') {
+        await waitFor(() => expect(pendingMetadata.length).toBeGreaterThan(0));
+        await act(async () => pendingMetadata.splice(0).forEach((finish) => finish()));
+        expect(screen.getByTestId('symposium-repository').textContent).toBe('not supplied');
+        expect(screen.queryByTestId('ordinary-repository')).toBeNull();
+        return;
+      }
+      await waitFor(() =>
+        expect(screen.getByTestId('ordinary-repository').textContent).toBe(expected),
+      );
+      expect(screen.getByTestId('symposium-repository').textContent).toBe(expected);
+      expect(screen.getByTestId('ordinary-repository').textContent).not.toContain('/private/');
+    } finally {
+      cleanup();
+      hook.mockRestore();
+      agents.mockRestore();
+      symposium.mockRestore();
+    }
+  },
+);

@@ -24,7 +24,7 @@
   background: var(--workspace-bg, var(--bg));
   border: 1px solid var(--workspace-line, var(--border));
   border-radius: 8px;
-  min-height: 42px;
+  min-height: var(--control-height);
   padding: 9px 10px;
   font: inherit;
 }
@@ -51,7 +51,7 @@
   color: var(--text-secondary, var(--color-muted));
 }
 .symposium-profile-picker button {
-  min-height: 42px;
+  min-height: var(--control-height);
 }
 .symposium-profile-picker > details {
   min-width: 0;
@@ -59,7 +59,7 @@
   border-top: 1px solid var(--workspace-line, var(--border));
 }
 .symposium-profile-picker > details > summary {
-  min-height: 42px;
+  min-height: var(--control-height);
   cursor: pointer;
   font-size: 0.875rem;
   line-height: 1.5;
@@ -92,4 +92,23 @@
   min-width: 1rem;
   height: 1rem;
   margin: 0;
+}
+
+/* The shared task editor spans the proposal card's responsive review grid. */
+.symposium-profile-proposal > .agent-library-detail,
+.symposium-profile-proposal > details {
+  grid-column: 1 / -1;
+}
+
+.symposium-profile-proposal .agent-task-proposal-source {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.symposium-profile-proposals > p,
+.symposium-profile-proposal > p {
+  overflow-wrap: anywhere;
 }

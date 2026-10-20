@@ -102,7 +102,14 @@ type Store = Pick<
   EventStore,
   'admitOrdinaryLocalCommand' | 'claimOrdinaryLocalCommandDispatch' | 'completeOrdinaryLocalCommand'
 > &
-  Partial<Pick<EventStore, 'admitOrdinaryLocalContinuation'>>;
+  Partial<
+    Pick<
+      EventStore,
+      | 'admitOrdinaryLocalContinuation'
+      | 'admitPreparedOrdinaryCommand'
+      | 'admitPreparedOrdinaryWorkspaceCommand'
+    >
+  >;
 type Meta = Parameters<Store['admitOrdinaryLocalCommand']>[0];
 
 function canonical(value: unknown): unknown {
@@ -281,6 +288,11 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
         completeOrdinaryLocalCommand: dependencies.store.completeOrdinaryLocalCommand.bind(
           dependencies.store,
         ),
+        admitPreparedOrdinaryWorkspaceCommand:
+          dependencies.store.admitPreparedOrdinaryWorkspaceCommand?.bind(dependencies.store),
+        admitPreparedOrdinaryCommand: dependencies.store.admitPreparedOrdinaryCommand?.bind(
+          dependencies.store,
+        ),
         admitOrdinaryLocalContinuation: dependencies.store.admitOrdinaryLocalContinuation?.bind(
           dependencies.store,
         ),
@@ -294,6 +306,33 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     effects: OrdinaryLocalCodexAdmissionEffects,
   ): Promise<{ dispatched: boolean }> {
     return this.admitCommand(meta, input, effects, false);
+  }
+
+  async admitPreparedFirst(
+    operationId: string,
+    meta: Meta,
+    input: unknown,
+    effects: OrdinaryLocalCodexAdmissionEffects,
+  ): Promise<{ dispatched: boolean }> {
+    if (this.dependencies.adapter || !this.dependencies.store.admitPreparedOrdinaryCommand)
+      fail('prepared_session_unavailable');
+    return this.admitCommand(meta, input, effects, false, operationId);
+  }
+
+  async admitPreparedOrdinaryWorkspaceFirst(
+    operationId: string,
+    meta: Meta,
+    input: unknown,
+    effects: OrdinaryLocalCodexAdmissionEffects,
+  ): Promise<{ dispatched: boolean }> {
+    if (
+      this.dependencies.adapter ||
+      !this.dependencies.store.admitPreparedOrdinaryWorkspaceCommand ||
+      !meta.ordinaryWorkspaceId ||
+      meta.repositoryWorkspaceId != null
+    )
+      fail('prepared_session_unavailable');
+    return this.admitCommand(meta, input, effects, false, operationId, true);
   }
 
   /** Existing-session admission requires the retained owner, never a fresh
@@ -335,6 +374,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     input: unknown,
     effects: OrdinaryLocalCodexAdmissionEffects,
     continuation: boolean,
+    preparationOperationId?: string,
+    ordinaryPreparation = false,
   ): Promise<{ dispatched: boolean }> {
     const d = this.dependencies;
     if (!d.enabled || (!d.authority && !d.bootstrapAuthority)) fail('unavailable');
@@ -351,7 +392,18 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     if (!parsed.success) fail('invalid_request');
     const request = structuredClone(parsed.data);
     const admittedMeta = structuredClone(meta);
-    if (!admittedMeta.repositoryWorkspaceId || !admittedMeta.cwd) fail('workspace_unavailable');
+    const ordinary = admittedMeta.ordinaryWorkspaceId != null;
+    if (
+      ordinary &&
+      (d.adapter ||
+        admittedMeta.repositoryWorkspaceId != null ||
+        (!continuation && !ordinaryPreparation))
+    )
+      fail('workspace_unavailable');
+    const workspaceId = ordinary
+      ? admittedMeta.ordinaryWorkspaceId
+      : admittedMeta.repositoryWorkspaceId;
+    if (!workspaceId || !admittedMeta.cwd) fail('workspace_unavailable');
     if (request.selection.permission.mode !== request.runtime.mode) fail('permission_mismatch');
     assertNativeCodexContextAdmission(request.selection.context, admittedMeta.agentContext);
     reconcileSessionMetadata(admittedMeta, request);
@@ -393,7 +445,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       hostId: d.declaration.hostId,
       runtimeContractRevision: d.declaration.runtimeContractRevision,
       capabilityRevision: request.capabilityRevision,
-      workspace: { workspaceId: admittedMeta.repositoryWorkspaceId, cwd: admittedMeta.cwd },
+      workspace: { workspaceId, cwd: admittedMeta.cwd },
       selection: request.selection,
       agentProfile: admittedMeta.agentProfile,
       agentContext: admittedMeta.agentContext,
@@ -415,12 +467,22 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
         const admit = continuation
           ? d.store.admitOrdinaryLocalContinuation!
           : d.store.admitOrdinaryLocalCommand;
-        admit(structuredClone(admittedMeta), structuredClone(snapshot.binding), {
+        const admittedInput = {
           clientMsgId: request.clientMsgId,
           requestFingerprint: fingerprint,
           selection: structuredClone(snapshot.selection),
           payload: structuredClone(request.payload),
-        });
+        };
+        if (preparationOperationId)
+          (ordinaryPreparation
+            ? d.store.admitPreparedOrdinaryWorkspaceCommand!
+            : d.store.admitPreparedOrdinaryCommand!)(
+            preparationOperationId,
+            structuredClone(admittedMeta),
+            structuredClone(snapshot.binding),
+            admittedInput,
+          );
+        else admit(structuredClone(admittedMeta), structuredClone(snapshot.binding), admittedInput);
       } catch {
         fail('identity_conflict');
       }

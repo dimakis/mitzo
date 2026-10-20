@@ -6,6 +6,7 @@
  * Launched as a child process by Mitzo's chat.ts. Calls back to the
  * Mitzo HTTP API for all operations. Receives config as CLI args + env:
  *   --base-url <url>  --client-id <id>  env MITZO_INTERNAL_TOKEN
+ *   Optional host-captured scope: --session-id <id> --task-id <id>
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -14,19 +15,26 @@ import { z } from 'zod';
 function parseArgs(argv: string[]): {
   baseUrl: string;
   clientId: string;
+  sessionId: string;
+  taskId: string;
   token: string;
 } {
   let baseUrl = '';
   let clientId = '';
+  let sessionId = '';
+  let taskId = '';
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--base-url' && argv[i + 1]) baseUrl = argv[++i];
     else if (argv[i] === '--client-id' && argv[i + 1]) clientId = argv[++i];
+    else if (argv[i] === '--session-id' && argv[i + 1]) sessionId = argv[++i];
+    else if (argv[i] === '--task-id' && argv[i + 1]) taskId = argv[++i];
   }
   const token = process.env.MITZO_INTERNAL_TOKEN || '';
   if (!baseUrl || !clientId || !token) {
     throw new Error('Missing required args: --base-url, --client-id; env: MITZO_INTERNAL_TOKEN');
   }
-  return { baseUrl, clientId, token };
+  if (!!sessionId !== !!taskId) throw new Error('Task scope requires --session-id and --task-id');
+  return { baseUrl, clientId, sessionId, taskId, token };
 }
 
 const config = parseArgs(process.argv.slice(2));
@@ -38,6 +46,9 @@ async function apiCall(method: string, path: string, body?: unknown): Promise<un
       'Content-Type': 'application/json',
       'X-Internal-Token': config.token,
       'X-Client-Id': config.clientId,
+      ...(config.sessionId
+        ? { 'X-Task-Session-Id': config.sessionId, 'X-Task-Id': config.taskId }
+        : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });

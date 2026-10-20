@@ -1,0 +1,12 @@
+.model-brand {
+  display: inline-block;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  mask: url('/openai-mark.svg') center / contain no-repeat;
+}
+.model-brand--claude {
+  color: var(--color-brand-claude);
+  mask-image: url('/claude-mark.svg');
+}

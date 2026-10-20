@@ -1,3 +1,4 @@
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import {
   assertOrdinaryCodexContextIdentity,
   assertOrdinaryCodexSnapshotCustody,
@@ -89,10 +90,19 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     this.#tail = operation.catch(() => {});
     return operation;
   }
+  async admitPreparedFirst(operationId: string, meta: SessionUpsert, request: unknown) {
+    if (!operationId || this.owners.resume) throw unavailable();
+    const operation = this.#tail.then(() =>
+      this.admitExclusive(meta, request, undefined, operationId),
+    );
+    this.#tail = operation.catch(() => {});
+    return operation;
+  }
   private async admitExclusive(
     metaInput: SessionUpsert,
     requestInput: unknown,
     preparationSignal?: AbortSignal,
+    preparationOperationId?: string,
   ) {
     preparationSignal?.throwIfAborted();
     const o = this.owners;
@@ -100,7 +110,8 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     o.signal.throwIfAborted();
     const current = o.capabilitiesCurrent();
     const request = OrdinaryLocalCodexCommandRequestSchema.parse(requestInput);
-    OwnedOpenShellCodexPayloadSchema.parse(request.payload);
+    const sourcePayload = OwnedOpenShellCodexPayloadSchema.parse(request.payload);
+    assembleSourceSnapshots(sourcePayload.text, sourcePayload.sourceSnapshots);
     const meta = structuredClone(metaInput);
     if (
       meta.sessionId !== o.sessionId ||
@@ -207,6 +218,16 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
         ),
       )
       .digest('hex')}`;
+    if (preparationOperationId) {
+      const receipt = o.events.assertPreparedOrdinarySession(
+        preparationOperationId,
+        meta,
+        binding,
+        expected.selection,
+      );
+      if (receipt.firstCommandId !== null && receipt.firstCommandId !== request.clientMsgId)
+        throw unavailable();
+    }
     const saved = o.events.getOrdinaryOpenShellCommandAdmission(request.clientMsgId);
     if (saved && saved.state !== 'reserved') {
       const send = o.events.getSendCommand(request.clientMsgId);
@@ -275,8 +296,9 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       payload: request.payload,
     };
     preparationSignal?.throwIfAborted();
-    const receipt =
-      this.#origin || o.resume
+    const receipt = preparationOperationId
+      ? o.events.admitPreparedOrdinaryCommand(preparationOperationId, admittedMeta, binding, input)
+      : this.#origin || o.resume
         ? o.events.admitOrdinaryOpenShellContinuation(admittedMeta, binding, input)
         : o.events.admitOrdinaryOpenShellCommand(admittedMeta, binding, input);
     if (receipt.admission.state !== 'reserved')

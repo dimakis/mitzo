@@ -1,0 +1,621 @@
+From eb67e7c5f08ad7b5416592265bb8839011363bff Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 21:55:13 +0100
+Subject: [PATCH] test(core): cover inherited parent fallback boundaries
+
+---
+ codex-rs/core/src/tools/approvals.rs          |   4 +
+ .../approvals/parent_fallback_test_support.rs |  73 +++
+ .../parent_inheritance_boundary_tests.rs      | 496 ++++++++++++++++++
+ .../parent_inheritance_manager_tests.rs       |   3 +
+ 4 files changed, 576 insertions(+)
+ create mode 100644 codex-rs/core/src/tools/approvals/parent_fallback_test_support.rs
+ create mode 100644 codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs
+
+diff --git a/codex-rs/core/src/tools/approvals.rs b/codex-rs/core/src/tools/approvals.rs
+index f930395..d7b8869 100644
+--- a/codex-rs/core/src/tools/approvals.rs
++++ b/codex-rs/core/src/tools/approvals.rs
+@@ -1010,3 +1010,7 @@ mod tests;
+ #[cfg(all(test, unix))]
+ #[path = "approvals/parent_routing_tests.rs"]
+ mod parent_routing_tests;
++
++#[cfg(all(test, unix))]
++#[path = "approvals/parent_fallback_test_support.rs"]
++pub(super) mod parent_fallback_test_support;
+diff --git a/codex-rs/core/src/tools/approvals/parent_fallback_test_support.rs b/codex-rs/core/src/tools/approvals/parent_fallback_test_support.rs
+new file mode 100644
+index 0000000..e345d27
+--- /dev/null
++++ b/codex-rs/core/src/tools/approvals/parent_fallback_test_support.rs
+@@ -0,0 +1,73 @@
++//! TEST-ONLY scheduling after a real Some(scope) -> None; never an approval observation/grant.
++use crate::session::InterceptedApprovalSelection;
++use crate::tools::sandboxing::ApprovalAction;
++use std::sync::Arc;
++use std::sync::Mutex;
++use tokio::sync::Notify;
++
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub(crate) struct ParentFallbackMetadata {
++    call_id: String,
++    environment_id: String,
++    child_approval_id: String,
++}
++impl ParentFallbackMetadata {
++    pub(crate) fn identity(&self) -> (&str, &str, &str) {
++        (&self.call_id, &self.environment_id, &self.child_approval_id)
++    }
++}
++
++#[derive(Default)]
++pub(crate) struct ParentFallbackPause {
++    seen: Mutex<Vec<ParentFallbackMetadata>>,
++    entered: Notify,
++    release: Notify,
++}
++impl ParentFallbackPause {
++    pub(crate) fn observations(&self) -> Vec<ParentFallbackMetadata> {
++        self.seen.lock().unwrap().clone()
++    }
++    pub(crate) async fn wait(&self) -> ParentFallbackMetadata {
++        loop {
++            let observed = self.observations().first().cloned();
++            if let Some(observed) = observed {
++                return observed;
++            }
++            self.entered.notified().await;
++        }
++    }
++    pub(crate) fn release(&self) {
++        self.release.notify_one();
++    }
++    pub(crate) fn release_on_drop(self: &Arc<Self>) -> ParentFallbackRelease {
++        ParentFallbackRelease(Arc::clone(self))
++    }
++    // Sole future callsite: actual Some(scope).try_resolve returned None, before revalidation.
++    // No authority owner guards remain held, and successful Some never enters this method.
++    pub(super) async fn after_scope_none(&self, selected: &InterceptedApprovalSelection) {
++        let (action, _) = selected.approval_request();
++        let ApprovalAction::Execve {
++            id,
++            environment_id,
++            approval_id,
++            ..
++        } = action
++        else {
++            return;
++        };
++        self.seen.lock().unwrap().push(ParentFallbackMetadata {
++            call_id: id,
++            environment_id,
++            child_approval_id: approval_id,
++        });
++        self.entered.notify_one();
++        self.release.notified().await;
++    }
++}
++
++pub(crate) struct ParentFallbackRelease(Arc<ParentFallbackPause>);
++impl Drop for ParentFallbackRelease {
++    fn drop(&mut self) {
++        self.0.release();
++    }
++}
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs
+new file mode 100644
+index 0000000..b527a39
+--- /dev/null
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_boundary_tests.rs
+@@ -0,0 +1,496 @@
++//! Future actual-manager boundaries; authored first, not installed/compiled/executed.
++use super::*;
++use crate::tools::approvals::parent_fallback_test_support::ParentFallbackPause;
++use codex_protocol::protocol::HookCompletedEvent;
++use codex_protocol::protocol::HookEventName;
++use codex_protocol::protocol::HookExecutionMode;
++use codex_protocol::protocol::HookRunStatus;
++use pretty_assertions::assert_eq;
++use std::path::PathBuf;
++
++fn install_pause(fixture: &Fixture) -> Arc<ParentFallbackPause> {
++    fixture
++        .session
++        .services
++        .session_extension_data
++        .get_or_init(ParentFallbackPause::default)
++}
++fn check_child_command(command: &[String], fixture: &Fixture) {
++    assert_eq!(command.len(), 2);
++    assert!(matches!(command[0].as_str(), "/bin/cat" | "/usr/bin/cat"));
++    assert_eq!(command[1], fixture.secret.to_string_lossy());
++}
++fn check_identity(before: &TaskIdentity, after: &TaskIdentity, fixture: &Fixture) {
++    assert!(Arc::ptr_eq(&before.done, &after.done));
++    assert!(Arc::ptr_eq(&before.turn, &after.turn));
++    assert!(Arc::ptr_eq(&before.settings, &after.settings));
++    assert!(Arc::ptr_eq(&after.settings, &fixture.step.settings));
++}
++async fn no_manual_event(fixture: &Fixture) -> anyhow::Result<()> {
++    while let Ok(event) = fixture.events.try_recv() {
++        anyhow::ensure!(
++            !matches!(event.msg, EventMsg::ExecApprovalRequest(_)),
++            "unexpected child manual approval after real scope None"
++        );
++    }
++    Ok(())
++}
++async fn denied_exit_without_manual(fixture: &Fixture, process_id: i32) -> anyhow::Result<Vec<u8>> {
++    let mut output = Vec::new();
++    loop {
++        let poll = output_poll(fixture, process_id);
++        tokio::pin!(poll);
++        let polled = loop {
++            tokio::select! {
++                result = &mut poll => break result?,
++                event = fixture.events.recv() => {
++                    anyhow::ensure!(!matches!(event?.msg, EventMsg::ExecApprovalRequest(_)),
++                        "second current-context validation omitted: actual child manual approval");
++                }
++            }
++        };
++        output.extend(polled.raw_output);
++        if polled.process_id.is_none() {
++            assert_eq!(polled.exit_code, Some(1));
++            no_manual_event(fixture).await?;
++            return Ok(output);
++        }
++    }
++}
++
++#[tokio::test]
++async fn actual_immediate_admission_never_enters_installed_fallback_pause() -> anyhow::Result<()> {
++    skip_if_sandbox!(Ok(()));
++    let Some(runtime) =
++        zsh_fork_runtime("actual_immediate_admission_never_enters_installed_fallback_pause")?
++    else {
++        return Ok(());
++    };
++    let mut case = ManagerCase::new(&runtime).await?;
++    let pause = install_pause(&case.fixture);
++    let release = pause.release_on_drop();
++    let result = tokio::time::timeout(Duration::from_secs(50), async {
++        let script = format!(
++            "printf 'Q4-marker\\n'; /bin/cat {}",
++            shlex::try_quote(case.fixture.secret.to_string_lossy().as_ref())?
++        );
++        let command = case
++            .launch(script, crate::unified_exec::MAX_YIELD_TIME_MS)
++            .await;
++        let fixture = &case.fixture;
++        let (output, approvals) =
++            initial(fixture, case.running.as_mut().unwrap(), &command).await?;
++        assert_eq!(approvals.len(), 1);
++        assert_eq!(output.exit_code, Some(1));
++        assert!(output.process_id.is_none());
++        assert_trace(fixture, true);
++        assert_nonleak(fixture, &output.raw_output)?;
++        assert_no_approval(fixture);
++        assert!(pause.observations().is_empty());
++        // The release guard stays live; success must finish without any release notification.
++        Ok(())
++    })
++    .await
++    .map_err(anyhow::Error::from)
++    .and_then(|result| result);
++    drop(release);
++    case.finish(result).await
++}
++
++#[tokio::test]
++async fn config_drift_after_actual_closed_flag_scope_none_refuses_before_manual()
++-> anyhow::Result<()> {
++    skip_if_sandbox!(Ok(()));
++    let Some(runtime) =
++        zsh_fork_runtime("config_drift_after_actual_closed_flag_scope_none_refuses_before_manual")?
++    else {
++        return Ok(());
++    };
++    let mut case = ManagerCase::new(&runtime).await?;
++    let pause = install_pause(&case.fixture);
++    let release = pause.release_on_drop();
++    let result = tokio::time::timeout(Duration::from_secs(60), async {
++        let gate = case
++            .fixture
++            .secret
++            .parent()
++            .expect("owned workspace")
++            .join("release-for-context-drift");
++        assert!(!gate.exists());
++        let before = identity(&case.fixture).await?;
++        let script = format!(
++            "printf 'Q4-marker\\n'; while [[ ! -e {} ]]; do :; done; /bin/cat {}",
++            shlex::try_quote(gate.to_string_lossy().as_ref())?,
++            shlex::try_quote(case.fixture.secret.to_string_lossy().as_ref())?
++        );
++        let command = case
++            .launch(script, crate::unified_exec::MIN_YIELD_TIME_MS)
++            .await;
++        let fixture = &case.fixture;
++        let process_id = case.process_id.unwrap();
++        let (first, approvals) = initial(fixture, case.running.as_mut().unwrap(), &command).await?;
++        assert_eq!(approvals.len(), 1);
++        assert_eq!(first.process_id, Some(process_id));
++        assert_eq!(first.exit_code, None);
++        let mut output = first.raw_output;
++        while !String::from_utf8_lossy(&output).contains("Q4-marker") {
++            let polled = output_poll(fixture, process_id).await?;
++            assert_eq!(polled.process_id, Some(process_id));
++            assert_eq!(polled.exit_code, None);
++            output.extend(polled.raw_output);
++        }
++        check_identity(&before, &identity(fixture).await?, fixture);
++        assert_bound_before_gate(fixture);
++        assert!(pause.observations().is_empty());
++        no_manual_event(fixture).await?;
++        // Real initial call returned with live process BEFORE this host-created file exists.
++        std::fs::write(&gate, b"release")?;
++        let paused = tokio::time::timeout(Duration::from_secs(10), async {
++            let entered = pause.wait();
++            tokio::pin!(entered);
++            loop {
++                tokio::select! {
++                    metadata = &mut entered => return Ok::<_, anyhow::Error>(metadata),
++                    event = fixture.events.recv() => {
++                        anyhow::ensure!(!matches!(event?.msg, EventMsg::ExecApprovalRequest(_)),
++                            "manual approval appeared before actual scope-None pause");
++                    }
++                }
++            }
++        })
++        .await??;
++        let environment = &fixture
++            .step
++            .environments
++            .primary()
++            .unwrap()
++            .selection
++            .environment_id;
++        let (call_id, environment_id, approval_id) = paused.identity();
++        assert_eq!(call_id, CALL);
++        assert_eq!(environment_id, environment);
++        assert!(!approval_id.is_empty());
++        assert_eq!(pause.observations(), vec![paused.clone()]);
++        assert_trace(fixture, false);
++        let original = fixture.session.get_config().await;
++        fixture
++            .session
++            .refresh_runtime_config(original.as_ref().clone())
++            .await;
++        let changed = fixture.session.get_config().await;
++        assert!(!Arc::ptr_eq(&original, &changed));
++        check_identity(&before, &identity(fixture).await?, fixture);
++        pause.release();
++        output.extend(denied_exit_without_manual(fixture, process_id).await?);
++        let text = String::from_utf8_lossy(&output);
++        assert!(text.contains(
++            "Execution denied: intercepted execution approval context changed during review"
++        ));
++        assert_nonleak(fixture, &output)?;
++        assert_trace(fixture, false);
++        check_identity(&before, &identity(fixture).await?, fixture);
++        no_manual_event(fixture).await?;
++        Ok(())
++    })
++    .await
++    .map_err(anyhow::Error::from)
++    .and_then(|result| result);
++    drop(release);
++    case.finish(result).await
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++enum HookMode {
++    Decline,
++    Error,
++    Async,
++    Deny,
++}
++struct InstalledHook {
++    _home: tempfile::TempDir,
++    hits: PathBuf,
++    input: PathBuf,
++    source: AbsolutePathBuf,
++}
++async fn trusted_child_hook(fixture: &Fixture, mode: HookMode) -> anyhow::Result<InstalledHook> {
++    let home = tempfile::tempdir()?;
++    let hits = home.path().join("hits");
++    let input = home.path().join("input.json");
++    let source = AbsolutePathBuf::try_from(home.path().join("hooks.json"))?;
++    let config_path = AbsolutePathBuf::try_from(home.path().join(codex_config::CONFIG_TOML_FILE))?;
++    let config = fixture.session.get_config().await;
++    let stack = config
++        .config_layer_stack
++        .with_user_config(&config_path, serde_json::from_value(serde_json::json!({}))?)?;
++    let response = match mode {
++        HookMode::Decline | HookMode::Async => "printf '{}'",
++        HookMode::Error => "exit 7",
++        HookMode::Deny => {
++            "printf '%s\\n' '{\"hookSpecificOutput\":{\"hookEventName\":\"PermissionRequest\",\"decision\":{\"behavior\":\"deny\",\"message\":\"boundary-hook-denied\"}}}'"
++        }
++    };
++    let command = format!(
++        "cat > {}; printf 'hit\\n' >> {}; {response}",
++        shlex::try_quote(input.to_string_lossy().as_ref())?,
++        shlex::try_quote(hits.to_string_lossy().as_ref())?
++    );
++    std::fs::write(&source, serde_json::json!({"hooks":{"PermissionRequest":[{
++        "matcher":"Bash", "hooks":[{"type":"command","command":command,"async":mode == HookMode::Async}]
++    }]}}).to_string())?;
++    let listed = codex_hooks::list_hooks(codex_hooks::HooksConfig {
++        feature_enabled: true,
++        config_layer_stack: Some(stack.clone()),
++        ..Default::default()
++    });
++    assert_eq!(listed.hooks.len(), 1);
++    let states = listed
++        .hooks
++        .iter()
++        .map(|hook| {
++            (
++                hook.key.clone(),
++                serde_json::json!({"trusted_hash":hook.current_hash}),
++            )
++        })
++        .collect::<serde_json::Map<_, _>>();
++    let stack = stack.with_user_config(
++        &config_path,
++        serde_json::from_value(serde_json::json!({"hooks":{"state":states}}))?,
++    )?;
++    let hooks = fixture
++        .session
++        .hooks()
++        .reconfigured(codex_hooks::HooksConfig {
++            feature_enabled: true,
++            config_layer_stack: Some(stack),
++            shell_program: Some("/bin/sh".into()),
++            shell_args: vec!["-c".into()],
++            ..Default::default()
++        });
++    // Test publication under the SAME actual production publication guard; Config is unchanged.
++    let state = fixture.session.state.lock().await;
++    assert!(Arc::ptr_eq(
++        &config,
++        &state.session_configuration.original_config_do_not_use
++    ));
++    fixture.session.services.hooks.store(Arc::new(hooks));
++    drop(state);
++    assert!(Arc::ptr_eq(&config, &fixture.session.get_config().await));
++    Ok(InstalledHook {
++        _home: home,
++        hits,
++        input,
++        source,
++    })
++}
++#[derive(Default)]
++struct HookEvents {
++    started: Vec<String>,
++    completed: Vec<HookCompletedEvent>,
++}
++impl HookEvents {
++    fn record(&mut self, event: EventMsg) {
++        match event {
++            EventMsg::HookStarted(event) => self.started.push(event.run.id),
++            EventMsg::HookCompleted(event) => self.completed.push(event),
++            _ => {}
++        }
++    }
++}
++async fn initial_with_child_hook(
++    case: &mut ManagerCase,
++    expected: &[String],
++    mode: HookMode,
++    installed: &mut Option<InstalledHook>,
++) -> anyhow::Result<(
++    ExecCommandToolOutput,
++    Vec<ExecApprovalRequestEvent>,
++    HookEvents,
++)> {
++    let fixture = &case.fixture;
++    let running = case.running.as_mut().unwrap();
++    let mut approvals = Vec::new();
++    let mut hooks = HookEvents::default();
++    loop {
++        tokio::select! {
++            result = running.call.as_mut().unwrap() => {
++                running.call.take();
++                let output = result.map_err(anyhow::Error::from)?.map_err(anyhow::Error::from)?;
++                return Ok((output, approvals, hooks));
++            }
++            event = fixture.events.recv() => match event?.msg {
++                EventMsg::ExecApprovalRequest(approval) => {
++                    assert_eq!(approval.call_id, CALL);
++                    if approvals.is_empty() {
++                        assert!(approval.approval_id.is_none());
++                        assert_eq!(approval.command, expected);
++                        assert!(installed.is_none());
++                        // Initial run was empty; only the child sees this newly trusted handler.
++                        *installed = Some(trusted_child_hook(fixture, mode).await?);
++                    } else {
++                        anyhow::ensure!(approvals.len() == 1 && mode != HookMode::Deny,
++                            "extra or hook-denied child unexpectedly requested manual approval");
++                        assert!(approval.approval_id.is_some());
++                        check_child_command(&approval.command, fixture);
++                    }
++                    fixture.session.notify_approval(
++                        approval.approval_id.as_deref().unwrap_or(&approval.call_id),
++                        ReviewDecision::Approved,
++                    ).await;
++                    approvals.push(approval);
++                }
++                event => hooks.record(event),
++            }
++        }
++    }
++}
++async fn matching_child_hook_case(mode: HookMode, name: &str) -> anyhow::Result<()> {
++    skip_if_sandbox!(Ok(()));
++    let Some(runtime) = zsh_fork_runtime(name)? else {
++        return Ok(());
++    };
++    let mut case = ManagerCase::new(&runtime).await?;
++    // Retain hook files until BOTH process/task cleanup and hook shutdown have been attempted.
++    let mut installed = None;
++    let result = tokio::time::timeout(Duration::from_secs(50), async {
++        let script = format!(
++            "printf 'Q4-marker\\n'; /bin/cat {}",
++            shlex::try_quote(case.fixture.secret.to_string_lossy().as_ref())?
++        );
++        let expected = case
++            .launch(script, crate::unified_exec::MAX_YIELD_TIME_MS)
++            .await;
++        let (output, approvals, mut events) =
++            initial_with_child_hook(&mut case, &expected, mode, &mut installed).await?;
++        let fixture = &case.fixture;
++        assert_eq!(approvals.len(), if mode == HookMode::Deny { 1 } else { 2 });
++        assert_eq!(output.exit_code, Some(1));
++        assert!(output.process_id.is_none());
++        assert_bound_before_gate(fixture); // exact CandidateSome/BoundSome, NO Runtime CAS phase
++        assert_nonleak(fixture, &output.raw_output)?;
++        if mode == HookMode::Deny {
++            assert!(
++                String::from_utf8_lossy(&output.raw_output)
++                    .contains("Execution denied: boundary-hook-denied")
++            );
++        }
++        while let Ok(event) = fixture.events.try_recv() {
++            anyhow::ensure!(
++                !matches!(event.msg, EventMsg::ExecApprovalRequest(_)),
++                "extra manual approval"
++            );
++            events.record(event.msg);
++        }
++        let hook = installed
++            .as_ref()
++            .expect("published after actual initial request");
++        if mode == HookMode::Async {
++            let completed = tokio::time::timeout(
++                Duration::from_secs(5),
++                fixture.session.async_hook_results.recv(),
++            )
++            .await??;
++            assert_eq!(completed.run.event_name, HookEventName::PermissionRequest);
++            assert_eq!(completed.run.execution_mode, HookExecutionMode::Async);
++            assert_eq!(completed.run.source_path, hook.source);
++            assert_eq!(
++                completed.turn_id.as_deref(),
++                Some(fixture.step.turn.sub_id.as_str())
++            );
++            // This actual async owner does NOT append the PermissionRequest approval UUID.
++            assert!(events.started.is_empty());
++            assert!(events.completed.is_empty());
++            assert!(fixture.session.async_hook_results.try_recv().is_err());
++        } else {
++            assert_eq!(events.started.len(), 1);
++            assert_eq!(events.completed.len(), 1);
++            assert_eq!(events.completed[0].run.id, events.started[0]);
++            let child_id = if mode == HookMode::Deny {
++                events.started[0].rsplit(':').next().unwrap()
++            } else {
++                approvals[1].approval_id.as_deref().unwrap()
++            };
++            assert!(Uuid::parse_str(child_id).is_ok());
++            assert!(events.started[0].ends_with(&format!(":{child_id}")));
++            assert_eq!(
++                events.completed[0].run.event_name,
++                HookEventName::PermissionRequest
++            );
++            assert_eq!(events.completed[0].run.source_path, hook.source);
++            assert_eq!(
++                events.completed[0].run.status,
++                match mode {
++                    HookMode::Decline => HookRunStatus::Completed,
++                    HookMode::Error => HookRunStatus::Failed,
++                    HookMode::Deny => HookRunStatus::Blocked,
++                    HookMode::Async => unreachable!(),
++                }
++            );
++        }
++        assert_eq!(std::fs::read_to_string(&hook.hits)?, "hit\n");
++        let input: serde_json::Value = serde_json::from_slice(&std::fs::read(&hook.input)?)?;
++        assert_eq!(input["hook_event_name"], "PermissionRequest");
++        assert_eq!(input["tool_name"], "Bash");
++        let command = shlex::split(
++            input["tool_input"]["command"]
++                .as_str()
++                .expect("hook command"),
++        )
++        .unwrap();
++        check_child_command(&command, fixture);
++        assert_eq!(input["tool_input"]["description"], serde_json::Value::Null);
++        assert_eq!(std::fs::read(&fixture.secret)?, SECRET);
++        assert_bound_before_gate(fixture);
++        Ok(())
++    })
++    .await
++    .map_err(anyhow::Error::from)
++    .and_then(|result| result);
++    let hook_cleanup = tokio::time::timeout(
++        Duration::from_secs(5),
++        case.fixture.session.hooks().shutdown(),
++    )
++    .await;
++    let cleanup = case.finish(result).await;
++    drop(installed);
++    match (cleanup, hook_cleanup) {
++        (Ok(()), Ok(())) => Ok(()),
++        (Err(error), hooks) => Err(error.context(format!("hook shutdown={hooks:?}"))),
++        (Ok(()), hooks) => anyhow::bail!("hook shutdown={hooks:?}"),
++    }
++}
++
++#[tokio::test]
++async fn actual_bound_child_declining_hook_runs_once_and_keeps_manual_review() -> anyhow::Result<()>
++{
++    matching_child_hook_case(
++        HookMode::Decline,
++        "actual_bound_child_declining_hook_runs_once_and_keeps_manual_review",
++    )
++    .await
++}
++#[tokio::test]
++async fn actual_bound_child_error_hook_runs_once_and_keeps_manual_review() -> anyhow::Result<()> {
++    matching_child_hook_case(
++        HookMode::Error,
++        "actual_bound_child_error_hook_runs_once_and_keeps_manual_review",
++    )
++    .await
++}
++#[tokio::test]
++async fn actual_bound_child_async_hook_runs_once_and_keeps_manual_review() -> anyhow::Result<()> {
++    matching_child_hook_case(
++        HookMode::Async,
++        "actual_bound_child_async_hook_runs_once_and_keeps_manual_review",
++    )
++    .await
++}
++#[tokio::test]
++async fn actual_bound_child_decisive_deny_hook_precedes_inheritance_and_manual()
++-> anyhow::Result<()> {
++    matching_child_hook_case(
++        HookMode::Deny,
++        "actual_bound_child_decisive_deny_hook_precedes_inheritance_and_manual",
++    )
++    .await
++}
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_manager_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_manager_tests.rs
+index f390f9d..259b1ef 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_manager_tests.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/parent_inheritance_manager_tests.rs
+@@ -586,3 +586,6 @@ async fn same_task_child_after_actual_initial_return_reaches_closed_original_fla
+     .and_then(|result| result);
+     case.finish(result).await
+ }
++
++#[path = "parent_inheritance_boundary_tests.rs"]
++mod parent_inheritance_boundary_tests;
+-- 
+2.54.0 (Apple Git-157)
+

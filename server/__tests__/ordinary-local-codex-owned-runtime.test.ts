@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { agentLibrarySource } from './fixtures/agent-library-source.js';
 
 import { existsSync, writeFileSync } from 'node:fs';
 
@@ -18,7 +19,11 @@ vi.mock('../auth.js', async (importOriginal) => ({
 }));
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { contextDigest } from '../agent-context-compiler.js';
-import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
+import {
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+  type AgentToolReference,
+} from '@mitzo/protocol';
 import {
   OrdinaryLocalCodexOwnedRuntime,
   type OrdinaryLocalCodexOwnedDispatch,
@@ -43,8 +48,27 @@ afterEach(async () => {
   deployment.controller = deployment.owner = false;
 });
 
-const fixture = (options?: { workspaceId?: string; contextRecipe?: boolean | 'workspace' }) =>
-  ownedRuntimeFixture(cleanups, options);
+const fixture = (options?: {
+  tools?: AgentToolReference[];
+  workspaceId?: string;
+  contextRecipe?: boolean | 'workspace';
+  silentPreparation?: boolean;
+  builtinPreparation?: boolean;
+}) => ownedRuntimeFixture(cleanups, options);
+
+it('rejects altered reviewed Library source bytes before native startup effects', async () => {
+  const f = await fixture();
+  const request = {
+    ...f.request,
+    payload: {
+      ...f.request.payload,
+      sourceSnapshots: [{ ...agentLibrarySource, content: agentLibrarySource.content + ' ' }],
+    },
+  };
+  await expect(f.create().admit(request)).rejects.toThrow();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  expect(f.rpc.request).not.toHaveBeenCalled();
+});
 
 it('adopts the exact builtin namespace through the ordinary Local owner', async () => {
   const f = await fixture();
@@ -750,40 +774,59 @@ it.each(['controller', 'owner'] as const)(
   },
 );
 
-it('retains native custody for an admitted later command and never replays its consumed retry', async () => {
-  const f = await fixture();
-  const continuation = vi.fn(async (input: OrdinaryLocalCodexOwnedDispatch) => {
-    expect(input.lease).toBe(f.dispatch.mock.calls[0][0].lease);
-    expect(f.events.getOrdinaryLocalCommandAdmission(input.commandId)?.state).toBe('uncertain');
-    input.admission.assertBeforeEnqueue({
-      id: input.commandId,
-      prompt: input.payload.text,
-      intent: input.payload.intent,
-      model: input.expected.selection.model,
-      reasoningEffort: input.expected.selection.thinking,
+it.each([
+  { tools: undefined },
+  { tools: [] },
+  { tools: [{ id: 'mitzo:Read', version: 1 }] },
+] satisfies { tools?: AgentToolReference[] }[])(
+  'retains native custody and selected tools for an admitted later command without replaying consumed retries: %j',
+  async ({ tools }) => {
+    const f = await fixture({ tools });
+    const continuation = vi.fn(async (input: OrdinaryLocalCodexOwnedDispatch) => {
+      expect(input.lease).toBe(f.dispatch.mock.calls[0][0].lease);
+      expect(input.expected.agentProfile).toEqual(f.agentProfile);
+      expect(f.events.getOrdinaryLocalCommandAdmission(input.commandId)?.state).toBe('uncertain');
+      input.admission.assertBeforeEnqueue({
+        id: input.commandId,
+        prompt: input.payload.text,
+        intent: input.payload.intent,
+        model: input.expected.selection.model,
+        reasoningEffort: input.expected.selection.thinking,
+      });
     });
-  });
-  const driver = new OrdinaryLocalCodexOwnedRuntime({
-    ...f.dependencies,
-    dispatchContinuation: continuation,
-  });
-  cleanups.push(() => driver.close());
-  await driver.admit(f.request);
-  const next = {
-    ...structuredClone(f.request),
-    clientMsgId: randomUUID(),
-    payload: { text: 'Second explicit message' },
-  };
-  await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: true });
-  expect(f.events.getOrdinaryLocalCommandAdmission(next.clientMsgId)?.state).toBe('consumed');
-  expect(f.launch).toHaveBeenCalledOnce();
-  expect(continuation).toHaveBeenCalledOnce();
-  await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: false });
-  expect(continuation).toHaveBeenCalledOnce();
-  const admission = f.dispatch.mock.calls[0][0].admission;
-  admission.assertBeforeDispatch(next.clientMsgId);
-  expect(() => admission.assertBeforeDispatch(next.clientMsgId)).toThrow();
-});
+    const driver = new OrdinaryLocalCodexOwnedRuntime({
+      ...f.dependencies,
+      dispatchContinuation: continuation,
+    });
+    cleanups.push(() => driver.close());
+    await driver.admit(f.request);
+    const next = {
+      ...structuredClone(f.request),
+      clientMsgId: randomUUID(),
+      payload: { text: 'Second explicit message' },
+    };
+    const changedProfile = {
+      ...structuredClone(next),
+      clientMsgId: randomUUID(),
+      selection: {
+        ...next.selection,
+        agent: { ...next.selection.agent, revision: next.selection.agent.revision + 1 },
+      },
+    };
+    await expect(driver.admitContinuation(changedProfile)).rejects.toThrow();
+    expect(continuation).not.toHaveBeenCalled();
+    expect(f.events.getSendCommand(changedProfile.clientMsgId)).toBeUndefined();
+    await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: true });
+    expect(f.events.getOrdinaryLocalCommandAdmission(next.clientMsgId)?.state).toBe('consumed');
+    expect(f.launch).toHaveBeenCalledOnce();
+    expect(continuation).toHaveBeenCalledOnce();
+    await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: false });
+    expect(continuation).toHaveBeenCalledOnce();
+    const admission = f.dispatch.mock.calls[0][0].admission;
+    admission.assertBeforeDispatch(next.clientMsgId);
+    expect(() => admission.assertBeforeDispatch(next.clientMsgId)).toThrow();
+  },
+);
 
 it('rejects missing native model support before saving a later command and retains task files', async () => {
   const f = await fixture();
@@ -1152,4 +1195,289 @@ it('refuses a timed-out warm model admission while preserving the original retai
   });
   expect(dispatch).toHaveBeenCalledOnce();
   expect(f.launch).toHaveBeenCalledOnce();
+});
+
+it('uses the silently prepared ordinary session for its first explicit command without continuation', async () => {
+  const f = await fixture({ silentPreparation: true });
+  expect(f.preparation?.reservation).toEqual(f.reservation);
+  expect(f.launch).not.toHaveBeenCalled();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  expect(f.events.getOrdinaryInitialCommandId(f.reservation.conversationId)).toBeUndefined();
+  await expect(f.create().admitPreparedFirst('allocation', f.request)).resolves.toEqual({
+    dispatched: true,
+  });
+  expect(f.dispatch).toHaveBeenCalledOnce();
+  expect(f.events.getSendCommand(f.request.clientMsgId)?.sessionId).toBe(
+    f.preparation?.receipt.sessionId,
+  );
+  expect(f.events.getOrdinarySessionPreparation('allocation')?.firstCommandId).toBe(
+    f.request.clientMsgId,
+  );
+  await expect(f.create().admitPreparedFirst('allocation', f.request)).resolves.toEqual({
+    dispatched: false,
+  });
+  await expect(f.create().admitPreparedFirst('other-operation', f.request)).rejects.toThrow();
+  await expect(
+    f.create().admitPreparedFirst('allocation', { ...f.request, clientMsgId: 'other-command' }),
+  ).rejects.toThrow();
+  expect(f.dispatch).toHaveBeenCalledOnce();
+});
+
+it('preserves the actual builtin profile namespace through silent workspace preparation and first command', async () => {
+  const f = await fixture({ silentPreparation: true, builtinPreparation: true });
+  expect(f.preparation?.receipt.settings.selection.agent.kind).toBe('builtin');
+  expect(f.events.getSession(f.reservation.conversationId)?.agentProfile).toEqual(f.agentProfile);
+  expect(f.launch).not.toHaveBeenCalled();
+  await expect(f.create().admitPreparedFirst('allocation', f.request)).resolves.toEqual({
+    dispatched: true,
+  });
+  expect(f.dispatch).toHaveBeenCalledOnce();
+});
+
+it('prepares and starts two independent ordinary sessions sharing one account and profile', async () => {
+  const first = await fixture({ silentPreparation: true });
+  const second = await first.prepareSibling();
+  const prepared = [first.preparation!, second.preparation];
+  expect(new Set(prepared.map((item) => item.receipt.workspaceId)).size).toBe(2);
+  expect(new Set(prepared.map((item) => item.receipt.sessionId)).size).toBe(2);
+  expect(new Set(prepared.map((item) => item.receipt.allocationOperationId)).size).toBe(2);
+  expect(first.reservation.binding).toEqual(second.reservation.binding);
+  expect(first.request.selection.agent).toEqual(second.request.selection.agent);
+  for (const item of prepared) {
+    expect(item.receipt.sessionId).not.toBe(item.receipt.workspaceId);
+    expect(first.events.getOrdinaryInitialCommandId(item.receipt.sessionId)).toBeUndefined();
+    expect(first.events.getSendCommand(item.receipt.allocationOperationId)).toBeUndefined();
+    expect(first.events.getEventsAfter(item.receipt.sessionId, 0)).toEqual([]);
+  }
+  expect(first.launch).not.toHaveBeenCalled();
+  expect(second.launch).not.toHaveBeenCalled();
+  expect(first.dispatch).not.toHaveBeenCalled();
+  expect(second.dispatch).not.toHaveBeenCalled();
+  const firstOwner = first.create(),
+    secondOwner = second.create();
+  await expect(
+    Promise.all([
+      firstOwner.admitPreparedFirst(
+        first.preparation!.receipt.allocationOperationId,
+        first.request,
+      ),
+      secondOwner.admitPreparedFirst(
+        second.preparation.receipt.allocationOperationId,
+        second.request,
+      ),
+    ]),
+  ).resolves.toEqual([{ dispatched: true }, { dispatched: true }]);
+  expect(first.dispatch).toHaveBeenCalledOnce();
+  expect(second.dispatch).toHaveBeenCalledOnce();
+  expect(first.launch).toHaveBeenCalledOnce();
+  expect(second.launch).toHaveBeenCalledOnce();
+  expect(first.rpc).not.toBe(second.rpc);
+  const firstTurn = first.dispatch.mock.calls[0][0],
+    secondTurn = second.dispatch.mock.calls[0][0];
+  expect(firstTurn.lease.privateHome).not.toBe(secondTurn.lease.privateHome);
+  expect(firstTurn.workspace.directory).not.toBe(secondTurn.workspace.directory);
+  expect(first.events.getSendCommand(first.request.clientMsgId)?.sessionId).toBe(
+    first.preparation!.receipt.sessionId,
+  );
+  expect(first.events.getSendCommand(second.request.clientMsgId)?.sessionId).toBe(
+    second.preparation.receipt.sessionId,
+  );
+  expect(
+    first.events.getOrdinarySessionPreparation(first.preparation!.receipt.allocationOperationId)
+      ?.firstCommandId,
+  ).toBe(first.request.clientMsgId);
+  expect(
+    first.events.getOrdinarySessionPreparation(second.preparation.receipt.allocationOperationId)
+      ?.firstCommandId,
+  ).toBe(second.request.clientMsgId);
+  await expect(
+    secondOwner.admitPreparedFirst(
+      first.preparation!.receipt.allocationOperationId,
+      second.request,
+    ),
+  ).rejects.toThrow();
+  firstTurn.admission.assertCurrentSync();
+  secondTurn.admission.assertCurrentSync();
+  await expect(
+    firstOwner.admitPreparedFirst(first.preparation!.receipt.allocationOperationId, first.request),
+  ).resolves.toEqual({ dispatched: false });
+  expect(first.dispatch).toHaveBeenCalledOnce();
+  expect(second.dispatch).toHaveBeenCalledOnce();
+});
+
+import { createHash } from 'node:crypto';
+import { retainTelosWorkRoleContext } from '../telos-work-role-context.js';
+it('delivers retained Telos mandate and reviewed context in the actual silent-prepared Local packet', async () => {
+  const f = await fixture({ silentPreparation: true });
+  const sessionId = f.reservation.conversationId;
+  const binding = f.events.getSession(sessionId)!.accountBinding!;
+  const text = 'Host-reviewed lead item';
+  retainTelosWorkRoleContext(f.events, sessionId, binding, {
+    version: 1,
+    itemId: 'item',
+    role: 'lead',
+    brief: { revision: 'reviewed', text, sha256: createHash('sha256').update(text).digest('hex') },
+    parentCriteria: [],
+    overallGoal: { itemId: 'item', revision: 'reviewed', text: 'Reviewed goal' },
+    sources: [],
+    artifacts: [],
+  });
+  await f.create().admitPreparedFirst(f.preparation!.receipt.allocationOperationId, f.request);
+  expect(f.dispatch.mock.calls[0][0].payload.systemPrompt).toContain(
+    'Child execution requires a separate worker conversation',
+  );
+  expect(f.dispatch.mock.calls[0][0].payload.systemPrompt).toContain(text);
+});
+it('denies malformed retained Telos context before the silent-prepared Local packet dispatch', async () => {
+  const f = await fixture({ silentPreparation: true });
+  f.events.append(f.reservation.conversationId, 'telos_work_role_context', {
+    version: 1,
+    selection: { role: 'lead' },
+  });
+  await expect(
+    f.create().admitPreparedFirst(f.preparation!.receipt.allocationOperationId, f.request),
+  ).rejects.toThrow();
+  expect(f.dispatch).not.toHaveBeenCalled();
+});
+it('preserves Telos role guidance when an ordinary Local continuation selects another supported model', async () => {
+  const f = await fixture({ silentPreparation: true });
+  f.configuration[0].models.push({
+    id: 'future-model',
+    label: 'Future',
+    reasoningEfforts: ['low'],
+  });
+  f.writeProfiles();
+  f.request.capabilityRevision = new OrdinaryLocalCodexCapabilityCatalog(
+    loadAccountProfiles(),
+    new OrdinaryLocalCodexHostRuntime(f.dependencies.env).target(),
+    'ordinary',
+  ).inventory().capabilityRevision;
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method) =>
+    method === 'model/list'
+      ? {
+          data: ['fixture-model', 'future-model'].map((model) => ({
+            model,
+            displayName: model,
+            supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+          })),
+          nextCursor: null,
+        }
+      : rpc(method),
+  );
+  const sessionId = f.reservation.conversationId;
+  const binding = f.events.getSession(sessionId)!.accountBinding!;
+  const text = 'Reviewed context survives inference choice';
+  retainTelosWorkRoleContext(f.events, sessionId, binding, {
+    version: 1,
+    itemId: 'item',
+    role: 'lead',
+    brief: { revision: 'reviewed', text, sha256: createHash('sha256').update(text).digest('hex') },
+    parentCriteria: [],
+    overallGoal: { itemId: 'item', revision: 'reviewed', text: 'Goal' },
+    sources: [],
+    artifacts: [],
+  });
+  const continuation = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
+    value.admission.assertBeforeEnqueue({
+      id: value.commandId,
+      prompt: value.payload.text,
+      model: value.expected.selection.model,
+      reasoningEffort: value.expected.selection.thinking,
+    });
+  });
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    dispatchContinuation: continuation,
+  });
+  cleanups.push(() => driver.close());
+  await driver.admitPreparedFirst(f.preparation!.receipt.allocationOperationId, f.request);
+  const next = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    selection: { ...f.request.selection, model: 'future-model' },
+    payload: { text: 'Continue using supported model' },
+  };
+  await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: true });
+  expect(continuation).toHaveBeenCalledOnce();
+  const packet = continuation.mock.calls[0][0];
+  expect(packet.payload.systemPrompt).toBe(f.dispatch.mock.calls[0][0].payload.systemPrompt);
+  expect(packet.payload.systemPrompt).toContain(text);
+  expect(packet.expected.selection.model).toBe('future-model');
+  expect(packet.workspace.id).toBe(f.dispatch.mock.calls[0][0].workspace.id);
+  expect(packet.lease.binding).toEqual(binding);
+  expect(f.events.getSession(sessionId)?.accountBinding).toEqual(binding);
+});
+
+it.each([
+  { tools: [], prepared: false },
+  { tools: [{ id: 'mitzo:Read', version: 1 }], prepared: false },
+  { tools: [], prepared: true },
+  { tools: [{ id: 'mitzo:Read', version: 1 }], prepared: true },
+] satisfies { tools: AgentToolReference[]; prepared: boolean }[])(
+  'admits the published explicit selection through the actual owned runtime on first command and cold resume: %j',
+  async ({ tools, prepared }) => {
+    const f = await fixture({ tools, silentPreparation: prepared });
+    const first = f.create();
+    await expect(
+      prepared ? first.admitPreparedFirst('allocation', f.request) : first.admit(f.request),
+    ).resolves.toEqual({ dispatched: true });
+    expect(f.events.getOrdinaryLocalCommandAdmission(f.request.clientMsgId)?.state).toBe(
+      'consumed',
+    );
+    const original = f.dispatch.mock.calls[0][0];
+    expect(original.expected.agentProfile?.definition.tools).toEqual(tools);
+    expect(original.payload.systemPrompt).toContain('Preserve task ownership.');
+    const native = new CodexConversationStore(join(f.root, 'selected-native.db'));
+    cleanups.push(() => native.close());
+    native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+    original.admission.persistCustody(native);
+    native.bindThread(original.sessionId, original.lease.binding, 'selected-retained-thread');
+    first.close();
+    const next = {
+      ...structuredClone(f.request),
+      clientMsgId: randomUUID(),
+      payload: { text: 'Continue with the published selection' },
+    };
+    const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
+      expect(value.expected.agentProfile).toEqual(original.expected.agentProfile);
+      expect(value.expected.agentProfile?.definition.tools).toEqual(tools);
+      value.admission.assertOptions({
+        conversationId: value.sessionId,
+        messageId: value.commandId,
+        binding: value.lease.binding,
+        profile: value.profile,
+        session: { cwd: value.expected.workspace.cwd, mode: 'agent' },
+        prompt: value.payload.text,
+        systemPrompt: value.payload.systemPrompt,
+        model: value.expected.selection.model,
+        reasoningEffort: value.expected.selection.thinking,
+        agentProfile: value.expected.agentProfile,
+        agentContext: value.expected.agentContext,
+        repositoryWorkspace: value.workspace,
+        resume: true,
+      });
+    });
+    const cold = new OrdinaryLocalCodexOwnedRuntime({
+      ...f.dependencies,
+      nativeStore: native,
+      commandId: next.clientMsgId,
+      launch: () => f.rpc,
+      dispatch,
+    });
+    cleanups.push(() => cold.close());
+    await expect(cold.admitResume(next)).resolves.toEqual({ dispatched: true });
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(native.read(original.sessionId, original.lease.binding).threadId).toBe(
+      'selected-retained-thread',
+    );
+  },
+);
+
+it('refuses unsupported published tools through actual owned profile resolution before native startup', async () => {
+  const f = await fixture({ tools: [{ id: 'mitzo:GetConnectionGuide', version: 1 }] });
+  await expect(f.create().admit(f.request)).rejects.toThrow();
+  expect(f.dispatch).not.toHaveBeenCalled();
+  expect(f.launch).not.toHaveBeenCalled();
+  expect(f.rpc.request).not.toHaveBeenCalled();
 });

@@ -1,0 +1,17 @@
+frontend/src/components/__tests__/SavedArtifactDialog.test.tsx(135,9): error TS2322: Type 'Dispatch<SetStateAction<{ id: string; itemId: string; filename: string; title: string; revision: number; sha256: string; size: number; url: string; sessionId: string; sourceKind: "session_artifact"; sourcePath: string; createdAt: string; }>>' is not assignable to type '(artifact: TodoOutput) => void'.
+  Types of parameters 'value' and 'artifact' are incompatible.
+    Type 'TodoOutput' is not assignable to type 'SetStateAction<{ id: string; itemId: string; filename: string; title: string; revision: number; sha256: string; size: number; url: string; sessionId: string; sourceKind: "session_artifact"; sourcePath: string; createdAt: string; }>'.
+      Type 'TodoOutput' is not assignable to type '{ id: string; itemId: string; filename: string; title: string; revision: number; sha256: string; size: number; url: string; sessionId: string; sourceKind: "session_artifact"; sourcePath: string; createdAt: string; }'.
+        Types of property 'sessionId' are incompatible.
+          Type 'string | undefined' is not assignable to type 'string'.
+            Type 'undefined' is not assignable to type 'string'.
+frontend/src/components/__tests__/WorkOutputs.navigation.test.tsx(103,62): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(role: ByRoleMatcher, options?: ByRoleOptions | undefined): HTMLElement', gave the following error.
+    Object literal may only specify known properties, and 'exact' does not exist in type 'ByRoleOptions'.
+  Overload 2 of 2, '(role: ByRoleMatcher, options?: ByRoleOptions | undefined): HTMLElement', gave the following error.
+    Object literal may only specify known properties, and 'exact' does not exist in type 'ByRoleOptions'.
+frontend/src/components/__tests__/WorkOutputs.navigation.test.tsx(115,62): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(role: ByRoleMatcher, options?: ByRoleOptions | undefined): HTMLElement', gave the following error.
+    Object literal may only specify known properties, and 'exact' does not exist in type 'ByRoleOptions'.
+  Overload 2 of 2, '(role: ByRoleMatcher, options?: ByRoleOptions | undefined): HTMLElement', gave the following error.
+    Object literal may only specify known properties, and 'exact' does not exist in type 'ByRoleOptions'.

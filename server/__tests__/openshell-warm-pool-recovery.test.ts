@@ -223,7 +223,7 @@ it('counts exact pooled ownership across accounts in production telemetry withou
   const lifecycle = initializeOpenShellLifecycle(f.config, {
     registry: { findBySessionId: () => undefined, entries: function* () {} },
     eventStore: { getSession: () => ({}) },
-    taskStore: { getTree: () => [] },
+    taskStore: { getTree: () => [], getTelosExecutionBinding: () => null },
     queue: () => ({ queued: 0, running: 0, recovery: false }),
     accountProviders: () => ['work'],
   })!;
