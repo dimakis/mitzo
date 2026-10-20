@@ -6,7 +6,35 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 109 patches
+## Current composed source: 111 patches
+
+The 111 ordered patches reconstruct native tree
+`880a0c07338ce70d7cd839759b53a75b824c18f3` (local source
+`a22eb78be77f979137cf697779a6e3cf28734cf9`). All 109 earlier patch
+records and bytes remain unchanged. Fresh exact-source CI is required.
+
+Patch 110 fixes the five AppServer test compilation errors observed in public
+107 Linux CI. The existing public Core test-support boundary returns only the
+same Arc pointer-identity predicate. The getter remains private, the five actual
+client/authentication assertions remain, and runtime client code is unchanged.
+Public 107 Linux executed zero fixtures; its failure and the three historical
+regression failures remain recorded. Mac 107 is separate and still in progress
+at this preparation checkpoint.
+
+Patch 111 retains all 25 original turn request fields in staged, single-use DATA
+and shares their existing ordinary validation and conversion bodies at the same
+error/effect positions. Thread, environment, permission and effective settings
+remain with their original live owners. Four new AppServer fixtures are authored
+but UNCOMPILED/UNRUN. This extraction does not wire selected-start capture or
+request/prepare, establish intended-command identity, or complete the factory.
+
+The reviewed Goal/carry source, page-recorder repair, early eight Core oracles,
+explicit extension-library targets and complete 22-package suite below remain.
+No local Rust compilation, model call, installation or account selection occurred.
+Full request/count/State/currentness, RPC/host adoption, Ready and joining/reply
+remain open. Earlier qualification does not transfer to this source.
+
+## Previous unpublished composition: 109 patches
 
 The 109 ordered patches reconstruct native tree
 `eaafee0c18477031e6b6b96b7bd972304a5a2bba` (local source

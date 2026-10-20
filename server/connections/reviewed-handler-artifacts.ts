@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.462-symposium-admitted-extension-tools';
+  'v1.0.463-symposium-original-turn-command-data';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1331,4 +1331,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '97575e0433900c779b1be773c9c372de36bf6c56accbac06e71552d18c98dc31',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-original-admitted-extension-carry.patch':
     '2ede5c8a7d5c6d522b6291faf1d78fb0ad5d3f3c7a64c93bc3cf67f0256d655a',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-auth-manager-test-support.patch':
+    '77d70742d8bcb7a5e7d93113e70a7ed25ccccb8a50707a77c9688112bd2269db',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-turn-command-data.patch':
+    'a62db9c54a14615d36402c2b2b6fa88cf72788de2a00d6b520755951844d873b',
 });

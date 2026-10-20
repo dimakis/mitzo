@@ -1,0 +1,822 @@
+diff --git a/codex-rs/app-server/src/request_processors/turn_command_data.rs b/codex-rs/app-server/src/request_processors/turn_command_data.rs
+new file mode 100644
+index 0000000..e1ed7fc
+--- /dev/null
++++ b/codex-rs/app-server/src/request_processors/turn_command_data.rs
+@@ -0,0 +1,245 @@
++//! Staged ordinary turn/start DATA. No Session, settings publication, command
++//! authorization or preparation eligibility is produced here. Each stage moves
++//! only after the ordinary caller reaches its original validation/effect point.
++use super::*;
++
++pub(super) struct OriginalTurnCommandData {
++    params: TurnStartParams,
++}
++
++pub(super) struct TurnCommandEnvironments {
++    pub(super) runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
++    pub(super) environments: Option<Vec<TurnEnvironmentParams>>,
++}
++
++pub(super) struct TurnCommandInputData {
++    input: Vec<V2UserInput>,
++    tool_output: Option<Box<codex_app_server_protocol::TurnToolOutput>>,
++    client_user_message_id: Option<String>,
++    additional_context: Option<HashMap<String, AdditionalContextEntry>>,
++    settings: TurnCommandSettings,
++    submission: TurnCommandSubmission,
++}
++
++pub(super) struct TurnCommandSettings {
++    pub(super) cwd: Option<PathBuf>,
++    pub(super) disabled_plugin_ids: Option<Vec<String>>,
++    pub(super) approval_policy: Option<codex_app_server_protocol::AskForApproval>,
++    pub(super) approvals_reviewer: Option<codex_app_server_protocol::ApprovalsReviewer>,
++    pub(super) sandbox_policy: Option<codex_app_server_protocol::SandboxPolicy>,
++    pub(super) permissions: Option<String>,
++    pub(super) model: Option<String>,
++    pub(super) service_tier: Option<Option<String>>,
++    pub(super) effort: Option<ReasoningEffort>,
++    pub(super) summary: Option<ReasoningSummary>,
++    pub(super) collaboration_mode: Option<CollaborationMode>,
++    pub(super) personality: Option<Personality>,
++}
++
++pub(super) struct TurnCommandSubmission {
++    // The route selector and deprecated option remain DATA through conversion;
++    // neither becomes a model input or a permission/command identity claim.
++    _original_thread_id: String,
++    _ignored_multi_agent_mode: Option<codex_protocol::config_types::MultiAgentMode>,
++    turn_trigger: Option<String>,
++    output_schema: Option<serde_json::Value>,
++    service_tier_for_turn: Option<String>,
++    cyber_access_program: Option<codex_app_server_protocol::CyberAccessProgram>,
++    responsesapi_client_metadata: Option<HashMap<String, String>>,
++}
++
++pub(super) struct ConvertedTurnCommand {
++    pub(super) additional_context: BTreeMap<String, CoreAdditionalContextEntry>,
++    pub(super) turn_has_input: bool,
++    pub(super) input: TurnInput,
++    pub(super) settings: TurnCommandSettings,
++    pub(super) submission: TurnCommandSubmission,
++}
++
++impl OriginalTurnCommandData {
++    pub(super) fn new(params: TurnStartParams) -> Self {
++        Self { params }
++    }
++
++    /// Borrow original selectors; wrapping performs no normalization or reads.
++    pub(super) fn selectors(&self) -> &TurnStartParams {
++        &self.params
++    }
++
++    pub(super) fn validate_tool_output(&self) -> Result<(), JSONRPCErrorError> {
++        if let Some(tool_output) = &self.params.tool_output {
++            if !self.params.input.is_empty() {
++                return Err(invalid_request(
++                    "`toolOutput` cannot be combined with nonempty `input`",
++                ));
++            }
++            if tool_output.name.is_empty() {
++                return Err(invalid_request("`toolOutput.name` must not be empty"));
++            }
++        }
++        Ok(())
++    }
++
++    pub(super) fn input_text_char_count(&self) -> usize {
++        self.params
++            .input
++            .iter()
++            .map(V2UserInput::text_char_count)
++            .sum::<usize>()
++            + self
++                .params
++                .tool_output
++                .as_ref()
++                .map_or(0, |output| match &output.output {
++                    FunctionCallOutputBody::Text(text) => text.chars().count(),
++                    FunctionCallOutputBody::ContentItems(items) => items
++                        .iter()
++                        .map(|item| match item {
++                            FunctionCallOutputContentItem::InputText { text } => {
++                                text.chars().count()
++                            }
++                            _ => 0,
++                        })
++                        .sum(),
++                })
++    }
++
++    /// Called only after the ordinary client-info effect. Fields are moved
++    /// exhaustively; no consumed field is represented as a fabricated default.
++    pub(super) fn into_environment_stage(self) -> (TurnCommandEnvironments, TurnCommandInputData) {
++        let TurnStartParams {
++            thread_id,
++            disabled_plugin_ids,
++            client_user_message_id,
++            input,
++            turn_trigger,
++            tool_output,
++            responsesapi_client_metadata,
++            additional_context,
++            environments,
++            cwd,
++            runtime_workspace_roots,
++            approval_policy,
++            approvals_reviewer,
++            sandbox_policy,
++            permissions,
++            model,
++            service_tier,
++            service_tier_for_turn,
++            effort,
++            summary,
++            personality,
++            output_schema,
++            collaboration_mode,
++            multi_agent_mode,
++            cyber_access_program,
++        } = self.params;
++        (
++            TurnCommandEnvironments {
++                runtime_workspace_roots,
++                environments,
++            },
++            TurnCommandInputData {
++                input,
++                tool_output,
++                client_user_message_id,
++                additional_context,
++                settings: TurnCommandSettings {
++                    cwd,
++                    disabled_plugin_ids,
++                    approval_policy,
++                    approvals_reviewer,
++                    sandbox_policy,
++                    permissions,
++                    model,
++                    service_tier,
++                    effort,
++                    summary,
++                    collaboration_mode,
++                    personality,
++                },
++                submission: TurnCommandSubmission {
++                    _original_thread_id: thread_id,
++                    _ignored_multi_agent_mode: multi_agent_mode,
++                    turn_trigger,
++                    output_schema,
++                    service_tier_for_turn,
++                    cyber_access_program,
++                    responsesapi_client_metadata,
++                },
++            },
++        )
++    }
++}
++
++impl TurnCommandInputData {
++    /// Ordinary context/input conversion stays after environment selection and
++    /// before cwd/permission/settings work. File paths/IDs are not materialized.
++    pub(super) fn into_core_input(self) -> Result<ConvertedTurnCommand, JSONRPCErrorError> {
++        let additional_context = map_additional_context(self.additional_context);
++        let turn_has_input = !self.input.is_empty();
++        let input = if let Some(tool_output) = self.tool_output {
++            let item = ResponseItem::FunctionCallOutput {
++                id: None,
++                call_id: None,
++                name: Some(tool_output.name),
++                namespace: tool_output.namespace,
++                output: FunctionCallOutputPayload {
++                    body: tool_output.output,
++                    success: None,
++                },
++                internal_chat_message_metadata_passthrough: None,
++            };
++            validate_response_item_image_urls(std::slice::from_ref(&item))?;
++            TurnInput::ResponseItem(item)
++        } else {
++            TurnInput::UserInput {
++                content: self.input.into_iter().map(V2UserInput::into_core).collect(),
++                client_id: self.client_user_message_id,
++            }
++        };
++        Ok(ConvertedTurnCommand {
++            additional_context,
++            turn_has_input,
++            input,
++            settings: self.settings,
++            submission: self.submission,
++        })
++    }
++}
++
++impl TurnCommandSubmission {
++    /// Moves exactly these already-normalized DATA fields. Live owner-produced
++    /// settings are supplied at their ordinary point; trace remains caller-owned.
++    pub(super) fn into_request(
++        self,
++        input: TurnInput,
++        thread_settings: codex_protocol::protocol::ThreadSettingsOverrides,
++        additional_context: BTreeMap<String, CoreAdditionalContextEntry>,
++    ) -> TurnInputRequest {
++        let Self {
++            _original_thread_id: _,
++            _ignored_multi_agent_mode: _,
++            turn_trigger,
++            output_schema,
++            service_tier_for_turn,
++            cyber_access_program,
++            responsesapi_client_metadata,
++        } = self;
++        TurnInputRequest::new(input)
++            .with_thread_settings(thread_settings)
++            .on_start(TurnStartOptions {
++                turn_trigger,
++                final_output_json_schema: output_schema,
++                service_tier: service_tier_for_turn,
++                cyber_access_program: cyber_access_program.map(Into::into),
++                ..Default::default()
++            })
++            .with_additional_context(additional_context)
++            .with_responses_metadata(responsesapi_client_metadata)
++    }
++}
++
++#[cfg(test)]
++#[path = "turn_command_data_tests.rs"]
++mod tests;
+diff --git a/codex-rs/app-server/src/request_processors/turn_command_data_tests.rs b/codex-rs/app-server/src/request_processors/turn_command_data_tests.rs
+new file mode 100644
+index 0000000..81ebfa7
+--- /dev/null
++++ b/codex-rs/app-server/src/request_processors/turn_command_data_tests.rs
+@@ -0,0 +1,392 @@
++use super::*;
++use codex_app_server_protocol::ByteRange;
++use codex_app_server_protocol::TextElement;
++use codex_protocol::config_types::ModeKind;
++use codex_protocol::config_types::MultiAgentMode;
++use codex_protocol::config_types::Settings;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++
++fn input_variants() -> Vec<V2UserInput> {
++    vec![
++        V2UserInput::Text {
++            text: "héllo".to_string(),
++            text_elements: vec![TextElement::new(
++                ByteRange { start: 0, end: 3 },
++                Some("marker".to_string()),
++            )],
++        },
++        V2UserInput::Image {
++            image: V2ImageReference::Inline {
++                url: "data:image/png;base64,AA==".to_string(),
++            },
++            detail: None,
++        },
++        V2UserInput::Image {
++            image: V2ImageReference::File {
++                file_id: "file-kept".to_string(),
++            },
++            detail: Some(codex_protocol::models::ImageDetail::Original),
++        },
++        V2UserInput::LocalImage {
++            path: PathBuf::from("unread-image.png"),
++            detail: None,
++        },
++        V2UserInput::Audio {
++            url: "data:audio/wav;base64,AA==".to_string(),
++        },
++        V2UserInput::LocalAudio {
++            path: PathBuf::from("unread-audio.wav"),
++        },
++        V2UserInput::Skill {
++            name: "configured-skill".to_string(),
++            path: PathBuf::from("unread-SKILL.md"),
++        },
++        V2UserInput::Mention {
++            name: "original-mention".to_string(),
++            path: "source://kept".to_string(),
++        },
++    ]
++}
++
++// Reconstruct the API DATA after the original conversion and its existing
++// reverse conversion; this is an equality oracle, not a production constructor.
++fn roundtrip(params: TurnStartParams) -> TurnStartParams {
++    let data = OriginalTurnCommandData::new(params);
++    data.validate_tool_output().unwrap();
++    let (environment, input) = data.into_environment_stage();
++    let ConvertedTurnCommand {
++        input,
++        settings,
++        submission,
++        additional_context,
++        turn_has_input,
++    } = input.into_core_input().unwrap();
++    let TurnInput::UserInput { content, client_id } = input else {
++        panic!("expected ordinary user input")
++    };
++    assert_eq!(turn_has_input, !content.is_empty());
++    TurnStartParams {
++        thread_id: submission._original_thread_id,
++        disabled_plugin_ids: settings.disabled_plugin_ids,
++        client_user_message_id: client_id,
++        input: content.into_iter().map(V2UserInput::from).collect(),
++        turn_trigger: submission.turn_trigger,
++        tool_output: None,
++        responsesapi_client_metadata: submission.responsesapi_client_metadata,
++        additional_context: Some(
++            additional_context
++                .into_iter()
++                .map(|(key, entry)| {
++                    (
++                        key,
++                        AdditionalContextEntry {
++                            value: entry.value,
++                            kind: match entry.kind {
++                                CoreAdditionalContextKind::Untrusted => {
++                                    AdditionalContextKind::Untrusted
++                                }
++                                CoreAdditionalContextKind::Application => {
++                                    AdditionalContextKind::Application
++                                }
++                            },
++                        },
++                    )
++                })
++                .collect(),
++        ),
++        environments: environment.environments,
++        cwd: settings.cwd,
++        runtime_workspace_roots: environment.runtime_workspace_roots,
++        approval_policy: settings.approval_policy,
++        approvals_reviewer: settings.approvals_reviewer,
++        sandbox_policy: settings.sandbox_policy,
++        permissions: settings.permissions,
++        model: settings.model,
++        service_tier: settings.service_tier,
++        service_tier_for_turn: submission.service_tier_for_turn,
++        effort: settings.effort,
++        summary: settings.summary,
++        personality: settings.personality,
++        output_schema: submission.output_schema,
++        collaboration_mode: settings.collaboration_mode,
++        multi_agent_mode: submission._ignored_multi_agent_mode,
++        cyber_access_program: submission.cyber_access_program,
++    }
++}
++
++#[test]
++fn original_command_stages_preserve_every_user_variant_selector_and_context_role() {
++    let params = TurnStartParams {
++        thread_id: "actual-route-selector".to_string(),
++        input: input_variants(),
++        client_user_message_id: Some("original-client-message".to_string()),
++        disabled_plugin_ids: Some(vec!["kept-plugin".to_string()]),
++        turn_trigger: Some("composer".to_string()),
++        additional_context: Some(HashMap::from([
++            (
++                "z-untrusted".to_string(),
++                AdditionalContextEntry {
++                    value: "untrusted\nbytes".to_string(),
++                    kind: AdditionalContextKind::Untrusted,
++                },
++            ),
++            (
++                "a-app".to_string(),
++                AdditionalContextEntry {
++                    value: "application bytes".to_string(),
++                    kind: AdditionalContextKind::Application,
++                },
++            ),
++        ])),
++        responsesapi_client_metadata: Some(HashMap::from([(
++            "client-key".to_string(),
++            "client-value".to_string(),
++        )])),
++        cwd: Some(PathBuf::from("not-resolved-here")),
++        environments: Some(vec![TurnEnvironmentParams {
++            environment_id: "original-owner".to_string(),
++            cwd: codex_utils_path_uri::LegacyAppPathString::from_string("/work"),
++            runtime_workspace_roots: Some(vec![
++                codex_utils_path_uri::LegacyAppPathString::from_string("/work"),
++            ]),
++        }]),
++        runtime_workspace_roots: Some(Vec::new()),
++        approval_policy: Some(codex_app_server_protocol::AskForApproval::OnRequest),
++        approvals_reviewer: Some(codex_app_server_protocol::ApprovalsReviewer::User),
++        sandbox_policy: Some(codex_app_server_protocol::SandboxPolicy::ReadOnly {
++            network_access: false,
++        }),
++        permissions: Some("original-profile-selector".to_string()),
++        model: Some("request-data-only-model".to_string()),
++        service_tier: Some(Some("persistent-tier".to_string())),
++        service_tier_for_turn: Some("turn-only-tier".to_string()),
++        effort: Some(ReasoningEffort::Low),
++        summary: Some(ReasoningSummary::Detailed),
++        personality: Some(Personality::None),
++        output_schema: Some(json!({"type":"object","properties":{"answer":{"type":"string"}}})),
++        collaboration_mode: Some(CollaborationMode {
++            mode: ModeKind::Plan,
++            settings: Settings {
++                model: "mode-model".to_string(),
++                reasoning_effort: Some(ReasoningEffort::Low),
++                developer_instructions: None,
++            },
++        }),
++        multi_agent_mode: Some(MultiAgentMode::Custom(
++            "ignored original option".to_string(),
++        )),
++        cyber_access_program: Some(codex_app_server_protocol::CyberAccessProgram::Standard),
++        ..Default::default()
++    };
++    let data = OriginalTurnCommandData::new(params.clone());
++    assert_eq!(data.selectors(), &params);
++    // This producer must retain conflicting selectors too: the unchanged live
++    // permission owner rejects them later, at its original position.
++    assert_eq!(roundtrip(params.clone()), params);
++}
++
++#[test]
++fn original_command_preserves_absent_null_empty_and_start_tier_assembly() {
++    for tier in [None, Some(None), Some(Some("priority".to_string()))] {
++        for plugins in [None, Some(Vec::new()), Some(vec!["kept".to_string()])] {
++            let params = TurnStartParams {
++                service_tier: tier.clone(),
++                disabled_plugin_ids: plugins.clone(),
++                environments: Some(Vec::new()),
++                runtime_workspace_roots: None,
++                service_tier_for_turn: Some("default".to_string()),
++                additional_context: Some(HashMap::new()),
++                responsesapi_client_metadata: Some(HashMap::new()),
++                ..Default::default()
++            };
++            assert_eq!(roundtrip(params.clone()), params);
++        }
++    }
++    let absent: TurnStartParams =
++        serde_json::from_value(json!({"threadId":"raw", "input":[]})).unwrap();
++    let explicit_null: TurnStartParams =
++        serde_json::from_value(json!({"threadId":"raw", "input":[], "serviceTier":null})).unwrap();
++    assert_eq!(
++        (
++            OriginalTurnCommandData::new(absent)
++                .selectors()
++                .service_tier
++                .clone(),
++            OriginalTurnCommandData::new(explicit_null)
++                .selectors()
++                .service_tier
++                .clone()
++        ),
++        (None, Some(None))
++    );
++    let (_, stage) =
++        OriginalTurnCommandData::new(TurnStartParams::default()).into_environment_stage();
++    let converted = stage.into_core_input().unwrap();
++    assert!(converted.additional_context.is_empty());
++    assert!(converted.submission.responsesapi_client_metadata.is_none());
++    let params = TurnStartParams {
++        turn_trigger: Some("composer".to_string()),
++        output_schema: Some(json!({"type":"string"})),
++        service_tier: Some(None),
++        service_tier_for_turn: Some("default".to_string()),
++        cyber_access_program: Some(codex_app_server_protocol::CyberAccessProgram::Standard),
++        responsesapi_client_metadata: Some(HashMap::from([(
++            "kept".to_string(),
++            "value".to_string(),
++        )])),
++        ..Default::default()
++    };
++    let expected = params.clone();
++    let (_, stage) = OriginalTurnCommandData::new(params).into_environment_stage();
++    let ConvertedTurnCommand {
++        input,
++        settings,
++        submission,
++        additional_context,
++        ..
++    } = stage.into_core_input().unwrap();
++    assert_eq!(settings.service_tier, Some(None));
++    let owner_settings = codex_protocol::protocol::ThreadSettingsOverrides {
++        service_tier: Some(None),
++        ..Default::default()
++    };
++    let request = submission.into_request(input, owner_settings.clone(), additional_context);
++    assert_eq!(request.thread_settings, owner_settings);
++    assert_eq!(
++        (
++            request.start.turn_trigger,
++            request.start.final_output_json_schema,
++            request.start.service_tier,
++            request.start.cyber_access_program
++        ),
++        (
++            expected.turn_trigger,
++            expected.output_schema,
++            expected.service_tier_for_turn,
++            expected.cyber_access_program.map(Into::into)
++        )
++    );
++    assert_eq!(
++        request.responsesapi_client_metadata,
++        expected.responsesapi_client_metadata
++    );
++    assert!(request.trace.is_none());
++}
++
++#[test]
++fn original_command_keeps_validation_priority_unicode_count_and_late_output_image_refusal() {
++    let rejected_input = vec![V2UserInput::Image {
++        image: V2ImageReference::Inline {
++            url: "https://example.invalid/no-fetch.png".to_string(),
++        },
++        detail: None,
++    }];
++    assert_eq!(
++        validate_user_input_image_urls(&rejected_input)
++            .unwrap_err()
++            .message,
++        REMOTE_IMAGE_URL_ERROR
++    );
++    let text = V2UserInput::Text {
++        text: "🦀é".to_string(),
++        text_elements: Vec::new(),
++    };
++    let output = codex_app_server_protocol::TurnToolOutput {
++        name: String::new(),
++        namespace: Some("kept".to_string()),
++        output: FunctionCallOutputBody::Text("Qé".to_string()),
++    };
++    let data = OriginalTurnCommandData::new(TurnStartParams {
++        input: vec![text],
++        tool_output: Some(Box::new(output.clone())),
++        ..Default::default()
++    });
++    assert_eq!(
++        data.validate_tool_output().unwrap_err().message,
++        "`toolOutput` cannot be combined with nonempty `input`"
++    );
++    assert_eq!(data.input_text_char_count(), 4);
++    let data = OriginalTurnCommandData::new(TurnStartParams {
++        tool_output: Some(Box::new(output)),
++        ..Default::default()
++    });
++    assert_eq!(
++        data.validate_tool_output().unwrap_err().message,
++        "`toolOutput.name` must not be empty"
++    );
++    let params = TurnStartParams {
++        tool_output: Some(Box::new(codex_app_server_protocol::TurnToolOutput {
++            name: "original-output".to_string(),
++            namespace: None,
++            output: FunctionCallOutputBody::ContentItems(vec![
++                FunctionCallOutputContentItem::InputImage {
++                    image: CoreImageReference::Inline {
++                        image_url: "https://example.invalid/no-fetch.png".to_string(),
++                    },
++                    detail: None,
++                },
++            ]),
++        })),
++        cwd: Some(PathBuf::from("still-unresolved")),
++        ..Default::default()
++    };
++    validate_user_input_image_urls(&params.input).unwrap();
++    let data = OriginalTurnCommandData::new(params);
++    data.validate_tool_output().unwrap();
++    assert_eq!(data.input_text_char_count(), 0);
++    let (_, stage) = data.into_environment_stage();
++    let error = match stage.into_core_input() {
++        Err(error) => error,
++        Ok(_) => panic!("remote output image must refuse before cwd is resolved"),
++    };
++    assert_eq!(error.message, REMOTE_IMAGE_URL_ERROR);
++}
++
++#[test]
++fn original_command_preserves_function_output_content_without_rendering_or_materializing() {
++    let body = FunctionCallOutputBody::ContentItems(vec![
++        FunctionCallOutputContentItem::InputText {
++            text: "Qé".to_string(),
++        },
++        FunctionCallOutputContentItem::InputImage {
++            image: CoreImageReference::File {
++                file_id: "kept-output-file".to_string(),
++            },
++            detail: Some(codex_protocol::models::ImageDetail::Low),
++        },
++        FunctionCallOutputContentItem::InputAudio {
++            audio_url: "data:audio/wav;base64,AA==".to_string(),
++        },
++        FunctionCallOutputContentItem::EncryptedContent {
++            encrypted_content: "opaque-output".to_string(),
++        },
++    ]);
++    let data = OriginalTurnCommandData::new(TurnStartParams {
++        tool_output: Some(Box::new(codex_app_server_protocol::TurnToolOutput {
++            name: "actual-output-name".to_string(),
++            namespace: Some("actual-output-namespace".to_string()),
++            output: body.clone(),
++        })),
++        ..Default::default()
++    });
++    data.validate_tool_output().unwrap();
++    assert_eq!(data.input_text_char_count(), 2);
++    let (_, stage) = data.into_environment_stage();
++    let converted = stage.into_core_input().unwrap();
++    assert!(!converted.turn_has_input);
++    assert_eq!(
++        converted.input,
++        TurnInput::ResponseItem(ResponseItem::FunctionCallOutput {
++            id: None,
++            call_id: None,
++            name: Some("actual-output-name".to_string()),
++            namespace: Some("actual-output-namespace".to_string()),
++            output: FunctionCallOutputPayload {
++                body,
++                success: None
++            },
++            internal_chat_message_metadata_passthrough: None,
++        })
++    );
++}
+diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
+index e42e53d..edcf13e 100644
+--- a/codex-rs/app-server/src/request_processors/turn_processor.rs
++++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
+@@ -1,3 +1,6 @@
++#[path = "turn_command_data.rs"]
++mod turn_command_data;
++
+ use super::thread_input::ensure_direct_input_allowed;
+ use super::*;
+ use codex_agent_extension::AgentInvocation;
+@@ -526,48 +529,21 @@ impl TurnRequestProcessor {
+         app_server_client_name: Option<String>,
+         app_server_client_version: Option<String>,
+     ) -> Result<TurnStartResponse, JSONRPCErrorError> {
+-        let (thread_id, thread) =
+-            self.load_thread(&params.thread_id)
+-                .await
+-                .inspect_err(|error| {
+-                    self.track_error_response(&request_id, error, /*error_type*/ None);
+-                })?;
++        let command = turn_command_data::OriginalTurnCommandData::new(params);
++        let (thread_id, thread) = self
++            .load_thread(&command.selectors().thread_id)
++            .await
++            .inspect_err(|error| {
++                self.track_error_response(&request_id, error, /*error_type*/ None);
++            })?;
+         self.ensure_direct_input_allowed(&request_id, thread.as_ref())
+             .await?;
+         self.config_manager
+             .check_thread_model_provider(thread.config().await.as_ref())
+             .await
+             .map_err(|error| config_load_error(&error))?;
+-        if let Some(tool_output) = &params.tool_output {
+-            if !params.input.is_empty() {
+-                return Err(invalid_request(
+-                    "`toolOutput` cannot be combined with nonempty `input`",
+-                ));
+-            }
+-            if tool_output.name.is_empty() {
+-                return Err(invalid_request("`toolOutput.name` must not be empty"));
+-            }
+-        }
+-        let actual_chars = params
+-            .input
+-            .iter()
+-            .map(V2UserInput::text_char_count)
+-            .sum::<usize>()
+-            + params
+-                .tool_output
+-                .as_ref()
+-                .map_or(0, |output| match &output.output {
+-                    FunctionCallOutputBody::Text(text) => text.chars().count(),
+-                    FunctionCallOutputBody::ContentItems(items) => items
+-                        .iter()
+-                        .map(|item| match item {
+-                            FunctionCallOutputContentItem::InputText { text } => {
+-                                text.chars().count()
+-                            }
+-                            _ => 0,
+-                        })
+-                        .sum(),
+-                });
++        command.validate_tool_output()?;
++        let actual_chars = command.input_text_char_count();
+         if actual_chars > MAX_USER_INPUT_TEXT_CHARS {
+             let error = Self::input_too_large_error(actual_chars);
+             self.track_error_response(
+@@ -586,39 +562,23 @@ impl TurnRequestProcessor {
+         .inspect_err(|error| {
+             self.track_error_response(&request_id, error, /*error_type*/ None);
+         })?;
+-        let runtime_workspace_roots = params
++        let (environment, command) = command.into_environment_stage();
++        let runtime_workspace_roots = environment
+             .runtime_workspace_roots
+             .map(resolve_runtime_workspace_roots);
+-        let environment_selections =
+-            resolve_turn_environment_selections(self.thread_manager.as_ref(), params.environments)?;
+-
+-        let additional_context = map_additional_context(params.additional_context);
+-        let turn_has_input = !params.input.is_empty();
+-        let input = if let Some(tool_output) = params.tool_output {
+-            let item = ResponseItem::FunctionCallOutput {
+-                id: None,
+-                call_id: None,
+-                name: Some(tool_output.name),
+-                namespace: tool_output.namespace,
+-                output: FunctionCallOutputPayload {
+-                    body: tool_output.output,
+-                    success: None,
+-                },
+-                internal_chat_message_metadata_passthrough: None,
+-            };
+-            validate_response_item_image_urls(std::slice::from_ref(&item))?;
+-            TurnInput::ResponseItem(item)
+-        } else {
+-            TurnInput::UserInput {
+-                content: params
+-                    .input
+-                    .into_iter()
+-                    .map(V2UserInput::into_core)
+-                    .collect(),
+-                client_id: params.client_user_message_id,
+-            }
+-        };
+-        let cwd = resolve_request_cwd(params.cwd)?;
++        let environment_selections = resolve_turn_environment_selections(
++            self.thread_manager.as_ref(),
++            environment.environments,
++        )?;
++
++        let turn_command_data::ConvertedTurnCommand {
++            additional_context,
++            turn_has_input,
++            input,
++            settings,
++            submission,
++        } = command.into_core_input()?;
++        let cwd = resolve_request_cwd(settings.cwd)?;
+         let environment_override = self
+             .build_environment_override(
+                 thread.as_ref(),
+@@ -632,35 +592,26 @@ impl TurnRequestProcessor {
+                 thread.as_ref(),
+                 ThreadSettingsBuildParams {
+                     method: "turn/start",
+-                    disabled_plugin_ids: params.disabled_plugin_ids,
++                    disabled_plugin_ids: settings.disabled_plugin_ids,
+                     environment_override,
+-                    approval_policy: params.approval_policy,
+-                    approvals_reviewer: params.approvals_reviewer,
+-                    sandbox_policy: params.sandbox_policy,
+-                    permissions: params.permissions,
+-                    model: params.model,
+-                    service_tier: params.service_tier,
+-                    effort: params.effort,
+-                    summary: params.summary,
+-                    collaboration_mode: params.collaboration_mode,
+-                    personality: params.personality,
++                    approval_policy: settings.approval_policy,
++                    approvals_reviewer: settings.approvals_reviewer,
++                    sandbox_policy: settings.sandbox_policy,
++                    permissions: settings.permissions,
++                    model: settings.model,
++                    service_tier: settings.service_tier,
++                    effort: settings.effort,
++                    summary: settings.summary,
++                    collaboration_mode: settings.collaboration_mode,
++                    personality: settings.personality,
+                 },
+             )
+             .await?;
+ 
+         let submission = thread
+             .start_or_steer_turn(
+-                TurnInputRequest::new(input)
+-                    .with_thread_settings(thread_settings)
+-                    .on_start(TurnStartOptions {
+-                        turn_trigger: params.turn_trigger,
+-                        final_output_json_schema: params.output_schema,
+-                        service_tier: params.service_tier_for_turn,
+-                        cyber_access_program: params.cyber_access_program.map(Into::into),
+-                        ..Default::default()
+-                    })
+-                    .with_additional_context(additional_context)
+-                    .with_responses_metadata(params.responsesapi_client_metadata)
++                submission
++                    .into_request(input, thread_settings, additional_context)
+                     .with_trace(self.request_trace_context(&request_id).await),
+             )
+             .await
