@@ -71,9 +71,53 @@ export class TelosOrdinaryWorkRoleSetup {
     };
     // Unsupported settings/readiness fail before a role or allocation intent exists.
     const qualified = await qualify();
+    const assertRetained = (scope: TelosOrdinaryWorkRoleScope) => {
+      const receipt = this.deps.events.getOrdinaryWorkspaceSessionPreparation(
+        scope.setup.allocationOperationId,
+      );
+      if (!receipt) throw new TelosWorkError('conflict', 'Original ordinary role custody required');
+      signal.throwIfAborted();
+      this.deps.assertBeforeApply({ ...scope, conversationId: receipt.sessionId });
+      const session = this.deps.events.getSession(receipt.sessionId);
+      const workspace = this.deps.workspaces.validateRetainedOrdinaryWorkspace(receipt.sessionId);
+      if (
+        !receipt ||
+        !session ||
+        session.isHidden ||
+        session.sessionType === 'symposium' ||
+        session.conversationSource === 'external_import' ||
+        session.ordinaryWorkspaceId !== receipt.workspaceId ||
+        session.repositoryWorkspaceId != null ||
+        !workspace ||
+        workspace.id !== receipt.workspaceId ||
+        workspace.allocationOperationId !== receipt.allocationOperationId ||
+        workspace.preparationFingerprint !== receipt.preparationFingerprint ||
+        workspace.directory !== session.cwd ||
+        !isDeepStrictEqual(receipt.settings, scope.setup.input.settings) ||
+        !isDeepStrictEqual(workspace.settings, receipt.settings)
+      )
+        throw new TelosWorkError('conflict', 'Original available ordinary role session required');
+      const settings = this.deps.events.getOrdinaryWorkspaceConversationSettings(receipt.sessionId);
+      if (
+        !settings ||
+        !isDeepStrictEqual(settings.binding, receipt.settings.binding) ||
+        !isDeepStrictEqual(settings.selection.agent, receipt.settings.selection.agent) ||
+        !isDeepStrictEqual(settings.selection.context, receipt.settings.selection.context) ||
+        !isDeepStrictEqual(settings.selection.permission, receipt.settings.selection.permission)
+      )
+        throw new TelosWorkError('conflict', 'Original ordinary role selection required');
+      if (receipt.firstCommandId === null)
+        this.deps.events.assertPreparedOrdinaryWorkspaceSession(
+          scope.setup.allocationOperationId,
+          session,
+          receipt.settings.binding,
+          receipt.settings.selection,
+        );
+    };
     return runTelosWorkRoleSetup(actor, input, signal, {
       prepare: () => this.deps.work.prepareOrdinaryRoleSetup(input, actor),
       authorize: (scope, signal) => this.deps.authorize(scope, signal),
+      assertRetained,
       verifyRetained: async (scope) => {
         const receipt = this.deps.events.getOrdinaryWorkspaceSessionPreparation(
           scope.setup.allocationOperationId,
@@ -89,45 +133,7 @@ export class TelosOrdinaryWorkRoleSetup {
           taskRoot: qualified.taskRoot,
           signal,
         });
-        signal.throwIfAborted();
-        this.deps.assertBeforeApply({ ...scope, conversationId: receipt.sessionId });
-        const session = this.deps.events.getSession(receipt.sessionId);
-        const workspace = this.deps.workspaces.validateRetainedOrdinaryWorkspace(receipt.sessionId);
-        if (
-          !receipt ||
-          !session ||
-          session.isHidden ||
-          session.sessionType === 'symposium' ||
-          session.conversationSource === 'external_import' ||
-          session.ordinaryWorkspaceId !== receipt.workspaceId ||
-          session.repositoryWorkspaceId != null ||
-          !workspace ||
-          workspace.id !== receipt.workspaceId ||
-          workspace.allocationOperationId !== receipt.allocationOperationId ||
-          workspace.preparationFingerprint !== receipt.preparationFingerprint ||
-          workspace.directory !== session.cwd ||
-          !isDeepStrictEqual(receipt.settings, scope.setup.input.settings) ||
-          !isDeepStrictEqual(workspace.settings, receipt.settings)
-        )
-          throw new TelosWorkError('conflict', 'Original available ordinary role session required');
-        const settings = this.deps.events.getOrdinaryWorkspaceConversationSettings(
-          receipt.sessionId,
-        );
-        if (
-          !settings ||
-          !isDeepStrictEqual(settings.binding, receipt.settings.binding) ||
-          !isDeepStrictEqual(settings.selection.agent, receipt.settings.selection.agent) ||
-          !isDeepStrictEqual(settings.selection.context, receipt.settings.selection.context) ||
-          !isDeepStrictEqual(settings.selection.permission, receipt.settings.selection.permission)
-        )
-          throw new TelosWorkError('conflict', 'Original ordinary role selection required');
-        if (receipt.firstCommandId === null)
-          this.deps.events.assertPreparedOrdinaryWorkspaceSession(
-            scope.setup.allocationOperationId,
-            session,
-            receipt.settings.binding,
-            receipt.settings.selection,
-          );
+        assertRetained(scope);
       },
       getReceipt: (id) => this.deps.events.getOrdinaryWorkspaceSessionPreparation(id),
       allocate: async (scope, authorize) => {

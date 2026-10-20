@@ -94,6 +94,49 @@ it('requires an authenticated same-origin operator and resolves account binding 
     expect.any(AbortSignal),
     ordinaryRuntime,
   );
+  const requestId = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
+  expect(
+    (
+      await request(app)
+        .post('/repositories/preview')
+        .send({ ...body, requestId })
+    ).status,
+  ).toBe(200);
+  expect(preview).toHaveBeenLastCalledWith(
+    binding,
+    'connection',
+    'example/repo',
+    expect.any(AbortSignal),
+    undefined,
+    requestId,
+  );
+  expect(
+    (
+      await request(app)
+        .post('/repositories/preview')
+        .send({ ...body, ordinaryRuntime, requestId })
+    ).status,
+  ).toBe(200);
+  expect(preview).toHaveBeenLastCalledWith(
+    binding,
+    'connection',
+    'example/repo',
+    expect.any(AbortSignal),
+    ordinaryRuntime,
+    requestId,
+  );
+  for (const extra of [
+    { requestId: '../bad' },
+    { requestId, previewIntentFingerprint: 'a'.repeat(64) },
+  ]) {
+    expect(
+      (
+        await request(app)
+          .post('/repositories/preview')
+          .send({ ...body, ...extra })
+      ).status,
+    ).toBe(400);
+  }
   expect(
     (
       await request(app)
