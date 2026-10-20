@@ -11,6 +11,7 @@ import {
   joiningSetupFixture,
 } from '../../preview/conversation-joining-fixture';
 import { retainedPin } from './conversation-joining-retained-fixture';
+import { COLLABORATION_EXECUTION_DISABLED } from '@mitzo/protocol';
 
 beforeEach(async () => {
   localStorage.clear();
@@ -35,6 +36,122 @@ function record(): ConversationJoiningRecoveryRecord {
     acceptedReview: joiningReviewFence(joiningReviewFixture()),
   };
 }
+
+const begin = {
+  collaborationId: '00000000-0000-4000-8000-000000000030',
+  requestId: '00000000-0000-4000-8000-000000000031',
+};
+function pending(): ConversationJoiningRecoveryRecord {
+  return {
+    version: 2,
+    sourceConversationId: 'source-chat',
+    reviewRequest: record().reviewRequest,
+    application: { state: 'capture_pending', collaborationId: begin.collaborationId },
+  };
+}
+
+it('retains begin correlation in the same journal without fabricating a reviewed draft', () => {
+  const storage = conversationJoiningRecovery('source-chat');
+  expect(storage.retainBegin(begin, null)).toEqual(begin);
+  expect(storage.read()).toBeNull();
+  const reloaded = conversationJoiningRecovery('source-chat');
+  expect(reloaded.readBegin()).toEqual(begin);
+  const captured = reloaded.save(pending(), null);
+  expect(storage.read()).toEqual(captured);
+  expect(storage.readBegin()).toEqual(begin);
+  expect(sessionStorage.length).toBe(1);
+});
+
+it('never replaces original begin identity, accepts a stale begin writer or starts over an old review', () => {
+  const storage = conversationJoiningRecovery('source-chat');
+  storage.retainBegin(begin, null);
+  expect(() => storage.retainBegin(begin, null)).toThrow();
+  expect(() =>
+    storage.retainBegin({ ...begin, requestId: '00000000-0000-4000-8000-000000000099' }, begin),
+  ).toThrow();
+  expect(storage.retainBegin(begin, begin)).toEqual(begin);
+  const other = conversationJoiningRecovery('other-chat');
+  other.save({ ...record(), sourceConversationId: 'other-chat' }, null);
+  expect(() => other.retainBegin(begin, null)).toThrow();
+  expect(other.read()!.version).toBe(1);
+});
+
+it('refuses mismatched or legacy review ownership in a retained begin envelope', () => {
+  const storage = conversationJoiningRecovery('source-chat');
+  storage.retainBegin(begin, null);
+  const invalid = pending();
+  if (invalid.version === 2)
+    invalid.application.collaborationId = '00000000-0000-4000-8000-000000000099';
+  expect(() => storage.save(invalid, null)).toThrow();
+  expect(() => storage.save(record(), null)).toThrow();
+  expect(storage.read()).toBeNull();
+  expect(storage.readBegin()).toEqual(begin);
+});
+
+it('clears a linked review while retaining the original begin identity for the next fresh agent', () => {
+  const storage = conversationJoiningRecovery('source-chat');
+  storage.retainBegin(begin, null);
+  const review = joiningReviewFixture();
+  const setup = joiningSetupFixture();
+  const input = {
+    requestId: '00000000-0000-4000-8000-000000000040',
+    expectedMembershipRevision: 1,
+    name: setup.name,
+    settings: review.settings,
+    snapshot: { snapshotId: review.snapshot.snapshotId, sha256: review.snapshot.sha256 },
+  };
+  const saved = storage.save(
+    {
+      ...pending(),
+      application: {
+        state: 'captured',
+        collaborationId: begin.collaborationId,
+        input: {
+          selection: {
+            requestId: record().reviewRequest.requestId,
+            expectedMembershipRevision: 1,
+            sourceConversationId: 'source-chat',
+            boundary: review.snapshot.boundary,
+            mode: setup.context,
+            messageIds: setup.messageIds,
+            artifacts: setup.artifacts,
+            purpose: setup.purpose,
+            joiningBrief: review.snapshot.joiningBrief,
+          },
+          target: {
+            runOn: setup.runOn,
+            accountId: setup.selection!.accountId,
+            model: setup.selection!.model,
+            reasoningEffort: null,
+            agent: setup.agent,
+            repositoryWorkspaceId: review.settings.repositoryWorkspaceId,
+            permissionMode: review.settings.selection.permission.mode,
+          },
+        },
+      },
+      acceptedReview: joiningReviewFence(review),
+      submission: input,
+      join: {
+        version: 1,
+        joinId: '00000000-0000-4000-8000-000000000041',
+        name: input.name,
+        membershipRevision: 1,
+        settings: input.settings,
+        snapshot: input.snapshot,
+        allocationOperationId: '00000000-0000-4000-8000-000000000042',
+        state: 'linked',
+        sessionId: 'new-agent-session',
+        linkedFromRevision: 1,
+        execution: COLLABORATION_EXECUTION_DISABLED,
+      },
+    },
+    null,
+  );
+  storage.clear(saved);
+  expect(storage.read()).toBeNull();
+  expect(storage.readBegin()).toEqual(begin);
+  expect(sessionStorage.length).toBe(1);
+});
 
 it('retains both artifact kinds under identical IDs, revisions and hashes across reload', () => {
   const storage = conversationJoiningRecovery('source-chat');

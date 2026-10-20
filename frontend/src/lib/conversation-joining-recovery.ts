@@ -139,6 +139,30 @@ const schema = z
       context.addIssue({ code: 'custom', message: 'Joining recovery identity conflicts' });
   });
 export type ConversationJoiningRecoveryRecord = z.infer<typeof schema>;
+const begin = z.strictObject({
+  collaborationId: SessionCollaborationIdSchema,
+  requestId: z.uuid(),
+});
+export type ConversationJoiningBeginRecord = z.infer<typeof begin>;
+// The same auth/base/source-bound journal can exist before the user reviews a
+// draft. It retains only original begin correlation, never canonical membership.
+const bootstrap = z
+  .strictObject({
+    version: z.literal(3),
+    sourceConversationId: id,
+    begin,
+    review: schema.nullable(),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.review &&
+      (value.review.sourceConversationId !== value.sourceConversationId ||
+        value.review.version !== 2 ||
+        value.review.application.collaborationId !== value.begin.collaborationId)
+    )
+      context.addIssue({ code: 'custom', message: 'Joining begin and review identity conflict' });
+  });
+const stored = z.union([schema, bootstrap]);
 const canonical = (input: unknown) =>
   JSON.stringify(input, (_key, value: unknown) =>
     value && typeof value === 'object' && !Array.isArray(value)
@@ -185,15 +209,19 @@ export function conversationJoiningRecovery(sourceConversationId: string) {
   const assertCurrent = () => {
     if (!isCurrent()) throw new Error('Joining recovery login changed');
   };
-  const read = (): ConversationJoiningRecoveryRecord | null => {
+  const readStored = () => {
     assertCurrent();
     const raw = sessionStorage.getItem(key);
     if (raw === null) return null;
     if (raw.length > 256 * 1024) throw new Error('Joining recovery size exceeded');
-    const record = schema.parse(JSON.parse(raw));
+    const record = stored.parse(JSON.parse(raw));
     if (record.sourceConversationId !== sourceConversationId)
       throw new Error('Joining recovery source changed');
     return record;
+  };
+  const read = (): ConversationJoiningRecoveryRecord | null => {
+    const record = readStored();
+    return record?.version === 3 ? record.review : record;
   };
   const assertExpected = (expected: ConversationJoiningRecoveryRecord | null) => {
     if (!joiningReviewEqual(read(), expected))
@@ -202,6 +230,29 @@ export function conversationJoiningRecovery(sourceConversationId: string) {
   return {
     isCurrent,
     read,
+    readBegin(): ConversationJoiningBeginRecord | null {
+      const record = readStored();
+      return record?.version === 3 ? record.begin : null;
+    },
+    retainBegin(raw: unknown, expected: ConversationJoiningBeginRecord | null) {
+      const record = readStored();
+      const current = record?.version === 3 ? record.begin : null;
+      const parsed = begin.parse(raw);
+      if (
+        !joiningReviewEqual(current, expected) ||
+        (current && !joiningReviewEqual(current, parsed)) ||
+        (record && record.version !== 3)
+      )
+        throw new Error('Original joining setup must be recovered');
+      const next = bootstrap.parse({
+        version: 3,
+        sourceConversationId,
+        begin: parsed,
+        review: record?.version === 3 ? record.review : null,
+      });
+      sessionStorage.setItem(key, JSON.stringify(next));
+      return next.begin;
+    },
     save(raw: unknown, expected: ConversationJoiningRecoveryRecord | null) {
       assertExpected(expected);
       const record = schema.parse(raw);
@@ -229,7 +280,10 @@ export function conversationJoiningRecovery(sourceConversationId: string) {
         )
           throw new Error('Original application review must be recovered');
       }
-      const encoded = JSON.stringify(record);
+      const previous = readStored();
+      const encoded = JSON.stringify(
+        previous?.version === 3 ? bootstrap.parse({ ...previous, review: record }) : record,
+      );
       if (encoded.length > 256 * 1024) throw new Error('Joining recovery size exceeded');
       sessionStorage.setItem(key, encoded);
       return record;
@@ -237,7 +291,10 @@ export function conversationJoiningRecovery(sourceConversationId: string) {
     clear(expected: ConversationJoiningRecoveryRecord) {
       assertExpected(expected);
       if (expected.join?.state !== 'linked') throw new Error('Joining is not linked');
-      sessionStorage.removeItem(key);
+      const previous = readStored();
+      if (previous?.version === 3)
+        sessionStorage.setItem(key, JSON.stringify({ ...previous, review: null }));
+      else sessionStorage.removeItem(key);
     },
   };
 }

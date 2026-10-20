@@ -176,6 +176,43 @@ it('retains the explicit initial application brief through a lost response and B
   expect(h.fetch.mock.calls.some(([url]) => url.includes('/joins'))).toBe(false);
 });
 
+it('adopts retained begin correlation without restoring a fabricated draft before the explicit Review', async () => {
+  const h = await harness();
+  const journal = conversationJoiningRecovery('source-chat');
+  const begin = { collaborationId: group, requestId: '00000000-0000-4000-8000-000000000099' };
+  journal.retainBegin(begin, null);
+  const flow = renderHook(() => useConversationJoiningReview(h.owner));
+  expect(flow.result.current.setup).toBeNull();
+  expect(flow.result.current.restoredSetup).toBeNull();
+  expect(h.fetch).not.toHaveBeenCalled();
+  await act(() => flow.result.current.prepare(input().setup, brief));
+  expect(flow.result.current.review?.snapshot.joiningBrief).toBe(brief);
+  expect(flow.result.current.canConfirm).toBe(false);
+  expect(journal.readBegin()).toEqual(begin);
+  expect(journal.read()?.version).toBe(2);
+  expect(sessionStorage.length).toBe(1);
+  expect(h.fetch.mock.calls.filter(([url]) => url.endsWith('/reviews'))).toHaveLength(1);
+});
+
+it('preserves exact nonblank retained label bytes through the real typed client and frozen review guard', async () => {
+  const h = await harness();
+  const artifact = { ...retainedArtifact, title: ' Plan ', filename: ' plan.md' };
+  h.data.response.snapshot.artifacts = [{ ...artifact, contentBase64: 'YWJj' }];
+  h.data.response.artifactLabels = [
+    { ...retainedLabel(), title: artifact.title, filename: artifact.filename },
+  ];
+  const setup = { ...input().setup, artifacts: [retainedPin()] };
+  const flow = renderHook(() => useConversationJoiningReview(h.owner));
+  await act(() => flow.result.current.prepare(setup, brief));
+  expect(flow.result.current.error).toBeNull();
+  expect(flow.result.current.review?.artifactLabels![0]).toMatchObject({
+    title: ' Plan ',
+    filename: ' plan.md',
+  });
+  expect(flow.result.current.review?.snapshot.artifacts[0]).toMatchObject(artifact);
+  expect(flow.result.current.canConfirm).toBe(false);
+});
+
 it('replays both exact artifact kinds through the real typed client after a lost response and reload', async () => {
   const h = await harness();
   const setup = input().setup;
