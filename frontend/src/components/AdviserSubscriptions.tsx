@@ -26,7 +26,7 @@ const snapshotSchema = z.object({
 const labels = {
   connected: 'Connected',
   disconnected: 'Disconnected',
-  reauth_required: 'Sign in required',
+  reauth_required: 'Connection needs attention',
 };
 export function AdviserSubscriptions({
   disabled = false,
@@ -46,6 +46,14 @@ export function AdviserSubscriptions({
     version = useRef(0),
     changed = useRef(onAccountsChanged);
   const mutation = useRef(false);
+  const refreshButton = useRef<HTMLButtonElement>(null);
+  const focusAfterRecovery = useRef(false);
+  useEffect(() => {
+    if (!busy && focusAfterRecovery.current) {
+      focusAfterRecovery.current = false;
+      refreshButton.current?.focus();
+    }
+  }, [busy, snapshot]);
   changed.current = onAccountsChanged;
   const refresh = useCallback(async () => {
     const request = ++version.current;
@@ -200,6 +208,36 @@ export function AdviserSubscriptions({
                   )}
                 </div>
                 <div className="adviser-account-actions">
+                  {account.state === 'reauth_required' && (
+                    <button
+                      type="button"
+                      className="home-secondary"
+                      disabled={blocked}
+                      aria-label={`Retry connection to ${account.label}`}
+                      onClick={() =>
+                        void mutate(async () => {
+                          const response = await apiFetch(
+                            `${endpoint}/${encodeURIComponent(account.id)}/retry`,
+                            {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: '{}',
+                            },
+                          );
+                          if (!response.ok) throw Error('Unavailable');
+                          accountSchema.parse(await response.json());
+                          const refreshed = await refresh();
+                          if (refreshed && refreshed.request === version.current) {
+                            changed.current();
+                            setMessage('ChatGPT adviser connected. Choose its account and model.');
+                            focusAfterRecovery.current = true;
+                          }
+                        })
+                      }
+                    >
+                      Retry connection
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="home-secondary"
@@ -301,6 +339,7 @@ export function AdviserSubscriptions({
             {message && <p role="status">{message}</p>}
             {error && <p role="alert">{error}</p>}
             <button
+              ref={refreshButton}
               type="button"
               className="home-secondary"
               disabled={busy || disabled}

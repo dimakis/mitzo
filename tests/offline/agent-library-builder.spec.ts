@@ -130,14 +130,6 @@ async function offline(
     releaseSave: null as (() => void) | null,
   };
   let proposalSaved = false;
-  const controlPosts = [
-    '/api/chat/switch',
-    '/api/chat/reconnect',
-    '/api/chat/probe',
-    '/api/chat/session-event-applied',
-    '/api/chat/reconnect-snapshot-applied',
-    '/api/chat/suspend',
-  ];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
   await page.routeWebSocket('**/*', (socket) => socket.close());
@@ -164,8 +156,6 @@ async function offline(
         });
         return route.fulfill({ json: [] });
       }
-      if (route.request().method() === 'POST' && controlPosts.includes(path))
-        return route.fulfill({ json: { ok: true, applied: true } });
       if (allowDispatch && route.request().method() === 'POST') {
         if (path === '/api/chat/send' && lifecycle.legacy) {
           const command = V2SendMessage.strict().parse(route.request().postDataJSON());

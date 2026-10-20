@@ -6,10 +6,24 @@ export function createSessionMessagesHandler(read: {
   getMessages(sessionId: string): Promise<unknown>;
   getSessionTranscript(sessionId: string): Promise<unknown>;
   getReconnectTranscript(sessionId: string, throughSeq: number): unknown;
+  getDurableSessionTranscript?(sessionId: string): unknown;
 }): RequestHandler {
   return async (req, res) => {
     try {
       const sessionId = req.params.id as string;
+      const transcript = req.query.transcript;
+      if (
+        transcript === 'durable' ||
+        (Array.isArray(transcript) && transcript.includes('durable'))
+      ) {
+        if (transcript !== 'durable' || Object.keys(req.query).length !== 1) {
+          res.status(400).json({ error: 'Invalid durable transcript query' });
+          return;
+        }
+        if (!read.getDurableSessionTranscript) throw new Error('Durable source unavailable');
+        res.json(await read.getDurableSessionTranscript(sessionId));
+        return;
+      }
       if (req.query.transcript === '1') {
         res.json(await read.getSessionTranscript(sessionId));
         return;

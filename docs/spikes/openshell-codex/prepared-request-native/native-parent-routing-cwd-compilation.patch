@@ -1,0 +1,21 @@
+diff --git a/codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs b/codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs
+index 2a8e252..1d82950 100644
+--- a/codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs
++++ b/codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs
+@@ -9,6 +9,7 @@ use codex_protocol::protocol::GuardianCommandSource;
+ use codex_protocol::protocol::TurnAbortReason;
+ use codex_protocol::protocol::TurnSettingsUpdate;
+ use codex_protocol::protocol::TurnSettingsUpdateOutcome;
++use codex_utils_path_uri::LegacyAppPathString;
+ use pretty_assertions::assert_eq;
+ use uuid::Uuid;
+ 
+@@ -199,7 +200,7 @@ async fn no_parent_default_and_explicit_ask_user_execute_once_and_preserve_child
+                         assert_eq!(event.call_id, "routing");
+                         assert_eq!(event.approval_id.as_deref(), Some(approval_id.as_str()));
+                         assert_eq!(event.command, command);
+-                        assert_eq!(event.cwd, cwd);
++                        assert_eq!(event.cwd, LegacyAppPathString::from(cwd));
+                         case.fixture.session.notify_approval(&approval_id, ReviewDecision::Approved).await;
+                         break request.await;
+                     }

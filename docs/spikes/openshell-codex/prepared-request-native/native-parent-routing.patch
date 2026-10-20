@@ -1,0 +1,637 @@
+diff --git a/codex-rs/core/src/guardian/decision.rs b/codex-rs/core/src/guardian/decision.rs
+index 62999c2f59e474fd6301656ebb2915ffb523386e..5ed142dddbf6f7a38e6575b98b18ada8aab0cf67 100644
+--- a/codex-rs/core/src/guardian/decision.rs
++++ b/codex-rs/core/src/guardian/decision.rs
+@@ -48,8 +48,22 @@ pub(crate) async fn decide_approval(
+     review_id: String,
+     request: impl Into<ReviewAction>,
+     reasons: ApprovalRequestReasons,
+-    mut options: GuardianReviewOptions,
++    options: GuardianReviewOptions,
+ ) -> Option<ReviewDecision> {
++    super::decide_approval_with_disposition(session, context, review_id, request, reasons, options)
++        .await
++        .into_legacy_decision()
++}
++
++/// Retains the routing reason without granting any additional approval authority.
++pub(crate) async fn decide_approval_with_disposition(
++    session: Arc<Session>,
++    context: impl Into<GuardianReviewContext>,
++    review_id: String,
++    request: impl Into<ReviewAction>,
++    reasons: ApprovalRequestReasons,
++    mut options: GuardianReviewOptions,
++) -> codex_guardian_reviewer::ReviewDisposition {
+     let context = context.into();
+     let request = request.into();
+     let (_, history_reset) = session.history_reset().await;
+@@ -122,11 +136,11 @@ pub(crate) async fn decide_approval(
+             turn.session_telemetry.clone(),
+         )),
+     }
+-    .decide(&session.services.extensions)
++    .decide_with_disposition(&session.services.extensions)
+     .await;
+     // Enforce cancellation after extension callbacks too, including cached decisions.
+     if history_reset.is_cancelled() || cancellation.is_cancelled() {
+-        Some(ReviewDecision::Abort)
++        codex_guardian_reviewer::ReviewDisposition::Decision(ReviewDecision::Abort)
+     } else {
+         decision
+     }
+diff --git a/codex-rs/core/src/guardian/mod.rs b/codex-rs/core/src/guardian/mod.rs
+index 8314cd88f765f0c0a93d88ef5388db40fa94522e..5e89266cb8c1834c6281587f3df8e725771e87c6 100644
+--- a/codex-rs/core/src/guardian/mod.rs
++++ b/codex-rs/core/src/guardian/mod.rs
+@@ -48,6 +48,7 @@ pub(crate) use approval_request::GuardianNetworkAccessTrigger;
+ #[cfg(test)]
+ pub(crate) use approval_request::guardian_approval_request_to_json;
+ pub(crate) use decision::decide_approval;
++pub(crate) use decision::decide_approval_with_disposition;
+ pub(crate) use decision::spawn_approval_decision;
+ pub(crate) use prompt::guardian_truncate_text;
+ pub(crate) use review::GuardianReviewOptions;
+diff --git a/codex-rs/ext/guardian-reviewer/src/lib.rs b/codex-rs/ext/guardian-reviewer/src/lib.rs
+index 29ce8edf5af367a35bb2d69438ccc399265a5062..1c159fb8ab203735bf2ee0a0e9f06bf590c60794 100644
+--- a/codex-rs/ext/guardian-reviewer/src/lib.rs
++++ b/codex-rs/ext/guardian-reviewer/src/lib.rs
+@@ -69,5 +69,7 @@ pub use reporting::ReviewDenials;
+ pub use reporting::ReviewMetadata;
+ pub use reporting::ReviewReport;
+ 
++pub use routing::ReviewDisposition;
+ pub use routing::ReviewRequest;
++pub use routing::UserPromptDisposition;
+ pub use routing::routes_approval_policy_to_guardian;
+diff --git a/codex-rs/ext/guardian-reviewer/src/routing.rs b/codex-rs/ext/guardian-reviewer/src/routing.rs
+index e12a6ecefbf82d74914f5ddb88a4d5de09f90c4b..603d008d6530f52bc6f5776a2a02c1c65f30e1f1 100644
+--- a/codex-rs/ext/guardian-reviewer/src/routing.rs
++++ b/codex-rs/ext/guardian-reviewer/src/routing.rs
+@@ -22,6 +22,40 @@ use codex_protocol::protocol::ReviewDecision;
+ use std::sync::Arc;
+ use tokio_util::sync::CancellationToken;
+ 
++/// Retains why routing requests the user flow; it does not authorize execution.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum ReviewDisposition {
++    Decision(ReviewDecision),
++    UserPrompt(UserPromptDisposition),
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum UserPromptDisposition {
++    ContributorAskUser,
++    /// Only the actual registry-None, default user-routing arm produces this.
++    NoContributorDefaultUser {
++        fresh_review_required: bool,
++    },
++    ReviewerFallback,
++}
++
++impl ReviewDisposition {
++    /// Preserve the existing host contract: every user prompt projects to `None`.
++    pub fn into_legacy_decision(self) -> Option<ReviewDecision> {
++        match self {
++            Self::Decision(decision) => Some(decision),
++            Self::UserPrompt(_) => None,
++        }
++    }
++
++    fn from_review(decision: Option<ReviewDecision>) -> Self {
++        match decision {
++            Some(decision) => Self::Decision(decision),
++            None => Self::UserPrompt(UserPromptDisposition::ReviewerFallback),
++        }
++    }
++}
++
+ /// One captured action and its host-enforced constraints. Guardian derives the
+ /// contributor input and owns cancellation for the complete review operation.
+ pub struct ReviewRequest<'a, H> {
+@@ -62,30 +96,36 @@ pub fn routes_approval_policy_to_guardian(
+ }
+ 
+ impl<H: ReviewHost> ReviewRequest<'_, H> {
+-    pub async fn decide<C: Sync>(
++    pub async fn decide<C: Sync>(self, registry: &ExtensionRegistry<C>) -> Option<ReviewDecision> {
++        self.decide_with_disposition(registry)
++            .await
++            .into_legacy_decision()
++    }
++
++    pub async fn decide_with_disposition<C: Sync>(
+         mut self,
+         registry: &ExtensionRegistry<C>,
+-    ) -> Option<ReviewDecision> {
++    ) -> ReviewDisposition {
+         let runtime = self.thread_store.get::<crate::ReviewerTasks>();
+         let _task = runtime.as_ref().map(|runtime| runtime.tasks.token());
+         if runtime
+             .as_ref()
+             .is_some_and(|runtime| runtime.cancellation.is_cancelled())
+         {
+-            return Some(ReviewDecision::Abort);
++            return ReviewDisposition::Decision(ReviewDecision::Abort);
+         }
+         let cancellation = self.cancellation.child_token();
+         let _cancel_on_drop = cancellation.clone().drop_guard();
+         self.cancellation = cancellation.clone();
+         let decision = async {
+             if self.full_access {
+-                return Some(match self.host.validate_action() {
++                return ReviewDisposition::Decision(match self.host.validate_action() {
+                     Ok(_) => ReviewDecision::Approved,
+                     Err(decision) => decision,
+                 });
+             }
+             let Some(action) = self.action else {
+-                return Some(ReviewDecision::denied(
++                return ReviewDisposition::Decision(ReviewDecision::denied(
+                     "automatic approval review could not prepare the action",
+                 ));
+             };
+@@ -111,24 +151,28 @@ impl<H: ReviewHost> ReviewRequest<'_, H> {
+                 synchronous_reviewer: &self,
+             };
+             match registry.decide_approval(&input).await {
+-                Some(ApprovalDecision::Reviewed(decision)) => Some(decision),
++                Some(ApprovalDecision::Reviewed(decision)) => ReviewDisposition::Decision(decision),
+                 Some(ApprovalDecision::Allow) if !input.require_fresh_review => {
+-                    Some(self.cached_approval().await)
++                    ReviewDisposition::Decision(self.cached_approval().await)
+                 }
+-                Some(ApprovalDecision::Allow) => {
+-                    self.review(GuardianReviewReason::FreshRequired).await
++                Some(ApprovalDecision::Allow) => ReviewDisposition::from_review(
++                    self.review(GuardianReviewReason::FreshRequired).await,
++                ),
++                Some(ApprovalDecision::AskUser) if !self.require_guardian => {
++                    ReviewDisposition::UserPrompt(UserPromptDisposition::ContributorAskUser)
+                 }
+-                Some(ApprovalDecision::AskUser) if !self.require_guardian => None,
+                 None if !self.require_guardian
+                     && !routes_approval_policy_to_guardian(
+                         self.approval_policy,
+                         self.approvals_reviewer,
+                     ) =>
+                 {
+-                    None
++                    ReviewDisposition::UserPrompt(UserPromptDisposition::NoContributorDefaultUser {
++                        fresh_review_required: input.require_fresh_review,
++                    })
+                 }
+                 None | Some(ApprovalDecision::AskUser) => {
+-                    self.review(GuardianReviewReason::Policy).await
++                    ReviewDisposition::from_review(self.review(GuardianReviewReason::Policy).await)
+                 }
+             }
+         };
+@@ -152,7 +196,7 @@ impl<H: ReviewHost> ReviewRequest<'_, H> {
+                 .as_ref()
+                 .is_some_and(|runtime| runtime.cancellation.is_cancelled())
+         {
+-            Some(ReviewDecision::Abort)
++            ReviewDisposition::Decision(ReviewDecision::Abort)
+         } else {
+             result
+         }
+diff --git a/codex-rs/ext/guardian-reviewer/src/routing_tests.rs b/codex-rs/ext/guardian-reviewer/src/routing_tests.rs
+index 3a59454bb9323d32870592336d87d42f02a22f8f..ee3aec98b166a3c6e4df983540ae4d45d56b1eba 100644
+--- a/codex-rs/ext/guardian-reviewer/src/routing_tests.rs
++++ b/codex-rs/ext/guardian-reviewer/src/routing_tests.rs
+@@ -28,3 +28,434 @@ fn approval_routing_depends_on_policy_and_reviewer() {
+         assert_eq!(actual, expected, "approval policy: {policy:?}");
+     }
+ }
++
++use super::ReviewDisposition;
++use super::ReviewRequest;
++use super::UserPromptDisposition;
++use crate::GuardianReviewError;
++use crate::GuardianReviewOutcome;
++use crate::ReviewHost;
++use crate::ReviewMetadata;
++use crate::ReviewReport;
++use codex_analytics::AnalyticsEventsClient;
++use codex_analytics::GuardianApprovalRequestSource;
++use codex_analytics::GuardianReviewAnalyticsResult;
++use codex_analytics::GuardianReviewedAction;
++use codex_extension_api::ApprovalDecision;
++use codex_extension_api::ApprovalDecisionInput;
++use codex_extension_api::ApprovalReviewContributor;
++use codex_extension_api::ExtensionData;
++use codex_extension_api::ExtensionFuture;
++use codex_extension_api::ExtensionRegistryBuilder;
++use codex_otel::SessionTelemetry;
++use codex_protocol::ThreadId;
++use codex_protocol::approvals::GuardianAssessmentAction;
++use codex_protocol::approvals::GuardianReviewReason;
++use codex_protocol::items::ModelInvocationContext;
++use codex_protocol::openai_models::GuardianScope;
++use codex_protocol::openai_models::ModelInfo;
++use codex_protocol::protocol::ErrorEvent;
++use codex_protocol::protocol::EventMsg;
++use codex_protocol::protocol::GuardianAssessmentEvent;
++use codex_protocol::protocol::ReviewDecision;
++use codex_protocol::protocol::SessionSource;
++use serde_json::json;
++use std::sync::Arc;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++use tokio::sync::Mutex;
++use tokio::time::Instant;
++use tokio_util::sync::CancellationToken;
++
++#[derive(Default)]
++struct Calls {
++    contributors: AtomicUsize,
++    validations: AtomicUsize,
++    reviews: Mutex<Vec<GuardianReviewReason>>,
++    attempts: AtomicUsize,
++}
++
++struct Host {
++    calls: Arc<Calls>,
++    action: GuardianAssessmentAction,
++}
++
++impl ReviewHost for Host {
++    type Prepared = ();
++    type Evidence = ();
++
++    fn permissions(&self) -> Option<codex_guardian_context::PermissionContext> {
++        None
++    }
++
++    async fn servicing_turn(&self) -> Option<(String, Arc<ModelInfo>)> {
++        None
++    }
++
++    fn validate_action(&self) -> Result<(&str, Option<&str>), ReviewDecision> {
++        self.calls.validations.fetch_add(1, Ordering::SeqCst);
++        Ok(("turn", None))
++    }
++
++    async fn prepare(
++        &self,
++        approval_id: &str,
++        reason: GuardianReviewReason,
++        _deadline: Instant,
++        _cancellation: &CancellationToken,
++    ) -> Result<((), ReviewReport), ReviewDecision> {
++        self.calls.reviews.lock().await.push(reason);
++        Ok((
++            (),
++            ReviewReport::new(ReviewMetadata {
++                thread_id: "thread".into(),
++                turn_id: "turn".into(),
++                review_id: approval_id.into(),
++                target_item_id: None,
++                plugin_id: None,
++                script_path: None,
++                approval_request_source: GuardianApprovalRequestSource::MainTurn,
++                reviewed_action: GuardianReviewedAction::Execve {
++                    source: codex_protocol::approvals::GuardianCommandSource::UnifiedExec,
++                    additional_permissions: None,
++                },
++                action: self.action.clone(),
++                review_reason: reason,
++                model_context: ModelInvocationContext {
++                    model_slug: "routing-test".into(),
++                    reasoning_effort: None,
++                },
++            }),
++        ))
++    }
++
++    async fn attempt(
++        &self,
++        _prepared: &(),
++        _deadline: Instant,
++        _cancellation: &CancellationToken,
++    ) -> (
++        GuardianReviewOutcome,
++        GuardianReviewAnalyticsResult,
++        Option<()>,
++    ) {
++        self.calls.attempts.fetch_add(1, Ordering::SeqCst);
++        (
++            GuardianReviewOutcome::Error(GuardianReviewError::InputBudgetExceeded),
++            GuardianReviewAnalyticsResult::without_session(),
++            None,
++        )
++    }
++
++    async fn emit(&self, _event: EventMsg) {}
++    async fn record_evidence(
++        &self,
++        _prepared: &(),
++        _evidence: (),
++        _event: &GuardianAssessmentEvent,
++    ) {
++    }
++    async fn interrupt(&self, _turn_id: &str, _warning: EventMsg, _error: ErrorEvent) {}
++}
++
++struct Contributor {
++    calls: Arc<Calls>,
++    decision: Option<ApprovalDecision>,
++    cancel: Option<CancellationToken>,
++}
++
++impl ApprovalReviewContributor for Contributor {
++    fn decide<'a>(
++        &'a self,
++        input: &'a ApprovalDecisionInput<'_>,
++    ) -> ExtensionFuture<'a, Option<ApprovalDecision>> {
++        Box::pin(async move {
++            assert_eq!(input.action["program"], "/bin/cat");
++            assert_eq!(input.tool_call_id, None);
++            self.calls.contributors.fetch_add(1, Ordering::SeqCst);
++            if let Some(cancel) = &self.cancel {
++                cancel.cancel();
++            }
++            self.decision.clone()
++        })
++    }
++}
++
++#[derive(Default)]
++struct Case {
++    decision: Option<ApprovalDecision>,
++    synchronous: bool,
++    model_required: bool,
++    async_enabled: bool,
++    retried: bool,
++    escalated: bool,
++    forced_guardian: bool,
++    auto_review: bool,
++    cancel_in_contributor: bool,
++}
++
++enum EntryPoint {
++    Typed,
++    Legacy,
++}
++
++/// Exercises both real entry points with separate registries, without a model session.
++async fn route(case: Case) -> anyhow::Result<(ReviewDisposition, Arc<Calls>)> {
++    let model: ModelInfo = serde_json::from_value(json!({
++        "slug": "routing-test", "display_name": "Routing test",
++        "supported_reasoning_levels": [], "shell_type": "unified_exec",
++        "visibility": "none", "supported_in_api": false, "priority": 0,
++        "support_verbosity": false, "truncation_policy": {"mode": "bytes", "limit": 1000},
++        "experimental_supported_tools": []
++    }))?;
++    let cwd = std::env::current_dir()?;
++    let action = json!({"type": "execve", "source": "unified_exec",
++        "program": "/bin/cat", "argv": ["cat", "secret.env"], "cwd": cwd});
++    let thread_id = ThreadId::new();
++    let telemetry = SessionTelemetry::new(
++        thread_id,
++        "routing-test",
++        "routing-test",
++        /*account_id*/ None,
++        /*account_email*/ None,
++        /*auth_mode*/ None,
++        "routing-test".into(),
++        /*log_user_prompts*/ false,
++        "test".into(),
++        SessionSource::Exec,
++    );
++    let analytics = AnalyticsEventsClient::disabled();
++    let mut typed = None;
++    for entry in [EntryPoint::Typed, EntryPoint::Legacy] {
++        let calls = Arc::new(Calls::default());
++        let cancellation = CancellationToken::new();
++        let mut registry = ExtensionRegistryBuilder::<()>::new();
++        registry.approval_review_contributor(Arc::new(Contributor {
++            calls: Arc::clone(&calls),
++            decision: case.decision.clone(),
++            cancel: case.cancel_in_contributor.then(|| cancellation.clone()),
++        }));
++        let registry = registry.build();
++        let thread_store = ExtensionData::new(thread_id.to_string());
++        let request = ReviewRequest {
++            host: Host {
++                calls: Arc::clone(&calls),
++                action: serde_json::from_value(action.clone())?,
++            },
++            approval_id: "approval",
++            tool_call_id: None,
++            action: Some(&action),
++            thread_id,
++            thread_store: &thread_store,
++            category: GuardianScope::Shell,
++            approval_policy: AskForApproval::OnRequest,
++            approvals_reviewer: if case.auto_review {
++                ApprovalsReviewer::AutoReview
++            } else {
++                ApprovalsReviewer::User
++            },
++            require_guardian: case.forced_guardian,
++            require_synchronous_review: case.synchronous,
++            model_requires_review: case.model_required,
++            async_enabled: case.async_enabled,
++            retried: case.retried,
++            escalated_exec: case.escalated,
++            full_access: false,
++            cancellation,
++            model: &model,
++            telemetry: &telemetry,
++            log_assessments: false,
++            analytics: &analytics,
++            metrics: None,
++        };
++        match entry {
++            EntryPoint::Typed => {
++                typed = Some((
++                    request.decide_with_disposition(&registry).await,
++                    Arc::clone(&calls),
++                ))
++            }
++            EntryPoint::Legacy => {
++                let (disposition, typed_calls) = typed
++                    .as_ref()
++                    .ok_or_else(|| anyhow::anyhow!("typed entry must run first"))?;
++                assert_eq!(
++                    request.decide(&registry).await,
++                    disposition.clone().into_legacy_decision()
++                );
++                assert_eq!(
++                    *calls.reviews.lock().await,
++                    *typed_calls.reviews.lock().await
++                );
++                assert_eq!(
++                    calls.validations.load(Ordering::SeqCst),
++                    typed_calls.validations.load(Ordering::SeqCst)
++                );
++                assert_eq!(
++                    calls.attempts.load(Ordering::SeqCst),
++                    typed_calls.attempts.load(Ordering::SeqCst)
++                );
++            }
++        }
++        assert_eq!(calls.contributors.load(Ordering::SeqCst), 1);
++    }
++    typed.ok_or_else(|| anyhow::anyhow!("typed entry must produce a disposition"))
++}
++
++#[tokio::test]
++async fn declined_contributor_and_explicit_ask_user_remain_distinct() -> anyhow::Result<()> {
++    let (decision, calls) = route(Case::default()).await?;
++    assert_eq!(
++        decision,
++        ReviewDisposition::UserPrompt(UserPromptDisposition::NoContributorDefaultUser {
++            fresh_review_required: false
++        })
++    );
++    assert!(calls.reviews.lock().await.is_empty());
++    for synchronous in [false, true] {
++        let (decision, calls) = route(Case {
++            decision: Some(ApprovalDecision::AskUser),
++            synchronous,
++            ..Case::default()
++        })
++        .await?;
++        assert_eq!(
++            decision,
++            ReviewDisposition::UserPrompt(UserPromptDisposition::ContributorAskUser)
++        );
++        assert!(calls.reviews.lock().await.is_empty());
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn default_user_retains_each_existing_fresh_review_input() -> anyhow::Result<()> {
++    for case in [
++        Case {
++            synchronous: true,
++            ..Case::default()
++        },
++        Case {
++            model_required: true,
++            ..Case::default()
++        },
++        Case {
++            retried: true,
++            ..Case::default()
++        },
++        Case {
++            escalated: true,
++            ..Case::default()
++        },
++    ] {
++        let (decision, calls) = route(case).await?;
++        assert_eq!(
++            decision,
++            ReviewDisposition::UserPrompt(UserPromptDisposition::NoContributorDefaultUser {
++                fresh_review_required: true
++            })
++        );
++        assert!(calls.reviews.lock().await.is_empty());
++    }
++    let (decision, calls) = route(Case {
++        model_required: true,
++        async_enabled: true,
++        ..Case::default()
++    })
++    .await?;
++    assert_eq!(
++        decision,
++        ReviewDisposition::UserPrompt(UserPromptDisposition::NoContributorDefaultUser {
++            fresh_review_required: false
++        })
++    );
++    assert!(calls.reviews.lock().await.is_empty());
++    Ok(())
++}
++
++#[tokio::test]
++async fn reviewed_and_cached_allow_decisions_preserve_legacy_results() -> anyhow::Result<()> {
++    for decision in [
++        ReviewDecision::Approved,
++        ReviewDecision::denied("contributor denial"),
++        ReviewDecision::Abort,
++    ] {
++        let (actual, calls) = route(Case {
++            decision: Some(ApprovalDecision::Reviewed(decision.clone())),
++            ..Case::default()
++        })
++        .await?;
++        assert_eq!(actual, ReviewDisposition::Decision(decision));
++        assert!(calls.reviews.lock().await.is_empty());
++    }
++    let (decision, calls) = route(Case {
++        decision: Some(ApprovalDecision::Allow),
++        ..Case::default()
++    })
++    .await?;
++    assert_eq!(
++        decision,
++        ReviewDisposition::Decision(ReviewDecision::Approved)
++    );
++    assert_eq!(calls.validations.load(Ordering::SeqCst), 1);
++    assert!(calls.reviews.lock().await.is_empty());
++    Ok(())
++}
++
++#[tokio::test]
++async fn review_fallback_is_not_a_declined_contributor() -> anyhow::Result<()> {
++    for (case, reason) in [
++        (
++            Case {
++                auto_review: true,
++                ..Case::default()
++            },
++            GuardianReviewReason::Policy,
++        ),
++        (
++            Case {
++                decision: Some(ApprovalDecision::Allow),
++                synchronous: true,
++                ..Case::default()
++            },
++            GuardianReviewReason::FreshRequired,
++        ),
++    ] {
++        let (decision, calls) = route(case).await?;
++        assert_eq!(
++            decision,
++            ReviewDisposition::UserPrompt(UserPromptDisposition::ReviewerFallback)
++        );
++        assert_eq!(*calls.reviews.lock().await, vec![reason]);
++        assert_eq!(calls.attempts.load(Ordering::SeqCst), 1);
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn forced_guardian_and_callback_cancellation_cannot_be_default_user() -> anyhow::Result<()> {
++    for decision in [None, Some(ApprovalDecision::AskUser)] {
++        let (decision, calls) = route(Case {
++            decision,
++            forced_guardian: true,
++            ..Case::default()
++        })
++        .await?;
++        assert!(matches!(
++            decision,
++            ReviewDisposition::Decision(ReviewDecision::Denied { .. })
++        ));
++        assert_eq!(
++            *calls.reviews.lock().await,
++            vec![GuardianReviewReason::Policy]
++        );
++    }
++    let (decision, calls) = route(Case {
++        cancel_in_contributor: true,
++        ..Case::default()
++    })
++    .await?;
++    assert_eq!(decision, ReviewDisposition::Decision(ReviewDecision::Abort));
++    assert!(calls.reviews.lock().await.is_empty());
++    Ok(())
++}
