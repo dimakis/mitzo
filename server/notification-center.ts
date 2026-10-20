@@ -59,11 +59,25 @@ export class NotificationCenter {
   private timer?: ReturnType<typeof setInterval>;
   private resolutionRefresh?: ReturnType<typeof setImmediate>;
   private flushing = false;
+  private pendingBadges = 0;
+  private released = false;
+  private assertAvailable(): void {
+    if (this.released) throw Error('Notification owner released');
+  }
+  /** Stop an idle owner without starting or draining delivery. The caller owns the store. */
+  closeIdle(): void {
+    if (this.released) return;
+    if (this.flushing || this.pendingBadges || this.resolutionRefresh)
+      throw Error('Notification owner active');
+    this.released = true;
+    this.close();
+  }
   private lastBadge = -1;
   private badgeQueue = Promise.resolve();
   private badgeRetryAt?: number;
   private inboxReconciler?: () => boolean;
   setInboxReconciler(reconcile: () => boolean): void {
+    this.assertAvailable();
     this.inboxReconciler = reconcile;
   }
   constructor(
@@ -72,6 +86,7 @@ export class NotificationCenter {
   ) {
     store.reconcilePermissions(hasPending);
     this.unsubscribe = onPermissionLifecycle((event) => {
+      if (this.released) return;
       if (event.type === 'requested') this.permission(event.request);
       else {
         store.resolvePermission(event.permId, event.resolution);
@@ -90,6 +105,7 @@ export class NotificationCenter {
     });
   }
   changed(): void {
+    this.assertAvailable();
     this.deps.changed();
     const count = this.store.feed('needs').needsYou;
     if (count !== this.lastBadge) {
@@ -98,22 +114,29 @@ export class NotificationCenter {
   }
   /** Registration must resync even when the count was already cached without devices. */
   syncBadge(): Promise<void> {
+    this.assertAvailable();
     return this.queueBadge(this.store.feed('needs').needsYou);
   }
   private queueBadge(count: number): Promise<void> {
     this.lastBadge = count;
-    this.badgeQueue = this.badgeQueue.then(async () => {
-      try {
-        const status = await this.deps.badge?.(count);
-        this.badgeRetryAt =
-          !this.deps.badge || status === 'accepted' ? undefined : Date.now() + 60000;
-      } catch {
-        this.badgeRetryAt = Date.now() + 60000;
-      }
-    });
+    this.pendingBadges++;
+    this.badgeQueue = this.badgeQueue
+      .then(async () => {
+        try {
+          const status = await this.deps.badge?.(count);
+          this.badgeRetryAt =
+            !this.deps.badge || status === 'accepted' ? undefined : Date.now() + 60000;
+        } catch {
+          this.badgeRetryAt = Date.now() + 60000;
+        }
+      })
+      .finally(() => {
+        this.pendingBadges--;
+      });
     return this.badgeQueue;
   }
   start(): void {
+    this.assertAvailable();
     this.timer ??= setInterval(() => {
       void this.flush().catch((err) =>
         log.warn('notification flush failed', { error: String(err) }),
@@ -129,6 +152,7 @@ export class NotificationCenter {
     this.unsubscribe();
   }
   private publish(input: Parameters<NotificationStore['record']>[0], notify = true): void {
+    this.assertAvailable();
     if (!this.store.record(input)) return;
     if (notify) this.store.queue(input.id, Date.now());
     this.changed();
@@ -170,6 +194,7 @@ export class NotificationCenter {
     requestId: string,
     resolution: 'allowed' | 'denied' | 'expired',
   ): void {
+    this.assertAvailable();
     if (this.store.resolveSessionNotice(`seat-access:${requestId}`, sessionId, resolution))
       this.changed();
   }
@@ -180,6 +205,7 @@ export class NotificationCenter {
     title: string | undefined,
     unattended: boolean,
   ): void {
+    this.assertAvailable();
     const prefs = this.store.preferences();
     this.publish(
       {
@@ -199,6 +225,7 @@ export class NotificationCenter {
     title: string | undefined,
     unattended: boolean,
   ): void {
+    this.assertAvailable();
     const prefs = this.store.preferences();
     this.publish(
       {
@@ -215,6 +242,7 @@ export class NotificationCenter {
     this.publish({ id: `inbox:${id}`, kind: 'update', title, body, inboxFilename }, false);
   }
   test(): string {
+    this.assertAvailable();
     const id = `test:${randomUUID()}`;
     this.publish({
       id,
@@ -225,6 +253,7 @@ export class NotificationCenter {
     return id;
   }
   feed(filter: Parameters<NotificationStore['feed']>[0], limit?: number, offset?: number) {
+    this.assertAvailable();
     if (this.inboxReconciler?.()) this.changed();
     if (this.store.reconcilePermissions(hasPending)) this.changed();
     return {
@@ -246,6 +275,7 @@ export class NotificationCenter {
             : true;
   }
   async flush(): Promise<void> {
+    this.assertAvailable();
     if (this.flushing) return;
     this.flushing = true;
     try {

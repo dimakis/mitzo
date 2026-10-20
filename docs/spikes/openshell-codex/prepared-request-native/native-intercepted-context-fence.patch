@@ -1,0 +1,723 @@
+From 2daf20279b73422f9729fa005a48c1d091abc992 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 17:04:25 +0100
+Subject: [PATCH] fix(core): fence intercepted manual approvals to selected
+ context
+
+---
+ codex-rs/core/src/session/mod.rs              |   1 +
+ codex-rs/core/src/session/parent_approval.rs  | 225 ++++++++++++++++++
+ codex-rs/core/src/tools/approvals.rs          |  61 ++++-
+ .../runtimes/zsh_fork/current_prompt_tests.rs | 203 ++++++++++++++++
+ .../runtimes/zsh_fork/unix_escalation.rs      |  58 ++---
+ 5 files changed, 517 insertions(+), 31 deletions(-)
+
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 0986ea3..4c3226a 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -256,6 +256,7 @@ mod rollout_reconstruction;
+ #[allow(clippy::module_inception)]
+ pub(crate) mod session;
+ pub(crate) use parent_approval::InitialExecApprovalIssuer;
++pub(crate) use parent_approval::InterceptedApprovalSelection;
+ pub(crate) mod startup_prewarm;
+ mod step_activation;
+ pub(crate) mod step_context;
+diff --git a/codex-rs/core/src/session/parent_approval.rs b/codex-rs/core/src/session/parent_approval.rs
+index f13e8a6..0f37653 100644
+--- a/codex-rs/core/src/session/parent_approval.rs
++++ b/codex-rs/core/src/session/parent_approval.rs
+@@ -5,14 +5,239 @@ use super::step_settings::ResolvedStepSettings;
+ use super::turn_context::TurnContext;
+ use crate::config::Config;
+ use crate::environment_selection::TurnEnvironmentSnapshot;
++use crate::guardian::GuardianReviewContext;
++use crate::tools::ApprovalContext;
++use crate::tools::sandboxing::ApprovalAction;
++use crate::tools::sandboxing::ToolError;
+ use codex_execpolicy::Policy;
+ use codex_protocol::config_types::ApprovalsReviewer;
+ use codex_protocol::protocol::AskForApproval;
++use codex_tools::ToolName;
+ use std::sync::Arc;
+ use std::sync::Weak;
+ use tokio::sync::Notify;
+ use tokio_util::sync::CancellationToken;
+ 
++/// Ordinary review snapshots, not a grant or a barrier against later owner changes.
++pub(crate) struct InterceptedApprovalSelection {
++    session: Weak<Session>,
++    task_done: Arc<Notify>,
++    settings: Arc<ResolvedStepSettings>,
++    config: Arc<Config>,
++    manager_policy: Arc<Policy>,
++    task_cancellation: CancellationToken,
++    environments: crate::environment_selection::SelectedEnvironmentObservation,
++    // Exact provider evaluation snapshot, distinct from the current manager observation.
++    _evaluated_policy: Arc<Policy>,
++    action: ApprovalAction,
++    context: ApprovalContext,
++    environment_id: String,
++}
++
++impl InterceptedApprovalSelection {
++    pub(crate) fn approval_policy(&self) -> AskForApproval {
++        self.context.review_context.approval_policy
++    }
++    pub(crate) fn approval_request(&self) -> (ApprovalAction, ApprovalContext) {
++        (self.action.clone(), self.context.clone())
++    }
++}
++
++enum InterceptedValidation<'a> {
++    BeforeCallbacks,
++    BeforeUserPrompt(&'a Arc<Config>),
++}
++
++fn intercepted_context_changed() -> ToolError {
++    ToolError::Rejected("intercepted execution approval context changed during review".into())
++}
++
++impl Session {
++    #[cfg(unix)]
++    #[expect(
++        clippy::await_holding_invalid_type,
++        reason = "capture actual selected owners together"
++    )]
++    pub(crate) async fn capture_intercepted_approval_selection(
++        self: &Arc<Self>,
++        action: ApprovalAction,
++        call_id: &str,
++        tool_name: &ToolName,
++        provider_context: &GuardianReviewContext,
++        evaluated_policy: Arc<Policy>,
++    ) -> Result<InterceptedApprovalSelection, ToolError> {
++        let ApprovalAction::Execve {
++            id,
++            approval_id,
++            environment_id,
++            source,
++            program,
++            argv,
++            command,
++            ..
++        } = &action
++        else {
++            return Err(intercepted_context_changed());
++        };
++        let normalized = std::iter::once(program.to_string_lossy().into_owned())
++            .chain(argv.iter().skip(1).cloned())
++            .collect::<Vec<_>>();
++        if id != call_id
++            || approval_id.is_empty()
++            || *source != codex_protocol::protocol::GuardianCommandSource::UnifiedExec
++            || *command != normalized
++        {
++            return Err(intercepted_context_changed());
++        }
++        let active = self.active_turn.lock().await;
++        let task = active
++            .as_ref()
++            .and_then(|active| active.task.as_ref())
++            .ok_or_else(|| {
++                ToolError::Rejected(
++                    "cannot approve intercepted execution without an active turn".into(),
++                )
++            })?;
++        let session_state = self.state.lock().await;
++        let state = active
++            .as_ref()
++            .expect("active task")
++            .turn_state
++            .lock()
++            .await;
++        let settings = task.turn_context.next_step_settings.load_full();
++        let environments = self.services.turn_environments.observe_selected();
++        let ready = environments
++            .snapshot()
++            .turn_environments()
++            .find(|environment| environment.selection.environment_id == *environment_id)
++            .ok_or_else(intercepted_context_changed)?;
++        let provider = provider_context
++            .environments()
++            .turn_environments()
++            .find(|environment| environment.selection.environment_id == *environment_id)
++            .ok_or_else(intercepted_context_changed)?;
++        if ready.selection != provider.selection
++            || ready.config_origin != provider.config_origin
++            || !Arc::ptr_eq(&ready.environment, &provider.environment)
++            || ready.executor_platform_os != provider.executor_platform_os
++            || ready.user_home_dir != provider.user_home_dir
++            || ready.temporary_directories != provider.temporary_directories
++            || task.cancellation_token.is_cancelled()
++        {
++            return Err(intercepted_context_changed());
++        }
++        let context = ApprovalContext {
++            review_context: GuardianReviewContext::from_resolved_settings(
++                Arc::clone(&task.turn_context),
++                &settings,
++                environments.snapshot(),
++            ),
++            cancellation_token: None,
++            call_id: call_id.into(),
++            tool_name: tool_name.clone(),
++            strict_auto_review: state.strict_auto_review_enabled(),
++            approval_reason: None,
++            retry_reason: None,
++            network_approval_context: None,
++        };
++        let environment_id = environment_id.clone();
++        Ok(InterceptedApprovalSelection {
++            session: Arc::downgrade(self),
++            task_done: Arc::clone(&task.done),
++            settings,
++            config: Arc::clone(
++                &session_state
++                    .session_configuration
++                    .original_config_do_not_use,
++            ),
++            manager_policy: self.services.exec_policy.current(),
++            task_cancellation: task.cancellation_token.clone(),
++            environments,
++            _evaluated_policy: evaluated_policy,
++            action,
++            context,
++            environment_id,
++        })
++    }
++
++    pub(crate) async fn validate_intercepted_approval_selection(
++        self: &Arc<Self>,
++        selected: &InterceptedApprovalSelection,
++    ) -> Result<(), ToolError> {
++        self.validate_intercepted_selection(selected, InterceptedValidation::BeforeCallbacks)
++            .await
++    }
++
++    pub(crate) async fn validate_intercepted_user_prompt(
++        self: &Arc<Self>,
++        selected: &InterceptedApprovalSelection,
++        used_config: &Arc<Config>,
++    ) -> Result<(), ToolError> {
++        self.validate_intercepted_selection(
++            selected,
++            InterceptedValidation::BeforeUserPrompt(used_config),
++        )
++        .await
++    }
++
++    #[expect(
++        clippy::await_holding_invalid_type,
++        reason = "compare the captured owners before a user prompt"
++    )]
++    async fn validate_intercepted_selection(
++        self: &Arc<Self>,
++        selected: &InterceptedApprovalSelection,
++        phase: InterceptedValidation<'_>,
++    ) -> Result<(), ToolError> {
++        let active = self.active_turn.lock().await;
++        let active = active.as_ref().ok_or_else(intercepted_context_changed)?;
++        let task = active
++            .task
++            .as_ref()
++            .ok_or_else(intercepted_context_changed)?;
++        let session_state = self.state.lock().await;
++        let state = active.turn_state.lock().await;
++        let review_matches = match phase {
++            InterceptedValidation::BeforeCallbacks => true,
++            InterceptedValidation::BeforeUserPrompt(used) => Arc::ptr_eq(used, &selected.config),
++        };
++        if review_matches
++            && selected
++                .session
++                .upgrade()
++                .is_some_and(|owner| Arc::ptr_eq(&owner, self))
++            && Arc::ptr_eq(&task.done, &selected.task_done)
++            && Arc::ptr_eq(&task.turn_context, selected.context.review_context.turn())
++            && Arc::ptr_eq(
++                &task.turn_context.next_step_settings.load_full(),
++                &selected.settings,
++            )
++            && Arc::ptr_eq(
++                &session_state
++                    .session_configuration
++                    .original_config_do_not_use,
++                &selected.config,
++            )
++            && Arc::ptr_eq(
++                &self.services.exec_policy.current(),
++                &selected.manager_policy,
++            )
++            && state.strict_auto_review_enabled() == selected.context.strict_auto_review
++            && !task.cancellation_token.is_cancelled()
++            && !selected.task_cancellation.is_cancelled()
++            && self
++                .services
++                .turn_environments
++                .selected_observation_is_current(&selected.environments, &selected.environment_id)
++        {
++            Ok(())
++        } else {
++            Err(intercepted_context_changed())
++        }
++    }
++}
++
+ pub(crate) struct InitialExecApprovalIssuer {
+     session: Weak<Session>,
+     task_done: Arc<Notify>,
+diff --git a/codex-rs/core/src/tools/approvals.rs b/codex-rs/core/src/tools/approvals.rs
+index c2612d4..4daf357 100644
+--- a/codex-rs/core/src/tools/approvals.rs
++++ b/codex-rs/core/src/tools/approvals.rs
+@@ -486,7 +486,7 @@ impl Session {
+         action: ApprovalAction,
+         ctx: ApprovalContext,
+     ) -> Result<ReviewDecision, ToolError> {
+-        self.request_approval_inner(action, ctx, None)
++        self.request_approval_inner(action, ctx, /*issuer*/ None, /*intercepted*/ None)
+             .await
+             .map(|result| result.decision)
+     }
+@@ -512,7 +512,21 @@ impl Session {
+         } else {
+             None
+         };
+-        self.request_approval_inner(action, ctx, issuer).await
++        self.request_approval_inner(action, ctx, issuer, /*intercepted*/ None)
++            .await
++    }
++
++    #[cfg(unix)]
++    pub(crate) async fn request_intercepted_approval(
++        self: &Arc<Self>,
++        selected: crate::session::InterceptedApprovalSelection,
++    ) -> Result<ReviewDecision, ToolError> {
++        self.validate_intercepted_approval_selection(&selected)
++            .await?;
++        let (action, ctx) = selected.approval_request();
++        self.request_approval_inner(action, ctx, /*issuer*/ None, Some(&selected))
++            .await
++            .map(|result| result.decision)
+     }
+ 
+     async fn request_approval_inner(
+@@ -520,6 +534,7 @@ impl Session {
+         action: ApprovalAction,
+         ctx: ApprovalContext,
+         issuer: Option<(crate::session::InitialExecApprovalIssuer, ApprovalAction)>,
++        intercepted: Option<&crate::session::InterceptedApprovalSelection>,
+     ) -> Result<InitialExecApproval, ToolError> {
+         // Stdin that exceeds current permissions needs a fresh sandbox approval.
+         // Strict review of ordinary input follows the same routing as ordinary exec.
+@@ -561,7 +576,13 @@ impl Session {
+                 decision: ReviewDecision::denied(message),
+                 source: ApprovalResolutionSource::Hook,
+             },
+-            None => self.request_reviewer_approval(action, &ctx).await,
++            None => match intercepted {
++                Some(selected) => {
++                    self.request_intercepted_reviewer_approval(action, &ctx, selected)
++                        .await?
++                }
++                None => self.request_reviewer_approval(action, &ctx).await,
++            },
+         };
+         // Network approvals record their final telemetry after validation and persistence.
+         if !is_network_approval {
+@@ -629,6 +650,40 @@ impl Session {
+         }
+     }
+ 
++    async fn request_intercepted_reviewer_approval(
++        self: &Arc<Self>,
++        action: ApprovalAction,
++        ctx: &ApprovalContext,
++        selected: &crate::session::InterceptedApprovalSelection,
++    ) -> Result<ApprovalResolution, ToolError> {
++        let routing = self
++            .request_guardian_approval_with_routing(action.clone(), ctx)
++            .await;
++        if matches!(
++            routing.disposition(),
++            codex_guardian_reviewer::ReviewDisposition::UserPrompt(_)
++        ) {
++            let used = routing.used_config().ok_or_else(|| {
++                ToolError::Rejected(
++                    "intercepted execution approval context changed during review".into(),
++                )
++            })?;
++            self.validate_intercepted_user_prompt(selected, used)
++                .await?;
++        }
++        Ok(if let Some(decision) = routing.into_legacy_decision() {
++            ApprovalResolution {
++                decision,
++                source: ApprovalResolutionSource::Guardian,
++            }
++        } else {
++            ApprovalResolution {
++                decision: self.request_user_approval(&action, ctx).await,
++                source: ApprovalResolutionSource::User,
++            }
++        })
++    }
++
+     pub(crate) async fn request_guardian_approval(
+         self: &Arc<Self>,
+         action: ApprovalAction,
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/current_prompt_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/current_prompt_tests.rs
+index 838c61c..505fe1f 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/current_prompt_tests.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/current_prompt_tests.rs
+@@ -1,5 +1,6 @@
+ //! Actual intercepted review owners; no model requests or parent receipts.
+ use super::*;
++use crate::config::PermissionProfileSnapshot;
+ use crate::session::step_context::StepContext;
+ use crate::session::tests::make_session_and_context_with_auth_and_config_and_rx;
+ use crate::tasks::SessionTask;
+@@ -9,6 +10,7 @@ use codex_extension_api::ApprovalReviewContributor;
+ use codex_protocol::config_types::ApprovalsReviewer;
+ use codex_protocol::protocol::Event;
+ use codex_protocol::protocol::EventMsg;
++use codex_protocol::protocol::GranularApprovalConfig;
+ use codex_protocol::protocol::TurnAbortReason;
+ use pretty_assertions::assert_eq;
+ use std::sync::atomic::AtomicUsize;
+@@ -239,6 +241,45 @@ impl Fixture {
+     }
+ }
+ 
++#[tokio::test]
++async fn current_never_and_both_granular_sources_refuse_before_callbacks() -> anyhow::Result<()> {
++    for (policy, prefix) in [
++        (AskForApproval::Never, false),
++        (
++            AskForApproval::Granular(GranularApprovalConfig {
++                rules: false,
++                sandbox_approval: true,
++                skill_approval: true,
++                request_permissions: true,
++                mcp_elicitations: true,
++            }),
++            true,
++        ),
++        (
++            AskForApproval::Granular(GranularApprovalConfig {
++                rules: true,
++                sandbox_approval: false,
++                skill_approval: true,
++                request_permissions: true,
++                mcp_elicitations: true,
++            }),
++            false,
++        ),
++    ] {
++        let fixture = Fixture::new(policy, prefix, /*decision*/ None, /*gated*/ false).await?;
++        let hooks = fixture.trusted_hook()?;
++        assert_eq!(
++            tokio::time::timeout(Duration::from_secs(5), fixture.run()).await??,
++            EscalationDecision::deny(Some("Execution forbidden by policy".into()))
++        );
++        assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
++        assert!(!hooks.path().join("hook-called").exists());
++        fixture.no_manual_events();
++        fixture.close().await;
++    }
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn current_on_request_without_parent_runs_original_callbacks_and_user_once()
+ -> anyhow::Result<()> {
+@@ -283,3 +324,165 @@ async fn current_on_request_without_parent_runs_original_callbacks_and_user_once
+     fixture.close().await;
+     Ok(())
+ }
++
++#[tokio::test]
++async fn callback_drift_refuses_default_and_explicit_user_routes_without_relabeling()
++-> anyhow::Result<()> {
++    for decision in [None, Some(ApprovalDecision::AskUser)] {
++        for drift in ["config", "policy", "environment"] {
++            let fixture = Fixture::new(
++                AskForApproval::OnRequest,
++                /*prefix*/ false,
++                decision.clone(),
++                /*gated*/ true,
++            )
++            .await?;
++            let session = &fixture.provider.session;
++            let config = session.get_config().await;
++            let original_policy = session.services.exec_policy.current();
++            let run = fixture.run();
++            tokio::pin!(run);
++            tokio::time::timeout(Duration::from_secs(5), async {
++                tokio::select! {
++                    _ = fixture.entered.notified() => {},
++                    result = &mut run => panic!("expected real contributor gate: {result:?}"),
++                }
++            })
++            .await?;
++            match drift {
++                "config" => {
++                    session
++                        .refresh_runtime_config(config.as_ref().clone())
++                        .await;
++                    assert!(!Arc::ptr_eq(&config, &session.get_config().await));
++                }
++                "policy" => {
++                    let home = tempfile::tempdir()?;
++                    session
++                        .services
++                        .exec_policy
++                        .append_amendment_and_update(
++                            home.path(),
++                            &codex_protocol::protocol::ExecPolicyAmendment {
++                                command: vec!["unrelated-policy-amendment".into()],
++                            },
++                        )
++                        .await?;
++                    assert!(!Arc::ptr_eq(
++                        &original_policy,
++                        &session.services.exec_policy.current()
++                    ));
++                }
++                "environment" => {
++                    let before = session.services.turn_environments.observe_selected();
++                    let projected = session.services.turn_environments.selections();
++                    let mut next = before.snapshot().primary().unwrap().config().clone();
++                    next.permission_profile =
++                        PermissionProfileSnapshot::legacy(PermissionProfile::Disabled);
++                    session
++                        .services
++                        .turn_environments
++                        .set_active_thread_defaults(next);
++                    assert_eq!(session.services.turn_environments.selections(), projected);
++                    let after = session.services.turn_environments.observe_selected();
++                    assert_ne!(
++                        before.snapshot().primary().unwrap().selection.config,
++                        after.snapshot().primary().unwrap().selection.config
++                    );
++                    assert!(Arc::ptr_eq(
++                        &before.snapshot().primary().unwrap().environment,
++                        &after.snapshot().primary().unwrap().environment
++                    ));
++                }
++                _ => unreachable!(),
++            }
++            if drift != "config" {
++                assert!(Arc::ptr_eq(&config, &session.get_config().await));
++            }
++            fixture.release.notify_one();
++            assert_eq!(
++                tokio::time::timeout(Duration::from_secs(5), run).await??,
++                EscalationDecision::deny(Some(
++                    "intercepted execution approval context changed during review".into()
++                ))
++            );
++            assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
++            fixture.no_manual_events();
++            fixture.close().await;
++        }
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn malformed_packets_refuse_before_any_callback() -> anyhow::Result<()> {
++    let fixture = Fixture::new(
++        AskForApproval::OnRequest,
++        /*prefix*/ false,
++        /*decision*/ None,
++        /*gated*/ false,
++    )
++    .await?;
++    let hooks = fixture.trusted_hook()?;
++    let valid = ApprovalAction::Execve {
++        id: fixture.provider.call_id.clone(),
++        approval_id: "intercept".into(),
++        environment_id: fixture.provider.environment_id.clone(),
++        source: GuardianCommandSource::UnifiedExec,
++        program: fixture.program.clone(),
++        argv: vec!["argv-zero".into()],
++        command: vec![fixture.program.to_string_lossy().into_owned()],
++        cwd: AbsolutePathBuf::current_dir()?,
++        additional_permissions: None,
++    };
++    let mut actions = vec![valid.clone(), valid.clone(), valid.clone()];
++    if let ApprovalAction::Execve { id, .. } = &mut actions[0] {
++        *id = "foreign-call".into();
++    }
++    if let ApprovalAction::Execve { environment_id, .. } = &mut actions[1] {
++        *environment_id = "foreign-environment".into();
++    }
++    if let ApprovalAction::Execve { command, .. } = &mut actions[2] {
++        command.push("invented".into());
++    }
++    actions.push(ApprovalAction::ExecCommand {
++        id: fixture.provider.call_id.clone(),
++        environment_id: fixture.provider.environment_id.clone(),
++        command: vec!["other-action".into()],
++        hook_command: "other-action".into(),
++        cwd: fixture
++            .provider
++            .review_context
++            .environments()
++            .primary()
++            .unwrap()
++            .cwd()
++            .clone(),
++        sandbox_permissions: SandboxPermissions::UseDefault,
++        additional_permissions: None,
++        justification: None,
++        tty: false,
++        proposed_execpolicy_amendment: None,
++    });
++    for action in actions {
++        assert!(matches!(
++            fixture
++                .provider
++                .session
++                .capture_intercepted_approval_selection(
++                    action,
++                    &fixture.provider.call_id,
++                    &fixture.provider.tool_name,
++                    &fixture.provider.review_context,
++                    Arc::clone(&fixture.provider.parent_exec_policy)
++                )
++                .await,
++            Err(ToolError::Rejected(_))
++        ));
++    }
++    assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
++    assert!(!hooks.path().join("hook-called").exists());
++    fixture.no_manual_events();
++    fixture.close().await;
++    Ok(())
++}
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+index aed14d0..97e0ab0 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+@@ -5,7 +5,6 @@ use crate::sandboxing::ExecOptions;
+ use crate::sandboxing::ExecRequest;
+ use crate::sandboxing::SandboxPermissions;
+ use crate::tools::approvals::ApprovalAction;
+-use crate::tools::approvals::ApprovalContext;
+ use crate::tools::runtimes::exec_env_for_sandbox_permissions;
+ use crate::tools::runtimes::unified_exec::InitialParentApprovalCandidate;
+ use crate::tools::sandboxing::SandboxAttempt;
+@@ -269,6 +268,7 @@ impl CoreShellActionProvider {
+         }
+     }
+ 
++    #[allow(clippy::too_many_arguments)]
+     async fn prompt(
+         &self,
+         program: &AbsolutePathBuf,
+@@ -276,6 +276,8 @@ impl CoreShellActionProvider {
+         workdir: &AbsolutePathBuf,
+         stopwatch: &Stopwatch,
+         additional_permissions: Option<AdditionalPermissionProfile>,
++        decision_source: &DecisionSource,
++        evaluated_policy: Arc<Policy>,
+     ) -> anyhow::Result<ReviewDecision> {
+         let command = join_program_and_argv(program, argv);
+         let action = ApprovalAction::Execve {
+@@ -291,32 +293,22 @@ impl CoreShellActionProvider {
+         };
+         match stopwatch
+             .pause_for(async {
+-                let (turn_context, settings, _, strict_auto_review) = self
++                let selected = self
+                     .session
+-                    .active_turn_context_and_strict_auto_review()
+-                    .await
+-                    .ok_or_else(|| {
+-                        ToolError::Rejected(
+-                            "cannot approve intercepted execution without an active turn"
+-                                .to_string(),
+-                        )
+-                    })?;
+-                let approval_ctx = ApprovalContext {
+-                    review_context: GuardianReviewContext::from_resolved_settings(
+-                        Arc::clone(&turn_context),
+-                        &settings,
+-                        self.review_context.environments(),
+-                    ),
+-                    // The running process can outlive its launching tool or code-mode cell.
+-                    cancellation_token: None,
+-                    call_id: self.call_id.clone(),
+-                    tool_name: self.tool_name.clone(),
+-                    strict_auto_review,
+-                    approval_reason: None,
+-                    retry_reason: None,
+-                    network_approval_context: None,
+-                };
+-                self.session.request_approval(action, approval_ctx).await
++                    .capture_intercepted_approval_selection(
++                        action,
++                        &self.call_id,
++                        &self.tool_name,
++                        &self.review_context,
++                        evaluated_policy,
++                    )
++                    .await?;
++                if execve_prompt_is_rejected_by_policy(selected.approval_policy(), decision_source)
++                    .is_some()
++                {
++                    return Err(ToolError::Rejected("Execution forbidden by policy".into()));
++                }
++                self.session.request_intercepted_approval(selected).await
+             })
+             .await
+         {
+@@ -337,6 +329,7 @@ impl CoreShellActionProvider {
+         prompt_permissions: Option<AdditionalPermissionProfile>,
+         escalation_execution: EscalationExecution,
+         decision_source: DecisionSource,
++        evaluated_policy: Arc<Policy>,
+     ) -> anyhow::Result<EscalationDecision> {
+         let action = match decision {
+             Decision::Forbidden => {
+@@ -349,7 +342,15 @@ impl CoreShellActionProvider {
+                     EscalationDecision::deny(Some("Execution forbidden by policy".to_string()))
+                 } else {
+                     let decision = self
+-                        .prompt(program, argv, workdir, &self.stopwatch, prompt_permissions)
++                        .prompt(
++                            program,
++                            argv,
++                            workdir,
++                            &self.stopwatch,
++                            prompt_permissions,
++                            &decision_source,
++                            evaluated_policy,
++                        )
+                         .await?;
+                     match decision {
+                         ReviewDecision::Approved
+@@ -431,7 +432,7 @@ impl CoreShellActionProvider {
+             "Determining escalation action for command {program:?} with args {argv:?} in {workdir:?}"
+         );
+ 
+-        let (evaluation, _evaluated_policy) = {
++        let (evaluation, evaluated_policy) = {
+             let policy = self.policy.read().await;
+             let evaluated_policy = Arc::clone(&policy);
+             let evaluation = evaluate_intercepted_exec_policy(
+@@ -484,6 +485,7 @@ impl CoreShellActionProvider {
+             self.prompt_permissions.clone(),
+             escalation_execution,
+             decision_source,
++            evaluated_policy,
+         )
+         .await
+     }
+-- 
+2.54.0 (Apple Git-157)
+

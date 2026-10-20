@@ -146,6 +146,13 @@ export async function createJoiningFixture(ready = true) {
     snapshot: { snapshotId: snapshot.snapshotId, sha256: snapshot.sha256 },
   };
   const authority = {
+    authorizeReconciliation: vi.fn(
+      async (
+        _input: Parameters<
+          import('../../collaboration-joining-owner.js').OrdinaryCollaborationJoiningAuthority['authorizeReconciliation']
+        >[0],
+      ) => {},
+    ),
     authorizeConfirmation: vi.fn(
       async (
         _input: Parameters<

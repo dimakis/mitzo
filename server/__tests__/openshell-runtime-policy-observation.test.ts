@@ -528,3 +528,44 @@ it('uses installed list-profiles grammar for initial and final scoped catalog re
     false,
   );
 });
+
+it('reads independent provider profiles concurrently within each side of the attestation fence', async () => {
+  const f = runtimeFixture([
+    'mitzo-openai-keychain-spike',
+    'github',
+    'mitzo-google-workspace-spike',
+  ]);
+  const original = f.run.getMockImplementation()!;
+  const started = [new Set<string>(), new Set<string>()];
+  const counts = new Map<string, number>();
+  const release: Array<() => void> = [];
+  const gates = [0, 1].map(
+    (round) =>
+      new Promise<void>((resolve) => {
+        release[round] = resolve;
+      }),
+  );
+  f.run.mockImplementation(async (args) => {
+    if (args.includes('export')) {
+      const type = args[args.indexOf('export') + 1];
+      const round = counts.get(type) ?? 0;
+      counts.set(type, round + 1);
+      started[round].add(type);
+      await gates[round];
+    }
+    return original(args);
+  });
+  const work = f.manager.observeContract(f.conversation, f.runtime, new AbortController().signal);
+  try {
+    for (const round of [0, 1]) {
+      await vi.waitFor(() => expect(started[round].size).toBe(3), { timeout: 500 });
+      if (round === 0) expect(started[1].size).toBe(0);
+      release[round]();
+    }
+    await expect(work).resolves.toHaveProperty('attestation');
+    expect([...counts.values()]).toEqual([2, 2, 2]);
+  } finally {
+    release.forEach((resolve) => resolve());
+    await work.catch(() => {});
+  }
+});

@@ -1530,3 +1530,75 @@ test('launch drafts: generic command survives tab replacement and keeps its orig
   expect(fixture.errors).toEqual([]);
   expect(recovered.errors).toEqual([]);
 });
+
+for (const theme of ['light', 'dark'])
+  test(`retained sends show preparation without retrying while startup waits (${theme})`, async ({
+    page,
+  }, testInfo) => {
+    const fixture = await offline(page);
+    const base = savedDraft('preparing-delivery', 'Prepare my response');
+    const draft = {
+      ...base,
+      images: [],
+      contextBlocks: [],
+      settings: {
+        ...base.settings,
+        search: '',
+        launch: {
+          prompt: base.text,
+          context: 'Offline preparation fixture',
+          accountSelection: base.settings.selection,
+        },
+      },
+    };
+    await seed(page, { 'mitzo-chat-draft:preparing-delivery': JSON.stringify(draft) });
+    let sends = 0;
+    let commandId = 'preparing-command';
+    await page.route('**/api/chat/send', async (route) => {
+      sends++;
+      const command = route.request().postDataJSON();
+      commandId = command.clientMsgId;
+      await route.fulfill({
+        status: 202,
+        json: {
+          ok: true,
+          accepted: true,
+          retained: true,
+          clientMsgId: command.clientMsgId,
+          sessionId: 'preparing-session',
+        },
+      });
+    });
+    await page.route('**/api/sessions/preparing-session/messages*', (route) =>
+      route.fulfill({
+        json: {
+          messages: [
+            {
+              role: 'user',
+              messageId: commandId,
+              startedSeq: 1,
+              blocks: [{ blockId: 'prompt', blockType: 'text', content: base.text }],
+            },
+          ],
+          currents: [],
+          current: null,
+          cursor: 1,
+        },
+      }),
+    );
+    await page.goto('/chat?draft=preparing-delivery');
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'light' ? 'teal' : 'mint';
+      document.documentElement.dataset.font = 'georgia';
+    }, theme);
+    await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
+    await expect(page.getByText('Preparing response…', { exact: true })).toBeVisible();
+    await expect(page.getByText(/Reconnecting — your message/)).toHaveCount(0);
+    expect(sends).toBe(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: testInfo.outputPath(`prompt-preparation-${theme}.png`) });
+    expect(fixture.errors).toEqual([]);
+  });

@@ -1,0 +1,801 @@
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index f5ac495..9efacc7 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -50,7 +50,6 @@ use codex_api::RawMemory as ApiRawMemory;
+ use codex_api::RealtimeCallClient as ApiRealtimeCallClient;
+ use codex_api::RealtimeSessionConfig as ApiRealtimeSessionConfig;
+ use codex_api::Reasoning;
+-use codex_api::ReasoningContext;
+ use codex_api::RequestTelemetry;
+ use codex_api::ReqwestTransport;
+ use codex_api::ResponseCreateWsRequest;
+@@ -62,12 +61,10 @@ use codex_api::ResponsesWebsocketConnection as ApiWebSocketConnection;
+ use codex_api::ResponsesWsRequest;
+ use codex_api::SharedAuthProvider;
+ use codex_api::SseTelemetry;
+-use codex_api::StreamOptions;
+ use codex_api::TransportError;
+ use codex_api::WebsocketTelemetry;
+ use codex_api::auth_header_telemetry;
+ use codex_api::build_session_headers;
+-use codex_api::create_text_param_for_request;
+ use codex_api::response_create_client_metadata;
+ use codex_http_client::ClientRouteClass;
+ use codex_http_client::HttpClientFactory;
+@@ -81,7 +78,6 @@ use codex_login::default_client::create_client_for_route;
+ use codex_otel::SessionTelemetry;
+ use codex_otel::WEBSOCKET_CONTINUATION_COUNT_METRIC;
+ use codex_otel::current_span_w3c_trace_context;
+-use codex_protocol::ResponseItemId;
+ use codex_protocol::auth::AuthMode;
+ 
+ use codex_protocol::ThreadId;
+@@ -99,9 +95,6 @@ use codex_protocol::protocol::SubAgentSource;
+ use codex_protocol::protocol::W3cTraceContext;
+ use codex_rollout_trace::InferenceTraceAttempt;
+ use codex_rollout_trace::InferenceTraceContext;
+-use codex_tools::create_tools_json_for_responses_api;
+-use codex_tools::create_tools_json_for_responses_lite;
+-use codex_tools::create_tools_raw_json_for_responses_api;
+ use eventsource_stream::Event;
+ use eventsource_stream::EventStreamError;
+ use futures::StreamExt;
+@@ -119,7 +112,6 @@ use tokio_util::sync::CancellationToken;
+ use tracing::instrument;
+ use tracing::trace;
+ use tracing::warn;
+-use uuid::Uuid;
+ 
+ use crate::attestation::AttestationContext;
+ use crate::attestation::AttestationProvider;
+@@ -127,12 +119,16 @@ use crate::attestation::X_OAI_ATTESTATION_HEADER;
+ use crate::client_common::Prompt;
+ use crate::client_common::ResponseEvent;
+ use crate::client_common::ResponseStream;
+-use crate::context::BaseInstructionsFragment;
+-use crate::context::ContextualUserFragment;
+ use crate::cyber_access_program;
+ use crate::feedback_tags;
+ use crate::responses_metadata::CodexResponsesMetadata;
+ use crate::responses_metadata::subagent_header_value;
++use crate::responses_request_format::InternalMetadataPolicy;
++use crate::responses_request_format::RequestCopyNormalization;
++use crate::responses_request_format::ResolvedResponsesRequestContext;
++use crate::responses_request_format::ResponsesGenerationOptions;
++use crate::responses_request_format::format_responses_request;
++use crate::responses_request_format::normalize_request_copy;
+ use crate::util::emit_feedback_auth_recovery_tags;
+ use codex_feedback::FeedbackRequestTags;
+ use codex_feedback::emit_feedback_request_tags_with_auth_env;
+@@ -860,27 +856,6 @@ impl ModelClient {
+         request_telemetry
+     }
+ 
+-    fn build_reasoning(
+-        &self,
+-        model_info: &ModelInfo,
+-        effort: Option<ReasoningEffortConfig>,
+-        summary: ReasoningSummaryConfig,
+-    ) -> Reasoning {
+-        Reasoning {
+-            effort: effort
+-                .or_else(|| model_info.default_reasoning_level.clone())
+-                .map(|effort| model_info.resolve_reasoning_effort(effort)),
+-            summary: (model_info.supports_reasoning_summary_parameter
+-                && summary != ReasoningSummaryConfig::None)
+-                .then_some(summary),
+-            // When Responses Lite is disabled, omit context so Responses uses the default,
+-            // which is currently `current_turn`.
+-            context: model_info
+-                .use_responses_lite
+-                .then_some(ReasoningContext::AllTurns),
+-        }
+-    }
+-
+     #[allow(clippy::too_many_arguments)]
+     pub(crate) fn build_responses_request(
+         &self,
+@@ -892,130 +867,51 @@ impl ModelClient {
+         responses_metadata: &CodexResponsesMetadata,
+         include_internal: bool,
+     ) -> Result<ResponsesApiRequest> {
+-        let mut input = prompt.get_formatted_input_for_request(model_info);
+-        if !self.reasoning_effort_override_enabled(model_info) {
+-            // Unsupported models and disabled overrides must also accept saved history.
+-            // Filter only the request copy; persisted history remains unchanged.
+-            input.retain(|item| !matches!(item, ResponseItem::ConfigurationUpdate { .. }));
+-        }
+-        let is_openai = self.state.provider.info().is_openai();
+-        let (instructions, tools) = if model_info.use_responses_lite {
+-            // These prompt-only items are rebuilt on every request. Hash their visible payloads
+-            // within the thread so retries and resumed sessions preserve their identity.
+-            let prefix_namespace = Uuid::new_v5(
+-                &Uuid::NAMESPACE_OID,
+-                self.state.thread_id.to_string().as_bytes(),
+-            );
+-            let tools = if self.state.provider.capabilities().namespace_tools {
+-                create_tools_json_for_responses_lite(&prompt.tools)?
++        let context = ResolvedResponsesRequestContext {
++            thread_id: self.state.thread_id,
++            is_openai: self.state.provider.info().is_openai(),
++            is_amazon_bedrock: self.state.provider.info().is_amazon_bedrock(),
++            namespace_tools: self.state.provider.capabilities().namespace_tools,
++            reasoning_effort_override_enabled: self.reasoning_effort_override_enabled(model_info),
++            concurrent_reasoning_summaries_enabled: self
++                .state
++                .concurrent_reasoning_summaries_enabled,
++            model_verbosity: self.state.model_verbosity,
++            prompt_cache_key: self.prompt_cache_key(responses_metadata),
++            client_metadata: responses_metadata.client_metadata(include_internal),
++            internal_metadata: if include_internal {
++                InternalMetadataPolicy::Include
+             } else {
+-                create_tools_json_for_responses_api(&prompt.tools)?
+-            };
+-            let mut prefix = vec![ResponseItem::AdditionalTools {
+-                id: Some(ResponseItemId::with_suffix(
+-                    "at",
+-                    Uuid::new_v5(&prefix_namespace, &serde_json::to_vec(&tools)?),
+-                )),
+-                role: "developer".to_string(),
+-                tools,
+-            }];
+-            if !prompt.base_instructions.text.is_empty() {
+-                let mut instructions = ContextualUserFragment::into(BaseInstructionsFragment(
+-                    prompt.base_instructions.text.clone(),
+-                ));
+-                instructions.set_id(Some(ResponseItemId::with_suffix(
+-                    "msg",
+-                    Uuid::new_v5(&prefix_namespace, prompt.base_instructions.text.as_bytes()),
+-                )));
+-                prefix.push(instructions);
+-            }
+-            input.splice(0..0, prefix);
+-            (String::new(), None)
+-        } else {
+-            (
+-                prompt.base_instructions.text.clone(),
+-                Some(create_tools_raw_json_for_responses_api(&prompt.tools)?.into()),
+-            )
+-        };
+-        if !is_openai {
+-            for item in &mut input {
+-                item.clear_internal_chat_message_metadata_passthrough();
+-                if let ResponseItem::FunctionCall {
+-                    encrypted_function_args,
+-                    ..
+-                } = item
+-                {
+-                    *encrypted_function_args = None;
+-                }
+-            }
+-        }
+-        let reasoning = self.build_reasoning(model_info, effort, summary);
+-        let stream_options = (self.state.concurrent_reasoning_summaries_enabled
+-            && is_openai
+-            && reasoning.summary.is_some())
+-        .then_some(StreamOptions {
+-            reasoning_summary_delivery: codex_api::ReasoningSummaryDelivery::SequentialCutoff,
+-        });
+-        let include = vec!["reasoning.encrypted_content".to_string()];
+-        let verbosity = if model_info.support_verbosity {
+-            self.state.model_verbosity.or(model_info.default_verbosity)
+-        } else {
+-            if self.state.model_verbosity.is_some() {
+-                warn!(
+-                    "model_verbosity is set but ignored as the model does not support verbosity: {}",
+-                    model_info.slug
+-                );
+-            }
+-            None
+-        };
+-        let text = create_text_param_for_request(
+-            verbosity,
+-            &prompt.output_schema,
+-            prompt.output_schema_strict,
+-        );
+-        let prompt_cache_key = Some(self.prompt_cache_key(responses_metadata));
+-        let service_tier = if self.state.provider.info().is_amazon_bedrock() {
+-            // Bedrock only supports the implicit default tier, including with custom catalogs.
+-            None
+-        } else {
+-            model_info.service_tier_for_request(service_tier)
++                InternalMetadataPolicy::Omit
++            },
+         };
+-        if !include_internal {
+-            for item in &mut input {
+-                item.clear_tool_result_metadata();
+-            }
++        let request = format_responses_request(
++            prompt,
++            model_info,
++            &context,
++            ResponsesGenerationOptions {
++                effort,
++                summary,
++                service_tier,
++            },
++        )?;
++        // Keep the ordinary owner's diagnostic after fallible request formatting.
++        if !model_info.support_verbosity && self.state.model_verbosity.is_some() {
++            warn!(
++                "model_verbosity is set but ignored as the model does not support verbosity: {}",
++                model_info.slug
++            );
+         }
+-        let client_metadata = responses_metadata.client_metadata(include_internal);
+-        let request = ResponsesApiRequest {
+-            model: model_info.slug.clone(),
+-            instructions,
+-            input,
+-            tools,
+-            tool_choice: "auto".to_string(),
+-            parallel_tool_calls: prompt.parallel_tool_calls && !model_info.use_responses_lite,
+-            reasoning: Some(reasoning),
+-            store: false,
+-            stream: true,
+-            stream_options,
+-            include,
+-            service_tier,
+-            prompt_cache_key,
+-            text,
+-            client_metadata: Some(client_metadata),
+-            access_programs: None,
+-        };
+         Ok(request)
+     }
+ 
+     fn prepare_response_items_for_request(&self, input: &mut [ResponseItem]) {
+-        for item in input {
+-            if item.id().is_some_and(|id| !id.is_prefixed()) {
+-                item.set_id(/*new_id*/ None);
+-            }
+-            if !self.state.content_item_kinds_enabled {
+-                item.clear_content_item_kinds();
+-            }
+-        }
++        normalize_request_copy(
++            input,
++            RequestCopyNormalization {
++                content_item_kinds_enabled: self.state.content_item_kinds_enabled,
++            },
++        );
+     }
+ 
+     /// Returns whether the Responses-over-WebSocket transport is active for this session.
+diff --git a/codex-rs/core/src/client_format_tests.rs b/codex-rs/core/src/client_format_tests.rs
+new file mode 100644
+index 0000000..780492f
+--- /dev/null
++++ b/codex-rs/core/src/client_format_tests.rs
+@@ -0,0 +1,84 @@
++use super::*;
++use crate::responses_request_format::InternalMetadataPolicy;
++use crate::responses_request_format::RequestCopyNormalization;
++use crate::responses_request_format::ResolvedResponsesRequestContext;
++use crate::responses_request_format::ResponsesGenerationOptions;
++use crate::responses_request_format::format_responses_request;
++use crate::responses_request_format::normalize_request_copy;
++use pretty_assertions::assert_eq;
++
++#[test]
++fn formatter_matches_actual_ordinary_owner_bytes_and_copy_normalization() -> anyhow::Result<()> {
++    let client = test_model_client(SessionSource::Exec);
++    let metadata = test_responses_metadata_for_client(
++        &client,
++        Some("captured-turn"),
++        "captured-window".into(),
++        /*parent_thread_id*/ None,
++        TestCodexResponsesRequestKind::Turn,
++    );
++    let mut model = test_model_info();
++    let prompt = Prompt {
++        input: vec![serde_json::from_value(json!({
++            "type":"message", "id":"legacy", "role":"user",
++            "content":[{"type":"input_text", "text":"ordinary captured input"}]
++        }))?],
++        base_instructions: BaseInstructions {
++            text: "ordinary captured instructions".into(),
++            provenance: None,
++        },
++        ..Default::default()
++    };
++    for use_responses_lite in [false, true] {
++        model.use_responses_lite = use_responses_lite;
++        let mut actual = client.build_responses_request(
++            &prompt,
++            &model,
++            /*effort*/ None,
++            codex_protocol::config_types::ReasoningSummary::Auto,
++            Some("flex".into()),
++            &metadata,
++            /*include_internal*/ false,
++        )?;
++        let captured = ResolvedResponsesRequestContext {
++            thread_id: client.state.thread_id,
++            is_openai: client.state.provider.info().is_openai(),
++            is_amazon_bedrock: client.state.provider.info().is_amazon_bedrock(),
++            namespace_tools: client.state.provider.capabilities().namespace_tools,
++            reasoning_effort_override_enabled: client.reasoning_effort_override_enabled(&model),
++            concurrent_reasoning_summaries_enabled: client
++                .state
++                .concurrent_reasoning_summaries_enabled,
++            model_verbosity: client.state.model_verbosity,
++            prompt_cache_key: client.prompt_cache_key(&metadata),
++            // HashMap iteration order is already nondeterministic across independent ordinary
++            // builds. Retain this owner's resolved map for exact encoding comparison.
++            client_metadata: actual
++                .client_metadata
++                .clone()
++                .expect("ordinary client metadata"),
++            internal_metadata: InternalMetadataPolicy::Omit,
++        };
++        let mut shared = format_responses_request(
++            &prompt,
++            &model,
++            &captured,
++            ResponsesGenerationOptions {
++                effort: None,
++                summary: codex_protocol::config_types::ReasoningSummary::Auto,
++                service_tier: Some("flex".into()),
++            },
++        )?;
++        assert_eq!(serde_json::to_vec(&actual)?, serde_json::to_vec(&shared)?);
++        client.prepare_response_items_for_request(&mut actual.input);
++        normalize_request_copy(
++            &mut shared.input,
++            RequestCopyNormalization {
++                content_item_kinds_enabled: client.state.content_item_kinds_enabled,
++            },
++        );
++        assert_eq!(serde_json::to_vec(&actual)?, serde_json::to_vec(&shared)?);
++        assert_eq!(serde_json::to_value(&prompt.input)?[0]["id"], "legacy");
++    }
++    Ok(())
++}
+diff --git a/codex-rs/core/src/client_tests.rs b/codex-rs/core/src/client_tests.rs
+index 07d57f5..e8211de 100644
+--- a/codex-rs/core/src/client_tests.rs
++++ b/codex-rs/core/src/client_tests.rs
+@@ -102,6 +102,9 @@ use wiremock::matchers::path;
+ 
+ const TEST_INSTALLATION_ID: &str = "11111111-1111-4111-8111-111111111111";
+ 
++#[path = "client_format_tests.rs"]
++mod format_tests;
++
+ fn test_model_client(session_source: SessionSource) -> ModelClient {
+     test_model_client_with_thread_id(ThreadId::new(), session_source)
+ }
+diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
+index 2595ce5..a6cb6f3 100644
+--- a/codex-rs/core/src/lib.rs
++++ b/codex-rs/core/src/lib.rs
+@@ -15,6 +15,7 @@ mod realtime_conversation;
+ mod realtime_history;
+ mod realtime_prompt;
+ mod responses_headers;
++mod responses_request_format;
+ pub use responses_headers::CodexResponsesHeaders;
+ mod responses_metadata;
+ mod responses_retry;
+diff --git a/codex-rs/core/src/responses_request_format.rs b/codex-rs/core/src/responses_request_format.rs
+new file mode 100644
+index 0000000..4e6bd08
+--- /dev/null
++++ b/codex-rs/core/src/responses_request_format.rs
+@@ -0,0 +1,211 @@
++//! Pure formatting of a complete, already-resolved ordinary Responses request.
++//!
++//! Callers own coherent source capture, provider/auth resolution and all late request contributors.
++//! This ordinary body retains native metadata and has no output cap or truncation field. It is
++//! deliberately not a public prepared-request adapter; adding a public route requires an explicit
++//! supported body contract, rather than stripping unsupported fields here.
++
++use crate::client_common::Prompt;
++use crate::context::BaseInstructionsFragment;
++use crate::context::ContextualUserFragment;
++use codex_api::Reasoning;
++use codex_api::ReasoningContext;
++use codex_api::ResponsesApiRequest;
++use codex_api::StreamOptions;
++use codex_api::create_text_param_for_request;
++use codex_protocol::ResponseItemId;
++use codex_protocol::ThreadId;
++use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
++use codex_protocol::config_types::Verbosity as VerbosityConfig;
++use codex_protocol::error::Result;
++use codex_protocol::models::ResponseItem;
++use codex_protocol::openai_models::ModelInfo;
++use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
++use codex_tools::create_tools_json_for_responses_api;
++use codex_tools::create_tools_json_for_responses_lite;
++use codex_tools::create_tools_raw_json_for_responses_api;
++use std::collections::HashMap;
++use uuid::Uuid;
++
++/// Immutable values captured by the existing request owner before pure formatting.
++pub(crate) struct ResolvedResponsesRequestContext {
++    pub(crate) thread_id: ThreadId,
++    pub(crate) is_openai: bool,
++    pub(crate) is_amazon_bedrock: bool,
++    pub(crate) namespace_tools: bool,
++    pub(crate) reasoning_effort_override_enabled: bool,
++    pub(crate) concurrent_reasoning_summaries_enabled: bool,
++    pub(crate) model_verbosity: Option<VerbosityConfig>,
++    pub(crate) prompt_cache_key: String,
++    pub(crate) client_metadata: HashMap<String, String>,
++    pub(crate) internal_metadata: InternalMetadataPolicy,
++}
++
++#[derive(Clone, Copy, PartialEq, Eq)]
++pub(crate) enum InternalMetadataPolicy {
++    Include,
++    Omit,
++}
++
++pub(crate) struct ResponsesGenerationOptions {
++    pub(crate) effort: Option<ReasoningEffortConfig>,
++    pub(crate) summary: ReasoningSummaryConfig,
++    pub(crate) service_tier: Option<String>,
++}
++
++pub(crate) struct RequestCopyNormalization {
++    pub(crate) content_item_kinds_enabled: bool,
++}
++
++pub(crate) fn format_responses_request(
++    prompt: &Prompt,
++    model_info: &ModelInfo,
++    context: &ResolvedResponsesRequestContext,
++    options: ResponsesGenerationOptions,
++) -> Result<ResponsesApiRequest> {
++    let mut input = prompt.get_formatted_input_for_request(model_info);
++    if !context.reasoning_effort_override_enabled {
++        // Unsupported models and disabled overrides must also accept saved history.
++        // Filter only the request copy; persisted history remains unchanged.
++        input.retain(|item| !matches!(item, ResponseItem::ConfigurationUpdate { .. }));
++    }
++    let is_openai = context.is_openai;
++    let (instructions, tools) = if model_info.use_responses_lite {
++        // These prompt-only items are rebuilt on every request. Hash their visible payloads
++        // within the thread so retries and resumed sessions preserve their identity.
++        let prefix_namespace = Uuid::new_v5(
++            &Uuid::NAMESPACE_OID,
++            context.thread_id.to_string().as_bytes(),
++        );
++        let tools = if context.namespace_tools {
++            create_tools_json_for_responses_lite(&prompt.tools)?
++        } else {
++            create_tools_json_for_responses_api(&prompt.tools)?
++        };
++        let mut prefix = vec![ResponseItem::AdditionalTools {
++            id: Some(ResponseItemId::with_suffix(
++                "at",
++                Uuid::new_v5(&prefix_namespace, &serde_json::to_vec(&tools)?),
++            )),
++            role: "developer".to_string(),
++            tools,
++        }];
++        if !prompt.base_instructions.text.is_empty() {
++            let mut instructions = ContextualUserFragment::into(BaseInstructionsFragment(
++                prompt.base_instructions.text.clone(),
++            ));
++            instructions.set_id(Some(ResponseItemId::with_suffix(
++                "msg",
++                Uuid::new_v5(&prefix_namespace, prompt.base_instructions.text.as_bytes()),
++            )));
++            prefix.push(instructions);
++        }
++        input.splice(0..0, prefix);
++        (String::new(), None)
++    } else {
++        (
++            prompt.base_instructions.text.clone(),
++            Some(create_tools_raw_json_for_responses_api(&prompt.tools)?.into()),
++        )
++    };
++    if !is_openai {
++        for item in &mut input {
++            item.clear_internal_chat_message_metadata_passthrough();
++            if let ResponseItem::FunctionCall {
++                encrypted_function_args,
++                ..
++            } = item
++            {
++                *encrypted_function_args = None;
++            }
++        }
++    }
++    let reasoning = build_reasoning(model_info, options.effort, options.summary);
++    let stream_options = (context.concurrent_reasoning_summaries_enabled
++        && is_openai
++        && reasoning.summary.is_some())
++    .then_some(StreamOptions {
++        reasoning_summary_delivery: codex_api::ReasoningSummaryDelivery::SequentialCutoff,
++    });
++    let include = vec!["reasoning.encrypted_content".to_string()];
++    let verbosity = if model_info.support_verbosity {
++        context.model_verbosity.or(model_info.default_verbosity)
++    } else {
++        None
++    };
++    let text = create_text_param_for_request(
++        verbosity,
++        &prompt.output_schema,
++        prompt.output_schema_strict,
++    );
++    let prompt_cache_key = Some(context.prompt_cache_key.clone());
++    let service_tier = if context.is_amazon_bedrock {
++        // Bedrock only supports the implicit default tier, including with custom catalogs.
++        None
++    } else {
++        model_info.service_tier_for_request(options.service_tier)
++    };
++    if context.internal_metadata == InternalMetadataPolicy::Omit {
++        for item in &mut input {
++            item.clear_tool_result_metadata();
++        }
++    }
++    let client_metadata = context.client_metadata.clone();
++    let request = ResponsesApiRequest {
++        model: model_info.slug.clone(),
++        instructions,
++        input,
++        tools,
++        tool_choice: "auto".to_string(),
++        parallel_tool_calls: prompt.parallel_tool_calls && !model_info.use_responses_lite,
++        reasoning: Some(reasoning),
++        store: false,
++        stream: true,
++        stream_options,
++        include,
++        service_tier,
++        prompt_cache_key,
++        text,
++        client_metadata: Some(client_metadata),
++        access_programs: None,
++    };
++    Ok(request)
++}
++
++fn build_reasoning(
++    model_info: &ModelInfo,
++    effort: Option<ReasoningEffortConfig>,
++    summary: ReasoningSummaryConfig,
++) -> Reasoning {
++    Reasoning {
++        effort: effort
++            .or_else(|| model_info.default_reasoning_level.clone())
++            .map(|effort| model_info.resolve_reasoning_effort(effort)),
++        summary: (model_info.supports_reasoning_summary_parameter
++            && summary != ReasoningSummaryConfig::None)
++            .then_some(summary),
++        // When Responses Lite is disabled, omit context so Responses uses the default,
++        // which is currently `current_turn`.
++        context: model_info
++            .use_responses_lite
++            .then_some(ReasoningContext::AllTurns),
++    }
++}
++
++pub(crate) fn normalize_request_copy(
++    input: &mut [ResponseItem],
++    settings: RequestCopyNormalization,
++) {
++    for item in input {
++        if item.id().is_some_and(|id| !id.is_prefixed()) {
++            item.set_id(/*new_id*/ None);
++        }
++        if !settings.content_item_kinds_enabled {
++            item.clear_content_item_kinds();
++        }
++    }
++}
++
++#[cfg(test)]
++#[path = "responses_request_format_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/responses_request_format_tests.rs b/codex-rs/core/src/responses_request_format_tests.rs
+new file mode 100644
+index 0000000..e1022af
+--- /dev/null
++++ b/codex-rs/core/src/responses_request_format_tests.rs
+@@ -0,0 +1,195 @@
++use super::*;
++use crate::client_common::Prompt;
++use codex_api::FrozenResponsesRequest;
++use codex_protocol::ThreadId;
++use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
++use codex_protocol::config_types::Verbosity as VerbosityConfig;
++use codex_protocol::models::BaseInstructions;
++use codex_protocol::models::ResponseItem;
++use codex_protocol::openai_models::ModelInfo;
++use codex_tools::ResponsesApiTool;
++use codex_tools::ToolSpec;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++use std::collections::HashMap;
++use uuid::Uuid;
++
++fn model() -> ModelInfo {
++    serde_json::from_value(json!({
++        "slug":"format-fixture", "display_name":"fixture", "description":"fixture",
++        "default_reasoning_level":"medium", "supported_reasoning_levels":[{"effort":"medium", "description":"medium"}],
++        "shell_type":"shell_command", "visibility":"list", "supported_in_api":true,
++        "priority":1, "upgrade":null, "model_messages":null, "support_verbosity":true,
++        "default_verbosity":"low", "supports_reasoning_summary_parameter":true,
++        "apply_patch_tool_type":null, "truncation_policy":{"mode":"bytes", "limit":10000},
++        "supports_image_detail_original":false, "context_window":272000,
++        "auto_compact_token_limit":null, "experimental_supported_tools":[]
++    })).unwrap()
++}
++
++fn context() -> ResolvedResponsesRequestContext {
++    ResolvedResponsesRequestContext {
++        thread_id: ThreadId::from_string("018f9e15-7a6a-7000-8000-000000000001").unwrap(),
++        is_openai: true,
++        is_amazon_bedrock: false,
++        namespace_tools: false,
++        reasoning_effort_override_enabled: false,
++        concurrent_reasoning_summaries_enabled: true,
++        model_verbosity: Some(VerbosityConfig::High),
++        prompt_cache_key: "captured-cache".into(),
++        client_metadata: HashMap::from([("captured-metadata".into(), "retained".into())]),
++        internal_metadata: InternalMetadataPolicy::Include,
++    }
++}
++
++fn options() -> ResponsesGenerationOptions {
++    ResponsesGenerationOptions {
++        effort: None,
++        summary: ReasoningSummaryConfig::Auto,
++        service_tier: Some("flex".into()),
++    }
++}
++
++fn prompt() -> Prompt {
++    Prompt {
++        input: vec![serde_json::from_value(json!({"type":"message", "role":"user", "content":[
++            {"type":"input_text", "text":"captured input"},
++            {"type":"input_image", "image_url":"data:image/png;base64,aGVsbG8=", "detail":"original"}
++        ]})).unwrap()],
++        tools: vec![ToolSpec::Function(ResponsesApiTool {
++            name:"fixture_tool".into(), description:"captured tool".into(), strict:true, defer_loading:None,
++            parameters:serde_json::from_value(json!({"type":"object", "properties":{}, "required":[], "additionalProperties":false})).unwrap(),
++            output_schema:None,
++        })].into(),
++        parallel_tool_calls:true, base_instructions:BaseInstructions { text:"captured instructions".into(), provenance:None },
++        output_schema:Some(json!({"type":"object"})), output_schema_strict:true, ..Default::default()
++    }
++}
++
++#[test]
++fn formatter_preserves_complete_ordinary_body_and_captured_input() {
++    let prompt = prompt();
++    let original_input = prompt.input.clone();
++    let request = format_responses_request(&prompt, &model(), &context(), options()).unwrap();
++    assert_eq!(
++        serde_json::to_value(&request).unwrap(),
++        json!({
++            "model":"format-fixture", "instructions":"captured instructions",
++            "input":[{"type":"message", "role":"user", "content":[
++                {"type":"input_text", "text":"captured input"},
++                {"type":"input_image", "image_url":"data:image/png;base64,aGVsbG8=", "detail":"high"}
++            ]}],
++            "tools":[{"type":"function", "name":"fixture_tool", "description":"captured tool", "strict":true,
++                "parameters":{"type":"object", "properties":{}, "required":[], "additionalProperties":false}}],
++            "tool_choice":"auto", "parallel_tool_calls":true,
++            "reasoning":{"effort":"medium", "summary":"auto"},
++            "store":false, "stream":true, "stream_options":{"reasoning_summary_delivery":"sequential_cutoff"},
++            "include":["reasoning.encrypted_content"], "service_tier":"flex", "prompt_cache_key":"captured-cache",
++            "text":{"verbosity":"high", "format":{"type":"json_schema", "strict":true, "schema":{"type":"object"}, "name":"codex_output_schema"}},
++            "client_metadata":{"captured-metadata":"retained"}
++        })
++    );
++    assert_eq!(prompt.input, original_input);
++}
++
++#[test]
++fn formatter_preserves_lite_framing_and_deterministic_reserved_identity() {
++    let prompt = prompt();
++    let mut model = model();
++    model.use_responses_lite = true;
++    for namespace_tools in [false, true] {
++        let mut context = context();
++        context.namespace_tools = namespace_tools;
++        let request = format_responses_request(&prompt, &model, &context, options()).unwrap();
++        let again = format_responses_request(&prompt, &model, &context, options()).unwrap();
++        assert_eq!(
++            serde_json::to_vec(&request).unwrap(),
++            serde_json::to_vec(&again).unwrap()
++        );
++        let wire = serde_json::to_value(&request).unwrap();
++        let namespace = Uuid::new_v5(
++            &Uuid::NAMESPACE_OID,
++            context.thread_id.to_string().as_bytes(),
++        );
++        let tools_id = Uuid::new_v5(
++            &namespace,
++            &serde_json::to_vec(&wire["input"][0]["tools"]).unwrap(),
++        );
++        let instructions_id = Uuid::new_v5(&namespace, b"captured instructions");
++        assert_eq!(wire["input"][0]["id"], format!("at_{tools_id}"));
++        assert_eq!(wire["input"][1]["id"], format!("msg_{instructions_id}"));
++        assert_eq!(wire["input"][2]["content"][1].get("detail"), None);
++        assert_eq!(
++            (
++                request.instructions,
++                request.tools,
++                request.parallel_tool_calls
++            ),
++            (String::new(), None, false)
++        );
++    }
++}
++
++#[test]
++fn formatter_preserves_independent_provider_flags_and_configuration_filtering() {
++    let mut prompt = prompt();
++    prompt.input.push(
++        serde_json::from_value(
++            json!({"type":"configuration_update", "reasoning":{"effort":"medium"}}),
++        )
++        .unwrap(),
++    );
++    prompt.input.push(serde_json::from_value(json!({"type":"function_call", "call_id":"call", "name":"fixture_tool", "arguments":"{}", "encrypted_function_args":["retained"]})).unwrap());
++    for is_openai in [false, true] {
++        for is_amazon_bedrock in [false, true] {
++            let mut context = context();
++            context.is_openai = is_openai;
++            context.is_amazon_bedrock = is_amazon_bedrock;
++            let request = format_responses_request(&prompt, &model(), &context, options()).unwrap();
++            assert_eq!(request.input.len(), 2);
++            assert_eq!(
++                request.service_tier,
++                (!is_amazon_bedrock).then(|| "flex".to_string())
++            );
++            assert_eq!(request.stream_options.is_some(), is_openai);
++            let wire = serde_json::to_value(request).unwrap();
++            assert_eq!(
++                wire["input"][1].get("encrypted_function_args").cloned(),
++                is_openai.then(|| json!(["retained"]))
++            );
++        }
++    }
++}
++
++#[test]
++fn formatter_normalizes_only_the_supplied_request_copy() {
++    let input: Vec<ResponseItem> = serde_json::from_value(json!([
++        {"type":"message", "id":"legacy", "role":"user", "content":[{"type":"input_text", "text":"captured"}], "internal_chat_message_metadata_passthrough":{"content_item_kinds":["captured-kind"]}},
++        {"type":"message", "id":"msg_retained", "role":"user", "content":[]}
++    ])).unwrap();
++    let mut copy = input.clone();
++    normalize_request_copy(
++        &mut copy,
++        RequestCopyNormalization {
++            content_item_kinds_enabled: false,
++        },
++    );
++    let wire = serde_json::to_value(&copy).unwrap();
++    assert_eq!(wire[0].get("id"), None);
++    assert_eq!(wire[1]["id"], "msg_retained");
++    assert_eq!(
++        wire[0].get("internal_chat_message_metadata_passthrough"),
++        None
++    );
++    assert_eq!(serde_json::to_value(&input).unwrap()[0]["id"], "legacy");
++}
++
++#[test]
++fn formatter_ordinary_body_does_not_silently_become_a_public_prepared_body() {
++    let request = format_responses_request(&prompt(), &model(), &context(), options()).unwrap();
++    let mut body = serde_json::to_value(request).unwrap();
++    assert!(FrozenResponsesRequest::new(body.clone(), /*model_output_limit*/ 16).is_err());
++    body["max_output_tokens"] = json!(16);
++    body["truncation"] = json!("disabled");
++    assert!(FrozenResponsesRequest::new(body, /*model_output_limit*/ 16).is_err());
++}

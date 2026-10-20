@@ -147,7 +147,7 @@ export function ConversationJoiningReviewActions({
         Back
       </button>
       {flow.join ? (
-        flow.join.state !== 'linked' && (
+        (flow.join.state !== 'linked' || flow.requiresRecovery) && (
           <button type="button" disabled={!!flow.pending} onClick={() => void flow.recover()}>
             Check again
           </button>

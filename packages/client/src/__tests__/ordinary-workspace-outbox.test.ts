@@ -55,6 +55,51 @@ const receipt = (extra = {}, status = 202) =>
     }),
     { status },
   );
+it('retains and retries a prepared repository first command with its exact local session scope and original first route after response loss', async () => {
+  const { version, workspace, sessionId, ...body } = command;
+  const request = { ...body, repositoryWorkspaceId: workspace.workspaceId };
+  const delivery = { version: 1 as const, phase: 'first' as const, sessionId };
+  const f = fixture();
+  expect(f.outbox.enqueue(request, 1, undefined, delivery)).toBe(true);
+  await vi.waitFor(() =>
+    expect(f.notify).toHaveBeenCalledWith(expect.objectContaining({ state: 'uncertain' })),
+  );
+  f.outbox.stop();
+  expect(f.saved()[0]).toMatchObject({
+    body: request,
+    ordinaryDelivery: delivery,
+    uncertain: true,
+  });
+  const restored = fixture(JSON.stringify(f.saved()));
+  expect(restored.fetch).not.toHaveBeenCalled();
+  expect(
+    restored.outbox.enqueue({ ...request, clientMsgId: 'replacement' }, 2, undefined, delivery),
+  ).toBe(false);
+  restored.fetch.mockResolvedValue(receipt());
+  expect(restored.outbox.retryLocalCommand()).toBe(true);
+  await vi.waitFor(() =>
+    expect(restored.notify).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'consumed', ordinaryDelivery: delivery }),
+    ),
+  );
+  expect(restored.fetch.mock.calls[0][0]).toBe('/api/chat/local-codex/send');
+  expect(JSON.parse(restored.fetch.mock.calls[0][1].body)).toEqual(request);
+});
+it('a repository first-command acknowledgement cannot consume another prepared chat identity', async () => {
+  const { version, workspace, sessionId, ...body } = command;
+  const request = { ...body, repositoryWorkspaceId: workspace.workspaceId };
+  const f = fixture();
+  f.fetch.mockResolvedValue(receipt({ sessionId: 'another-chat' }));
+  expect(f.outbox.enqueue(request, 1, undefined, { version: 1, phase: 'first', sessionId })).toBe(
+    true,
+  );
+  await vi.waitFor(() =>
+    expect(f.notify).toHaveBeenCalledWith(expect.objectContaining({ state: 'uncertain' })),
+  );
+  expect(f.saved()).toHaveLength(1);
+  expect(f.notify.mock.calls.some(([event]) => event.acknowledged)).toBe(false);
+  f.outbox.stop();
+});
 it.each(['first', 'continue'] as const)(
   'retains explicit %s phase with its already prepared session and uses only the matching V2 route',
   async (phase) => {
