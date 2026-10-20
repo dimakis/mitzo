@@ -127,3 +127,73 @@ for (const theme of ['dark', 'light']) {
     expect(errors).toEqual([]);
   });
 }
+
+for (const theme of ['dark', 'light']) {
+  test(`successful queue recovery clears the attention banner (${theme})`, async ({
+    page,
+  }, info) => {
+    const files = (await output).outputFiles!;
+    let continued = false;
+    let recovering = true;
+    await page.route('**/*', (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path.endsWith('/meta'))
+        return route.fulfill({
+          json: {
+            codexQueue: {
+              paused: !continued,
+              connected: true,
+              recovering,
+              recoveryPhase: recovering ? 'reconnecting' : undefined,
+              queued: continued ? 0 : 1,
+              interrupted: continued ? 0 : 1,
+            },
+          },
+        });
+      if (path.endsWith('/continue')) {
+        continued = true;
+        return route.fulfill({ json: { ok: true } });
+      }
+      if (path.endsWith('/codex-queue'))
+        return route.fulfill({
+          json: {
+            queued: [{ id: 'saved', preview: 'Synthetic saved work' }],
+            cancelledIds: [],
+          },
+        });
+      if (path.startsWith('/api/')) return route.fulfill({ json: [] });
+      const asset = files.find((file) =>
+        path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+      );
+      if (asset)
+        return route.fulfill({
+          contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+          body: asset.text,
+        });
+      if (path !== '/') return route.abort();
+      return route.fulfill({
+        contentType: 'text/html',
+        body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
+      });
+    });
+    await page.setViewportSize({
+      width: info.project.name.startsWith('mobile') ? 320 : 1280,
+      height: 844,
+    });
+    await page.goto('/');
+    await expect(page.getByRole('status')).toContainText('Reconnecting… Your message is saved.');
+    await expect(page.getByRole('button', { name: 'Reconnect and continue' })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath(`recovering-${theme}.png`) });
+    // A sustained failure keeps the explicit fallback; success must remove its old warning.
+    recovering = false;
+    await page.getByRole('button', { name: 'Emit queue metadata change', exact: true }).click();
+    const reconnect = page.getByRole('button', { name: 'Reconnect and continue' });
+    await expect(reconnect).toBeVisible();
+    await reconnect.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('status')).toHaveCount(0);
+    await expect(page.getByText('An earlier step may be incomplete.')).toHaveCount(0);
+    await expect(page.getByText('Reconnected. Continuing saved messages.')).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath(`recovered-${theme}.png`) });
+  });
+}

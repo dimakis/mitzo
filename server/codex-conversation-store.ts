@@ -365,6 +365,10 @@ export class CodexConversationStore {
         this.db.exec(
           'ALTER TABLE codex_conversations ADD COLUMN thread_generation INTEGER NOT NULL DEFAULT 0',
         );
+      if (!conversationColumns.some((column) => column.name === 'automatic_recovery'))
+        this.db.exec(
+          'ALTER TABLE codex_conversations ADD COLUMN automatic_recovery INTEGER NOT NULL DEFAULT 0',
+        );
       const addsRecoveryStrategy = !conversationColumns.some(
         (column) => column.name === 'recovery_strategy',
       );
@@ -2114,7 +2118,9 @@ export class CodexConversationStore {
       this.writeCapacityRecovery(id, recovery);
       // This is a new linked command, not acknowledgment or replay of old work.
       this.db
-        .prepare("UPDATE codex_conversations SET recovery=0,recovery_strategy='resume' WHERE id=?")
+        .prepare(
+          "UPDATE codex_conversations SET recovery=0,automatic_recovery=0,recovery_strategy='resume' WHERE id=?",
+        )
         .run(id);
       return child;
     })();
@@ -2385,6 +2391,7 @@ export class CodexConversationStore {
     retryNotBefore?: number,
     retryable = true,
     ambiguous = false,
+    automaticRecovery = false,
   ) {
     this.db.transaction(() => {
       this.read(id, b);
@@ -2402,14 +2409,14 @@ export class CodexConversationStore {
       if (pending)
         this.db
           .prepare(
-            `UPDATE codex_conversations SET recovery=1,
+            `UPDATE codex_conversations SET recovery=1, automatic_recovery=?,
               recovery_strategy=CASE
                 WHEN recovery_strategy='fork' OR ?='fork' THEN 'fork'
                 ELSE 'resume'
               END
             WHERE id=?`,
           )
-          .run(recoveryStrategy, id);
+          .run(automaticRecovery ? 1 : 0, recoveryStrategy, id);
     })();
   }
   claimTool(
@@ -2583,6 +2590,18 @@ export class CodexConversationStore {
         .run(...(ownerKind === undefined ? [] : [ownerKind]));
     })();
   }
+  automaticRecoveryPending(id: string, b: AccountBinding): boolean {
+    this.read(id, b);
+    return !!this.db
+      .prepare(
+        'SELECT 1 FROM codex_conversations WHERE id=? AND recovery=1 AND automatic_recovery=1',
+      )
+      .get(id);
+  }
+  stopAutomaticRecovery(id: string, b: AccountBinding) {
+    this.read(id, b);
+    this.db.prepare('UPDATE codex_conversations SET automatic_recovery=0 WHERE id=?').run(id);
+  }
   acknowledgeRecovery(id: string, b: AccountBinding) {
     this.db.transaction(() => {
       this.assertNoPendingThreadDispatch(id, b);
@@ -2598,7 +2617,9 @@ export class CodexConversationStore {
         )
         .run(id);
       this.db
-        .prepare("UPDATE codex_conversations SET recovery=0,recovery_strategy='resume' WHERE id=?")
+        .prepare(
+          "UPDATE codex_conversations SET recovery=0,automatic_recovery=0,recovery_strategy='resume' WHERE id=?",
+        )
         .run(id);
     })();
   }

@@ -1796,3 +1796,14 @@ These bounded reference dimensions are a structural exception to the usual share
 spacing/radius scale; they do not establish a new palette, font or reusable scale.
 Browser assertions protect these exact dimensions while shared control-height and
 focus rules remain effective.
+
+## Queue recovery status
+
+The existing compact queue strip follows current recovery metadata. Successful
+Reconnect and continue / Retry saved turn actions refresh that metadata without
+leaving a success notice that reopens the generic attention warning after pending
+work clears. Real failed actions retain their error and fallback controls. No
+styles, geometry, palette, motion or approved surfaces change. The intercepted
+queue-status browser fixture checks recovery, fallback keyboard activation and
+warning removal on mobile WebKit/Chromium and desktop Chromium in dark Mint/System
+and light Teal/Georgia. It uses synthetic metadata and no backend or model calls.

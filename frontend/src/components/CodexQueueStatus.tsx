@@ -392,7 +392,6 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         );
       }
       if (epoch === sessionEpoch.current) {
-        setNotice('Reconnected. Continuing saved messages.');
         await refresh.current();
       }
     } catch (error) {
@@ -431,7 +430,6 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         );
       }
       if (epoch === sessionEpoch.current) {
-        setNotice('Retrying the saved turn.');
         await refresh.current();
       }
     } catch (error) {

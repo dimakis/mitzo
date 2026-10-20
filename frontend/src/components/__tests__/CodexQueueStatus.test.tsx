@@ -587,7 +587,7 @@ it('lets a paused connected chat explicitly reconnect and continue saved work', 
       signal: expect.any(AbortSignal),
     }),
   );
-  expect(await screen.findByText('Reconnected. Continuing saved messages.')).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
 });
 
 it('allows the qualified original cold Responses queue to reconnect without adding or cancelling accepted work', async () => {
@@ -614,7 +614,7 @@ it('allows the qualified original cold Responses queue to reconnect without addi
     headers: { 'X-Connection-ID': 'owned-sse' },
     signal: expect.any(AbortSignal),
   });
-  expect(await screen.findByText('Reconnected. Continuing saved messages.')).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
 });
 
 it('does not offer a cold queue effect without the server original-owner qualification', async () => {
@@ -682,7 +682,7 @@ it('offers an explicit retry for the saved failed turn without queued follow-ups
       signal: expect.any(AbortSignal),
     }),
   );
-  expect(await screen.findByText('Retrying the saved turn.')).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
 });
 
 it('honors the provider retry window before enabling the saved turn', async () => {
@@ -987,4 +987,20 @@ it('does not resurrect a status row for historical interrupted work with nothing
   await act(async () => {});
   expect(screen.queryByRole('status')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Chat status' })).toBeNull();
+});
+
+it('clears a successful reconnect notice when fresh metadata reports no pending work', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(meta({ paused: true, connected: true, queued: 1, interrupted: 1 }))
+    .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Synthetic saved work' }]))
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 0, interrupted: 0, failed: 0 }),
+    );
+  render(<CodexQueueStatus sessionId="cleared" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Reconnect and continue' }));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(4));
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.queryByText('An earlier step may be incomplete.')).toBeNull();
+  expect(screen.queryByText('Reconnected. Continuing saved messages.')).toBeNull();
 });
