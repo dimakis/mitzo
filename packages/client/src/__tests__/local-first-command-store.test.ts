@@ -106,6 +106,28 @@ function setup(
   });
   return { store, fetch, readStorage: () => JSON.parse(raw ?? '[]') };
 }
+it('delivers a prepared repository first command through the existing outbox without assigning or switching the already selected chat', async () => {
+  const { store, fetch, readStorage } = setup();
+  channel.id = 'prepared-sse';
+  await store.getState().switchSession('owned-session');
+  channel.send.mockClear();
+  const assigned = vi.fn();
+  expect(store.getState().sendLocalFirstCommand(request)).toBe(false);
+  expect(store.getState().sendPreparedRepositoryCommand(request, 'another-session')).toBe(false);
+  expect(
+    store
+      .getState()
+      .sendPreparedRepositoryCommand(request, 'owned-session', { onSessionAssigned: assigned }),
+  ).toBe(true);
+  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+  expect(JSON.parse(fetch.mock.calls.find(([url]) => url === '/local/send')![1].body)).toEqual(
+    request,
+  );
+  expect(store.getState().sessions.active).toBe('owned-session');
+  expect(assigned).not.toHaveBeenCalled();
+  expect(channel.send.mock.calls.some(([body]) => body.type === 'switch_session')).toBe(false);
+  expect(readStorage()).toEqual([]);
+});
 it('binds exact initial Library sources to the durable command owner before admission and acknowledges assignment', async () => {
   const source = {
     kind: 'agent-library' as const,

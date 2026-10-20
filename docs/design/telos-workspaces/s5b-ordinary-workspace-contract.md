@@ -146,3 +146,34 @@ lazily reopen custody. This adds no cleanup, deletion or task lifecycle operatio
 ## Assignment history read contract
 
 Work reads may include `assignmentHistory` for lead and worker, each with `complete` and `conversationIds`. A previous assignment requires a schema-valid, non-conflicting recorded identity already disclosed by a same-role link. Incomplete legacy history remains unknown; additional-conversation labels require complete role history. Current assignments remain the sole current assignment and action authority. The optional projection does not change the original work revision facts or fill absent fields in old cached receipts. It exposes no new conversation IDs, actors or timestamps.
+
+## Bound ordinary first-command source handoff
+
+A validated, matching consumed V2 first-command acknowledgement finalizes the
+original Agent Builder source handoff through its existing durable owner. The
+prepared conversation already exists, so this acknowledgement does not assign a
+launch draft, switch the active conversation or invoke session-assignment UI
+observers. A continuation, retained409 observation or mismatched202 is not a
+first-command source assignment. Unknown delivery and failed durable source
+writes retain the exact original command for explicit retry; recovered delivery
+completes the same source receipt after navigation or store recreation.
+
+The focused regression uses the actual Builder source/draft/receipt stores,
+shared client store and SendOutbox, with synthetic HTTP/SSE and the outbox storage
+interface backed directly by localStorage. Production bootstrap storage adapter
+adoption is separately covered by the ordinary-chat consumer tests. No source
+storage keys, retry owner, server permission or model invocation changes here.
+
+## Prepared repository first-command delivery
+
+A prepared repository first command retains its existing strict V1 wire body and
+original first-command route. Its existing outbox additionally retains strict
+local delivery metadata `{ version: 1, phase: 'first', sessionId }`; this metadata
+is not a wire grant. Admission requires the already selected conversation, and
+a consumed acknowledgment must name that same prepared conversation. It does
+not assign a launch draft or switch the active chat. Response loss retains the
+original command, local session scope and first route for explicit retry after
+store recreation; a different chat acknowledgment cannot consume it. Ordinary
+V2 first/continuation delivery keeps its existing separate strict local metadata
+and routes. Both forms share the same outbox, pending-command exclusion and
+source-handoff owner.
