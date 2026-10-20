@@ -1811,3 +1811,36 @@ runtime binding or command-scope flag cannot establish legacy repository scope.
 Repository identities must satisfy the existing command UUID schema. Valid explicit
 repository identities and legacy metadata without runtime routing remain
 on their existing Files path. This does not change server file permissions.
+
+## Queue recovery status
+
+`ChatStatusMessage` gives send progress, conversation loading and composer-blocking
+reasons one shared quiet treatment: semantic muted text, UiIcon, UI font and shared
+spacing/type tokens. Both chat pages place delivery feedback beside the composer;
+the queue owner gives active recovery priority over duplicate delivery progress.
+Normal progress has no bordered warning panel. The queue uses its existing actions
+with shared control-height targets and a close icon. Only current action failures,
+failed turns ready for review and exhausted/inspection-required recovery get the
+quiet outlined attention treatment. No generic earlier-step warning or successful
+restart/continue notice outlives the work it describes. Transient background
+reattach failures remain represented by current recovery metadata.
+
+A newer assistant snapshot clears preparation progress even if its message_start
+was lost during reconnect; foreign and older snapshots do not. This changes only
+UI progress, never a delivery receipt or permission decision. Drafts, queue review,
+cancellation, keyboard focus and genuine errors remain available.
+
+The intercepted actual-composer queue-status fixture covers mobile
+WebKit/Chromium and desktop Chromium in dark Mint/System and light Teal/Georgia,
+recovery, keyboard fallback activation, cleared status, quiet preparing progress
+and retained drafts. Shared motion supplies the loading icon and reduced-motion
+fallback. These checks use synthetic metadata, no backend and no model calls.
+
+Inspected captures: [phone progress](assets/chat-progress-mobile-dark.png) and
+[desktop progress](assets/chat-progress-desktop-light.png). These show isolated
+actual composer/status components, not a live chat or a change to approved settings.
+
+Pending chat-type qualification renders only pure progress/error feedback beside
+the disabled input; it does not mount the ordinary queue or send owner early.
+Outline warnings use the semantic warning foreground on a transparent background;
+filled controls retain their existing paired foreground contrast checks.

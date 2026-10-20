@@ -1135,7 +1135,8 @@ async function openCodexChatBound(
       !openShell ||
       !runtimeManager ||
       !managedOpenShell ||
-      !grantableProviders.includes(provider)
+      (!grantableProviders.includes(provider) &&
+        !managedConnections.some((connection) => connection.gatewayProviderName === provider))
     )
       return { content: 'Integration provider is not grantable', isError: true };
     if (turn?.denied.has(provider))
@@ -1182,6 +1183,12 @@ async function openCodexChatBound(
         isError: false,
       };
     if (access.state === 'indeterminate') throw access.error;
+    if (!grantableProviders.includes(provider))
+      return {
+        content:
+          'This configured connection is not currently available in the sandbox. Refresh ListConnections and inspect runtime connection status; this is not evidence that service authentication was rejected.',
+        isError: true,
+      };
     const providerLabel =
       INTEGRATION_PROVIDER_LABELS[provider] ??
       onDemandConnections.find((connection) => connection.gatewayProviderName === provider)
@@ -1577,17 +1584,22 @@ async function openCodexChatBound(
           transport: 'openshell',
           access: 'attached',
         })),
-        ...grantableProviders.map((provider) => ({
-          id: `openshell:${provider}`,
-          label:
-            onDemandConnections.find((c) => c.gatewayProviderName === provider)?.label ??
-            INTEGRATION_PROVIDER_LABELS[provider] ??
+        ...grantableProviders
+          .filter(
+            (provider) =>
+              !managedConnections.some((connection) => connection.gatewayProviderName === provider),
+          )
+          .map((provider) => ({
+            id: `openshell:${provider}`,
+            label:
+              onDemandConnections.find((c) => c.gatewayProviderName === provider)?.label ??
+              INTEGRATION_PROVIDER_LABELS[provider] ??
+              provider,
+            endpoint: onDemandConnections.find((c) => c.gatewayProviderName === provider)?.endpoint,
             provider,
-          endpoint: onDemandConnections.find((c) => c.gatewayProviderName === provider)?.endpoint,
-          provider,
-          transport: 'openshell',
-          access: 'request_session_access',
-        })),
+            transport: 'openshell',
+            access: 'request_session_access',
+          })),
       ],
       request: requestIntegrationAccess,
     },
@@ -2696,6 +2708,7 @@ async function openCodexChatBound(
     // send reacquires this same coordinator for runtime and knowledge admission;
     // release setup first so neither callback waits on its own startup fence.
     startupReservation?.();
+    runtime.recoverSavedQueue();
     if (!options.reattachOnly && !deferInitialSend) await sendInitialCodexTurn(options, runtime);
   } catch (error) {
     close();

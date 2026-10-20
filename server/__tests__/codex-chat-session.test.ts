@@ -66,6 +66,7 @@ vi.mock('../codex-conversation.js', () => ({
       mocks.conversationOptions = options;
       mocks.close.mockImplementation(options.onClosed);
     }
+    recoverSavedQueue = vi.fn();
     initialize = mocks.initialize;
     getThreadId = vi.fn(() => 'thread');
     getDurableThreadId = vi.fn(() => 'thread');
@@ -652,6 +653,7 @@ it('binds Telos source review to the actual native provider turn and call identi
   const session = options(new AbortController()).session;
   const registry = {
     findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+    get: vi.fn(() => session),
   } as unknown as import('@mitzo/harness').SessionRegistry;
   const chat = await openCodexChat({
     ...options(session.abortController),
@@ -701,6 +703,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   const session = options(new AbortController()).session;
   const registry = {
     findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+    get: vi.fn(() => session),
   } as unknown as import('@mitzo/harness').SessionRegistry;
   const chat = await openCodexChat({
     ...options(session.abortController),
@@ -1583,6 +1586,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
   const session = base.session;
   const registry = {
     findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+    get: vi.fn(() => session),
   } as unknown as import('@mitzo/harness').SessionRegistry;
   mocks.permissionHandler.mockResolvedValue({ behavior: 'allow' });
   try {
@@ -1639,6 +1643,43 @@ it('preserves image attachments while binding a trusted capability, forcing appr
       signal: AbortSignal,
       context: { turnId: string; callId: string },
     ) => Promise<{ content: string; isError: boolean }>;
+    // Already attached managed connections are not grantable. Access checks
+    // must succeed from verified runtime availability, without a new approval.
+    const availability = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'hasServiceProviderAccess')
+      .mockResolvedValue({ state: 'available' });
+    const permissionsBefore = mocks.permissionHandler.mock.calls.length;
+    await expect(
+      executeTool(
+        'RequestConnectionAccess',
+        {
+          connectionId: 'openshell:provider-name',
+        },
+        new AbortController().signal,
+        { turnId: 'turn-1', callId: 'check-existing' },
+      ),
+    ).resolves.toMatchObject({
+      isError: false,
+      content: expect.stringContaining('already available'),
+    });
+    expect(availability).toHaveBeenCalledOnce();
+    expect(mocks.permissionHandler.mock.calls).toHaveLength(permissionsBefore);
+    availability.mockResolvedValueOnce({ state: 'absent' });
+    await expect(
+      executeTool(
+        'RequestConnectionAccess',
+        {
+          connectionId: 'openshell:provider-name',
+        },
+        new AbortController().signal,
+        { turnId: 'turn-1', callId: 'check-unavailable' },
+      ),
+    ).resolves.toMatchObject({
+      isError: true,
+      content: expect.stringContaining('not currently available'),
+    });
+    expect(mocks.permissionHandler.mock.calls).toHaveLength(permissionsBefore);
+    availability.mockRestore();
     await expect(
       executeTool(tool!.name, capabilityInput, new AbortController().signal, {
         turnId: 'turn-1',
@@ -1738,6 +1779,7 @@ it('registers a newly ensured sandbox before context initialization can fail', a
   const session = baseOptions.session;
   const registry = {
     findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+    get: vi.fn(() => session),
   } as unknown as import('@mitzo/harness').SessionRegistry;
   try {
     await expect(
@@ -2269,6 +2311,7 @@ it('preserves first launch and valid restore while failing closed for a replacem
   const session = baseOptions.session;
   const registry = {
     findBySessionId: vi.fn(() => ({ clientId: 'client', session })),
+    get: vi.fn(() => session),
   } as unknown as import('@mitzo/harness').SessionRegistry;
   const binding = {
     accountId: 'work',

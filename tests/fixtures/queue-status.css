@@ -1,0 +1,11 @@
+.queue-status-fixture {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  max-width: 52rem;
+  margin-inline: auto;
+}
+
+.queue-status-composer {
+  margin-top: auto;
+}
