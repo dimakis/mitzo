@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   AgentProfileSelectionSchema,
   CollaborationApplicationReviewInputSchema,
+  CollaborationArtifactPinSchema,
   SessionCollaborationIdSchema,
   CollaborationJoinInputSchema,
   CollaborationJoinSchema,
@@ -15,6 +16,10 @@ import {
 } from './api-fetch';
 import { sha256Hex } from './browser-crypto';
 import type { ConversationJoiningReviewResult } from './conversation-joining-review';
+import {
+  ConversationJoiningTargetIntentSchema,
+  type ConversationJoiningTargetIntent,
+} from './conversation-joining-target-intent';
 
 const id = z.string().min(1).max(200).regex(/^\S+$/);
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
@@ -23,15 +28,7 @@ const setup = z.strictObject({
   purpose: z.string().max(4000),
   context: z.enum(['conversation_so_far', 'selected']),
   messageIds: z.array(id).max(500),
-  artifacts: z
-    .array(
-      z.strictObject({
-        artifactId: id,
-        revision: z.number().int().positive().safe(),
-        sha256: digest,
-      }),
-    )
-    .max(100),
+  artifacts: z.array(CollaborationArtifactPinSchema).max(100),
   runOn: z.enum(['openshell', 'local']),
   selection: z
     .strictObject({
@@ -41,6 +38,7 @@ const setup = z.strictObject({
     })
     .nullable(),
   agent: AgentProfileSelectionSchema.nullable(),
+  sourceRepository: z.string().min(3).max(256).optional(),
   repositoryWorkspaceId:
     CollaborationApplicationReviewInputSchema.shape.target.shape.repositoryWorkspaceId.optional(),
   permissionMode:
@@ -51,6 +49,9 @@ const reviewRequest = z.strictObject({
   setup,
   joiningBrief: z.string().max(20_000).optional(),
   previousSnapshot: CollaborationSnapshotReferenceSchema.optional(),
+  previousSource: CollaborationApplicationReviewInputSchema.shape.selection
+    .pick({ boundary: true, expectedMembershipRevision: true })
+    .optional(),
 });
 const fence = z.strictObject({
   sourceSha256: digest,
@@ -114,7 +115,11 @@ const schema = z
           (setup.permissionMode !== undefined && target.permissionMode !== setup.permissionMode) ||
           !joiningReviewEqual(target.agent, setup.agent) ||
           (request.joiningBrief !== undefined && selection.joiningBrief !== request.joiningBrief) ||
-          !joiningReviewEqual(previousSnapshot, request.previousSnapshot)
+          !joiningReviewEqual(previousSnapshot, request.previousSnapshot) ||
+          (request.previousSource &&
+            (!joiningReviewEqual(selection.boundary, request.previousSource.boundary) ||
+              selection.expectedMembershipRevision !==
+                request.previousSource.expectedMembershipRevision))
         )
           context.addIssue({
             code: 'custom',
@@ -125,6 +130,10 @@ const schema = z
     if (
       (record.reviewRequest.previousSnapshot !== undefined) !==
         (record.previousReview !== undefined) ||
+      (record.reviewRequest.previousSource &&
+        (!record.previousReview ||
+          record.reviewRequest.previousSource.expectedMembershipRevision !==
+            record.previousReview.expectedMembershipRevision)) ||
       (record.previousReview &&
         !joiningReviewEqual(
           record.previousReview.snapshot,
@@ -146,6 +155,54 @@ const schema = z
       context.addIssue({ code: 'custom', message: 'Joining recovery identity conflicts' });
   });
 export type ConversationJoiningRecoveryRecord = z.infer<typeof schema>;
+const begin = z.strictObject({
+  collaborationId: SessionCollaborationIdSchema,
+  requestId: z.uuid(),
+});
+export type ConversationJoiningBeginRecord = z.infer<typeof begin>;
+// The same auth/base/source-bound journal can exist before the user reviews a
+// draft. It retains only original begin correlation, never canonical membership.
+const bootstrap = z
+  .strictObject({
+    version: z.literal(3),
+    sourceConversationId: id,
+    begin: begin.optional(),
+    target: ConversationJoiningTargetIntentSchema.optional(),
+    review: schema.nullable(),
+  })
+  .superRefine((value, context) => {
+    const group = value.begin?.collaborationId ?? value.target?.collaborationId;
+    if (
+      !group ||
+      (value.begin &&
+        value.target &&
+        value.begin.collaborationId !== value.target.collaborationId) ||
+      (value.review &&
+        (value.review.sourceConversationId !== value.sourceConversationId ||
+          value.review.version !== 2 ||
+          value.review.application.collaborationId !== group))
+    )
+      context.addIssue({ code: 'custom', message: 'Joining begin and review identity conflict' });
+    if (
+      value.target &&
+      value.review?.version === 2 &&
+      value.review.application.state === 'captured'
+    ) {
+      const selected = value.review.application.input.target;
+      if (
+        value.target.phase !== 'resolved' ||
+        selected.repositoryWorkspaceId !== value.target.preview.requestId ||
+        (value.review.reviewRequest.setup.sourceRepository !== undefined &&
+          value.review.reviewRequest.setup.sourceRepository !== value.target.preview.repository) ||
+        selected.permissionMode !== value.target.draft.settings.mode ||
+        selected.accountId !== value.target.preview.accountId ||
+        selected.model !== value.target.preview.model ||
+        selected.runOn !== value.target.preview.ordinaryRuntime.runOn
+      )
+        context.addIssue({ code: 'custom', message: 'Captured fresh target identity conflicts' });
+    }
+  });
+const stored = z.union([schema, bootstrap]);
 const canonical = (input: unknown) =>
   JSON.stringify(input, (_key, value: unknown) =>
     value && typeof value === 'object' && !Array.isArray(value)
@@ -192,15 +249,19 @@ export function conversationJoiningRecovery(sourceConversationId: string) {
   const assertCurrent = () => {
     if (!isCurrent()) throw new Error('Joining recovery login changed');
   };
-  const read = (): ConversationJoiningRecoveryRecord | null => {
+  const readStored = () => {
     assertCurrent();
     const raw = sessionStorage.getItem(key);
     if (raw === null) return null;
     if (raw.length > 256 * 1024) throw new Error('Joining recovery size exceeded');
-    const record = schema.parse(JSON.parse(raw));
+    const record = stored.parse(JSON.parse(raw));
     if (record.sourceConversationId !== sourceConversationId)
       throw new Error('Joining recovery source changed');
     return record;
+  };
+  const read = (): ConversationJoiningRecoveryRecord | null => {
+    const record = readStored();
+    return record?.version === 3 ? record.review : record;
   };
   const assertExpected = (expected: ConversationJoiningRecoveryRecord | null) => {
     if (!joiningReviewEqual(read(), expected))
@@ -209,6 +270,90 @@ export function conversationJoiningRecovery(sourceConversationId: string) {
   return {
     isCurrent,
     read,
+    readBegin(): ConversationJoiningBeginRecord | null {
+      const record = readStored();
+      return record?.version === 3 ? (record.begin ?? null) : null;
+    },
+    retainBegin(raw: unknown, expected: ConversationJoiningBeginRecord | null) {
+      const record = readStored();
+      const current = record?.version === 3 ? (record.begin ?? null) : null;
+      const parsed = begin.parse(raw);
+      if (
+        !joiningReviewEqual(current, expected) ||
+        (current && !joiningReviewEqual(current, parsed)) ||
+        (record && record.version !== 3) ||
+        (record?.version === 3 && record.target && !record.begin)
+      )
+        throw new Error('Original joining setup must be recovered');
+      const next = bootstrap.parse({
+        version: 3,
+        sourceConversationId,
+        begin: parsed,
+        ...(record?.version === 3 && record.target ? { target: record.target } : {}),
+        review: record?.version === 3 ? record.review : null,
+      });
+      sessionStorage.setItem(key, JSON.stringify(next));
+      return parsed;
+    },
+    readTarget(): ConversationJoiningTargetIntent | null {
+      const record = readStored();
+      return record?.version === 3 ? (record.target ?? null) : null;
+    },
+    retainTarget(
+      raw: unknown,
+      expected: ConversationJoiningTargetIntent | null,
+      expectedReview: ConversationJoiningRecoveryRecord,
+    ) {
+      assertExpected(expectedReview);
+      const record = readStored();
+      const current = record?.version === 3 ? (record.target ?? null) : null;
+      const review = record?.version === 3 ? record.review : record;
+      const parsed = ConversationJoiningTargetIntentSchema.parse(raw);
+      if (
+        !joiningReviewEqual(current, expected) ||
+        !review ||
+        review.version !== 2 ||
+        review.application.state !== 'capture_pending' ||
+        review.submission ||
+        parsed.collaborationId !== review.application.collaborationId
+      )
+        throw new Error('Original fresh target must be recovered');
+      if (!current) {
+        if (
+          parsed.phase !== 'preview_pending' ||
+          parsed.reviewRequestId !== review.reviewRequest.requestId
+        )
+          throw new Error('Original fresh target intent unavailable');
+      } else {
+        const fields = (value: ConversationJoiningTargetIntent) => ({
+          ...value,
+          phase: 'preview_pending',
+        });
+        const phases = ['preview_pending', 'previewed', 'prepare_pending', 'resolved'];
+        const same = joiningReviewEqual(fields(current), fields(parsed));
+        if (
+          same
+            ? phases.indexOf(parsed.phase) < phases.indexOf(current.phase)
+            : current.phase !== 'resolved' ||
+              parsed.phase !== 'preview_pending' ||
+              parsed.preview.requestId === current.preview.requestId ||
+              parsed.draft.id === current.draft.id ||
+              parsed.reviewRequestId !== review.reviewRequest.requestId
+        )
+          throw new Error('Original fresh target intent must be recovered');
+      }
+      const next = bootstrap.parse({
+        version: 3,
+        sourceConversationId,
+        ...(record?.version === 3 && record.begin ? { begin: record.begin } : {}),
+        target: parsed,
+        review,
+      });
+      const encoded = JSON.stringify(next);
+      if (encoded.length > 256 * 1024) throw new Error('Joining recovery size exceeded');
+      sessionStorage.setItem(key, encoded);
+      return parsed;
+    },
     save(raw: unknown, expected: ConversationJoiningRecoveryRecord | null) {
       assertExpected(expected);
       const record = schema.parse(raw);
@@ -236,7 +381,18 @@ export function conversationJoiningRecovery(sourceConversationId: string) {
         )
           throw new Error('Original application review must be recovered');
       }
-      const encoded = JSON.stringify(record);
+      const previous = readStored();
+      if (
+        previous?.version === 3 &&
+        previous.target &&
+        previous.target.phase !== 'resolved' &&
+        previous.review &&
+        previous.review.reviewRequest.requestId !== record.reviewRequest.requestId
+      )
+        throw new Error('The original fresh target must be checked before changing this review');
+      const encoded = JSON.stringify(
+        previous?.version === 3 ? bootstrap.parse({ ...previous, review: record }) : record,
+      );
       if (encoded.length > 256 * 1024) throw new Error('Joining recovery size exceeded');
       sessionStorage.setItem(key, encoded);
       return record;
@@ -244,7 +400,13 @@ export function conversationJoiningRecovery(sourceConversationId: string) {
     clear(expected: ConversationJoiningRecoveryRecord) {
       assertExpected(expected);
       if (expected.join?.state !== 'linked') throw new Error('Joining is not linked');
-      sessionStorage.removeItem(key);
+      const previous = readStored();
+      if (previous?.version === 3 && previous.begin)
+        sessionStorage.setItem(
+          key,
+          JSON.stringify({ version: 3, sourceConversationId, begin: previous.begin, review: null }),
+        );
+      else sessionStorage.removeItem(key);
     },
   };
 }

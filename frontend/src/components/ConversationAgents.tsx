@@ -1,10 +1,18 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { FinishedMessage } from '@mitzo/protocol';
 import type {
   ConversationAgentSetup,
+  ConversationArtifactOption,
   ConversationJoiningOwner,
 } from '../lib/conversation-joining-review';
 import { useConversationJoiningReview } from '../hooks/useConversationJoiningReview';
+import type { useConversationJoiningCatalog } from '../hooks/useConversationJoiningCatalog';
+import { initialConversationJoiningBrief } from '../lib/conversation-joining-brief';
+import {
+  conversationArtifactKey,
+  conversationArtifactPin,
+  sameConversationArtifact,
+} from '../lib/conversation-joining-artifacts';
 import {
   ConversationJoiningReview,
   ConversationJoiningReviewActions,
@@ -44,6 +52,7 @@ export function ConversationAgents(props: {
   scope: string;
   agents: ConversationAgent[];
   messages: FinishedMessage[];
+  conversationTitle?: string;
   repository?: string;
   compact?: boolean;
   leading?: ReactNode;
@@ -52,6 +61,10 @@ export function ConversationAgents(props: {
   onPreview?(id: string): void;
   onDraftProfile?(id: string): void;
   unavailableReason?: string;
+  /** Checks metadata or the original relationship request; never prepares a target or starts a response. */
+  onRetryJoiningSetup?(): void;
+  /** Explicit Add may begin only the original relationship; never a model turn. */
+  onAddAgent?(): void;
   renderPreview?(agent: ConversationAgent): ReactNode;
   onPolicyChange?(id: string, policy: { reads: boolean; replies: boolean }): void;
   /** Confirmed policy state and explicit recovery controls from the existing owner. */
@@ -59,6 +72,8 @@ export function ConversationAgents(props: {
   policyUnavailableReason?: string;
   /** Supplied only when real source, capacity and ordinary preparation owners exist. */
   joiningOwner?: ConversationJoiningOwner;
+  /** Authenticated source metadata, independent of joining readiness. */
+  joiningCatalog?: ReturnType<typeof useConversationJoiningCatalog>;
 }) {
   // A route change synchronously retires the dialog, callbacks and private setup.
   return <ConversationAgentsBody key={props.scope} {...props} />;
@@ -70,6 +85,7 @@ function ParticipantHeaderFrame({ compact, children }: { compact?: boolean; chil
 function ConversationAgentsBody({
   agents,
   messages,
+  conversationTitle,
   repository,
   compact,
   leading,
@@ -78,11 +94,14 @@ function ConversationAgentsBody({
   onPreview,
   onDraftProfile,
   unavailableReason,
+  onRetryJoiningSetup,
+  onAddAgent,
   renderPreview,
   onPolicyChange,
   policyFeedback,
   policyUnavailableReason,
   joiningOwner,
+  joiningCatalog,
 }: Parameters<typeof ConversationAgents>[0]) {
   const [view, setView] = useState<
     'agents' | 'add' | 'review' | 'settings' | 'preview' | 'details'
@@ -92,7 +111,29 @@ function ConversationAgentsBody({
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewAgent = agents.find((agent) => agent.id === previewId);
   const [profileReason, setProfileReason] = useState<string>();
-  const joining = useConversationJoiningReview(joiningOwner, () => {
+  const setupStatus = useRef<HTMLParagraphElement>(null);
+  const restoreSetupFocus = useRef(false);
+  const catalogStatus = useRef<HTMLParagraphElement>(null);
+  const restoreCatalogFocus = useRef(false);
+  useEffect(() => {
+    if (restoreCatalogFocus.current) {
+      restoreCatalogFocus.current = false;
+      catalogStatus.current?.focus({ preventScroll: true });
+    }
+  }, [
+    joiningCatalog?.pending,
+    joiningCatalog?.artifacts,
+    joiningCatalog?.reason,
+    joiningCatalog?.hasMore,
+  ]);
+  useEffect(() => {
+    if (!onRetryJoiningSetup && restoreSetupFocus.current) {
+      restoreSetupFocus.current = false;
+      setupStatus.current?.focus({ preventScroll: true });
+    }
+  }, [onRetryJoiningSetup]);
+  const joining = useConversationJoiningReview(joiningOwner, (join) => {
+    joiningOwner?.onLinked?.(join);
     setOpen(false);
     setView('agents');
     setSetup(initial());
@@ -101,6 +142,24 @@ function ConversationAgentsBody({
   const [setup, setSetup] = useState(() =>
     joining.setup ? structuredClone(joining.setup) : initial(),
   );
+  const metadataScope = joiningCatalog?.scope ?? joiningOwner?.sourceConversationId;
+  const [selectedLabels, setSelectedLabels] = useState<{
+    scope: typeof metadataScope;
+    artifacts: ConversationArtifactOption[];
+  }>({ scope: metadataScope, artifacts: [] });
+  useEffect(() => {
+    setSelectedLabels((previous) =>
+      previous.scope === metadataScope ? previous : { scope: metadataScope, artifacts: [] },
+    );
+  }, [metadataScope]);
+  const availableArtifacts = [...(joiningCatalog?.artifacts ?? joiningOwner?.artifacts ?? [])];
+  if (selectedLabels.scope === metadataScope)
+    for (const artifact of selectedLabels.artifacts)
+      if (
+        setup.artifacts.some((pin) => sameConversationArtifact(pin, artifact)) &&
+        !availableArtifacts.some((candidate) => sameConversationArtifact(candidate, artifact))
+      )
+        availableArtifacts.push(artifact);
   const restoredSetup = joining.restoredSetup;
   useEffect(() => {
     if (restoredSetup) setSetup(structuredClone(restoredSetup));
@@ -111,6 +170,9 @@ function ConversationAgentsBody({
     /^[A-Za-z][A-Za-z0-9_-]{0,23}$/.test(setup.name) &&
     setup.name.toLowerCase() !== 'all' &&
     !agents.some((a) => a.name.toLowerCase() === setup.name.toLowerCase());
+  const reviewSetup = joiningCatalog?.catalog?.sourceRepository
+    ? { ...setup, sourceRepository: joiningCatalog.catalog.sourceRepository.repository }
+    : setup;
   const title =
     view === 'add'
       ? 'Add agent'
@@ -123,9 +185,38 @@ function ConversationAgentsBody({
             : view === 'details'
               ? (previewAgent?.name ?? 'Agent details')
               : 'Agents';
-  const selectable = messages.filter((m) =>
-    m.blocks.some((b) => b.blockType === 'text' && b.content),
-  );
+  const selectable = joiningCatalog
+    ? joiningCatalog.messages
+        .filter((m) => m.blocks.some((b) => b.content))
+        .map((m) => ({
+          messageId: m.messageId,
+          author:
+            m.author === 'operator'
+              ? 'You'
+              : (agents.find(
+                  (agent) => typeof m.author === 'object' && agent.id === m.author.sessionId,
+                )?.name ?? 'Agent'),
+          text: m.blocks.map((b) => b.content).join('\n'),
+        }))
+    : messages
+        .filter((m) => m.blocks.some((b) => b.blockType === 'text' && b.content))
+        .map((m) => ({
+          messageId: m.messageId,
+          author:
+            m.role === 'user'
+              ? 'You'
+              : m.symposiumProvenance && 'seatLabel' in m.symposiumProvenance
+                ? m.symposiumProvenance.seatLabel
+                : 'Agent',
+          text: m.blocks
+            .filter((b) => b.blockType === 'text')
+            .map((b) => b.content)
+            .join('\n'),
+        }));
+  const requestCatalog = (action: () => void | Promise<void>) => {
+    restoreCatalogFocus.current = true;
+    void action();
+  };
   // No freshness, capacity, allocation or provider readiness is inferred from catalog data.
   const unavailable =
     unavailableReason ??
@@ -411,7 +502,11 @@ function ConversationAgentsBody({
                 </fieldset>
                 <div className="conversation-agent-field">
                   <span>Repository</span>
-                  <strong>{repository || 'Not selected'}</strong>
+                  <strong>
+                    {joiningCatalog
+                      ? (joiningCatalog.catalog?.sourceRepository?.repository ?? 'Not verified')
+                      : repository || 'Not selected'}
+                  </strong>
                 </div>
                 <h3>Starting context</h3>
                 <label className="conversation-agent-field">
@@ -442,7 +537,9 @@ function ConversationAgentsBody({
                     </p>
                     <fieldset className="conversation-context-selection">
                       <legend>Messages</legend>
-                      {selectable.length === 0 && <p>No messages yet.</p>}
+                      {selectable.length === 0 && (!joiningCatalog || joiningCatalog.catalog) && (
+                        <p>No messages yet.</p>
+                      )}
                       {selectable.map((m) => (
                         <label key={m.messageId}>
                           <input
@@ -458,71 +555,134 @@ function ConversationAgentsBody({
                             }
                           />
                           <span>
-                            <small>
-                              {m.role === 'user'
-                                ? 'You'
-                                : m.symposiumProvenance && 'seatLabel' in m.symposiumProvenance
-                                  ? m.symposiumProvenance.seatLabel
-                                  : 'Agent'}
-                            </small>
-                            {m.blocks
-                              .filter((b) => b.blockType === 'text')
-                              .map((b) => b.content)
-                              .join('\n')}
+                            <small>{m.author}</small>
+                            {m.text}
                           </span>
                         </label>
                       ))}
                     </fieldset>
-                    {joiningOwner?.artifacts ? (
+                    {joiningCatalog || joiningOwner?.artifacts ? (
                       <fieldset className="conversation-context-selection">
                         <legend>Artifacts</legend>
-                        {joiningOwner.artifacts.length === 0 && (
-                          <p>No artifacts in this conversation.</p>
-                        )}
-                        {joiningOwner.artifacts.map((artifact) => (
-                          <label
-                            key={`${artifact.artifactId}:${artifact.revision}:${artifact.sha256}`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={setup.artifacts.some(
-                                (a) =>
-                                  a.artifactId === artifact.artifactId &&
-                                  a.revision === artifact.revision &&
-                                  a.sha256 === artifact.sha256,
+                        {availableArtifacts.length === 0 &&
+                          (!joiningCatalog || joiningCatalog.catalog) && (
+                            <p>No artifacts in this conversation.</p>
+                          )}
+                        {availableArtifacts.map((artifact, index) => (
+                          <Fragment key={conversationArtifactKey(artifact)}>
+                            <label>
+                              <input
+                                type="checkbox"
+                                checked={setup.artifacts.some((a) =>
+                                  sameConversationArtifact(a, artifact),
+                                )}
+                                onChange={(event) => {
+                                  const checked = event.target.checked;
+                                  setSelectedLabels((previous) => ({
+                                    scope: metadataScope,
+                                    artifacts: [
+                                      ...(previous.scope === metadataScope
+                                        ? previous.artifacts
+                                        : []
+                                      ).filter((pin) => !sameConversationArtifact(pin, artifact)),
+                                      ...(checked ? [artifact] : []),
+                                    ],
+                                  }));
+                                  setSetup((s) => ({
+                                    ...s,
+                                    artifacts: checked
+                                      ? [...s.artifacts, conversationArtifactPin(artifact)]
+                                      : s.artifacts.filter(
+                                          (a) => !sameConversationArtifact(a, artifact),
+                                        ),
+                                  }));
+                                }}
+                              />
+                              <span>
+                                {artifact.title}
+                                <small>
+                                  Saved version {artifact.revision}
+                                  {artifact.filename ? ` · ${artifact.filename}` : ''}
+                                </small>
+                              </span>
+                            </label>
+                            {joiningCatalog &&
+                              'kind' in artifact &&
+                              !availableArtifacts
+                                .slice(0, index)
+                                .some(
+                                  (previous) =>
+                                    'kind' in previous &&
+                                    previous.artifactId === artifact.artifactId,
+                                ) &&
+                              joiningCatalog.hasEarlier(artifact) && (
+                                <button
+                                  type="button"
+                                  className="conversation-agents-row"
+                                  disabled={
+                                    joiningCatalog.pending ||
+                                    !joiningCatalog.catalog ||
+                                    joiningCatalog.catalog.retainedAvailability !== 'available'
+                                  }
+                                  onClick={() =>
+                                    requestCatalog(() => joiningCatalog.loadEarlier(artifact))
+                                  }
+                                >
+                                  <span>Earlier saved versions of {artifact.title}</span>
+                                </button>
                               )}
-                              onChange={(event) =>
-                                setSetup((s) => ({
-                                  ...s,
-                                  artifacts: event.target.checked
-                                    ? [
-                                        ...s.artifacts,
-                                        {
-                                          artifactId: artifact.artifactId,
-                                          revision: artifact.revision,
-                                          sha256: artifact.sha256,
-                                        },
-                                      ]
-                                    : s.artifacts.filter(
-                                        (a) =>
-                                          a.artifactId !== artifact.artifactId ||
-                                          a.revision !== artifact.revision ||
-                                          a.sha256 !== artifact.sha256,
-                                      ),
-                                }))
-                              }
-                            />
-                            <span>
-                              {artifact.title}
-                              <small>Saved version {artifact.revision}</small>
-                            </span>
-                          </label>
+                          </Fragment>
                         ))}
+                        {joiningCatalog?.hasMore && (
+                          <button
+                            type="button"
+                            className="conversation-agents-row"
+                            disabled={joiningCatalog.pending}
+                            onClick={() => requestCatalog(joiningCatalog.loadMore)}
+                          >
+                            More saved artifacts
+                          </button>
+                        )}
                       </fieldset>
                     ) : (
                       <p className="conversation-agents-explanation">
                         Saved artifact versions are not available for selection yet.
                       </p>
+                    )}
+                    {joiningCatalog && (
+                      <>
+                        <p
+                          ref={catalogStatus}
+                          tabIndex={-1}
+                          role="status"
+                          className="conversation-agents-explanation"
+                        >
+                          {joiningCatalog.pending
+                            ? 'Checking saved context…'
+                            : (joiningCatalog.reason ??
+                              'Choose exact saved versions for this agent.')}
+                        </p>
+                        {joiningCatalog.reason && !joiningCatalog.pending && (
+                          <button
+                            type="button"
+                            className="conversation-agents-row"
+                            onClick={() => requestCatalog(joiningCatalog.refresh)}
+                          >
+                            Check saved context again
+                          </button>
+                        )}
+                        {joiningCatalog.catalog?.retainedAvailability === 'unavailable' && (
+                          <p className="conversation-agents-explanation">
+                            Retained artifact versions are unavailable here.
+                          </p>
+                        )}
+                        {joiningCatalog.catalog?.unversionedRetainedReferences && (
+                          <p className="conversation-agents-explanation">
+                            Some artifact references have no exact saved version. Choose a saved
+                            version explicitly to include it.
+                          </p>
+                        )}
+                      </>
                     )}
                     {setup.messageIds.length === 0 && setup.artifacts.length === 0 && (
                       <p>Joining brief only.</p>
@@ -549,7 +709,22 @@ function ConversationAgentsBody({
                     reserved.
                   </p>
                 )}
-                {!joiningOwner && <p role="status">{unavailable}</p>}
+                {!joiningOwner && (
+                  <p role="status" ref={setupStatus} tabIndex={-1}>
+                    {unavailable}
+                  </p>
+                )}
+                {!joiningOwner && onRetryJoiningSetup && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      restoreSetupFocus.current = true;
+                      onRetryJoiningSetup();
+                    }}
+                  >
+                    Check setup again
+                  </button>
+                )}
               </>
             )}
             {view === 'review' && (
@@ -577,9 +752,14 @@ function ConversationAgentsBody({
                     className="conversation-agents-primary"
                     onClick={() => {
                       if (joining.join?.state === 'linked') {
-                        setView(joining.startNew() ? 'add' : 'review');
-                      } else
-                        setView(joining.locked || joining.hasAttemptFor(setup) ? 'review' : 'add');
+                        const fresh = joining.startNew();
+                        setView(fresh ? 'add' : 'review');
+                        if (fresh) onAddAgent?.();
+                      } else {
+                        const resume = joining.locked || joining.hasAttemptFor(reviewSetup);
+                        setView(resume ? 'review' : 'add');
+                        if (!resume) onAddAgent?.();
+                      }
                     }}
                   >
                     Add agent
@@ -596,6 +776,9 @@ function ConversationAgentsBody({
                       type="button"
                       disabled={
                         !joiningOwner ||
+                        joining.locked ||
+                        !!joining.pending ||
+                        (joiningCatalog && !joiningCatalog.catalog?.sourceRepository) ||
                         !nameValid ||
                         !setup.purpose.trim() ||
                         !setup.selection?.accountId ||
@@ -604,7 +787,17 @@ function ConversationAgentsBody({
                       title={!joiningOwner ? unavailable : undefined}
                       onClick={() => {
                         setView('review');
-                        void joining.prepare(setup);
+                        void joining.prepare(
+                          reviewSetup,
+                          joiningOwner?.kind === 'application'
+                            ? initialConversationJoiningBrief({
+                                name: setup.name,
+                                purpose: setup.purpose,
+                                conversationTitle,
+                                participantNames: agents.map((agent) => agent.name),
+                              })
+                            : undefined,
+                        );
                       }}
                     >
                       Review joining brief

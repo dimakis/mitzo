@@ -6,6 +6,9 @@ import { AgentLibraryChatLink } from '../components/AgentLibraryChatSource';
 import { markAgentBuilderAssigned } from '../lib/agent-builder-chat';
 import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
 import { ConversationAgents } from '../components/ConversationAgents';
+import { ConversationDiscussionFeedback } from '../components/ConversationDiscussionFeedback';
+import { useConversationDiscussion } from '../hooks/useConversationDiscussion';
+import { useConversationJoiningApplication } from '../hooks/useConversationJoiningApplication';
 import { conversationRepositoryLabel } from '../lib/conversation-repository-label';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
@@ -69,7 +72,7 @@ import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { WebSearchConsent } from '../components/WebSearchConsent';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { SymposiumConversation } from '../components/SymposiumConversation';
 import { SymposiumDirectorPanel } from '../components/SymposiumDirectorPanel';
 import { ChatInput, type ChatInputDraftControl } from '../components/ChatInput';
@@ -110,6 +113,7 @@ export function ChatView() {
     [],
   );
   const navigate = useNavigate();
+  const joiningRoute = useLocation();
   // Store state
   const messages = useMessages();
   const historyLoading = useMitzoStore((s) => s.historyLoading);
@@ -714,7 +718,13 @@ export function ChatView() {
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
-    if (roleSetupRequested || controlsBlocked || builderSourceReason) return false;
+    if (
+      roleSetupRequested ||
+      controlsBlocked ||
+      builderSourceReason ||
+      !joiningFlow.canSendOrdinary()
+    )
+      return false;
     if (localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable && activeSessionId) {
       if (ctxBlocks?.length || launching || localRuntime.reason) return false;
       const command = prepareOrdinaryCommand(text, images);
@@ -898,7 +908,7 @@ export function ChatView() {
     ctxBlocks?: string[],
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
   ): void {
-    if (controlsBlocked || explicitNew || localBound) {
+    if (controlsBlocked || explicitNew || localBound || !joiningFlow.canSendOrdinary()) {
       onDelivery?.('failed');
       return;
     }
@@ -1185,6 +1195,30 @@ export function ChatView() {
     />
   ) : undefined;
 
+  const joiningFlow = useConversationJoiningApplication({
+    sourceConversationId:
+      connected && !isSymposium && !controlsBlocked && sessionId === activeSessionId
+        ? activeSessionId
+        : null,
+    clientId: connectionId,
+    routeKey: joiningRoute.key,
+    ordinarySourceConversationId: !isSymposium ? (sessionId ?? activeSessionId) : null,
+  });
+  const sourceAgent = activeSessionId
+    ? {
+        id: activeSessionId,
+        name: agentLabel ?? 'Mitzo',
+        account: workspaceSummary?.profile,
+        model: workspaceSummary?.model,
+        thinking: workspaceSummary?.thinking,
+        state: 'Current conversation',
+      }
+    : null;
+  const discussion = useConversationDiscussion({
+    joining: joiningFlow,
+    source: sourceAgent,
+    draftId: savedChatDraft?.id,
+  });
   const workspaceControls = (
     <WorkspaceControls
       title={
@@ -1221,18 +1255,22 @@ export function ChatView() {
           {activeSessionId && !isSymposium && !controlsBlocked && (
             <ConversationAgents
               compact
+              conversationTitle={conversationTitle}
+              joiningCatalog={joiningFlow.catalog}
+              joiningOwner={joiningFlow.owner}
+              onAddAgent={() => void joiningFlow.add()}
+              unavailableReason={joiningFlow.reason}
+              onRetryJoiningSetup={joiningFlow.canRetry ? joiningFlow.retry : undefined}
               repository={conversationRepository}
               scope={activeSessionId}
-              agents={[
-                {
-                  id: activeSessionId,
-                  name: agentLabel ?? 'Mitzo',
-                  account: workspaceSummary?.profile,
-                  model: workspaceSummary?.model,
-                  thinking: workspaceSummary?.thinking,
-                  state: 'Current conversation',
-                },
-              ]}
+              agents={discussion.agents ?? (sourceAgent ? [sourceAgent] : [])}
+              onPolicyChange={
+                discussion.policyDisabled
+                  ? undefined
+                  : (id, values) => void discussion.presentation.setPolicy(id, values)
+              }
+              policyUnavailableReason={discussion.unavailableReason}
+              policyFeedback={<ConversationDiscussionFeedback discussion={discussion} />}
               messages={messages.messages}
             />
           )}
@@ -1630,6 +1668,23 @@ export function ChatView() {
               />
             )}
             <ChatInput
+              responders={discussion.responders}
+              legacyRecipientUpgrade={
+                discussion.collaborationId && !savedChatDraft && discussion.canChooseRecipients()
+                  ? {
+                      collaborationId: discussion.collaborationId,
+                      isCurrent: discussion.canChooseRecipients,
+                      settings: {
+                        selection: accountSelection,
+                        mode,
+                        isolation,
+                        search: settingsSearch,
+                        summary: workspaceSummary,
+                        repositoryWorkspaceId: localRuntime.repositoryWorkspaceId ?? null,
+                      },
+                    }
+                  : undefined
+              }
               collaboration={
                 activeSessionId && !controlsBlocked && !localBound && ordinaryControls ? (
                   <OrdinaryCollaborationEntry sessionId={activeSessionId} compact />
@@ -1686,7 +1741,7 @@ export function ChatView() {
                 handleSend(text, images, context, false, onDelivery, onSessionAssigned)
               }
               onStop={handleStop}
-              onInterrupt={localBound ? undefined : handleInterrupt}
+              onInterrupt={localBound || joiningFlow.sendUnavailable ? undefined : handleInterrupt}
               running={repositoryHandoff.present ? false : messages.running}
               initialText={initialPrompt}
               draftControl={
@@ -1702,6 +1757,7 @@ export function ChatView() {
                       : undefined
               }
               sendDisabledReason={
+                joiningFlow.sendUnavailable ??
                 (invalidRoleSetup
                   ? 'This work conversation setup is unavailable. Return to the work item and choose a supported role.'
                   : roleIntent
