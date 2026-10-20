@@ -186,6 +186,13 @@ it('discovers a confirmed source creation without remounting the ordinary chat o
   setup();
   const links = vi.mocked(TelosWorkApiClient.prototype.links);
   links.mockResolvedValue([]);
+  let releaseInitial!: (value: Awaited<ReturnType<TelosWorkApiClient['links']>>) => void;
+  links.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        releaseInitial = resolve;
+      }),
+  );
   const permId = 'new-origin-permission';
   const proposalSha256 = 'a'.repeat(64);
   const expiresAt = Date.now() + 120_000;
@@ -279,6 +286,10 @@ it('discovers a confirmed source creation without remounting the ordinary chat o
   await screen.findByText('Reviewed source saved.');
   expect(
     await screen.findByRole('link', { name: /Exact created outcome.*Created from this exchange/ }),
+  ).toBeTruthy();
+  await act(async () => releaseInitial([]));
+  expect(
+    screen.getByRole('link', { name: /Exact created outcome.*Created from this exchange/ }),
   ).toBeTruthy();
   expect(screen.getByRole('textbox', { name: 'Unsent draft' })).toBe(draft);
   expect((draft as HTMLTextAreaElement).value).toBe('Keep original draft');
