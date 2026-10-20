@@ -1465,6 +1465,16 @@ scroll strip. Existing semantic tokens, type, focus, control geometry and appear
 preferences remain effective. The ordinary draft owner retains text/images/context
 through silent role binding and first-send consumption.
 
+On the supported Local Mac OAuth Codex route, Repository None prepares an ordinary
+workspace from the server’s readiness receipt. Other execution choices retain their
+selected intent and an actionable refusal. The existing primary control confirms
+role setup after review; readiness and rendering never start a command. Draft storage
+retains the exact preparation, immutable reviewed settings, presentation and request
+identity across reload and unknown outcomes. Device-storage failures keep replacement
+locked. Only an exact durable pre-allocation rejection permits explicit re-review and
+a fresh confirmation. This reuses the existing setup card, status/alert text, composer
+and controls, with no new style or motion pattern.
+
 The scoped offline role fixture checks source-only lead setup, full refinement/child
 advisor chat, uncertain setup/reload recovery, normal settings, retained unsent draft,
 expanded context pins and proposal saves at 320px WebKit/Chromium and desktop Chromium,
