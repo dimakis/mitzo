@@ -244,3 +244,44 @@ it('counts repeated visible links as one exact artifact across more than one hun
   expect(draft.artifacts).toHaveLength(1);
   expect(draft.artifacts[0]).toMatchObject(pin(saved));
 });
+it('finishes a metadata catalog after late authority callbacks without hydrating bytes', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-10-20T00:00:00.000Z'));
+  const first = save('first', 'source', 'first.md');
+  vi.advanceTimersByTime(1);
+  const second = save('second', 'source', 'second.md');
+  vi.useRealTimers();
+  const f = setup();
+  const visible = events.openCollaborationVisibleSource('source', f.selection.boundary);
+  const { createCollaborationRetainedContext } =
+    await import('../collaboration-retained-context-source.js');
+  let secondObserved = false,
+    attacked = false;
+  const actualMetadata = retained.store.metadataForRevision.bind(retained.store);
+  vi.spyOn(retained.store, 'metadataForRevision').mockImplementation((...args) => {
+    const value = actualMetadata(...args);
+    if (value.id === second.id) secondObserved = true;
+    return value;
+  });
+  const bytes = vi.spyOn(retained.store, 'readBoundedRevision');
+  const context = createCollaborationRetainedContext({
+    source: visible,
+    artifacts: retained.store,
+    authorize: async () => {
+      if (secondObserved && !attacked) {
+        attacked = true;
+        const db = new Database(retained.path);
+        db.prepare('UPDATE telos_artifact_revisions SET title=? WHERE id=?').run(
+          'changed after earlier observation',
+          first.id,
+        );
+        db.close();
+      }
+    },
+    assertSourceCurrent: () => visible.assertCurrent(),
+  });
+  await context.catalog();
+  expect(attacked).toBe(true);
+  expect(() => context.assertOwnedCurrent()).toThrow();
+  expect(bytes).not.toHaveBeenCalled();
+});

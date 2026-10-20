@@ -381,3 +381,5 @@ export * from './telos-work-role-presentation.js';
 export * from './ordinary-workspace.js';
 
 export * from './telos-ordinary-work.js';
+
+export * from './collaboration-source-catalog.js';

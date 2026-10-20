@@ -185,3 +185,16 @@ export function readRepositoryWorkspaceForConversation(
     throw new Error('Repository claim ledger is unavailable or changed; preserve the conversation');
   return record;
 }
+
+/** Source repository intent only; the new target must authorize its own claim. */
+export function readConversationRepositoryIntent(
+  conversationId: string,
+  expectedWorkspaceId: string,
+) {
+  if (idleReleased) throw Error('Repository workspace owner released');
+  return RepositoryWorkspaces.readConversationRepositoryIntent(
+    join(codexPrivateDirectory(), 'repository-sources', 'workspaces.db'),
+    conversationId,
+    expectedWorkspaceId,
+  );
+}

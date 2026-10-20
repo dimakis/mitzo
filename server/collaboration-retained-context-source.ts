@@ -35,6 +35,7 @@ export function createCollaborationRetainedContext(deps: {
 }) {
   let references: Reference[] | undefined;
   const exact = new Map<string, Pin>();
+  const metadataReads = new Map<string, { pin: Pin; metadata: TelosArtifactMetadata }>();
   const reads = new Map<
     string,
     {
@@ -141,7 +142,110 @@ export function createCollaborationRetainedContext(deps: {
         changed();
     }
   }
+  async function metadata(raw: unknown) {
+    const pin = CollaborationRetainedArtifactPinSchema.parse(raw);
+    if (!bridge) {
+      requireStore();
+      changed();
+    }
+    const value = CollaborationRetainedArtifactMetadataSchema.parse(await bridge.metadata(pin));
+    const owned = requireStore().metadataForRevision(pin.artifactId, pin.revision);
+    if (
+      !isDeepStrictEqual(value, {
+        ...pin,
+        retention: 'independent',
+        itemId: owned.itemId,
+        filename: owned.filename,
+        title: owned.title,
+        provenance: {
+          sessionId: owned.sessionId,
+          sourceKind: owned.sourceKind,
+          sourcePath: owned.sourcePath,
+        },
+        mediaType: 'application/octet-stream',
+        sizeBytes: owned.size,
+      })
+    )
+      changed();
+    assertOwned(owned, pin, false);
+    const previous = metadataReads.get(key(pin));
+    if (
+      previous &&
+      (!isDeepStrictEqual(previous.pin, pin) || !isDeepStrictEqual(previous.metadata, owned))
+    )
+      changed();
+    metadataReads.set(key(pin), { pin, metadata: structuredClone(owned) });
+    if (metadataReads.size > 300) overflow();
+    return value;
+  }
   return {
+    /** Metadata only. Candidates come from the real origin relation or visible links. */
+    metadata,
+    unversionedReferences() {
+      return visibleReferences().some((reference) => reference.revision === null);
+    },
+    async catalog(after?: Parameters<TelosArtifactStore['sourceMaterialPage']>[1]) {
+      const store = requireStore();
+      const page = store.sourceMaterialPage(deps.source.sourceConversationId, after);
+      const values = new Map<string, Awaited<ReturnType<typeof metadata>>>();
+      for (const row of page.artifacts) {
+        const value = await metadata({
+          kind: 'retainedArtifactVersion',
+          artifactId: row.id,
+          revision: row.revision,
+          sha256: row.sha256,
+        });
+        values.set(key(value), value);
+      }
+      let unversionedReferences = false;
+      const seenReferences = new Set<string>();
+      for (const ref of visibleReferences()) {
+        if (ref.revision === null) {
+          unversionedReferences = true;
+          continue;
+        }
+        if (seenReferences.has(key({ artifactId: ref.artifactId, revision: ref.revision })))
+          continue;
+        seenReferences.add(key({ artifactId: ref.artifactId, revision: ref.revision }));
+        if (seenReferences.size > 100) overflow();
+        const row = store.metadataForRevision(ref.artifactId, ref.revision);
+        const value = await metadata({
+          kind: 'retainedArtifactVersion',
+          artifactId: row.id,
+          revision: row.revision,
+          sha256: row.sha256,
+        });
+        values.set(key(value), value);
+      }
+      return {
+        artifacts: [...values.values()],
+        cursor: page.hasMore ? page.cursor : null,
+        hasMore: page.hasMore,
+        unversionedReferences,
+      };
+    },
+    async revisionPage(
+      raw: unknown,
+      options: Parameters<NonNullable<typeof bridge>['revisionPage']>[1] = {},
+    ) {
+      if (!bridge) {
+        requireStore();
+        changed();
+      }
+      await metadata(raw);
+      const page = await bridge.revisionPage(raw, options);
+      const artifacts = [];
+      for (const value of page.artifacts)
+        artifacts.push(
+          await metadata({
+            kind: value.kind,
+            artifactId: value.artifactId,
+            revision: value.revision,
+            sha256: value.sha256,
+          }),
+        );
+      return { ...page, artifacts };
+    },
     async prepare(mode: CollaborationSnapshotSelection['mode']) {
       if (mode !== 'conversation_so_far') return;
       for (const reference of visibleReferences()) {
@@ -242,6 +346,10 @@ export function createCollaborationRetainedContext(deps: {
     },
     /** Finish ALL artifacts after ALL callbacks, using only actual owned reads. */
     assertOwnedCurrent() {
+      for (const read of metadataReads.values()) {
+        assertAssociated(read.pin);
+        assertOwned(read.metadata, read.pin, false);
+      }
       for (const read of reads.values()) {
         assertAssociated(read.pin);
         assertOwned(read.metadata, read.pin, true);

@@ -279,6 +279,51 @@ interface Dependencies {
 }
 /** Durable preparations are bound to the exact selected AI account and GitHub connection revision. */
 export class RepositoryWorkspaces {
+  /** Observational intent from the existing claim ledger. Never opens a source
+   * checkout, initializes tables, or returns credentials/runtime capabilities. */
+  static readConversationRepositoryIntent(
+    database: string,
+    conversationId: string,
+    expectedWorkspaceId: string,
+  ) {
+    z.string().min(1).max(200).parse(conversationId);
+    z.string().uuid().parse(expectedWorkspaceId);
+    const db = new Database(database, { readonly: true, fileMustExist: true });
+    try {
+      const row = db
+        .prepare(
+          `SELECT id, conversation_id,
+        json_extract(record,'$.id') AS record_id,
+        json_extract(record,'$.conversationId') AS record_conversation,
+        json_extract(record,'$.state') AS state,
+        json_extract(record,'$.repository') AS repository
+        FROM repository_workspaces WHERE conversation_id=? AND id=?`,
+        )
+        .get(conversationId, expectedWorkspaceId) as
+        | {
+            id: string;
+            conversation_id: string;
+            record_id: unknown;
+            record_conversation: unknown;
+            state: unknown;
+            repository: unknown;
+          }
+        | undefined;
+      if (
+        !row ||
+        row.record_id !== expectedWorkspaceId ||
+        row.record_conversation !== conversationId ||
+        row.state !== 'claimed' ||
+        typeof row.repository !== 'string' ||
+        row.repository.length > 256 ||
+        canonicalRepositorySelection(row.repository) !== row.repository
+      )
+        throw Error('Repository claim metadata unavailable');
+      return { repository: row.repository };
+    } finally {
+      db.close();
+    }
+  }
   private db: Database.Database;
   private ordinaryWorkspaceCustody?: OrdinaryWorkspaceCustody;
   private activeOperations = 0;
