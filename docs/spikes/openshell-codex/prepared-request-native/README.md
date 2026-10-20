@@ -6,7 +6,36 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 103 patches
+## Current composed source: 105 patches
+
+The105 ordered patches reconstruct native tree
+`9e3512cf6d188fec34a95e746276b06584d917ac` (local source
+`c3f27be9de985e000b783c2927e5e6e22453a6c1`). All first103 patch records
+and bytes remain unchanged.
+
+Patch104 captures the actual original source/parent/originator/cache getter data
+once and moves it into ordinary startup. The original originator getter may
+initialize its existing process owner; this is no atomic environment lease.
+Patch105 adds an opaque same-manager reservation from the original ID issuer and
+uses the real first-command options and installed composition. Existing selected
+configuration custody constructs one original supported ModelClient and retains
+its actual auth, attestation, routing, recorder, channels, headers and contributors.
+Ordinary startup moves that same client at its original constructor site after
+real lifecycle inputs validate. Changed or consumed inputs refuse without a
+second constructor. Ordinary Clear, configured MCP and other-provider starts keep
+the original path; unsupported selected public routes refuse before construction.
+
+The actual beta header remains unresolved at final capture. Any actual request
+contributors are retained and must be supported rather than dropped. Effective model/context, final headers/tools/body, authoritative
+count and State association, durable committed/RPC custody and the actual host
+factory/first-request caller remain open. Borrowed configuration observations do
+not become persistent packets. No count, Ready, runtime installation or Join is
+claimed. The new source-frame fixture and eight client/issuer fixtures are authored
+but uncompiled and unrun locally. Exact-source CI retains every original package,
+one test thread, zero retries and240minutes. Scoped installed1.95 formatting and
+source-preservation reviews are separate from compiler/runtime qualification.
+
+## Retained 103-patch checkpoint
 
 The 103 ordered patches reconstruct native tree
 `607b88e5275dc347713a85c2b6ae454470bffb54` (local source `d89bc3cba1a78c947b297bedb9b2653ebaddbc50`).

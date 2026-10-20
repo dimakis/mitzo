@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.456-symposium-canonical-source-frame';
+  'v1.0.458-symposium-original-client-adoption';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-client-reserved-adoption.patch':
+    '21e7841582e699dea93ce400e5c5de72459e6951ac19a9dc2c2272ee5c6d54e7',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-retained-source-frame.patch':
+    '83f8f0ae995e23806dd0c1c685f7a8cf837ff4004e38a311421acd4b08d3d10f',
   '../../packages/protocol/src/agent-communication-store.ts':
     '7a611a0953117b064f89e966c5520dc70598e6856e707ce735e8419acfbb4753',
   '../../packages/protocol/src/agent-communication.ts':

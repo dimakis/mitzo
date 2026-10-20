@@ -416,10 +416,18 @@
     {
       "file": "native-original-session-format.patch",
       "sha256": "8af4bc406348c4a03c3875e5113dda650cd8d591ea3eb130235193c552398189"
+    },
+    {
+      "file": "native-original-retained-source-frame.patch",
+      "sha256": "83f8f0ae995e23806dd0c1c685f7a8cf837ff4004e38a311421acd4b08d3d10f"
+    },
+    {
+      "file": "native-original-client-reserved-adoption.patch",
+      "sha256": "21e7841582e699dea93ce400e5c5de72459e6951ac19a9dc2c2272ee5c6d54e7"
     }
   ],
-  "sourceTree": "607b88e5275dc347713a85c2b6ae454470bffb54",
-  "localSourceCommit": "d89bc3cba1a78c947b297bedb9b2653ebaddbc50",
+  "sourceTree": "9e3512cf6d188fec34a95e746276b06584d917ac",
+  "localSourceCommit": "c3f27be9de985e000b783c2927e5e6e22453a6c1",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -567,7 +575,9 @@
     "5f20fa7ee0ebc4701f185fb8da282c0592ee8f55",
     "0b0eee8ba6515295e56427e6e34571d4a2851598",
     "e247e3697324c011f886094914821f3b296cb509",
-    "d89bc3cba1a78c947b297bedb9b2653ebaddbc50"
+    "d89bc3cba1a78c947b297bedb9b2653ebaddbc50",
+    "b9a9e5cca143f012b85d1dfb144e3e11bf20ac3b",
+    "c3f27be9de985e000b783c2927e5e6e22453a6c1"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -577,7 +587,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "103 ordered patches preserve all99 prior records/bytes. Patch100 retains genuine original default installed registry object provenance;101 restores the Session-local model provenance import required by original selection;102 shares original source/parent/originator/cache pure data transforms at unchanged ordinary acquisition sites. No retained source frame/currentness/adoption/factory grant. Patch103 applies only installed Rust1.95 canonical formatting to Session.rs, which the unchanged required cargo fmt gate traverses.",
+    "scope": "105 ordered patches preserve all103 prior records/bytes. Patch104 captures original getter-once source/parent/originator/cache DATA and one-use ordinary adoption. Patch105 retains the genuine original reserved-ID issuer/installed first-command/config owner and constructs the SAME supported original ModelClient once, then moves it at the original SessionServices site after real lifecycle input checks. Unsupported public routes refuse before constructor; failed/consumed client slots never rebuild. Actual beta/header/attestation/recorder/channel/routing/contributor owners remain retained. This is source implementation, not final capture/count/State/Ready/runtime or joining qualification.",
     "localFocused": {
       "status": "exact_source_reconstruction_and_scoped_format_only",
       "compiled": false,
@@ -586,7 +596,7 @@
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_103_exact_source",
+      "status": "pending_105_exact_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -760,7 +770,23 @@
             "job": 118835053811
           }
         ]
+      },
+      "prior103QualificationTransfers": false,
+      "prior103LastObserved": {
+        "run": 39489271965,
+        "head": "06b529c9397dc98c8782c6a8991a93edf40edeaf",
+        "nativeTree": "607b88e5275dc347713a85c2b6ae454470bffb54",
+        "bothStandaloneHelpers": "success",
+        "bothCrateFixtureSteps": "in_progress_at_last_observation",
+        "wholeFixtureOrFormattingPassClaimed": false,
+        "plannedSupersession": "Meaningful new104+105source plus independently reviewed host CI repair; retain exact eventual terminal logs/partial results, do not transfer qualification."
       }
+    },
+    "sourceReviews": {
+      "retainedFrame": "Root17sourcechecks closed b9, receipt771fd2c54959336026a211332f1171f9dcbd85a856fd57e8fbfec1b2edc9b455",
+      "clientIssuer": "Root14V3 +17finalscope checks closed c3; producer88/59/31static layers retained, not test totals; receipt53ce49cb2de102a35868f98812ac9ac410a4b9ebd7e12e0df607ad87972d83c5",
+      "scopedFormat": "Installed1.95 only19ownedpaths; raw755semantic/extraction lines,1175formattedlines separated;8newclientfixtures uncompiled/unrun locally",
+      "localRustCompilerOrTestsInvoked": false
     }
   },
   "runtimeQualified": false,
@@ -3685,20 +3711,21 @@
     "wholeFactoryReady": false
   },
   "previousCheckpoint": {
-    "localSourceCommit": "cf3d8577c4dfde13788ad59ec91b4c615d1a4e0a",
-    "sourceTree": "149b473f6cb5d8a726aac6276bacc1ad2240bfa8",
-    "sourceEvidenceSha256": "ada43c8b0aa3a3b20089b04ff0700523a680531bf6d8f9be71a2c09e6ab5ccf2",
+    "localSourceCommit": "d89bc3cba1a78c947b297bedb9b2653ebaddbc50",
+    "sourceTree": "607b88e5275dc347713a85c2b6ae454470bffb54",
+    "sourceEvidenceSha256": "70b66f7ea09c970c670f427242973e97dd62f3fc73bacddc3884605fede9fa6a",
+    "publicHostCommit": "06b529c9397dc98c8782c6a8991a93edf40edeaf",
     "checks": {
-      "scope": "88-patch source retains all87 original patch bytes unchanged. Adds actual ordinary selected Config/strict policy one-use adoption, original runtime feature DATA publication fences, System clock partition, environment/initial-context data paths and original registered extension owner identities. Full native request composition, count/State association, app-server route and host adoption remain OPEN; no capacity/Ready/execution grant.",
+      "scope": "103 ordered patches preserve all99 prior records/bytes. Patch100 retains genuine original default installed registry object provenance;101 restores the Session-local model provenance import required by original selection;102 shares original source/parent/originator/cache pure data transforms at unchanged ordinary acquisition sites. No retained source frame/currentness/adoption/factory grant. Patch103 applies only installed Rust1.95 canonical formatting to Session.rs, which the unchanged required cargo fmt gate traverses.",
       "localFocused": {
         "status": "exact_source_reconstruction_and_scoped_format_only",
-        "rustTestsExecuted": false,
         "compiled": false,
+        "rustTestsExecuted": false,
         "allNewRustFixtures": "UNCOMPILED/UNRUN",
         "dynamicGreenClaimed": false
       },
       "ci": {
-        "status": "pending_88_exact_source",
+        "status": "pending_103_exact_source",
         "workflow": ".github/workflows/prepared-request-native.yml",
         "scope": [
           "codex-core",
@@ -3734,15 +3761,153 @@
         "prior84QualificationTransfers": false,
         "prior85QualificationTransfers": false,
         "prior86QualificationTransfers": false,
-        "prior87QualificationTransfers": false
+        "prior87QualificationTransfers": false,
+        "prior88QualificationTransfers": false,
+        "prior88Failure": {
+          "run": 39454890578,
+          "linuxJob": 118739246813,
+          "conclusion": "failure",
+          "failure": "E0308 in model-provider-info/src/captured_provider.rs:124; test literal map used String instead of existing RedactedString",
+          "fixtureExecution": "No crate fixtures executed: cargo test --no-run compilation failed",
+          "macosJob": 118739246289,
+          "macosOutcomeAtCapture": "in_progress",
+          "linuxArtifact": 12283706338,
+          "linuxArtifactSha256": "bcb31395efcb667155ed665b217b57929c7d71dccc01a0a583c90c15966ecee2"
+        },
+        "prior89QualificationTransfers": false,
+        "prior89Terminal": {
+          "sourceCommit": "349165924d187197140074b8cfefe087d2e73cba",
+          "sourceTree": "5afdd74dd6631cf91d32325d78914dff3bc6a8f7",
+          "checks": {
+            "scope": "89 ordered patches retain all88 prior patch records/bytes. Patch89 changes only three test literal values from String to the existing RedactedString type, preserving exact malformed/case-ambiguous header bytes and original assertions. Production native source and all complete-factory/readiness limits remain unchanged.",
+            "localFocused": {
+              "status": "exact_source_reconstruction_and_scoped_format_only",
+              "rustTestsExecuted": false,
+              "compiled": false,
+              "allNewRustFixtures": "UNCOMPILED/UNRUN",
+              "dynamicGreenClaimed": false
+            },
+            "ci": {
+              "status": "pending_89_exact_source",
+              "workflow": ".github/workflows/prepared-request-native.yml",
+              "scope": [
+                "codex-core",
+                "codex-http-client",
+                "codex-state",
+                "codex-api",
+                "codex-guardian-reviewer",
+                "codex-extension-api",
+                "codex-mcp-extension",
+                "codex-login",
+                "codex-memories-extension",
+                "codex-web-search-extension",
+                "codex-history-notes-extension",
+                "codex-goal-extension",
+                "codex-models-manager",
+                "codex-home",
+                "codex-model-provider-info",
+                "codex-skills-extension",
+                "codex-skills",
+                "codex-exec-server",
+                "codex-app-server",
+                "codex-git-attribution",
+                "codex-core-plugins",
+                "codex-execpolicy"
+              ],
+              "linuxAdditionalScope": ["codex-linux-sandbox"],
+              "platforms": ["ubuntu-24.04", "macos-26"],
+              "testThreads": 1,
+              "retries": 0,
+              "prior81QualificationTransfers": false,
+              "prior82QualificationTransfers": false,
+              "prior83QualificationTransfers": false,
+              "prior84QualificationTransfers": false,
+              "prior85QualificationTransfers": false,
+              "prior86QualificationTransfers": false,
+              "prior87QualificationTransfers": false,
+              "prior88QualificationTransfers": false,
+              "prior88Failure": {
+                "run": 39454890578,
+                "linuxJob": 118739246813,
+                "conclusion": "failure",
+                "failure": "E0308 in model-provider-info/src/captured_provider.rs:124; test literal map used String instead of existing RedactedString",
+                "fixtureExecution": "No crate fixtures executed: cargo test --no-run compilation failed",
+                "macosJob": 118739246289,
+                "macosOutcomeAtCapture": "in_progress",
+                "linuxArtifact": 12283706338,
+                "linuxArtifactSha256": "bcb31395efcb667155ed665b217b57929c7d71dccc01a0a583c90c15966ecee2"
+              }
+            }
+          },
+          "terminalRun": 39463080370,
+          "conclusion": "cancelled_both_platforms_after_partial_fixture_failures_by_120_minute_job_limit",
+          "terminalSealSha256": "6466fb33cae79727b4e92439e534fac7744d0f01bfbcfec01a7dbf7ae1c58866",
+          "partialRetainedArtifactLogRecords": {
+            "linux": {
+              "passed": 6828,
+              "failed": 3,
+              "lastOrdinal": 6831,
+              "listed": 9568
+            },
+            "macos": {
+              "passed": 6171,
+              "failed": 3,
+              "lastOrdinal": 6174,
+              "listed": 9352
+            }
+          },
+          "countsAreFinalSuiteTotals": false,
+          "platformsMayOverlap": true,
+          "junitPresent": false,
+          "formattingExecuted": false,
+          "failedFixtures": [
+            "client::public_responses_capture::tests::bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture",
+            "client::public_responses_capture::tests::public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row",
+            "thread_manager::pre_session_skills::tests::original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup"
+          ]
+        },
+        "jobTimeoutMinutes": 240,
+        "timeoutReason": "Both source89 jobs exceeded maximum execution time 2h0m0s after thousands of records; retain complete same package coverage, one thread and zero retries.",
+        "prior99QualificationTransfers": false,
+        "prior99Terminal": {
+          "checkpoint": "source99Terminal",
+          "sourceCommit": "b2f34ca45571ca7514b5f307b76a78b475829769",
+          "sourceTree": "6e7109d979ed7deeb4e00fe3ec3473083d0e1b74",
+          "terminalRun": 39482696019,
+          "conclusion": "both_platforms_failed_core_library_compilation_during_standalone_helpers",
+          "compilerErrors": {
+            "code": "E0433",
+            "type": "BaseInstructionsProvenance",
+            "path": "core/src/session/session.rs",
+            "lines": [791, 797, 803]
+          },
+          "crateFixturesExecuted": 0,
+          "nativeFormattingExecuted": false,
+          "original89ThreeFailureOraclesQualified": false,
+          "terminalReceiptSha256": "2e02bd8a114148ac1679361915a7286e49a3867db1ffb74fc47f1592416276b5",
+          "officialLogs": [
+            {
+              "platform": "linux",
+              "sha256": "4bf78e5ad2ff6e8ab5fc1ac28d501ee9a0b81346521125ccde88e57f583063a8",
+              "bytes": 258258,
+              "job": 118835054202
+            },
+            {
+              "platform": "macos",
+              "sha256": "c268766265e998e4622187cdac2ca96dbb71763d8f1a9bb1a5831b8a5278fc4c",
+              "bytes": 248626,
+              "job": 118835053811
+            }
+          ]
+        }
       }
     },
     "previousCheckpoint": {
-      "localSourceCommit": "a7498d7eb0bb7fb33130d2d4729c88fd980291e7",
-      "sourceTree": "f09fc186e1ee1beb81495f003feb736bfcab0756",
-      "sourceEvidenceSha256": "de7476e2bab36d1e1426deba643f8f059277dce5fb1ed1f283bd6aca4c3c8521",
+      "localSourceCommit": "cf3d8577c4dfde13788ad59ec91b4c615d1a4e0a",
+      "sourceTree": "149b473f6cb5d8a726aac6276bacc1ad2240bfa8",
+      "sourceEvidenceSha256": "ada43c8b0aa3a3b20089b04ff0700523a680531bf6d8f9be71a2c09e6ab5ccf2",
       "checks": {
-        "scope": "87-patch source retains first86 unchanged. Original disabled History/Memory prompt sources; original hosted Apps registration then API auth gate; original PluginContributor source plans; actual HostPlugins installed+loaded publication identities and same credential owner; default-enabled Core API projection and Skills renewal. Minimal E0624 newfixture correction calls same legal original loader. Full request/config/FS/permission/source leases, count-State, appserver and host factory remain OPEN.",
+        "scope": "88-patch source retains all87 original patch bytes unchanged. Adds actual ordinary selected Config/strict policy one-use adoption, original runtime feature DATA publication fences, System clock partition, environment/initial-context data paths and original registered extension owner identities. Full native request composition, count/State association, app-server route and host adoption remain OPEN; no capacity/Ready/execution grant.",
         "localFocused": {
           "status": "exact_source_reconstruction_and_scoped_format_only",
           "rustTestsExecuted": false,
@@ -3751,7 +3916,7 @@
           "dynamicGreenClaimed": false
         },
         "ci": {
-          "status": "pending_87_exact_source",
+          "status": "pending_88_exact_source",
           "workflow": ".github/workflows/prepared-request-native.yml",
           "scope": [
             "codex-core",
@@ -3774,7 +3939,8 @@
             "codex-exec-server",
             "codex-app-server",
             "codex-git-attribution",
-            "codex-core-plugins"
+            "codex-core-plugins",
+            "codex-execpolicy"
           ],
           "linuxAdditionalScope": ["codex-linux-sandbox"],
           "platforms": ["ubuntu-24.04", "macos-26"],
@@ -3785,7 +3951,60 @@
           "prior83QualificationTransfers": false,
           "prior84QualificationTransfers": false,
           "prior85QualificationTransfers": false,
-          "prior86QualificationTransfers": false
+          "prior86QualificationTransfers": false,
+          "prior87QualificationTransfers": false
+        }
+      },
+      "previousCheckpoint": {
+        "localSourceCommit": "a7498d7eb0bb7fb33130d2d4729c88fd980291e7",
+        "sourceTree": "f09fc186e1ee1beb81495f003feb736bfcab0756",
+        "sourceEvidenceSha256": "de7476e2bab36d1e1426deba643f8f059277dce5fb1ed1f283bd6aca4c3c8521",
+        "checks": {
+          "scope": "87-patch source retains first86 unchanged. Original disabled History/Memory prompt sources; original hosted Apps registration then API auth gate; original PluginContributor source plans; actual HostPlugins installed+loaded publication identities and same credential owner; default-enabled Core API projection and Skills renewal. Minimal E0624 newfixture correction calls same legal original loader. Full request/config/FS/permission/source leases, count-State, appserver and host factory remain OPEN.",
+          "localFocused": {
+            "status": "exact_source_reconstruction_and_scoped_format_only",
+            "rustTestsExecuted": false,
+            "compiled": false,
+            "allNewRustFixtures": "UNCOMPILED/UNRUN",
+            "dynamicGreenClaimed": false
+          },
+          "ci": {
+            "status": "pending_87_exact_source",
+            "workflow": ".github/workflows/prepared-request-native.yml",
+            "scope": [
+              "codex-core",
+              "codex-http-client",
+              "codex-state",
+              "codex-api",
+              "codex-guardian-reviewer",
+              "codex-extension-api",
+              "codex-mcp-extension",
+              "codex-login",
+              "codex-memories-extension",
+              "codex-web-search-extension",
+              "codex-history-notes-extension",
+              "codex-goal-extension",
+              "codex-models-manager",
+              "codex-home",
+              "codex-model-provider-info",
+              "codex-skills-extension",
+              "codex-skills",
+              "codex-exec-server",
+              "codex-app-server",
+              "codex-git-attribution",
+              "codex-core-plugins"
+            ],
+            "linuxAdditionalScope": ["codex-linux-sandbox"],
+            "platforms": ["ubuntu-24.04", "macos-26"],
+            "testThreads": 1,
+            "retries": 0,
+            "prior81QualificationTransfers": false,
+            "prior82QualificationTransfers": false,
+            "prior83QualificationTransfers": false,
+            "prior84QualificationTransfers": false,
+            "prior85QualificationTransfers": false,
+            "prior86QualificationTransfers": false
+          }
         }
       }
     }
