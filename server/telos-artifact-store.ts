@@ -131,14 +131,22 @@ export class TelosArtifactStore {
   static borrowConnection(database: Database.Database): TelosArtifactStore {
     return new TelosArtifactStore('', database);
   }
-  constructor(path: string, borrowedDatabase?: Database.Database) {
+  /** Observe an already initialized canonical owner without migration or writes. */
+  static openReadOnly(path: string): TelosArtifactStore {
+    return new TelosArtifactStore(path, undefined, true);
+  }
+  constructor(path: string, borrowedDatabase?: Database.Database, readOnly = false) {
     this.ownsConnection = borrowedDatabase === undefined;
-    this.db = borrowedDatabase ?? new Database(path, { fileMustExist: true });
+    this.db = borrowedDatabase ?? new Database(path, { fileMustExist: true, readonly: readOnly });
     this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
     try {
       this.db.prepare('SELECT id FROM items LIMIT 1').get();
       this.db.prepare('SELECT id FROM links LIMIT 1').get();
+      if (readOnly) {
+        this.db.prepare('SELECT id FROM telos_artifact_revisions LIMIT 0').all();
+        return;
+      }
       this.db.exec(`CREATE TABLE IF NOT EXISTS telos_artifact_revisions (
         id TEXT NOT NULL, revision INTEGER NOT NULL, item_id TEXT NOT NULL REFERENCES items(id),
         filename TEXT NOT NULL, title TEXT NOT NULL, sha256 TEXT NOT NULL, size INTEGER NOT NULL,
@@ -154,7 +162,8 @@ export class TelosArtifactStore {
           PRIMARY KEY(session_id, request_id),
           FOREIGN KEY(session_id, request_id) REFERENCES telos_artifact_save_requests(session_id, request_id));
         CREATE INDEX IF NOT EXISTS telos_artifacts_item ON telos_artifact_revisions(item_id);
-        CREATE INDEX IF NOT EXISTS telos_artifacts_source_page ON telos_artifact_revisions(session_id,created_at,id,revision);`);
+        CREATE INDEX IF NOT EXISTS telos_artifacts_source_page ON telos_artifact_revisions(session_id,created_at,id,revision);
+        CREATE INDEX IF NOT EXISTS telos_artifacts_origin ON telos_artifact_revisions(id,item_id,session_id);`);
     } catch (error) {
       if (this.ownsConnection) this.db.close();
       throw error;
@@ -480,6 +489,30 @@ export class TelosArtifactStore {
         : null,
       hasMore: rows.length > 100,
     };
+  }
+  /** Metadata relation only, never live access or admission authority. An exact
+   * selected revision may follow an earlier revision created in this source.
+   * The item must match across revisions; another artifact or Work membership
+   * cannot supply association. No transcript, latest substitution or BLOB read.
+   */
+  hasConversationOrigin(id: string, revision: number, sessionId: string): boolean {
+    z.string()
+      .regex(/^[a-f0-9]{32}$/)
+      .parse(id);
+    z.number().int().positive().safe().parse(revision);
+    z.string().min(1).max(200).parse(sessionId);
+    return this.db.transaction(() => {
+      const row = this.db
+        .prepare(
+          `SELECT selected.item_id FROM telos_artifact_revisions selected
+        WHERE selected.id=? AND selected.revision=? AND EXISTS (
+          SELECT 1 FROM telos_artifact_revisions origin
+          WHERE origin.id=selected.id AND origin.item_id=selected.item_id
+            AND origin.session_id=? AND instr(origin.session_id,'source-capture:')<>1)`,
+        )
+        .get(id, revision, sessionId) as { item_id: string } | undefined;
+      return row !== undefined && this.userUploadAllowed(row.item_id);
+    })();
   }
   document(id: string, revision?: number) {
     const artifact = this.read(id, revision);

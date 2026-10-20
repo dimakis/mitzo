@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.396-symposium-exact-retained-labels';
+  'v1.0.397-symposium-retained-source-owner';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../collaboration-retained-context-source.ts':
+    'f893ad79536d1594228d20c48afc520b9ead4145a03417e885a87866ace94d50',
   '../collaboration-joining-retained-artifacts.ts':
     '696cd73f112bf49fba37c06f7d5bc771f617d75749bb39e3551ac95ec1c468b0',
   '../../packages/protocol/src/collaboration-source-setup.ts':
@@ -209,7 +211,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-source-routes.ts': '9fe592fae24c3ecb1a0915b0370b4e525facfa4b34a473981c5cc8e032187cad',
   '../../packages/protocol/src/telos-source.ts':
     '6ca8887c2d88f73eb14a5886e441da54c0036f0767392f4e72352f783d33eda7',
-  '../telos-artifact-store.ts': 'fc6594b9c886fb95dba1d2b715abfaeb2da98696c7058a10777eb54f03d6f08c',
+  '../telos-artifact-store.ts': 'd791e6b91db24a270cea7a99d4dce05ae056942f7a59ad0fc5af5ff2a6b2e24c',
   '../telos-source-capture.ts': '9b42d3f627e7923a29b0b22fb44e6b46eea5e9b2466a5faa95ae835f9b91b641',
   '../telos-conversation-source.ts':
     '0217975022f987f5ad65876d53467417774e3f0f186ba4fc70bc6f30c9860308',
@@ -220,7 +222,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '599f1574e4fb2deace9d5b0aa19e639d6bd7aed727837d404f44ff916eba8a5f',
   '../codex-session-events.ts': 'ac907391d5427c054eb4b2d5d64e28c853b5b5c52cf5bc689467aec994e532d9',
   '../collaboration-context-source.ts':
-    'd695e89693d7eaccb03754d707ccbf6a3b1f86e0d7557ad64a533677dc37ae02',
+    '47b8f3a48982779c976955ff7b48c07239d65256bc8b6a22d07ae65ccb98bfbb',
   '../../packages/protocol/src/collaboration-visible-source.ts':
     '8747b800cf069cad636dc5ae6e92a347e55b59c9f01fe64af84587e047af1567',
   '../telos-work-conversation.ts':

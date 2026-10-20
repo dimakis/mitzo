@@ -124,9 +124,24 @@ and registered inline-output owners. It preserves exact user/completed-assistant
 message and block identities, independently witnesses the complete frozen prefix,
 refuses unfinished/ambiguous turns and overflow, and checks source access again at
 the final fence. It excludes provider history, reasoning, tool I/O and native seat
-streams. Supported artifacts are authorized registered inline outputs at revision
-1 in that source conversation, copied only after exact source/hash checks. Other
-artifact kinds and shared collaboration projection sources remain unavailable.
+streams. Bare artifact selectors remain authorized registered inline outputs at
+revision1 in that source conversation, copied only after exact source/hash checks.
+An explicitly supplied retained revision owner also supports tagged independent
+versions. Its association comes from a real same-item origin revision in the
+opened conversation or an actual rendered link in the complete pinned prefix.
+It never derives association from global Work membership or another transcript.
+Selected may choose another exact revision of an associated artifact; So far
+copies only versioned references and refuses an unversioned link rather than
+substituting latest. Retained origin transcripts need not remain available.
+
+The existing artifact owner has a read-only opener that performs no schema
+initialization and cannot write. At save, all source/access callbacks finish
+before callback-free source, association, metadata, privacy and byte/hash checks
+for every selected artifact. This catches a later artifact's callback changing an
+earlier artifact. These are local review-copy checks, not cross-owner admission
+or retrospective revision authority. The production application catalog and
+kind-aware result-label composition still need their actual owner wiring; shared
+collaboration projection sources remain unavailable.
 Later transcript appends do not change a pinned prefix; loss of access or changed
 source bytes refuses it. Narrow and brief-only review need not load a long prefix.
 Payload attribution fields, including explicit JSON null, cannot establish ordinary
