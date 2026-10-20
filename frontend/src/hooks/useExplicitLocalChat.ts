@@ -1,4 +1,5 @@
 import { resolveRuntimeTarget } from '../lib/chat-runtime-route';
+import { z } from 'zod';
 import { getDefaultAccountModel } from '../lib/account-preference';
 import type { AccountSelection } from '../types/account-selection';
 import { ChatRuntimeDraftContext } from './chat-runtime-draft-context';
@@ -28,6 +29,16 @@ import {
   evaluateChatRuntimeSelection,
   type ChatRuntimeSelection,
 } from '../lib/chat-runtime-selection';
+
+/** Public display identity only; source and admission retain the repository owner. */
+const RepositoryContextSchema = z.strictObject({
+  workspaceId: z.string().regex(/^\S{1,200}$/),
+  repository: z
+    .string()
+    .max(201)
+    .regex(/^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?\/[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$/)
+    .refine((value) => !value.includes('..')),
+});
 /** Shared draft intent. Configuration never establishes owning admission. */
 export function useExplicitLocalChat(
   draftId: string,
@@ -100,6 +111,7 @@ export function useExplicitLocalChat(
     reason?: string;
     intent: ChatRuntimeSelection | null;
     repositoryWorkspaceId?: string;
+    repositoryContext?: z.infer<typeof RepositoryContextSchema>;
     mode?: 'ask' | 'agent' | 'auto';
     agentProfile?: AgentLibraryVersion;
     agentContext?: AgentContextSnapshot;
@@ -185,6 +197,7 @@ export function useExplicitLocalChat(
           body.runtimeBinding == null
             ? null
             : SessionRuntimeBindingSchema.parse(body.runtimeBinding);
+        const repository = RepositoryContextSchema.safeParse(body.repositoryContext);
         setMeta({
           sessionId,
           binding: parsed,
@@ -235,6 +248,12 @@ export function useExplicitLocalChat(
               ? AgentContextSnapshotSchema.parse(body.agentContext)
               : undefined,
           repositoryWorkspaceId: body.repositoryWorkspaceId,
+          repositoryContext:
+            body.sessionId === sessionId &&
+            repository.success &&
+            repository.data.workspaceId === body.repositoryWorkspaceId
+              ? repository.data
+              : undefined,
           mode: body.mode,
         });
         setMetadataLoadingForSession(null);
@@ -412,6 +431,7 @@ export function useExplicitLocalChat(
     inventory,
     continuation,
     repositoryWorkspaceId: currentMeta?.repositoryWorkspaceId,
+    repositoryContext: metadataPending ? undefined : currentMeta?.repositoryContext,
     agentProfile: currentMeta?.agentProfile,
     agentContext: currentMeta?.agentContext,
     mode: currentMeta?.mode,

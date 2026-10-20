@@ -352,6 +352,69 @@ test('preserves the next pending sign-in recovered during an older completion re
   expect(mutations.filter((item) => item.path.endsWith('/input'))).toHaveLength(0);
 });
 
+test('recovers a saved adviser connection without another browser sign-in', async ({
+  page,
+}, testInfo) => {
+  let restored = false;
+  const writes: string[] = [];
+  await page.route('**/api/terminals/subscriptions**', async (route) => {
+    const request = route.request(),
+      path = new URL(request.url()).pathname;
+    if (request.method() === 'POST') {
+      writes.push(path);
+      expect(request.postDataJSON()).toEqual({});
+      expect(path).toBe('/api/terminals/subscriptions/plan-offline/retry');
+      restored = true;
+      return route.fulfill({
+        json: {
+          id: 'plan-offline',
+          label: 'Personal ChatGPT',
+          email: 'user@example.test',
+          state: 'connected',
+        },
+      });
+    }
+    return route.fulfill({
+      json: {
+        enabled: true,
+        pendingAttempt: null,
+        accounts: [
+          {
+            id: 'plan-offline',
+            label: 'Personal ChatGPT',
+            email: 'user@example.test',
+            state: restored ? 'connected' : 'reauth_required',
+          },
+        ],
+      },
+    });
+  });
+  await page.goto('/terminal');
+  await page.getByRole('button', { name: 'Show Minion' }).click();
+  await page.getByRole('button', { name: 'Manage adviser accounts' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Adviser accounts' });
+  const retry = dialog.getByRole('button', { name: 'Retry connection to Personal ChatGPT' });
+  await expect(retry).toBeVisible();
+  expect(
+    await retry.evaluate((element) => element.getBoundingClientRect().height),
+  ).toBeGreaterThanOrEqual(44);
+  await page.screenshot({ path: testInfo.outputPath('adviser-retry-dark.png') });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.accent = 'teal';
+    document.documentElement.dataset.font = 'georgia';
+  });
+  await retry.focus();
+  await page.screenshot({ path: testInfo.outputPath('adviser-retry-light.png') });
+  await retry.press('Enter');
+  await expect(dialog.getByRole('status')).toContainText('ChatGPT adviser connected');
+  await expect(retry).toHaveCount(0);
+  await expect(dialog.getByRole('button', { name: 'Refresh adviser accounts' })).toBeFocused();
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  expect(writes).toEqual(['/api/terminals/subscriptions/plan-offline/retry']);
+  expect(mutations.filter((item) => item.path.endsWith('/input'))).toHaveLength(0);
+});
+
 test('connects a subscription adviser through compact account management without terminal input', async ({
   page,
 }, testInfo) => {

@@ -18,6 +18,7 @@ import {
 } from '@mitzo/protocol';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import {
   TelosWorkCommandSchema,
   TelosSourceConversationReferenceSchema,
@@ -41,6 +42,8 @@ import {
   type TelosWorkView,
   type TelosWorkSessionLink,
   type TelosWorkAssignment,
+  TelosWorkAssignmentSchema,
+  type TelosWorkAssignmentHistory,
   type TelosWorkSourceSnapshot,
   type TelosWorkAttempt,
   type TelosWorkItem,
@@ -625,6 +628,73 @@ export class TelosWorkStore {
           : link.availability,
     };
   }
+  private assignmentReadHistory(
+    itemId: string,
+    links: TelosWorkSessionLink[],
+    assignments: TelosWorkAssignment[],
+  ): TelosWorkAssignmentHistory {
+    const history = {
+      lead: new Map<number, TelosWorkAssignment | null>(),
+      worker: new Map<number, TelosWorkAssignment | null>(),
+    };
+    const linked = { lead: new Set<string>(), worker: new Set<string>() };
+    for (const link of links)
+      if (
+        (link.role === 'lead' || link.role === 'worker') &&
+        link.conversation.namespace === 'mitzo'
+      )
+        linked[link.role].add(link.conversation.conversationId);
+    const incomplete = { lead: false, worker: false };
+    for (const row of this.db
+      .prepare('SELECT data FROM telos_work_assignment_history WHERE item_id=?')
+      .all(itemId) as JsonRow[]) {
+      let parsed: ReturnType<typeof TelosWorkAssignmentSchema.safeParse>;
+      try {
+        parsed = TelosWorkAssignmentSchema.safeParse(JSON.parse(row.data));
+      } catch {
+        incomplete.lead = incomplete.worker = true;
+        continue;
+      }
+      if (!parsed.success || parsed.data.itemId !== itemId || parsed.data.revision < 1) {
+        incomplete.lead = incomplete.worker = true;
+        continue;
+      }
+      const entry = parsed.data;
+      if (!linked[entry.role].has(entry.conversation.conversationId)) incomplete[entry.role] = true;
+      // Private/unlinked facts still participate in ambiguity detection. Redact
+      // disclosed identities only after conflicting revisions are withheld.
+      const entries = history[entry.role];
+      if (entries.has(entry.revision) && !isDeepStrictEqual(entries.get(entry.revision), entry)) {
+        entries.set(entry.revision, null);
+        incomplete[entry.role] = true;
+      } else if (!entries.has(entry.revision)) entries.set(entry.revision, entry);
+    }
+    const project = (role: 'lead' | 'worker') => {
+      const current = assignments.find((entry) => entry.role === role);
+      const entries = history[role];
+      const complete =
+        !incomplete[role] &&
+        (current
+          ? current.revision > 0 &&
+            entries.size === current.revision &&
+            [...entries.keys()].every((revision) => revision <= current.revision) &&
+            isDeepStrictEqual(entries.get(current.revision), current)
+          : entries.size === 0);
+      return {
+        complete,
+        conversationIds: [
+          ...new Set(
+            [...entries.values()].flatMap((entry) =>
+              entry && linked[role].has(entry.conversation.conversationId)
+                ? [entry.conversation.conversationId]
+                : [],
+            ),
+          ),
+        ].sort(),
+      };
+    };
+    return { lead: project('lead'), worker: project('worker') };
+  }
   private snapshot(itemId: string): TelosWorkView {
     const row = this.item(itemId);
     const kind =
@@ -649,7 +719,12 @@ export class TelosWorkStore {
       itemId,
     );
     const facts = { itemId, kind, parentId: row.parent_id, links, assignments, sources, attempts };
-    return TelosWorkViewSchema.parse({ ...facts, revision: hash([row, facts]) });
+    // Presentation-only history does not revise work tokens or rewrite cached receipts.
+    return TelosWorkViewSchema.parse({
+      ...facts,
+      revision: hash([row, facts]),
+      assignmentHistory: this.assignmentReadHistory(itemId, links, assignments),
+    });
   }
   read(itemId: string, actor: TelosWorkActor): TelosWorkView {
     return this.db.transaction(() => {
