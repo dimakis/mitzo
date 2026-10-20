@@ -244,10 +244,14 @@
     {
       "file": "native-configured-memory-web-tools.patch",
       "sha256": "446aa08a81cb866b82988f75e800d40d4e2ed12103ac518367884f450ca403af"
+    },
+    {
+      "file": "native-effective-mcp-registry-policy.patch",
+      "sha256": "8957a196d018d3ba59619b114fb6e92d970d884cbff5bfe19028908e02c7f6c5"
     }
   ],
-  "sourceTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
-  "localSourceCommit": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+  "sourceTree": "203e5ac78c2f6653251ee6828163d1234897216f",
+  "localSourceCommit": "ea6416336b5275e8a3c13e508f1c68df289f75a3",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -313,7 +317,8 @@
     "2cbbb822ffbe9d9a62e6c26d6e0c69796ae2a1ee",
     "79a2a34d4c93892298033d116c5e1c0f0c061e6e",
     "43d48041b06eb631e9e80ecfaa1a1974eeb91b49",
-    "bb5bedc2e334700b930352c58e6c50660c173e2e"
+    "bb5bedc2e334700b930352c58e6c50660c173e2e",
+    "ea6416336b5275e8a3c13e508f1c68df289f75a3"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -323,7 +328,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "54-patch source: registration-owned extension tool capture and renewal; legacy state-bound contributors refuse without callbacks. Complete Core/MCP/request/account preparation and ordinary prepared dispatch remain incomplete.",
+    "scope": "Prior60 source plus effective ordinary MCP registry policy correction. Actual isolated startup is refused before inherited registry proof; retained ordinary source and Inherit policy prevent default reselection. Complete request/account/limits/preparation/admission remain incomplete.",
     "localFocused": {
       "status": "source_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -332,7 +337,7 @@
       "allOrderedChecksumsReconstructExactTree": true
     },
     "ci": {
-      "status": "pending_54_patch_extension_inventory",
+      "status": "pending_60_plus_effective_registry_fix",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -616,6 +621,16 @@
       "ciResult": "pending exact new composed tree",
       "wholeRequestPreparationReady": false,
       "runtimeActivation": false
+    },
+    "effectiveRegistryCorrection": {
+      "finding": "CEN-487055AFEF4D",
+      "nativeCommit": "ea6416336b5275e8a3c13e508f1c68df289f75a3",
+      "ordinaryPolicy": "Same private helper preserves explicit policy > actual source/default guardian isolation; ordinary spawn still selects the original registry branch",
+      "preSession": "Refuse effective Isolated before manager/env/registry proof, retain actual resolved source and Inherit in original options",
+      "regressionsAuthored": 2,
+      "nativeTestsExecutedLocally": false,
+      "compiledLocally": false,
+      "executionQualification": "pending exact-source CI"
     }
   },
   "runtimeQualified": false,
@@ -2293,6 +2308,34 @@
       "publishedPr": 1058,
       "nativeCi": 39339195266,
       "qualification": "pending at candidate construction; never reused for the new composed tree"
+    },
+    {
+      "sourceTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
+      "localSourceCommit": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+      "patchCount": 60,
+      "publishedPr": 1060,
+      "nativeCi": 39345244430,
+      "qualification": {
+        "linux": {
+          "passed": 6142,
+          "skipped": 11,
+          "failed": 0
+        },
+        "macos": {
+          "passed": 5921,
+          "skipped": 27,
+          "failed": 0
+        },
+        "all12NewNamedCasesAndReconstructionAndFormat": "passed each OS",
+        "independentReceiptSha256": "9795e59a7107ccf206baade047a20f36808b406100f9ef03b25c6848289fcb75",
+        "scope": "Exact prior60 source only; no execution qualification transferred to new composed tree"
+      },
+      "trustedReview": {
+        "head": "07014d87b97a1faf012817d6ffcc6a94a383fe96",
+        "finding": "CEN-487055AFEF4D",
+        "recommendation": "fix",
+        "scope": "Manager registry can differ from actual isolated ordinary startup registry"
+      }
     }
   ]
 }
