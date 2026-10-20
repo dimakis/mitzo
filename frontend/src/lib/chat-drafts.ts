@@ -384,6 +384,28 @@ export function writeLegacyChatDraft(
       sessionBindingKey(sessionId),
       JSON.stringify({ ...target, legacyEdited: true }),
     );
+  if (edited && target?.version === 2) {
+    const assignmentKey = draftBindingKey(target.draftId);
+    let assignment: z.infer<typeof DraftSessionBindingSchema> | null = null;
+    try {
+      assignment = readDraftBinding(assignmentKey);
+    } catch {
+      // Preserve damaged assignment metadata and the editable legacy bytes.
+      // Publication cannot accept an unmatched/unreadable assignment record.
+    }
+    if (
+      assignment?.version === 2 &&
+      assignment.state === 'upgraded' &&
+      assignment.sessionId === sessionId &&
+      assignment.draftId === target.draftId &&
+      assignment.legacyText === target.legacyText &&
+      !assignment.legacyEdited
+    )
+      localStorage.setItem(assignmentKey, JSON.stringify({ ...assignment, legacyEdited: true }));
+  }
+  // Both markers precede the bytes. Upgrade publishes assignment then session,
+  // with an exact session check in between. A concurrent edit therefore survives
+  // in at least one existing slot even if the final session write overwrites it.
   if (text || preserveEmpty) localStorage.setItem(key, text);
   else localStorage.removeItem(key);
   if (target?.version === 2) changed();
@@ -437,6 +459,8 @@ export async function upgradeSessionChatDraft(options: {
           return { state: 'existing' as const, draftId: prior.draftId };
         if (prior && !retired && (prior.version !== 2 || prior.state !== 'pending_upgrade')) {
           const existing = getSessionChatDraft(sessionId);
+          if (prior.version === 2 && existing && hasConcurrentLegacyChatDraft(sessionId))
+            return { state: 'conflict' as const, draftId: prior.draftId };
           if (
             prior.version === 2 &&
             existing &&
@@ -544,6 +568,10 @@ export async function upgradeSessionChatDraft(options: {
         localStorage.setItem(key, encoded);
         expected = encoded;
         check();
+        if (localStorage.getItem(sourceKey) !== encoded) {
+          changed();
+          return { state: 'conflict' as const, draftId: pending.draftId };
+        }
         const draft = getSessionChatDraft(sessionId);
         if (!draft || draft.id !== pending.draftId)
           throw new Error('Draft binding could not be checked');
@@ -561,10 +589,17 @@ export async function upgradeSessionChatDraft(options: {
 export function hasConcurrentLegacyChatDraft(sessionId: string): boolean {
   try {
     const target = readDraftBinding(sessionBindingKey(sessionId));
+    const assignment = target ? readDraftBinding(draftBindingKey(target.draftId)) : null;
     return (
       target?.version === 2 &&
       target.state === 'upgraded' &&
       (target.legacyEdited ||
+        (assignment?.version === 2 &&
+          assignment.state === 'upgraded' &&
+          assignment.sessionId === sessionId &&
+          assignment.draftId === target.draftId &&
+          assignment.legacyText === target.legacyText &&
+          assignment.legacyEdited) ||
         localStorage.getItem(`mitzo-draft-${sessionId}`) !== target.legacyText)
     );
   } catch {

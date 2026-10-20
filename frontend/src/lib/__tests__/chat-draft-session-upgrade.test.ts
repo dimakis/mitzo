@@ -10,6 +10,7 @@ import {
   getChatDraft,
   consumeChatDraft,
   writeLegacyChatDraft,
+  hasConcurrentLegacyChatDraft,
   CHAT_DRAFTS_CHANGED,
 } from '../chat-drafts';
 import { useDraft } from '../../hooks/useDraft';
@@ -252,4 +253,63 @@ it('preserves an unrelated retired binding instead of replacing its identity und
     draftId: record.draftId,
   });
   expect(JSON.parse(localStorage.getItem(key)!)).toEqual(record);
+});
+
+it('preserves a same-text legacy edit injected immediately before the final upgraded session marker, including after rich consumption', async () => {
+  const request = input();
+  const originalSet = Storage.prototype.setItem;
+  let injected = false;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, name, value) {
+    const record = value.startsWith('{') ? JSON.parse(value) : null;
+    if (!injected && name === key && record?.state === 'upgraded') {
+      injected = true;
+      // This occurs after the upgrade's final check/legacy read, not at the
+      // earlier saveChatDraft notification covered by the other reentrant case.
+      writeLegacyChatDraft(sessionId, request.expectedLegacyText);
+      expect(JSON.parse(localStorage.getItem(key)!).legacyEdited).toBe(true);
+    }
+    originalSet.call(this, name, value);
+  });
+  const result = await upgradeSessionChatDraft(request);
+  expect(injected).toBe(true);
+  expect(result.state).toBe('conflict');
+  expect(hasConcurrentLegacyChatDraft(sessionId)).toBe(true);
+  const rich = getSessionChatDraft(sessionId)!;
+  expect(rich).toMatchObject(request.content);
+  expect(await upgradeSessionChatDraft(request)).toMatchObject({
+    state: 'conflict',
+    draftId: rich.id,
+  });
+  expect(getSessionChatDraft(sessionId)!.id).toBe(rich.id);
+  expect(consumeChatDraft(rich)).toBe(true);
+  const legacy = renderHook(() => useDraft(sessionId));
+  expect(legacy.result.current[0]).toBe(request.expectedLegacyText);
+});
+
+it('does not change an unrelated assignment while invalidating this session’s legacy edit', async () => {
+  const request = input();
+  await upgradeSessionChatDraft(request);
+  const rich = getSessionChatDraft(sessionId)!;
+  const assignmentKey = `mitzo-chat-draft-assignment:${encodeURIComponent(rich.id)}`;
+  const unrelated = {
+    ...JSON.parse(localStorage.getItem(assignmentKey)!),
+    sessionId: 'other-source',
+  };
+  localStorage.setItem(assignmentKey, JSON.stringify(unrelated));
+  writeLegacyChatDraft(sessionId, 'Latest legacy edit');
+  expect(JSON.parse(localStorage.getItem(assignmentKey)!)).toEqual(unrelated);
+  expect(localStorage.getItem('mitzo-draft-source-chat')).toBe('Latest legacy edit');
+  expect(getChatDraft(rich.id)).toMatchObject(request.content);
+});
+
+it('preserves damaged assignment metadata without preventing the legacy owner from saving its human edit', async () => {
+  const request = input();
+  await upgradeSessionChatDraft(request);
+  const rich = getSessionChatDraft(sessionId)!;
+  const assignmentKey = `mitzo-chat-draft-assignment:${encodeURIComponent(rich.id)}`;
+  localStorage.setItem(assignmentKey, 'damaged retained metadata');
+  writeLegacyChatDraft(sessionId, 'Latest legacy bytes stay writable');
+  expect(localStorage.getItem(assignmentKey)).toBe('damaged retained metadata');
+  expect(localStorage.getItem('mitzo-draft-source-chat')).toBe('Latest legacy bytes stay writable');
+  expect(getChatDraft(rich.id)).toMatchObject(request.content);
 });
