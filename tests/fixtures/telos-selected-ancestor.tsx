@@ -27,6 +27,7 @@ function Fixture() {
       tree={
         <>
           <button onClick={() => setHydrated(true)}>Load canonical parent</button>
+          <button onClick={() => setHydrated(false)}>Withdraw canonical parent</button>
           <button onClick={() => setRefresh((v) => v + 1)}>Refresh canonical records</button>
           <TelosOutcomesTree
             compact

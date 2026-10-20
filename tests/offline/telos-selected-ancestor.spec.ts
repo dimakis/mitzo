@@ -67,6 +67,8 @@ for (const theme of ['dark', 'light'] as const)
     await page.screenshot({ path: info.outputPath('selected-hydrated.png'), fullPage: true });
     await tree.getByRole('button', { name: 'Collapse Home studio' }).click();
     await tree.getByRole('button', { name: 'Refresh canonical records' }).click();
+    await tree.getByRole('button', { name: 'Withdraw canonical parent' }).click();
+    await tree.getByRole('button', { name: 'Load canonical parent' }).click();
     await expect(tree.getByRole('button', { name: 'Expand Home studio' })).toHaveAttribute(
       'aria-expanded',
       'false',
