@@ -100,6 +100,17 @@ export const TelosWorkCommandSchema = z.discriminatedUnion('operation', [
     }),
   }),
 ]);
+const assignmentHistoryRole = z.strictObject({
+  complete: z.boolean(),
+  conversationIds: z.array(id),
+});
+/** Read-only recorded identities, never current assignment or action authority.
+ * Absent on older receipts; absence means unknown rather than an empty history. */
+export const TelosWorkAssignmentHistorySchema = z.strictObject({
+  lead: assignmentHistoryRole,
+  worker: assignmentHistoryRole,
+});
+export type TelosWorkAssignmentHistory = z.infer<typeof TelosWorkAssignmentHistorySchema>;
 export const TelosWorkViewSchema = z.strictObject({
   itemId: id,
   kind: z.enum(['coordinator', 'outcome', 'work_item']).nullable(),
@@ -107,6 +118,7 @@ export const TelosWorkViewSchema = z.strictObject({
   revision,
   links: z.array(TelosWorkSessionLinkSchema),
   assignments: z.array(TelosWorkAssignmentSchema),
+  assignmentHistory: TelosWorkAssignmentHistorySchema.optional(),
   sources: z.array(TelosWorkSourceSnapshotSchema),
   attempts: z.array(TelosWorkAttemptSchema),
 });

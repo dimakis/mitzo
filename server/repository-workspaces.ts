@@ -261,6 +261,10 @@ interface Dependencies {
       binding: AccountBinding,
       signal: AbortSignal,
       requireModelReadiness?: boolean,
+      selection?: Pick<
+        import('@mitzo/protocol').OrdinaryWorkspaceSettings['selection'],
+        'model' | 'thinking'
+      >,
     ): Promise<void>;
   };
   authorize(
@@ -275,6 +279,51 @@ interface Dependencies {
 }
 /** Durable preparations are bound to the exact selected AI account and GitHub connection revision. */
 export class RepositoryWorkspaces {
+  /** Observational intent from the existing claim ledger. Never opens a source
+   * checkout, initializes tables, or returns credentials/runtime capabilities. */
+  static readConversationRepositoryIntent(
+    database: string,
+    conversationId: string,
+    expectedWorkspaceId: string,
+  ) {
+    z.string().min(1).max(200).parse(conversationId);
+    z.string().uuid().parse(expectedWorkspaceId);
+    const db = new Database(database, { readonly: true, fileMustExist: true });
+    try {
+      const row = db
+        .prepare(
+          `SELECT id, conversation_id,
+        json_extract(record,'$.id') AS record_id,
+        json_extract(record,'$.conversationId') AS record_conversation,
+        json_extract(record,'$.state') AS state,
+        json_extract(record,'$.repository') AS repository
+        FROM repository_workspaces WHERE conversation_id=? AND id=?`,
+        )
+        .get(conversationId, expectedWorkspaceId) as
+        | {
+            id: string;
+            conversation_id: string;
+            record_id: unknown;
+            record_conversation: unknown;
+            state: unknown;
+            repository: unknown;
+          }
+        | undefined;
+      if (
+        !row ||
+        row.record_id !== expectedWorkspaceId ||
+        row.record_conversation !== conversationId ||
+        row.state !== 'claimed' ||
+        typeof row.repository !== 'string' ||
+        row.repository.length > 256 ||
+        canonicalRepositorySelection(row.repository) !== row.repository
+      )
+        throw Error('Repository claim metadata unavailable');
+      return { repository: row.repository };
+    } finally {
+      db.close();
+    }
+  }
   private db: Database.Database;
   private ordinaryWorkspaceCustody?: OrdinaryWorkspaceCustody;
   private activeOperations = 0;
@@ -335,8 +384,17 @@ export class RepositoryWorkspaces {
   prepareOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['prepare']>[0]) {
     return this.runOperation(() => this.ordinaryWorkspaceProvider().prepare(input));
   }
+  qualifyOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['qualify']>[0]) {
+    return this.runOperation(() => this.ordinaryWorkspaceProvider().qualify(input));
+  }
   reserveOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['reserve']>[0]) {
     return this.runOperation(() => this.ordinaryWorkspaceProvider().reserve(input));
+  }
+  validateRetainedOrdinaryWorkspace(conversationId: string) {
+    return this.ordinaryWorkspaceProvider().validateRetained(conversationId);
+  }
+  revalidateOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['revalidate']>[0]) {
+    return this.runOperation(() => this.ordinaryWorkspaceProvider().revalidate(input));
   }
   claimOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['claim']>[0]) {
     return this.runOperation(() => this.ordinaryWorkspaceProvider().claim(input));
@@ -935,7 +993,14 @@ export class RepositoryWorkspaces {
     )
       throw new Error('Ordinary preparation account changed');
     await this.deps.ordinaryPreparation.assert(proof, binding, signal, requireModelReadiness);
-    if (proof.sourceIdentity && !record.sourceReleased && record.state !== 'claimed') {
+    // Durable terminal records are metadata only. Discard/failure cleanup can
+    // remove their source; this does not assert that cleanup completed or grant
+    // another preparation. Current account/runtime checks above still apply.
+    if (
+      proof.sourceIdentity &&
+      !record.sourceReleased &&
+      !['claimed', 'discarded', 'failed'].includes(record.state)
+    ) {
       const info = await lstat(this.source(record));
       if (info.dev !== proof.sourceIdentity.dev || info.ino !== proof.sourceIdentity.ino)
         throw new Error('Prepared source physical identity changed');
