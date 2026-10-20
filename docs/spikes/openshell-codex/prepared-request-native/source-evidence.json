@@ -244,10 +244,50 @@
     {
       "file": "native-configured-memory-web-tools.patch",
       "sha256": "446aa08a81cb866b82988f75e800d40d4e2ed12103ac518367884f450ca403af"
+    },
+    {
+      "file": "native-public-observation-policy.patch",
+      "sha256": "8f5233d49f70121af359b927e07d5512a19a2c61fc63830fadf266c0c32e1d6e"
+    },
+    {
+      "file": "native-public-thread-source-policy.patch",
+      "sha256": "ba5d21d6fc16149e19e64cbd7d7e9c7099e03e6c352cdb9f2a2b4034127bf887"
+    },
+    {
+      "file": "native-utility-tool-inputs.patch",
+      "sha256": "6a73f20f0f2289b97112c74e7e12c337bc48a4dff491785f3d401c4ab932579b"
+    },
+    {
+      "file": "native-cached-api-credential-guard.patch",
+      "sha256": "262ef01063573f018b17d0505820abfc97d6ba8915963cc05e1a52a5eb65e002"
+    },
+    {
+      "file": "native-ordinary-public-body-owner.patch",
+      "sha256": "994569a82900e0ab73ffadb21e843646a774a9cc37ad16c640c3bcd1d1155593"
+    },
+    {
+      "file": "native-shell-resource-tool-inputs.patch",
+      "sha256": "6f1433d2b79b4d64a1b14ed92e2c441e74684eb17235970ef758a4c645cf9293"
+    },
+    {
+      "file": "native-collaboration-tool-metadata.patch",
+      "sha256": "0f1871b61e2ebbf2859a71e4b22b5c21f6f9343f2335921f28ce696ea2dc9d24"
+    },
+    {
+      "file": "native-resolved-tool-mode-policy.patch",
+      "sha256": "6cb315d05029eb418e4ea8164c594b2e033470bf9fab1c21b048cec03099c1b0"
+    },
+    {
+      "file": "native-model-tool-exposure-policy.patch",
+      "sha256": "5aa1ed593d6cdd263ce5f135e7d5e0a4bd31bc55ff00657534174931b2ba60e6"
+    },
+    {
+      "file": "native-resolved-code-mode-registry.patch",
+      "sha256": "c2df00cad6dacf6c59b636b9ab9770d8a747fa1155ed4c3cbf01c6a7d8aedaf6"
     }
   ],
-  "sourceTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
-  "localSourceCommit": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+  "sourceTree": "9ce8eecf782809ae5d33f63715000e8396ab2e55",
+  "localSourceCommit": "d615a63d687555242ede9cb3874d2699f99520c3",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -313,7 +353,17 @@
     "2cbbb822ffbe9d9a62e6c26d6e0c69796ae2a1ee",
     "79a2a34d4c93892298033d116c5e1c0f0c061e6e",
     "43d48041b06eb631e9e80ecfaa1a1974eeb91b49",
-    "bb5bedc2e334700b930352c58e6c50660c173e2e"
+    "bb5bedc2e334700b930352c58e6c50660c173e2e",
+    "324c4c1ca1214edeca6d56677a037b215f740888",
+    "4a3283dca3864c1787e7058d9c5f1815f99403f2",
+    "ac2d45425b8f0efb2c51482796c0c43535963b7b",
+    "2287f1eab6e4f9aa7d0fb5efad8975beab504839",
+    "6b6afb6a5811bfc7922f58938ce6eae064eb32ff",
+    "dd5b4b3a7114d31136454e90829af810ae5ec611",
+    "d94560ee6252824e060d32a5e1ec740f28846ace",
+    "a2dcefaafe3732a4255f681429abf04d645bcfa5",
+    "6860f60f27dcd3af7d12116f67abff2b342cf011",
+    "d615a63d687555242ede9cb3874d2699f99520c3"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -616,6 +666,27 @@
       "ciResult": "pending exact new composed tree",
       "wholeRequestPreparationReady": false,
       "runtimeActivation": false
+    },
+    "ordinaryPublicBodyAndPlanning": {
+      "sourceCommit": "d615a63d687555242ede9cb3874d2699f99520c3",
+      "sourceTree": "9ce8eecf782809ae5d33f63715000e8396ab2e55",
+      "publicMetadata": "Named ordinary construction policy before the existing formatter; coherent full CodexResponsesMetadata retained privately beside strict public frozen body. Unknown extras/controls/contributors refuse without callbacks. No renaming or removing populated native metadata inside the freezer.",
+      "sourcePolicy": "Metadata ThreadSource None/User only; actual ModelClient owner also refuses unsupported native source families. Field checks are not complete source attestation.",
+      "credentialCustody": "Opaque actual AuthManager/API-key cached selection with owner/generation/key/factory. Existing external-auth then cached-auth read locks held through bounded synchronous closure; credential writer publishes revision under same write lock. Not managed policy/network/source/route/model/limit/consume authority.",
+      "actualModelOwner": "ModelClient capture_public_api_responses_body derives own context, selected provider AuthManager and real contributor inventory; context resolver shared with ordinary builder. Provider callbacks before credential guard; completed pure formatted body returned synchronously. No later consume authority is conferred.",
+      "corePlanning": "Actual ordinary utility/shell/MCP-resource/collaboration-handler/mode/exposure/code-mode registry owners use resolved data without fabricated Session/TurnContext. Original eligibility/provider/role loading and final owner boundaries remain; metadata getter callbacks remain where documented. This is not complete callback-free fresh inventory.",
+      "semanticPreservation": "Named-input substitution/token comparisons and existing C bounded source inspections retained; actual existing ordinary callers use new owners. Source67 stale imports corrected in68.",
+      "authoredOfflineFixtures": {
+        "publicMetadata": 3,
+        "actualModelClient": 1,
+        "credentialGuard": 2
+      },
+      "localScopedRustfmtAndWhitespace": "passed",
+      "localRustCompilationOrExecution": false,
+      "nativeFixtureResult": "pending exact new composed tree",
+      "wholePreparationReady": false,
+      "actualPrepareCountConsumeRPCInstalled": false,
+      "applicationReady": false
     }
   },
   "runtimeQualified": false,
@@ -755,7 +826,23 @@
     "unreservedFreshInputs": "2cbbb822ffbe9d9a62e6c26d6e0c69796ae2a1ee",
     "singleAttemptFactory": "79a2a34d4c93892298033d116c5e1c0f0c061e6e",
     "configToolSelection": "43d48041b06eb631e9e80ecfaa1a1974eeb91b49",
-    "configuredMemoryWebTools": "bb5bedc2e334700b930352c58e6c50660c173e2e"
+    "configuredMemoryWebTools": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+    "ordinaryPublicBodyAndPlanning": {
+      "firstCommit": "324c4c1ca1214edeca6d56677a037b215f740888",
+      "lastCommit": "d615a63d687555242ede9cb3874d2699f99520c3",
+      "patches": [
+        "native-public-observation-policy.patch",
+        "native-public-thread-source-policy.patch",
+        "native-utility-tool-inputs.patch",
+        "native-cached-api-credential-guard.patch",
+        "native-ordinary-public-body-owner.patch",
+        "native-shell-resource-tool-inputs.patch",
+        "native-collaboration-tool-metadata.patch",
+        "native-resolved-tool-mode-policy.patch",
+        "native-model-tool-exposure-policy.patch",
+        "native-resolved-code-mode-registry.patch"
+      ]
+    }
   },
   "historicalFoundation": {
     "acceptedApplicationPr": 1000,
@@ -2293,6 +2380,14 @@
       "publishedPr": 1058,
       "nativeCi": 39339195266,
       "qualification": "pending at candidate construction; never reused for the new composed tree"
+    },
+    {
+      "sourceTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
+      "localSourceCommit": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+      "patchCount": 60,
+      "publishedPr": 1060,
+      "nativeCi": 39345244430,
+      "qualification": "pending at next candidate construction; cannot qualify new composed tree"
     }
   ]
 }

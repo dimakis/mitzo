@@ -1,0 +1,337 @@
+From 6b6afb6a5811bfc7922f58938ce6eae064eb32ff Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 01:19:27 +0100
+Subject: [PATCH] feat(core): capture public Responses bodies from the ordinary
+ model owner
+
+---
+ codex-rs/core/src/client.rs                   |  37 +++--
+ codex-rs/core/src/client_format_tests.rs      | 139 ++++++++++++++++++
+ .../src/client_public_responses_capture.rs    |  96 ++++++++++++
+ 3 files changed, 261 insertions(+), 11 deletions(-)
+
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 10cd336..c6ca40b 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -32,10 +32,10 @@ use std::sync::OnceLock;
+ use std::sync::atomic::AtomicBool;
+ use std::sync::atomic::Ordering;
+ 
+-#[path = "client_tool_metadata.rs"]
+-mod tool_metadata;
+ #[path = "client_public_responses_capture.rs"]
+ mod public_responses_capture;
++#[path = "client_tool_metadata.rs"]
++mod tool_metadata;
+ 
+ use crate::CodexResponsesHeaders;
+ use crate::tools::ExecutedToolCalls;
+@@ -858,18 +858,15 @@ impl ModelClient {
+         request_telemetry
+     }
+ 
+-    #[allow(clippy::too_many_arguments)]
+-    pub(crate) fn build_responses_request(
++    // Shared ordinary-state resolution. Public capture uses the same selection,
++    // with full native observations retained privately before its named policy.
++    fn resolved_responses_request_context(
+         &self,
+-        prompt: &Prompt,
+         model_info: &ModelInfo,
+-        effort: Option<ReasoningEffortConfig>,
+-        summary: ReasoningSummaryConfig,
+-        service_tier: Option<String>,
+         responses_metadata: &CodexResponsesMetadata,
+         include_internal: bool,
+-    ) -> Result<ResponsesApiRequest> {
+-        let context = ResolvedResponsesRequestContext {
++    ) -> ResolvedResponsesRequestContext {
++        ResolvedResponsesRequestContext {
+             thread_id: self.state.thread_id,
+             is_openai: self.state.provider.info().is_openai(),
+             is_amazon_bedrock: self.state.provider.info().is_amazon_bedrock(),
+@@ -886,7 +883,25 @@ impl ModelClient {
+             } else {
+                 InternalMetadataPolicy::Omit
+             },
+-        };
++        }
++    }
++
++    #[allow(clippy::too_many_arguments)]
++    pub(crate) fn build_responses_request(
++        &self,
++        prompt: &Prompt,
++        model_info: &ModelInfo,
++        effort: Option<ReasoningEffortConfig>,
++        summary: ReasoningSummaryConfig,
++        service_tier: Option<String>,
++        responses_metadata: &CodexResponsesMetadata,
++        include_internal: bool,
++    ) -> Result<ResponsesApiRequest> {
++        let context = self.resolved_responses_request_context(
++            model_info,
++            responses_metadata,
++            include_internal,
++        );
+         let request = format_responses_request(
+             prompt,
+             model_info,
+diff --git a/codex-rs/core/src/client_format_tests.rs b/codex-rs/core/src/client_format_tests.rs
+index 637e5e1..bffbcc1 100644
+--- a/codex-rs/core/src/client_format_tests.rs
++++ b/codex-rs/core/src/client_format_tests.rs
+@@ -128,3 +128,142 @@ fn capture_uses_actual_ordinary_owner_and_refuses_populated_final_metadata() ->
+     assert_eq!(serde_json::to_value(&request)?, retained);
+     Ok(())
+ }
++
++#[test]
++fn public_body_capture_uses_actual_model_client_state_credentials_and_contributor_inventory()
++-> anyhow::Result<()> {
++    use crate::responses_request_format::ResponsesOutputBudget;
++    use codex_extension_api::ModelRequestContributor;
++    use codex_extension_api::ModelRequestInput;
++    use codex_extension_api::ModelResponseInterceptor;
++    use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
++    use std::sync::atomic::AtomicUsize;
++    use std::sync::atomic::Ordering;
++
++    let auth =
++        AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-selected-api-key"));
++    let credentials = auth.capture_cached_api_key_credentials().unwrap();
++    let mut client = ModelClient::new(
++        Some(auth),
++        AgentIdentityAuthPolicy::JwtOnly,
++        ThreadId::new(),
++        ModelProviderInfo::create_openai_provider(/*base_url*/ None),
++        SessionSource::Exec,
++        "offline-public-capture".to_string(),
++        /*model_verbosity*/ None,
++        /*content_item_kinds_enabled*/ true,
++        /*reasoning_effort_override_enabled*/ false,
++        /*enable_request_compression*/ false,
++        /*include_timing_metrics*/ false,
++        /*beta_features_header*/ None,
++        /*concurrent_reasoning_summaries_enabled*/ false,
++        /*attestation_provider*/ None,
++        HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
++        codex_model_provider::WorkspaceRoutingContext::new(
++            "https://chatgpt.com/backend-api".into(),
++        ),
++        Vec::new(),
++    );
++    let metadata = test_responses_metadata_for_client(
++        &client,
++        Some("retained-turn"),
++        "retained-window".into(),
++        /*parent_thread_id*/ None,
++        TestCodexResponsesRequestKind::Turn,
++    );
++    let model = test_model_info();
++    let prompt = Prompt {
++        input: vec![serde_json::from_value(
++            json!({"type":"message","id":"legacy-id","role":"user","content":[{"type":"input_text","text":"actual owner capture"}]}),
++        )?],
++        base_instructions: BaseInstructions {
++            text: "actual owner instructions".into(),
++            provenance: None,
++        },
++        ..Default::default()
++    };
++    let generation = || ResponsesGenerationOptions {
++        effort: None,
++        summary: ReasoningSummaryConfig::None,
++        service_tier: None,
++    };
++    let budget = || ResponsesOutputBudget {
++        max_output_tokens: 64,
++        model_output_limit: 128,
++    };
++    let mut ordinary = client.build_responses_request(
++        &prompt,
++        &model,
++        None,
++        ReasoningSummaryConfig::None,
++        None,
++        &metadata,
++        /*include_internal*/ true,
++    )?;
++    client.prepare_response_items_for_request(&mut ordinary.input);
++    let mut expected = serde_json::to_value(&ordinary)?;
++    let fields = expected.as_object_mut().unwrap();
++    fields.remove("client_metadata");
++    fields.insert("max_output_tokens".into(), json!(64));
++    fields.insert("truncation".into(), json!("disabled"));
++    let captured = client.capture_public_api_responses_body(
++        &prompt,
++        &model,
++        metadata.clone(),
++        generation(),
++        budget(),
++        &credentials,
++    )?;
++    assert_eq!(captured.request().body(), &expected);
++    assert_eq!(
++        captured
++            .observations()
++            .client_metadata(/*include_internal*/ true),
++        metadata.client_metadata(/*include_internal*/ true)
++    );
++
++    let foreign =
++        AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-selected-api-key"));
++    let foreign_credentials = foreign.capture_cached_api_key_credentials().unwrap();
++    assert!(
++        client
++            .capture_public_api_responses_body(
++                &prompt,
++                &model,
++                metadata.clone(),
++                generation(),
++                budget(),
++                &foreign_credentials
++            )
++            .is_err()
++    );
++    #[derive(Debug)]
++    struct Contributor(Arc<AtomicUsize>);
++    impl ModelRequestContributor for Contributor {
++        fn request(
++            &self,
++            _input: ModelRequestInput<'_>,
++        ) -> Option<Box<dyn ModelResponseInterceptor>> {
++            self.0.fetch_add(1, Ordering::SeqCst);
++            None
++        }
++    }
++    let calls = Arc::new(AtomicUsize::new(0));
++    client
++        .request_contributors
++        .push(Arc::new(Contributor(Arc::clone(&calls))));
++    assert!(
++        client
++            .capture_public_api_responses_body(
++                &prompt,
++                &model,
++                metadata,
++                generation(),
++                budget(),
++                &credentials
++            )
++            .is_err()
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    Ok(())
++}
+diff --git a/codex-rs/core/src/client_public_responses_capture.rs b/codex-rs/core/src/client_public_responses_capture.rs
+index f0289c5..9d78ac7 100644
+--- a/codex-rs/core/src/client_public_responses_capture.rs
++++ b/codex-rs/core/src/client_public_responses_capture.rs
+@@ -168,6 +168,102 @@ pub(crate) fn capture_public_api_responses_request(
+     })
+ }
+ 
++// Associated with the real ordinary ModelClient, rather than accepting caller
++// flags or a fabricated context/empty contributor inventory at the producer seam.
++impl super::ModelClient {
++    /// Captures the body partition from this actual ordinary owner while its
++    /// selected native manager still owns the API credentials. This does not
++    /// resolve/qualify final HTTP headers, network policy, account permissions,
++    /// model/output ceilings or durable count/consume. The completed producer must
++    /// retain the selection and renew all those owners at the native transaction.
++    #[cfg_attr(
++        not(test),
++        allow(dead_code, reason = "Prepared admission is not installed.")
++    )]
++    pub(crate) fn capture_public_api_responses_body(
++        &self,
++        prompt: &Prompt,
++        model: &ModelInfo,
++        metadata: CodexResponsesMetadata,
++        generation: ResponsesGenerationOptions,
++        output: ResponsesOutputBudget,
++        credentials: &codex_login::auth::CapturedApiKeyCredentials,
++    ) -> Result<CapturedPublicApiResponsesRequest, ApiError> {
++        if !matches!(
++            self.state.session_source,
++            codex_protocol::protocol::SessionSource::Cli
++                | codex_protocol::protocol::SessionSource::VSCode
++                | codex_protocol::protocol::SessionSource::Exec
++                | codex_protocol::protocol::SessionSource::Mcp
++                | codex_protocol::protocol::SessionSource::Custom(_)
++        ) {
++            return Err(unsupported("unsupported ordinary native session source"));
++        }
++        let provider = self.state.provider.info();
++        if !provider.is_openai()
++            || !provider.requires_openai_auth
++            || provider.wire_api != codex_model_provider_info::WireApi::Responses
++            || provider.uses_openai_actor_authorization()
++            || provider.env_key.is_some()
++            || provider.experimental_bearer_token.is_some()
++            || provider.auth.is_some()
++            || provider.gateway_oauth.is_some()
++            || provider.aws.is_some()
++            || provider
++                .query_params
++                .as_ref()
++                .is_some_and(|params| !params.is_empty())
++        {
++            return Err(unsupported(
++                "unqualified ordinary provider credential source",
++            ));
++        }
++        // A cached API key selects the ordinary public default when base_url is
++        // absent. Explicit overrides must name the same public HTTP API origin.
++        if let Some(base) = &provider.base_url {
++            let url = url::Url::parse(base).map_err(|_| unsupported("invalid provider URL"))?;
++            if url.scheme() != "https"
++                || url.host_str() != Some("api.openai.com")
++                || url.port().is_some()
++                || !url.username().is_empty()
++                || url.password().is_some()
++                || !matches!(url.path(), "/v1" | "/v1/")
++                || url.query().is_some()
++                || url.fragment().is_some()
++            {
++                return Err(unsupported("unsupported ordinary public API origin"));
++            }
++        }
++        let manager = self
++            .state
++            .provider
++            .auth_manager()
++            .ok_or_else(|| unsupported("missing ordinary credential owner"))?;
++        // Resolve immutable ordinary inputs before entering the credential lock;
++        // no provider trait callback or auth reentry runs inside that closure.
++        let context = self
++            .resolved_responses_request_context(model, &metadata, /*include_internal*/ true);
++        manager
++            .with_current_api_key_credentials(credentials, |_, _| {
++                capture_public_api_responses_request(
++                    prompt,
++                    model,
++                    PublicApiResponsesCaptureInputs {
++                        context,
++                        metadata,
++                        generation,
++                        output,
++                        normalization: RequestCopyNormalization {
++                            content_item_kinds_enabled: self.state.content_item_kinds_enabled,
++                        },
++                    },
++                    &self.request_contributors,
++                )
++            })
++            .ok_or_else(|| unsupported("ordinary cached credential ownership changed"))?
++    }
++}
++
+ fn unsupported(detail: &str) -> ApiError {
+     ApiError::InvalidRequest {
+         message: format!("public Responses capture refuses {detail}"),
+-- 
+2.54.0 (Apple Git-157)
+

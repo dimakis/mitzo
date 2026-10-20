@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.345-symposium-closed-inputs';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.347-symposium-native-public-capture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,26 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-public-observation-policy.patch':
+    '8f5233d49f70121af359b927e07d5512a19a2c61fc63830fadf266c0c32e1d6e',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-public-thread-source-policy.patch':
+    'ba5d21d6fc16149e19e64cbd7d7e9c7099e03e6c352cdb9f2a2b4034127bf887',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-utility-tool-inputs.patch':
+    '6a73f20f0f2289b97112c74e7e12c337bc48a4dff491785f3d401c4ab932579b',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-cached-api-credential-guard.patch':
+    '262ef01063573f018b17d0505820abfc97d6ba8915963cc05e1a52a5eb65e002',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-ordinary-public-body-owner.patch':
+    '994569a82900e0ab73ffadb21e843646a774a9cc37ad16c640c3bcd1d1155593',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-shell-resource-tool-inputs.patch':
+    '6f1433d2b79b4d64a1b14ed92e2c441e74684eb17235970ef758a4c645cf9293',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-collaboration-tool-metadata.patch':
+    '0f1871b61e2ebbf2859a71e4b22b5c21f6f9343f2335921f28ce696ea2dc9d24',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-resolved-tool-mode-policy.patch':
+    '6cb315d05029eb418e4ea8164c594b2e033470bf9fab1c21b048cec03099c1b0',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-model-tool-exposure-policy.patch':
+    '5aa1ed593d6cdd263ce5f135e7d5e0a4bd31bc55ff00657534174931b2ba60e6',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-resolved-code-mode-registry.patch':
+    'c2df00cad6dacf6c59b636b9ab9770d8a747fa1155ed4c3cbf01c6a7d8aedaf6',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-closed-mcp-source-plans.patch':
     '30d053c658d61bdc85042efafe973dba0528f26414c14f749442b880f43de7a6',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-fresh-mcp-source-inputs.patch':

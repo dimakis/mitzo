@@ -6,10 +6,10 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 60 patches
+## Current composed source: 70 patches
 
-The 60 ordered patches reconstruct native tree
-`b28e456e2791162cd7cbb6b4443e339e5e4aad03` (local source `bb5bedc2e334700b930352c58e6c50660c173e2e`).
+The 70 ordered patches reconstruct native tree
+`9ce8eecf782809ae5d33f63715000e8396ab2e55` (local source `d615a63d687555242ede9cb3874d2699f99520c3`).
 Patch 54 adds an extension-registry input contract for pre-session inventory.
 The owning extension can register its real executable tools with `fixed_tools`;
 the registry retains their definitions for both ordinary planning and capture.
@@ -46,6 +46,31 @@ registry identity. Memory and web search share their real configuration rules wi
 this declaration; enabled/state-dependent tools still refuse. Other production
 contributors remain unresolved, and instruction/context capture is separate.
 
+Patches 61–70 connect the public body partition to the actual ordinary
+ModelClient owner. Its context resolver is shared with the existing ordinary
+builder; it derives its real provider/AuthManager and request-contributor
+inventory. A named public-route policy runs before formatting, retains the full
+native observation snapshot privately, and refuses unknown metadata, backend
+controls, unsupported native sources and contributors. The strict freezer still
+refuses unsupported final fields. Internal stream controls are not cleared.
+
+The new cached API-key selection belongs to the actual native AuthManager.
+Owner/generation/key checks run with the existing external-auth then cached-auth
+read locks held through a bounded synchronous operation; the actual credential
+writer publishes revisions under the same write lock. A callback result cannot
+authorize a later transaction. This settles credential custody only, not managed
+policy/network, host source/account, route, model/limit or durable consume order.
+The ModelClient body capture returns completed formatted bytes inside that guard,
+without provider callbacks or a deferred future in its guarded path.
+
+Actual ordinary utility, shell/resource and collaboration handler construction,
+tool-mode selection, model exposure and code-mode registry construction now share
+resolved-input owners. The original managed-sandbox gate, actual provider/role-read
+order and real handler/spec/exposure order remain. Runtime metadata getters still
+run in their documented ordinary positions; these extractions do not qualify
+unresolved contributors or supply a complete fresh tool/prompt inventory. No fake
+Session, TurnContext, source-complete flag or alternate planning catalog is added.
+
 Offline fixtures cover actual installed source parity/refusal, genuine ThreadManager
 input custody and remote refusal with zero native threads/provider connects, the
 actual HTTP factory against recording proxies and denial policies, and config-plan
@@ -53,7 +78,7 @@ ordinary/per-step parity, renewal and missing-registration preflight. CI adds th
 MCP extension, login, memories and web-search owners to the existing Linux/Mac
 fixture and format gates; all previous coverage remains. Scoped formatting/source
 reconstruction are local checks. Compilation and execution require exact-tree CI;
-PR1058's 54-patch results cannot qualify this new source.
+Results from PR1058's 54-patch or PR1060's 60-patch source cannot qualify this new source.
 
 This is still source/input and transport groundwork. Complete Core tool/instruction
 capture, final request metadata/account/limit authority, native prepare/count/consume,

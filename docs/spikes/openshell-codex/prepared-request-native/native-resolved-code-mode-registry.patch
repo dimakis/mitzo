@@ -1,0 +1,337 @@
+From d615a63d687555242ede9cb3874d2699f99520c3 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 01:32:45 +0100
+Subject: [PATCH] refactor(core): build code-mode registry from resolved
+ selections
+
+---
+ codex-rs/core/src/tools/spec_plan.rs          | 129 ++-------------
+ .../core/src/tools/spec_plan/code_mode.rs     | 155 ++++++++++++++++++
+ 2 files changed, 169 insertions(+), 115 deletions(-)
+ create mode 100644 codex-rs/core/src/tools/spec_plan/code_mode.rs
+
+diff --git a/codex-rs/core/src/tools/spec_plan.rs b/codex-rs/core/src/tools/spec_plan.rs
+index bec5a9b..2b1eb7d 100644
+--- a/codex-rs/core/src/tools/spec_plan.rs
++++ b/codex-rs/core/src/tools/spec_plan.rs
+@@ -1,3 +1,4 @@
++mod code_mode;
+ mod collaboration;
+ mod model_exposure;
+ mod shell_and_resources;
+@@ -6,13 +7,9 @@ mod utility;
+ use crate::agent::exceeds_thread_spawn_depth_limit;
+ use crate::agent::next_thread_spawn_depth;
+ use crate::environment_selection::TurnEnvironmentSnapshot;
+-use crate::image_preparation::unified_image_budget_enabled;
+ use crate::session::session::Session;
+ use crate::session::turn_context::TurnContext;
+-use crate::tools::code_mode::execute_spec::create_code_mode_tool;
+ use crate::tools::effective_tool_mode;
+-use crate::tools::handlers::CodeModeExecuteHandler;
+-use crate::tools::handlers::CodeModeWaitHandler;
+ use crate::tools::handlers::DynamicToolHandler;
+ use crate::tools::handlers::ToolSearchHandlerCache;
+ use crate::tools::handlers::extension_tools::ExtensionToolAdapter;
+@@ -57,7 +54,6 @@ use codex_tools::ToolExecutor;
+ use codex_tools::ToolExposures;
+ use codex_tools::ToolName;
+ use codex_tools::ToolSpec;
+-use codex_tools::collect_code_mode_exec_prompt_tool_definitions;
+ use codex_tools::default_namespace_description;
+ use std::collections::BTreeMap;
+ use std::collections::HashMap;
+@@ -707,116 +703,19 @@ fn register_code_mode_executors(
+     if !matches!(tool_mode, ToolMode::CodeMode | ToolMode::CodeModeOnly) {
+         return BTreeMap::new();
+     }
+-
+-    let mut code_mode_tool_names = BTreeMap::new();
+-    let mut code_mode_nested_tool_specs = Vec::new();
+-    let mut exec_prompt_tool_specs = Vec::new();
+-    let mut deferred_exec_prompt_tool_specs = Vec::new();
+-    let mut included_deferred_mcp_output_schema = false;
+-    let deferred_tools_guidance_enabled = search_tool_enabled(turn_context, model_info);
+-    for tool in registry.entries() {
+-        let exposure = tool.exposure;
+-        if !exposure.is_available_in_code_mode() {
+-            continue;
+-        }
+-
+-        let tool_name = tool.runtime.tool_name();
+-        if model_exposure::is_excluded_from_code_mode(&turn_context.config, &tool_name) {
+-            continue;
+-        }
+-
+-        let immutable_spec = tool.runtime.immutable_spec();
+-        let cached_runtime = immutable_spec.map(|_| Arc::clone(&tool.runtime));
+-        let spec = immutable_spec
+-            .map(Arc::clone)
+-            .unwrap_or_else(|| Arc::new(tool.runtime.spec()));
+-        // Derive the name without serializing and augmenting every tool schema.
+-        let code_mode_name = match spec.as_ref() {
+-            ToolSpec::Function(_) | ToolSpec::Freeform(_) => {
+-                codex_tools::code_mode_name_for_tool_name(&tool_name)
+-            }
+-            ToolSpec::Namespace(namespace) if !namespace.tools.is_empty() => {
+-                codex_tools::code_mode_name_for_tool_name(&tool_name)
+-            }
+-            ToolSpec::Namespace(_) | ToolSpec::ToolSearch { .. } | ToolSpec::WebSearch { .. } => {
+-                continue;
+-            }
+-        };
+-        if !codex_code_mode::is_code_mode_nested_tool(&code_mode_name) {
+-            continue;
+-        }
+-        match code_mode_tool_names.entry(codex_code_mode::normalize_code_mode_identifier(
+-            &code_mode_name,
+-        )) {
+-            Entry::Vacant(entry) => {
+-                entry.insert(tool_name);
+-            }
+-            Entry::Occupied(_) => {
+-                tracing::warn!(
+-                    tool_name = %tool_name,
+-                    code_mode_name = %code_mode_name,
+-                    "skipping tool with a duplicate normalized code-mode name"
+-                );
+-                continue;
+-            }
+-        }
+-
+-        if exposure == ToolExposure::Deferred {
+-            if deferred_tools_guidance_enabled
+-                && (cached_runtime.is_none() || !included_deferred_mcp_output_schema)
+-            {
+-                if cached_runtime.is_some() {
+-                    included_deferred_mcp_output_schema = true;
+-                }
+-                deferred_exec_prompt_tool_specs.push(Arc::clone(&spec));
+-            }
+-        } else {
+-            exec_prompt_tool_specs.push(spec.as_ref().clone());
+-        }
+-        code_mode_nested_tool_specs.push((spec, cached_runtime));
+-    }
+-
+-    let mut namespace_descriptions = code_mode_namespace_descriptions(&exec_prompt_tool_specs);
+-    let code_mode_input_schema_max_bytes =
+-        turn_context.config.code_mode.tool_input_schema_max_bytes;
+-    let mut enabled_tools = collect_code_mode_exec_prompt_tool_definitions(
+-        exec_prompt_tool_specs.iter(),
+-        code_mode_input_schema_max_bytes,
+-    );
+-    let deferred_tools = collect_code_mode_exec_prompt_tool_definitions(
+-        deferred_exec_prompt_tool_specs.iter().map(Arc::as_ref),
+-        code_mode_input_schema_max_bytes,
+-    );
+-    let model_messages = ResolvedModelMessages::from_model(model_info);
+-    if tool_mode == ToolMode::CodeModeOnly {
+-        indirect_prefixes.apply_exec_prompt(&mut enabled_tools, &mut namespace_descriptions);
+-    }
+-    enabled_tools
+-        .sort_by(|left, right| compare_code_mode_tools(left, right, &namespace_descriptions));
+-    let execute_handler = CodeModeExecuteHandler::new(
+-        create_code_mode_tool(
+-            &enabled_tools,
+-            &deferred_tools,
+-            &namespace_descriptions,
+-            turn_context.config.code_mode.default_exec_yield_time_ms,
+-            tool_mode == ToolMode::CodeModeOnly,
+-            if unified_image_budget_enabled(&turn_context.config.features, model_info) {
+-                codex_code_mode::ImageDetailVisibility::Hidden
+-            } else {
+-                codex_code_mode::ImageDetailVisibility::Visible
+-            },
+-            model_messages.code_mode(),
+-        ),
+-        code_mode_nested_tool_specs,
+-    );
+-
+-    registry.prepend_trusted(Arc::new(CodeModeWaitHandler::new(
+-        model_messages.code_mode_wait_description_override(),
+-        model_messages.code_mode_wait_parameters_override(),
+-    )));
+-    registry.prepend_trusted(Arc::new(execute_handler));
+-
+-    code_mode_tool_names
++    // Preserve the actual provider query's enabled-branch boundary and position
++    // before any runtime metadata getter in the shared constructor.
++    let search_tool_enabled = search_tool_enabled(turn_context, model_info);
++    code_mode::register_code_mode_executors(
++        code_mode::CodeModeToolInputs {
++            config: &turn_context.config,
++            model_info,
++            tool_mode,
++            search_tool_enabled,
++        },
++        registry,
++        indirect_prefixes,
++    )
+ }
+ 
+ #[instrument(level = "trace", skip_all, fields(tool_spec_count = specs.len()))]
+diff --git a/codex-rs/core/src/tools/spec_plan/code_mode.rs b/codex-rs/core/src/tools/spec_plan/code_mode.rs
+new file mode 100644
+index 0000000..60c332a
+--- /dev/null
++++ b/codex-rs/core/src/tools/spec_plan/code_mode.rs
+@@ -0,0 +1,155 @@
++//! Shared ordinary code-mode registry construction from resolved selection data.
++//! Provider search eligibility is captured at the original ordinary branch point.
++//! Runtime metadata getters still run in their original order: this module alone
++//! does NOT qualify unresolved runtimes for pre-session capture. A preparation
++//! owner must supply actual retained definitions and their real binding protocol.
++//! No Session/TurnContext or provider lookup occurs here; no tools are executed.
++
++use super::code_mode_namespace_descriptions;
++use super::compare_code_mode_tools;
++use super::model_exposure;
++use crate::config::Config;
++use crate::image_preparation::unified_image_budget_enabled;
++use crate::tools::code_mode::execute_spec::create_code_mode_tool;
++use crate::tools::handlers::CodeModeExecuteHandler;
++use crate::tools::handlers::CodeModeWaitHandler;
++use crate::tools::registry::ToolExposure;
++use crate::tools::registry::ToolRegistry;
++use codex_prompts::ResolvedModelMessages;
++use codex_protocol::openai_models::ModelInfo;
++use codex_protocol::openai_models::ToolMode;
++use codex_tools::IndirectNamespacePrefixes;
++use codex_tools::ToolName;
++use codex_tools::ToolSpec;
++use codex_tools::collect_code_mode_exec_prompt_tool_definitions;
++use std::collections::BTreeMap;
++use std::collections::btree_map::Entry;
++use std::sync::Arc;
++
++pub(super) struct CodeModeToolInputs<'a> {
++    pub(super) config: &'a Config,
++    pub(super) model_info: &'a ModelInfo,
++    pub(super) tool_mode: ToolMode,
++    pub(super) search_tool_enabled: bool,
++}
++
++pub(super) fn register_code_mode_executors(
++    input: CodeModeToolInputs<'_>,
++    registry: &mut ToolRegistry,
++    indirect_prefixes: &IndirectNamespacePrefixes<'_>,
++) -> BTreeMap<String, ToolName> {
++    let tool_mode = input.tool_mode;
++    let model_info = input.model_info;
++    if !matches!(tool_mode, ToolMode::CodeMode | ToolMode::CodeModeOnly) {
++        return BTreeMap::new();
++    }
++
++    let mut code_mode_tool_names = BTreeMap::new();
++    let mut code_mode_nested_tool_specs = Vec::new();
++    let mut exec_prompt_tool_specs = Vec::new();
++    let mut deferred_exec_prompt_tool_specs = Vec::new();
++    let mut included_deferred_mcp_output_schema = false;
++    let deferred_tools_guidance_enabled = input.search_tool_enabled;
++    for tool in registry.entries() {
++        let exposure = tool.exposure;
++        if !exposure.is_available_in_code_mode() {
++            continue;
++        }
++
++        let tool_name = tool.runtime.tool_name();
++        if model_exposure::is_excluded_from_code_mode(input.config, &tool_name) {
++            continue;
++        }
++
++        let immutable_spec = tool.runtime.immutable_spec();
++        let cached_runtime = immutable_spec.map(|_| Arc::clone(&tool.runtime));
++        let spec = immutable_spec
++            .map(Arc::clone)
++            .unwrap_or_else(|| Arc::new(tool.runtime.spec()));
++        // Derive the name without serializing and augmenting every tool schema.
++        let code_mode_name = match spec.as_ref() {
++            ToolSpec::Function(_) | ToolSpec::Freeform(_) => {
++                codex_tools::code_mode_name_for_tool_name(&tool_name)
++            }
++            ToolSpec::Namespace(namespace) if !namespace.tools.is_empty() => {
++                codex_tools::code_mode_name_for_tool_name(&tool_name)
++            }
++            ToolSpec::Namespace(_) | ToolSpec::ToolSearch { .. } | ToolSpec::WebSearch { .. } => {
++                continue;
++            }
++        };
++        if !codex_code_mode::is_code_mode_nested_tool(&code_mode_name) {
++            continue;
++        }
++        match code_mode_tool_names.entry(codex_code_mode::normalize_code_mode_identifier(
++            &code_mode_name,
++        )) {
++            Entry::Vacant(entry) => {
++                entry.insert(tool_name);
++            }
++            Entry::Occupied(_) => {
++                tracing::warn!(
++                    tool_name = %tool_name,
++                    code_mode_name = %code_mode_name,
++                    "skipping tool with a duplicate normalized code-mode name"
++                );
++                continue;
++            }
++        }
++
++        if exposure == ToolExposure::Deferred {
++            if deferred_tools_guidance_enabled
++                && (cached_runtime.is_none() || !included_deferred_mcp_output_schema)
++            {
++                if cached_runtime.is_some() {
++                    included_deferred_mcp_output_schema = true;
++                }
++                deferred_exec_prompt_tool_specs.push(Arc::clone(&spec));
++            }
++        } else {
++            exec_prompt_tool_specs.push(spec.as_ref().clone());
++        }
++        code_mode_nested_tool_specs.push((spec, cached_runtime));
++    }
++
++    let mut namespace_descriptions = code_mode_namespace_descriptions(&exec_prompt_tool_specs);
++    let code_mode_input_schema_max_bytes = input.config.code_mode.tool_input_schema_max_bytes;
++    let mut enabled_tools = collect_code_mode_exec_prompt_tool_definitions(
++        exec_prompt_tool_specs.iter(),
++        code_mode_input_schema_max_bytes,
++    );
++    let deferred_tools = collect_code_mode_exec_prompt_tool_definitions(
++        deferred_exec_prompt_tool_specs.iter().map(Arc::as_ref),
++        code_mode_input_schema_max_bytes,
++    );
++    let model_messages = ResolvedModelMessages::from_model(model_info);
++    if tool_mode == ToolMode::CodeModeOnly {
++        indirect_prefixes.apply_exec_prompt(&mut enabled_tools, &mut namespace_descriptions);
++    }
++    enabled_tools
++        .sort_by(|left, right| compare_code_mode_tools(left, right, &namespace_descriptions));
++    let execute_handler = CodeModeExecuteHandler::new(
++        create_code_mode_tool(
++            &enabled_tools,
++            &deferred_tools,
++            &namespace_descriptions,
++            input.config.code_mode.default_exec_yield_time_ms,
++            tool_mode == ToolMode::CodeModeOnly,
++            if unified_image_budget_enabled(&input.config.features, model_info) {
++                codex_code_mode::ImageDetailVisibility::Hidden
++            } else {
++                codex_code_mode::ImageDetailVisibility::Visible
++            },
++            model_messages.code_mode(),
++        ),
++        code_mode_nested_tool_specs,
++    );
++
++    registry.prepend_trusted(Arc::new(CodeModeWaitHandler::new(
++        model_messages.code_mode_wait_description_override(),
++        model_messages.code_mode_wait_parameters_override(),
++    )));
++    registry.prepend_trusted(Arc::new(execute_handler));
++
++    code_mode_tool_names
++}
+-- 
+2.54.0 (Apple Git-157)
+
