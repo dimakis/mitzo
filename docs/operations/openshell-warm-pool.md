@@ -9,9 +9,18 @@ unavailable explanation, and the API rejects a fabricated disk setting.
 
 ## Enrollment and scope
 
-This is source implementation and offline qualification. No service, staging,
-production or real sandbox was activated as part of this change, and no end-to-end
-latency gain has been measured. Staging and its pipeline remain stood down.
+The initial implementation was qualified offline. A separately authorized
+production benchmark on 16 October measured a regression: median first visible
+output was 10.45 seconds cold and 21.18 seconds warm across five pairs. See
+[the timing diagnosis](../diagnostics/warm-pool-latency-2026-10-16.md).
+The source fixes below have offline qualification; post-fix live timings remain
+outstanding. Staging and its pipeline remain stood down.
+
+The application fixes support the existing pinned supervisor and need no OpenShell
+upgrade or credential migration. Qualify a Mitzo application release against that
+existing stack first. The separate supervisor wake-up patch is optional and
+deferred pending those measurements; actual provider refresh can still take a
+normal supervisor polling cycle with the existing image.
 
 On a separately selected and authorized host, `MITZO_OPENSHELL_WARM_POOL_ENABLED=1`
 permits operator preparation. It does not itself turn warming on. Save settings
@@ -144,6 +153,18 @@ content (or the independently admitted repository seed), attaches only the chose
 account and approved services, then hands off to existing native initialization.
 Normal command-time knowledge reconciliation and provider ACK rules still apply.
 A warmup never creates or inherits Slice 1's one-use initial-publication receipt.
+For a new explicit command, the manager can select and freeze the fresh claim seed
+under durable claim ownership, then share that exact selection with its first
+turn after physical/account verification. Empty/busy pools do not select a claim
+seed. Retained claims, recovery and external seeds do not acquire this receipt;
+it is consumed before any adoption await, including failure and cancellation.
+The frozen upload is released after the owning ensure settles.
+
+Native launch checks the required provider environment in the actual exec shell.
+If it is not yet available, only pre-initialization launch is retried, at most
+every 500 ms within a 20-second window and the existing RPC timeout. Closing the
+client cancels pending retries. This removes unconditional ten-second sleeps;
+it does not bypass the supervisor's actual provider propagation or replay turns.
 
 `GET /api/sandboxes` observes resources without provisioning; it reports unverified
 state if physical identity or provider-free readiness cannot be established.

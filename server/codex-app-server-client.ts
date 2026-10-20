@@ -408,7 +408,7 @@ export class CodexAppServerClient {
   private initializing?: Promise<void>;
   private initializationFrame?: JsonObject;
   private environmentLaunch?: { create: () => RpcProcess };
-  private environmentAttempts = 0;
+  private environmentDeadline?: number;
   private environmentRetryTimer?: ReturnType<typeof setTimeout>;
   private waitingForEnvironment = false;
   private retiredChildren = new WeakSet<RpcProcess>();
@@ -453,27 +453,33 @@ export class CodexAppServerClient {
       if (!current() || this.closed) return;
       if (!this.ready && code === 78 && this.environmentLaunch) {
         this.waitingForEnvironment = true;
-        if (this.environmentAttempts >= 2) {
+        this.environmentDeadline ??= Date.now() + 20_000;
+        const remaining = this.environmentDeadline - Date.now();
+        if (remaining <= 0) {
           this.close(new CodexTransportError('environment_pending'));
           return;
         }
-        this.environmentAttempts++;
         this.retiredChildren.add(child);
         child.kill();
         this.buffer = Buffer.alloc(0);
         this.bufferedBytes = 0;
-        // The pinned supervisor polls provider configuration every ten seconds.
-        this.environmentRetryTimer = setTimeout(() => {
-          this.environmentRetryTimer = undefined;
-          if (this.closed) return;
-          try {
-            this.child = this.environmentLaunch!.create();
-            this.bindChild(this.child);
-            if (this.initializationFrame) this.write(this.initializationFrame);
-          } catch {
-            this.close(new CodexTransportError('environment_pending'));
-          }
-        }, 10_000);
+        // Observe the actual same-launch environment instead of adding an entire
+        // supervisor polling period after every miss. Only initialize is replayed;
+        // every attempt still gates all required credentials in its own exec shell.
+        this.environmentRetryTimer = setTimeout(
+          () => {
+            this.environmentRetryTimer = undefined;
+            if (this.closed) return;
+            try {
+              this.child = this.environmentLaunch!.create();
+              this.bindChild(this.child);
+              if (this.initializationFrame) this.write(this.initializationFrame);
+            } catch {
+              this.close(new CodexTransportError('environment_pending'));
+            }
+          },
+          Math.min(500, remaining),
+        );
         return;
       }
       this.close();

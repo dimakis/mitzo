@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.414-quiet-chat-recovery-fences';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.415-warm-start-readiness';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -325,11 +324,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'cc15c8961398998acff1315699feb77cd614278d9109804b5f1495d796a5d9bd',
   '../openshell-cli-environment.ts':
     '77f66ceaffb019038fe06479459505dbb37480b7791c596c8e869bef14c2b456',
-  '../openshell-warm-pool.ts': '9af589d6c38ce39d122a9f5d55b5e7c34a977ca6a040918dd7d6fe6321958f5d',
+  '../openshell-warm-pool.ts': 'b44b11960eb843e267d53f67564159ccd3426118f81f4ffc79b6fc7d29ad1c11',
   '../openshell-warm-pool-runtime.ts':
     'f3090664b76b721494f9ef061f89732866d9696ce3c5f6172662c832a88533d4',
   '../openshell-warm-pool-binding.ts':
-    '498030ec01afaa475f3e869974ec1eba1465eb537e14c06221e2c217a1e11583',
+    'a7e2fd2e2b2f706bfce0c3753272440383bba6797c316ebf38dce602414e5a7b',
   '../openshell-warm-pool-router.ts':
     '6915cd60cab521e2c8a22eeb773c348c277b30f4ad4cb337ec3615e24f3070c8',
   '../openshell-warm-pool-host.ts':
@@ -576,7 +575,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
-    '02068ca656f91ff525bdec2b1ca25c1e5733e929b8b66c821ec98b3d0643a766',
+    'f5e8ad223e84c8519021e545296fb7bd6dabd89550d32d966f547703df5950ea',
   '../codex-mcp-tools.ts': 'ad82004d216382a911fbc1f089e4aeb8b22b2e833d6ced51fa6c37682a901206',
   '../codex-runtime-diagnostics.ts':
     '00b48e32557feff7923a5d548f085d2107383491689ec43f75f465287552f4c9',
@@ -829,7 +828,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '9733d55cd1cb15dcf68dd844fd85861bf4fece6f3d46e1926ec9c416dd59d7f2',
   '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
-  '../openshell-runtime.ts': '3bb6af48164c23b647dffe9f26dcbbb80c7769f55ce7f57fb5a4d3e334752c24',
+  '../openshell-runtime.ts': '96360b2144cdff2b62e530618516744475f08d1d61065dd11f1c7e2b5a43e516',
   '../codex-chat-session.ts': '1fb2d4379866fa285a2914e456e09fa88dd3e2ca3eab6bc282b924d0e50b0bcf',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
