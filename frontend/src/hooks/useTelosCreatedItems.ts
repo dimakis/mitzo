@@ -1,3 +1,4 @@
+import { subscribeTelosSourceSaves } from '../lib/telos-source-updates';
 import { useEffect, useRef, useState } from 'react';
 import { TelosWorkApiClient } from '@mitzo/client';
 import type { TelosSourcePacket } from '@mitzo/protocol';
@@ -25,16 +26,20 @@ export function useTelosCreatedItems(conversationId?: string) {
       if (document.visibilityState === 'visible') refresh();
     };
     const off = eventBus.on('todo_update', refresh);
+    const offSaved = subscribeTelosSourceSaves((save) => {
+      if (save.conversationId === conversationId) refresh();
+    });
     const offConnection = eventBus.onConnectionChange((connected) => {
       if (connected) refresh();
     });
     document.addEventListener('visibilitychange', resume);
     return () => {
       off();
+      offSaved();
       offConnection();
       document.removeEventListener('visibilitychange', resume);
     };
-  }, []);
+  }, [conversationId]);
   useEffect(() => {
     if (!conversationId) return;
     const controller = new AbortController();

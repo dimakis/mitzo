@@ -1,3 +1,4 @@
+import { announceTelosSourceSaved } from '../lib/telos-source-updates';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { TelosWorkApiClient } from '@mitzo/client';
@@ -250,6 +251,10 @@ export function useTelosSourceReview({
             if (recovery.receipt) {
               setSaved(true);
               setSavedItem(recovery.receipt.receipt.work.itemId);
+              announceTelosSourceSaved({
+                conversationId: sessionId,
+                itemId: recovery.receipt.receipt.work.itemId,
+              });
             } else
               attempted.set(identity, {
                 review: result,
@@ -540,6 +545,10 @@ export function useTelosSourceReview({
       if (valid(identity, version)) {
         setSaved(true);
         setSavedItem(receipt.receipt.work.itemId);
+        announceTelosSourceSaved({
+          conversationId: sessionId,
+          itemId: receipt.receipt.work.itemId,
+        });
       }
     } catch (failure) {
       prepared.pending = undefined;

@@ -1300,7 +1300,9 @@ bounded readers; it does not choose a latest global item or label adopted source
 as creations. The explicit inspected snapshot retains its own loading/unavailable
 fence. The inline link uses the existing receipt row, UiIcon, semantic tokens and
 44px control; its title is the retained creation summary and its target is the
-canonical item identity. The caption states the recorded selection mode and
+canonical item identity. Confirmed same-chat source saves invalidate these reads
+immediately through the shared source-save notification; the notification itself
+supplies no creation card or access authority. The caption states the recorded selection mode and
 message count. Durable event sequences are not presented as message ordinals or
 a contiguous range for sparse selections.
 

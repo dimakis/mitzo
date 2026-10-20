@@ -1,6 +1,8 @@
+import { PermissionBanner } from '../PermissionBanner';
+import type { ReactNode } from 'react';
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { TelosWorkApiClient } from '@mitzo/client';
 import type { TelosSourcePacket } from '@mitzo/protocol';
@@ -62,9 +64,11 @@ function setup() {
 function Surface({
   sessionId = 'origin',
   inspected = null,
+  extra,
 }: {
   sessionId?: string;
   inspected?: SourceNavigation | null;
+  extra?: ReactNode;
 }) {
   return (
     <MemoryRouter>
@@ -78,6 +82,7 @@ function Surface({
           permission={null}
           onPermissionRespond={() => {}}
         />
+        {extra}
       </SourceContext.Provider>
     </MemoryRouter>
   );
@@ -175,4 +180,106 @@ it('refuses adoption, foreign identities, missing message/provenance and stale l
     finish({ available: true, snapshot: source('item-b', 'source-b'), packet: packet() } as never),
   );
   expect(screen.queryByText('Created from this exchange')).toBeNull();
+});
+
+it('discovers a confirmed source creation without remounting the ordinary chat or interpreting tool text', async () => {
+  setup();
+  const links = vi.mocked(TelosWorkApiClient.prototype.links);
+  links.mockResolvedValue([]);
+  const permId = 'new-origin-permission';
+  const proposalSha256 = 'a'.repeat(64);
+  const expiresAt = Date.now() + 120_000;
+  const review = {
+    permId,
+    sessionId: 'origin',
+    toolUseId: 'create-once',
+    expiresAt,
+    proposalSha256,
+    operation: {
+      kind: 'create',
+      outcome: {
+        summary: 'Exact created outcome',
+        intent: 'Retain source',
+        rationale: 'Keep the original exchange',
+        acceptanceCriteria: ['Exact source retained'],
+        milestones: ['Read source'],
+        profile: 'manual',
+      },
+    },
+    source: {
+      conversationId: 'origin',
+      title: 'Original discussion',
+      boundary: { sequence: 11, messageId: 'agreed' },
+    },
+    messages: [
+      {
+        messageId: 'agreed',
+        sequence: 11,
+        author: 'assistant',
+        blocks: [{ blockId: 'agreed', content: 'The agreed source text', sha256: 'c'.repeat(64) }],
+        attribution: null,
+      },
+    ],
+    artifacts: [],
+  };
+  vi.spyOn(TelosWorkApiClient.prototype, 'getSourcePermission').mockResolvedValue(review as never);
+  vi.spyOn(TelosWorkApiClient.prototype, 'previewSourcePermission').mockImplementation(
+    async (_id, input) =>
+      ({
+        permId,
+        sessionId: 'origin',
+        requestId: input.requestId,
+        proposalSha256,
+        preview: {
+          sha256: 'b'.repeat(64),
+          packet: {
+            brief: { text: 'Reviewed original source' },
+            context: { boundary: review.source.boundary, messages: review.messages, artifacts: [] },
+          },
+        },
+      }) as never,
+  );
+  vi.spyOn(TelosWorkApiClient.prototype, 'approveSourcePermission').mockImplementation(async () => {
+    links.mockResolvedValue([
+      {
+        itemId: 'item-a',
+        role: 'origin',
+        conversation: { namespace: 'mitzo', conversationId: 'origin' },
+      },
+    ] as never);
+    return {
+      permId,
+      sessionId: 'origin',
+      receipt: { work: { itemId: 'item-a' } },
+      sourceSnapshotId: 'source-a',
+    } as never;
+  });
+  render(
+    <Surface
+      extra={
+        <PermissionBanner
+          permId={permId}
+          sessionId="origin"
+          reviewKind="telos_source"
+          toolName="TelosCreateOutcome"
+          toolInput="{}"
+          expiresAt={expiresAt}
+          onRespond={vi.fn()}
+        />
+      }
+    />,
+  );
+  await waitFor(() => expect(links).toHaveBeenCalledTimes(1));
+  const draft = screen.getByRole('textbox', { name: 'Unsent draft' });
+  expect(screen.queryByText('Created from this exchange')).toBeNull();
+  fireEvent.click(await screen.findByRole('checkbox', { name: /The agreed source text/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Review selected source' }));
+  await screen.findByText('Reviewed source');
+  fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+  await screen.findByText('Reviewed source saved.');
+  expect(
+    await screen.findByRole('link', { name: /Exact created outcome.*Created from this exchange/ }),
+  ).toBeTruthy();
+  expect(screen.getByRole('textbox', { name: 'Unsent draft' })).toBe(draft);
+  expect((draft as HTMLTextAreaElement).value).toBe('Keep original draft');
 });
