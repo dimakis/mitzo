@@ -1,0 +1,488 @@
+From ac2d45425b8f0efb2c51482796c0c43535963b7b Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 01:10:47 +0100
+Subject: [PATCH] refactor(core): select ordinary utility tools from resolved
+ inputs
+
+---
+ codex-rs/core/src/tools/spec_plan.rs         | 190 ++---------------
+ codex-rs/core/src/tools/spec_plan/utility.rs | 209 +++++++++++++++++++
+ 2 files changed, 223 insertions(+), 176 deletions(-)
+ create mode 100644 codex-rs/core/src/tools/spec_plan/utility.rs
+
+diff --git a/codex-rs/core/src/tools/spec_plan.rs b/codex-rs/core/src/tools/spec_plan.rs
+index fa44a3f..b144b19 100644
+--- a/codex-rs/core/src/tools/spec_plan.rs
++++ b/codex-rs/core/src/tools/spec_plan.rs
+@@ -1,3 +1,5 @@
++mod utility;
++
+ use crate::agent::exceeds_thread_spawn_depth_limit;
+ use crate::agent::next_thread_spawn_depth;
+ use crate::environment_selection::TurnEnvironmentSnapshot;
+@@ -6,30 +8,15 @@ use crate::session::session::Session;
+ use crate::session::turn_context::TurnContext;
+ use crate::tools::code_mode::execute_spec::create_code_mode_tool;
+ use crate::tools::effective_tool_mode;
+-use crate::tools::handlers::ApplyPatchHandler;
+ use crate::tools::handlers::CodeModeExecuteHandler;
+ use crate::tools::handlers::CodeModeWaitHandler;
+-use crate::tools::handlers::CurrentTimeHandler;
+ use crate::tools::handlers::DynamicToolHandler;
+ use crate::tools::handlers::ExecCommandHandler;
+ use crate::tools::handlers::ExecCommandHandlerOptions;
+-use crate::tools::handlers::GetContextRemainingHandler;
+-use crate::tools::handlers::ListAvailablePluginsToInstallHandler;
+ use crate::tools::handlers::ListMcpResourceTemplatesHandler;
+ use crate::tools::handlers::ListMcpResourcesHandler;
+-use crate::tools::handlers::NewContextWindowHandler;
+-use crate::tools::handlers::PlanHandler;
+ use crate::tools::handlers::ReadMcpResourceHandler;
+-use crate::tools::handlers::RequestPermissionsHandler;
+-use crate::tools::handlers::RequestPluginInstallHandler;
+-use crate::tools::handlers::RequestUserInputAsyncHandler;
+-use crate::tools::handlers::RequestUserInputHandler;
+-use crate::tools::handlers::SendMessageToUserAsyncHandler;
+-use crate::tools::handlers::SleepHandler;
+-use crate::tools::handlers::TestSyncHandler;
+ use crate::tools::handlers::ToolSearchHandlerCache;
+-use crate::tools::handlers::ViewImageHandler;
+-use crate::tools::handlers::WaitForEnvironmentHandler;
+ use crate::tools::handlers::WriteStdinHandler;
+ use crate::tools::handlers::extension_tools::ExtensionToolAdapter;
+ use crate::tools::handlers::multi_agents::CloseAgentHandler;
+@@ -50,7 +37,6 @@ use crate::tools::handlers::multi_agents_v2::SendMessageHandler as SendMessageHa
+ use crate::tools::handlers::multi_agents_v2::SpawnAgentHandler as SpawnAgentHandlerV2;
+ use crate::tools::handlers::multi_agents_v2::WaitAgentHandler as WaitAgentHandlerV2;
+ use crate::tools::handlers::tool_search_spec::ToolSearchSourceListing;
+-use crate::tools::handlers::view_image_spec::ViewImageToolOptions;
+ use crate::tools::hosted_spec::WebSearchToolOptions;
+ use crate::tools::hosted_spec::create_web_search_tool;
+ use crate::tools::multi_agent_tool::multi_agent_v2_handler;
+@@ -63,7 +49,6 @@ use crate::tools::tool_namespaces_info::collect_tool_namespaces_info;
+ use codex_connectors::apps_config_from_layer_stack;
+ use codex_extension_api::ExtensionData;
+ use codex_features::Feature;
+-use codex_features::SleepToolMode;
+ use codex_login::AuthManager;
+ use codex_mcp::CODEX_APPS_MCP_SERVER_NAME;
+ use codex_prompts::ResolvedModelMessages;
+@@ -90,11 +75,8 @@ use codex_tools::ToolExposures;
+ use codex_tools::ToolName;
+ use codex_tools::ToolSpec;
+ use codex_tools::UnifiedExecShellMode;
+-use codex_tools::can_request_original_image_detail;
+ use codex_tools::collect_code_mode_exec_prompt_tool_definitions;
+-use codex_tools::collect_request_plugin_install_entries;
+ use codex_tools::default_namespace_description;
+-use codex_tools::request_user_input_available_modes;
+ use std::collections::BTreeMap;
+ use std::collections::HashMap;
+ use std::collections::HashSet;
+@@ -655,10 +637,7 @@ pub(crate) fn search_tool_enabled(turn_context: &TurnContext, model_info: &Model
+ }
+ 
+ pub(crate) fn tool_suggest_enabled(turn_context: &TurnContext) -> bool {
+-    let features = turn_context.config.features.get();
+-    features.enabled(Feature::ToolSuggest)
+-        && features.enabled(Feature::Apps)
+-        && features.enabled(Feature::Plugins)
++    utility::tool_suggest_enabled(&turn_context.config)
+ }
+ 
+ fn namespace_tools_enabled(turn_context: &TurnContext) -> bool {
+@@ -1030,7 +1009,17 @@ fn add_core_tool_sources(context: &CoreToolPlanContext<'_>, registry: &mut ToolR
+ 
+     add_shell_tools(context, registry);
+     add_mcp_resource_tools(context, registry);
+-    add_core_utility_tools(context, registry);
++    utility::append_core_utility_tools(
++        utility::CoreUtilityToolInputs {
++            config: &context.turn_context.config,
++            session_source: &context.turn_context.session_source,
++            model_info: context.model_info,
++            environment_mode: tool_environment_mode(context.environments),
++            tool_suggest_candidates: context.tool_suggest_candidates,
++            wait_for_environment_tool_config: context.wait_for_environment_tool_config,
++        },
++        registry,
++    );
+     add_collaboration_tools(context, registry);
+ }
+ 
+@@ -1143,157 +1132,6 @@ fn add_mcp_resource_tools(context: &CoreToolPlanContext<'_>, registry: &mut Tool
+     }
+ }
+ 
+-#[instrument(level = "trace", skip_all)]
+-fn add_core_utility_tools(context: &CoreToolPlanContext<'_>, registry: &mut ToolRegistry) {
+-    let turn_context = context.turn_context;
+-    let features = turn_context.config.features.get();
+-    let environment_mode = tool_environment_mode(context.environments);
+-
+-    if turn_context.config.update_plan_enabled {
+-        registry.add(PlanHandler);
+-    }
+-
+-    if features.enabled(Feature::DeferredExecutor) {
+-        registry.add(
+-            context
+-                .wait_for_environment_tool_config
+-                .map(Arc::as_ref)
+-                .map_or_else(
+-                    WaitForEnvironmentHandler::default,
+-                    WaitForEnvironmentHandler::new,
+-                ),
+-        );
+-    }
+-
+-    if turn_context.config.experimental_request_user_input_enabled {
+-        registry.add_with_exposure(
+-            RequestUserInputHandler {
+-                available_modes: request_user_input_available_modes(features),
+-            },
+-            ToolExposure::DirectModelOnly,
+-        );
+-    }
+-
+-    if !turn_context.session_source.is_non_root_agent()
+-        && context
+-            .model_info
+-            .experimental_supported_tools
+-            .iter()
+-            // Existing model catalogs still advertise the previous name.
+-            .any(|tool| {
+-                matches!(
+-                    tool.as_str(),
+-                    "request_user_input_async" | "send_user_message_async"
+-                )
+-            })
+-    {
+-        let model_messages = ResolvedModelMessages::from_model(context.model_info);
+-        registry.add_with_exposure(
+-            RequestUserInputAsyncHandler {
+-                description: model_messages
+-                    .request_user_input_async_description()
+-                    .to_string(),
+-                parameters: model_messages
+-                    .request_user_input_async_parameters_override()
+-                    .map(str::to_owned),
+-            },
+-            ToolExposure::DirectModelOnly,
+-        );
+-    }
+-
+-    if !turn_context.session_source.is_non_root_agent()
+-        && (features.enabled(Feature::SendMessageToUserAsync)
+-            || context
+-                .model_info
+-                .experimental_supported_tools
+-                .iter()
+-                .any(|tool| tool == "send_message_to_user_async"))
+-    {
+-        registry.add_with_exposure(SendMessageToUserAsyncHandler, ToolExposure::DirectModelOnly);
+-    }
+-
+-    if environment_mode.has_environment() && features.enabled(Feature::RequestPermissionsTool) {
+-        registry.add(RequestPermissionsHandler);
+-    }
+-
+-    if features.enabled(Feature::TokenBudget) {
+-        registry.add_with_exposure(NewContextWindowHandler, ToolExposure::DirectModelOnly);
+-        registry.add(GetContextRemainingHandler);
+-    }
+-
+-    let current_time_reminder_enabled = features.enabled(Feature::CurrentTimeReminder);
+-    let model_has_clock = context
+-        .model_info
+-        .experimental_supported_tools
+-        .iter()
+-        .any(|tool| tool == "clock");
+-    if current_time_reminder_enabled || model_has_clock {
+-        registry.add(CurrentTimeHandler);
+-    }
+-    if features.enabled(Feature::SleepTool)
+-        && match turn_context.config.sleep_tool_mode {
+-            SleepToolMode::AlwaysOn => true,
+-            SleepToolMode::ModelDriven => {
+-                if current_time_reminder_enabled {
+-                    turn_context
+-                        .config
+-                        .current_time_reminder
+-                        .as_ref()
+-                        .is_some_and(|config| config.sleep_tool)
+-                } else {
+-                    model_has_clock
+-                }
+-            }
+-        }
+-    {
+-        registry.add(SleepHandler);
+-    }
+-
+-    if tool_suggest_enabled(turn_context)
+-        && let Some(candidates) = context
+-            .tool_suggest_candidates
+-            .filter(|candidates| !candidates.tools.is_empty())
+-    {
+-        if candidates.presentation == crate::tools::router::ToolSuggestPresentation::ListTool {
+-            registry.add(ListAvailablePluginsToInstallHandler::new(
+-                collect_request_plugin_install_entries(&candidates.tools),
+-            ));
+-        }
+-        registry.add(RequestPluginInstallHandler::new(
+-            candidates.tools.clone(),
+-            candidates.presentation,
+-        ));
+-    }
+-
+-    if environment_mode.has_environment() && context.model_info.apply_patch_tool_type.is_some() {
+-        let include_environment_id = matches!(environment_mode, ToolEnvironmentMode::Multiple);
+-        registry.add(ApplyPatchHandler::new(include_environment_id));
+-    }
+-
+-    if context
+-        .model_info
+-        .experimental_supported_tools
+-        .iter()
+-        .any(|tool| tool == "test_sync_tool")
+-    {
+-        registry.add(TestSyncHandler);
+-    }
+-
+-    if environment_mode.has_environment() && features.enabled(Feature::ViewImage) {
+-        let include_environment_id = matches!(environment_mode, ToolEnvironmentMode::Multiple);
+-        registry.add(ViewImageHandler::new(ViewImageToolOptions {
+-            can_request_original_image_detail: can_request_original_image_detail(
+-                context.model_info,
+-            ),
+-            unified_image_budget: unified_image_budget_enabled(
+-                &turn_context.config.features,
+-                context.model_info,
+-            ),
+-            include_environment_id,
+-        }));
+-    }
+-}
+-
+ #[instrument(level = "trace", skip_all)]
+ fn add_collaboration_tools(context: &CoreToolPlanContext<'_>, registry: &mut ToolRegistry) {
+     add_collaboration_tools_with_role_resolver(context, registry, || {
+diff --git a/codex-rs/core/src/tools/spec_plan/utility.rs b/codex-rs/core/src/tools/spec_plan/utility.rs
+new file mode 100644
+index 0000000..d7c4886
+--- /dev/null
++++ b/codex-rs/core/src/tools/spec_plan/utility.rs
+@@ -0,0 +1,209 @@
++//! Shared ordinary utility-tool selection from resolved immutable inputs.
++//!
++//! The production router uses this owner directly. No Session/TurnContext,
++//! lifecycle store, discovery, tool invocation or provider is needed to select
++//! these real stateless handlers. This is only the utility partition; callers
++//! still own genuine source/config/model/environment custody and final policy.
++
++use crate::WaitForEnvironmentToolConfig;
++use crate::config::Config;
++use crate::image_preparation::unified_image_budget_enabled;
++use crate::tools::handlers::ApplyPatchHandler;
++use crate::tools::handlers::CurrentTimeHandler;
++use crate::tools::handlers::GetContextRemainingHandler;
++use crate::tools::handlers::ListAvailablePluginsToInstallHandler;
++use crate::tools::handlers::NewContextWindowHandler;
++use crate::tools::handlers::PlanHandler;
++use crate::tools::handlers::RequestPermissionsHandler;
++use crate::tools::handlers::RequestPluginInstallHandler;
++use crate::tools::handlers::RequestUserInputAsyncHandler;
++use crate::tools::handlers::RequestUserInputHandler;
++use crate::tools::handlers::SendMessageToUserAsyncHandler;
++use crate::tools::handlers::SleepHandler;
++use crate::tools::handlers::TestSyncHandler;
++use crate::tools::handlers::ViewImageHandler;
++use crate::tools::handlers::WaitForEnvironmentHandler;
++use crate::tools::handlers::view_image_spec::ViewImageToolOptions;
++use crate::tools::registry::ToolExposure;
++use crate::tools::registry::ToolRegistry;
++use crate::tools::router::ToolSuggestCandidates;
++use codex_features::Feature;
++use codex_features::SleepToolMode;
++use codex_prompts::ResolvedModelMessages;
++use codex_protocol::openai_models::ModelInfo;
++use codex_protocol::protocol::SessionSource;
++use codex_tools::ToolEnvironmentMode;
++use codex_tools::can_request_original_image_detail;
++use codex_tools::collect_request_plugin_install_entries;
++use codex_tools::request_user_input_available_modes;
++use std::sync::Arc;
++use tracing::instrument;
++
++pub(super) struct CoreUtilityToolInputs<'a> {
++    pub(super) config: &'a Config,
++    pub(super) session_source: &'a SessionSource,
++    pub(super) model_info: &'a ModelInfo,
++    pub(super) environment_mode: ToolEnvironmentMode,
++    pub(super) tool_suggest_candidates: Option<&'a ToolSuggestCandidates>,
++    pub(super) wait_for_environment_tool_config: Option<&'a Arc<WaitForEnvironmentToolConfig>>,
++}
++
++pub(super) fn tool_suggest_enabled(config: &Config) -> bool {
++    let features = config.features.get();
++    features.enabled(Feature::ToolSuggest)
++        && features.enabled(Feature::Apps)
++        && features.enabled(Feature::Plugins)
++}
++
++#[instrument(level = "trace", skip_all)]
++pub(super) fn append_core_utility_tools(
++    context: CoreUtilityToolInputs<'_>,
++    registry: &mut ToolRegistry,
++) {
++    let features = context.config.features.get();
++    let environment_mode = context.environment_mode;
++
++    if context.config.update_plan_enabled {
++        registry.add(PlanHandler);
++    }
++
++    if features.enabled(Feature::DeferredExecutor) {
++        registry.add(
++            context
++                .wait_for_environment_tool_config
++                .map(Arc::as_ref)
++                .map_or_else(
++                    WaitForEnvironmentHandler::default,
++                    WaitForEnvironmentHandler::new,
++                ),
++        );
++    }
++
++    if context.config.experimental_request_user_input_enabled {
++        registry.add_with_exposure(
++            RequestUserInputHandler {
++                available_modes: request_user_input_available_modes(features),
++            },
++            ToolExposure::DirectModelOnly,
++        );
++    }
++
++    if !context.session_source.is_non_root_agent()
++        && context
++            .model_info
++            .experimental_supported_tools
++            .iter()
++            // Existing model catalogs still advertise the previous name.
++            .any(|tool| {
++                matches!(
++                    tool.as_str(),
++                    "request_user_input_async" | "send_user_message_async"
++                )
++            })
++    {
++        let model_messages = ResolvedModelMessages::from_model(context.model_info);
++        registry.add_with_exposure(
++            RequestUserInputAsyncHandler {
++                description: model_messages
++                    .request_user_input_async_description()
++                    .to_string(),
++                parameters: model_messages
++                    .request_user_input_async_parameters_override()
++                    .map(str::to_owned),
++            },
++            ToolExposure::DirectModelOnly,
++        );
++    }
++
++    if !context.session_source.is_non_root_agent()
++        && (features.enabled(Feature::SendMessageToUserAsync)
++            || context
++                .model_info
++                .experimental_supported_tools
++                .iter()
++                .any(|tool| tool == "send_message_to_user_async"))
++    {
++        registry.add_with_exposure(SendMessageToUserAsyncHandler, ToolExposure::DirectModelOnly);
++    }
++
++    if environment_mode.has_environment() && features.enabled(Feature::RequestPermissionsTool) {
++        registry.add(RequestPermissionsHandler);
++    }
++
++    if features.enabled(Feature::TokenBudget) {
++        registry.add_with_exposure(NewContextWindowHandler, ToolExposure::DirectModelOnly);
++        registry.add(GetContextRemainingHandler);
++    }
++
++    let current_time_reminder_enabled = features.enabled(Feature::CurrentTimeReminder);
++    let model_has_clock = context
++        .model_info
++        .experimental_supported_tools
++        .iter()
++        .any(|tool| tool == "clock");
++    if current_time_reminder_enabled || model_has_clock {
++        registry.add(CurrentTimeHandler);
++    }
++    if features.enabled(Feature::SleepTool)
++        && match context.config.sleep_tool_mode {
++            SleepToolMode::AlwaysOn => true,
++            SleepToolMode::ModelDriven => {
++                if current_time_reminder_enabled {
++                    context
++                        .config
++                        .current_time_reminder
++                        .as_ref()
++                        .is_some_and(|config| config.sleep_tool)
++                } else {
++                    model_has_clock
++                }
++            }
++        }
++    {
++        registry.add(SleepHandler);
++    }
++
++    if tool_suggest_enabled(context.config)
++        && let Some(candidates) = context
++            .tool_suggest_candidates
++            .filter(|candidates| !candidates.tools.is_empty())
++    {
++        if candidates.presentation == crate::tools::router::ToolSuggestPresentation::ListTool {
++            registry.add(ListAvailablePluginsToInstallHandler::new(
++                collect_request_plugin_install_entries(&candidates.tools),
++            ));
++        }
++        registry.add(RequestPluginInstallHandler::new(
++            candidates.tools.clone(),
++            candidates.presentation,
++        ));
++    }
++
++    if environment_mode.has_environment() && context.model_info.apply_patch_tool_type.is_some() {
++        let include_environment_id = matches!(environment_mode, ToolEnvironmentMode::Multiple);
++        registry.add(ApplyPatchHandler::new(include_environment_id));
++    }
++
++    if context
++        .model_info
++        .experimental_supported_tools
++        .iter()
++        .any(|tool| tool == "test_sync_tool")
++    {
++        registry.add(TestSyncHandler);
++    }
++
++    if environment_mode.has_environment() && features.enabled(Feature::ViewImage) {
++        let include_environment_id = matches!(environment_mode, ToolEnvironmentMode::Multiple);
++        registry.add(ViewImageHandler::new(ViewImageToolOptions {
++            can_request_original_image_detail: can_request_original_image_detail(
++                context.model_info,
++            ),
++            unified_image_budget: unified_image_budget_enabled(
++                &context.config.features,
++                context.model_info,
++            ),
++            include_environment_id,
++        }));
++    }
++}
+-- 
+2.54.0 (Apple Git-157)
+

@@ -36,7 +36,7 @@ export function AgentSettingsPicker({
   useEffect(() => {
     if (attention) setOpen(true);
   }, [attention]);
-  const { ref, present } = useMotionPresence(open, 'disclosure', false);
+  const ref = useRef<HTMLDivElement>(null);
   const dismiss = () => {
     setOpen(false);
     trigger.current?.focus({ preventScroll: true });
@@ -194,6 +194,8 @@ export function AgentSettingsPicker({
       window.visualViewport?.removeEventListener('scroll', measure);
     };
   }, [open, ref]);
+  // Establish the viewport/control budget before motion measures its endpoint.
+  const { present } = useMotionPresence(open, 'disclosure', false, true, ref);
   const location =
     summary.location === 'local'
       ? 'Local Mac'

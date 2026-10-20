@@ -1,0 +1,24 @@
+{
+  "observedAt": "2026-10-20T03:12:11.465415+00:00",
+  "finding": "CEN-D37507564B60",
+  "reviewEvents": [
+    {
+      "id": 5580133748,
+      "head": "9745d7c21f949c4d2fbbf32fc1163632a9b03f42",
+      "submittedAt": "2026-10-20T02:36:57Z",
+      "state": "COMMENTED"
+    },
+    {
+      "id": 5580264343,
+      "head": "77a9185cf9a563d72a5db53dfe5429df2d44e9e7",
+      "submittedAt": "2026-10-20T02:59:38Z",
+      "state": "COMMENTED"
+    }
+  ],
+  "reviewSHA256": "4cfe504f2073dbcff651deeb75b0d2c2848a0456b8480a7746d8fc433f883869",
+  "status": "Actual existing blocker; Core owns reproducing and correcting. fix recommendation at9745 then repeated unresolved/human_decision at77a is a code defect, not approval required for product change.",
+  "mechanism": "Ordinary prepare retains sourceIdentity; discard or failed cleanup removes source but recovery still lstats identity and fails instead of returning honest terminal metadata. Account/connection/runtime renewal and ready/source custody must remain.",
+  "priorCPreviewReceipt": "0f1165eb18ac4f9e6d54656a9f5107821cc253e5bd4e0359efc0b7297dd5f37e preserved; it explicitly limited discard positive to no ordinary runtime and did not qualify terminal sourceIdentity recovery. Prior119/149producergreens/preservation receipts do not resolve trusted finding.",
+  "qualification": "No waiver/ready claim/current-head CI transfer; exact future correction and tests remain pending.",
+  "independentActivity": "Read existing GitHub reviews only; no new review/test/retry/CI campaign."
+}

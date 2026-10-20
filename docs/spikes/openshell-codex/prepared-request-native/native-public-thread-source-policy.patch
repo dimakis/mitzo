@@ -1,0 +1,62 @@
+From 4a3283dca3864c1787e7058d9c5f1815f99403f2 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 01:10:12 +0100
+Subject: [PATCH] fix(core): restrict public request observations to ordinary
+ thread sources
+
+---
+ codex-rs/core/src/client_public_responses_capture.rs       | 5 +++++
+ codex-rs/core/src/client_public_responses_capture_tests.rs | 7 +++++++
+ 2 files changed, 12 insertions(+)
+
+diff --git a/codex-rs/core/src/client_public_responses_capture.rs b/codex-rs/core/src/client_public_responses_capture.rs
+index 28fc900..f0289c5 100644
+--- a/codex-rs/core/src/client_public_responses_capture.rs
++++ b/codex-rs/core/src/client_public_responses_capture.rs
+@@ -15,6 +15,7 @@ use codex_api::ApiError;
+ use codex_api::FrozenResponsesRequest;
+ use codex_extension_api::ModelRequestContributor;
+ use codex_protocol::openai_models::ModelInfo;
++use codex_protocol::protocol::ThreadSource;
+ 
+ use crate::client_common::Prompt;
+ use crate::responses_metadata::CodexResponsesMetadata;
+@@ -117,6 +118,10 @@ pub(crate) fn capture_public_api_responses_request(
+         || metadata.root_turn_id.is_some()
+         || metadata.forked_from_thread_id.is_some()
+         || metadata.forked_from_ordinal_exclusive.is_some()
++        || !matches!(
++            metadata.thread_source.as_ref(),
++            None | Some(ThreadSource::User)
++        )
+         || metadata.history_ingest_requested == Some(true)
+         || !matches!(
+             metadata.request_kind,
+diff --git a/codex-rs/core/src/client_public_responses_capture_tests.rs b/codex-rs/core/src/client_public_responses_capture_tests.rs
+index 85b39ee..2d70bb5 100644
+--- a/codex-rs/core/src/client_public_responses_capture_tests.rs
++++ b/codex-rs/core/src/client_public_responses_capture_tests.rs
+@@ -63,6 +63,7 @@ fn inputs() -> PublicApiResponsesCaptureInputs {
+         "window".into(),
+     );
+     metadata.request_kind = Some(CodexResponsesRequestKind::Turn);
++    metadata.thread_source = Some(ThreadSource::User);
+     metadata.turn_id = Some("reserved-fixture-turn".into());
+     metadata.turn_started_at_unix_ms = Some(42);
+     metadata.analytics_enabled = Some(false);
+@@ -158,6 +159,12 @@ fn public_policy_refuses_unknown_metadata_backend_controls_and_snapshot_drift()
+         |metadata| metadata.subagent_header = Some("review".into()),
+         |metadata| metadata.history_ingest_requested = Some(true),
+         |metadata| metadata.request_kind = Some(CodexResponsesRequestKind::Memory),
++        |metadata| metadata.thread_source = Some(ThreadSource::Subagent),
++        |metadata| metadata.thread_source = Some(ThreadSource::GuardianReview),
++        |metadata| metadata.thread_source = Some(ThreadSource::MemoryConsolidation),
++        |metadata| {
++            metadata.thread_source = Some(ThreadSource::Feature("unqualified-source".into()))
++        },
+     ];
+     for mutate in mutations {
+         let mut selected = inputs();
+-- 
+2.54.0 (Apple Git-157)
+

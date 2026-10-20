@@ -1,0 +1,690 @@
+diff --git a/codex-rs/models-manager/src/lib.rs b/codex-rs/models-manager/src/lib.rs
+index cd7b59a..b413b45 100644
+--- a/codex-rs/models-manager/src/lib.rs
++++ b/codex-rs/models-manager/src/lib.rs
+@@ -3,7 +3,9 @@ pub mod collaboration_mode_presets;
+ pub(crate) mod config;
+ pub mod manager;
+ pub mod model_info;
++pub mod model_limits;
+ pub mod model_presets;
++pub(crate) mod provider_spec_limits;
+ pub mod test_support;
+ 
+ pub use codex_protocol::auth::AuthMode;
+diff --git a/codex-rs/models-manager/src/manager.rs b/codex-rs/models-manager/src/manager.rs
+index af73444..b597051 100644
+--- a/codex-rs/models-manager/src/manager.rs
++++ b/codex-rs/models-manager/src/manager.rs
+@@ -4,6 +4,8 @@ use crate::cache::ModelsCacheEntry;
+ use crate::collaboration_mode_presets::builtin_collaboration_mode_presets;
+ use crate::config::ModelsManagerConfig;
+ use crate::model_info;
++use crate::model_limits::ModelLimitsCatalogGuard;
++use crate::model_limits::UnverifiedModelLimitCandidate;
+ use chrono::DateTime;
+ use chrono::Utc;
+ use codex_http_client::HttpClientFactory;
+@@ -20,6 +22,7 @@ use std::future::Future;
+ use std::path::PathBuf;
+ use std::pin::Pin;
+ use std::sync::Arc;
++use std::sync::Mutex as PublicationMutex;
+ use std::sync::atomic::AtomicBool;
+ use std::sync::atomic::Ordering;
+ use std::time::Duration;
+@@ -114,6 +117,25 @@ type SharedModelsEndpointClient = Arc<dyn ModelsEndpointClient>;
+ 
+ /// Coordinates model discovery plus cached metadata on disk.
+ pub trait ModelsManager: fmt::Debug + Send + Sync {
++    /// Exact provider-spec data from this owner, explicitly not account eligibility.
++    /// Other/custom managers remain unsupported rather than borrowing this catalog.
++    fn capture_model_limit_candidate<'a>(
++        &'a self,
++        _model: &'a str,
++        _config: &'a ModelsManagerConfig,
++    ) -> ModelsManagerFuture<'a, Option<UnverifiedModelLimitCandidate>> {
++        Box::pin(std::future::ready(None))
++    }
++
++    /// Renew and hold only the original catalog publication, including equal-data
++    /// publication ABA. Callbacks/configuration/account authorization remain separate.
++    fn pin_model_limit_candidate<'a>(
++        &'a self,
++        _candidate: &'a UnverifiedModelLimitCandidate,
++    ) -> ModelsManagerFuture<'a, Option<ModelLimitsCatalogGuard<'a>>> {
++        Box::pin(std::future::ready(None))
++    }
++
+     /// Supply startup API-key discovery policy; live changes require a new session.
+     /// Static catalogs ignore this setting.
+     fn set_api_key_model_discovery_enabled(&self, _enabled: bool) {}
+@@ -286,6 +308,10 @@ impl CatalogSource {
+ #[derive(Debug)]
+ pub struct OpenAiModelsManager {
+     remote_models: RwLock<ModelsCacheEntry>,
++    model_limits_owner: Arc<()>,
++    // Published under the same remote_models write lock. Poisoning makes only
++    // candidate capture/renewal unavailable; ordinary catalog behavior is intact.
++    model_limits_publication: PublicationMutex<Arc<()>>,
+     cache: Option<Arc<dyn ModelsCache>>,
+     endpoint_client: SharedModelsEndpointClient,
+     catalog_source: CatalogSource,
+@@ -301,6 +327,12 @@ pub struct StaticModelsManager {
+ }
+ 
+ impl OpenAiModelsManager {
++    fn advance_model_limits_publication(&self) {
++        if let Ok(mut publication) = self.model_limits_publication.lock() {
++            *publication = Arc::new(());
++        }
++    }
++
+     /// Construct an OpenAI-compatible remote model manager.
+     pub fn new(
+         codex_home: PathBuf,
+@@ -344,6 +376,8 @@ impl OpenAiModelsManager {
+         auth_manager: Option<Arc<AuthManager>>,
+     ) -> Self {
+         Self {
++            model_limits_owner: Arc::new(()),
++            model_limits_publication: PublicationMutex::new(Arc::new(())),
+             remote_models: RwLock::new(ModelsCacheEntry {
+                 fetched_at: Utc::now(),
+                 etag: None,
+@@ -364,6 +398,7 @@ impl OpenAiModelsManager {
+     pub fn with_provider_catalog(mut self) -> Self {
+         self.catalog_source = CatalogSource::ExplicitProvider(Mutex::new(()));
+         self.remote_models.get_mut().models.clear();
++        self.advance_model_limits_publication();
+         self
+     }
+ }
+@@ -379,6 +414,55 @@ impl StaticModelsManager {
+ }
+ 
+ impl ModelsManager for OpenAiModelsManager {
++    fn capture_model_limit_candidate<'a>(
++        &'a self,
++        model: &'a str,
++        config: &'a ModelsManagerConfig,
++    ) -> ModelsManagerFuture<'a, Option<UnverifiedModelLimitCandidate>> {
++        Box::pin(async move {
++            let catalog = self.remote_models.read().await;
++            let mut exact = catalog.models.iter().filter(|row| row.slug == model);
++            let original = exact.next()?.clone();
++            if exact.next().is_some() {
++                return None;
++            }
++            let publication = Arc::clone(&self.model_limits_publication.lock().ok()?);
++            UnverifiedModelLimitCandidate::capture(
++                Arc::clone(&self.model_limits_owner),
++                publication,
++                original,
++                config,
++            )
++        })
++    }
++
++    fn pin_model_limit_candidate<'a>(
++        &'a self,
++        candidate: &'a UnverifiedModelLimitCandidate,
++    ) -> ModelsManagerFuture<'a, Option<ModelLimitsCatalogGuard<'a>>> {
++        Box::pin(async move {
++            if !Arc::ptr_eq(&self.model_limits_owner, &candidate.owner) {
++                return None;
++            }
++            let catalog = self.remote_models.read().await;
++            let publication = Arc::clone(&self.model_limits_publication.lock().ok()?);
++            if !Arc::ptr_eq(&publication, &candidate.publication) {
++                return None;
++            }
++            let mut exact = catalog
++                .models
++                .iter()
++                .filter(|row| row.slug == candidate.original.slug);
++            if exact.next()? != &candidate.original || exact.next().is_some() {
++                return None;
++            }
++            Some(ModelLimitsCatalogGuard {
++                _catalog: catalog,
++                candidate,
++            })
++        })
++    }
++
+     fn set_api_key_model_discovery_enabled(&self, enabled: bool) {
+         self.api_key_model_discovery_enabled
+             .store(enabled, Ordering::SeqCst);
+@@ -604,6 +688,7 @@ impl OpenAiModelsManager {
+                         current.models.clear();
+                         current.etag = None;
+                         current.identity.clone_from(&request_identity);
++                        self.advance_model_limits_publication();
+                     }
+                     if let Some(identity) = request_identity
+                         && let Some(cache) = self.cache.as_ref()
+@@ -698,6 +783,7 @@ impl OpenAiModelsManager {
+             entry.models = models;
+         }
+         *current = entry;
++        self.advance_model_limits_publication();
+         true
+     }
+ 
+diff --git a/codex-rs/models-manager/src/manager_tests.rs b/codex-rs/models-manager/src/manager_tests.rs
+index 04336f5..b5097f2 100644
+--- a/codex-rs/models-manager/src/manager_tests.rs
++++ b/codex-rs/models-manager/src/manager_tests.rs
+@@ -1701,3 +1701,6 @@ fn bundled_models_json_roundtrips() {
+         "bundled models.json should contain at least one model"
+     );
+ }
++
++#[path = "model_limits_tests.rs"]
++mod model_limits_tests;
+diff --git a/codex-rs/models-manager/src/model_limits.rs b/codex-rs/models-manager/src/model_limits.rs
+new file mode 100644
+index 0000000..62b0388
+--- /dev/null
++++ b/codex-rs/models-manager/src/model_limits.rs
+@@ -0,0 +1,93 @@
++//! Provider specification projection under the existing model catalog owner.
++//!
++//! A candidate is explicitly unverified for account/provider/Responses access.
++//! Neither bundled nor cached model metadata proves that access. These types
++//! cannot measure, admit, consume or dispatch a request. The catalog guard pins
++//! only this owner's publication; actual configuration, route, credentials and
++//! all other native/host authorities need their own guards at commitment.
++use crate::ModelsManagerConfig;
++use crate::cache::ModelsCacheEntry;
++use crate::model_info;
++use crate::provider_spec_limits::ProviderSpecLimits;
++use codex_protocol::openai_models::ModelInfo;
++use std::sync::Arc;
++use tokio::sync::RwLockReadGuard;
++
++#[derive(Debug)]
++pub struct ModelSpecCeilings {
++    pub context_window: u64,
++    pub maximum_output_tokens: u64,
++    pub specification_url: String,
++    pub policy_revision: String,
++    pub descriptor_sha256: &'static str,
++}
++
++/// Process-local observation, not serializable or an account eligibility grant.
++#[derive(Debug)]
++pub struct UnverifiedModelLimitCandidate {
++    pub(crate) owner: Arc<()>,
++    pub(crate) publication: Arc<()>,
++    pub(crate) original: ModelInfo,
++    resolved: ModelInfo,
++    ceilings: ModelSpecCeilings,
++}
++impl UnverifiedModelLimitCandidate {
++    pub(crate) fn capture(
++        owner: Arc<()>,
++        publication: Arc<()>,
++        original: ModelInfo,
++        config: &ModelsManagerConfig,
++    ) -> Option<Self> {
++        let spec = ProviderSpecLimits::for_exact_model_id(&original.slug)?;
++        if spec.model_id != original.slug
++            || !original.supported_in_api
++            || original.used_fallback_model_metadata
++            || config.model_catalog.is_some()
++            || !(1..=100).contains(&original.effective_context_window_percent)
++        {
++            return None;
++        }
++        let original_window = u64::try_from(original.usable_context_window()?).ok()?;
++        let resolved = model_info::with_config_overrides(original.clone(), config);
++        let configured_window = u64::try_from(resolved.usable_context_window()?).ok()?;
++        let context_window = spec
++            .context_window
++            .min(original_window)
++            .min(configured_window);
++        if context_window == 0 || spec.maximum_output_tokens == 0 {
++            return None;
++        }
++        Some(Self {
++            owner,
++            publication,
++            original,
++            resolved,
++            ceilings: ModelSpecCeilings {
++                context_window,
++                maximum_output_tokens: spec.maximum_output_tokens,
++                specification_url: spec.specification_url,
++                policy_revision: spec.policy_revision,
++                descriptor_sha256: spec.descriptor_sha256,
++            },
++        })
++    }
++    pub fn model_info(&self) -> &ModelInfo {
++        &self.resolved
++    }
++    pub fn ceilings(&self) -> &ModelSpecCeilings {
++        &self.ceilings
++    }
++}
++
++/// Holds the actual catalog read lock; no callback or later boolean substitutes
++/// for that lock. This does not hold credential, route or configuration authority.
++#[must_use]
++pub struct ModelLimitsCatalogGuard<'a> {
++    pub(crate) _catalog: RwLockReadGuard<'a, ModelsCacheEntry>,
++    pub(crate) candidate: &'a UnverifiedModelLimitCandidate,
++}
++impl ModelLimitsCatalogGuard<'_> {
++    pub fn candidate(&self) -> &UnverifiedModelLimitCandidate {
++        self.candidate
++    }
++}
+diff --git a/codex-rs/models-manager/src/model_limits_tests.rs b/codex-rs/models-manager/src/model_limits_tests.rs
+new file mode 100644
+index 0000000..6e01243
+--- /dev/null
++++ b/codex-rs/models-manager/src/model_limits_tests.rs
+@@ -0,0 +1,257 @@
++use super::*;
++use pretty_assertions::assert_eq;
++
++fn entry(models: Vec<ModelInfo>) -> ModelsCacheEntry {
++    ModelsCacheEntry {
++        fetched_at: Utc::now(),
++        etag: None,
++        client_version: Some(crate::client_version_to_whole()),
++        identity: Some("test-provider".to_string()),
++        models,
++    }
++}
++async fn owner() -> (
++    Arc<OpenAiModelsManager>,
++    Arc<TestModelsEndpoint>,
++    ModelsCacheEntry,
++) {
++    let endpoint = TestModelsEndpoint::without_refresh(Vec::new());
++    let manager = Arc::new(OpenAiModelsManager::new_without_cache(
++        endpoint.clone(),
++        None,
++    ));
++    let value = entry(vec![remote_model("gpt-6-luna", "Exact Luna", 0)]);
++    assert!(manager.apply_remote_models(value.clone()).await);
++    (manager, endpoint, value)
++}
++
++#[tokio::test]
++async fn candidate_retains_exact_resolved_metadata_and_only_lowers_both_spec_bounds() {
++    let (manager, endpoint, _) = owner().await;
++    let config = ModelsManagerConfig {
++        model_context_window: Some(100_000),
++        ..Default::default()
++    };
++    let candidate = manager
++        .capture_model_limit_candidate("gpt-6-luna", &config)
++        .await
++        .unwrap();
++    assert_eq!(
++        candidate.model_info(),
++        &manager.get_model_info("gpt-6-luna", &config).await
++    );
++    assert_eq!(candidate.ceilings().context_window, 95_000);
++    assert_eq!(candidate.ceilings().maximum_output_tokens, 128_000);
++    assert_eq!(
++        candidate.ceilings().descriptor_sha256,
++        "89ceab0f696672378ae781a4d91fe7d470ccbdf8f12409eb9924c0d012cb20c2"
++    );
++    let raised = ModelsManagerConfig {
++        model_context_window: Some(10_000_000),
++        ..Default::default()
++    };
++    let raised_candidate = manager
++        .capture_model_limit_candidate("gpt-6-luna", &raised)
++        .await
++        .unwrap();
++    assert_eq!(raised_candidate.ceilings().context_window, 258_400);
++    assert_eq!(endpoint.fetch_count(), 0);
++}
++
++#[tokio::test]
++async fn candidate_refuses_aliases_fallback_custom_duplicate_and_invalid_metadata() {
++    let (manager, endpoint, value) = owner().await;
++    let config = ModelsManagerConfig::default();
++    for id in [
++        "unknown",
++        "namespace/gpt-6-luna",
++        "gpt-6-luna-preview",
++        "gpt-6-luna ",
++    ] {
++        assert!(
++            manager
++                .capture_model_limit_candidate(id, &config)
++                .await
++                .is_none()
++        );
++    }
++    let static_manager = static_manager_for_tests(ModelsResponse {
++        models: value.models.clone(),
++    });
++    assert!(
++        static_manager
++            .capture_model_limit_candidate("gpt-6-luna", &config)
++            .await
++            .is_none()
++    );
++    for window in [0, -1] {
++        let invalid = ModelsManagerConfig {
++            model_context_window: Some(window),
++            ..Default::default()
++        };
++        assert!(
++            manager
++                .capture_model_limit_candidate("gpt-6-luna", &invalid)
++                .await
++                .is_none()
++        );
++    }
++    let custom = ModelsManagerConfig {
++        model_catalog: Some(ModelsResponse {
++            models: value.models.clone(),
++        }),
++        ..Default::default()
++    };
++    assert!(
++        manager
++            .capture_model_limit_candidate("gpt-6-luna", &custom)
++            .await
++            .is_none()
++    );
++    let explicit = OpenAiModelsManager::new_without_cache(endpoint, None).with_provider_catalog();
++    let mut duplicate = value.clone();
++    duplicate.models.push(value.models[0].clone());
++    assert!(explicit.apply_remote_models(duplicate).await);
++    assert!(
++        explicit
++            .capture_model_limit_candidate("gpt-6-luna", &config)
++            .await
++            .is_none()
++    );
++    let mut unavailable = value.clone();
++    unavailable.models[0].supported_in_api = false;
++    assert!(explicit.apply_remote_models(unavailable).await);
++    assert!(
++        explicit
++            .capture_model_limit_candidate("gpt-6-luna", &config)
++            .await
++            .is_none()
++    );
++    let mut fallback = value.clone();
++    fallback.models[0].used_fallback_model_metadata = true;
++    assert!(explicit.apply_remote_models(fallback).await);
++    assert!(
++        explicit
++            .capture_model_limit_candidate("gpt-6-luna", &config)
++            .await
++            .is_none()
++    );
++    for invalid in [0, 101] {
++        let mut broken = value.clone();
++        broken.models[0].effective_context_window_percent = invalid;
++        assert!(explicit.apply_remote_models(broken).await);
++        assert!(
++            explicit
++                .capture_model_limit_candidate("gpt-6-luna", &config)
++                .await
++                .is_none()
++        );
++    }
++}
++
++#[tokio::test]
++async fn catalog_guard_rejects_equal_publication_aba_and_foreign_owner() {
++    let (manager, _, value) = owner().await;
++    let config = ModelsManagerConfig::default();
++    let original = manager
++        .capture_model_limit_candidate("gpt-6-luna", &config)
++        .await
++        .unwrap();
++    assert!(manager.pin_model_limit_candidate(&original).await.is_some());
++    assert!(manager.apply_remote_models(value.clone()).await);
++    assert!(manager.pin_model_limit_candidate(&original).await.is_none());
++    let next = manager
++        .capture_model_limit_candidate("gpt-6-luna", &config)
++        .await
++        .unwrap();
++    let mut changed = value.clone();
++    changed.models[0].description = Some("Changed".to_string());
++    assert!(manager.apply_remote_models(changed).await);
++    assert!(manager.apply_remote_models(value.clone()).await);
++    assert!(manager.pin_model_limit_candidate(&next).await.is_none());
++    let (foreign, _, _) = owner().await;
++    assert!(foreign.pin_model_limit_candidate(&next).await.is_none());
++}
++
++#[tokio::test]
++async fn catalog_guard_holds_actual_writer_until_guard_drop() {
++    let (manager, _, value) = owner().await;
++    let config = ModelsManagerConfig::default();
++    let candidate = manager
++        .capture_model_limit_candidate("gpt-6-luna", &config)
++        .await
++        .unwrap();
++    let guard = manager.pin_model_limit_candidate(&candidate).await.unwrap();
++    assert_eq!(guard.candidate().model_info().slug, "gpt-6-luna");
++    let writer = Arc::clone(&manager);
++    let (started, observing) = tokio::sync::oneshot::channel();
++    let task = tokio::spawn(async move {
++        started.send(()).unwrap();
++        writer.apply_remote_models(value).await
++    });
++    observing.await.unwrap();
++    tokio::task::yield_now().await;
++    assert!(!task.is_finished());
++    assert!(manager.remote_models.try_write().is_err());
++    drop(guard);
++    assert!(task.await.unwrap());
++    assert!(
++        manager
++            .pin_model_limit_candidate(&candidate)
++            .await
++            .is_none()
++    );
++}
++
++#[tokio::test]
++async fn cache_publication_invalidates_candidate_without_borrowing_cache_as_access() {
++    let (_, endpoint, value) = owner().await;
++    let cache = TestModelsCache::with_entry(value.clone());
++    let manager = OpenAiModelsManager::new_with_cache(cache, endpoint, None);
++    assert!(manager.apply_remote_models(value).await);
++    let config = ModelsManagerConfig::default();
++    let candidate = manager
++        .capture_model_limit_candidate("gpt-6-luna", &config)
++        .await
++        .unwrap();
++    assert!(manager.try_load_cache().await);
++    assert!(
++        manager
++            .pin_model_limit_candidate(&candidate)
++            .await
++            .is_none()
++    );
++}
++
++#[tokio::test]
++async fn failed_explicit_refresh_clears_candidate_with_the_actual_catalog() {
++    let endpoint = TestModelsEndpoint::with_command_auth(vec![Err(CodexErr::InvalidRequest(
++        "offline failure".to_string(),
++    ))]);
++    let manager = OpenAiModelsManager::new_without_cache(endpoint, None).with_provider_catalog();
++    let value = entry(vec![remote_model("gpt-6-luna", "Exact Luna", 0)]);
++    assert!(manager.apply_remote_models(value).await);
++    let config = ModelsManagerConfig::default();
++    let candidate = manager
++        .capture_model_limit_candidate("gpt-6-luna", &config)
++        .await
++        .unwrap();
++    assert!(
++        manager
++            .fetch_and_update_models(&DEFAULT_HTTP_CLIENT_FACTORY)
++            .await
++            .is_err()
++    );
++    assert!(
++        manager
++            .pin_model_limit_candidate(&candidate)
++            .await
++            .is_none()
++    );
++    assert!(
++        manager
++            .capture_model_limit_candidate("gpt-6-luna", &config)
++            .await
++            .is_none()
++    );
++}
+diff --git a/codex-rs/models-manager/src/provider_spec_limits.rs b/codex-rs/models-manager/src/provider_spec_limits.rs
+new file mode 100644
+index 0000000..1fe1f42
+--- /dev/null
++++ b/codex-rs/models-manager/src/provider_spec_limits.rs
+@@ -0,0 +1,137 @@
++//! Reviewed provider specification bounds, separate from selected-account authority.
++//!
++//! Primary documentation searched and fetched on 2026-10-20:
++//! https://developers.openai.com/api/docs/models/gpt-6-luna
++//! The model page states a 1,050,000-token context window and 128,000 maximum
++//! output tokens. Its Snapshots section names `gpt-6-luna`, with no dated ID.
++//! These are documented specification bounds, not account eligibility, an exact
++//! input count, a current catalogue witness, or permission to dispatch. The real
++//! owner must independently qualify the account, provider/public Responses route,
++//! exact selected model, settings and current catalogue epoch. No model is selected
++//! and no bundled/default catalogue entry is changed by this lookup.
++
++use serde::Deserialize;
++
++// Hash recipe: SHA-256 over exactly these UTF-8 bytes, with lexicographically
++// sorted JSON keys, decimal integer values, no insignificant whitespace, BOM or
++// trailing newline. There is no descriptor_sha256 field in the hashed descriptor.
++// This is an immutable reviewed v1 record, not a serialization of caller input.
++const REVIEWED_DESCRIPTOR_JSON: &str = r#"{"context_window":1050000,"descriptor_version":1,"documentation_verified_on":"2026-10-20","maximum_output_tokens":128000,"model_id":"gpt-6-luna","policy_revision":"openai-public-responses-provider-spec-v1","specification_url":"https://developers.openai.com/api/docs/models/gpt-6-luna"}"#;
++// Computed offline with Python hashlib.sha256(REVIEWED_DESCRIPTOR_JSON.encode("utf-8"));
++// codex-models-manager has no SHA-256 dependency. This precomputed digest labels
++// the retained 285-byte descriptor; it is not a runtime cryptographic verifier.
++const REVIEWED_DESCRIPTOR_SHA256: &str =
++    "89ceab0f696672378ae781a4d91fe7d470ccbdf8f12409eb9924c0d012cb20c2";
++
++/// Projection of one reviewed provider specification, never a readiness witness.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub(crate) struct ProviderSpecLimits {
++    pub(crate) model_id: String,
++    pub(crate) context_window: u64,
++    pub(crate) maximum_output_tokens: u64,
++    pub(crate) specification_url: String,
++    pub(crate) policy_revision: String,
++    pub(crate) descriptor_sha256: &'static str,
++}
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct ReviewedDescriptor {
++    descriptor_version: u32,
++    documentation_verified_on: String,
++    model_id: String,
++    context_window: u64,
++    maximum_output_tokens: u64,
++    specification_url: String,
++    policy_revision: String,
++}
++
++impl ProviderSpecLimits {
++    /// Look up only an exact documented API ID. No alias, prefix, namespace,
++    /// whitespace normalization, invented snapshot or fallback is permitted.
++    pub(crate) fn for_exact_model_id(model_id: &str) -> Option<Self> {
++        let descriptor: ReviewedDescriptor = serde_json::from_str(REVIEWED_DESCRIPTOR_JSON).ok()?;
++        if descriptor.descriptor_version != 1
++            || descriptor.documentation_verified_on != "2026-10-20"
++            || descriptor.model_id != model_id
++        {
++            return None;
++        }
++        Some(Self {
++            model_id: descriptor.model_id,
++            context_window: descriptor.context_window,
++            maximum_output_tokens: descriptor.maximum_output_tokens,
++            specification_url: descriptor.specification_url,
++            policy_revision: descriptor.policy_revision,
++            descriptor_sha256: REVIEWED_DESCRIPTOR_SHA256,
++        })
++    }
++}
++
++// The delegated seam is deliberately one file; these authored unit fixtures are
++// kept here so the integrating owner can wire the module without another file.
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use pretty_assertions::assert_eq;
++
++    #[test]
++    fn exact_lookup_retains_both_reviewed_ceilings_and_provenance() {
++        assert_eq!(
++            ProviderSpecLimits::for_exact_model_id("gpt-6-luna"),
++            Some(ProviderSpecLimits {
++                model_id: "gpt-6-luna".to_string(),
++                context_window: 1_050_000,
++                maximum_output_tokens: 128_000,
++                specification_url: "https://developers.openai.com/api/docs/models/gpt-6-luna"
++                    .to_string(),
++                policy_revision: "openai-public-responses-provider-spec-v1".to_string(),
++                descriptor_sha256: "89ceab0f696672378ae781a4d91fe7d470ccbdf8f12409eb9924c0d012cb20c2",
++            }),
++        );
++    }
++
++    #[test]
++    fn exact_lookup_refuses_unreviewed_identifiers_without_normalization() {
++        for model_id in [
++            "",
++            "unknown",
++            "luna",
++            "gpt-6.1-sol",
++            "gpt-6-luna-preview",
++            "gpt-6-luna-latest",
++            "prefix-gpt-6-luna",
++            "openai/gpt-6-luna",
++            "namespace/gpt-6-luna",
++            " gpt-6-luna",
++            "gpt-6-luna ",
++            "gpt-6-luna\n",
++            "GPT-6-LUNA",
++            "gpt-6-luna-2026-10-20",
++        ] {
++            assert_eq!(ProviderSpecLimits::for_exact_model_id(model_id), None);
++        }
++    }
++
++    #[test]
++    fn retained_descriptor_is_canonical_and_projects_without_changing_values() {
++        let descriptor: serde_json::Value = serde_json::from_str(REVIEWED_DESCRIPTOR_JSON).unwrap();
++        assert_eq!(
++            serde_json::to_vec(&descriptor).unwrap(),
++            REVIEWED_DESCRIPTOR_JSON.as_bytes(),
++        );
++        let limits = ProviderSpecLimits::for_exact_model_id("gpt-6-luna").unwrap();
++        assert_eq!(
++            descriptor,
++            serde_json::json!({
++                "context_window": limits.context_window,
++                "descriptor_version": 1,
++                "documentation_verified_on": "2026-10-20",
++                "maximum_output_tokens": limits.maximum_output_tokens,
++                "model_id": limits.model_id,
++                "policy_revision": limits.policy_revision,
++                "specification_url": limits.specification_url,
++            }),
++        );
++    }
++}

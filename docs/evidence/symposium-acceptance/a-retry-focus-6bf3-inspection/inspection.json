@@ -1,0 +1,60 @@
+{
+  "observedAt": "2026-10-20T02:36:20.925218+00:00",
+  "commit": "6bf339f3b6bac4553e45207203f1a8ce018059aa",
+  "tree": "bfa6321c4461791dc8f2cb624fddc1c0906a6c77",
+  "parent": "253024f41cd42eb15153313f9021166ce43d0272",
+  "sourceHashes": {
+    "frontend/src/components/ConversationAgents.tsx": "2e2e22060ad720159f273be17d3bcf3bf5a37fd74209812bc25373b12ba24e1c",
+    "frontend/src/components/__tests__/ConversationAgents.application-brief.test.tsx": "9ac63a00f223d76f7b760418fc37b4d166b2bbd04640f811ae042bc50116f7d0"
+  },
+  "all17Core45ffD94DependencyBlobsByteExact": true,
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "patchSHA256": "efb12e52d68470a23e58e0262f8e888d4282176317862c8a16bbd16e300c2cc4",
+  "producerEvidence": {
+    "joining-source-setup-focus-design.log": {
+      "sha256": "40355aa083bb513e44e099da8ba30d1f3bd1baf0ff76dd1cf04ce4b27f76071d",
+      "bytes": 386
+    },
+    "joining-source-setup-focus-green.log": {
+      "sha256": "a4265b0641696163343543d24b9052d67c98927fd3b554d7ffb4e57cd960b55d",
+      "bytes": 287
+    },
+    "joining-source-setup-focus-red.log": {
+      "sha256": "bd59506afee89c28abb9466b7ec631d2baa001b274155d6f186a5ae9ede28d43",
+      "bytes": 8709
+    },
+    "joining-source-setup-focus-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "joining-source-setup-focused.log": {
+      "sha256": "c00dd7e2d6062ed10569ea6a1a706494fc069dc56c77958b972f7b14db9bea91",
+      "bytes": 287
+    }
+  },
+  "independentFindings": [
+    "Only explicit Check setup again click sets local focus-intent flag and calls unchanged observational retry. When callback becomes unavailable during loading, effect clears flag and focuses existing status paragraph with preventScroll. tabIndex=-1 makes the status programmatically focusable without adding a normal tab stop.",
+    "No mount-time focus movement without prior explicit click. Source scope still keys ConversationAgentsBody, retiring refs/dialog/callbacks on route change. If status is absent or dialog retired, optional ref does nothing and flag is cleared; no new owner/store/authority or async focus callback.",
+    "New exact assertion first focuses the actual retry button, clicks, rerenders loading without retry, then requires activeElement to be existing status. Existing name/purpose/cancel/fresh-session footer and disabled Review assertions remain. This targets lost button focus rather than merely presence of status text.",
+    "Genuine source-setup read/caller/auth fences, prior initialbrief and real core source/preview dependencies are unchanged by the two-file delta. No new GET/POST/capture/prepare/inference behavior is added."
+  ],
+  "producerReported": {
+    "red": "One meaningful existing component test failed before fix because focus fell to body; one unselected test, not counted as skipped qualification.",
+    "green": "25PASS3files1worker/1GiB; overlaps source-setup and prior suites, not added.",
+    "design": "108PASS1existingSkip6files, unchanged protected references; no new browser/physical comparison.",
+    "types": "Focused source-mapped tsc PASS reported; empty log alone is not C execution/independent exit proof.",
+    "normalHooks": "Producer ESLint/Prettier/gitleaks/commitlint PASS."
+  },
+  "acceptance": "No additional concrete blocker found in bounded explicit retry focus correction. Source/assertion/provenance only.",
+  "limits": [
+    "JSDOM component assertion, not actual browser/screen-reader/physical iOS focus qualification. Integrated hook+page loading and future successful joining-owner mount remain separate.",
+    "No new target/journal/catalog/joining owner/native capacity/request/count/consume/delivery acceptance. Existing full application criterion remains open."
+  ],
+  "independentActivity": "Read immutable exact two-file diff/callers/assertions,17dependency/protected bytes and retained producer logs/hashes only. No C tests/types/build/browser/native/model/provider/retry/dispatch/new campaign."
+}

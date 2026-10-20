@@ -1,0 +1,17 @@
+diff --git a/codex-rs/state/src/runtime/prepared_request_effects_tests.rs b/codex-rs/state/src/runtime/prepared_request_effects_tests.rs
+index fe52cf8..214719e 100644
+--- a/codex-rs/state/src/runtime/prepared_request_effects_tests.rs
++++ b/codex-rs/state/src/runtime/prepared_request_effects_tests.rs
+@@ -362,8 +362,11 @@ async fn release_and_cancellation_have_one_durable_winner() {
+ async fn pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain() {
+     let home = unique_temp_dir();
+     let runtime = open(&home).await;
+-    let request = request();
+     for (operation, pending_mode) in [("pending", true), ("ordinary", false)] {
++        // Independent command roots: closing a consumed pending record must
++        // never free its command identity for another consumed preparation.
++        let mut request = request();
++        request.binding.command_id = Some(format!("{operation}-command"));
+         let prepared = runtime.prepare_request(operation, &request).await.unwrap();
+         runtime
+             .measure_prepared_request(&prepared.preparation_id, &request, &measurement())

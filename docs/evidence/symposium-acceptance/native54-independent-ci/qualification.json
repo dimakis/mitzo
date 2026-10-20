@@ -1,0 +1,37 @@
+{
+  "observedAt": "2026-10-20T00:42:04.987310+00:00",
+  "run": 39339195266,
+  "attempt": 1,
+  "conclusion": "success",
+  "publishedHead": "0fd922430b1452d706f361bfde72a47eea584bda",
+  "publishedTree": "1fd6f34a9ce78096cfa4815e3fd121f34e461e68",
+  "actualCheckout": "024b4e044035ac6acb5465864788cd58fd0191f7",
+  "actualCheckoutTree": "1fd6f34a9ce78096cfa4815e3fd121f34e461e68",
+  "nativeCommit": "557ce440b823868ea853e583c2277d16ec0af726",
+  "nativeTree": "77a800c70646406a5165ea56237219e56518c36b",
+  "patches": 54,
+  "platforms": [
+    {
+      "platform": "ubuntu-24.04",
+      "job": 118356221841,
+      "passed": 5839,
+      "skipped": 11,
+      "seconds": 2300.109,
+      "receiptSHA256": "3bb1b632e79729b44f1e46817e57869954baf1df3010848b3fc4e672aaa16e45"
+    },
+    {
+      "platform": "macos-26",
+      "job": 118356222282,
+      "passed": 5618,
+      "skipped": 27,
+      "seconds": 1983.451,
+      "receiptSHA256": "df022f08a698b0d42034c820cc8e1747aa170d73782f0bb806321cf5541bd4e6"
+    }
+  ],
+  "namedTestsPerPlatform": 4,
+  "sourceReconstructionAndFormatting": "PASS both OS; retained source-evidence bytes match published proof and actual reconstructed tree.",
+  "accounting": "Platform totals overlap and are not summed. JUnit excludes ignored cases; overall nextest skipped counts retained separately.",
+  "scope": "Extension-only native54 inventory protocol is independently execution-qualified for this source/fixture boundary. Unknown/state-bound contributors remain unavailable, not silently omitted. This does not establish full Core/MCP/production inventory, prepared capacity, account/model-limit authority, same-request count/consume, installed native runtime or full app joining/delivery/replies.",
+  "otherSources": "Existing native60 and published native70 runs must be qualified independently. The26bc host integration has source-preservation proof only and still requires its normal exact-head host CI/review/base gates.",
+  "activity": "C downloaded and inspected existing run logs/JUnit/artifacts/checkout metadata, verified source identities and digests. No local Rust, model call, workflow dispatch/retry or deployment."
+}

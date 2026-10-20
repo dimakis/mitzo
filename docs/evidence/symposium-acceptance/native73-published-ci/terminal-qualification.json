@@ -1,0 +1,68 @@
+{
+  "observedAt": "2026-10-20T02:10:34.252158+00:00",
+  "run": 39351558521,
+  "attempt": 1,
+  "runConclusion": "failure",
+  "published": {
+    "pr": 1062,
+    "head": "5bdbce1b02266e92967441f0ef57d323ed992650",
+    "tree": "64f41d948d23a4ef1fff1f18c47e91bd236b992c",
+    "basePr": 1061,
+    "baseHead": "691af045d5dfd8ac99904f85a5f530ef8721f892",
+    "githubHeadVerification": "Exact GitHub PR head verified"
+  },
+  "native": {
+    "commit": "311b9ae9c07874d9ff5964e95629e057f337dd9d",
+    "tree": "9e17d7d58b5a2e264520c9b923567c8789a1c123"
+  },
+  "platformResults": [
+    {
+      "platform": "macos-26",
+      "job": 118396661044,
+      "conclusion": "failure",
+      "classification": "Fixture compile failure before execution; E0659 assert_eq ambiguity from glob/prelude macro resolution. No executed native test totals inferred.",
+      "compileE0659": 22,
+      "affectedFiles": {
+        "prepared_request_effects_tests.rs": 22
+      },
+      "sourceReconstruction": "PASS exact native tree in retained log",
+      "formatting": "skipped",
+      "logSHA256": "ee80312a55433c0a644e1401d80867087408414abf39a82349fd2d719c93f7fc",
+      "logPath": "mac-terminal-job.log"
+    },
+    {
+      "platform": "ubuntu-24.04",
+      "job": 118396661575,
+      "conclusion": "failure",
+      "classification": "Fixture compile failure before execution; E0659 assert_eq ambiguity from glob/prelude macro resolution. No executed native test totals inferred.",
+      "compileE0659": 22,
+      "affectedFiles": {
+        "prepared_request_effects_tests.rs": 22
+      },
+      "sourceReconstruction": "PASS exact native tree in retained log",
+      "formatting": "skipped",
+      "logSHA256": "34e796ea59bd6fe2d77d8143872b574a89527996d55b7a6da44b53d7451a5aeb",
+      "logPath": "linux-failed-job.log"
+    }
+  ],
+  "retainedArtifacts": [
+    {
+      "id": 12235213533,
+      "name": "native-fixtures-macos-26",
+      "digest": "sha256:00167e43c2846c2a3d3ab24913a21a531347f3f8d3aeeefbaf6b4dcb6b3b5c46",
+      "matchesActions": true,
+      "sourceProofByteExactToPublished": true,
+      "junitPresent": false
+    },
+    {
+      "id": 12234939094,
+      "name": "native-fixtures-ubuntu-24.04",
+      "digest": "sha256:137f4d400fecc41b2ef69f3bd80f2c9eddb96b6b99a71b0d17b481a5cbe2ae94",
+      "matchesActions": true,
+      "sourceProofByteExactToPublished": true,
+      "junitPresent": false
+    }
+  ],
+  "qualification": "No native fixture execution qualification from these jobs. Existing source/assertion receipts and exact source provenance remain separate. Native77 two explicit imports address named mechanism at SOURCElevel only; newsource CI needs independent qualification. Native70 success cannot transfer.",
+  "independentActivity": "Download/read already terminal existing logs/metadata/artifacts/sourceproof only. No new test/build/retry/cancel/dispatch/model/provider/deployment."
+}

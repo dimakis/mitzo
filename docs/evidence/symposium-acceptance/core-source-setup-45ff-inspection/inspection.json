@@ -1,0 +1,124 @@
+{
+  "observedAt": "2026-10-20T02:07:42.022122+00:00",
+  "commit": "45ffb126526e7b944970805b78ba4a4789304415",
+  "tree": "66a0140252e0d12f4370a383c67bca63ad20bb4d",
+  "parent": "7195ec335094d546c01a9eba644f5c3ce1feb112",
+  "changedFiles": [
+    "packages/client/src/__tests__/collaboration-source-setup.test.ts",
+    "packages/client/src/collaboration-api.ts",
+    "packages/protocol/__tests__/collaboration-source-setup.test.ts",
+    "packages/protocol/src/collaboration-conversation-store.ts",
+    "packages/protocol/src/collaboration-source-setup-owner.ts",
+    "packages/protocol/src/collaboration-source-setup.ts",
+    "packages/protocol/src/event-store.ts",
+    "packages/protocol/src/index.ts",
+    "server/__tests__/session-collaboration-router.test.ts",
+    "server/connections/reviewed-handler-artifacts.ts",
+    "server/session-collaboration-router.ts"
+  ],
+  "sourceHashes": {
+    "packages/client/src/__tests__/collaboration-source-setup.test.ts": "a3a33b5e039c6b1262dd99cf4d3f8b7eaf57a41527b6d78a4a7c0ca913f8754e",
+    "packages/client/src/collaboration-api.ts": "7f3bf72a97b268a687dab4cd3f6593d510d4e601fc1306504c9bb8e708de5b6c",
+    "packages/protocol/__tests__/collaboration-source-setup.test.ts": "ce4ca04cb9b731299c6a3d4618fbe1b0f683f499e84edd55f5ca2ea3527b9976",
+    "packages/protocol/src/collaboration-conversation-store.ts": "0d650294683d000155f3ccb013eb71715c9476457a8667a42bfb800b8ef73d5c",
+    "packages/protocol/src/collaboration-source-setup-owner.ts": "e65e3055e3e35661b537137ca2758f3006c5af72003d5dc2460cebbdd0ff969b",
+    "packages/protocol/src/collaboration-source-setup.ts": "721a2ac2183d4ca5e9f73aeb6657bb8021c173440a799299f668a88621b28eb2",
+    "packages/protocol/src/event-store.ts": "61a86f175d73a90ba568021e5b9439650da44142f9c36075557d7a97f0a58df1",
+    "packages/protocol/src/index.ts": "0cde95363c5053906cde252382068c1c732a27fe45496d2e9c62dd60b4e89359",
+    "server/__tests__/session-collaboration-router.test.ts": "233e7e3254e939419c32c43e2c402ade7f5f27ec99656c57f73dda255a3e239e",
+    "server/connections/reviewed-handler-artifacts.ts": "e956bc04d623b5d1ddbc7ee4b5b13de0dcb021b2acbf1f28a9413656f3dfc24f",
+    "server/session-collaboration-router.ts": "aa163fc91d802239f87ada222b962bc40db98aacfe182f30b28b0dda6247880d",
+    "packages/protocol/src/session-collaboration-store.ts": "7361e3e2ad32247ae6eecd12dfe68b2b7b27590cc95d5c46729b503de94bb62c",
+    "packages/protocol/src/session-collaboration.ts": "e8e47f2b79832f0288063745acbed93c7c5f8f4db71f5c8a71705b1b02a59198",
+    "server/agent-library-transport.ts": "f532d75cf524bbe6f2e499ccdb045c2e84dca83ed44c6606b8a70fe4d3c7f3a3",
+    "server/transport-auth-ownership.ts": "945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14",
+    "server/auth.ts": "87920c89768d613ce00f84bf20ab405d95e139d96a168595e7a8c6431d80e963",
+    "server/app.ts": "e830711096c029d8962acc5acbfc7d09289cdc4ac967658118fdb5c8645a78f4"
+  },
+  "allReviewedPins": {
+    "count": 635,
+    "mismatches": 0,
+    "normalization": "CRLF to LF only; all actual immutable commit files rehashed by C, not a test execution."
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "producerLogs": {
+    "collaboration-source-setup-api-green.log": {
+      "sha256": "1d936c529a7d14b0a97e6a8912eae254bd127774b7bbf06921350ec9b0df8d68",
+      "bytes": 274
+    },
+    "collaboration-source-setup-api-red.log": {
+      "sha256": "95440d27ecf95a00214fb4e1337c80c6eb6d2f0a79b4b59ec54db9baa50e0341",
+      "bytes": 3383
+    },
+    "collaboration-source-setup-commit-tests.log": {
+      "sha256": "722b316f49a4cff688091ee6419a7009596ee29a727501a0627ee2ecf6ffb309",
+      "bytes": 274
+    },
+    "collaboration-source-setup-final-tests.log": {
+      "sha256": "0fd674e3f296172385a531d64004688390ca44cea34c4faee2d7817096e0c982",
+      "bytes": 274
+    },
+    "collaboration-source-setup-green-corrected.log": {
+      "sha256": "48b9aefe908deacd67ff9f08ba684599a95c13d695815b4c996d53c8feb7c52f",
+      "bytes": 274
+    },
+    "collaboration-source-setup-green.log": {
+      "sha256": "1bbd18ccbf3eb91438fc9b97a7bdf4e449dd24850c9fbcf303f5dac1b17741b2",
+      "bytes": 2792
+    },
+    "collaboration-source-setup-http-final.log": {
+      "sha256": "41ac95d4ae901b0ada8c9a3eee69b535f7d7b89d39da20af954d5c087c74458d",
+      "bytes": 274
+    },
+    "collaboration-source-setup-pins.log": {
+      "sha256": "a2d2c96aa5bbddd89d127b5fa1f877cb6948a8cb2d0430676ddc8dea5fc84105",
+      "bytes": 273
+    },
+    "collaboration-source-setup-protocol-types-corrected.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "collaboration-source-setup-protocol-types-final.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "collaboration-source-setup-protocol-types.log": {
+      "sha256": "90f31aaf39d323f63d26c87c21c097fa891fcec060cd0bba93d39e865221f062",
+      "bytes": 112
+    },
+    "collaboration-source-setup-red.log": {
+      "sha256": "45ac0a58786d2d6444015178f6d0ac78a60b44751d816489fecb4eac4b3afdcc",
+      "bytes": 3707
+    }
+  },
+  "independentFindings": [
+    "Resolver runs SELECTs in one existing database transaction, allocates no identity/membership/session/workspace and calls no source compilation/admission/capacity/provider owner. Added DDL is an index on the existing request ledger during normal store initialization, not a second store.",
+    "Latest canonical membership rows containing source are bounded to2: zero unstarted, more than1 unavailable/multiple_associations. Exactly1 requires original first durable request result strict SessionCollaboration shape, samegroup/revision1/oneparticipant, valid begin request ID/session ID and canonical hash({kind:begin,input}); only true original source can select. No receipt or malformed/mismatched proof stays origin_unverified; foreign origin stays foreign_origin.",
+    "Existing actual begin mutation stores exact canonical fingerprint and strict result in same immediate transaction as first membership. Exact retries return original result; later current membership comes from actual existing owner and must still include source. New lookup uses existing canonical hash helper and does not infer origin from later singleton membership.",
+    "Actual EventStore sourceSetupAvailable excludes absent/hidden/Symposium/configuredSymposium/imported sources; retained begin retry does not override new source availability. Existing relationships may retain unavailable other member IDs as metadata; this is not access/delivery authority for those members.",
+    "Route mounts in existing real application router behind operatorAuthMiddleware. It requires current cookie identity plus actual registered interactive operator/live transport with sameauthID, before and after synchronous store read. Released/grace transports refuse, no implicit link or source capture; cache-control private/no-store. Transport auth proves interactive operator, not a new per-source content/dispatch grant.",
+    "Public query strict object rejects extra/array fields; IDs use existing no-whitespace/bounded source schema, clientIDbounded200. Result discriminated union and existing collaboration object are strict. Typed client sends credentials+AbortSignal, validates exact requestedsource and selected membership containing it; query never supplies group or privilege. New internal resolver not barrel-exported.",
+    "Source tests exercise actual temporary EventStore/DB: unstarted/read-only, genuine begin grownmembership+restart/exactretry, hidden refusal while old retry retained, legacy no begin even after singleton, foreign/multiple, corruptfingerprint and imported refusal. Client fixture tests actual typed HTTP adapter with fakefetch. Router fixture mounts actual router+store but synthetic middleware/auth/transport, not complete production cookie app execution."
+  ],
+  "producerReported": {
+    "focused": "49PASS4files2.58s at final commit log;1worker/1GiB according to core handover.",
+    "pins": "19PASS1file742ms producer source-pin suite. C separately rehashed all manifest entries without executing tests.",
+    "types": "Protocol tsc PASS reported by producer; final type log empty stdout is not independent C exit proof.",
+    "historicalRed": "Initial4store and later5API failures are missing-method behavior, not genuine source-owner refusal controls. Historical initial/corrected/final logs all preserved; do not inflate them into app-level red qualification.",
+    "hooks": "Normal hooks reported PASS; C did not rerun producer suite."
+  },
+  "acceptance": "No additional concrete blocker found within observational canonical source-setup seam. This is bounded source/assertion/provenance review only.",
+  "limits": [
+    "Preview/correlated joining ID owner extension remains absent; no production joining-owner/catalog/bootstrap or successful native review/admission/delivery/reply is supplied. Source selection is not a content or source-access grant.",
+    "Current app dcb executed baseline and its known-unavailable joining case remain unchanged. This candidate has no C actual-app cookie/transport execution or owner-omission control yet.",
+    "Canonical association for retained saved versions, exact r2 versus r3 selection, transcript removal/access revoke/save race/refreeze/recovery and full source/account/native limits/count/consume/release remain separate requirements.",
+    "Selected response metadata exposes current relationship only; any downstream source/candidate/compiler/prepare/save must retain genuine authority fences. No account/model/inference/capacity readiness is inferred."
+  ],
+  "independentActivity": "Read immutable source/diffs/callers/tests, hash every reviewed source pin and retained producer log only. No tests/build/browser/native/model/provider/retry/dispatch/deploy."
+}

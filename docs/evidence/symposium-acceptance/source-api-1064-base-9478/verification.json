@@ -1,0 +1,32 @@
+{
+  "observedAt": "2026-10-20T04:04:40.343637+00:00",
+  "head": "9478982ca3632f7205f8a57696161db6bb3ab979",
+  "tree": "c1ad64f23ef01bf3202ea86366917f52c4e7707a",
+  "parents": [
+    "58e5cf46ac0fe74eeaf59a64baedf8d09d9c1d25",
+    "a1c792f106c8d3255cbd91064132a668e5154e7b"
+  ],
+  "actualReviewedPins": {
+    "count": 645,
+    "mismatches": 0,
+    "runtimeRevision": "v1.0.398-symposium-source-api-public-base"
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "preservation": {
+    "incoming19NonsharedByteExact": true,
+    "original14NonsharedByteExact": true,
+    "actualParentPinKeyUnion": true,
+    "wholeRepositoryWorkspacesAndEventStoreByteExact58e5": true,
+    "terminalF479FixAndFullPreviewPreserved": true,
+    "sharedAppIndexDelta": "Only original preview requestId forwarding and source-setup protocol export versus actual a1c parent. Byte diff retained."
+  },
+  "producerValidation": "39core/5PASS; incoming60PASS1subprocessSETUPFAIL minimalenv borrowed workspace symlink resolves missingprotocol/dist. Originalunmodifiedchildbody explicitlymappedcurrentTSXpath rerunPASS CANONICAL_REVIEW_READY. No product/test weakening; do not call whole11filecampaign green. Mappedtypes/hooks producerreported, not C executed.",
+  "qualification": "No additional preservation blocker found. Evidence tied to947andactuala1cparent; latermain402d does not relabel source or CI. FinalCI/strictbase/trustedfollowup not independently granted. Existing f479source correction remains closed at source/assertion only.",
+  "independentActivity": "Read immutable Git source/allactualpins/protected refs/existing CI metadata and copy producer evidence only. No tests/builds/typechecks/Rust/model/provider/retry/cancel/dispatch/newreview/campaign."
+}

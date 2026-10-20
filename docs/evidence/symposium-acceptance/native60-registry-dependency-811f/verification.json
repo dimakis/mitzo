@@ -1,0 +1,110 @@
+{
+  "observedAt": "2026-10-20T02:29:59.400362+00:00",
+  "pr": 1060,
+  "head": "811f058b5acf712ce52d738551172b0316ed8c0e",
+  "tree": "eb65d3692d9c42f54ce7394215556c4b244b67f4",
+  "parents": [
+    "09899212aa36458449c66b0f90be4e66e0ec1bbe",
+    "63f5b4f786f24da8b1174547b95e16d320db0b70"
+  ],
+  "githubIdentityAndMergeabilityVerified": true,
+  "incoming18Paths": [
+    "docs/operations/connection-request-errors.md",
+    "frontend/src/components/ShareButton.tsx",
+    "frontend/src/components/__tests__/ShareButton.first-activation.test.tsx",
+    "server/__tests__/connection-request-error.test.ts",
+    "server/__tests__/credential-connection-tools.test.ts",
+    "server/__tests__/credential-connections.test.ts",
+    "server/__tests__/credential-http.test.ts",
+    "server/connection-request-error.ts",
+    "server/connections/reviewed-handler-artifacts.ts",
+    "server/credential-connection-tools.ts",
+    "server/credential-connections.ts",
+    "server/credential-http.ts",
+    "server/credential-verification-error.ts",
+    "tests/fixtures/agent-library-builder.tsx",
+    "tests/offline/agent-library-builder.spec.ts",
+    "tests/offline/telos-outcomes-workspace.spec.ts",
+    "tests/support/builder-offline-transport.test.ts",
+    "tests/support/builder-offline-transport.ts"
+  ],
+  "all17NonmanifestIncomingPathsByteExact": true,
+  "native": {
+    "commit": "ea6416336b5275e8a3c13e508f1c68df289f75a3",
+    "tree": "203e5ac78c2f6653251ee6828163d1234897216f",
+    "proofByteExactTo098992": true,
+    "all61PatchesByteExactAndHashesMatch": true,
+    "workflowByteExactTo098992": true,
+    "workflowSHA256": "893464b75c824cacf71964aeb8321f449b9a5c2bd72b04d3b1dcda748d24a670",
+    "lineage": "Corrected native60 plus isolated-registry policy, not historical61 metadata or native77."
+  },
+  "reviewedManifest": {
+    "pins": 642,
+    "mismatches": 0,
+    "exactParentKeyUnion": true,
+    "runtimeRevision": "v1.0.347-symposium-effective-registry-current-base",
+    "parentConflicts": [
+      {
+        "path": "server/credential-connection-tools.ts",
+        "ours": "40386b5b0555a6dcafff40d16158b95b2372274432344fe9afa6771d67bff57b",
+        "incoming": "3c0da9bb08e78053866d4017577cd2628765259c260d43e8ab84550ed80b6f99",
+        "merged": "3c0da9bb08e78053866d4017577cd2628765259c260d43e8ab84550ed80b6f99",
+        "selected": "incoming"
+      },
+      {
+        "path": "frontend/src/components/ShareButton.tsx",
+        "ours": "09b59817a6877cb6d28ecd7b3a83169780a5ce39a420c720561cd4106c045f64",
+        "incoming": "3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411",
+        "merged": "3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411",
+        "selected": "incoming"
+      },
+      {
+        "path": "server/credential-connections.ts",
+        "ours": "7a20791d08265360c68bd6b94362669e722d06b5bb0d7c95474d0c3b7a702ccd",
+        "incoming": "191f5791ca2eaa35e7e0c427d971b830c62663a8f347662758f84c5b538f507c",
+        "merged": "191f5791ca2eaa35e7e0c427d971b830c62663a8f347662758f84c5b538f507c",
+        "selected": "incoming"
+      },
+      {
+        "path": "server/credential-verification-error.ts",
+        "ours": "1adcaa9d47b413796b94f6aeb44bf152e2daa27ec30759d1ffd9ce5e1240ebea",
+        "incoming": "d4fefb2652ec0bd00b24aac257b31a028b597dc20dd7101c77d527fe4505973d",
+        "merged": "d4fefb2652ec0bd00b24aac257b31a028b597dc20dd7101c77d527fe4505973d",
+        "selected": "incoming"
+      },
+      {
+        "path": "server/credential-http.ts",
+        "ours": "de01cafbe00fbc4a470483afae3c2fafa8ba81c295187f9b22b5188c71cdd627",
+        "incoming": "ad803bdedddd64babd20711b076ac9b1e51cf7215136c1a04f6519d1c0e6e748",
+        "merged": "ad803bdedddd64babd20711b076ac9b1e51cf7215136c1a04f6519d1c0e6e748",
+        "selected": "incoming"
+      }
+    ],
+    "fiveRevisedIncomingPins": [
+      "server/credential-connection-tools.ts",
+      "frontend/src/components/ShareButton.tsx",
+      "server/credential-connections.ts",
+      "server/credential-verification-error.ts",
+      "server/credential-http.ts"
+    ],
+    "note": "Incoming HA source hashes must match incoming source, not be overwritten with ours. Actual merged source hashing independently verified all642 entries."
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "producerReceiptSHA256": "eba521c02e22a81d7f6ebfcb8289868d89c8e79746c6043c84d524cee1d5c962",
+  "producerReported": "115focusedPASS7files1worker/1GiB, normal hooksPASS. Initial commit-message rejection and wrong metadata-wrapper incoming-hash expectation were corrected without product/assertion changes; producer record retained. Earlier38overlap115, not summed.",
+  "existingCI": {
+    "native": 39358899994,
+    "host": 39358900063,
+    "authCompileOnly": 39358900005,
+    "state": "Fresh normal jobs exist at exact merged head; fixture execution and final trustedreview/App/base gates not qualified. No manual dispatch/retry or workflow change."
+  },
+  "reusedCorrectionReceiptSHA256": "ed84e0f5f02783838bb58cc121bf5412295660eb6fb705c88a700f87b8c843e7",
+  "qualification": "No additional concrete merge/publication-preservation blocker found. Bounded source proof only; genuine dependency merge restores normal PR CI. Original qualified60/finding/098noCI/source77 and old failures remain immutable separate. No complete native/account/request/count/consume/release/runtime/App acceptance.",
+  "independentActivity": "Read immutable parents/incoming/nativeproof/workflow/allactual642sourcepins/protected refs/GitHubidentity and existingrun metadata only. No tests/build/types/model/provider/retry/cancel/dispatch/newreview/campaign."
+}

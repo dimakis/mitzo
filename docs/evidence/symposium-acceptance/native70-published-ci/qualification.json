@@ -1,0 +1,34 @@
+{
+  "observedAt": "2026-10-20T02:17:15.846383+00:00",
+  "run": 39348949832,
+  "attempt": 1,
+  "publishedHead": "691af045d5dfd8ac99904f85a5f530ef8721f892",
+  "publishedTree": "72e885406ea11c940295fa5f7d1f18857bfa88b5",
+  "nativeCommit": "d615a63d687555242ede9cb3874d2699f99520c3",
+  "nativeTree": "9ce8eecf782809ae5d33f63715000e8396ab2e55",
+  "patches": 70,
+  "bothPlatformsIndependentlyQualified": true,
+  "platforms": [
+    {
+      "platform": "ubuntu-24.04",
+      "passed": 6148,
+      "nextestSkipped": 11,
+      "seconds": 2377.782,
+      "namedNewCasesPass": 6,
+      "receipt": "linux-qualification.json",
+      "sha256": "653777ca3714612eb4dec33f3c6aa578336edf7796045715ce8bfa9f81be99c7"
+    },
+    {
+      "platform": "macos-26",
+      "passed": 5927,
+      "nextestSkipped": 27,
+      "seconds": 2004.885,
+      "namedNewCasesPass": 6,
+      "receipt": "mac-qualification.json",
+      "sha256": "a909e84b973ebc831d47304d0343c78f4fcda7c97cc39f10748df0e0d3891c8d"
+    }
+  ],
+  "accounting": "Zero failures. Overlapping platform/source totals NOT added. Overall nextest11/27skip exclusions retained despite executed-onlyJUnit0.",
+  "scope": "Bounded actual native public-body/metadata, cached-credential custody and ModelClient fixture qualification; planner source compilation/reconstruction/fmt. No production source/request/account/model-limit/count/consume/release/runtime/fullApp qualification. Does not resolve native60 wrong-effective-MCP-registry trusted review finding CEN-487055AFEF4D; source correction pending.",
+  "independentActivity": "Read/download existing terminal run/job/log/artifact/JUnit/exact source proof/Git metadata only. No test/build/retry/cancel/dispatch/model/provider/deploy."
+}

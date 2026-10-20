@@ -1,0 +1,37 @@
+{
+  "observedAt": "2026-10-20T02:24:01.631381+00:00",
+  "pr": 1060,
+  "head": "09899212aa36458449c66b0f90be4e66e0ec1bbe",
+  "tree": "739bdbf94603ac487e986960b1557e63a73c0921",
+  "githubHeadVerified": true,
+  "nativeCommit": "ea6416336b5275e8a3c13e508f1c68df289f75a3",
+  "nativeTree": "203e5ac78c2f6653251ee6828163d1234897216f",
+  "lineage": "Correction off qualified native60bb5bedc;61patches in this manifest is NOT historical61metadata lineage or current77source.",
+  "patchesHashed": 61,
+  "prior60EntriesOrderBytesUnchanged": true,
+  "workflowByteExactToPrior60": true,
+  "workflowSHA256": "893464b75c824cacf71964aeb8321f449b9a5c2bd72b04d3b1dcda748d24a670",
+  "actualHostPins": {
+    "count": 641,
+    "mismatches": 0
+  },
+  "sourceCorrectionReceiptSHA256": "ed84e0f5f02783838bb58cc121bf5412295660eb6fb705c88a700f87b8c843e7",
+  "requiredNewNamedFixtures": [
+    "isolated_registry_refuses_before_inherited_plans_or_runtime_callbacks",
+    "retained_source_and_isolation_do_not_reselect_manager_defaults"
+  ],
+  "producerReceiptSHA256": "118f7281b564aa01a82ab6aae600ca1ec7c1b1137390532e3c306c1781628f62",
+  "producerReported": "Exact source reconstruction and38hostfocused2files/hooks PASS; no local Rust compile/test/model calls.",
+  "observedRuns": [
+    {
+      "id": 39358285219,
+      "name": "Centaur merge gate",
+      "status": "completed",
+      "conclusion": "skipped",
+      "head": "09899212aa36458449c66b0f90be4e66e0ec1bbe"
+    }
+  ],
+  "executionState": "At this snapshot only automatic stacked merge writer skipped; no exact-head native/host run observed. No run ID invented and no retry/dispatch requested. Normal exact-source execution and trustedreview remain required.",
+  "qualification": "Publication/source preservation only, named registry mechanism source/assertion correction not compilation/execution approval. Prior60/70greens and higher73/76/77campaigns remain distinct.",
+  "independentActivity": "Immutable all61patch/checksum/source/workflow/actualhostpins/GitHubidentity/normalexistingrun metadata reads only; no tests/build/runtime/model/provider/retry/cancel/dispatch/newreview/campaign."
+}

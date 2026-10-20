@@ -1,0 +1,155 @@
+{
+  "accepted": "dcbad645a3179731de96957299bb775eb094bff8",
+  "tree": "79964ceb666ddc2e23f0e7f2a02520fcdad31296",
+  "sourcePins": 632,
+  "sourcePinMismatches": [],
+  "runtimeRevision": "v1.0.333-prompt-startup",
+  "priorCPaths": 248,
+  "priorCPathChangesBeforeMapUpdate": [],
+  "canonical": {
+    "parentId": "c0851ba23fcc5d04",
+    "milestoneId": "358d56cb7e4352ff",
+    "parentStatusObserved": "active",
+    "milestoneStatusObserved": "active",
+    "rawAcceptanceCriteriaSha256": "155dff92a67bb45e177b826b37025a6d7201a792b670ccbf9f9a883bca95d904",
+    "count": 16,
+    "changed": false
+  },
+  "rootHandover": {
+    "id": "87d62d149bdec6bed5b826884d4aa29d",
+    "revision": 3,
+    "item_id": "c0851ba23fcc5d04",
+    "filename": "FEATURE-OWNER-HANDOVER.txt",
+    "title": "Symposium feature-owner handover — landed source, remaining application acceptance",
+    "sha256": "cbe8e1dda0bcb9b655b8ceaba7f1916e1da097ac65cdd123f3c5aac6ba9f9e69",
+    "size": 26321
+  },
+  "positive": {
+    "selectedPassed": 2,
+    "selectedFailed": 0,
+    "filteredKnownUnavailableJoin": 1,
+    "assertions": [
+      {
+        "title": "reviews an actual prepared unused Local workspace through real app auth and survives the same-session restart without capacity",
+        "durationMs": 3978.9890840000003
+      },
+      {
+        "title": "reads exact completed durable source through actual production injection and typed client without restore or allocation",
+        "durationMs": 234.45341699999972
+      }
+    ],
+    "source": "read-only-app-result.json"
+  },
+  "omissionControls": {
+    "review": {
+      "expectedFailure": true,
+      "actualStatus": 503,
+      "restoredExactSource": true,
+      "source": "review-owner-omission-result.json"
+    },
+    "durable": {
+      "expectedFailure": true,
+      "actualStatus": 500,
+      "otherSelectedObservationalCasePassed": true,
+      "restoredExactSource": true,
+      "source": "durable-owner-omission-result.json",
+      "initialVerifierErrorRetained": true
+    }
+  },
+  "limits": {
+    "workers": 1,
+    "heapMiB": 1024,
+    "modelsCalled": 0,
+    "browserRuns": 0,
+    "rustRuns": 0,
+    "stagingOperations": 0,
+    "runtimeInstallations": 0,
+    "productionOperations": 0
+  },
+  "sourceGaps": [
+    {
+      "id": "capacity",
+      "path": "server/collaboration-application-review.ts",
+      "line": 32,
+      "finding": "Observational application review has no native capacity adapter; snapshot remains unverified.",
+      "sourceSha256": "620d3455583727da0480f007294d66a2e06e4a727a4df23864d5fbbc0fc06966"
+    },
+    {
+      "id": "joining",
+      "path": "server/app.ts",
+      "line": 3126,
+      "finding": "Actual production mount supplies store and observational review but no joining port.",
+      "sourceSha256": "e830711096c029d8962acc5acbfc7d09289cdc4ac967658118fdb5c8645a78f4"
+    },
+    {
+      "id": "public-delivery",
+      "path": "server/session-collaboration-router.ts",
+      "line": 243,
+      "finding": "Public messages and snapshots POST operations return503 execution_unavailable.",
+      "sourceSha256": "32e8788aa3c8c932d4f2641bec8889e7c6dd742e51cde56c6fc7cf9a79eef7ab"
+    },
+    {
+      "id": "ordinary-context",
+      "path": "server/codex-chat-session.ts",
+      "line": 2493,
+      "finding": "Hook accepts optional ordinaryCollaborationDelivery; production source search finds no caller assignment.",
+      "sourceSha256": "a10161cef8c08683879c26a8db07157e7fef8bb295ec0e2f51bfca2f1255a1e3"
+    },
+    {
+      "id": "reply-projection",
+      "path": "server/collaboration-ordinary-replies.ts",
+      "line": 60,
+      "finding": "Class exists; production source search finds no instantiation.",
+      "sourceSha256": "599f1574e4fb2deace9d5b0aa19e639d6bd7aed727837d404f44ff916eba8a5f"
+    },
+    {
+      "id": "forwarded-content",
+      "path": "server/collaboration-ordinary-delivery.ts",
+      "line": 201,
+      "finding": "Every message.forward refuses before staging; helper serialization is not actual ordinary forwarded-content delivery.",
+      "sourceSha256": "bd5f853078019770871a660083177cd54e7dae8c7718f230fdd203ca39a942e7"
+    }
+  ],
+  "approvedReferences": {
+    "activeRevision": "fresh-agent-review-2026-10-18-test-syntax",
+    "hashes": {
+      "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+      "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+      "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+      "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb"
+    },
+    "newVisualComparison": false
+  },
+  "unacceptedProducerCheckpoint": {
+    "pr": 1058,
+    "head": "0fd922430b1452d706f361bfde72a47eea584bda",
+    "nativeCommit": "557ce440b823868ea853e583c2277d16ec0af726",
+    "scope": "registration-owned extension tool input protocol only, not complete request/capacity/dispatch",
+    "runnableFullJourney": false,
+    "actualAppCompositionChanged": false,
+    "proof": "producer-native54-checkpoint.json",
+    "CIStatus": "Producer checkpoint reports pending; not C-qualified native execution."
+  },
+  "nextAcceptanceCheckpoint": "Core supplies genuine production pre-session Core/MCP/extension inventory and late HTTP/account authority, exact retained request/count/consume preparation, and actual app capacity/joining/ordinary delivery/reply composition. C then runs positive original joining/reply journey, omission controls and recovery, labelling combined candidate and requalifying accepted main after landing.",
+  "scope": "Actual app observational review and durable source read only, with required-owner omission sensitivity. Not positive fresh joining, explicit dispatch/reply, readers, forwarded delivery, full UX, installed native runtime or physical iOS qualification.",
+  "rawEvidenceLocation": "C task artifacts: implementation-evidence/current-app-dcbad-baseline/",
+  "rawEvidenceSha256": {
+    "source-verification.json": "bcc86bbc4e2cd7febc32c6cbbf5d759276bf4d0586f647bf2687fd6bf9b9c663",
+    "observational-result.json": "0053a4dd8c61079cfec497525d34786ccf565524caf3e8f5a3212c297743152c",
+    "observational-vitest.json": "e50570f6f3f8f519731efa8b3b907dd52be62c97f24d83818ca8a47886db5b61",
+    "observational-output.log": "4bc4d54a8fc102d7db449495420bba289af622ef92044fa66a022162a9abbb81",
+    "review-owner-omission-result.json": "8a5d57121b4bbcfdc96a08dba7b88e7ae49590779077331f5b898ba2049ef752",
+    "review-owner-omission-vitest.json": "c773629d2ff32f919b63c2175ca3ce307067e0c25273e4c9f8a1bec7d10d016e",
+    "review-owner-omission-output.log": "d645141684953c63a62f26098f9cf32ef0eba8ca555956d134fa98544d879f3b",
+    "read-only-app-result.json": "ed13deb56fed5691fa0538340f59b8dabc636302d8720836242f22603cf58bfe",
+    "read-only-app-vitest.json": "67e60a082b0882dd5ef66123322de5b67981fcfd32be3d74aea8af2e1fc86dc0",
+    "read-only-app-output.log": "cd31fb0b49c597da9d93d03c42e0766246b032b933c11219c16a27968c4dd873",
+    "durable-owner-omission-result.json": "5cdc3d76cc5da7e5c9826e007fed1a9b1a495fd0453296235397a42c21e5b947",
+    "durable-owner-omission-vitest.json": "51bea9d943231fc9aaaf1fa2693eadce962ac1148b9b70b4532edc465d0bff5a",
+    "durable-owner-omission-output.log": "f8c684eeeac9a8e307887df1e5b8fb98f69cc1d632c15c623fb855ec48ba9e6a",
+    "source-gaps.json": "c9370244141c46238d3578ac0b07bbfb89f441f5f7538ac59f1cce06af684da6",
+    "approved-reference-verification.json": "f40c1b117b602553b24d6b7c1a54cb053f819990615ab86352fa38748811712e",
+    "root-handover-metadata.json": "3d311753ab7b664ad857088385b388ae0ceb3d7e4f18a6d5bc7c63857f98a8f3",
+    "producer-native54-checkpoint.json": "f3c4bfbd3f8b8d121f9ad758fa46fb51c63305bb317e0abf4280fbd3239c746a"
+  }
+}

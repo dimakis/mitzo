@@ -1,0 +1,40 @@
+{
+  "observedAt": "2026-10-20T04:02:20.562454+00:00",
+  "source": "staged isolated file only, no normal signed commit available",
+  "base": "865e2f6fb59451d834a7b31fe7a0b9eac4396afc",
+  "proposedTree": "1797b1ef675da01d2125d17075fb4a509a682b02",
+  "changedFiles": ["codex-rs/models-manager/src/provider_spec_limits.rs"],
+  "sourceSHA256": "a08fcc39afa5fb3db7d3dfb8efb00b011e69a124cf182ef390bd90842f448798",
+  "patchSHA256": "1e1edcbb1d59e25aabdfd19f44597e806f11cc4808f8926f07fcb3b80922c68d",
+  "canonicalDescriptor": {
+    "bytes": 285,
+    "sha256": "89ceab0f696672378ae781a4d91fe7d470ccbdf8f12409eb9924c0d012cb20c2",
+    "values": {
+      "context_window": 1050000,
+      "descriptor_version": 1,
+      "documentation_verified_on": "2026-10-20",
+      "maximum_output_tokens": 128000,
+      "model_id": "gpt-6-luna",
+      "policy_revision": "openai-public-responses-provider-spec-v1",
+      "specification_url": "https://developers.openai.com/api/docs/models/gpt-6-luna"
+    }
+  },
+  "officialSource": {
+    "url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+    "independentlySearchedAndFetched": "2026-10-20",
+    "observedLines": {
+      "context": 969,
+      "output": 971,
+      "modelId": [1162, 1166, 1168, 1170]
+    },
+    "qualification": "Official page directly confirms exact API ID and both bounds; no dated snapshot listed in fetched Snapshots section. Public documentation does not qualify selected account, route availability, settings or current catalog epoch."
+  },
+  "sourceReview": [
+    "Exact ID equality only, no aliases/casing/namespace/whitespace/prefix/snapshot/fallback; returns reviewed context and separate maximum output ceiling with provenance and retained descriptor digest.",
+    "Canonical compact sorted-key immutable285UTF8 descriptor has no digest self-field/newline. Independent Python hashlib reproduced SHA89ceab. Precomputed digest is a label, no runtime cryptographic verification claimed.",
+    "Authored3Rustfixtures cover positive bothceilings/provenance,14unreviewedIDs refusal and canonical exact projection. Explicit pretty_assertions import avoids prior macro collision pattern. Serde derive/serde_json and pretty_assertions already in actual crate dependencies; no manifest modification.",
+    "Module unwired from lib.rs and no model catalog, manager, account, transport, input count, lease, guardedCAS, dispatch or runtime mutation. Proposed tree and staged patch touch exactly1newfile. No local Rust/model execution; fixtures unexecuted. Signing lock retained, no unlock/bypass."
+  ],
+  "qualification": "No additional concrete blocker found within isolated source/hash/assertion/provenance scope. This is a reviewed specification record only. Core must adopt/wire/compile and qualify account/catalog/route authority separately.",
+  "independentActivity": "Read staged bytes/base Cargo+lib source, reproduce canonical JSON/hash/tree, fetch public official documentation only. No new tests/builds/rust/model/provider calls or account qualification."
+}

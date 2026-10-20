@@ -1,0 +1,31 @@
+{
+  "observedAt": "2026-10-20T01:06:08.126748+00:00",
+  "commit": "311b9ae9c07874d9ff5964e95629e057f337dd9d",
+  "tree": "9e17d7d58b5a2e264520c9b923567c8789a1c123",
+  "parent": "9a68030f69bc95951822cfefc09053f3292aed14",
+  "sourceHashes": {
+    "codex-rs/state/src/runtime/prepared_request_effects_tests.rs": "5cb1d767011a433712a03c61c6064c7f9811d852c077147332f805d43c30b090",
+    "codex-rs/state/src/runtime/prepared_request_sampling_tests.rs": "277c40930666608c404b95496e4ed411bb21b0fe3979ee63ea4cacc092876ddf"
+  },
+  "original72ReceiptSHA256": "39a821efa10bf54bbea3c40ea4800767140b4dd9878a227fb4671734d06c6845",
+  "changeScope": "Two test files only; all persistence/migration/product bytes from72 preserved. Three existing helper bodies byte-identical after test-module pub(super) visibility changes; no product API exposed.",
+  "findingsClosedAtAssertionLevel": [
+    {
+      "id": "C72-release-positive",
+      "fixture": "forced_release_preserves_executable_handoff_and_restart_uncertainty",
+      "proof": "Same-owner release must return real executable Attempt before cancellation; full record equals expected Released state. Later close is AttemptAlreadyCommitted; real ACK+provider receipt helper must succeed; full retained record and consumed/released uncertainty survive reopen, and reconsume fails. An always-failing release cannot satisfy this fixture."
+    },
+    {
+      "id": "C72-continuation-alias",
+      "fixture": "continuation_requires_released_predecessor_and_original_acceptance",
+      "proof": "Actual sampling bindings and real StateRuntime prepare/measure helpers; pending and refused predecessors reject API and direct-SQL consumption while successor remains byte-equivalent record. Released predecessor with real ACK/provider acceptance permits successor consumption/commit and same original native-turn owner reply origin."
+    }
+  ],
+  "assertionLimits": [
+    "These are authored assertions, not executed results. Existing8-iteration release/close race retained alongside forced opposite outcomes.",
+    "End-to-end alias refusal does not isolate every redundant SQL trigger or predicate; existing receipt/predecessor fences may also reject.",
+    "No actual host original-revision/ABA proof, private RPC, native64 synchronous CAS or production release caller is introduced."
+  ],
+  "independentActivity": "Immutable test-source/helper-body/changed-path/whitespace inspection only; no C Rust compilation/test/model/provider/SQL experiment or duplicate campaign.",
+  "acceptance": "Both reported72 fixture gaps CLOSED at exact source/assertion level in73. Executable qualification remains pending exact-source Rust CI; native-host ordering, full request/count/consume and application acceptance remain unqualified."
+}

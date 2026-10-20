@@ -1,0 +1,96 @@
+{
+  "observedAt": "2026-10-20T02:46:50.676821+00:00",
+  "commit": "85749b7b4b375a0a439cf266d8e61e23aa71a90c",
+  "tree": "a8688344a08e817cbe01ab64fd27362fbe8d026c",
+  "parent": "95737b13b4d3b9caa8f23b6cb0efcb5d687ff00a",
+  "sourceHashes": {
+    "frontend/src/components/ConversationAgents.tsx": "40927b567b5869d807fbd426f5457774b1a770834efee541bb286a435db1a1a2",
+    "frontend/src/components/ConversationJoiningReview.tsx": "3cff17124e49f231f083d964ac2afaac57a2e5d8fed237ef51122eef19f80040",
+    "frontend/src/components/__tests__/ConversationJoiningReview.test.tsx": "40767c9751c0cc6848fd96e4580e1579914d2e5e3dbae914bb95418ac9190758",
+    "frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx": "e113d629137bca1a48e103f8662f89ffe692f547f0a8eee1641c58a79edf0326",
+    "frontend/src/hooks/useConversationJoiningReview.ts": "be9f2c878e8ff3c7265750edbcde19d5badca5c41a7173d15896fac7298488a6",
+    "frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx": "5ccb421198b53a36391d2cc0dc053e978742379b62b39ea817fb86cdfef710e7",
+    "frontend/src/lib/__tests__/conversation-joining-recovery.test.ts": "0c1e0fb35d580118ee0d94161185cacbadbe9c4f49946e022aff4959f0cc1c90",
+    "frontend/src/lib/__tests__/conversation-joining-retained-fixture.ts": "2a1874b37c2e6307f48ec290593aed94ca70b8600a41082a7577e915558f243f",
+    "frontend/src/lib/conversation-joining-artifacts.ts": "4ad9e03658c7ff3d5738227615b14959c3ad9249836264aa9b2145194bf4288a",
+    "frontend/src/lib/conversation-joining-recovery.ts": "1efbe76f214e16a0e0d4e3086e4f2e96eb1093c2b4a8426a3f88977e82113bb7",
+    "frontend/src/lib/conversation-joining-review.ts": "11917317342e52f043f840592b90eb45f563e27a454f16580e79c003c6938fda",
+    "frontend/src/lib/conversation-joining-application-owner.ts": "d575f127b74ecfdf627cb448d9dc06c47e7497d1842c51fa76c9682af401e6e4",
+    "frontend/src/hooks/useConversationJoiningSourceSetup.ts": "abe632229b8bdd391145cfce4a0dc1c3ee856d9350f74b4813028f4c198afbb8"
+  },
+  "all33CoreDependencyBlobsByteExact": true,
+  "coreDependency": "9eb0f9d10344770b55bf209cf120f6715791413b",
+  "dependencyBase": "7195ec335094d546c01a9eba644f5c3ce1feb112",
+  "patchSHA256": "750318936e21f37849c3942f37ccc1060049606af4f062332205dd3dd4e367b6",
+  "producerEvidence": {
+    "joining-artifact-kinds-red.log": {
+      "sha256": "b585355f7f915a2bf8d9f83b5f4e6060f19502694cd8dd7734b868e7de7e0467",
+      "bytes": 2533
+    },
+    "joining-artifact-metadata-red.log": {
+      "sha256": "8584d1898fa0a9c29115b9997800cda03171ede2eafe11a457950dee9bc757bf",
+      "bytes": 2107
+    },
+    "joining-artifact-selection-red.log": {
+      "sha256": "3d4b63f3fcc1512a9110badd0f3232d1a6453ee09588299ffb2ef5d463c6823b",
+      "bytes": 2824
+    },
+    "joining-artifact-kinds-green.log": {
+      "sha256": "9c836cfd8306f1b3328d8502f36cf780545131fc2fef8fecfad04ddf43323c65",
+      "bytes": 289
+    },
+    "joining-artifact-kinds-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "joining-artifact-kinds-design.log": {
+      "sha256": "3463dbb835168b72e0d070b8a41b57e5ca290c89e02c03b0ed209053ca6ee019",
+      "bytes": 386
+    }
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "positiveSourceFindings": [
+    "Shared strict artifact pin is preserved during selection and recovery. Identity/key is JSON of kind-or-inline,id,revision,sha; same-ID retained and inline checkboxes/labels/recovery no longer alias. conversationArtifactPin excludes label/provenance fields from public selector while preserving explicit kind.",
+    "Review parser now uses actual shared strict result schema and requires exactly one matching kind-aware label for every snapshot artifact. Retained label title/filename must equal frozen metadata, and UI displays frozen title/filename/original provenance instead of inventing current source origin. Missing/wrong-kind/stale title/filename metadata refuse.",
+    "Refreeze retains setup selectors and source-fence digest includes full frozen artifacts/kinds/provenance. Typed-client lost-response/reload fixture deep-compares original complete POST and original tagged selection/brief, retains source root separately, keeps unverified capacity disabled and performs no join. Recovery stores public selectors/fences only, rejects unknown kind without replacing original request, excludes retained provenance/source bytes/native witness from journal.",
+    "Fixture checkbox test toggles kinds independently and adds r3 while r2 stays checked, verifies exact selected request, frozen r2 filename/title/origin/path, edited-brief retained selectors and Back selection. These are synthetic legacy-owner/HTTP fixtures, not a genuine catalog/source/save owner."
+  ],
+  "findings": [
+    {
+      "id": "CA-selected-extra-kind",
+      "priority": "P2",
+      "owner": "A",
+      "status": "OPEN, source-derived counterexample sent directly",
+      "file": "frontend/src/hooks/useConversationJoiningReview.ts",
+      "function": "readReview",
+      "mechanism": "Selected mode checks requested artifacts are a subset of returned snapshot, not exact identity/count set. A response containing requested inline pin plus an unselected retained same-ID/revision/hash version and valid labels passes all artifact checks. With otherwise valid ready fixture/settings it may retain readiness.",
+      "counterexample": "setup.context=selected; setup.artifacts=[inline]; snapshot.artifacts=[inline,retained]; labels=[inlineLabel,exactRetainedLabel]; no previous fence. setup.some false and snapshot.some false, so extra context accepted.",
+      "requestedCorrection": "Exact kind-aware identity/count equality only for Selected, retaining legitimate authenticated-prefix additions for So-far. Reproduce in existing focused hook fixture; no C test executed.",
+      "scope": "Pre-existing subset check carried into new tag path; not a claim actual current compiler generates extras."
+    },
+    {
+      "id": "CA-retained-label-normalization",
+      "priority": "P2",
+      "owner": "Core shared contract",
+      "status": "OPEN supplemental finding, separate packet",
+      "mechanism": "Shared retained label .trim transforms actual owner filename/title while frozen metadata preserves them; exact UI comparison rejects a legitimate unchanged leading/trailing-space retained version. A should retain exact comparison; Core must preserve bytes for new retained label branch without changing legacy inline trimming."
+    }
+  ],
+  "producerReported": {
+    "redParser": "2fail7pass25unselected; shared parser/recovery originally rejected new tag.",
+    "redMetadata": "4fail5pass25unselected; wrong-kind/missing/stale title/filename previously accepted.",
+    "redSelection": "1fail11unselected; checkbox alias observed.",
+    "green": "101PASS6files5.87s,1worker/1GiB. Does NOT cover new CA-selected-extra-kind or label normalization counterexamples. Overlapping prior A/design counts not added.",
+    "design": "108PASS1existingSkip6files2.40s; protected references unchanged, no browser campaign.",
+    "types": "Focused source-mapped tsc/hooks PASS reported; no fullapp build or independent C exit proof."
+  },
+  "digestLimits": "Frontend retains and compares declared SHA strings and source-fence digest, but does not independently recompute artifact SHA from base64. New retained fixture uses synthetic d*64 with abc bytes, not an authentic matching byte digest. Real compiler/store digest ownership remains backend; no cryptographic bytes/native capacity qualification inferred from frontend fixtures.",
+  "acceptance": "HELD for two targeted findings; do not promote producer green into complete tagged frontend acceptance. Other positive source observations remain bounded.",
+  "independentActivity": "Read immutable11frontendfiles/scoped callers/shared dependency/store schema/protected refs/assertions and producer logs/hash provenance only. No C tests/types/build/browser/native/model/provider/retry/dispatch/new campaign."
+}

@@ -1,0 +1,53 @@
+{
+  "observedAt": "2026-10-20T01:30:16.287045+00:00",
+  "published": {
+    "pr": 1063,
+    "head": "390d259c978e2de80e641ea7c9265e2cd3ca7a48",
+    "tree": "7882ba764e44fd879d2bddade4601c033dfae265",
+    "basePr": 1062,
+    "baseHead": "5bdbce1b02266e92967441f0ef57d323ed992650",
+    "githubHeadVerification": "Exact GitHub PR head verified"
+  },
+  "native": {
+    "commit": "f75d65a1a6133ed3eecc42b92c9f74e84741e835",
+    "tree": "bd05b3b6597fe5640b41363e4b2d351dff060d53",
+    "patchesHashed": 76,
+    "prior73EntriesOrderBytesUnchanged": true,
+    "manifestMatchesActualNativeGitTree": true,
+    "reconstruction": "Producer PASS reported; C did not rerun. Exact-source existing CI must reconstruct/execute."
+  },
+  "workflow": {
+    "byteExactTo73": true,
+    "sha256": "9ca5b2e4cfeb85370752526876af72d5ae5013cfa72cafdda9605e39491645a9",
+    "coverage": "Core and State include all five new named guard/bridge fixtures; both-OS notes/goal and all previous package/format coverage retained.",
+    "worker": 1,
+    "retries": 0
+  },
+  "requiredNewNamedFixtures": [
+    "guarded_commit_denial_rolls_back_and_success_is_durable_before_guard_returns",
+    "guard_response_loss_after_commit_cannot_release_or_replay_claim",
+    "guarded_commit_rolls_back_partial_update_and_rejects_another_claim",
+    "ordinary_credential_owner_guards_real_pending_cas_and_logout_refuses",
+    "ordinary_logout_races_actual_guarded_claim_without_future_escape"
+  ],
+  "independentSourceReceiptsSHA256": {
+    "native74-sync-cas-inspection": "ef82af2a00e867692aa495fa564467e1d1e92d1b68901c53bc11556d3f8755cd",
+    "native75-ordinary-credential-cas-inspection": "4d3cf82172ae2a7dfd67ea6701b20a8c13aaa3290b5a38b401be32d72398379f",
+    "native76-in-guard-observation-correction": "0da3babdbef4de626ee74164a504d672b97f56e627d19ec2c7546d374c387912"
+  },
+  "cDocs": "C0d1de9a4 remains a separate local next-coherent docs handoff; this publication adds only three native patches, manifest and reviewed source pins over1062. No new C-doc adoption claim.",
+  "ci": {
+    "native": 39353493313,
+    "host": 39353493195,
+    "state": "Existing campaign queued/started, independently unqualified. Stacked status-writer skip is not final review approval."
+  },
+  "producerReported": {
+    "hostPass": 38,
+    "files": 2,
+    "normalHooks": "PASS",
+    "localRustExecution": false,
+    "receiptSHA256": "0d7bd8982c43f9f07597c49facb467acda581aa3fab01aa39b1c7ee8a349fe9e"
+  },
+  "independentActivity": "Immutable published/native Git, all patch hashes, unchanged workflow scope and source receipt continuity only; no Rust/tests/model/provider/credential/SQL/reconstruction execution or duplicate campaign.",
+  "acceptance": "Publication/source boundary only. In-guard observation finding closed at assertion level; cached-credential synchronous CAS still needs exact-source execution. No original canonical hostR/ABA/private RPC/other native guards/account-model limits/effect-release/production full request/count/consume or application qualification."
+}

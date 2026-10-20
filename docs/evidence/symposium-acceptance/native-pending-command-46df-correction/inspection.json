@@ -1,0 +1,23 @@
+{
+  "observedAt": "2026-10-20T03:50:07.180209+00:00",
+  "commit": "46df3041feb4fbf9bf6f47d41452abe341de61e9",
+  "tree": "900c92af991875072ff94fe76c1df8fa76ca684d",
+  "parent": "865e2f6fb59451d834a7b31fe7a0b9eac4396afc",
+  "lineage": "Latest native77 plus registry-policy correction865e, then this fixture correction. Prospective79patch source, not original61-on60 or published77 identity.",
+  "changedFiles": ["codex-rs/state/src/runtime/prepared_request_effects_tests.rs"],
+  "sourceSHA256": "58b83b1352d3d16fd3154d0ac84bd6c5c73b0d32ac6d3599cd60c00c6df32fe3",
+  "parentSourceByteExactToPublished77": true,
+  "wholeCaseAndFileOtherwiseByteExact": true,
+  "comparison": "Exact replacement of single outer request declaration+loop header with same loop plus two comments and per-iteration fresh request/commandID; no assertions or other code changed.",
+  "finding": "Native77 executed pending_custody fixture collision under prepared_requests_consumed_command_root",
+  "originalLinuxFailureSHA256": "d000fa50548c95942eee01c04f3675d4353ab07e0d1e0d42663dd7b214df3903",
+  "closure": "Named fixture command-root collision CLOSED at SOURCE/ASSERTION level; corrected case execution remains unqualified.",
+  "independentFindings": [
+    "Both independent cases now create request() per loop and use native binding.command_id pending-command versus ordinary-command under same actual application_scope_id session. Unique(application_scope_id,command_id) therefore distinguishes roots without changing request/body/witness/sampling policy.",
+    "All foreign-pool release rejection, pending irreversible refusal, ordinary AttemptAlreadyCommitted/Ordinary state and directSQL non-pending-relabel refusal assertions are byte-identical and now reachable after intended separate consumption. No consumed tombstone released, no guard/index/schema/product mutation.",
+    "Actual0061 command-root/sampling indexes byte-identical published77 and parent865e. Only one fixture file changed4insert1delete; native policy correction and ModelsManager helper are separate ownership, untouched."
+  ],
+  "producerReported": "Scoped rustfmt/diff check only; NO local Rust test/compile/Clippy/model calls.",
+  "limits": "Core will publish registry78+fixture79 in one coherent source checkpoint; exact published proof/tree/workflow/newsourceCI require separate qualification. Original77Linux executed failure and Mac outcome remain preserved, no inherited green or old-head rerun.",
+  "independentActivity": "Read immutable exact parent/candidate/whole-file replacement/unchangedSQL/assertions/source hashes only. No C tests/build/Rust/model/provider/retry/cancel/dispatch/new campaign."
+}

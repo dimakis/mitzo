@@ -1,0 +1,82 @@
+{
+  "observedAt": "2026-10-20T04:03:54.284987+00:00",
+  "run": 39351657252,
+  "attempt": 1,
+  "job": 118397086220,
+  "platform": "macos-26",
+  "jobConclusion": "success",
+  "source": {
+    "publishedHead": "63f5b4f786f24da8b1174547b95e16d320db0b70",
+    "publishedTree": "91f66c425066bf45cedd3c1252c6cf4c952e4278",
+    "actualCheckout": "0007d26ab6b8afd0b99ecf75d3d4bba740cdb5c1",
+    "actualCheckoutTree": "91f66c425066bf45cedd3c1252c6cf4c952e4278",
+    "actualCheckoutParents": [
+      "19340f55ba4797145be6155d006e5dadfe384721",
+      "63f5b4f786f24da8b1174547b95e16d320db0b70"
+    ],
+    "upstream": "a956835d020762cb2b570053af06f643a11c0ecc",
+    "nativeCommit": "557ce440b823868ea853e583c2277d16ec0af726",
+    "reconstructedNativeTree": "77a800c70646406a5165ea56237219e56518c36b",
+    "patches": 54,
+    "artifactProofByteExactToPublished": true,
+    "artifactSourceProofByteExact": true
+  },
+  "results": {
+    "executed": 5618,
+    "passed": 5618,
+    "failed": 0,
+    "nextestSkipped": 27,
+    "seconds": 1808.303,
+    "junit": {
+      "name": "nextest-run",
+      "tests": "5618",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "uuid": "11721de4-3ccd-4178-93e2-6a9709f104b4",
+      "timestamp": "2026-10-20T02:15:55.586+00:00",
+      "time": "1808.303"
+    },
+    "namedCases": [
+      {
+        "suite": "codex-extension-api::pre_session_tools",
+        "name": "capture_refuses_all_unresolved_registrations_without_discovery",
+        "result": "PASS",
+        "seconds": "0.025"
+      },
+      {
+        "suite": "codex-extension-api::pre_session_tools",
+        "name": "capture_and_ordinary_tools_share_frozen_metadata_and_original_executor",
+        "result": "PASS",
+        "seconds": "0.074"
+      },
+      {
+        "suite": "codex-extension-api::pre_session_tools",
+        "name": "renewal_rejects_rebuild_addition_and_aba_with_equal_definitions",
+        "result": "PASS",
+        "seconds": "0.023"
+      },
+      {
+        "suite": "codex-extension-api::pre_session_tools",
+        "name": "empty_registry_is_resolved_but_empty_state_bound_contributor_is_not",
+        "result": "PASS",
+        "seconds": "0.022"
+      }
+    ],
+    "sourceReconstruction": "PASS",
+    "formatting": "PASS",
+    "skipAccounting": "Executed-onlyJUnit0skips does not remove nextest exclusions. Platform/source totals overlap, not summed."
+  },
+  "evidence": {
+    "artifactId": 12237187125,
+    "artifactZIPDigest": "57428643c0a2245c660fa88f7422f45bc10392ba2747c154af89841d9c8fa442",
+    "digestMatchesActions": true,
+    "junitSHA256": "d2fa3090de2ad95159334430ee7cb75d898fef2387fd25b631b58f7d0c5c0f7f",
+    "sourceProofSHA256": "058d9d6c10e48a11992d97296ced2d717a83df231e2bf77e397b9c523f051927",
+    "jobLogSHA256": "2b8d3e8f6ed4c784f86a6be254c674856206096cc3d62b0b4363d563c14c8640",
+    "jobMetadataSHA256": "77b9391a8d5af9fc9734fd979c01199840652a734a633e1cd6f997df6dfb8fcf"
+  },
+  "qualification": "Source-bound native fixture/format CI result only. No complete account/route/request/count/consume/release/runtime/full-app/positive delivery acceptance and no transfer to different head/tree.",
+  "independentActivity": "Read/download already-existing exact CI artifact/log/JUnit/proof/checkout only; no tests/builds/model/provider/retry/cancel/dispatch/newcampaign.",
+  "continuity": "Existing39351657252 runs on actual published63f5/tree91f66, separate from original0fd/39339195266 qualified baseline. Native54proof stays byte-identical; do not relabel old green as this campaign."
+}

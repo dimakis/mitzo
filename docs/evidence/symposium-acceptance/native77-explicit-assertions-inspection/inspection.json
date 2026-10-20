@@ -1,0 +1,33 @@
+{
+  "observedAt": "2026-10-20T02:08:16.530761+00:00",
+  "commit": "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
+  "tree": "61df68bdcee6a1939367e2ed54e61082d4ef3241",
+  "parent": "f75d65a1a6133ed3eecc42b92c9f74e84741e835",
+  "changedFiles": {
+    "codex-rs/state/src/runtime/prepared_request_effects_tests.rs": {
+      "beforeSHA256": "5cb1d767011a433712a03c61c6064c7f9811d852c077147332f805d43c30b090",
+      "afterSHA256": "4cc05fc92cd36dc93f14aef52e8aa81f50d36b0a4124d0672c4d7a94f26439a9",
+      "onlyChange": "One explicit pretty_assertions::assert_eq import; assertions/case bodies byte-identical."
+    },
+    "codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs": {
+      "beforeSHA256": "501a722631e5bb5d0273576b8466707613f0e341a5bcbbbcda9ee6b7104ef450",
+      "afterSHA256": "0cf279f751020fff599570c0cabd192fe4fb645d4c6ef2f119dc64a93bba4b7b",
+      "onlyChange": "One explicit pretty_assertions::assert_eq import; assertions/case bodies byte-identical."
+    }
+  },
+  "actualParentModule": {
+    "path": "codex-rs/state/src/runtime/prepared_requests_tests.rs",
+    "sha256": "1b2b8dac957615978b7062eb2ea9bc60e73a08ffc800a0e9c2aa9c2bd84c191c",
+    "unchanged": true
+  },
+  "patchSHA256": "f3e45065d91fe1032cf6b1d62cc96b3c0084fa72b9871d4d82f8b9a2e5993d8c",
+  "packaging": "Exact patch read from immutable host dd5edbd2 after working branch switched; initial missing working-file observation was metadata lookup only, not a product or test failure.",
+  "closure": {
+    "observed73LinuxE0659": "Source mechanism corrected: effects child explicitly imports same pretty_assertions macro as actual parent, removing ambiguous glob/prelude resolution while preserving intended assertion semantics. Original22compile errors remain separately recorded.",
+    "guardedCommit76Risk": "Same explicit import added to guarded_commit child. Source-risk closure only; no native76 execution result inferred.",
+    "classification": "SOURCE-LEVEL correction of named macro-resolution mechanism, NOT compilation or fixture-execution qualification."
+  },
+  "preserved": "Original73 failed receipt SHA383b2b807572aab371ac45b66e62c2b5f4912fba3025016224cbf097ed5d2d6c; original76 source-risk receipt SHAe2a8af29eeb3749a6e08e8f76484f6dc6db11832b033d120789e26f130d4211d. Earlier receipts unchanged.",
+  "limits": "Exact77 publication/tree/77patch proof/workflow and execution require separate qualification. No oldhead retry or local Rust.",
+  "independentActivity": "Read immutable commit/parent/exact2line diff/actual parent and packaged patch hash only; no C source/test/assertion edit/build/test/model/provider/retry/cancel/dispatch/new campaign."
+}

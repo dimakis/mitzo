@@ -1,0 +1,125 @@
+{
+  "observedAt": "2026-10-20T02:39:47.580018+00:00",
+  "commit": "9eb0f9d10344770b55bf209cf120f6715791413b",
+  "tree": "80d7c5286daa689a25fa5bf149cb44f64c8ad542",
+  "parent": "3ca4a67d5ecd687fe458a4b57a7e3c264a0ee014",
+  "changedFiles": [
+    "docs/features/symposium-conversation-contracts.md",
+    "packages/protocol/__tests__/collaboration-retained-joining-contract.test.ts",
+    "packages/protocol/src/collaboration-conversation-store.ts",
+    "packages/protocol/src/collaboration-conversation.ts",
+    "packages/protocol/src/collaboration-forward.ts",
+    "server/__tests__/collaboration-context-compiler.test.ts",
+    "server/collaboration-context-compiler.ts",
+    "server/collaboration-context-source.ts",
+    "server/collaboration-forwarding.ts",
+    "server/collaboration-joining-retained-artifacts.ts",
+    "server/collaboration-retained-artifact-source.ts",
+    "server/connections/reviewed-handler-artifacts.ts"
+  ],
+  "sourceHashes": {
+    "docs/features/symposium-conversation-contracts.md": "466d567c741604cc4aa94aebb8ab5c175c874abf2c969a332396ead245ebb330",
+    "packages/protocol/__tests__/collaboration-retained-joining-contract.test.ts": "a8751342b988bd801da4af81b466e8b536b66b4350e5509efff5012021945d4d",
+    "packages/protocol/src/collaboration-conversation-store.ts": "f5ceb2396c016d3fc29364c93dc18175caf98b1eaef8d647ba473820e8d2fd2a",
+    "packages/protocol/src/collaboration-conversation.ts": "6b932da4985f8030b4699806ec586fa9f6d71b1a9c8b73e0e7ece1209fbc4acc",
+    "packages/protocol/src/collaboration-forward.ts": "24fa815ce9f2b2673bfd4e656c455b239e5ad2fd26d22a3d5bbe51fac1513ec5",
+    "server/__tests__/collaboration-context-compiler.test.ts": "da4fc2d8eeb7b25bd9cf3536b6d35cc3280461c4457357b0cc97b1ec7a1d0c7c",
+    "server/collaboration-context-compiler.ts": "917b32aa231511e6391a7e722723642794a547aa1b2e543ab86d99b889d184b6",
+    "server/collaboration-context-source.ts": "d695e89693d7eaccb03754d707ccbf6a3b1f86e0d7557ad64a533677dc37ae02",
+    "server/collaboration-forwarding.ts": "c59e30f6d9dc3d91106491e7848c18f4d62f8dc70b88e09fb1bab72e5364a4ac",
+    "server/collaboration-joining-retained-artifacts.ts": "696cd73f112bf49fba37c06f7d5bc771f617d75749bb39e3551ac95ec1c468b0",
+    "server/collaboration-retained-artifact-source.ts": "817f3b03bacbec5ca607d04c352e1271ebc87f93b668f92054c443151858b2c1",
+    "server/connections/reviewed-handler-artifacts.ts": "7209138252835805d3b5174a35f500cec7d49308a6cab4657f700ab0f679b134",
+    "server/collaboration-application-review.ts": "620d3455583727da0480f007294d66a2e06e4a727a4df23864d5fbbc0fc06966",
+    "packages/protocol/src/collaboration-forward-custody.ts": "63368fb15184ad9424eb91ef60a6bf8d37fd9ae67a6305eea46cef8e34d56d95",
+    "frontend/src/hooks/useConversationJoiningReview.ts": "dbd20e6d0be416972288a4454dc0e6eaf771db9c50fcfc1fc4538f407e5b0a54",
+    "frontend/src/components/ConversationJoiningReview.tsx": "97184120337bd86fdcd0c09384d33a82d31cd6eccc05ca9a3a1dc297564423ba"
+  },
+  "BAdoptions": {
+    "originalD2": "baa07f3114cfa90ad0fc116c82329443979fe4f9",
+    "correction8bd": "3ca4a67d5ecd687fe458a4b57a7e3c264a0ee014",
+    "bothOwnedFilesByteExactAtEachAlias": true,
+    "priorBFindings": "Original findings/behavioral red and corrected final callback-free fences remain preserved.9eb only borrows shared pin schema in Bbridge, not its custody/metadata algorithm."
+  },
+  "actualReviewedPins": {
+    "count": 638,
+    "mismatches": 0
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "producerEvidence": {
+    "retained-joining-contract-component-tests.log": {
+      "sha256": "6e0a24060da34314f4925435992a2e5a58062d2362182a9f4507a816c4a6b357",
+      "bytes": 276
+    },
+    "retained-joining-contract-component-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "retained-joining-contract-final-lint.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "retained-joining-contract-final-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "retained-joining-contract-green.log": {
+      "sha256": "327aff6788e6d7998d71d8fe6e1d96cbf53cf4c8c9c49f26a43bc7a0f747b0f9",
+      "bytes": 276
+    },
+    "retained-joining-contract-initial-green.log": {
+      "sha256": "45b06160baf8256d1396c69258ffae54649c5faf24ad2948e2bff481a0024b7a",
+      "bytes": 2705
+    },
+    "retained-joining-contract-red.log": {
+      "sha256": "2a1268617b274614b5431c6f6be095318709d48ab343f00a78e66488efb536ff",
+      "bytes": 2479
+    },
+    "retained-joining-contract-save-pins-final.log": {
+      "sha256": "cae63d6aff2bd77df8aa21d544e34299ea50932937af7bda5e03c365a1398e7b",
+      "bytes": 276
+    },
+    "retained-joining-contract-save-pins.log": {
+      "sha256": "8a75e3cccd91c50c1690ea18e337da82c5ef0c504046802761616258d58c3548",
+      "bytes": 1697
+    },
+    "retained-joining-initial-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "retained-joining-contract-tsconfig.json": {
+      "sha256": "4b954c11a6f8c566c47dc9ca6bb4517126b04d1c9b4ee85b98f9e820b61e7bc4",
+      "bytes": 2720
+    }
+  },
+  "independentFindings": [
+    "Strict union preserves exact bare inline selector shape/order and adds explicit retainedArtifactVersion with only artifactId/revision/sha/kind. Caller item/retention/provenance/authorized fields fail strict selector parse; tag cannot silently parse as inline branch. Frozen retained object requires independent metadata+actual base64 bytes and original provenance, excludes fabricated sourceConversationId and source_capture; root source conversation remains separately selected.",
+    "Legacy inline frozen schema remains byte-equivalent, including optional historical contentBase64 absence. Artifact labels now distinguish tagged representation. Old snapshot/canonical digest read/save algorithm unchanged outside duplicate namespace, preserving historical representation.",
+    "Compiler key and actual snapshot store duplicate key include kind (bare\u2192inlineOutput), preserving same-kind duplicate refusal while allowing different owners with same ID/revision. Trusted hydration validates exact ID/revision/digest and raw bytes; retained branch checks matching tag and byte length, strict metadata shape, drops private callback from packet and freezes exact base64. Wrong-kind hydration/fabricated source field refuse.",
+    "So-far mode requires exact retained version in authenticated prefix references/witness, including kind, before hydration. Equal inline ID/revision/hash does not satisfy retained reference. Selected mode still relies on trusted source authorizeArtifact/readArtifact; schema is not canonical association/access authority.",
+    "Forwarding explicitly uses original strict inline pin base rather than extending a joining union; its existing transcript_reference/retained_artifact selectors and packet wire remain unchanged. Inline forwarding refuses tagged hydrated value. Existing retained source reuses original bare pin for its private read; B joining bridge borrows the new strict retained pin directly. No remaining artifacts.element object-extension call found in scoped consumer search.",
+    "Actual production inline context adapter now rejects any tagged pin before inline lookup; no real retained catalog/association/hydration owner is composed here. Actual application review still produces inline labels only, so it cannot currently approve tagged context through this source. No access/readiness/join grant added.",
+    "New component assertion compiles same-ID inline+retained context, verifies exact original provenance/bytes/no fabricated source conversation/unverified capacity, then exercises real EventStore saveSnapshot/getSnapshot and equal artifacts. Additional tests reject wrong-kind hydration, fabricated source ID and inline-only So-far reference before read. Schema tests preserve legacy serialized form and reject caller authority/incomplete metadata."
+  ],
+  "producerReported": {
+    "schemaRed": "2meaningful schema failures/8passes initially; corrected10schema passes retained.",
+    "unionImportDiagnostic": "Initial-green log has3suite initialization failures from trying extend on new union in Forward/retained consumers, while10schema cases pass. Final source switches to original inline base and all component suites then pass. Preserve as real compatibility diagnostic, not ignored test failure.",
+    "component": "213PASS6suites3.74s before final save assertion addition; no C run.",
+    "saveRegression": "Actual save/get same-ID distinct-kind regression initially1FAIL88PASS because old store dedup omitted kind. Store namespace fix then final112PASS3suites1.92s (save/pins/legacy). Overlapping213/112/121/10 counts NOT added and earlier pass is not a final whole-suite rerun claim.",
+    "types": "Final scoped source/test types and lint/hooks PASS reported; raw earlier type and union import diagnostics retained. Empty success logs alone are not independent C exit proof.",
+    "worker": "Producer1worker/1GiB; no live models/native campaign."
+  },
+  "acceptance": "No additional concrete blocker found in bounded shared schema/compiler/save/legacy-Forward compatibility change. Source/assertion/provenance only.",
+  "integrationRequirements": [
+    "Actual retained source canonical origin-or-prefix association/access, metadata-only catalog, private final byte/currentness/save fences remain core composition work. Contract/bridge/schema alone do not supply them.",
+    "Existing application review inline label lookup and UI label matching/selection must become kind-aware before tagged owner is mounted; current inline source refusal keeps this inactive. A receives genuine typed dependency for follow-on, not a ready catalog.",
+    "Full exact r2-vs-r3 saved-version choice, origin transcript removal, revoke/save race/refreeze/recovery and actual joining/native request/count/consume/release remain unqualified."
+  ],
+  "independentActivity": "Immutable12file diff/scoped actual callers/Balias comparison/protected refs/actual pin hashes and retained producer logs only. No C tests/types/build/browser/native/model/provider/retry/dispatch/newreview/campaign/product mutation."
+}

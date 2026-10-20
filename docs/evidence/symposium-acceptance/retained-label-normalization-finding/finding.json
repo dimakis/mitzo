@@ -1,0 +1,29 @@
+{
+  "observedAt": "2026-10-20T02:46:50.676821+00:00",
+  "finding": "CA-retained-label-normalization",
+  "priority": "P2",
+  "status": "OPEN source-derived; Core owns correction",
+  "sharedContractCommit": "9eb0f9d10344770b55bf209cf120f6715791413b",
+  "sharedTree": "80d7c5286daa689a25fa5bf149cb44f64c8ad542",
+  "affectedFrontendCommit": "85749b7b4b375a0a439cf266d8e61e23aa71a90c",
+  "sourceHashes": {
+    "packages/protocol/src/collaboration-conversation.ts": "6b932da4985f8030b4699806ec586fa9f6d71b1a9c8b73e0e7ece1209fbc4acc",
+    "server/telos-artifact-store.ts": "fc6594b9c886fb95dba1d2b715abfaeb2da98696c7058a10777eb54f03d6f08c"
+  },
+  "mechanism": "Actual TelosArtifactStore filename schema accepts leading/trailing spaces and saves original input filename/title. Its title trim parse only validates and ignores returned transform. Frozen retained metadata preserves both; new retained artifactLabels branch trims both. Shared result parser therefore changes label bytes independently of frozen source and exact A guard rejects legitimate unchanged metadata.",
+  "concreteInput": {
+    "filename": " plan.md",
+    "title": " Plan ",
+    "labelAfterCurrentParser": {
+      "filename": "plan.md",
+      "title": "Plan"
+    },
+    "frozenAfterCurrentParser": {
+      "filename": " plan.md",
+      "title": " Plan "
+    }
+  },
+  "requestedCorrection": "New retained label branch validates nonblank exact strings without transformation; preserve legacy inline label behavior. Focused schema/source regression before claiming closure.",
+  "priorC9ebReceipt": "61bce40b038b066ca2d664e44e14be224ec651271eda5d3e5dc28f7d9a4e6b97 remains immutable; this is a newly found supplement correcting its earlier no-additional-blocker assessment, not rewritten history.",
+  "activity": "Source reading only, no schema execution/test/model/build/campaign. Current production retained source remains uncomposed."
+}

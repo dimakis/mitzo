@@ -1,0 +1,34 @@
+{
+  "observedAt": "2026-10-20T01:58:48.098444+00:00",
+  "run": 39345244430,
+  "attempt": 1,
+  "publishedHead": "07014d87b97a1faf012817d6ffcc6a94a383fe96",
+  "publishedTree": "ec77d838d55fa28506cd17762d1d8638c527a487",
+  "nativeCommit": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+  "nativeTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
+  "patches": 60,
+  "bothPlatformsIndependentlyQualified": true,
+  "platforms": [
+    {
+      "platform": "ubuntu-24.04",
+      "passed": 6142,
+      "nextestSkipped": 11,
+      "seconds": 2584.389,
+      "namedNewCasesPass": 12,
+      "receipt": "linux-qualification.json",
+      "sha256": "3dc0aef8eb9a4f1d74f2d980c01e98437bc9d8a7b13f53ddb1b08bd3da404aeb"
+    },
+    {
+      "platform": "macos-26",
+      "passed": 5921,
+      "nextestSkipped": 27,
+      "seconds": 2211.962,
+      "namedNewCasesPass": 12,
+      "receipt": "mac-qualification.json",
+      "sha256": "83671a7f66512eca3bd5e7c315fc828ff67ee74dd822981ea174b7440b23c2f2"
+    }
+  ],
+  "accounting": "Zero failures. Do not sum overlapping platform/source totals. Overall nextest skip exclusions11/27 retained despite JUnit0. Factory driver counts as1 case.",
+  "scope": "Existing native60 input/closed-source/config-selection/ordinary single-attempt transport fixtures; reconstruction and formatting PASS. Does not prove complete inventory, source/instructions, account/route/model limits, genuine request/count/consume, host revision proof/release, runtime adoption or actual app joining/delivery/replies.",
+  "independentActivity": "Download/read existing completed logs/JUnit/artifact/proof and previously verified exact checkout Git metadata only; no tests/build/retry/dispatch/model/provider/deployment."
+}

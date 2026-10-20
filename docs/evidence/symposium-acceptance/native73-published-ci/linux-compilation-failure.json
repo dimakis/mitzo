@@ -1,0 +1,29 @@
+{
+  "observedAt": "2026-10-20T02:01:26.130852+00:00",
+  "run": 39351558521,
+  "attempt": 1,
+  "job": 118396661575,
+  "platform": "ubuntu-24.04",
+  "publishedHead": "5bdbce1b02266e92967441f0ef57d323ed992650",
+  "publishedTree": "64f41d948d23a4ef1fff1f18c47e91bd236b992c",
+  "nativeCommit": "311b9ae9c07874d9ff5964e95629e057f337dd9d",
+  "nativeTree": "9e17d7d58b5a2e264520c9b923567c8789a1c123",
+  "jobConclusion": "failure",
+  "diagnostic": {
+    "category": "compile-time fixture import ambiguity, before native test execution",
+    "code": "E0659",
+    "count": 22,
+    "file": "codex-rs/state/src/runtime/prepared_request_effects_tests.rs",
+    "examples": [30, 31, 53, 408],
+    "explanation": "assert_eq! ambiguous between glob use super::* at line4 (parent pretty_assertions macro) and std prelude; compiler suggests explicit macro import/qualification. codex-state lib test compilation fails; cargo test --no-run exit101.",
+    "formatting": "skipped after compilation failure",
+    "testResults": "No native fixture pass/fail totals inferred; compile failure prevents campaign execution."
+  },
+  "evidence": {
+    "logSHA256": "34e796ea59bd6fe2d77d8143872b574a89527996d55b7a6da44b53d7451a5aeb",
+    "jobSHA256": "44c9315062610e13ea9ee8fceeed4b79879457db87188355deeae686a5666143"
+  },
+  "sourceInspection": "Exact native73 child prepared_request_effects_tests.rs line4 uses super::*; its actual parent prepared_requests_tests.rs line4 imports pretty_assertions::assert_eq and declares the child at line14. Explicit macro import/qualification requires core-owned correction; no product mutation by C.",
+  "limits": "macOS still pending; native70/76 separate source runs. No cross-source execution failure/pass inferred and no CI cancellation/retry/dispatch requested. Original source/assertion correction receipts retained; assertion-level closure is not compilation qualification.",
+  "independentActivity": "Read/download existing failed job log/API and immutable native73 source only. No test/build/model/provider/runtime/deployment."
+}

@@ -1,0 +1,66 @@
+{
+  "observedAt": "2026-10-20T00:05:00.603674+00:00",
+  "source": {
+    "commit": "3079e3bb25c467f487719b6eeba5a40b1e835a11",
+    "tree": "5621c21dfa8beaedd4e55e2cf0c59ed41c59ef7f",
+    "sourceHashes": {
+      "server/collaboration-application-delivery-authority.ts": "55a272d355edcce188891e57d0b585941fd56137d3cc7bcc71e3bd9f64ca4dec",
+      "server/session-collaboration-router.ts": "f97d349d37bada3dfeea57ba3896738af3e5c87271f8ab0595bb07fe20b9bb07",
+      "server/__tests__/collaboration-message-authority-omission.test.ts": "7d32ec0e88579db45731258639600c2059b9d975454b2f87913eeea4c090a98f",
+      "server/connections/reviewed-handler-artifacts.ts": "6fdde4eebecefebb44d339c60595d9a924b4107c6434c83d77cae488206d7260"
+    },
+    "sourcePins": 639,
+    "pinMismatches": []
+  },
+  "typeParity": {
+    "coreOriginal": "36423f8afadb5f9f67671b028d15c3be3b3e096a",
+    "s6Applied": "690c4b578071f6f14c2568b3aee1551bec54c0f6",
+    "bytesEqual": true,
+    "sha256": "55a272d355edcce188891e57d0b585941fd56137d3cc7bcc71e3bd9f64ca4dec"
+  },
+  "independentActivity": "Read immutable Git blobs and producer logs only; no C test/build/model call or source mutation.",
+  "producerLogs": {
+    "s6-group-resolver-red.log": {
+      "sha256": "ab1454236b26e3f213f90a55037f946199a85db3b42220cbec4826b3a749ea21",
+      "bytes": 6050
+    },
+    "s6-group-resolver-green.log": {
+      "sha256": "9a9483f870c60a50b8254df8423cb7e0597d5e11959630d9f7d7aca873c7f687",
+      "bytes": 2015
+    },
+    "s6-group-existing-router-repeat.log": {
+      "sha256": "e533f9887fe1229898cdf8353eb1cc75e8157aa9f367dae0cb135e6ab16ff515",
+      "bytes": 278
+    },
+    "s6-group-resolver-final-green.log": {
+      "sha256": "ba733d5fb75b90dd7e33c08f2f2cb263db18fbc2cfe41080e2d66bb7a608db2c",
+      "bytes": 278
+    },
+    "s6-group-resolver-production-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "s6-group-resolver-test-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "producerExecution": {
+    "claimedPass": 34,
+    "claimedSuites": 4,
+    "red": {
+      "fail": 7,
+      "pass": 4
+    },
+    "types": "Producer-reported pass; empty stdout alone is not independent execution proof.",
+    "diagnostic": "Earlier broader green log retains two unexplained 501 responses in unchanged join routes; unchanged solo and final runs pass. Cause unestablished."
+  },
+  "sourceFindings": [
+    "Optional resolver receives signed middleware identity and strict connection correlation; correlation is not a grant.",
+    "Request lifetime/currentness is rechecked across the awaited resolver; returned synchronous request fence is invoked.",
+    "Absent, undefined, rejected and successful resolver outcomes all refuse before staging; successful resolution remains 503. No authority admission, message/snapshot/receipt/allocation/command/queue/provider effect is enabled.",
+    "Tests mount real auth/router/store with stubbed resolver results. They establish a component refusal boundary, not production resolver ownership or positive application delivery.",
+    "Production app supplies no resolver. Genuine prepared-command admission and exact request/count/consume remain missing prerequisites."
+  ],
+  "acceptance": "Bounded source/assertion/provenance inspection found no additional blocker within this negative/preparatory scope. No app-ready, positive delivery, native execution or milestone completion claim."
+}

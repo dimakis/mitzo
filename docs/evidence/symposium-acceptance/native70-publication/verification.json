@@ -1,0 +1,52 @@
+{
+  "observedAt": "2026-10-20T00:42:55.211896+00:00",
+  "published": {
+    "pr": 1061,
+    "head": "691af045d5dfd8ac99904f85a5f530ef8721f892",
+    "tree": "72e885406ea11c940295fa5f7d1f18857bfa88b5",
+    "basePr": 1060,
+    "baseHead": "07014d87b97a1faf012817d6ffcc6a94a383fe96",
+    "headVerifiedByGitHub": true
+  },
+  "native": {
+    "commit": "d615a63d687555242ede9cb3874d2699f99520c3",
+    "tree": "9ce8eecf782809ae5d33f63715000e8396ab2e55",
+    "patchesHashed": 70,
+    "prior60EntriesOrderUnchanged": true,
+    "publishedManifestMatchesActualNativeGitTree": true,
+    "reconstruction": "Producer PASS reported; C did not rerun reconstruction. CI must independently reconstruct and execute this exact source."
+  },
+  "cEvidence": {
+    "original": "bd3425f723df45a90483655080d8819a449b00f0",
+    "adoptedAlias": "f5fdf008",
+    "threePublishedPathsByteExactToOriginal": true,
+    "hashes": {
+      "docs/evidence/symposium-integration-acceptance.md": "d9d19a3b46c46da29a840a9650d109559ef0d7ca747fad46f3c3c16da5d48c49",
+      "docs/evidence/symposium-acceptance/source-preflight-checkpoints/native60-source-inspection.json": "a2660f0c5f6a0b80dc60d645487cac5939b9a0d3a0f604d033ae8d7088ee1ed8",
+      "docs/evidence/symposium-acceptance/source-preflight-checkpoints/s6-preflight-3079-inspection.json": "612e9286ee2c4f13c6c77cf85547a08bc11f9677cc80664a212029f9be812978"
+    }
+  },
+  "workflow": {
+    "unchangedFrom1060": true,
+    "sha256": "893464b75c824cacf71964aeb8321f449b9a5c2bd72b04d3b1dcda748d24a670",
+    "coverage": "Existing both-OS Core/extension-api/mcp-extension/login/memories/web-search/http-client/state/api/guardian fixtures and formatting; Linux sandbox scope retained. No package scope weakened."
+  },
+  "sourceInspections": "Existing independent source receipts for61 public metadata,62 source-policy correction,63 utility,64 credentials,65 ModelClient body,66 shell/resources,67 collaboration,68 mode+import cleanup,69 exposure,70 code-mode remain source-only. Known source-policy/import findings have exact committed corrections, not execution qualification.",
+  "ci": {
+    "native": 39348949832,
+    "host": 39348949899,
+    "linuxJob": 118388296004,
+    "macJob": 118388296293,
+    "state": "existing jobs started, not independently execution-qualified"
+  },
+  "producerReported": {
+    "focusedHostPass": 38,
+    "files": 2,
+    "worker": 1,
+    "heapMiB": 1024,
+    "localRustExecution": false,
+    "receiptSHA256": "3da784d90bd242567a15ea0c005732d73f09362f69fc6957e6da89f29147a5f5"
+  },
+  "independentActivity": "Read immutable published source/patch hashes, compare prior60 proof and actual native Git tree, verify GitHub PR head and exact consumed C docs. No Rust/build/tests/reconstruction/model call, workflow dispatch/retry or product edit.",
+  "acceptance": "Source/publication provenance only. New auth/body/planner execution, final native source/request/account/route/headers/model-limit/currentness/count/consume, installed RPC/runtime and full app acceptance remain open. Stacked status-writer skip does not confer final review approval."
+}

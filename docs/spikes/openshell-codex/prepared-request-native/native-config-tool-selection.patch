@@ -1,0 +1,553 @@
+From 43d48041b06eb631e9e80ecfaa1a1974eeb91b49 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 00:57:16 +0100
+Subject: [PATCH] feat(extension-api): share config-owned tool absence
+ selection
+
+---
+ codex-rs/ext/extension-api/src/lib.rs         |   3 +
+ codex-rs/ext/extension-api/src/registry.rs    |  33 ++++
+ .../src/registry/pre_session_tools.rs         |  74 ++++++++
+ .../ext/extension-api/src/tool_inventory.rs   |   9 +
+ .../ext/extension-api/src/tool_pre_session.rs | 120 +++++++++++++
+ .../extension-api/tests/pre_session_tools.rs  | 161 ++++++++++++++++++
+ 6 files changed, 400 insertions(+)
+ create mode 100644 codex-rs/ext/extension-api/src/registry/pre_session_tools.rs
+ create mode 100644 codex-rs/ext/extension-api/src/tool_pre_session.rs
+
+diff --git a/codex-rs/ext/extension-api/src/lib.rs b/codex-rs/ext/extension-api/src/lib.rs
+index ad53cf1..7c33eee 100644
+--- a/codex-rs/ext/extension-api/src/lib.rs
++++ b/codex-rs/ext/extension-api/src/lib.rs
+@@ -6,6 +6,7 @@ mod session_isolation;
+ mod state;
+ mod tool_inventory;
+ mod tool_policy;
++mod tool_pre_session;
+ mod turn_admission;
+ mod user_instructions;
+ 
+@@ -113,6 +114,8 @@ pub use state::ExtensionDataInit;
+ pub use tool_inventory::ExtensionToolDefinition;
+ pub use tool_inventory::PreSessionExtensionTools;
+ pub use tool_inventory::PreSessionToolInventoryError;
++pub use tool_pre_session::ToolPreSessionPlan;
++pub use tool_pre_session::ToolPreSessionSelection;
+ pub use turn_admission::TurnStartAdmission;
+ pub use user_instructions::Instructions;
+ pub use user_instructions::LoadInstructionsFuture;
+diff --git a/codex-rs/ext/extension-api/src/registry.rs b/codex-rs/ext/extension-api/src/registry.rs
+index 4aa4d0a..302f5a4 100644
+--- a/codex-rs/ext/extension-api/src/registry.rs
++++ b/codex-rs/ext/extension-api/src/registry.rs
+@@ -1,3 +1,5 @@
++mod pre_session_tools;
++
+ use std::sync::Arc;
+ 
+ use crate::ApprovalReviewContributor;
+@@ -18,12 +20,14 @@ use crate::ThreadLifecycleContributor;
+ use crate::TokenUsageContributor;
+ use crate::ToolContributor;
+ use crate::ToolLifecycleContributor;
++use crate::ToolPreSessionPlan;
+ use crate::TurnInputContributor;
+ use crate::TurnItemContributor;
+ use crate::TurnLifecycleContributor;
+ use crate::TurnStartAdmission;
+ use crate::mcp_pre_session::PlannedMcpSource;
+ use crate::tool_inventory::FixedToolContributor;
++use crate::tool_pre_session::PlannedToolContributor;
+ 
+ /// Mutable registry used while hosts register typed runtime contributions.
+ pub struct ExtensionRegistryBuilder<C: Sync> {
+@@ -48,6 +52,7 @@ impl<C: Sync> Default for ExtensionRegistryBuilder<C> {
+                 turn_input_contributors: Vec::new(),
+                 tool_contributors: Vec::new(),
+                 pre_session_tool_definitions: Vec::new(),
++                tool_pre_session_plans: Vec::new(),
+                 tool_inventory_identity: Arc::new(()),
+                 tool_lifecycle_contributors: Vec::new(),
+                 model_request_contributors: Vec::new(),
+@@ -162,6 +167,7 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
+     pub fn tool_contributor(&mut self, contributor: Arc<dyn ToolContributor>) {
+         self.registry.tool_contributors.push(contributor);
+         self.registry.pre_session_tool_definitions.push(None);
++        self.registry.tool_pre_session_plans.push(None);
+     }
+ 
+     /// Registers executable tools whose definitions are fixed for this registry.
+@@ -179,6 +185,27 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
+             .pre_session_tool_definitions
+             .push(Some(Arc::clone(&contributor.definitions)));
+         self.registry.tool_contributors.push(contributor);
++        self.registry.tool_pre_session_plans.push(None);
++    }
++
++    /// Registers a config-only closed absence declaration beside the real tool
++    /// contributor. The declaration owns selection in ordinary startup/config
++    /// changes as well as preparation. Enabled/state-dependent tools stay unresolved.
++    pub fn tool_contributor_with_pre_session_plan(
++        &mut self,
++        contributor: Arc<dyn ToolContributor>,
++        plan: ToolPreSessionPlan<C>,
++    ) where
++        C: Send + 'static,
++    {
++        let contributor = Arc::new(PlannedToolContributor::new(contributor, Arc::clone(&plan)));
++        self.registry
++            .thread_lifecycle_contributors
++            .push(contributor.clone());
++        self.registry.config_contributors.push(contributor.clone());
++        self.registry.tool_contributors.push(contributor);
++        self.registry.pre_session_tool_definitions.push(None);
++        self.registry.tool_pre_session_plans.push(Some(plan));
+     }
+ 
+     /// Registers one tool-lifecycle contributor.
+@@ -212,6 +239,7 @@ pub struct ExtensionRegistry<C: Sync> {
+     turn_input_contributors: Vec<Arc<dyn TurnInputContributor>>,
+     tool_contributors: Vec<Arc<dyn ToolContributor>>,
+     pre_session_tool_definitions: Vec<Option<Arc<[ExtensionToolDefinition]>>>,
++    tool_pre_session_plans: Vec<Option<ToolPreSessionPlan<C>>>,
+     tool_inventory_identity: Arc<()>,
+     tool_lifecycle_contributors: Vec<Arc<dyn ToolLifecycleContributor>>,
+     model_request_contributors: Vec<Arc<dyn ModelRequestContributor>>,
+@@ -237,6 +265,7 @@ impl<C: Sync> ExtensionRegistry<C> {
+                 turn_input_contributors: self.turn_input_contributors.clone(),
+                 tool_contributors: self.tool_contributors.clone(),
+                 pre_session_tool_definitions: self.pre_session_tool_definitions.clone(),
++                tool_pre_session_plans: self.tool_pre_session_plans.clone(),
+                 tool_inventory_identity: Arc::new(()),
+                 tool_lifecycle_contributors: self.tool_lifecycle_contributors.clone(),
+                 model_request_contributors: self.model_request_contributors.clone(),
+@@ -384,6 +413,7 @@ impl<C: Sync> ExtensionRegistry<C> {
+         }
+         Ok(PreSessionExtensionTools {
+             registry_identity: Arc::clone(&self.tool_inventory_identity),
++            requires_config_renewal: false,
+             definitions: self
+                 .pre_session_tool_definitions
+                 .iter()
+@@ -401,6 +431,9 @@ impl<C: Sync> ExtensionRegistry<C> {
+         if !Arc::ptr_eq(&self.tool_inventory_identity, &capture.registry_identity) {
+             return Err(PreSessionToolInventoryError::RegistryChanged);
+         }
++        if capture.requires_config_renewal {
++            return Err(PreSessionToolInventoryError::ConfigurationRequired);
++        }
+         Ok(())
+     }
+ 
+diff --git a/codex-rs/ext/extension-api/src/registry/pre_session_tools.rs b/codex-rs/ext/extension-api/src/registry/pre_session_tools.rs
+new file mode 100644
+index 0000000..530354f
+--- /dev/null
++++ b/codex-rs/ext/extension-api/src/registry/pre_session_tools.rs
+@@ -0,0 +1,74 @@
++use std::sync::Arc;
++
++use crate::ExtensionRegistry;
++use crate::PreSessionExtensionTools;
++use crate::PreSessionToolInventoryError;
++use crate::ToolPreSessionSelection;
++
++impl<C: Sync> ExtensionRegistry<C> {
++    /// Captures fixed definitions plus source-proven config-only absence. Every
++    /// unknown registration refuses before any plan runs. This cannot discover
++    /// enabled tools, inspect a Session, or settle their instructions/Core policy.
++    pub fn capture_pre_session_tools_for_config(
++        &self,
++        config: &C,
++    ) -> Result<PreSessionExtensionTools, PreSessionToolInventoryError> {
++        let missing: Vec<_> = self
++            .pre_session_tool_definitions
++            .iter()
++            .zip(&self.tool_pre_session_plans)
++            .enumerate()
++            .filter_map(|(index, (definitions, plan))| {
++                (definitions.is_none() && plan.is_none()).then_some(index)
++            })
++            .collect();
++        if !missing.is_empty() {
++            return Err(PreSessionToolInventoryError::StateBoundContributors {
++                registration_indexes: missing,
++            });
++        }
++        let unresolved: Vec<_> = self
++            .tool_pre_session_plans
++            .iter()
++            .enumerate()
++            .filter_map(|(index, plan)| {
++                plan.as_ref().and_then(|plan| {
++                    (plan(config) == ToolPreSessionSelection::Unresolved).then_some(index)
++                })
++            })
++            .collect();
++        if !unresolved.is_empty() {
++            return Err(PreSessionToolInventoryError::StateBoundContributors {
++                registration_indexes: unresolved,
++            });
++        }
++        Ok(PreSessionExtensionTools {
++            registry_identity: Arc::clone(&self.tool_inventory_identity),
++            requires_config_renewal: self.tool_pre_session_plans.iter().any(Option::is_some),
++            definitions: self
++                .pre_session_tool_definitions
++                .iter()
++                .flatten()
++                .flat_map(|definitions| definitions.iter().cloned())
++                .collect(),
++        })
++    }
++
++    /// Renews this partition with the actual current effective configuration.
++    /// Whole-request source/account/configuration custody remains the caller's
++    /// separate authority; this only settles the registered tool selection.
++    pub fn renew_pre_session_tools_for_config(
++        &self,
++        capture: &PreSessionExtensionTools,
++        config: &C,
++    ) -> Result<(), PreSessionToolInventoryError> {
++        if !Arc::ptr_eq(&self.tool_inventory_identity, &capture.registry_identity) {
++            return Err(PreSessionToolInventoryError::RegistryChanged);
++        }
++        let renewed = self.capture_pre_session_tools_for_config(config)?;
++        if renewed.definitions != capture.definitions {
++            return Err(PreSessionToolInventoryError::SelectionChanged);
++        }
++        Ok(())
++    }
++}
+diff --git a/codex-rs/ext/extension-api/src/tool_inventory.rs b/codex-rs/ext/extension-api/src/tool_inventory.rs
+index b087880..47c2514 100644
+--- a/codex-rs/ext/extension-api/src/tool_inventory.rs
++++ b/codex-rs/ext/extension-api/src/tool_inventory.rs
+@@ -57,6 +57,7 @@ impl ExtensionToolDefinition {
+ pub struct PreSessionExtensionTools {
+     pub(crate) registry_identity: Arc<()>,
+     pub(crate) definitions: Arc<[ExtensionToolDefinition]>,
++    pub(crate) requires_config_renewal: bool,
+ }
+ 
+ impl PreSessionExtensionTools {
+@@ -72,6 +73,10 @@ pub enum PreSessionToolInventoryError {
+     StateBoundContributors { registration_indexes: Vec<usize> },
+     /// The capture belongs to another registry, even if its definitions match.
+     RegistryChanged,
++    /// A configuration-selected capture requires renewal with current configuration.
++    ConfigurationRequired,
++    /// The source-owned selection no longer matches the retained definitions.
++    SelectionChanged,
+ }
+ 
+ impl fmt::Display for PreSessionToolInventoryError {
+@@ -84,6 +89,10 @@ impl fmt::Display for PreSessionToolInventoryError {
+                 "extension tool inventory requires state-bound contributors at {registration_indexes:?}"
+             ),
+             Self::RegistryChanged => f.write_str("extension tool inventory registry changed"),
++            Self::ConfigurationRequired => {
++                f.write_str("extension tool inventory requires current configuration")
++            }
++            Self::SelectionChanged => f.write_str("extension tool inventory selection changed"),
+         }
+     }
+ }
+diff --git a/codex-rs/ext/extension-api/src/tool_pre_session.rs b/codex-rs/ext/extension-api/src/tool_pre_session.rs
+new file mode 100644
+index 0000000..4072e56
+--- /dev/null
++++ b/codex-rs/ext/extension-api/src/tool_pre_session.rs
+@@ -0,0 +1,120 @@
++use std::sync::Arc;
++use std::sync::Mutex;
++use std::sync::PoisonError;
++
++use crate::ConfigContributor;
++use crate::ExtensionData;
++use crate::ExtensionFuture;
++use crate::ThreadLifecycleContributor;
++use crate::ThreadStartInput;
++use crate::ToolCall;
++use crate::ToolContributor;
++use crate::ToolExecutor;
++
++/// Config-only declaration from the registered tool source. NoTools settles only
++/// this source's executable tools; context/instructions require their own capture.
++/// Sources needing runtime, model, account, roots or discovery remain Unresolved.
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum ToolPreSessionSelection {
++    NoTools,
++    Unresolved,
++}
++
++/// Effect-free source-owned selection using the actual effective config. Share
++/// ordinary selection logic; never call runtime/discovery or consult mutable state.
++pub type ToolPreSessionPlan<C> = Arc<dyn Fn(&C) -> ToolPreSessionSelection + Send + Sync>;
++
++#[derive(Default)]
++struct ThreadToolSelections(Mutex<Vec<(Arc<()>, ToolPreSessionSelection)>>);
++
++pub(crate) struct PlannedToolContributor<C> {
++    contributor: Arc<dyn ToolContributor>,
++    plan: ToolPreSessionPlan<C>,
++    identity: Arc<()>,
++}
++
++impl<C> PlannedToolContributor<C> {
++    pub(crate) fn new(contributor: Arc<dyn ToolContributor>, plan: ToolPreSessionPlan<C>) -> Self {
++        Self {
++            contributor,
++            plan,
++            identity: Arc::new(()),
++        }
++    }
++
++    fn install_selection(&self, config: &C, thread_store: &ExtensionData) {
++        let selection = (self.plan)(config);
++        let selections = thread_store.get_or_init(ThreadToolSelections::default);
++        let mut selections = selections.0.lock().unwrap_or_else(PoisonError::into_inner);
++        if let Some((_, current)) = selections
++            .iter_mut()
++            .find(|(identity, _)| Arc::ptr_eq(identity, &self.identity))
++        {
++            *current = selection;
++        } else {
++            selections.push((Arc::clone(&self.identity), selection));
++        }
++    }
++
++    fn selection(&self, thread_store: &ExtensionData) -> ToolPreSessionSelection {
++        thread_store
++            .get::<ThreadToolSelections>()
++            .and_then(|selections| {
++                selections
++                    .0
++                    .lock()
++                    .unwrap_or_else(PoisonError::into_inner)
++                    .iter()
++                    .find(|(identity, _)| Arc::ptr_eq(identity, &self.identity))
++                    .map(|(_, selection)| *selection)
++            })
++            .unwrap_or(ToolPreSessionSelection::Unresolved)
++    }
++}
++
++impl<C: Sync> ThreadLifecycleContributor<C> for PlannedToolContributor<C> {
++    fn on_thread_start<'a>(&'a self, input: ThreadStartInput<'a, C>) -> ExtensionFuture<'a, ()> {
++        Box::pin(async move {
++            self.install_selection(input.config, input.thread_store);
++        })
++    }
++}
++
++impl<C> ConfigContributor<C> for PlannedToolContributor<C> {
++    fn on_config_changed(
++        &self,
++        _session: &ExtensionData,
++        thread: &ExtensionData,
++        _previous: &C,
++        current: &C,
++    ) {
++        self.install_selection(current, thread);
++    }
++}
++
++impl<C> ToolContributor for PlannedToolContributor<C> {
++    fn tools(
++        &self,
++        session: &ExtensionData,
++        thread: &ExtensionData,
++    ) -> Vec<Arc<dyn for<'call> ToolExecutor<ToolCall<'call>>>> {
++        let tools = self.contributor.tools(session, thread);
++        match self.selection(thread) {
++            ToolPreSessionSelection::NoTools => Vec::new(),
++            ToolPreSessionSelection::Unresolved => tools,
++        }
++    }
++
++    fn tools_for_step(
++        &self,
++        session: &ExtensionData,
++        thread: &ExtensionData,
++        step: &ExtensionData,
++    ) -> Vec<Arc<dyn for<'call> ToolExecutor<ToolCall<'call>>>> {
++        let tools = self.contributor.tools_for_step(session, thread, step);
++        match self.selection(thread) {
++            ToolPreSessionSelection::NoTools => Vec::new(),
++            ToolPreSessionSelection::Unresolved => tools,
++        }
++    }
++}
+diff --git a/codex-rs/ext/extension-api/tests/pre_session_tools.rs b/codex-rs/ext/extension-api/tests/pre_session_tools.rs
+index 8297d69..506f8e1 100644
+--- a/codex-rs/ext/extension-api/tests/pre_session_tools.rs
++++ b/codex-rs/ext/extension-api/tests/pre_session_tools.rs
+@@ -274,3 +274,164 @@ fn empty_registry_is_resolved_but_empty_state_bound_contributor_is_not() {
+         matches!(added.build().capture_pre_session_tools(), Err(PreSessionToolInventoryError::StateBoundContributors { registration_indexes }) if registration_indexes == vec![0])
+     );
+ }
++
++struct PlannedRuntimeTools {
++    tool: Arc<MutableTool>,
++    calls: Arc<AtomicUsize>,
++}
++
++impl ToolContributor for PlannedRuntimeTools {
++    fn tools(
++        &self,
++        _session: &ExtensionData,
++        _thread: &ExtensionData,
++    ) -> Vec<Arc<dyn for<'call> ToolExecutor<ToolCall<'call>>>> {
++        self.calls.fetch_add(1, Ordering::SeqCst);
++        vec![self.tool.clone()]
++    }
++}
++
++#[tokio::test]
++async fn config_plan_owns_ordinary_absence_and_renews_without_runtime_callbacks() {
++    use codex_extension_api::ThreadStartInput;
++    use codex_extension_api::ToolPreSessionSelection;
++    use codex_protocol::protocol::SessionSource;
++
++    let calls = Arc::new(AtomicUsize::new(0));
++    let plans = Arc::new(AtomicUsize::new(0));
++    let tool = MutableTool::new("planned");
++    let mut builder = ExtensionRegistryBuilder::<bool>::new();
++    let plan_calls = Arc::clone(&plans);
++    builder.tool_contributor_with_pre_session_plan(
++        Arc::new(PlannedRuntimeTools {
++            tool,
++            calls: Arc::clone(&calls),
++        }),
++        Arc::new(move |enabled| {
++            plan_calls.fetch_add(1, Ordering::SeqCst);
++            if *enabled {
++                ToolPreSessionSelection::Unresolved
++            } else {
++                ToolPreSessionSelection::NoTools
++            }
++        }),
++    );
++    let fixed = MutableTool::new("fixed");
++    builder.fixed_tools(vec![fixed]);
++    let registry = builder.build();
++    let capture = registry
++        .capture_pre_session_tools_for_config(&false)
++        .expect("closed absent source");
++    assert_eq!(
++        capture
++            .definitions()
++            .iter()
++            .map(|tool| tool.name().clone())
++            .collect::<Vec<_>>(),
++        vec![ToolName::plain("fixed")]
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert_eq!(
++        registry.renew_pre_session_tools(&capture),
++        Err(PreSessionToolInventoryError::ConfigurationRequired)
++    );
++    registry
++        .renew_pre_session_tools_for_config(&capture, &false)
++        .expect("current absent selection");
++    assert_eq!(
++        registry.renew_pre_session_tools_for_config(&capture, &true),
++        Err(PreSessionToolInventoryError::StateBoundContributors {
++            registration_indexes: vec![0]
++        })
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert_eq!(
++        registry
++            .to_builder()
++            .build()
++            .renew_pre_session_tools_for_config(&capture, &false),
++        Err(PreSessionToolInventoryError::RegistryChanged)
++    );
++
++    let session = ExtensionData::new("session");
++    let thread = ExtensionData::new("thread");
++    let other_thread = ExtensionData::new("other-thread");
++    let step = ExtensionData::new("step");
++    for contributor in registry.thread_lifecycle_contributors() {
++        contributor
++            .on_thread_start(ThreadStartInput {
++                config: &false,
++                session_source: &SessionSource::Exec,
++                persistent_thread_state_available: false,
++                environments: &[],
++                mcp_resource_client: None,
++                extension_metrics: None,
++                session_store: &session,
++                thread_store: &thread,
++            })
++            .await;
++    }
++    // Even a runtime source that returns tools cannot override its own closed declaration.
++    assert!(
++        registry.tool_contributors()[0]
++            .tools_for_step(&session, &thread, &step)
++            .is_empty()
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 1);
++    for contributor in registry.config_contributors() {
++        contributor.on_config_changed(&session, &thread, &false, &true);
++    }
++    assert_eq!(
++        registry.tool_contributors()[0]
++            .tools_for_step(&session, &thread, &step)
++            .iter()
++            .map(|tool| tool.tool_name())
++            .collect::<Vec<_>>(),
++        vec![ToolName::plain("planned")]
++    );
++    // Config changes are scoped; a missing ordinary lifecycle does not fabricate absence.
++    assert_eq!(
++        registry.tool_contributors()[0]
++            .tools(&session, &other_thread)
++            .iter()
++            .map(|tool| tool.tool_name())
++            .collect::<Vec<_>>(),
++        vec![ToolName::plain("planned")]
++    );
++    for contributor in registry.config_contributors() {
++        contributor.on_config_changed(&session, &thread, &true, &false);
++    }
++    assert!(
++        registry.tool_contributors()[0]
++            .tools(&session, &thread)
++            .is_empty()
++    );
++}
++
++#[test]
++fn missing_tool_plan_preflights_before_any_closed_plan_or_runtime_callback() {
++    use codex_extension_api::ToolPreSessionSelection;
++    let calls = Arc::new(AtomicUsize::new(0));
++    let plans = Arc::new(AtomicUsize::new(0));
++    let mut builder = ExtensionRegistryBuilder::<()>::new();
++    let plan_calls = Arc::clone(&plans);
++    builder.tool_contributor_with_pre_session_plan(
++        Arc::new(StateBoundTools(Arc::clone(&calls))),
++        Arc::new(move |_| {
++            plan_calls.fetch_add(1, Ordering::SeqCst);
++            ToolPreSessionSelection::NoTools
++        }),
++    );
++    builder.tool_contributor(Arc::new(StateBoundTools(Arc::clone(&calls))));
++    let registry = builder.build();
++    assert_eq!(
++        registry.capture_pre_session_tools_for_config(&()).err(),
++        Some(PreSessionToolInventoryError::StateBoundContributors {
++            registration_indexes: vec![1]
++        })
++    );
++    assert_eq!(
++        (plans.load(Ordering::SeqCst), calls.load(Ordering::SeqCst)),
++        (0, 0)
++    );
++}
+-- 
+2.54.0 (Apple Git-157)
+

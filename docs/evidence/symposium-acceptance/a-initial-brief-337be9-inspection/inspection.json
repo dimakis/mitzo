@@ -1,0 +1,70 @@
+{
+  "observedAt": "2026-10-20T01:53:21.450352+00:00",
+  "commit": "337be9b17e458a227b122ed2893b1d0bf8f19afe",
+  "tree": "a720065cc307092b299dde3f555a9eed71c7bd68",
+  "parent": "7195ec335094d546c01a9eba644f5c3ce1feb112",
+  "sourceHashes": {
+    "frontend/src/components/ConversationAgents.tsx": "3bc509e24a3a21754b23cbf4766ae61996fb06b6c28ae4dd854b8bb5c09c84a6",
+    "frontend/src/components/__tests__/ConversationAgents.application-brief.test.tsx": "d051f3a2911f775f5413fba530e8a331fa0fb2db1cca2f504c69fea689348224",
+    "frontend/src/hooks/useConversationJoiningReview.ts": "6c055ecec5cb8905226e679622637ae77035382d5595cb0890ff1ade839c19ef",
+    "frontend/src/lib/__tests__/conversation-joining-application-owner.test.tsx": "c1a53621a561ff952e735a966f6387e807b6b5b4e2bd6dffc227f54867f9ae94",
+    "frontend/src/lib/conversation-joining-brief.ts": "84cc96f350bb24a8b9451e41b475dbd7406641b1a6408a3968be378b4f0d10e4",
+    "frontend/src/pages/ChatView.tsx": "a6388703e7fe239b8d5a1ac64f46f4ebd40b2c5b04a65883c5f43fbb8f15d1d7",
+    "frontend/src/pages/DesktopChatView.tsx": "3d5e361a8ef711735d54d195f9002fc37fe24c243f200dcb41653acbebe175c3",
+    "frontend/src/lib/conversation-joining-application-owner.ts": "d575f127b74ecfdf627cb448d9dc06c47e7497d1842c51fa76c9682af401e6e4",
+    "frontend/src/lib/conversation-joining-recovery.ts": "f05570232deea0814fd1db0addee83e8155b61375f887f5476ad4ba30abf0571"
+  },
+  "patchSHA256": "098f16f2e13a331537f7aa536955e20306e04174e4dc83c2c76fea0dcf03378a",
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "producerEvidence": {
+    "joining-ui-integration-checkpoint.json": {
+      "sha256": "3c0120e79c85e438bfdee38d994a31545fc56997809d674adc38307123e3527f",
+      "bytes": 6913
+    },
+    "joining-initial-brief-red.log": {
+      "sha256": "4317a108347926c82ec937478d8a4d73b21d804c0b7252afe08e8e42649f0771",
+      "bytes": 1392
+    },
+    "joining-initial-brief-focused-final.log": {
+      "sha256": "9f0aedd1636207d47b498db84bbfa441ddb753f24ccf564c8c17b744619113af",
+      "bytes": 287
+    },
+    "joining-initial-brief-design.log": {
+      "sha256": "ac0c8fba6b2dd251c37b78a1a9831f35c7f6b2582b54448e44499e8caf05a3f4",
+      "bytes": 386
+    }
+  },
+  "producerReported": {
+    "focusedPass": 89,
+    "focusedFiles": 5,
+    "designPass": 108,
+    "designExistingSkip": 1,
+    "designFiles": 6,
+    "worker": 1,
+    "heapMiB": 1024,
+    "accounting": "Focused/design totals overlap and are NOT summed. No C execution.",
+    "red": "One actual typed-client/application-adapter regression failed before initial brief fix because no review POST was reached;39other tests unselected. Not an app/server execution failure."
+  },
+  "independentFindings": [
+    "Initial copy is constructed only on explicit Review for application owner; no new capture/review/confirm/bootstrap trigger on Add agent. Legacy owner gets undefined as before.",
+    "prepare(setup,initialBrief) first resumes same-setup lastReview with exact saved joiningBrief/retryInput, including empty or whitespace edits; only a new setup/request uses supplied initial copy. Existing editBrief uses explicit bytes+previous snapshot and new request identity; retries retain complete original request.",
+    "Reload recovery restores lastReview/reviewRequest from existing scoped journal. New typed-adapter lost-response fixture deep-compares repeated review JSON despite a new proposed default, preserves journal brief and keeps confirmation unavailable; no joins.",
+    "Mounted component fixture captures approved initial text then refuses source capture; Back/title metadata rerender repeats exact original intent, without review/confirm/recover. Typed client is real but HTTP/source responses are fixture stubs, not actual production app.",
+    "New helper is editable display-derived text only: name/purpose/title/participant labels, approved own-instructions/untrusted-source copy. Actual page titles passed without becoming source/account/permission/model authority. No default account/model selection, inference or capability is added.",
+    "Protected approved HTML/PNG/setup/browser/ledger bytes unchanged. New copy matches normal approved fresh-agent wording; no claim full policy-mode/visual comparison.",
+    "Only five product frontend paths plus two fixture paths changed. No production joining owner/catalog/bootstrap mount is installed and core must integrate source pins."
+  ],
+  "assertionLimits": [
+    "Same-setup Back/retry/reload and explicit refreeze preserve retained brief bytes. Changing setup is an explicit new intent under existing prepare semantics and may seed new copy; no broader changed-setup no-overwrite claim.",
+    "Existing empty/whitespace adapter/recovery fixtures remain, but new mounted component fixture covers capture refusal, not successful native review/join.",
+    "Actual approved mounted comparison, full exact saved-version choice/refreeze/recovery/no-inference journey and source-setup API remain pending."
+  ],
+  "independentActivity": "Read immutable product/callers/hook/journal/approved reference/assertion/log provenance only; no C tests/build/browser/native/model/provider call or duplicate campaign.",
+  "acceptance": "No additional concrete blocker found within initial application-brief omission fix. Source/assertion review only; producer totals are not full app/design/runtime qualification."
+}

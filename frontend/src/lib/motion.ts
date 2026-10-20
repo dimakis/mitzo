@@ -36,20 +36,101 @@ export function animateMotion(
   }
   if (kind === 'disclosure') {
     closed.height = '0px';
-    opened.height = `${opening ? element.scrollHeight : element.getBoundingClientRect().height}px`;
+    // Animate the CSS-constrained border box, not overflowing scroll contents.
+    // Constraints belong to the resting layout; applying them to intermediate
+    // frames would clamp the entrance/exit into a plateau followed by a jump.
+    opened.height = `${element.getBoundingClientRect().height}px`;
+    closed.minHeight = opened.minHeight = '0px';
+    closed.maxHeight = opened.maxHeight = 'none';
   }
   const animation = element.animate(
-    [from ?? (opening ? closed : opened), opening ? opened : closed],
+    [
+      from
+        ? { ...from, ...(kind === 'disclosure' ? { minHeight: '0px', maxHeight: 'none' } : {}) }
+        : opening
+          ? closed
+          : opened,
+      opening ? opened : closed,
+    ],
     {
       duration,
       easing,
       // React may hide retained content on a later frame. Hold exits until that
-      // commit; entrances must release height so content can grow and scroll.
-      fill: opening ? 'none' : 'forwards',
+      // commit. Hold disclosure entrances until the same release cancels their
+      // temporary constraints, so natural sizing resumes without an extra frame.
+      fill: opening ? (kind === 'disclosure' ? 'both' : 'none') : 'forwards',
     },
   );
   animation.id = `mitzo:${kind}`;
+  if (kind === 'disclosure' && opening) trackDisclosureSize(element, animation, opened);
   return animation;
+}
+
+/** Content/budget updates retarget the remaining entrance, never replay it. */
+function trackDisclosureSize(element: HTMLElement, animation: Animation, endpoint: Keyframe) {
+  const effect = animation.effect as KeyframeEffect | null;
+  if (!effect?.getKeyframes || !effect.setKeyframes || !effect.updateTiming) return;
+  let targetHeight = Number.parseFloat(String(endpoint.height));
+  const retarget = () => {
+    if (!element.isConnected || !['running', 'paused'].includes(animation.playState)) return;
+    const current = motionFrame(element, 'disclosure');
+    const frames = effect.getKeyframes();
+    // Read the actual resting CSS layout synchronously, without cancelling or
+    // restarting the animation/timeline. Restore scroll positions that a larger
+    // temporary scrollport could clamp while the effect is absent.
+    const scrollPositions = [element, ...element.querySelectorAll<HTMLElement>('*')]
+      .filter((node) => node.scrollTop || node.scrollLeft)
+      .map((node) => ({ node, top: node.scrollTop, left: node.scrollLeft }));
+    for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+      if (parent.scrollTop || parent.scrollLeft)
+        scrollPositions.push({ node: parent, top: parent.scrollTop, left: parent.scrollLeft });
+    }
+    let height: number;
+    try {
+      effect.setKeyframes([]);
+      height = element.getBoundingClientRect().height;
+    } finally {
+      effect.setKeyframes(frames);
+      scrollPositions.forEach(({ node, top, left }) => {
+        node.scrollTop = top;
+        node.scrollLeft = left;
+      });
+    }
+    if (Math.abs(height - targetHeight) < 0.5) return;
+    const duration = effect.getTiming().duration;
+    const elapsed = animation.currentTime;
+    if (typeof duration !== 'number' || typeof elapsed !== 'number' || elapsed >= duration) return;
+    targetHeight = height;
+    effect.setKeyframes([
+      { ...current, minHeight: '0px', maxHeight: 'none' },
+      { ...endpoint, height: `${height}px` },
+    ]);
+    effect.updateTiming({ duration: duration - Math.max(0, elapsed) });
+    animation.currentTime = 0;
+  };
+  const resize = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(retarget);
+  resize?.observe(element);
+  if (element.parentElement) resize?.observe(element.parentElement);
+  for (const child of element.children) resize?.observe(child);
+  const mutations = new MutationObserver(retarget);
+  mutations.observe(element, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['style', 'class', 'hidden'],
+  });
+  window.addEventListener('resize', retarget);
+  window.visualViewport?.addEventListener('resize', retarget);
+  const release = () => {
+    resize?.disconnect();
+    mutations.disconnect();
+    window.removeEventListener('resize', retarget);
+    window.visualViewport?.removeEventListener('resize', retarget);
+    animation.removeEventListener?.('cancel', release);
+  };
+  animation.addEventListener?.('cancel', release);
+  void animation.finished.then(release, release);
 }
 
 /** Shared decorative timings remain in the same theme contract. */

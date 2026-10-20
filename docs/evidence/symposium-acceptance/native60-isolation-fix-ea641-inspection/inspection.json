@@ -1,0 +1,65 @@
+{
+  "observedAt": "2026-10-20T02:19:09.951522+00:00",
+  "commit": "ea6416336b5275e8a3c13e508f1c68df289f75a3",
+  "tree": "203e5ac78c2f6653251ee6828163d1234897216f",
+  "parent": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+  "parentTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
+  "branch": "fix/symposium-isolated-mcp-source",
+  "finding": "CEN-487055AFEF4D",
+  "originalPublishedHostHead": "07014d87b97a1faf012817d6ffcc6a94a383fe96",
+  "lineage": "This correction is next patch on qualified native60, not historical native61 public-metadata source and not the77 native ordinal. Latest-lineage original865e2f6 exists separately with parent1d8ea29e. Exact commit/tree required.",
+  "samePatchLatestLineage": {
+    "commit": "865e2f6fb59451d834a7b31fe7a0b9eac4396afc",
+    "tree": "d72aef0ec5913c0043c104fed754909b0d25eba1",
+    "parent": "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
+    "fileComparisons": [
+      {
+        "path": "codex-rs/core/src/mcp/pre_session.rs",
+        "sameFinalBytesAsLatest77Lineage865": true
+      },
+      {
+        "path": "codex-rs/core/src/thread_manager.rs",
+        "sameFinalBytesAsLatest77Lineage865": true
+      },
+      {
+        "path": "codex-rs/core/src/thread_manager/pre_session_inputs.rs",
+        "sameFinalBytesAsLatest77Lineage865": true
+      },
+      {
+        "path": "codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs",
+        "sameFinalBytesAsLatest77Lineage865": true
+      }
+    ]
+  },
+  "sourceHashes": {
+    "codex-rs/core/src/mcp/pre_session.rs": "68abb53e9eccbc348e8988bb9c06e01cd21854b3b84d55591bbdcd9ee1db7f7d",
+    "codex-rs/core/src/thread_manager.rs": "b238884e7c10cd90bec0466f458e9d48ab388e6ee6fb1dd91bb95f401e4eaa98",
+    "codex-rs/core/src/thread_manager/pre_session_inputs.rs": "d2576606595400ddd486e97cebdb170d2ab8b6e790547855ffea48daa0241ccf",
+    "codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs": "a3942ff074ac015305d89ab89fca3649efc2271fca6b0c42334741c2d91e3f09",
+    "codex-rs/core/src/guardian/review.rs": "b5d68510e01286788f7f75e4aa202e5d9c7278379907f24ea0230d7c75763627"
+  },
+  "ordinaryIsolationExtraction": {
+    "equivalentAfterTypedParameters": true,
+    "wholeThreadManagerFileOtherwiseByteExact": true,
+    "comparison": "Original let-expression matches extracted helper after thread_extension_init\u2192extension_init and &session_source\u2192session_source parameter substitutions. Entire original file equals new file with helper removed and original expression replaced by helper call.",
+    "policy": "Actual typed explicit SessionIsolation wins; otherwise same guardian::is_basic_session_source classification, with options.session_source first or actual manager default. Ordinary isolated registry construction and inherited manager choice untouched."
+  },
+  "independentFindings": [
+    "Capture resolves same effective source/policy as real spawn_thread, using shared actual helper. Effective Isolated refuses RequiresInheritedExtensions BEFORE calling manager registry/environment/pre-session plans, including real isolated extension registry contents. Refusal applies explicitIsolated, explicitGuardian source and defaultGuardian source. No isolated startup behavior changed.",
+    "Supported Inherit capture writes actual resolved SessionSource and explicit Inherit into retained original options before existing fresh/config/environment/registry validation. Private source packet only exposes borrowed immutable options; release after existing owner/environment validation returns original explicit values, so changed manager defaults cannot substitute another registry policy.",
+    "Actual spawn Inherit uses same shared extensions/McpManager; actual Isolated constructs separate manager from IsolatedSessionExtensions<Config> or emptyregistry. New early refusal makes source absence proof use actual matching manager only. Existing lower capture function has only this ThreadManager caller in production source inspected.",
+    "Two new authored unexecuted fixtures use real native owners and real isolated registry with unresolved runtime contributor. Unknown isolated registration is positively asserted. Inherited pre-session plan panics if reached; three effective-isolation variants require exact new error, zero runtime callbacks/threads/created events. This catches original wrong shared-manager capture rather than using only a fabricated boolean.",
+    "Retained-options fixture captures actual ordinary default Exec/Inherit, changes manager default toGuardian, validates/releases retained inputs and asserts originalExec/Inherit. ExplicitExec overrides managerGuardian; explicitInherit overrides Guardianclassification, matching actualordinaryprecedence. It asserts no thread starts. Internal scenario counts are not separate test totals."
+  ],
+  "authoredTestsNotExecuted": [
+    "isolated_registry_refuses_before_inherited_plans_or_runtime_callbacks",
+    "retained_source_and_isolation_do_not_reselect_manager_defaults"
+  ],
+  "closure": "Named wrong-registry mechanism and regression coverage are closed at SOURCE/ASSERTION level within this candidate; no additional concrete blocker found in bounded correction. Trusted review and exact-source execution gates remain pending, not self-approved by C.",
+  "limits": [
+    "No Rust compilation or native fixture execution by C or reported producer for this candidate. Existing native60/70 green fixture results cannot qualify changed source or clear new review finding.",
+    "Scope is actual effective MCP registry selection only; no full inventory/request/source/account/currentness/model-limit/count/consume/effect-release/runtime/application joining qualification.",
+    "Retained source/environment owner checks remain prior behavior; whole config/source ABA and production ordinary producer/release need their genuine owners."
+  ],
+  "independentActivity": "Read immutable parent/candidate/actual spawn/policy helper/packet/release/test source, exact body comparisons and source hashes only. No tests/build/provider startup/model calls/retry/cancel/dispatch/fresh review/new campaign/product mutation."
+}

@@ -1,0 +1,25 @@
+{
+  "observedAt": "2026-10-20T01:25:40.983388+00:00",
+  "commit": "f75d65a1a6133ed3eecc42b92c9f74e84741e835",
+  "tree": "bd05b3b6597fe5640b41363e4b2d351dff060d53",
+  "parent": "68d9e80ad6dbbbadf76312e8b685e6dd66b1f085",
+  "sourceHashes": {
+    "codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs": "501a722631e5bb5d0273576b8466707613f0e341a5bcbbbcda9ee6b7104ef450",
+    "codex-rs/state/src/sqlite.rs": "aef74fffc8a6dc6469154b3d6f357de0fc409955a6721f2a904579748ed558a8"
+  },
+  "original74ReceiptSHA256": "ef82af2a00e867692aa495fa564467e1d1e92d1b68901c53bc11556d3f8755cd",
+  "changeScope": "One existing fixture file,35 added lines; no native production/FFI/guard/pool implementation changes.",
+  "findingClosedAtAssertionLevel": {
+    "id": "C74-persisted-observation-before-guard-return",
+    "fixture": "guarded_commit_denial_rolls_back_and_success_is_durable_before_guard_returns",
+    "proof": "Before synchronous guard, preopens a separate read-only pool/connection to the same actual ledger. Independent standard thread/current-thread runtime waits for signal. Immediately after commit.commit() inside guard, signal reader, receive actual SQL tuple and require consumed1/committed/pending BEFORE callback returns. Connection explicitly closes on its own runtime; join/pool-close occur after guard.",
+    "counterexample": "Moving COMMIT/persistence after guard exit would leave old row visible or block independent reader, failing tuple assertion or bounded wait. In-memory returned flags alone cannot satisfy new check."
+  },
+  "assertionLimits": [
+    "This proves the intended persisted-visibility/commit-before-return assertion, not physical power-loss/crash durability experimentation. FULL/WAL durability semantics remain source/dependency reviewed and require execution/environment qualification.",
+    "No Rust compilation/test result yet; first exact-source CI must execute the corrected fixture.",
+    "Actual ModelClient credential bridge is separately source-inspected in75; host original-revision/ABA proof R, private RPC, other guards, model limits/count/consume and application composition remain open."
+  ],
+  "independentActivity": "Read immutable changed paths/test source/read-only pool implementation and whitespace only; no C Rust/SQL/credential/model/provider execution or new campaign.",
+  "acceptance": "C74 fixture observation finding CLOSED at exact assertion source76. No additional source issue found in this correction; execution/native whole-request/application acceptance unqualified."
+}

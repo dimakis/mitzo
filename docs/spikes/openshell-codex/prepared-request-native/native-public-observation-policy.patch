@@ -1,0 +1,421 @@
+From 324c4c1ca1214edeca6d56677a037b215f740888 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 01:06:43 +0100
+Subject: [PATCH] feat(core): retain public-route observations before strict
+ Responses capture
+
+---
+ codex-rs/core/src/client.rs                   |   2 +
+ .../src/client_public_responses_capture.rs    | 174 +++++++++++++++
+ .../client_public_responses_capture_tests.rs  | 205 ++++++++++++++++++
+ 3 files changed, 381 insertions(+)
+ create mode 100644 codex-rs/core/src/client_public_responses_capture.rs
+ create mode 100644 codex-rs/core/src/client_public_responses_capture_tests.rs
+
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index 9efacc7..10cd336 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -34,6 +34,8 @@ use std::sync::atomic::Ordering;
+ 
+ #[path = "client_tool_metadata.rs"]
+ mod tool_metadata;
++#[path = "client_public_responses_capture.rs"]
++mod public_responses_capture;
+ 
+ use crate::CodexResponsesHeaders;
+ use crate::tools::ExecutedToolCalls;
+diff --git a/codex-rs/core/src/client_public_responses_capture.rs b/codex-rs/core/src/client_public_responses_capture.rs
+new file mode 100644
+index 0000000..28fc900
+--- /dev/null
++++ b/codex-rs/core/src/client_public_responses_capture.rs
+@@ -0,0 +1,174 @@
++//! Explicit ordinary-owner metadata policy for the public Responses HTTP subset.
++//!
++//! This is formatting/capture, not route/account/limit or pre-session authority.
++//! The request owner must supply coherent, source-owned inputs and qualify the
++//! public API route separately. Native behavior stays unchanged. No populated
++//! native field is removed inside FrozenResponsesRequest or translated to public
++//! metadata. Known Codex observations stay private under this named policy BEFORE
++//! the ordinary formatter constructs the public body. Unknown metadata/controls
++//! refuse; neither callbacks nor Session/lifecycle methods run here.
++
++use std::collections::HashMap;
++use std::sync::Arc;
++
++use codex_api::ApiError;
++use codex_api::FrozenResponsesRequest;
++use codex_extension_api::ModelRequestContributor;
++use codex_protocol::openai_models::ModelInfo;
++
++use crate::client_common::Prompt;
++use crate::responses_metadata::CodexResponsesMetadata;
++use crate::responses_metadata::CodexResponsesRequestKind;
++use crate::responses_request_format::InternalMetadataPolicy;
++use crate::responses_request_format::RequestCopyNormalization;
++use crate::responses_request_format::ResolvedResponsesRequestContext;
++use crate::responses_request_format::ResponsesGenerationOptions;
++use crate::responses_request_format::ResponsesOutputBudget;
++use crate::responses_request_format::capture_finalized_responses_request;
++use crate::responses_request_format::format_responses_request;
++use crate::responses_request_format::normalize_request_copy;
++
++/// Owner-captured ordinary inputs, before the explicit public metadata projection.
++/// Numeric output values validate shape only; they are not account/model limits.
++#[cfg_attr(
++    not(test),
++    allow(dead_code, reason = "Prepared admission is not installed.")
++)]
++pub(crate) struct PublicApiResponsesCaptureInputs {
++    pub(crate) context: ResolvedResponsesRequestContext,
++    pub(crate) metadata: CodexResponsesMetadata,
++    pub(crate) generation: ResponsesGenerationOptions,
++    pub(crate) normalization: RequestCopyNormalization,
++    pub(crate) output: ResponsesOutputBudget,
++}
++
++/// Private immutable observation snapshot retained beside the finalized public
++/// body. It is not serialized into a request/header, and does not create or attest
++/// a native identity. Actual start observations may only come from their owner;
++/// this policy never fabricates a turn-start timestamp or restamps a retained body.
++#[cfg_attr(
++    not(test),
++    allow(dead_code, reason = "Prepared admission is not installed.")
++)]
++pub(crate) struct CapturedPublicApiResponsesRequest {
++    request: FrozenResponsesRequest,
++    observations: CodexResponsesMetadata,
++}
++
++#[cfg_attr(
++    not(test),
++    allow(dead_code, reason = "Prepared admission is not installed.")
++)]
++impl CapturedPublicApiResponsesRequest {
++    pub(crate) fn request(&self) -> &FrozenResponsesRequest {
++        &self.request
++    }
++
++    pub(crate) fn observations(&self) -> &CodexResponsesMetadata {
++        &self.observations
++    }
++}
++
++/// Uses the actual ordinary formatter and normalization on already-captured data.
++/// Caller configuration cannot relabel unknown contributors as an empty result:
++/// borrow the real registry's inventory, which must currently be empty. Binding
++/// headers, selected account/currentness and durable consume remain with the
++/// existing ordinary producer; this helper does not establish those authorities.
++#[cfg_attr(
++    not(test),
++    allow(dead_code, reason = "Prepared admission is not installed.")
++)]
++pub(crate) fn capture_public_api_responses_request(
++    prompt: &Prompt,
++    model: &ModelInfo,
++    inputs: PublicApiResponsesCaptureInputs,
++    contributors: &[Arc<dyn ModelRequestContributor>],
++) -> Result<CapturedPublicApiResponsesRequest, ApiError> {
++    let PublicApiResponsesCaptureInputs {
++        context,
++        metadata,
++        generation,
++        normalization,
++        output,
++    } = inputs;
++    if !contributors.is_empty() {
++        return Err(unsupported("unresolved request contributors"));
++    }
++    if !context.is_openai || context.is_amazon_bedrock || model.use_responses_lite {
++        return Err(unsupported("unsupported request formatting family"));
++    }
++    if prompt.cyber_access_program.is_some() {
++        return Err(unsupported("backend access program control"));
++    }
++    if metadata.thread_id != context.thread_id.to_string()
++        || context.client_metadata
++            != metadata
++                .client_metadata(context.internal_metadata == InternalMetadataPolicy::Include)
++    {
++        return Err(unsupported("incoherent ordinary metadata snapshot"));
++    }
++    if !metadata.extra.is_empty()
++        || metadata.parent_response_id.is_some()
++        || metadata.routing_hint.is_some()
++        || metadata.subagent_header.is_some()
++        || metadata.subagent_kind.is_some()
++        || metadata.parent_thread_id.is_some()
++        || metadata.parent_turn_id.is_some()
++        || metadata.root_turn_id.is_some()
++        || metadata.forked_from_thread_id.is_some()
++        || metadata.forked_from_ordinal_exclusive.is_some()
++        || metadata.history_ingest_requested == Some(true)
++        || !matches!(
++            metadata.request_kind,
++            None | Some(CodexResponsesRequestKind::Turn)
++        )
++    {
++        return Err(unsupported(
++            "unsupported native metadata or request control",
++        ));
++    }
++
++    // Deliberate public-route policy at the ordinary construction boundary:
++    // native identity, policy/workspace/analytics observations are retained in
++    // metadata below. Public metadata is NOT an alias for client_metadata. Item
++    // observation removal uses ordinary InternalMetadataPolicy::Omit unchanged;
++    // all model-visible input and selected generation settings stay with the
++    // ordinary formatter. In particular, internal stream controls are not cleared.
++    let public_context = ResolvedResponsesRequestContext {
++        client_metadata: HashMap::new(),
++        internal_metadata: InternalMetadataPolicy::Omit,
++        ..context
++    };
++    let mut request = format_responses_request(prompt, model, &public_context, generation)
++        .map_err(|_| unsupported("ordinary request formatting failed"))?;
++    normalize_request_copy(&mut request.input, normalization);
++    // Omit must have settled optional internal observations before the shared
++    // bounding owner. Do not enter its metrics-shedding branch during pure capture.
++    if request.input.iter().any(|item| {
++        item.executed_tool_call_metadata().is_some_and(|metadata| {
++            metadata.executed_tool_calls.is_some()
++                || metadata.cell_id.is_some()
++                || metadata.tool_calls_complete.is_some()
++        })
++    }) {
++        return Err(unsupported("unresolved optional tool observations"));
++    }
++    if let Some(input) = super::tool_metadata::bounded_input(&request, &request.input) {
++        request.input = input;
++    }
++    let request = capture_finalized_responses_request(request, contributors, output)?;
++    Ok(CapturedPublicApiResponsesRequest {
++        request,
++        observations: metadata,
++    })
++}
++
++fn unsupported(detail: &str) -> ApiError {
++    ApiError::InvalidRequest {
++        message: format!("public Responses capture refuses {detail}"),
++    }
++}
++
++#[cfg(test)]
++#[path = "client_public_responses_capture_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/client_public_responses_capture_tests.rs b/codex-rs/core/src/client_public_responses_capture_tests.rs
+new file mode 100644
+index 0000000..85b39ee
+--- /dev/null
++++ b/codex-rs/core/src/client_public_responses_capture_tests.rs
+@@ -0,0 +1,205 @@
++use super::*;
++use codex_extension_api::ModelRequestInput;
++use codex_extension_api::ModelResponseInterceptor;
++use codex_protocol::ThreadId;
++use codex_protocol::config_types::ReasoningSummary;
++use codex_protocol::models::BaseInstructions;
++use codex_tools::ResponsesApiTool;
++use codex_tools::ToolSpec;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++
++fn model() -> ModelInfo {
++    serde_json::from_value(json!({
++        "slug":"capture-fixture", "display_name":"fixture", "description":"fixture",
++        "default_reasoning_level":"medium", "supported_reasoning_levels":[{"effort":"medium", "description":"medium"}],
++        "shell_type":"shell_command", "visibility":"list", "supported_in_api":true,
++        "priority":1, "upgrade":null, "model_messages":null, "support_verbosity":false,
++        "supports_reasoning_summary_parameter":true,
++        "apply_patch_tool_type":null, "truncation_policy":{"mode":"bytes", "limit":10000},
++        "supports_image_detail_original":false, "context_window":272000,
++        "auto_compact_token_limit":null, "experimental_supported_tools":[]
++    })).unwrap()
++}
++
++fn prompt() -> Prompt {
++    Prompt {
++        input: vec![serde_json::from_value(json!({"type":"message","role":"user","content":[
++            {"type":"input_text","text":"retained explicit prompt"},
++            {"type":"input_image","image_url":"data:image/png;base64,aGVsbG8=","detail":"original"}
++        ]})).unwrap()],
++        tools: vec![ToolSpec::Function(ResponsesApiTool {
++            name: "ReadKnowledge".into(),
++            description: "synthetic selected schema".into(),
++            strict: true,
++            defer_loading: None,
++            parameters: serde_json::from_value(
++                json!({"type":"object","properties":{},"required":[],"additionalProperties":false}),
++            )
++            .unwrap(),
++            output_schema: None,
++        })]
++        .into(),
++        parallel_tool_calls: true,
++        base_instructions: BaseInstructions {
++            text: "retained instructions and brief".into(),
++            provenance: None,
++        },
++        output_schema: Some(
++            json!({"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}),
++        ),
++        ..Default::default()
++    }
++}
++
++fn inputs() -> PublicApiResponsesCaptureInputs {
++    let thread_id = ThreadId::from_string("018f9e15-7a6a-7000-8000-000000000001").unwrap();
++    let mut metadata = CodexResponsesMetadata::new(
++        "installation".into(),
++        "session".into(),
++        thread_id.to_string(),
++        "window".into(),
++    );
++    metadata.request_kind = Some(CodexResponsesRequestKind::Turn);
++    metadata.turn_id = Some("reserved-fixture-turn".into());
++    metadata.turn_started_at_unix_ms = Some(42);
++    metadata.analytics_enabled = Some(false);
++    let context = ResolvedResponsesRequestContext {
++        thread_id,
++        is_openai: true,
++        is_amazon_bedrock: false,
++        namespace_tools: false,
++        reasoning_effort_override_enabled: false,
++        concurrent_reasoning_summaries_enabled: false,
++        model_verbosity: None,
++        prompt_cache_key: "original-cache".into(),
++        client_metadata: metadata.client_metadata(/*include_internal*/ true),
++        internal_metadata: InternalMetadataPolicy::Include,
++    };
++    PublicApiResponsesCaptureInputs {
++        context,
++        metadata,
++        generation: ResponsesGenerationOptions {
++            effort: None,
++            summary: ReasoningSummary::None,
++            service_tier: Some("flex".into()),
++        },
++        normalization: RequestCopyNormalization {
++            content_item_kinds_enabled: false,
++        },
++        output: ResponsesOutputBudget {
++            max_output_tokens: 64,
++            model_output_limit: 128,
++        },
++    }
++}
++
++#[test]
++fn public_policy_captures_actual_ordinary_body_and_retains_native_observations_privately() {
++    let prompt = prompt();
++    let original_prompt = prompt.clone();
++    let ordinary_inputs = inputs();
++    let mut ordinary = format_responses_request(
++        &prompt,
++        &model(),
++        &ordinary_inputs.context,
++        ordinary_inputs.generation,
++    )
++    .unwrap();
++    normalize_request_copy(&mut ordinary.input, ordinary_inputs.normalization);
++    let mut expected = serde_json::to_value(&ordinary).unwrap();
++    assert!(capture_finalized_responses_request(ordinary, &[], ordinary_inputs.output).is_err());
++    // The named owner policy changes only the native observation projection;
++    // generation controls and the ordinary expanded instructions/input/tools/schema remain exact.
++    let fields = expected.as_object_mut().unwrap();
++    fields.remove("client_metadata");
++    fields.insert("max_output_tokens".into(), json!(64));
++    fields.insert("truncation".into(), json!("disabled"));
++
++    let selected = inputs();
++    let original_observations = (
++        selected.metadata.client_metadata(/*include_internal*/ true),
++        selected.metadata.turn_metadata_value(),
++    );
++    let captured = capture_public_api_responses_request(&prompt, &model(), selected, &[]).unwrap();
++    assert_eq!(captured.request().body(), &expected);
++    assert_eq!(
++        (
++            captured
++                .observations()
++                .client_metadata(/*include_internal*/ true),
++            captured.observations().turn_metadata_value()
++        ),
++        original_observations
++    );
++    assert_eq!(prompt.input, original_prompt.input);
++    assert_eq!(&*prompt.tools, &*original_prompt.tools);
++    let restored =
++        FrozenResponsesRequest::from_encoded(captured.request().encoded_body(), 128).unwrap();
++    assert_eq!(
++        (restored.body(), restored.count_body()),
++        (captured.request().body(), captured.request().count_body())
++    );
++    assert_eq!(captured.observations().turn_started_at_unix_ms, Some(42));
++}
++
++#[test]
++fn public_policy_refuses_unknown_metadata_backend_controls_and_snapshot_drift() {
++    let mutations: Vec<fn(&mut CodexResponsesMetadata)> = vec![
++        |metadata| {
++            metadata
++                .extra
++                .insert("unknown-control".into(), "retained-not-discarded".into());
++        },
++        |metadata| metadata.parent_response_id = Some("guardian-parent".into()),
++        |metadata| metadata.routing_hint = Some(http::HeaderValue::from_static("backend-route")),
++        |metadata| metadata.subagent_header = Some("review".into()),
++        |metadata| metadata.history_ingest_requested = Some(true),
++        |metadata| metadata.request_kind = Some(CodexResponsesRequestKind::Memory),
++    ];
++    for mutate in mutations {
++        let mut selected = inputs();
++        mutate(&mut selected.metadata);
++        selected.context.client_metadata =
++            selected.metadata.client_metadata(/*include_internal*/ true);
++        assert!(capture_public_api_responses_request(&prompt(), &model(), selected, &[]).is_err());
++    }
++    let mut changed = inputs();
++    changed.metadata.window_id = "another-window".into();
++    assert!(capture_public_api_responses_request(&prompt(), &model(), changed, &[]).is_err());
++    let mut changed = inputs();
++    changed.context.thread_id = ThreadId::new();
++    assert!(capture_public_api_responses_request(&prompt(), &model(), changed, &[]).is_err());
++    let mut changed = inputs();
++    changed.context.is_amazon_bedrock = true;
++    assert!(capture_public_api_responses_request(&prompt(), &model(), changed, &[]).is_err());
++}
++
++#[derive(Debug)]
++struct Unresolved(Arc<AtomicUsize>);
++impl ModelRequestContributor for Unresolved {
++    fn request(&self, _input: ModelRequestInput<'_>) -> Option<Box<dyn ModelResponseInterceptor>> {
++        self.0.fetch_add(1, Ordering::SeqCst);
++        None
++    }
++}
++
++#[test]
++fn public_policy_refuses_contributors_and_unsupported_stream_controls_without_clearing_them() {
++    let calls = Arc::new(AtomicUsize::new(0));
++    let contributors: Vec<Arc<dyn ModelRequestContributor>> =
++        vec![Arc::new(Unresolved(Arc::clone(&calls)))];
++    assert!(
++        capture_public_api_responses_request(&prompt(), &model(), inputs(), &contributors).is_err()
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    let mut selected = inputs();
++    selected.context.concurrent_reasoning_summaries_enabled = true;
++    selected.generation.summary = ReasoningSummary::Auto;
++    assert!(capture_public_api_responses_request(&prompt(), &model(), selected, &[]).is_err());
++    let mut lite = model();
++    lite.use_responses_lite = true;
++    assert!(capture_public_api_responses_request(&prompt(), &lite, inputs(), &[]).is_err());
++}
+-- 
+2.54.0 (Apple Git-157)
+

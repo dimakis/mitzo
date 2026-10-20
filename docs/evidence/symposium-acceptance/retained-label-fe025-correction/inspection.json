@@ -1,0 +1,49 @@
+{
+  "observedAt": "2026-10-20T02:50:31.700578+00:00",
+  "finding": "CA-retained-label-normalization",
+  "status": "CLOSED at SOURCE/ASSERTION level on exact fe025 correction; no C execution",
+  "commit": "fe0257685b9111b49f56e7434c004a699d9f13c2",
+  "tree": "90ac7408d8ba64c00ded291da458f37f411b310c",
+  "parent": "9eb0f9d10344770b55bf209cf120f6715791413b",
+  "sourceHashes": {
+    "packages/protocol/__tests__/collaboration-retained-joining-contract.test.ts": "4f70b36ee3959eaad4d5521ad462d0742d10ba62e94247180490740ef316b556",
+    "packages/protocol/src/collaboration-conversation.ts": "164d36d40da9e5ef983a7714f0b0369d7714c111bba2340a6504815a044297b3",
+    "server/__tests__/collaboration-joining-retained-artifacts.test.ts": "e2958dd9b7d57b7e5019d85ccbe82c0d630f27c696bdbf8ee54006a131fd826c",
+    "server/connections/reviewed-handler-artifacts.ts": "245f2bec6790dfcb0c1bed242d236f046c237d59f8d4896bfac004298e094aa1",
+    "server/telos-artifact-store.ts": "fc6594b9c886fb95dba1d2b715abfaeb2da98696c7058a10777eb54f03d6f08c",
+    "server/__tests__/fixtures/collaboration-retained-artifacts.ts": "dc2a4ee3e6149f083053ef9b49852734250e33ed7c7f85ac6a0daf6ba1229fbb"
+  },
+  "actualReviewedPins": {
+    "count": 638,
+    "mismatches": 0
+  },
+  "originalFindingSHA256": "c553fbb3da24df767986e591dc0cd80ac4f4a129257cd8487c946e5a825dd5e1",
+  "independentFindings": [
+    "Only new retained title/filename label validators change: bounded min/max and refine(trim.length>0) validate nonblank without transforming stored value. Whole shared conversation contract file otherwise byte-identical; original inline .trim branch and all selector/snapshot/frozen/provenance/capacity/grant schemas unchanged.",
+    "Pure-schema test requires exact leading/trailing retained label strings and explicitly preserves legacy inline trimming. Retained RED log fails this preservation before correction.",
+    "Second test uses actual retained fixture.store.save with filename=\" plan.md\" and title=\" Plan \", reads real owner metadata, requires saved exact strings and exact shared label parse. This establishes supported actual owner-to-schema string preservation, not a fabricated source-conversation identity.",
+    "Manifest updates exact changed shared source hash and runtime396; all638 actual source hashes verified. No retained source/catalog/association/authorization production wiring or artifact bytes/digest behavior is changed."
+  ],
+  "producerEvidence": {
+    "retained-label-whitespace-red.log": {
+      "sha256": "78ede1cf63e317cf98e0462475fe5ad89e3df6c04f47aa9ed3513b6c0fe588ab",
+      "bytes": 1749
+    },
+    "retained-label-whitespace-green.log": {
+      "sha256": "9703af28ead928e2735d26b1ad6f028f7f92310278e59625cf94c1fd8507790d",
+      "bytes": 274
+    },
+    "retained-label-exact-commit-tests.log": {
+      "sha256": "44dc55e868628de802b37f7ed331d3eb06741b74a276826f350a032ed7f62c1a",
+      "bytes": 274
+    },
+    "retained-label-exact-commit-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "producerReported": "Exact-commit62PASS3files (schema/actual retained owner/pins), scoped source/test types and normal hooks PASS; producer WIP path-scoped stashed for exact verification. Overlaps prior213/112, not added. No C tests/types/build.",
+  "composition": "A271 preserves exact metadata comparison; combined candidate must consume both A271 Selected-set fix and this Corefe025 schema correction. Either individual branch alone is not a combined App acceptance proof. Original9eb/857/finding/red receipts preserved unchanged.",
+  "limits": "Leading/trailing nonblank string preservation only; no browser/screenreader/fullApp/native/source catalog/capacity/permission/inference/runtime qualification. Actual retained source adapter and canonical association remain uncomposed.",
+  "independentActivity": "Read immutable4file diff/whole old-vs-new schema equality/actual owner fixture assertions/all638sourcepins/producer logs only. No C test/schema execution/build/native/browser/model/provider/retry/dispatch/new campaign."
+}

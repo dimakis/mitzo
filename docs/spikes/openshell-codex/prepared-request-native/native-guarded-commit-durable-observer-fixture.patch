@@ -1,0 +1,70 @@
+From f75d65a1a6133ed3eecc42b92c9f74e84741e835 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 02:22:51 +0100
+Subject: [PATCH] test(symposium): observe durable claim before guard returns
+
+---
+ .../prepared_request_guarded_commit_tests.rs  | 35 +++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs b/codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs
+index 52aaf58..ef7630b 100644
+--- a/codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs
++++ b/codex-rs/state/src/runtime/prepared_request_guarded_commit_tests.rs
+@@ -48,6 +48,34 @@ async fn guarded_commit_denial_rolls_back_and_success_is_durable_before_guard_re
+         runtime.read_prepared_request("guarded").await.unwrap(),
+         Some(prepared.clone())
+     );
++    // Preopen an independent read-only connection before entering the guard.
++    // Its own thread/runtime can observe the real ledger while this callback
++    // remains synchronous, without reentering the locked writer or awaiting.
++    let observer_pool = runtime
++        .sqlite
++        .open_read_only_pool(&runtime.sqlite.state_db_path(), /*busy_timeout*/ None)
++        .await
++        .unwrap();
++    let mut observer_connection = observer_pool.acquire().await.unwrap();
++    let observed_preparation = prepared.preparation_id.clone();
++    let (start_observation, observe_start) = std::sync::mpsc::channel();
++    let (persisted_state, observe_state) = std::sync::mpsc::channel();
++    let observer = std::thread::spawn(move || {
++        let observer_runtime = tokio::runtime::Builder::new_current_thread()
++            .enable_all()
++            .build()
++            .unwrap();
++        observe_start
++            .recv_timeout(std::time::Duration::from_secs(10))
++            .unwrap();
++        let state = observer_runtime.block_on(async {
++            let state = sqlx::query_as::<_, (i64, String, String)>("SELECT consumed, attempt_state, effect_state FROM prepared_requests WHERE preparation_id = ?")
++                .bind(observed_preparation).fetch_one(&mut *observer_connection).await;
++            observer_connection.close().await?;
++            state
++        }).map_err(|error| error.to_string());
++        persisted_state.send(state).unwrap();
++    });
+     let pending = runtime
+         .claim_pending_prepared_request_with_guard(
+             &prepared.preparation_id,
+@@ -65,11 +93,18 @@ async fn guarded_commit_denial_rolls_back_and_success_is_durable_before_guard_re
+                     pending.record().effect_state,
+                     PreparedRequestEffectState::Pending
+                 );
++                start_observation.send(())?;
++                let persisted = observe_state
++                    .recv_timeout(std::time::Duration::from_secs(10))?
++                    .map_err(anyhow::Error::msg)?;
++                assert_eq!(persisted, (1, "committed".into(), "pending".into()));
+                 Ok(pending)
+             },
+         )
+         .await
+         .unwrap();
++    observer.join().unwrap();
++    observer_pool.close().await;
+     assert_eq!(calls.load(Ordering::SeqCst), 2);
+     let retained = pending.record().clone();
+     assert_eq!(
+-- 
+2.54.0 (Apple Git-157)
+
