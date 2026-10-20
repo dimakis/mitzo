@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.401-metadata-final.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.402-role-ui-final.1';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/hooks/useOrdinaryWorkspacePreparation.ts':
+    'f46b3eab3dc2cdf7aa2c86c66e3105183a0393615a148bac85aad7c59731ec58',
+  '../../frontend/src/lib/ordinary-workspace-preparation.ts':
+    '495b3ca8f62ea9fa668c9f05742af38ef7754f5a81a25e8c5f7b19aefa65b990',
+
   '../repository-prepared-command.ts':
     '707f65af0dbd68959704a1dccb6120dcd4807b7054931713353f386e78ef6759',
   '../ordinary-workspace-prepared-command.ts':
@@ -300,7 +305,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/collaboration-projection.ts':
     'c1c4ba9954434950444389c70be7c1f31460e5fcddc4d99d6edfd74fd113890e',
   '../../packages/client/src/index.ts':
-    'ff991e163bbcac2b9721efdef5c466a851f492437d589b51c56d1505a5b11f8a',
+    '0cf62447cb182a9943c919aeaba30c149ccf033bd97cdcebc5f7dc3aea652727',
   '../../frontend/src/components/CollaborationTranscript.tsx':
     'b5e8ce8cfb9b27a572a81976652364f9fb6e9b4dd25f08d30dfe99d177c7f683',
   '../../frontend/src/components/CollaborationTranscript.css':
@@ -487,9 +492,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/chat-runtime-selection.ts':
     'b47f7b6cc1bd0d261c7c57560204a1e5d18edd72f58e34e7e9fd63eba1244de0',
   '../../frontend/src/lib/explicit-local-chat.ts':
-    '6b37d12d5239aca2371d7c9f799be83430971105f890ef11a6c78d1b2bd59546',
+    '2e68873e8331caf74cbd1ac0acbc9268c263e4e1efc96174979cfc43ef51739f',
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
-    'f27a25d30f2890a67aa2b15c7da54ceedc73317aadced7bc2b27371287bbb98c',
+    '89c3593476f8ee0e99ab1ad1f8b0879626e731a8581cf755f5090624cb8ceedd',
   '../../frontend/src/pages/ChatView.tsx':
     '89a69c9cc39dbd8d4b38168c6546787b786b985f4658043de18210a23fdc0182',
   '../../frontend/src/pages/DesktopChatView.tsx':
@@ -1088,7 +1093,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work-advisor.ts':
     '6c6453efb49883911a12c494bf85261e21b99d45d5b285248980a85a33b581f5',
   '../../frontend/src/components/TelosRoleSetup.tsx':
-    '554843478653c6cbdbcb6d72a36e85a90573707a45381a78dc0c389cef13ba9e',
+    'dd88d2194a07070ddfc6ca385acea2332bff2f928f9bc7f254ffad80412f82aa',
   '../../frontend/src/components/TelosLinkedContext.tsx':
     '6b3b655f44abe86906687c86e5606df3668012192097f0ceecd2a9f957ddc85a',
   '../../frontend/src/components/TelosItemRoleEntries.tsx':
@@ -1096,7 +1101,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosAdvisorDraft.tsx':
     '091127d326a458cecab4514ecfe4f9b3244998acc571fccf887479d4afa4dffe',
   '../../frontend/src/hooks/useTelosRoleSetup.ts':
-    '5bc8bc6cc7ce5499ec69fce7b1dde6990bdba5290fce40d9cffaa27715e67c7b',
+    'cbded6cb6136a45627de2b563b433cfc4b9f80c248035dcdbbfb05c79d9810d8',
   '../research-instructions.ts': '0847d737a765fd2b1c3707d44909d92b186167b6ab34782ea2deb878dc1488a2',
   '../github-read-summary.ts': 'a0484745af976ccee6b840e3955824509669d0fedb1561d6a6ce35c31ebadc2d',
   '../../frontend/src/components/AgentActivity.tsx':
