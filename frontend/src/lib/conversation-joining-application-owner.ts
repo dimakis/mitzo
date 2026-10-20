@@ -87,11 +87,10 @@ export function createConversationJoiningApplicationOwner(options: {
       const boundary = previousSource?.boundary ?? source.boundary;
       const membershipRevision =
         previousSource?.expectedMembershipRevision ?? view.membershipRevision;
-      const messageIds = new Set(
-        source.messages
-          .filter((message) => message.sequence <= boundary.sequence)
-          .map((message) => message.messageId),
-      );
+      // The boundary is an event cursor; trailing metadata need not introduce a
+      // visible message. Its anchor must still be the last message in that prefix.
+      const prefix = source.messages.filter((message) => message.sequence <= boundary.sequence);
+      const messageIds = new Set(prefix.map((message) => message.messageId));
       if (
         source.sourceConversationId !== sourceConversationId ||
         view.collaborationId !== collaborationId ||
@@ -101,10 +100,7 @@ export function createConversationJoiningApplicationOwner(options: {
         boundary.sequence > source.boundary.sequence ||
         (boundary.messageId === null
           ? boundary.sequence !== 0
-          : !source.messages.some(
-              (message) =>
-                message.sequence === boundary.sequence && message.messageId === boundary.messageId,
-            )) ||
+          : prefix.at(-1)?.messageId !== boundary.messageId) ||
         new Set(selection.messageIds).size !== selection.messageIds.length ||
         selection.messageIds.some((id) => !messageIds.has(id))
       )

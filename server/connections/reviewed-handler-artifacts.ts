@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.424-symposium-dialog-context-union';
+  'v1.0.426-symposium-durable-source-boundary';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -178,7 +178,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-migration-adapter.ts':
     '80de415c99219bfa5f4b371ef3ab6b247f22211610418bce69e2980dae58e431',
   '../../frontend/src/lib/conversation-joining-application-owner.ts':
-    'd530ed2a7d096c83989177e8f08fa8578978a88dc4341fea1d54bffd031bfbf4',
+    '35acb073ebb3c59da18f4e396a2bf6f5974bd4f25e291adea2c895d647099443',
   '../tool-builder-runtime.ts': 'b854fbfa534a8d47f249e1ba8edf65009719ece8c2718d213f29589001e47f05',
   '../installed-custom-tools.ts':
     '103aa54c9df80d683bb0a8f58fa296970e5be0bad0a37acb3a7b2b7e32079af3',

@@ -174,7 +174,13 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
   const providerRequests: unknown[] = [];
   const browserErrors: string[] = [];
   const outsideRequests: string[] = [];
-  const responses: Array<{ method: string; path: string; status: number; body?: unknown }> = [];
+  const responses: Array<{
+    method: string;
+    path: string;
+    status: number;
+    body?: unknown;
+    bodyRead?: { state: 'not-read'; reason: string };
+  }> = [];
   const responseReads: Promise<void>[] = [];
   try {
     const { enrolledResponsesOwnerFixture } =
@@ -422,78 +428,6 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
     await vi.waitFor(() => expect(application.chatSseRegistry.size).toBe(0));
     // Browser execution has no request fulfillment/intercepted API responses.
     browser = await (engine === 'webkit' ? webkit : chromium).launch({ headless: true });
-    context = await browser.newContext({
-      viewport: { width: engine === 'webkit' ? 390 : 1280, height: 844 },
-      isMobile: engine === 'webkit',
-      hasTouch: engine === 'webkit',
-      colorScheme: 'dark',
-    });
-    await context.addCookies([
-      {
-        name: 'cc_auth',
-        value: cookie.slice('cc_auth='.length),
-        url: http.baseUrl,
-        httpOnly: true,
-        sameSite: 'Lax',
-      },
-    ]);
-    await context.route('**/*', (request) => {
-      if (new URL(request.request().url()).origin === http.baseUrl) return request.continue();
-      outsideRequests.push(request.request().url());
-      return request.abort();
-    });
-    await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
-    page = await context.newPage();
-    page.on('pageerror', (error) => browserErrors.push(error.message));
-    page.on('response', (response) => {
-      const url = new URL(response.url());
-      if (!url.pathname.startsWith('/api/')) return;
-      responseReads.push(
-        (async () => {
-          const record = {
-            method: response.request().method(),
-            path: url.pathname + url.search,
-            status: response.status(),
-            body: undefined as unknown,
-          };
-          if ((response.headers()['content-type'] ?? '').includes('application/json'))
-            record.body = await response.json();
-          responses.push(record);
-        })().catch((error) => {
-          browserErrors.push(`Response capture: ${String(error)}`);
-        }),
-      );
-    });
-    await page.goto(`${http.baseUrl}/chat/${sessionId}`);
-    const agents = page.getByRole('button', { name: /^Agents/ }).first();
-    await uiExpect(agents).toBeVisible({ timeout: 10000 });
-    await agents.click();
-    await page.getByRole('button', { name: 'Add agent', exact: true }).click();
-    const add = page.getByRole('dialog', { name: 'Add agent', exact: true });
-    await uiExpect(add).toBeVisible();
-    const runOn = add.getByRole('radio', { name: 'Mac host', exact: true });
-    await runOn.check();
-    await uiExpect(runOn).toBeChecked();
-    await uiExpect(add.getByLabel('Agent', { exact: true })).toBeVisible();
-    const agentValue = await add
-      .getByLabel('Agent', { exact: true })
-      .getByRole('option', { name: /Source agent/ })
-      .getAttribute('value');
-    expect(agentValue).toBeTruthy();
-    await add.getByLabel('Agent', { exact: true }).selectOption(agentValue!);
-    await add.getByLabel('Account', { exact: true }).selectOption(f.binding.accountId);
-    await add.getByLabel('Model', { exact: true }).selectOption('gpt-6-luna');
-    const thinking = add.getByLabel('Thinking level', { exact: true });
-    if (await thinking.count()) await thinking.selectOption('low');
-    await add
-      .getByLabel('Purpose', { exact: true })
-      .fill('Independently review the selected source.');
-    await add.getByLabel('Name in this chat', { exact: true }).fill('Reviewer');
-    await add.getByLabel('Context', { exact: true }).selectOption('selected');
-    const sourceMessage = add.getByRole('checkbox', { name: /Read the repository source\./ });
-    await sourceMessage.check();
-    const reviewButton = add.getByRole('button', { name: 'Review joining brief', exact: true });
-    await uiExpect(reviewButton).toBeEnabled();
     const captures: Array<{
       platform: string;
       width: number;
@@ -503,102 +437,229 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       file: string;
       sha256: string;
     }> = [];
-    const captureState = async (
-      state: string,
-      dialog: import('@playwright/test').Locator,
-      footerButton: import('@playwright/test').Locator,
-    ) => {
-      for (const width of engine === 'webkit' ? [390, 320] : [1280])
-        for (const theme of ['dark', 'light'] as const) {
-          await page!.setViewportSize({ width, height: 844 });
-          await page!.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
-          await uiExpect(page!.locator('html')).toHaveAttribute('data-theme', theme);
-          const body = dialog.locator('.conversation-agents-body');
-          await body.hover();
-          await page!.mouse.wheel(0, -5000);
-          const upperFile = `${engine}-${width}-${theme}-${state}-upper.png`;
-          const upper = await page!.screenshot({ path: join(evidence, upperFile), fullPage: true });
-          captures.push({
-            platform: engine,
-            width,
-            height: 844,
-            theme,
-            state: state + ': upper content',
-            file: upperFile,
-            sha256: sha(upper),
-          });
-          await footerButton.scrollIntoViewIfNeeded();
-          await uiExpect(footerButton).toBeInViewport();
-          if (engine === 'webkit') {
-            const bounds = await footerButton.boundingBox();
-            expect(bounds?.height).toBeGreaterThanOrEqual(44);
-          }
-          const file = `${engine}-${width}-${theme}-${state}-footer.png`;
-          const bytes = await page!.screenshot({ path: join(evidence, file), fullPage: true });
-          captures.push({
-            platform: engine,
-            width,
-            height: 844,
-            theme,
-            state: state + ': reachable footer',
-            file,
-            sha256: sha(bytes),
-          });
+    for (const appearanceTheme of ['dark', 'light'] as const) {
+      const responseStart = responses.length;
+      context = await browser.newContext({
+        viewport: { width: engine === 'webkit' ? 390 : 1280, height: 844 },
+        isMobile: engine === 'webkit',
+        hasTouch: engine === 'webkit',
+        colorScheme: appearanceTheme,
+      });
+      await context.addCookies([
+        {
+          name: 'cc_auth',
+          value: cookie.slice('cc_auth='.length),
+          url: http.baseUrl,
+          httpOnly: true,
+          sameSite: 'Lax',
+        },
+      ]);
+      await context.route('**/*', (request) => {
+        if (new URL(request.request().url()).origin === http.baseUrl) return request.continue();
+        outsideRequests.push(request.request().url());
+        return request.abort();
+      });
+      await context.tracing.start({ screenshots: true, snapshots: true, sources: true });
+      page = await context.newPage();
+      page.on('pageerror', (error) => browserErrors.push(error.message));
+      page.on('response', (response) => {
+        const url = new URL(response.url());
+        if (!url.pathname.startsWith('/api/')) return;
+        const request = response.request();
+        const record: (typeof responses)[number] = {
+          method: request.method(),
+          path: url.pathname + url.search,
+          status: response.status(),
+        };
+        responses.push(record);
+        if (!(response.headers()['content-type'] ?? '').includes('application/json')) return;
+        // The original target owner branches on this missing-workspace status
+        // without consuming its body. Retain the real 404; Chromium's observer
+        // body read can remain pending although the original owner has proceeded
+        // through preview/prepare. No assertion consumes this optional body.
+        if (
+          request.method() === 'GET' &&
+          response.status() === 404 &&
+          /^\/api\/repository-workspaces\/[^/]+$/.test(url.pathname)
+        ) {
+          record.bodyRead = {
+            state: 'not-read',
+            reason: 'Original target owner consumes status only for absent-workspace replay',
+          };
+          return;
         }
-    };
-    await captureState('add-agent', add, reviewButton);
-    await reviewButton.click();
-    const review = page.getByRole('dialog', { name: 'Before joining', exact: true });
-    await uiExpect(review).toBeVisible();
-    await review.getByText('Review included context', { exact: false }).click();
-    const brief = review.getByRole('textbox', { name: /Joining brief/ });
-    await uiExpect(brief).toBeEditable();
-    await brief.fill(
-      'Independently review the exact selected source. Keep its identity and quoted bytes.',
-    );
-    const joinButton = review.getByRole('button', { name: 'Join conversation', exact: true });
-    await uiExpect(joinButton).toBeDisabled();
-    await uiExpect
-      .poll(() => responses.filter((r) => r.method === 'POST' && /\/reviews$/.test(r.path)).length)
-      .toBeGreaterThanOrEqual(2);
-    await uiExpect(review.getByText('Read the repository source.', { exact: true })).toBeVisible();
-    await captureState('before-joining-refrozen', review, joinButton);
-    expect(providerRequests).toHaveLength(1);
-    expect(f.calls.requests.filter((request) => request.startsWith('POST '))).toHaveLength(
-      enrollmentValidationPosts,
-    );
-    expect(
-      chat.eventStore
-        .listSessions()
-        .map((s) => s.sessionId)
-        .sort(),
-    ).toEqual(beforeSessions);
-    expect(outsideRequests).toEqual([]);
-    expect(browserErrors).toEqual([]);
-    await page.keyboard.press('Escape');
-    await uiExpect(review).toBeHidden();
-    await uiExpect(agents).toBeFocused();
-    await Promise.all(responseReads);
-    const reviews = responses.filter((r) => r.method === 'POST' && /\/reviews$/.test(r.path));
-    expect(reviews.length).toBeGreaterThanOrEqual(2);
-    await Promise.all(responseReads);
-    expect(browserErrors).toEqual([]);
-    const initialReview = CollaborationApplicationReviewResultSchema.parse(reviews[0].body);
-    const refrozen = CollaborationApplicationReviewResultSchema.parse(reviews.at(-1)!.body);
-    expect(refrozen.snapshot.sourceConversationId).toBe(sessionId);
-    expect(refrozen.snapshot.mode).toBe('selected');
-    expect(refrozen.snapshot.messages).toHaveLength(1);
-    expect(refrozen.snapshot.messages).toEqual(initialReview.snapshot.messages);
-    expect(refrozen.snapshot.messages[0].blocks.map((b) => b.content).join('')).toBe(
-      'Read the repository source.',
-    );
-    expect(refrozen.snapshot.joiningBrief).toBe(
-      'Independently review the exact selected source. Keep its identity and quoted bytes.',
-    );
-    expect(refrozen.snapshot.capacity.status).toBe('unverified');
-    expect(refrozen.snapshot.snapshotId).not.toBe(initialReview.snapshot.snapshotId);
-    expect(refrozen.settings.repositoryWorkspaceId).not.toBe(source.workspace.id);
-    expect(source.owner.get(refrozen.settings.repositoryWorkspaceId)).toBeDefined();
+        responseReads.push(
+          response
+            .json()
+            .then((body) => {
+              record.body = body;
+            })
+            .catch((error) => {
+              browserErrors.push(
+                `Response capture ${record.method} ${record.path}: ${String(error)}`,
+              );
+            }),
+        );
+      });
+      await page.goto(`${http.baseUrl}/chat/${sessionId}`);
+      const agents = page.getByRole('button', { name: /^Agents/ }).first();
+      await uiExpect(agents).toBeVisible({ timeout: 10000 });
+      await agents.click();
+      await page.getByRole('button', { name: 'Add agent', exact: true }).click();
+      const add = page.getByRole('dialog', { name: 'Add agent', exact: true });
+      await uiExpect(add).toBeVisible();
+      const runOn = add.getByRole('radio', { name: 'Mac host', exact: true });
+      await runOn.check();
+      await uiExpect(runOn).toBeChecked();
+      await uiExpect(add.getByLabel('Agent', { exact: true })).toBeVisible();
+      const agentValue = await add
+        .getByLabel('Agent', { exact: true })
+        .getByRole('option', { name: /Source agent/ })
+        .getAttribute('value');
+      expect(agentValue).toBeTruthy();
+      await add.getByLabel('Agent', { exact: true }).selectOption(agentValue!);
+      await add.getByLabel('Account', { exact: true }).selectOption(f.binding.accountId);
+      await add.getByLabel('Model', { exact: true }).selectOption('gpt-6-luna');
+      const thinking = add.getByLabel('Thinking level', { exact: true });
+      if (await thinking.count()) await thinking.selectOption('low');
+      await add
+        .getByLabel('Purpose', { exact: true })
+        .fill('Independently review the selected source.');
+      await add.getByLabel('Name in this chat', { exact: true }).fill('Reviewer');
+      const contextChoice = add.getByLabel('Context');
+      await uiExpect(contextChoice).toHaveCount(1);
+      await uiExpect(contextChoice).toBeVisible();
+      await contextChoice.selectOption('selected');
+      await uiExpect(contextChoice).toHaveValue('selected');
+      const sourceMessage = add.getByRole('checkbox', { name: /Read the repository source\./ });
+      await sourceMessage.check();
+      const reviewButton = add.getByRole('button', { name: 'Review joining brief', exact: true });
+      await uiExpect(reviewButton).toBeEnabled();
+      const captureState = async (
+        state: string,
+        dialog: import('@playwright/test').Locator,
+        footerButton: import('@playwright/test').Locator,
+      ) => {
+        for (const width of engine === 'webkit' ? [390, 320] : [1280])
+          for (const theme of [appearanceTheme]) {
+            await page!.setViewportSize({ width, height: 844 });
+            await page!.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' });
+            await uiExpect(page!.locator('html')).toHaveAttribute('data-theme', theme);
+            const body = dialog.locator('.conversation-agents-body');
+            await body.hover();
+            await page!.mouse.wheel(0, -5000);
+            const upperFile = `${engine}-${width}-${theme}-${state}-upper.png`;
+            const upper = await page!.screenshot({
+              path: join(evidence, upperFile),
+              fullPage: true,
+            });
+            captures.push({
+              platform: engine,
+              width,
+              height: 844,
+              theme,
+              state: state + ': upper content',
+              file: upperFile,
+              sha256: sha(upper),
+            });
+            await body.hover();
+            await page!.mouse.wheel(0, 5000);
+            await footerButton.scrollIntoViewIfNeeded();
+            await uiExpect(footerButton).toBeInViewport();
+            if (engine === 'webkit') {
+              const bounds = await footerButton.boundingBox();
+              expect(bounds?.height).toBeGreaterThanOrEqual(44);
+            }
+            const file = `${engine}-${width}-${theme}-${state}-footer.png`;
+            const bytes = await page!.screenshot({ path: join(evidence, file), fullPage: true });
+            captures.push({
+              platform: engine,
+              width,
+              height: 844,
+              theme,
+              state: state + ': reachable footer',
+              file,
+              sha256: sha(bytes),
+            });
+          }
+      };
+      await captureState('add-agent', add, reviewButton);
+      await reviewButton.click();
+      const review = page.getByRole('dialog', { name: 'Before joining', exact: true });
+      await uiExpect(review).toBeVisible();
+      await uiExpect
+        .poll(async () => {
+          const error = review.getByText(
+            'The joining brief could not be checked. Your setup and edits stay here.',
+            { exact: true },
+          );
+          if (await error.isVisible()) throw new Error(await error.innerText());
+          return review.getByText('Review included context', { exact: false }).isVisible();
+        })
+        .toBe(true);
+      await review.getByText('Review included context', { exact: false }).click();
+      const brief = review.getByRole('textbox', { name: /Joining brief/ });
+      await uiExpect(brief).toBeEditable();
+      await brief.fill(
+        'Independently review the exact selected source. Keep its identity and quoted bytes.',
+      );
+      const joinButton = review.getByRole('button', { name: 'Join conversation', exact: true });
+      await uiExpect(joinButton).toBeDisabled();
+      await uiExpect
+        .poll(
+          () =>
+            responses
+              .slice(responseStart)
+              .filter((r) => r.method === 'POST' && /\/reviews$/.test(r.path)).length,
+        )
+        .toBeGreaterThanOrEqual(2);
+      await uiExpect(
+        review.getByText('Read the repository source.', { exact: true }),
+      ).toBeVisible();
+      await captureState('before-joining-refrozen', review, joinButton);
+      expect(providerRequests).toHaveLength(1);
+      expect(f.calls.requests.filter((request) => request.startsWith('POST '))).toHaveLength(
+        enrollmentValidationPosts,
+      );
+      expect(
+        chat.eventStore
+          .listSessions()
+          .map((s) => s.sessionId)
+          .sort(),
+      ).toEqual(beforeSessions);
+      expect(outsideRequests).toEqual([]);
+      expect(browserErrors).toEqual([]);
+      await page.keyboard.press('Escape');
+      await uiExpect(review).toBeHidden();
+      await uiExpect(agents).toBeFocused();
+      await Promise.all(responseReads);
+      const reviews = responses
+        .slice(responseStart)
+        .filter((r) => r.method === 'POST' && /\/reviews$/.test(r.path));
+      expect(reviews.length).toBeGreaterThanOrEqual(2);
+      await Promise.all(responseReads);
+      expect(browserErrors).toEqual([]);
+      const initialReview = CollaborationApplicationReviewResultSchema.parse(reviews[0].body);
+      const refrozen = CollaborationApplicationReviewResultSchema.parse(reviews.at(-1)!.body);
+      expect(refrozen.snapshot.sourceConversationId).toBe(sessionId);
+      expect(refrozen.snapshot.mode).toBe('selected');
+      expect(refrozen.snapshot.messages).toHaveLength(1);
+      expect(refrozen.snapshot.messages).toEqual(initialReview.snapshot.messages);
+      expect(refrozen.snapshot.messages[0].blocks.map((b) => b.content).join('')).toBe(
+        'Read the repository source.',
+      );
+      expect(refrozen.snapshot.joiningBrief).toBe(
+        'Independently review the exact selected source. Keep its identity and quoted bytes.',
+      );
+      expect(refrozen.snapshot.capacity.status).toBe('unverified');
+      expect(refrozen.snapshot.snapshotId).not.toBe(initialReview.snapshot.snapshotId);
+      expect(refrozen.settings.repositoryWorkspaceId).not.toBe(source.workspace.id);
+      expect(source.owner.get(refrozen.settings.repositoryWorkspaceId)).toBeDefined();
+      await context.tracing.stop({ path: join(evidence, `trace-${appearanceTheme}.zip`) });
+      await context.close();
+      context = undefined;
+      page = undefined;
+    }
     await writeFile(
       join(evidence, 'observed.json'),
       JSON.stringify(
@@ -648,6 +709,8 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       const html = await page.content().catch(() => 'Page unavailable');
       await finish(() => writeFile(join(evidence, 'failure.html'), html));
     }
+    await finish(() => context?.tracing.stop({ path: join(evidence, 'trace.zip') }));
+    await finish(() => context?.close());
     await finish(async () => {
       await Promise.all(responseReads);
       await writeFile(
@@ -664,8 +727,6 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
         ),
       );
     });
-    await finish(() => context?.tracing.stop({ path: join(evidence, 'trace.zip') }));
-    await finish(() => context?.close());
     await finish(() => browser?.close());
     for (const close of cleanup.reverse()) await finish(close);
     vi.unstubAllGlobals();

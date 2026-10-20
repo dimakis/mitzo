@@ -77,6 +77,29 @@ export async function createApplicationBrowserTransport(
             headers,
             redirect: 'error',
           });
+          // EventSource aborts fetch but does not cancel its locked body reader.
+          // Forward abort to that same native reader, as the original HTTP
+          // fixture does; preserve the Response, bytes and real SSE parser.
+          const body = response.body;
+          const signal = init?.signal;
+          if (body && signal) {
+            const getReader = body.getReader;
+            Object.defineProperty(body, 'getReader', {
+              configurable: true,
+              value: (...args: unknown[]) => {
+                const reader = Reflect.apply(
+                  getReader,
+                  body,
+                  args,
+                ) as ReadableStreamDefaultReader<Uint8Array>;
+                Reflect.deleteProperty(body, 'getReader');
+                const cancel = () => void reader.cancel(signal.reason).catch(() => undefined);
+                if (signal.aborted) cancel();
+                else signal.addEventListener('abort', cancel, { once: true });
+                return reader;
+              },
+            });
+          }
           Object.assign(record, {
             status: response.status,
             contentType: response.headers.get('content-type'),
