@@ -332,10 +332,14 @@
     {
       "file": "native-fresh-request-inputs.patch",
       "sha256": "40bb63a12250c94e3c6d8dda6cc0065d3832c0805fd8864d88a15b3f348047fe"
+    },
+    {
+      "file": "native-skills-readonly-context.patch",
+      "sha256": "a8221d494e396ad10fecc75d0312a7e99c03b597f69a9b215bd3aeb287b5e549"
     }
   ],
-  "sourceTree": "331cff2bf4265a921309546b02d886228a57f2d3",
-  "localSourceCommit": "732be8922a2a1009f8af760439886fc79c1812d3",
+  "sourceTree": "e5452ea1c12e6870775d7a364971fafb811a43da",
+  "localSourceCommit": "937ad73d6471eb6ab61b12fea839abdb5c2b9098",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -431,7 +435,10 @@
     "0b792ddc32940760f77075b7d56825039c48ce63",
     "92ba082a51a1d5e119e209e4d48c9b920c80d7eb",
     "f37544a2ba863cde296e8df46d19af23dc19eba8",
-    "732be8922a2a1009f8af760439886fc79c1812d3"
+    "732be8922a2a1009f8af760439886fc79c1812d3",
+    "eaabb2d4dda600cd87cd4c11c7f122b3d33158b3",
+    "5623462d20397e21538e893013219b884ea76474",
+    "937ad73d6471eb6ab61b12fea839abdb5c2b9098"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -441,7 +448,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "82-patch source: original callback-free context rendering, registration-owned readonly global instructions, exact client-owned public capture/count with original provider/header envelope and standard public encoding. Complete factory/admission is not installed.",
+    "scope": "83-patch source: retain82; correct ordinary formatter fixture import; share original Skills catalog allocation, tool specs and selected-prompt formatting; observe real HostSkillsService catalogs without installation or cache publication. Complete source lease/coupled factory/admission is not installed.",
     "localFocused": {
       "status": "source_reconstruction_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -450,7 +457,7 @@
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_82_exact_source",
+      "status": "pending_83_exact_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -467,13 +474,16 @@
         "codex-goal-extension",
         "codex-models-manager",
         "codex-home",
-        "codex-model-provider-info"
+        "codex-model-provider-info",
+        "codex-skills-extension",
+        "codex-skills"
       ],
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
       "testThreads": 1,
       "retries": 0,
-      "prior81QualificationTransfers": false
+      "prior81QualificationTransfers": false,
+      "prior82QualificationTransfers": false
     }
   },
   "runtimeQualified": false,
@@ -483,9 +493,10 @@
   "modelCalls": 0,
   "remaining": [
     "Connect actual ThreadManager/config selection to complete fresh context/tool capture without Session/lifecycle effects; preserve configured Knowledge/tools and refuse unknown contributors.",
+    "Finish original Skills registration-owned coupled prompt/turn-input/tool capture, original source publication/currentness guards and selected prompt-byte retention; read-only catalog observations do not settle these obligations.",
     "Bind native count and complete original account/source/config/runtime/model authorities to StateRuntime guarded commitment; observations alone are not admission.",
     "Wire original app-server RPC and real application host caller to the source-owned factory; do not install a no-op/always-unavailable factory or forge Ready.",
-    "Qualify all new source on both OS with actual codex-home/model-provider-info fixture and formatting selection; no real model-backed tests without supported Luna and exact charged account announcement."
+    "Qualify all new source on both OS, explicitly selecting codex-home, codex-model-provider-info, codex-skills-extension and codex-skills fixtures/format; no real model tests without supported Luna and exact charged account announcement."
   ],
   "integratedDependencies": {
     "formatter": {
@@ -2704,6 +2715,63 @@
         "originalReceiptSha256": "c27c35d24057846f2df29c91b287b2ac500e6b811f664c53d8995aec1bdf24cb",
         "qualification": "original81source only; no82 transfer"
       }
+    },
+    {
+      "sourceCommit": "732be8922a2a1009f8af760439886fc79c1812d3",
+      "sourceTree": "331cff2bf4265a921309546b02d886228a57f2d3",
+      "patches": 82,
+      "checks": {
+        "scope": "82-patch source: original callback-free context rendering, registration-owned readonly global instructions, exact client-owned public capture/count with original provider/header envelope and standard public encoding. Complete factory/admission is not installed.",
+        "localFocused": {
+          "status": "source_reconstruction_and_scoped_format_only",
+          "rustTestsExecuted": false,
+          "compiled": false,
+          "allNewRustFixtures": "UNRUN",
+          "dynamicGreenClaimed": false
+        },
+        "ci": {
+          "status": "pending_82_exact_source",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-http-client",
+            "codex-state",
+            "codex-api",
+            "codex-guardian-reviewer",
+            "codex-extension-api",
+            "codex-mcp-extension",
+            "codex-login",
+            "codex-memories-extension",
+            "codex-web-search-extension",
+            "codex-history-notes-extension",
+            "codex-goal-extension",
+            "codex-models-manager",
+            "codex-home",
+            "codex-model-provider-info"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "testThreads": 1,
+          "retries": 0,
+          "prior81QualificationTransfers": false
+        }
+      },
+      "native82LinuxFailure": {
+        "run": 39383414542,
+        "job": 118497518468,
+        "diagnostic": "E0425 missing ordinary format_responses_request import at client_public_responses_capture_tests.rs105; library-test compilation failed before nextest",
+        "newFixturesExecuted": false,
+        "mac": "Separate pending original job at source publication preparation; no result inferred"
+      }
     }
-  ]
+  ],
+  "skillsReadOnlyPrerequisite": {
+    "ordinaryRendering": "Same original allocation/dedup/budget methods and exact ordinary tool specs/prompt fragment expression; effects remain at ordinary caller",
+    "actualHostObservation": "Original HostSkillsService roots/restrictions/rules/loader; missing or stale bundled installation and source errors refuse, no installer or config/cwd/plugin cache publication",
+    "fixturesAuthored": 4,
+    "allNewFixtures": "UNRUN",
+    "localRustCompileTestClippy": false,
+    "sourceLeaseOrWholeFactoryReady": false,
+    "independentRendererSourceReceipt": "6d1fe7adee0e46730df1826daaefa06db37d366480babca90e1d133e47557fda"
+  }
 }

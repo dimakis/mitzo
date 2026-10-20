@@ -1,0 +1,1078 @@
+diff --git a/codex-rs/core/src/client_public_responses_capture_tests.rs b/codex-rs/core/src/client_public_responses_capture_tests.rs
+index eccfe3d..2deaee9 100644
+--- a/codex-rs/core/src/client_public_responses_capture_tests.rs
++++ b/codex-rs/core/src/client_public_responses_capture_tests.rs
+@@ -1,4 +1,5 @@
+ use super::*;
++use crate::responses_request_format::format_responses_request;
+ use codex_extension_api::ModelRequestInput;
+ use codex_extension_api::ModelResponseInterceptor;
+ use codex_protocol::ThreadId;
+diff --git a/codex-rs/ext/skills/src/extension.rs b/codex-rs/ext/skills/src/extension.rs
+index 66a881a..1f66b44 100644
+--- a/codex-rs/ext/skills/src/extension.rs
++++ b/codex-rs/ext/skills/src/extension.rs
+@@ -42,21 +42,16 @@ use crate::catalog::SkillCatalogEntry;
+ use crate::catalog::SkillReadResult;
+ use crate::catalog::SkillSourceKind;
+ use crate::fragments::AvailableSkillsInstructions;
+-use crate::fragments::SkillInstructions;
+-use crate::fragments::SkillResourceAccess;
++use crate::fragments::render_selected_skill_instructions;
+ use crate::provider::HostSkillProvider;
+ use crate::provider::SkillListQuery;
+ use crate::provider::SkillReadRequest;
+ use crate::render::AvailableSkillsRender;
+-use crate::render::MAX_SKILL_NAME_BYTES;
+-use crate::render::MAX_SKILL_PATH_BYTES;
+ use crate::render::SkillCatalogRenderPolicy;
+ use crate::render::SkillMetadataBudget;
+ use crate::render::SkillRenderReport;
+ use crate::render::render_available_skills;
+ use crate::render::skill_metadata_budget;
+-use crate::render::truncate_main_prompt_contents;
+-use crate::render::truncate_utf8_to_bytes;
+ use crate::render_observability::CatalogSurface;
+ use crate::render_observability::record_catalog_render;
+ use crate::selection::collect_explicit_skill_mentions;
+@@ -485,8 +480,10 @@ where
+                     .await
+                 {
+                     Ok(read_result) => {
+-                        let (contents, truncated) =
+-                            truncate_main_prompt_contents(read_result.contents.as_str());
++                        let (fragment, truncated) = render_selected_skill_instructions(
++                            entry,
++                            read_result.contents.as_str(),
++                        );
+                         if truncated {
+                             let warning = format!(
+                                 "Skill `{}` exceeded the main prompt context limit and was truncated.",
+@@ -499,23 +496,6 @@ where
+                             );
+                             warnings.push(warning);
+                         }
+-                        let fragment = SkillInstructions {
+-                            name: truncate_utf8_to_bytes(&entry.name, MAX_SKILL_NAME_BYTES).0,
+-                            path: truncate_utf8_to_bytes(
+-                                entry.rendered_path(),
+-                                MAX_SKILL_PATH_BYTES,
+-                            )
+-                            .0,
+-                            contents,
+-                            resource_access: (!entry.prompt_visible)
+-                                .then_some(&entry.authority)
+-                                .and_then(SkillToolAuthority::from_authority)
+-                                .map(|authority| SkillResourceAccess {
+-                                    authority,
+-                                    package: entry.id.0.clone(),
+-                                    main_resource: entry.main_prompt.as_str().to_string(),
+-                                }),
+-                        };
+                         fragments.push(Box::new(fragment));
+                         main_prompts_injected = true;
+                         if entry.authority.kind == SkillSourceKind::Host {
+diff --git a/codex-rs/ext/skills/src/fragments.rs b/codex-rs/ext/skills/src/fragments.rs
+index 0e2e301..a862084 100644
+--- a/codex-rs/ext/skills/src/fragments.rs
++++ b/codex-rs/ext/skills/src/fragments.rs
+@@ -3,8 +3,13 @@ use codex_protocol::models::ContentItemKind;
+ use codex_protocol::protocol::SKILLS_INSTRUCTIONS_CLOSE_TAG;
+ use codex_protocol::protocol::SKILLS_INSTRUCTIONS_OPEN_TAG;
+ 
++use crate::catalog::SkillCatalogEntry;
+ use crate::catalog_prompt::SkillPromptKind;
+ use crate::catalog_prompt::render_available_skills_body;
++use crate::render::MAX_SKILL_NAME_BYTES;
++use crate::render::MAX_SKILL_PATH_BYTES;
++use crate::render::truncate_main_prompt_contents;
++use crate::render::truncate_utf8_to_bytes;
+ use crate::tools::SkillToolAuthority;
+ 
+ #[derive(Clone, Debug, Eq, PartialEq)]
+@@ -73,6 +78,28 @@ pub(crate) struct SkillResourceAccess {
+     pub(crate) main_resource: String,
+ }
+ 
++/// Formats an already-read extension skill prompt without provider or lifecycle callbacks.
++pub(crate) fn render_selected_skill_instructions(
++    entry: &SkillCatalogEntry,
++    contents: &str,
++) -> (SkillInstructions, bool) {
++    let (contents, truncated) = truncate_main_prompt_contents(contents);
++    let fragment = SkillInstructions {
++        name: truncate_utf8_to_bytes(&entry.name, MAX_SKILL_NAME_BYTES).0,
++        path: truncate_utf8_to_bytes(entry.rendered_path(), MAX_SKILL_PATH_BYTES).0,
++        contents,
++        resource_access: (!entry.prompt_visible)
++            .then_some(&entry.authority)
++            .and_then(SkillToolAuthority::from_authority)
++            .map(|authority| SkillResourceAccess {
++                authority,
++                package: entry.id.0.clone(),
++                main_resource: entry.main_prompt.as_str().to_string(),
++            }),
++    };
++    (fragment, truncated)
++}
++
+ impl ContextualUserFragment for SkillInstructions {
+     fn role(&self) -> &'static str {
+         "user"
+diff --git a/codex-rs/ext/skills/src/host_pre_session.rs b/codex-rs/ext/skills/src/host_pre_session.rs
+new file mode 100644
+index 0000000..f4f6299
+--- /dev/null
++++ b/codex-rs/ext/skills/src/host_pre_session.rs
+@@ -0,0 +1,94 @@
++use std::sync::Arc;
++
++use codex_config::bundled_skills_enabled_from_stack;
++use codex_config::skill_config_rules_from_stack;
++use codex_exec_server::ExecutorFileSystem;
++use codex_skills::system_skills_installation_is_current;
++
++use super::HostSkillsLoadInput;
++use super::HostSkillsService;
++use super::apply_skill_config_rules;
++use crate::HostSkillsSnapshot;
++use crate::loader::observe_and_merge_host_skill_roots;
++
++/// Read-only discovery from the original host service. Main-prompt bytes are not
++/// frozen here, and no configuration/filesystem publication lease is established.
++/// This observation alone cannot authorize count association, consume or dispatch.
++pub struct HostSkillsObservation {
++    service: Arc<HostSkillsService>,
++    snapshot: HostSkillsSnapshot,
++}
++
++impl HostSkillsObservation {
++    pub fn snapshot(&self) -> &HostSkillsSnapshot {
++        &self.snapshot
++    }
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub enum HostSkillsObservationError {
++    BundledSkillsRequireInstallation,
++    ExtraRootsChanged,
++    DiscoveryErrors(Vec<String>),
++    ForeignService,
++}
++
++impl HostSkillsService {
++    /// Discovers through the original service's roots, restrictions and loader,
++    /// bypassing installer and shared cache publication. Missing/stale bundled
++    /// materialization and discovery errors refuse instead of proving absence.
++    pub async fn observe_pre_session_for_config(
++        self: &Arc<Self>,
++        input: &HostSkillsLoadInput,
++        fs: Option<Arc<dyn ExecutorFileSystem>>,
++    ) -> Result<HostSkillsObservation, HostSkillsObservationError> {
++        let bundled = bundled_skills_enabled_from_stack(&input.config_layer_stack);
++        if bundled && !system_skills_installation_is_current(&self.codex_home) {
++            return Err(HostSkillsObservationError::BundledSkillsRequireInstallation);
++        }
++        let extra_roots = self.extra_roots();
++        let roots = self
++            .resolve_skill_roots_for_config(input, fs, extra_roots.clone())
++            .await;
++        let rules = skill_config_rules_from_stack(&input.config_layer_stack);
++        let outcome = observe_and_merge_host_skill_roots(
++            roots,
++            &self.root_scan_slots,
++            self.restriction_product,
++            input.plugin_skill_snapshots.as_ref(),
++        )
++        .await;
++        let outcome = apply_skill_config_rules(outcome, &rules);
++        if extra_roots != self.extra_roots() {
++            return Err(HostSkillsObservationError::ExtraRootsChanged);
++        }
++        if bundled && !system_skills_installation_is_current(&self.codex_home) {
++            return Err(HostSkillsObservationError::BundledSkillsRequireInstallation);
++        }
++        if !outcome.errors.is_empty() {
++            return Err(HostSkillsObservationError::DiscoveryErrors(
++                outcome
++                    .errors
++                    .iter()
++                    .map(|error| error.message.clone())
++                    .collect(),
++            ));
++        }
++        Ok(HostSkillsObservation {
++            service: Arc::clone(self),
++            snapshot: HostSkillsSnapshot::new(Arc::new(outcome)),
++        })
++    }
++
++    /// Checks only original service identity. Fresh source/configuration/byte
++    /// currentness and atomic consumption require their separate owner guards.
++    pub fn assert_pre_session_observation_owner(
++        &self,
++        observation: &HostSkillsObservation,
++    ) -> Result<(), HostSkillsObservationError> {
++        if !std::ptr::eq(self, observation.service.as_ref()) {
++            return Err(HostSkillsObservationError::ForeignService);
++        }
++        Ok(())
++    }
++}
+diff --git a/codex-rs/ext/skills/src/host_pre_session_tests.rs b/codex-rs/ext/skills/src/host_pre_session_tests.rs
+new file mode 100644
+index 0000000..617d1b1
+--- /dev/null
++++ b/codex-rs/ext/skills/src/host_pre_session_tests.rs
+@@ -0,0 +1,171 @@
++use super::*;
++
++#[tokio::test]
++async fn observation_refuses_missing_bundled_materialization_without_installing() {
++    let home = tempfile::tempdir().unwrap();
++    let cwd = tempfile::tempdir().unwrap();
++    let service = Arc::new(HostSkillsService::new(
++        home.path().abs(),
++        /*bundled_skills_enabled*/ false,
++    ));
++    let input = HostSkillsLoadInput::new(cwd.path().abs(), Vec::new(), config_stack(&home, ""));
++    let result = service
++        .observe_pre_session_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await;
++    assert!(matches!(
++        result,
++        Err(HostSkillsObservationError::BundledSkillsRequireInstallation)
++    ));
++    assert!(!home.path().join("skills").exists());
++    assert!(service.cache_by_config.read().unwrap().is_empty());
++    assert!(service.cache_by_cwd.read().unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn observation_preserves_ordinary_knowledge_catalog_without_publishing_plugin_cache() {
++    let home = tempfile::tempdir().unwrap();
++    let cwd = tempfile::tempdir().unwrap();
++    write_user_skill(
++        &home,
++        "knowledge",
++        "knowledge-host",
++        "Original Knowledge description",
++    );
++    let plugin_path = write_plugin_skill(&home, "test", "sample", "search", "search", "plugin");
++    let plugin_root = plugin_skill_root_for_skill_path(&plugin_path, "sample@test", "sample");
++    let cache = Arc::new(TestPluginSkillSnapshotCache::default());
++    let snapshots = SkillRootSnapshots::new(cache.clone());
++    let input = HostSkillsLoadInput::new(
++        cwd.path().abs(),
++        vec![plugin_root],
++        config_stack(&home, "[skills.bundled]\nenabled = false\n"),
++    )
++    .with_plugin_skill_snapshots(Some(snapshots));
++    let service = Arc::new(HostSkillsService::new(
++        home.path().abs(),
++        /*bundled_skills_enabled*/ false,
++    ));
++    let observed = service
++        .observe_pre_session_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await
++        .unwrap();
++    service
++        .assert_pre_session_observation_owner(&observed)
++        .unwrap();
++    assert!(
++        observed
++            .snapshot()
++            .outcome()
++            .skills
++            .iter()
++            .any(|skill| skill.name == "knowledge-host")
++    );
++    assert!(cache.snapshots.lock().unwrap().is_empty());
++    assert!(service.cache_by_config.read().unwrap().is_empty());
++    assert!(service.cache_by_cwd.read().unwrap().is_empty());
++    let ordinary = service
++        .snapshot_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await;
++    assert_eq!(
++        observed.snapshot().outcome().skills,
++        ordinary.outcome().skills
++    );
++    assert_eq!(
++        observed.snapshot().outcome().disabled_paths,
++        ordinary.outcome().disabled_paths
++    );
++    assert_eq!(
++        observed.snapshot().outcome().errors,
++        ordinary.outcome().errors
++    );
++    assert!(!cache.snapshots.lock().unwrap().is_empty());
++    let foreign = HostSkillsService::new(home.path().abs(), /*bundled_skills_enabled*/ false);
++    assert_eq!(
++        foreign.assert_pre_session_observation_owner(&observed),
++        Err(HostSkillsObservationError::ForeignService)
++    );
++}
++
++#[tokio::test]
++async fn observation_reads_changed_source_without_replacing_ordinary_cached_catalog() {
++    let home = tempfile::tempdir().unwrap();
++    let cwd = tempfile::tempdir().unwrap();
++    write_user_skill(&home, "knowledge", "knowledge-host", "original");
++    let input = HostSkillsLoadInput::new(
++        cwd.path().abs(),
++        Vec::new(),
++        config_stack(&home, "[skills.bundled]\nenabled = false\n"),
++    );
++    let service = Arc::new(HostSkillsService::new(
++        home.path().abs(),
++        /*bundled_skills_enabled*/ false,
++    ));
++    let ordinary = service
++        .snapshot_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await;
++    write_user_skill(&home, "knowledge", "knowledge-host", "changed source");
++    let observed = service
++        .observe_pre_session_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await
++        .unwrap();
++    assert_eq!(
++        observed
++            .snapshot()
++            .outcome()
++            .skills
++            .iter()
++            .find(|skill| skill.name == "knowledge-host")
++            .unwrap()
++            .description,
++        "changed source"
++    );
++    let retained = service
++        .snapshot_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await;
++    assert_eq!(retained.outcome().skills, ordinary.outcome().skills);
++    assert_eq!(
++        retained
++            .outcome()
++            .skills
++            .iter()
++            .find(|skill| skill.name == "knowledge-host")
++            .unwrap()
++            .description,
++        "original"
++    );
++}
++
++#[tokio::test]
++async fn observation_refuses_discovery_errors_without_overwriting_ordinary_cache() {
++    let home = tempfile::tempdir().unwrap();
++    let cwd = tempfile::tempdir().unwrap();
++    write_user_skill(&home, "knowledge", "knowledge-host", "original");
++    let input = HostSkillsLoadInput::new(
++        cwd.path().abs(),
++        Vec::new(),
++        config_stack(&home, "[skills.bundled]\nenabled = false\n"),
++    );
++    let service = Arc::new(HostSkillsService::new(
++        home.path().abs(),
++        /*bundled_skills_enabled*/ false,
++    ));
++    let ordinary = service
++        .snapshot_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await;
++    fs::write(
++        home.path().join("skills/knowledge/SKILL.md"),
++        "---\nname: knowledge-host\n---\n",
++    )
++    .unwrap();
++    let result = service
++        .observe_pre_session_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await;
++    assert!(
++        matches!(result, Err(HostSkillsObservationError::DiscoveryErrors(errors)) if !errors.is_empty())
++    );
++    let retained = service
++        .snapshot_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await;
++    assert_eq!(retained.outcome().skills, ordinary.outcome().skills);
++    assert_eq!(retained.outcome().errors, ordinary.outcome().errors);
++}
+diff --git a/codex-rs/ext/skills/src/host_service.rs b/codex-rs/ext/skills/src/host_service.rs
+index 3feda36..e59af7c 100644
+--- a/codex-rs/ext/skills/src/host_service.rs
++++ b/codex-rs/ext/skills/src/host_service.rs
+@@ -40,6 +40,11 @@ use crate::loader::load_and_merge_host_skill_roots_with_request_snapshots;
+ 
+ const CONFIG_SKILLS_CACHE_CAPACITY: usize = 32;
+ 
++#[path = "host_pre_session.rs"]
++mod pre_session;
++pub use pre_session::HostSkillsObservation;
++pub use pre_session::HostSkillsObservationError;
++
+ struct ConfigSkillsCacheEntry {
+     key: ConfigSkillsCacheKey,
+     snapshot: Arc<OnceCell<HostSkillsSnapshot>>,
+@@ -223,12 +228,23 @@ impl HostSkillsService {
+         if bundled_skills_enabled {
+             self.ensure_system_skills_installed();
+         }
++        self.resolve_skill_roots_for_config(input, fs, self.extra_roots())
++            .await
++    }
++
++    async fn resolve_skill_roots_for_config(
++        &self,
++        input: &HostSkillsLoadInput,
++        fs: Option<Arc<dyn ExecutorFileSystem>>,
++        extra_roots: Vec<AbsolutePathBuf>,
++    ) -> Vec<HostSkillRoot> {
++        let bundled_skills_enabled = bundled_skills_enabled_from_stack(&input.config_layer_stack);
+         let mut roots = resolve_skill_roots(
+             fs,
+             &input.config_layer_stack,
+             &input.cwd,
+             input.effective_skill_roots.clone(),
+-            self.extra_roots(),
++            extra_roots,
+         )
+         .await;
+         if !bundled_skills_enabled {
+@@ -363,13 +379,7 @@ impl HostSkillsService {
+             request_root_snapshots,
+         )
+         .await;
+-        let disabled_paths = skill_config_rules.resolve_disabled_paths(
+-            outcome
+-                .skills
+-                .iter()
+-                .map(|skill| (skill.name.as_str(), &skill.path_to_skills_md)),
+-        );
+-        outcome.with_disabled_paths(disabled_paths)
++        apply_skill_config_rules(outcome, skill_config_rules)
+     }
+ 
+     pub fn clear_cache(&self) {
+@@ -442,6 +452,19 @@ impl SkillRootLoader<PluginSkillRoot> for HostSkillsService {
+     }
+ }
+ 
++fn apply_skill_config_rules(
++    outcome: SkillLoadOutcome,
++    skill_config_rules: &SkillConfigRules,
++) -> SkillLoadOutcome {
++    let disabled_paths = skill_config_rules.resolve_disabled_paths(
++        outcome
++            .skills
++            .iter()
++            .map(|skill| (skill.name.as_str(), &skill.path_to_skills_md)),
++    );
++    outcome.with_disabled_paths(disabled_paths)
++}
++
+ #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+ struct ConfigSkillsCacheKey {
+     roots: Vec<ConfigSkillRootCacheKey>,
+diff --git a/codex-rs/ext/skills/src/host_service_tests.rs b/codex-rs/ext/skills/src/host_service_tests.rs
+index 0b76742..f5ea241 100644
+--- a/codex-rs/ext/skills/src/host_service_tests.rs
++++ b/codex-rs/ext/skills/src/host_service_tests.rs
+@@ -1013,3 +1013,6 @@ async fn skills_for_config_ignores_cwd_cache_when_session_flags_reenable_skill()
+         .expect("demo skill should be discovered");
+     assert_eq!(child_outcome.is_skill_enabled(child_skill), true);
+ }
++
++#[path = "host_pre_session_tests.rs"]
++mod pre_session;
+diff --git a/codex-rs/ext/skills/src/lib.rs b/codex-rs/ext/skills/src/lib.rs
+index 8f0a7e2..9c388a4 100644
+--- a/codex-rs/ext/skills/src/lib.rs
++++ b/codex-rs/ext/skills/src/lib.rs
+@@ -35,6 +35,8 @@ pub use host_outcome::SkillLoadOutcome;
+ pub use host_prompt::HostSkillPrompts;
+ pub use host_prompt::InjectedHostSkillPrompts;
+ pub use host_service::HostSkillsLoadInput;
++pub use host_service::HostSkillsObservation;
++pub use host_service::HostSkillsObservationError;
+ pub use host_service::HostSkillsRequest;
+ pub use host_service::HostSkillsService;
+ pub use host_snapshot::HostSkillsSnapshot;
+diff --git a/codex-rs/ext/skills/src/loader/host_merge.rs b/codex-rs/ext/skills/src/loader/host_merge.rs
+index ac309af..bf40d52 100644
+--- a/codex-rs/ext/skills/src/loader/host_merge.rs
++++ b/codex-rs/ext/skills/src/loader/host_merge.rs
+@@ -46,6 +46,48 @@ pub(crate) async fn load_and_merge_host_skill_roots_with_request_snapshots(
+     restriction_product: Option<Product>,
+     plugin_skill_snapshots: Option<&SkillRootSnapshots<PluginSkillRoot>>,
+     request_root_snapshots: Option<&RequestSkillRootSnapshots>,
++) -> SkillLoadOutcome {
++    load_and_merge_host_skill_roots_with_publication(
++        roots,
++        root_scan_slots,
++        restriction_product,
++        plugin_skill_snapshots,
++        request_root_snapshots,
++        PluginSnapshotPublication::Publish,
++    )
++    .await
++}
++
++pub(crate) async fn observe_and_merge_host_skill_roots(
++    roots: Vec<HostSkillRoot>,
++    root_scan_slots: &Semaphore,
++    restriction_product: Option<Product>,
++    plugin_skill_snapshots: Option<&SkillRootSnapshots<PluginSkillRoot>>,
++) -> SkillLoadOutcome {
++    load_and_merge_host_skill_roots_with_publication(
++        roots,
++        root_scan_slots,
++        restriction_product,
++        plugin_skill_snapshots,
++        /*request_root_snapshots*/ None,
++        PluginSnapshotPublication::ObserveOnly,
++    )
++    .await
++}
++
++#[derive(Clone, Copy, PartialEq, Eq)]
++enum PluginSnapshotPublication {
++    Publish,
++    ObserveOnly,
++}
++
++async fn load_and_merge_host_skill_roots_with_publication(
++    roots: Vec<HostSkillRoot>,
++    root_scan_slots: &Semaphore,
++    restriction_product: Option<Product>,
++    plugin_skill_snapshots: Option<&SkillRootSnapshots<PluginSkillRoot>>,
++    request_root_snapshots: Option<&RequestSkillRootSnapshots>,
++    publication: PluginSnapshotPublication,
+ ) -> SkillLoadOutcome {
+     let migrated_command_roots_by_plugin = roots
+         .iter()
+@@ -94,7 +136,8 @@ pub(crate) async fn load_and_merge_host_skill_roots_with_request_snapshots(
+                     },
+                     None => {
+                         let snapshot = load_host_skill_root(root).await;
+-                        if let Some(plugin_skill_snapshots) = plugin_skill_snapshots
++                        if publication == PluginSnapshotPublication::Publish
++                            && let Some(plugin_skill_snapshots) = plugin_skill_snapshots
+                             && let Some(plugin_skill_root) = plugin_skill_root
+                         {
+                             plugin_skill_snapshots.insert(
+diff --git a/codex-rs/ext/skills/src/loader/mod.rs b/codex-rs/ext/skills/src/loader/mod.rs
+index 0802dc6..e2e5051 100644
+--- a/codex-rs/ext/skills/src/loader/mod.rs
++++ b/codex-rs/ext/skills/src/loader/mod.rs
+@@ -14,6 +14,7 @@ pub(crate) use host::HostSkillRootSnapshot;
+ pub(crate) use host::load_host_skill_root;
+ pub(crate) use host_merge::load_and_merge_host_skill_roots;
+ pub(crate) use host_merge::load_and_merge_host_skill_roots_with_request_snapshots;
++pub(crate) use host_merge::observe_and_merge_host_skill_roots;
+ 
+ pub(crate) const MAX_CONCURRENT_ROOT_SCANS: usize = 8;
+ pub(super) const SKILLS_FILENAME: &str = "SKILL.md";
+diff --git a/codex-rs/ext/skills/src/tools/list.rs b/codex-rs/ext/skills/src/tools/list.rs
+index a71f46e..b4ed977 100644
+--- a/codex-rs/ext/skills/src/tools/list.rs
++++ b/codex-rs/ext/skills/src/tools/list.rs
+@@ -63,16 +63,20 @@ pub(super) struct ListTool {
+     pub(super) context: SkillToolContext,
+ }
+ 
++pub(super) fn tool_spec() -> ToolSpec {
++    skill_function_tool::<ListArgs, ListResponse>(
++        TOOL_NAME,
++        "List skills owned by the requested authority. Returns each skill's authority, package, and main_resource. Pass the package to skills.read, and pass next_cursor back as cursor to continue.",
++    )
++}
++
+ impl<'call> ToolExecutor<ToolCall<'call>> for ListTool {
+     fn tool_name(&self) -> ToolName {
+         skill_tool_name(TOOL_NAME)
+     }
+ 
+     fn spec(&self) -> ToolSpec {
+-        skill_function_tool::<ListArgs, ListResponse>(
+-            TOOL_NAME,
+-            "List skills owned by the requested authority. Returns each skill's authority, package, and main_resource. Pass the package to skills.read, and pass next_cursor back as cursor to continue.",
+-        )
++        tool_spec()
+     }
+ 
+     fn handle<'a>(&'a self, call: ToolCall<'call>) -> ToolExecutorFuture<'a>
+diff --git a/codex-rs/ext/skills/src/tools/read.rs b/codex-rs/ext/skills/src/tools/read.rs
+index 5e94417..1acacc7 100644
+--- a/codex-rs/ext/skills/src/tools/read.rs
++++ b/codex-rs/ext/skills/src/tools/read.rs
+@@ -55,16 +55,20 @@ pub(super) struct ReadTool {
+     pub(super) context: SkillToolContext,
+ }
+ 
++pub(super) fn tool_spec() -> ToolSpec {
++    skill_function_tool::<ReadArgs, ReadResponse>(
++        TOOL_NAME,
++        "Read one page from a skill. Pass its provided package directly; root aliases are resolved automatically. Omit resource to read SKILL.md; to read another file, use the same package and pass the file's complete skill:// identifier as resource. For executor-backed skills, skill_root is the skill's absolute directory in the executor filesystem and can be used to locate bundled scripts. If the package is not provided, use skills.list to find it. Pass next_cursor back as cursor to continue the same snapshot while it is cached; omit cursor to read again.",
++    )
++}
++
+ impl<'call> ToolExecutor<ToolCall<'call>> for ReadTool {
+     fn tool_name(&self) -> ToolName {
+         skill_tool_name(TOOL_NAME)
+     }
+ 
+     fn spec(&self) -> ToolSpec {
+-        skill_function_tool::<ReadArgs, ReadResponse>(
+-            TOOL_NAME,
+-            "Read one page from a skill. Pass its provided package directly; root aliases are resolved automatically. Omit resource to read SKILL.md; to read another file, use the same package and pass the file's complete skill:// identifier as resource. For executor-backed skills, skill_root is the skill's absolute directory in the executor filesystem and can be used to locate bundled scripts. If the package is not provided, use skills.list to find it. Pass next_cursor back as cursor to continue the same snapshot while it is cached; omit cursor to read again.",
+-        )
++        tool_spec()
+     }
+ 
+     fn handle<'a>(&'a self, call: ToolCall<'call>) -> ToolExecutorFuture<'a>
+diff --git a/codex-rs/ext/skills/src/world_state_catalog_render.rs b/codex-rs/ext/skills/src/world_state_catalog_render.rs
+new file mode 100644
+index 0000000..a37a5b9
+--- /dev/null
++++ b/codex-rs/ext/skills/src/world_state_catalog_render.rs
+@@ -0,0 +1,196 @@
++use super::CatalogBudgetAllocation;
++use super::CatalogContributions;
++use super::CatalogKind;
++use super::FILESYSTEM_BUDGET_DIVISOR;
++use super::RenderedCatalogContribution;
++use crate::SkillsExtensionConfig;
++use crate::catalog::SkillCatalog;
++use crate::render::PreparedSkillCatalog;
++use crate::render::RenderedSkillCatalogs;
++use crate::render::SkillCatalogRenderPolicy;
++use crate::render::SkillMetadataBudget;
++use crate::render::render_available_skills;
++use crate::render::render_prepared_skill_catalogs;
++
++/// Renders selected catalog data without extension stores, providers or callbacks.
++/// Selection provenance and source renewal belong to the original capture owner.
++pub(super) struct CatalogRenderer<'a> {
++    pub(super) config: &'a SkillsExtensionConfig,
++    pub(super) metadata_budget: SkillMetadataBudget,
++    pub(super) include_usage: bool,
++    pub(super) previous_world_state: Option<&'a serde_json::Map<String, serde_json::Value>>,
++}
++
++impl CatalogRenderer<'_> {
++    pub(super) fn render_catalogs(
++        &self,
++        catalogs: CatalogContributions,
++    ) -> [RenderedCatalogContribution; 3] {
++        let total_limit = self.metadata_budget.limit();
++        let default_cloud_limit = total_limit - total_limit / FILESYSTEM_BUDGET_DIVISOR;
++        let mut executor = PreparedSkillCatalog::new(
++            &catalogs.executor.catalog,
++            SkillCatalogRenderPolicy::ExtensionCompatible,
++        );
++        executor.prefer_cloud_skills(&catalogs.cloud.catalog);
++        // Identify the full visible cloud inventory before budgeting, including entries
++        // a previous cap omitted. Executor readiness and provider warnings are not inputs.
++        let cloud_metadata = catalogs
++            .cloud
++            .catalog
++            .entries
++            .iter()
++            .filter(|entry| entry.is_model_visible())
++            .map(|entry| {
++                (
++                    &entry.id.0,
++                    entry.authority.kind.to_string(),
++                    &entry.name,
++                    entry
++                        .short_description
++                        .as_ref()
++                        .unwrap_or(&entry.description),
++                    entry.rendered_path(),
++                    entry.alias_root(),
++                    entry.alias_root_order(),
++                )
++            })
++            .collect::<Vec<_>>();
++        let cloud_catalog_fingerprint =
++            *blake3::hash(serde_json::json!(cloud_metadata).to_string().as_bytes()).as_bytes();
++        let mut allocation = self
++            .previous_world_state
++            .and_then(|state| state.get(crate::world_state::CLOUD_SKILLS_WORLD_STATE_ID))
++            .and_then(|snapshot| snapshot.get("allocation"))
++            .and_then(|value| serde_json::from_value::<CatalogBudgetAllocation>(value.clone()).ok())
++            .filter(|previous| {
++                previous.total_budget == self.metadata_budget
++                    && previous.cloud_catalog_fingerprint == cloud_catalog_fingerprint
++            })
++            .unwrap_or(CatalogBudgetAllocation {
++                total_budget: self.metadata_budget,
++                cloud_limit: default_cloud_limit,
++                cloud_catalog_fingerprint,
++            });
++        allocation.cloud_limit = allocation.cloud_limit.min(default_cloud_limit);
++        let (mut rendered, mut filesystem_budget) =
++            self.render_with_cloud_limit(&catalogs, &executor, allocation.cloud_limit);
++
++        if let Some(cloud_limit) = self.rebalance_to_retain_all_skills(
++            &catalogs,
++            &executor,
++            &rendered,
++            allocation.cloud_limit,
++        ) {
++            allocation.cloud_limit = cloud_limit;
++            (rendered, filesystem_budget) =
++                self.render_with_cloud_limit(&catalogs, &executor, allocation.cloud_limit);
++        }
++
++        [
++            (CatalogKind::Executor, catalogs.executor, rendered.executor),
++            (CatalogKind::Cloud, catalogs.cloud, rendered.cloud),
++            (CatalogKind::Host, catalogs.host, rendered.host),
++        ]
++        .map(|(kind, catalog, rendered)| RenderedCatalogContribution {
++            kind,
++            status: catalog.status,
++            budget: match kind {
++                CatalogKind::Cloud => self.metadata_budget.with_limit(allocation.cloud_limit),
++                CatalogKind::Executor | CatalogKind::Host => filesystem_budget,
++            },
++            allocation,
++            rendered,
++        })
++    }
++
++    /// Propose a smaller cloud cap only when omitted filesystem entries can fit without
++    /// losing any cloud entries. Description truncation alone never triggers rebalancing.
++    /// Within one cloud catalog and total budget, the cap can only shrink, so VM
++    /// disappearance does not expand the catalog.
++    fn rebalance_to_retain_all_skills(
++        &self,
++        catalogs: &CatalogContributions,
++        executor: &PreparedSkillCatalog<'_>,
++        rendered: &RenderedSkillCatalogs,
++        current_cloud_limit: usize,
++    ) -> Option<usize> {
++        if ![&rendered.executor, &rendered.host]
++            .into_iter()
++            .flatten()
++            .any(|catalog| catalog.report.omitted_count > 0)
++        {
++            return None;
++        }
++
++        let shared = render_prepared_skill_catalogs(
++            executor,
++            &PreparedSkillCatalog::new(
++                &catalogs.cloud.catalog,
++                SkillCatalogRenderPolicy::ExtensionCompatible,
++            ),
++            &PreparedSkillCatalog::new(
++                &catalogs.host.catalog,
++                SkillCatalogRenderPolicy::CoreCompatible,
++            ),
++            self.metadata_budget,
++            self.include_usage,
++        );
++        if [&shared.executor, &shared.cloud, &shared.host]
++            .into_iter()
++            .flatten()
++            .any(|catalog| catalog.report.omitted_count > 0)
++        {
++            return None;
++        }
++
++        let cloud_limit = shared.cloud.as_ref().map_or(0, |cloud| {
++            cloud.metadata_cost(self.metadata_budget, self.include_usage)
++        });
++        (cloud_limit < current_cloud_limit).then_some(cloud_limit)
++    }
++
++    /// Render the same buckets both before and after adjusting the allocation, so
++    /// the accepted cloud text is reproduced exactly on the next sampling step.
++    fn render_with_cloud_limit(
++        &self,
++        catalogs: &CatalogContributions,
++        executor: &PreparedSkillCatalog<'_>,
++        cloud_limit: usize,
++    ) -> (RenderedSkillCatalogs, SkillMetadataBudget) {
++        if !self.config.include_instructions {
++            return (RenderedSkillCatalogs::default(), self.metadata_budget);
++        }
++
++        let cloud_budget = self.metadata_budget.with_limit(cloud_limit);
++        let cloud = render_available_skills(
++            &catalogs.cloud.catalog,
++            SkillCatalogRenderPolicy::ExtensionCompatible,
++            cloud_budget,
++            self.include_usage,
++        );
++        // Empty or disabled cloud catalogs leave the full allowance to filesystem skills.
++        let cloud_cost = cloud.as_ref().map_or(0, |rendered| {
++            rendered.metadata_cost(cloud_budget, self.include_usage)
++        });
++        let filesystem_budget = self
++            .metadata_budget
++            .with_limit(self.metadata_budget.limit().saturating_sub(cloud_cost));
++        let mut rendered = render_prepared_skill_catalogs(
++            executor,
++            &PreparedSkillCatalog::new(
++                &SkillCatalog::default(),
++                SkillCatalogRenderPolicy::ExtensionCompatible,
++            ),
++            &PreparedSkillCatalog::new(
++                &catalogs.host.catalog,
++                SkillCatalogRenderPolicy::CoreCompatible,
++            ),
++            filesystem_budget,
++            self.include_usage,
++        );
++        rendered.cloud = cloud;
++
++        (rendered, filesystem_budget)
++    }
++}
+diff --git a/codex-rs/ext/skills/src/world_state_catalogs.rs b/codex-rs/ext/skills/src/world_state_catalogs.rs
+index d0b76d3..25a3c6f 100644
+--- a/codex-rs/ext/skills/src/world_state_catalogs.rs
++++ b/codex-rs/ext/skills/src/world_state_catalogs.rs
+@@ -15,12 +15,7 @@ use crate::catalog::SkillCatalog;
+ use crate::provider::SkillListQuery;
+ use crate::provider::attribute_executor_plugins;
+ use crate::render::AvailableSkillsRender;
+-use crate::render::PreparedSkillCatalog;
+-use crate::render::RenderedSkillCatalogs;
+-use crate::render::SkillCatalogRenderPolicy;
+ use crate::render::SkillMetadataBudget;
+-use crate::render::render_available_skills;
+-use crate::render::render_prepared_skill_catalogs;
+ use crate::render::skill_metadata_budget;
+ use crate::render_observability::CatalogSurface;
+ use crate::render_observability::record_catalog_render;
+@@ -36,6 +31,10 @@ use crate::world_state::cloud_skills_world_state_section;
+ use crate::world_state::executor_skills_world_state_section;
+ use crate::world_state::host_skills_world_state_section;
+ 
++#[path = "world_state_catalog_render.rs"]
++mod rendering;
++use rendering::CatalogRenderer;
++
+ // Start with one quarter reserved for filesystem skills, before their inventory is known.
+ const FILESYSTEM_BUDGET_DIVISOR: usize = 4;
+ 
+@@ -264,173 +263,13 @@ impl<'a> CatalogContext<'a> {
+         &self,
+         catalogs: CatalogContributions,
+     ) -> [RenderedCatalogContribution; 3] {
+-        let total_limit = self.metadata_budget.limit();
+-        let default_cloud_limit = total_limit - total_limit / FILESYSTEM_BUDGET_DIVISOR;
+-        let mut executor = PreparedSkillCatalog::new(
+-            &catalogs.executor.catalog,
+-            SkillCatalogRenderPolicy::ExtensionCompatible,
+-        );
+-        executor.prefer_cloud_skills(&catalogs.cloud.catalog);
+-        // Identify the full visible cloud inventory before budgeting, including entries
+-        // a previous cap omitted. Executor readiness and provider warnings are not inputs.
+-        let cloud_metadata = catalogs
+-            .cloud
+-            .catalog
+-            .entries
+-            .iter()
+-            .filter(|entry| entry.is_model_visible())
+-            .map(|entry| {
+-                (
+-                    &entry.id.0,
+-                    entry.authority.kind.to_string(),
+-                    &entry.name,
+-                    entry
+-                        .short_description
+-                        .as_ref()
+-                        .unwrap_or(&entry.description),
+-                    entry.rendered_path(),
+-                    entry.alias_root(),
+-                    entry.alias_root_order(),
+-                )
+-            })
+-            .collect::<Vec<_>>();
+-        let cloud_catalog_fingerprint =
+-            *blake3::hash(serde_json::json!(cloud_metadata).to_string().as_bytes()).as_bytes();
+-        let mut allocation = self
+-            .input
+-            .previous_world_state
+-            .and_then(|state| state.get(crate::world_state::CLOUD_SKILLS_WORLD_STATE_ID))
+-            .and_then(|snapshot| snapshot.get("allocation"))
+-            .and_then(|value| serde_json::from_value::<CatalogBudgetAllocation>(value.clone()).ok())
+-            .filter(|previous| {
+-                previous.total_budget == self.metadata_budget
+-                    && previous.cloud_catalog_fingerprint == cloud_catalog_fingerprint
+-            })
+-            .unwrap_or(CatalogBudgetAllocation {
+-                total_budget: self.metadata_budget,
+-                cloud_limit: default_cloud_limit,
+-                cloud_catalog_fingerprint,
+-            });
+-        allocation.cloud_limit = allocation.cloud_limit.min(default_cloud_limit);
+-        let (mut rendered, mut filesystem_budget) =
+-            self.render_with_cloud_limit(&catalogs, &executor, allocation.cloud_limit);
+-
+-        if let Some(cloud_limit) = self.rebalance_to_retain_all_skills(
+-            &catalogs,
+-            &executor,
+-            &rendered,
+-            allocation.cloud_limit,
+-        ) {
+-            allocation.cloud_limit = cloud_limit;
+-            (rendered, filesystem_budget) =
+-                self.render_with_cloud_limit(&catalogs, &executor, allocation.cloud_limit);
++        CatalogRenderer {
++            config: &self.config,
++            metadata_budget: self.metadata_budget,
++            include_usage: self.include_usage,
++            previous_world_state: self.input.previous_world_state,
+         }
+-
+-        [
+-            (CatalogKind::Executor, catalogs.executor, rendered.executor),
+-            (CatalogKind::Cloud, catalogs.cloud, rendered.cloud),
+-            (CatalogKind::Host, catalogs.host, rendered.host),
+-        ]
+-        .map(|(kind, catalog, rendered)| RenderedCatalogContribution {
+-            kind,
+-            status: catalog.status,
+-            budget: match kind {
+-                CatalogKind::Cloud => self.metadata_budget.with_limit(allocation.cloud_limit),
+-                CatalogKind::Executor | CatalogKind::Host => filesystem_budget,
+-            },
+-            allocation,
+-            rendered,
+-        })
+-    }
+-
+-    /// Propose a smaller cloud cap only when omitted filesystem entries can fit without
+-    /// losing any cloud entries. Description truncation alone never triggers rebalancing.
+-    /// Within one cloud catalog and total budget, the cap can only shrink, so VM
+-    /// disappearance does not expand the catalog.
+-    fn rebalance_to_retain_all_skills(
+-        &self,
+-        catalogs: &CatalogContributions,
+-        executor: &PreparedSkillCatalog<'_>,
+-        rendered: &RenderedSkillCatalogs,
+-        current_cloud_limit: usize,
+-    ) -> Option<usize> {
+-        if ![&rendered.executor, &rendered.host]
+-            .into_iter()
+-            .flatten()
+-            .any(|catalog| catalog.report.omitted_count > 0)
+-        {
+-            return None;
+-        }
+-
+-        let shared = render_prepared_skill_catalogs(
+-            executor,
+-            &PreparedSkillCatalog::new(
+-                &catalogs.cloud.catalog,
+-                SkillCatalogRenderPolicy::ExtensionCompatible,
+-            ),
+-            &PreparedSkillCatalog::new(
+-                &catalogs.host.catalog,
+-                SkillCatalogRenderPolicy::CoreCompatible,
+-            ),
+-            self.metadata_budget,
+-            self.include_usage,
+-        );
+-        if [&shared.executor, &shared.cloud, &shared.host]
+-            .into_iter()
+-            .flatten()
+-            .any(|catalog| catalog.report.omitted_count > 0)
+-        {
+-            return None;
+-        }
+-
+-        let cloud_limit = shared.cloud.as_ref().map_or(0, |cloud| {
+-            cloud.metadata_cost(self.metadata_budget, self.include_usage)
+-        });
+-        (cloud_limit < current_cloud_limit).then_some(cloud_limit)
+-    }
+-
+-    /// Render the same buckets both before and after adjusting the allocation, so
+-    /// the accepted cloud text is reproduced exactly on the next sampling step.
+-    fn render_with_cloud_limit(
+-        &self,
+-        catalogs: &CatalogContributions,
+-        executor: &PreparedSkillCatalog<'_>,
+-        cloud_limit: usize,
+-    ) -> (RenderedSkillCatalogs, SkillMetadataBudget) {
+-        if !self.config.include_instructions {
+-            return (RenderedSkillCatalogs::default(), self.metadata_budget);
+-        }
+-
+-        let cloud_budget = self.metadata_budget.with_limit(cloud_limit);
+-        let cloud = render_available_skills(
+-            &catalogs.cloud.catalog,
+-            SkillCatalogRenderPolicy::ExtensionCompatible,
+-            cloud_budget,
+-            self.include_usage,
+-        );
+-        // Empty or disabled cloud catalogs leave the full allowance to filesystem skills.
+-        let cloud_cost = cloud.as_ref().map_or(0, |rendered| {
+-            rendered.metadata_cost(cloud_budget, self.include_usage)
+-        });
+-        let filesystem_budget = self
+-            .metadata_budget
+-            .with_limit(self.metadata_budget.limit().saturating_sub(cloud_cost));
+-        let mut rendered = render_prepared_skill_catalogs(
+-            executor,
+-            &PreparedSkillCatalog::new(
+-                &SkillCatalog::default(),
+-                SkillCatalogRenderPolicy::ExtensionCompatible,
+-            ),
+-            &PreparedSkillCatalog::new(
+-                &catalogs.host.catalog,
+-                SkillCatalogRenderPolicy::CoreCompatible,
+-            ),
+-            filesystem_budget,
+-            self.include_usage,
+-        );
+-        rendered.cloud = cloud;
+-
+-        (rendered, filesystem_budget)
++        .render_catalogs(catalogs)
+     }
+ 
+     pub(crate) fn build_world_state_section(
+diff --git a/codex-rs/skills/src/lib.rs b/codex-rs/skills/src/lib.rs
+index 7b19d32..376694e 100644
+--- a/codex-rs/skills/src/lib.rs
++++ b/codex-rs/skills/src/lib.rs
+@@ -83,9 +83,7 @@ pub fn install_system_skills(codex_home: &AbsolutePathBuf) -> Result<(), SystemS
+ 
+     let marker_path = dest_system.join(SYSTEM_SKILLS_MARKER_FILENAME);
+     let expected_fingerprint = embedded_system_skills_fingerprint();
+-    if dest_system.as_path().is_dir()
+-        && read_marker(&marker_path).is_ok_and(|marker| marker == expected_fingerprint)
+-    {
++    if system_skills_marker_matches(&dest_system, &expected_fingerprint) {
+         return Ok(());
+     }
+ 
+@@ -100,6 +98,21 @@ pub fn install_system_skills(codex_home: &AbsolutePathBuf) -> Result<(), SystemS
+     Ok(())
+ }
+ 
++/// Observes the existing installer's marker without creating or repairing files.
++/// This is its installation predicate, not a lease or validation of every skill byte.
++pub fn system_skills_installation_is_current(codex_home: &AbsolutePathBuf) -> bool {
++    system_skills_marker_matches(
++        &system_cache_root_dir(codex_home),
++        &embedded_system_skills_fingerprint(),
++    )
++}
++
++fn system_skills_marker_matches(dest_system: &AbsolutePathBuf, expected_fingerprint: &str) -> bool {
++    let marker_path = dest_system.join(SYSTEM_SKILLS_MARKER_FILENAME);
++    dest_system.as_path().is_dir()
++        && read_marker(&marker_path).is_ok_and(|marker| marker == expected_fingerprint)
++}
++
+ fn read_marker(path: &AbsolutePathBuf) -> Result<String, SystemSkillsError> {
+     Ok(fs::read_to_string(path.as_path())
+         .map_err(|source| SystemSkillsError::io("read system skills marker", source))?
