@@ -402,6 +402,53 @@ jobs:
             echo "::warning::JS bundle exceeds 600KB (${JS_KB}KB)"
           fi
 
+      - name: Type check actual application page composition
+        id: typecheck-symposium-page
+        if: ${{ !cancelled() }}
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: npx tsc -p tsconfig.symposium-page.json
+
+      - name: Install actual application page browsers
+        id: symposium-page-browsers
+        if: ${{ !cancelled() }}
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Actual Symposium application page (Chromium)
+        id: symposium-page-chromium
+        if: ${{ !cancelled() && steps.symposium-page-browsers.outcome == 'success' }}
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024
+          SYMPOSIUM_REQUIRED_JOURNEYS: '1'
+          SYMPOSIUM_PAGE_BROWSER: chromium
+          SYMPOSIUM_PAGE_EVIDENCE_DIR: test-results/symposium-application/chromium
+        run: >-
+          ./node_modules/.bin/vitest run --config vitest.symposium-acceptance.config.ts
+          tests/acceptance/enrolled-application-page.repro.ts --reporter=json
+          --outputFile=test-results/symposium-application/chromium/vitest.json
+
+      - name: Actual Symposium application page (WebKit)
+        id: symposium-page-webkit
+        if: ${{ !cancelled() && steps.symposium-page-chromium.outcome == 'success' }}
+        env:
+          NODE_OPTIONS: --max-old-space-size=1024
+          SYMPOSIUM_REQUIRED_JOURNEYS: '1'
+          SYMPOSIUM_PAGE_BROWSER: webkit
+          SYMPOSIUM_PAGE_EVIDENCE_DIR: test-results/symposium-application/webkit
+        run: >-
+          ./node_modules/.bin/vitest run --config vitest.symposium-acceptance.config.ts
+          tests/acceptance/enrolled-application-page.repro.ts --reporter=json
+          --outputFile=test-results/symposium-application/webkit/vitest.json
+
+      - name: Retain actual application page source and browser evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: symposium-application-page-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/symposium-application/
+          retention-days: 7
+          if-no-files-found: warn
+
       - name: Summary
         if: always()
         run: |
@@ -416,7 +463,11 @@ jobs:
              [ "${{ steps.test-count.outcome }}" = "failure" ] || \
              [ "${{ steps.secret-scan.outcome }}" = "failure" ] || \
              [ "${{ steps.build-mcp.outcome }}" = "failure" ] || \
-             [ "${{ steps.build.outcome }}" = "failure" ]; then
+             [ "${{ steps.build.outcome }}" = "failure" ] || \
+             [ "${{ steps.typecheck-symposium-page.outcome }}" = "failure" ] || \
+             [ "${{ steps.symposium-page-browsers.outcome }}" = "failure" ] || \
+             [ "${{ steps.symposium-page-chromium.outcome }}" != "success" ] || \
+             [ "${{ steps.symposium-page-webkit.outcome }}" != "success" ]; then
             echo "One or more CI steps failed."
             exit 1
           fi

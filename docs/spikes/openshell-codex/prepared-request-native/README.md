@@ -6,9 +6,41 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 81 patches
+## Current composed source: 87 patches
 
-The 81 ordered patches reconstruct native tree
+The 87 ordered patches reconstruct native tree
+`f09fc186e1ee1beb81495f003feb736bfcab0756` (local source `a7498d7eb0bb7fb33130d2d4729c88fd980291e7`).
+All first 86 patch records and bytes are retained unchanged. Patch 87 composes
+seven private source commits; it must not also be applied as their individual patches.
+
+Original source owners now provide disabled History/Memory prompt data, hosted
+Apps registration followed by the existing API auth gate, and original executor/
+cloud PluginContributor plans. The actual HostPlugins manager retains installed
+and loaded publication identities, including insert/capacity-evict ABA, and the
+same opaque API credential observation used by the Core packet. Default flags
+stay enabled. Configured, retained or unknown sources still refuse. The new Core
+default-positive fixture uses the original test manager's empty extension registry;
+it does not prove complete app-server registry or request-factory composition.
+
+Actual source 86 run `39408201470` built the production helper on both platforms,
+then failed Core library-test compilation with one E0624 each: the new Skills
+fixture called a private configuration wrapper. Zero fixtures ran; no JUnit exists
+and formatting skipped. Patch 87 calls that wrapper's existing crate-visible
+underlying owner with the exact same five arguments. No production visibility,
+configuration discovery, fixture policy or assertion changes. The older source85
+production import failure remains separate retained evidence.
+
+All new Rust fixtures remain uncompiled and unrun. Exact-source CI explicitly
+adds `codex-core-plugins` units and formatting on both platforms while retaining
+the previous 20 packages, Linux sandbox, one test thread and zero retries. Source
+reconstruction and independent static audits are not compilation or execution.
+Complete configuration/permission/filesystem/source leases, the real fresh
+request factory, count-State association and app-server/host wiring remain open.
+No installed runtime, selected charged account, Ready or joining grant is made.
+
+### Retained 81-patch checkpoint
+
+The original 81 ordered patches reconstruct native tree
 `e2b7d2093d6a671ac0929730a0297139ca2067b7` (local source `673a893f754b03ded8efba534b452c29233ffc8e`).
 
 Patch 81 corrects two Arc cloning expressions in the actual catalog owner.

@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.418-symposium-current-main-page-union';
+  'v1.0.419-symposium-native-page-candidate';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-default-plugin-context-sources.patch':
+    '41261571d95910ef66500dac9b0589d82e24ac299b22e9a1c9dd78d5c86ebca6',
   '../../frontend/src/components/ChatStatusMessage.tsx':
     '1af936451abe0baf0f0a28536acaf66d5aaba3c10c83996286f4ca627732675d',
   '../../frontend/src/components/ChatStatusMessage.css':

@@ -348,10 +348,14 @@
     {
       "file": "native-default-git-context.patch",
       "sha256": "3693319660e1ee91cd59af45ab74d1d2418e901d049f9f2105784048f79926c6"
+    },
+    {
+      "file": "native-default-plugin-context-sources.patch",
+      "sha256": "41261571d95910ef66500dac9b0589d82e24ac299b22e9a1c9dd78d5c86ebca6"
     }
   ],
-  "sourceTree": "34a3eb9de797224c4b684e32835640659f81dcde",
-  "localSourceCommit": "ecf901cf9bdb4e63cfc572e96661560d266e90a0",
+  "sourceTree": "f09fc186e1ee1beb81495f003feb736bfcab0756",
+  "localSourceCommit": "a7498d7eb0bb7fb33130d2d4729c88fd980291e7",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -465,7 +469,14 @@
     "bfb629e79fb6f2e78305abca1e2e7c373098b397",
     "4be34de6eb7695cdbe319cd6b45b90ab01e53f4a",
     "2b709efad56a6b1f5ff20b01fa2693db7dce0b23",
-    "ecf901cf9bdb4e63cfc572e96661560d266e90a0"
+    "ecf901cf9bdb4e63cfc572e96661560d266e90a0",
+    "1395fdd1ef1119c8eee720555f4be269b1c5e534",
+    "4452be22b0c79a79ae6cbdbe3d0ca0e079d4d701",
+    "0e2f856a4ce671ef8b160477db262a1f6c8c03b4",
+    "93951754037c7f95da02927cd33ee352fbf33a99",
+    "8041c9c5b450e84b344a87362ed25ba0046087ad",
+    "9346e3ba2447f35bb95fd23a8c7762df95e25ed8",
+    "a7498d7eb0bb7fb33130d2d4729c88fd980291e7"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -475,16 +486,16 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "86-patch source: fix actual85 private Skills owner import without widening exports; jointly renew original catalog/Environment/Host-root publications at capture boundary after awaits; retain actual registered API-key Git attribution initial context through original opaque cached credentials and shared pure renderer. No complete factory/source lease/State/appserver/host/count/Ready.",
+    "scope": "87-patch source retains first86 unchanged. Original disabled History/Memory prompt sources; original hosted Apps registration then API auth gate; original PluginContributor source plans; actual HostPlugins installed+loaded publication identities and same credential owner; default-enabled Core API projection and Skills renewal. Minimal E0624 newfixture correction calls same legal original loader. Full request/config/FS/permission/source leases, count-State, appserver and host factory remain OPEN.",
     "localFocused": {
-      "status": "source_reconstruction_and_scoped_format_only",
+      "status": "exact_source_reconstruction_and_scoped_format_only",
       "rustTestsExecuted": false,
       "compiled": false,
-      "allNewRustFixtures": "UNRUN",
+      "allNewRustFixtures": "UNCOMPILED/UNRUN",
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_86_exact_source",
+      "status": "pending_87_exact_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -506,7 +517,8 @@
         "codex-skills",
         "codex-exec-server",
         "codex-app-server",
-        "codex-git-attribution"
+        "codex-git-attribution",
+        "codex-core-plugins"
       ],
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
@@ -516,7 +528,8 @@
       "prior82QualificationTransfers": false,
       "prior83QualificationTransfers": false,
       "prior84QualificationTransfers": false,
-      "prior85QualificationTransfers": false
+      "prior85QualificationTransfers": false,
+      "prior86QualificationTransfers": false
     }
   },
   "runtimeQualified": false,
@@ -2954,6 +2967,67 @@
         "fixtureExecutions": 0,
         "noQualificationTransfer": true
       }
+    },
+    {
+      "sourceCommit": "ecf901cf9bdb4e63cfc572e96661560d266e90a0",
+      "sourceTree": "34a3eb9de797224c4b684e32835640659f81dcde",
+      "patches": 86,
+      "checks": {
+        "scope": "86-patch source: fix actual85 private Skills owner import without widening exports; jointly renew original catalog/Environment/Host-root publications at capture boundary after awaits; retain actual registered API-key Git attribution initial context through original opaque cached credentials and shared pure renderer. No complete factory/source lease/State/appserver/host/count/Ready.",
+        "localFocused": {
+          "status": "source_reconstruction_and_scoped_format_only",
+          "rustTestsExecuted": false,
+          "compiled": false,
+          "allNewRustFixtures": "UNRUN",
+          "dynamicGreenClaimed": false
+        },
+        "ci": {
+          "status": "pending_86_exact_source",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-http-client",
+            "codex-state",
+            "codex-api",
+            "codex-guardian-reviewer",
+            "codex-extension-api",
+            "codex-mcp-extension",
+            "codex-login",
+            "codex-memories-extension",
+            "codex-web-search-extension",
+            "codex-history-notes-extension",
+            "codex-goal-extension",
+            "codex-models-manager",
+            "codex-home",
+            "codex-model-provider-info",
+            "codex-skills-extension",
+            "codex-skills",
+            "codex-exec-server",
+            "codex-app-server",
+            "codex-git-attribution"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "testThreads": 1,
+          "retries": 0,
+          "prior81QualificationTransfers": false,
+          "prior82QualificationTransfers": false,
+          "prior83QualificationTransfers": false,
+          "prior84QualificationTransfers": false,
+          "prior85QualificationTransfers": false
+        }
+      },
+      "publication": "6187bd9e945a863dc55abe2f1aa96059476befc7",
+      "actualBothPlatformTestCompileFailure": {
+        "run": 39408201470,
+        "helperBuilds": "both success",
+        "libTestCompilation": "bothE0624 at pre_session_skills_tests24 privateconfig3213, oneerror/exit101 each",
+        "fixturesExecuted": 0,
+        "JUnitAvailable": false,
+        "formatting": "skipped",
+        "receiptSha256": "3f55dc738dcf65284b1cfc71ca3bb834ee48ac82b50b1484520c19a7e4dafd91",
+        "qualificationTransfer": false
+      }
     }
   ],
   "skillsReadOnlyPrerequisite": {
@@ -3021,5 +3095,22 @@
     "fullSourceLeaseOrReady": false,
     "minimalImportCorrectionReceipt": "14b93e1dbf946ae393e9e3af952f5b8a9e93c711bcd8045beafca965a6a028b5",
     "explicitPreviousStateLifetimeCommit": "ecf901cf9bdb4e63cfc572e96661560d266e90a0"
+  },
+  "originalDefaultPluginSourcePrerequisite": {
+    "privateCommits": [
+      "1395fdd1ef1119c8eee720555f4be269b1c5e534",
+      "4452be22b0c79a79ae6cbdbe3d0ca0e079d4d701",
+      "0e2f856a4ce671ef8b160477db262a1f6c8c03b4",
+      "93951754037c7f95da02927cd33ee352fbf33a99",
+      "8041c9c5b450e84b344a87362ed25ba0046087ad",
+      "9346e3ba2447f35bb95fd23a8c7762df95e25ed8",
+      "a7498d7eb0bb7fb33130d2d4729c88fd980291e7"
+    ],
+    "sourceOutcome": "Actual applicable API empty inputs at original PluginsManager, same Arc of original credential observation retained with Core packet; actual original materialized PluginLoadOutcome consumed. No default flag clearing.",
+    "publisherGuards": "Actual installed/loaded publications; loaded stale removal/clear/insert-capacity publication detects None-insert-evict-None even stablegeneration. Original installed->loaded->auth lock order retained.",
+    "newDefaultPositiveFixtureLimit": "Actual defaultConfig+ThreadManager original helper has EMPTY extension registry; no full installed appserver/PluginContributor/Skills registry success inferred.",
+    "fixtureCompileCorrection": "Existing pub(crate) loader receives exactly private wrapper five args, all original fixture/assertion bytes retained. No production visibility/discovery changes.",
+    "allNewFixtures": "uncompiled/unrun; next exact-source CI required",
+    "wholeFactoryReady": false
   }
 }
