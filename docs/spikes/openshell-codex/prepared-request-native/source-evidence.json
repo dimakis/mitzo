@@ -344,10 +344,14 @@
     {
       "file": "native-core-skills-publications.patch",
       "sha256": "7264a410590d1656b5d4993271b6afe4a640e439081b432d41792e146d20fbf1"
+    },
+    {
+      "file": "native-default-git-context.patch",
+      "sha256": "3693319660e1ee91cd59af45ab74d1d2418e901d049f9f2105784048f79926c6"
     }
   ],
-  "sourceTree": "fb591c8f5d250bb42cc1c9d825762a90ed9ad5b1",
-  "localSourceCommit": "d501b92c14985eaace308776e2ac1c007c8fb809",
+  "sourceTree": "34a3eb9de797224c4b684e32835640659f81dcde",
+  "localSourceCommit": "ecf901cf9bdb4e63cfc572e96661560d266e90a0",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -457,7 +461,11 @@
     "c359f551b095864b5c86c1ea47532e74559c354b",
     "2ce7c808c6edbd763d2e446f1d96e99fd25792f5",
     "39b8ea20a879be4cb6e6443351041b9e4976836a",
-    "d501b92c14985eaace308776e2ac1c007c8fb809"
+    "d501b92c14985eaace308776e2ac1c007c8fb809",
+    "bfb629e79fb6f2e78305abca1e2e7c373098b397",
+    "4be34de6eb7695cdbe319cd6b45b90ab01e53f4a",
+    "2b709efad56a6b1f5ff20b01fa2693db7dce0b23",
+    "ecf901cf9bdb4e63cfc572e96661560d266e90a0"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -467,7 +475,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "85-patch source: retain all84; actual original environment entry/Ready-report and Host extra-root publication fences; genuine ThreadManager/config/registry/Host/ModelsManager Skills observation; registry-owned source lending. Correct selected-local pointer fixture to actual map entry. Complete source/config/permission/FS leases, wholeR factory, State commitment, app-server and application callers remain open.",
+    "scope": "86-patch source: fix actual85 private Skills owner import without widening exports; jointly renew original catalog/Environment/Host-root publications at capture boundary after awaits; retain actual registered API-key Git attribution initial context through original opaque cached credentials and shared pure renderer. No complete factory/source lease/State/appserver/host/count/Ready.",
     "localFocused": {
       "status": "source_reconstruction_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -476,7 +484,7 @@
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_85_exact_source",
+      "status": "pending_86_exact_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -497,7 +505,8 @@
         "codex-skills-extension",
         "codex-skills",
         "codex-exec-server",
-        "codex-app-server"
+        "codex-app-server",
+        "codex-git-attribution"
       ],
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
@@ -506,7 +515,8 @@
       "prior81QualificationTransfers": false,
       "prior82QualificationTransfers": false,
       "prior83QualificationTransfers": false,
-      "prior84QualificationTransfers": false
+      "prior84QualificationTransfers": false,
+      "prior85QualificationTransfers": false
     }
   },
   "runtimeQualified": false,
@@ -2888,6 +2898,62 @@
       "publication": "74cfb1dd649b82302e9246cf876f863176e67def",
       "originalCI": 39396930452,
       "qualification": "Separate frozen84 campaign; no result transferred to85; corrected actual selected-local fixture pointer and coherent original-owner/Core source additions."
+    },
+    {
+      "sourceCommit": "d501b92c14985eaace308776e2ac1c007c8fb809",
+      "sourceTree": "fb591c8f5d250bb42cc1c9d825762a90ed9ad5b1",
+      "patches": 85,
+      "checks": {
+        "scope": "85-patch source: retain all84; actual original environment entry/Ready-report and Host extra-root publication fences; genuine ThreadManager/config/registry/Host/ModelsManager Skills observation; registry-owned source lending. Correct selected-local pointer fixture to actual map entry. Complete source/config/permission/FS leases, wholeR factory, State commitment, app-server and application callers remain open.",
+        "localFocused": {
+          "status": "source_reconstruction_and_scoped_format_only",
+          "rustTestsExecuted": false,
+          "compiled": false,
+          "allNewRustFixtures": "UNRUN",
+          "dynamicGreenClaimed": false
+        },
+        "ci": {
+          "status": "pending_85_exact_source",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-http-client",
+            "codex-state",
+            "codex-api",
+            "codex-guardian-reviewer",
+            "codex-extension-api",
+            "codex-mcp-extension",
+            "codex-login",
+            "codex-memories-extension",
+            "codex-web-search-extension",
+            "codex-history-notes-extension",
+            "codex-goal-extension",
+            "codex-models-manager",
+            "codex-home",
+            "codex-model-provider-info",
+            "codex-skills-extension",
+            "codex-skills",
+            "codex-exec-server",
+            "codex-app-server"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "testThreads": 1,
+          "retries": 0,
+          "prior81QualificationTransfers": false,
+          "prior82QualificationTransfers": false,
+          "prior83QualificationTransfers": false,
+          "prior84QualificationTransfers": false
+        }
+      },
+      "publication": "10a7321d36c1bb050e8add636614863eb9419f16",
+      "actualBothPlatformHelperFailure": {
+        "run": 39401416210,
+        "diagnostic": "E0432 unresolved crate::SkillsExtension, actual private declaration is crate::extension::SkillsExtension",
+        "receiptSha256": "bca6c85173f3524e4b2a188d4365189a83d92e33e424a9f7ab706d253a5f08eb",
+        "fixtureExecutions": 0,
+        "noQualificationTransfer": true
+      }
     }
   ],
   "skillsReadOnlyPrerequisite": {
@@ -2937,5 +3003,23 @@
       "coreEnvironment": "3afbd9e8a7621c590b826ff83d2670100bdc9dd8138f2167f7560002e4eae821"
     },
     "completeFactoryReady": false
+  },
+  "gitAttributionPrerequisite": {
+    "policy": "Original policy.rs unchanged: cached actual API key means non-Codex backend, ordinary false; fresh Absent renders no fragment. OAuth/foreign/unavailable cached credentials refuse before policy/settings I/O.",
+    "owners": "Same original prompt contributor Arc/index, typed original registry provenance/lending and original AuthManager.with_current_api_key_credentials; cached credential publisher guard only.",
+    "rendering": "Complete original match/markers/legacy/retained semantics shared in pure helper; observation keeps plain data, no later callback or SourceStore/Session creation.",
+    "authoredFixtures": 4,
+    "fixturesCompiled": false,
+    "fixturesExecuted": false,
+    "independentSourceReceipt": "4a4aa579fb4887490b0520679f58a468009cb212789c38fb0886e5a062cd6e07",
+    "captureBoundaryReceipt": "37426a3d7ed28903df7960fe36f5e4fd1bad8fbb8bd192d547e4d535e89a4907",
+    "allNewProductionImportsBoundedStaticAudit": {
+      "uniqueImports": 32,
+      "compilerOrExecutionProof": false
+    },
+    "fullDefaultConfigAndRegistrySupported": false,
+    "fullSourceLeaseOrReady": false,
+    "minimalImportCorrectionReceipt": "14b93e1dbf946ae393e9e3af952f5b8a9e93c711bcd8045beafca965a6a028b5",
+    "explicitPreviousStateLifetimeCommit": "ecf901cf9bdb4e63cfc572e96661560d266e90a0"
   }
 }

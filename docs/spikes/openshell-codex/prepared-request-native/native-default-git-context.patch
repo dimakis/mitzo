@@ -1,0 +1,530 @@
+diff --git a/codex-rs/core/src/thread_manager/pre_session_skills.rs b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+index f10abe8..e47f6f7 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_skills.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+@@ -127,21 +127,28 @@ impl ThreadManager {
+             .skills_service
+             .assert_pre_session_prompt_observation_owner(skills.host_observation())
+             .map_err(|_| unavailable())?;
+-        self.state
+-            .skills_service
+-            .with_current_pre_session_prompt_roots(skills.host_observation(), || ())
+-            .map_err(|_| unavailable())?;
+         let catalog = self
+             .state
+             .models_manager
+             .pin_model_limit_candidate(&model)
+             .await
+             .ok_or_else(unavailable)?;
+-        drop(catalog);
++        self.validate_pre_session_mcp_sources(sources)
++            .map_err(|_| unavailable())?;
++        // All async source work is finished. Renew these three actual
++        // publishers together while the original catalog read guard remains
++        // live. This point check still supplies no lease after returning and
++        // does not cover the remaining source/configuration/permission owners.
+         self.state
+             .environment_manager
+-            .with_current_selected_environment_publications(&environment_publication, || ())
++            .with_current_selected_environment_publications(&environment_publication, || {
++                self.state
++                    .skills_service
++                    .with_current_pre_session_prompt_roots(skills.host_observation(), || ())
++            })
++            .map_err(|_| unavailable())?
+             .map_err(|_| unavailable())?;
++        drop(catalog);
+         Ok(PreSessionSkillsObservation {
+             model,
+             skills,
+diff --git a/codex-rs/ext/extension-api/src/lib.rs b/codex-rs/ext/extension-api/src/lib.rs
+index fd89c6a..7bdf4d8 100644
+--- a/codex-rs/ext/extension-api/src/lib.rs
++++ b/codex-rs/ext/extension-api/src/lib.rs
+@@ -110,6 +110,7 @@ pub use registry::ContextSourceRegistrationError;
+ pub use registry::ExtensionRegistry;
+ pub use registry::ExtensionRegistryBuilder;
+ pub use registry::RegisteredContextSource;
++pub use registry::RegisteredPromptContextSource;
+ pub use registry::empty_extension_registry;
+ pub use state::ExtensionData;
+ pub use state::ExtensionDataInit;
+diff --git a/codex-rs/ext/extension-api/src/registry.rs b/codex-rs/ext/extension-api/src/registry.rs
+index 80efff8..e6d39f4 100644
+--- a/codex-rs/ext/extension-api/src/registry.rs
++++ b/codex-rs/ext/extension-api/src/registry.rs
+@@ -1,8 +1,11 @@
+ mod context_sources;
+ mod pre_session_tools;
++mod prompt_sources;
+ pub use context_sources::ContextSourceRegistrationError;
+ use context_sources::CoupledContextSource;
+ pub use context_sources::RegisteredContextSource;
++use prompt_sources::PromptContextSource;
++pub use prompt_sources::RegisteredPromptContextSource;
+ 
+ use std::sync::Arc;
+ 
+@@ -52,6 +55,7 @@ impl<C: Sync> Default for ExtensionRegistryBuilder<C> {
+                 approval_review_contributors: Vec::new(),
+                 context_contributors: Vec::new(),
+                 coupled_context_sources: Vec::new(),
++                prompt_context_sources: Vec::new(),
+                 mcp_server_contributors: Vec::new(),
+                 mcp_pre_session_plans: Vec::new(),
+                 turn_input_contributors: Vec::new(),
+@@ -240,6 +244,7 @@ pub struct ExtensionRegistry<C: Sync> {
+     skill_invocation_contributors: Vec<Arc<dyn SkillInvocationContributor>>,
+     context_contributors: Vec<Arc<dyn ContextContributor>>,
+     coupled_context_sources: Vec<CoupledContextSource>,
++    prompt_context_sources: Vec<PromptContextSource>,
+     mcp_server_contributors: Vec<Arc<dyn McpServerContributor<C>>>,
+     mcp_pre_session_plans: Vec<Option<McpPreSessionPlan<C>>>,
+     turn_input_contributors: Vec<Arc<dyn TurnInputContributor>>,
+@@ -267,6 +272,7 @@ impl<C: Sync> ExtensionRegistry<C> {
+                 skill_invocation_contributors: self.skill_invocation_contributors.clone(),
+                 context_contributors: self.context_contributors.clone(),
+                 coupled_context_sources: self.coupled_context_sources.clone(),
++                prompt_context_sources: self.prompt_context_sources.clone(),
+                 mcp_server_contributors: self.mcp_server_contributors.clone(),
+                 mcp_pre_session_plans: self.mcp_pre_session_plans.clone(),
+                 turn_input_contributors: self.turn_input_contributors.clone(),
+diff --git a/codex-rs/ext/extension-api/src/registry/prompt_sources.rs b/codex-rs/ext/extension-api/src/registry/prompt_sources.rs
+new file mode 100644
+index 0000000..8a31ba8
+--- /dev/null
++++ b/codex-rs/ext/extension-api/src/registry/prompt_sources.rs
+@@ -0,0 +1,92 @@
++use std::any::Any;
++use std::sync::Arc;
++
++use super::ContextSourceRegistrationError;
++use super::ExtensionRegistry;
++use super::ExtensionRegistryBuilder;
++use crate::ContextContributor;
++
++#[derive(Clone)]
++pub(super) struct PromptContextSource {
++    source: Arc<dyn Any + Send + Sync>,
++    context_index: usize,
++}
++
++/// Provenance for one original prompt-only contributor. This does not settle
++/// its context data, other partitions, source currency or admission authority.
++pub struct RegisteredPromptContextSource<T> {
++    source: Arc<T>,
++    registry_identity: Arc<()>,
++    context_index: usize,
++}
++
++impl<C: Sync> ExtensionRegistryBuilder<C> {
++    /// Registers the same original prompt allocation while retaining typed
++    /// metadata. It adds no turn-input/tool contributor or absence declaration.
++    pub fn prompt_context_source<T>(&mut self, source: Arc<T>)
++    where
++        T: ContextContributor + 'static,
++    {
++        let registration = PromptContextSource {
++            source: source.clone(),
++            context_index: self.registry.context_contributors.len(),
++        };
++        self.prompt_contributor(source);
++        self.registry.prompt_context_sources.push(registration);
++    }
++}
++
++impl<C: Sync> ExtensionRegistry<C> {
++    /// Finds only actual typed prompt registrations. Unknown/legacy sources
++    /// are not enrolled, and an empty result proves no context absence.
++    pub fn registered_prompt_context_sources<T>(&self) -> Vec<RegisteredPromptContextSource<T>>
++    where
++        T: ContextContributor + 'static,
++    {
++        self.prompt_context_sources
++            .iter()
++            .filter_map(|registration| {
++                Arc::clone(&registration.source)
++                    .downcast::<T>()
++                    .ok()
++                    .map(|source| RegisteredPromptContextSource {
++                        source,
++                        registry_identity: Arc::clone(&self.tool_inventory_identity),
++                        context_index: registration.context_index,
++                    })
++            })
++            .collect()
++    }
++
++    /// Lends the actual registry-owned source after checking registry identity,
++    /// original prompt index, concrete type and original allocation pointer.
++    pub fn borrow_prompt_context_source<T>(
++        &self,
++        registration: &RegisteredPromptContextSource<T>,
++    ) -> Result<&T, ContextSourceRegistrationError>
++    where
++        T: ContextContributor + 'static,
++    {
++        if !Arc::ptr_eq(
++            &self.tool_inventory_identity,
++            &registration.registry_identity,
++        ) {
++            return Err(ContextSourceRegistrationError::RegistryChanged);
++        }
++        let pointer = Arc::as_ptr(&registration.source).cast::<()>();
++        if self
++            .context_contributors
++            .get(registration.context_index)
++            .map(|source| Arc::as_ptr(source).cast::<()>())
++            != Some(pointer)
++        {
++            return Err(ContextSourceRegistrationError::ContributorsChanged);
++        }
++        self.prompt_context_sources
++            .iter()
++            .find(|source| source.context_index == registration.context_index)
++            .and_then(|source| source.source.as_ref().downcast_ref::<T>())
++            .filter(|source| std::ptr::eq(*source, registration.source.as_ref()))
++            .ok_or(ContextSourceRegistrationError::ContributorsChanged)
++    }
++}
+diff --git a/codex-rs/ext/extension-api/tests/registry.rs b/codex-rs/ext/extension-api/tests/registry.rs
+index e191665..1dfeb79 100644
+--- a/codex-rs/ext/extension-api/tests/registry.rs
++++ b/codex-rs/ext/extension-api/tests/registry.rs
+@@ -42,6 +42,42 @@ use pretty_assertions::assert_eq;
+ 
+ struct AllContributors;
+ 
++#[test]
++fn prompt_source_lending_preserves_original_owner_without_enrolling_legacy_or_new_partitions() {
++    let legacy = Arc::new(AllContributors);
++    let original = Arc::new(AllContributors);
++    let mut builder = ExtensionRegistryBuilder::<()>::new();
++    builder.prompt_contributor(legacy);
++    builder.prompt_context_source(Arc::clone(&original));
++    let registry = builder.build();
++    let borrowed = {
++        let registered = registry.registered_prompt_context_sources::<AllContributors>();
++        assert_eq!(registered.len(), 1);
++        registry
++            .borrow_prompt_context_source(&registered[0])
++            .unwrap()
++    };
++    assert!(std::ptr::eq(borrowed, original.as_ref()));
++    assert!(
++        registry
++            .registered_context_sources::<AllContributors>()
++            .is_empty()
++    );
++    let sources = registry.registered_prompt_context_sources::<AllContributors>();
++    let copied = registry.to_builder().build();
++    assert_eq!(
++        copied.borrow_prompt_context_source(&sources[0]).err(),
++        Some(codex_extension_api::ContextSourceRegistrationError::RegistryChanged)
++    );
++    let copied_sources = copied.registered_prompt_context_sources::<AllContributors>();
++    assert!(std::ptr::eq(
++        copied
++            .borrow_prompt_context_source(&copied_sources[0])
++            .unwrap(),
++        original.as_ref()
++    ));
++}
++
+ #[test]
+ fn mcp_contribution_context_identifies_the_running_thread() {
+     let config = ();
+diff --git a/codex-rs/ext/git-attribution/src/git_attribution_tests.rs b/codex-rs/ext/git-attribution/src/git_attribution_tests.rs
+index 0123f5b..a5e02df 100644
+--- a/codex-rs/ext/git-attribution/src/git_attribution_tests.rs
++++ b/codex-rs/ext/git-attribution/src/git_attribution_tests.rs
+@@ -19,6 +19,90 @@ use wiremock::matchers::path;
+ 
+ use super::policy::resolve_attribution_policy;
+ 
++#[tokio::test]
++async fn registered_api_key_initial_observation_matches_ordinary_policy_without_settings_or_startup()
++ {
++    let server = MockServer::start().await;
++    let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-no-model-call"));
++    let credentials = auth.capture_cached_api_key_credentials().unwrap();
++    let mut builder = codex_extension_api::ExtensionRegistryBuilder::<()>::new();
++    crate::install(
++        &mut builder,
++        Arc::clone(&auth),
++        server.uri(),
++        http_client_factory(),
++    );
++    let registry = builder.build();
++    let observed = {
++        let source = crate::registered_git_attribution_sources(&registry);
++        assert_eq!(source.len(), 1);
++        source[0]
++            .observe_api_key_initial_context(&registry, &credentials)
++            .unwrap()
++    };
++    let ordinary = resolve_attribution_policy(&auth, &server.uri(), &http_client_factory())
++        .await
++        .unwrap()
++        .unwrap();
++    assert!(!ordinary.enabled);
++    assert!(observed.initial_fragment().is_none());
++    assert_eq!(observed.with_current_api_key_source(|| 29), Ok(29));
++    assert!(server.received_requests().await.unwrap().is_empty());
++}
++
++#[test]
++fn registered_initial_context_refuses_foreign_credentials_and_copied_registry() {
++    let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-no-model-call"));
++    let foreign =
++        AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-no-model-call"));
++    let credentials = foreign.capture_cached_api_key_credentials().unwrap();
++    let mut builder = codex_extension_api::ExtensionRegistryBuilder::<()>::new();
++    crate::install(
++        &mut builder,
++        auth,
++        "http://uncontacted.invalid".into(),
++        http_client_factory(),
++    );
++    let registry = builder.build();
++    let sources = crate::registered_git_attribution_sources(&registry);
++    assert!(matches!(
++        sources[0].observe_api_key_initial_context(&registry, &credentials),
++        Err(crate::GitAttributionObservationError::UnresolvedAuth)
++    ));
++    let copied = registry.to_builder().build();
++    assert!(matches!(
++        sources[0].observe_api_key_initial_context(&copied, &credentials),
++        Err(crate::GitAttributionObservationError::Registration(
++            codex_extension_api::ContextSourceRegistrationError::RegistryChanged
++        ))
++    ));
++}
++
++#[tokio::test]
++async fn original_auth_publisher_change_invalidates_retained_git_context_before_guarded_action() {
++    let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-no-model-call"));
++    let credentials = auth.capture_cached_api_key_credentials().unwrap();
++    let mut builder = codex_extension_api::ExtensionRegistryBuilder::<()>::new();
++    crate::install(
++        &mut builder,
++        Arc::clone(&auth),
++        "http://uncontacted.invalid".into(),
++        http_client_factory(),
++    );
++    let registry = builder.build();
++    let sources = crate::registered_git_attribution_sources(&registry);
++    let observed = sources[0]
++        .observe_api_key_initial_context(&registry, &credentials)
++        .unwrap();
++    set_auth(auth.as_ref(), "other-workspace").await;
++    assert_eq!(
++        observed.with_current_api_key_source(|| {
++            panic!("changed original credential publisher must not run the action")
++        }),
++        Err::<(), _>(crate::GitAttributionObservationError::UnresolvedAuth)
++    );
++}
++
+ fn enterprise_auth_manager() -> Arc<AuthManager> {
+     AuthManager::from_auth_for_testing(enterprise_auth("workspace-123"))
+ }
+diff --git a/codex-rs/ext/git-attribution/src/lib.rs b/codex-rs/ext/git-attribution/src/lib.rs
+index a0a3e4d..461a1ab 100644
+--- a/codex-rs/ext/git-attribution/src/lib.rs
++++ b/codex-rs/ext/git-attribution/src/lib.rs
+@@ -1,6 +1,12 @@
+ mod policy;
++mod pre_session;
+ mod world_state;
+ 
++pub use pre_session::GitAttributionInitialObservation;
++pub use pre_session::GitAttributionObservationError;
++pub use pre_session::RegisteredGitAttributionSource;
++pub use pre_session::registered_git_attribution_sources;
++
+ use std::sync::Arc;
+ use std::time::Instant;
+ 
+@@ -101,7 +107,7 @@ pub fn install<C: Sync>(
+     base_url: String,
+     http_client_factory: HttpClientFactory,
+ ) {
+-    registry.prompt_contributor(Arc::new(GitAttributionExtension {
++    registry.prompt_context_source(Arc::new(GitAttributionExtension {
+         auth_manager,
+         base_url,
+         http_client_factory,
+diff --git a/codex-rs/ext/git-attribution/src/pre_session.rs b/codex-rs/ext/git-attribution/src/pre_session.rs
+new file mode 100644
+index 0000000..396e39d
+--- /dev/null
++++ b/codex-rs/ext/git-attribution/src/pre_session.rs
+@@ -0,0 +1,87 @@
++use codex_extension_api::ContextSourceRegistrationError;
++use codex_extension_api::ExtensionRegistry;
++use codex_extension_api::PreviousWorldStateSection;
++use codex_extension_api::RegisteredPromptContextSource;
++use codex_extension_api::RenderedWorldStateFragment;
++use codex_login::auth::CapturedApiKeyCredentials;
++
++use super::GitAttributionExtension;
++use crate::world_state::render_git_attribution_fragment;
++
++/// Original registered prompt owner, not a context/currency/eligibility grant.
++pub struct RegisteredGitAttributionSource {
++    registration: RegisteredPromptContextSource<GitAttributionExtension>,
++}
++
++/// Plain initial context from the original API-key branch. The same opaque
++/// original credentials must be retained for count and guarded association.
++pub struct GitAttributionInitialObservation<'a> {
++    source: &'a GitAttributionExtension,
++    credentials: &'a CapturedApiKeyCredentials,
++    fragment: Option<RenderedWorldStateFragment>,
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub enum GitAttributionObservationError {
++    Registration(ContextSourceRegistrationError),
++    UnresolvedAuth,
++}
++
++pub fn registered_git_attribution_sources<C: Sync>(
++    registry: &ExtensionRegistry<C>,
++) -> Vec<RegisteredGitAttributionSource> {
++    registry
++        .registered_prompt_context_sources::<GitAttributionExtension>()
++        .into_iter()
++        .map(|registration| RegisteredGitAttributionSource { registration })
++        .collect()
++}
++
++impl RegisteredGitAttributionSource {
++    /// Ordinary policy resolution returns disabled for an API key, without a
++    /// backend settings request. Require actual cached credentials from this
++    /// EXACT registered owner's AuthManager; unsupported families stay unknown.
++    /// No auth refresh/reload, policy request, Session/cache or lifecycle runs.
++    pub fn observe_api_key_initial_context<'a, C: Sync>(
++        &self,
++        registry: &'a ExtensionRegistry<C>,
++        credentials: &'a CapturedApiKeyCredentials,
++    ) -> Result<GitAttributionInitialObservation<'a>, GitAttributionObservationError> {
++        let source = registry
++            .borrow_prompt_context_source(&self.registration)
++            .map_err(GitAttributionObservationError::Registration)?;
++        let fragment = source
++            .auth_manager
++            .with_current_api_key_credentials(credentials, |_, _| {
++                render_git_attribution_fragment(
++                    /*enabled*/ false,
++                    PreviousWorldStateSection::Absent,
++                )
++            })
++            .ok_or(GitAttributionObservationError::UnresolvedAuth)?;
++        Ok(GitAttributionInitialObservation {
++            source,
++            credentials,
++            fragment,
++        })
++    }
++}
++
++impl GitAttributionInitialObservation<'_> {
++    pub fn initial_fragment(&self) -> Option<&RenderedWorldStateFragment> {
++        self.fragment.as_ref()
++    }
++
++    /// Only this original cached credential publisher is fenced. The final
++    /// actual synchronous action must also hold every other required owner.
++    /// Async work returned by the action is outside this guard.
++    pub fn with_current_api_key_source<R>(
++        &self,
++        action: impl FnOnce() -> R,
++    ) -> Result<R, GitAttributionObservationError> {
++        self.source
++            .auth_manager
++            .with_current_api_key_credentials(self.credentials, |_, _| action())
++            .ok_or(GitAttributionObservationError::UnresolvedAuth)
++    }
++}
+diff --git a/codex-rs/ext/git-attribution/src/world_state.rs b/codex-rs/ext/git-attribution/src/world_state.rs
+index 4f96f80..8fb7a94 100644
+--- a/codex-rs/ext/git-attribution/src/world_state.rs
++++ b/codex-rs/ext/git-attribution/src/world_state.rs
+@@ -30,28 +30,7 @@ Codex commit and pull request attribution is disabled for the current workspace.
+ pub(super) fn git_attribution_world_state_section(enabled: bool) -> WorldStateSectionContribution {
+     let contribution =
+         WorldStateSectionContribution::new(WORLD_STATE_ID, Value::Bool(enabled), move |previous| {
+-            match (enabled, previous) {
+-                (true, PreviousWorldStateSection::Known(Value::Bool(true)))
+-                | (true, PreviousWorldStateSection::Unknown) => None,
+-                (true, PreviousWorldStateSection::Absent)
+-                | (true, PreviousWorldStateSection::Known(_)) => {
+-                    Some(RenderedWorldStateFragment::new(
+-                        "developer",
+-                        (START_MARKER, END_MARKER),
+-                        ENABLED_INSTRUCTIONS,
+-                    ))
+-                }
+-                (false, PreviousWorldStateSection::Known(Value::Bool(true)))
+-                | (false, PreviousWorldStateSection::Unknown) => {
+-                    Some(RenderedWorldStateFragment::new(
+-                        "developer",
+-                        (START_MARKER, END_MARKER),
+-                        DISABLED_INSTRUCTIONS,
+-                    ))
+-                }
+-                (false, PreviousWorldStateSection::Absent)
+-                | (false, PreviousWorldStateSection::Known(_)) => None,
+-            }
++            render_git_attribution_fragment(enabled, previous)
+         })
+         .with_legacy_matcher(move |role, text| {
+             is_enabled_fragment(role, text)
+@@ -64,6 +43,31 @@ pub(super) fn git_attribution_world_state_section(enabled: bool) -> WorldStateSe
+     }
+ }
+ 
++pub(super) fn render_git_attribution_fragment(
++    enabled: bool,
++    previous: PreviousWorldStateSection<'_>,
++) -> Option<RenderedWorldStateFragment> {
++    match (enabled, previous) {
++        (true, PreviousWorldStateSection::Known(Value::Bool(true)))
++        | (true, PreviousWorldStateSection::Unknown) => None,
++        (true, PreviousWorldStateSection::Absent) | (true, PreviousWorldStateSection::Known(_)) => {
++            Some(RenderedWorldStateFragment::new(
++                "developer",
++                (START_MARKER, END_MARKER),
++                ENABLED_INSTRUCTIONS,
++            ))
++        }
++        (false, PreviousWorldStateSection::Known(Value::Bool(true)))
++        | (false, PreviousWorldStateSection::Unknown) => Some(RenderedWorldStateFragment::new(
++            "developer",
++            (START_MARKER, END_MARKER),
++            DISABLED_INSTRUCTIONS,
++        )),
++        (false, PreviousWorldStateSection::Absent)
++        | (false, PreviousWorldStateSection::Known(_)) => None,
++    }
++}
++
+ fn is_legacy_commit_attribution_fragment(role: &str, text: &str) -> bool {
+     role == "developer" && text.trim() == LEGACY_COMMIT_ATTRIBUTION_INSTRUCTIONS
+ }
+diff --git a/codex-rs/ext/skills/src/first_context_observation.rs b/codex-rs/ext/skills/src/first_context_observation.rs
+index a115cb6..b6f3d34 100644
+--- a/codex-rs/ext/skills/src/first_context_observation.rs
++++ b/codex-rs/ext/skills/src/first_context_observation.rs
+@@ -15,8 +15,8 @@ use crate::ExecutorSkillsObservation;
+ use crate::HostSkillPromptObservation;
+ use crate::HostSkillsObservation;
+ use crate::InjectedHostSkillPrompts;
+-use crate::SkillsExtension;
+ use crate::SkillsExtensionConfig;
++use crate::extension::SkillsExtension;
+ use crate::fragments::main_prompt_truncation_warning;
+ use crate::fragments::render_selected_skill_instructions;
+ use crate::host_prompt::supersede_selected_host_prompts;

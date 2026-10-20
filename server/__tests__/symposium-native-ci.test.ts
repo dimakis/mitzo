@@ -98,6 +98,8 @@ it.each(['Linux', 'macOS'])(
       'codex-exec-server',
       '-p',
       'codex-app-server',
+      '-p',
+      'codex-git-attribution',
       ...(runnerOs === 'Linux' ? ['-p', 'codex-linux-sandbox'] : []),
       '--test-threads',
       '1',
@@ -326,6 +328,7 @@ it('tests and formats the affected Guardian and extension registry owners on bot
     'codex-skills',
     'codex-exec-server',
     'codex-app-server',
+    'codex-git-attribution',
   ])
     expect(formatting?.run).toMatch(new RegExp(`(?:^|\\s)-p\\s+${crate}(?:\\s|$)`));
 });
