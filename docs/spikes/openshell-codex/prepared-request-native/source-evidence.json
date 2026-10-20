@@ -360,10 +360,50 @@
     {
       "file": "native-provider-header-fixture.patch",
       "sha256": "d4617e4f8c868cd76883310d0cd4768fea72d413a9279d9666c3d216b6344f7b"
+    },
+    {
+      "file": "native-original-initial-context-data.patch",
+      "sha256": "b6fffacfcb934fd51eeb671d8d2a4003751a01ab640ca2a29d031a0e202a9205"
+    },
+    {
+      "file": "native-selected-context-partitions.patch",
+      "sha256": "945c08dd4d8ee9bc6914c1393624d977c5444cbb96847666cfd3a67b0c288b58"
+    },
+    {
+      "file": "native-model-provenance-import.patch",
+      "sha256": "f2ab3f724083611f435b61f3b432c87cf3313519bb9e8049697f35cfea3107e5"
+    },
+    {
+      "file": "native-builtin-initial-context-producer.patch",
+      "sha256": "f619ed402c154221a0d6920b18bc704e8c1f0b8dd1802a54d31fde45e3737318"
+    },
+    {
+      "file": "native-selected-environment-context.patch",
+      "sha256": "cbf63f5f22172a84534c8ecbee3923fe5a234901d3809a2d0537d8835467a4ad"
+    },
+    {
+      "file": "native-missing-source-policy-refusal.patch",
+      "sha256": "1c87962921cd62d392680f5c77739d313e4cf529ef7a2cab9a91147246123c64"
+    },
+    {
+      "file": "native-original-selected-allocation.patch",
+      "sha256": "8353c066db35ce16bb110262ef9862d0ca5386b51bce28ddad4f20a39a9592d5"
+    },
+    {
+      "file": "native-original-client-input-adoption.patch",
+      "sha256": "f7ee3f66efd0d4184c2ada03ed3746872a3fab9f26becca598b79a516126e6c9"
+    },
+    {
+      "file": "native-original-client-source-projection.patch",
+      "sha256": "c308396b865d06621c313dcda9c7d6dd7c628ac22389899ca3038b6602a048c4"
+    },
+    {
+      "file": "native-original-image-and-source-fixtures.patch",
+      "sha256": "ec446a7d3a47cef1367abd4781e7e9cd647324cf275170bb84f4c5d1f3562d80"
     }
   ],
-  "sourceTree": "5afdd74dd6631cf91d32325d78914dff3bc6a8f7",
-  "localSourceCommit": "349165924d187197140074b8cfefe087d2e73cba",
+  "sourceTree": "6e7109d979ed7deeb4e00fe3ec3473083d0e1b74",
+  "localSourceCommit": "b2f34ca45571ca7514b5f307b76a78b475829769",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -497,7 +537,17 @@
     "d7e66646973baf68dd8f72f4241248f3e5673696",
     "a78cc0d8a9786ddb416ea1427fa2a1b89f9c1d3a",
     "cf3d8577c4dfde13788ad59ec91b4c615d1a4e0a",
-    "349165924d187197140074b8cfefe087d2e73cba"
+    "349165924d187197140074b8cfefe087d2e73cba",
+    "7644ccba2897e34483a81628507c5ae49898685a",
+    "4575377354f1ca1891f23497d269c0a15f9b6b68",
+    "6a59a6011de8bbac81b30d2e4246e9deea93dc50",
+    "630ba6665e384f38e90193bb2bec2a55c551a9c6",
+    "4d873440e017fc83df18cdae8e959af250e1d5b5",
+    "75e2e9dbf5917c0320fb17257562bfa58197816a",
+    "db7636b35240ce9908fdb4aa00e2beb98963ed03",
+    "7b97e7e2468b6386fa559f27bb46163019d14ecd",
+    "b6b96a16a805249c19d34c8f6643fa9e4507940d",
+    "b2f34ca45571ca7514b5f307b76a78b475829769"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -507,7 +557,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "89 ordered patches retain all88 prior patch records/bytes. Patch89 changes only three test literal values from String to the existing RedactedString type, preserving exact malformed/case-ambiguous header bytes and original assertions. Production native source and all complete-factory/readiness limits remain unchanged.",
+    "scope": "99 ordered patches preserve all original89 records and bytes. Patches90-98 extract original initial context DATA, environment/source partitions, default allocations and ModelClient consumed fields. Patch99 repairs documented original image detail validation and two original-owner fixture inputs; complete fresh request factory remains uninstalled.",
     "localFocused": {
       "status": "exact_source_reconstruction_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -516,7 +566,7 @@
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_89_exact_source",
+      "status": "pending_99_exact_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -564,7 +614,101 @@
         "macosOutcomeAtCapture": "in_progress",
         "linuxArtifact": 12283706338,
         "linuxArtifactSha256": "bcb31395efcb667155ed665b217b57929c7d71dccc01a0a583c90c15966ecee2"
-      }
+      },
+      "prior89QualificationTransfers": false,
+      "prior89Terminal": {
+        "sourceCommit": "349165924d187197140074b8cfefe087d2e73cba",
+        "sourceTree": "5afdd74dd6631cf91d32325d78914dff3bc6a8f7",
+        "checks": {
+          "scope": "89 ordered patches retain all88 prior patch records/bytes. Patch89 changes only three test literal values from String to the existing RedactedString type, preserving exact malformed/case-ambiguous header bytes and original assertions. Production native source and all complete-factory/readiness limits remain unchanged.",
+          "localFocused": {
+            "status": "exact_source_reconstruction_and_scoped_format_only",
+            "rustTestsExecuted": false,
+            "compiled": false,
+            "allNewRustFixtures": "UNCOMPILED/UNRUN",
+            "dynamicGreenClaimed": false
+          },
+          "ci": {
+            "status": "pending_89_exact_source",
+            "workflow": ".github/workflows/prepared-request-native.yml",
+            "scope": [
+              "codex-core",
+              "codex-http-client",
+              "codex-state",
+              "codex-api",
+              "codex-guardian-reviewer",
+              "codex-extension-api",
+              "codex-mcp-extension",
+              "codex-login",
+              "codex-memories-extension",
+              "codex-web-search-extension",
+              "codex-history-notes-extension",
+              "codex-goal-extension",
+              "codex-models-manager",
+              "codex-home",
+              "codex-model-provider-info",
+              "codex-skills-extension",
+              "codex-skills",
+              "codex-exec-server",
+              "codex-app-server",
+              "codex-git-attribution",
+              "codex-core-plugins",
+              "codex-execpolicy"
+            ],
+            "linuxAdditionalScope": ["codex-linux-sandbox"],
+            "platforms": ["ubuntu-24.04", "macos-26"],
+            "testThreads": 1,
+            "retries": 0,
+            "prior81QualificationTransfers": false,
+            "prior82QualificationTransfers": false,
+            "prior83QualificationTransfers": false,
+            "prior84QualificationTransfers": false,
+            "prior85QualificationTransfers": false,
+            "prior86QualificationTransfers": false,
+            "prior87QualificationTransfers": false,
+            "prior88QualificationTransfers": false,
+            "prior88Failure": {
+              "run": 39454890578,
+              "linuxJob": 118739246813,
+              "conclusion": "failure",
+              "failure": "E0308 in model-provider-info/src/captured_provider.rs:124; test literal map used String instead of existing RedactedString",
+              "fixtureExecution": "No crate fixtures executed: cargo test --no-run compilation failed",
+              "macosJob": 118739246289,
+              "macosOutcomeAtCapture": "in_progress",
+              "linuxArtifact": 12283706338,
+              "linuxArtifactSha256": "bcb31395efcb667155ed665b217b57929c7d71dccc01a0a583c90c15966ecee2"
+            }
+          }
+        },
+        "terminalRun": 39463080370,
+        "conclusion": "cancelled_both_platforms_after_partial_fixture_failures_by_120_minute_job_limit",
+        "terminalSealSha256": "6466fb33cae79727b4e92439e534fac7744d0f01bfbcfec01a7dbf7ae1c58866",
+        "partialRetainedArtifactLogRecords": {
+          "linux": {
+            "passed": 6828,
+            "failed": 3,
+            "lastOrdinal": 6831,
+            "listed": 9568
+          },
+          "macos": {
+            "passed": 6171,
+            "failed": 3,
+            "lastOrdinal": 6174,
+            "listed": 9352
+          }
+        },
+        "countsAreFinalSuiteTotals": false,
+        "platformsMayOverlap": true,
+        "junitPresent": false,
+        "formattingExecuted": false,
+        "failedFixtures": [
+          "client::public_responses_capture::tests::bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture",
+          "client::public_responses_capture::tests::public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row",
+          "thread_manager::pre_session_skills::tests::original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup"
+        ]
+      },
+      "jobTimeoutMinutes": 240,
+      "timeoutReason": "Both source89 jobs exceeded maximum execution time 2h0m0s after thousands of records; retain complete same package coverage, one thread and zero retries."
     }
   },
   "runtimeQualified": false,
@@ -716,6 +860,34 @@
         "native-model-tool-exposure-policy.patch",
         "native-resolved-code-mode-registry.patch"
       ]
+    },
+    "freshOriginalContextAndClientInputs": {
+      "commits": [
+        "7644ccba2897e34483a81628507c5ae49898685a",
+        "4575377354f1ca1891f23497d269c0a15f9b6b68",
+        "6a59a6011de8bbac81b30d2e4246e9deea93dc50",
+        "630ba6665e384f38e90193bb2bec2a55c551a9c6",
+        "4d873440e017fc83df18cdae8e959af250e1d5b5",
+        "75e2e9dbf5917c0320fb17257562bfa58197816a",
+        "db7636b35240ce9908fdb4aa00e2beb98963ed03",
+        "7b97e7e2468b6386fa559f27bb46163019d14ecd",
+        "b6b96a16a805249c19d34c8f6643fa9e4507940d"
+      ],
+      "sourceOnly": true,
+      "scope": "Actual original initial-context data and original model-client input/allocation extraction; neither pre-session client construction nor complete registry/request-factory adoption is installed.",
+      "public89ProviderFixtureAlreadyAppliedOnce": true,
+      "privateEquivalentExcludedFromOrderedPatches": "0e885ffcc0b3455e0ab631530c4429f33e5c4bb5"
+    },
+    "native89GenuineFailureCorrections": {
+      "commit": "b2f34ca45571ca7514b5f307b76a78b475829769",
+      "productionChange": "Frozen public image detail whitelist adds original without changing any bytes or clearing unsupported fields.",
+      "schema": "https://developers.openai.com/api/reference/resources/responses/subresources/input_tokens/methods/count",
+      "fixtureCorrections": [
+        "Assert original empty instructions value before serialization and original serializer field absence, not a JSON empty string that was never serialized.",
+        "Supply the actual temporary User configuration layer required by original HostSkills roots; keep original full Knowledge bytes/retention/currentness/nonstartup assertions."
+      ],
+      "unchangedBundledLunaRow": true,
+      "compileOrTestClaim": false
     }
   },
   "historicalFoundation": {
@@ -1159,6 +1331,98 @@
       "publishedPr": 1065,
       "nativeCi": 39368960594,
       "qualification": "Both OS helper builds failed two E0308 library errors at manager.rs429/448 before fixtures/format; no fixture totals or execution qualification"
+    },
+    {
+      "checkpoint": "source89Terminal",
+      "sourceCommit": "349165924d187197140074b8cfefe087d2e73cba",
+      "sourceTree": "5afdd74dd6631cf91d32325d78914dff3bc6a8f7",
+      "checks": {
+        "scope": "89 ordered patches retain all88 prior patch records/bytes. Patch89 changes only three test literal values from String to the existing RedactedString type, preserving exact malformed/case-ambiguous header bytes and original assertions. Production native source and all complete-factory/readiness limits remain unchanged.",
+        "localFocused": {
+          "status": "exact_source_reconstruction_and_scoped_format_only",
+          "rustTestsExecuted": false,
+          "compiled": false,
+          "allNewRustFixtures": "UNCOMPILED/UNRUN",
+          "dynamicGreenClaimed": false
+        },
+        "ci": {
+          "status": "pending_89_exact_source",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-http-client",
+            "codex-state",
+            "codex-api",
+            "codex-guardian-reviewer",
+            "codex-extension-api",
+            "codex-mcp-extension",
+            "codex-login",
+            "codex-memories-extension",
+            "codex-web-search-extension",
+            "codex-history-notes-extension",
+            "codex-goal-extension",
+            "codex-models-manager",
+            "codex-home",
+            "codex-model-provider-info",
+            "codex-skills-extension",
+            "codex-skills",
+            "codex-exec-server",
+            "codex-app-server",
+            "codex-git-attribution",
+            "codex-core-plugins",
+            "codex-execpolicy"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "testThreads": 1,
+          "retries": 0,
+          "prior81QualificationTransfers": false,
+          "prior82QualificationTransfers": false,
+          "prior83QualificationTransfers": false,
+          "prior84QualificationTransfers": false,
+          "prior85QualificationTransfers": false,
+          "prior86QualificationTransfers": false,
+          "prior87QualificationTransfers": false,
+          "prior88QualificationTransfers": false,
+          "prior88Failure": {
+            "run": 39454890578,
+            "linuxJob": 118739246813,
+            "conclusion": "failure",
+            "failure": "E0308 in model-provider-info/src/captured_provider.rs:124; test literal map used String instead of existing RedactedString",
+            "fixtureExecution": "No crate fixtures executed: cargo test --no-run compilation failed",
+            "macosJob": 118739246289,
+            "macosOutcomeAtCapture": "in_progress",
+            "linuxArtifact": 12283706338,
+            "linuxArtifactSha256": "bcb31395efcb667155ed665b217b57929c7d71dccc01a0a583c90c15966ecee2"
+          }
+        }
+      },
+      "terminalRun": 39463080370,
+      "conclusion": "cancelled_both_platforms_after_partial_fixture_failures_by_120_minute_job_limit",
+      "terminalSealSha256": "6466fb33cae79727b4e92439e534fac7744d0f01bfbcfec01a7dbf7ae1c58866",
+      "partialRetainedArtifactLogRecords": {
+        "linux": {
+          "passed": 6828,
+          "failed": 3,
+          "lastOrdinal": 6831,
+          "listed": 9568
+        },
+        "macos": {
+          "passed": 6171,
+          "failed": 3,
+          "lastOrdinal": 6174,
+          "listed": 9352
+        }
+      },
+      "countsAreFinalSuiteTotals": false,
+      "platformsMayOverlap": true,
+      "junitPresent": false,
+      "formattingExecuted": false,
+      "failedFixtures": [
+        "client::public_responses_capture::tests::bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture",
+        "client::public_responses_capture::tests::public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row",
+        "thread_manager::pre_session_skills::tests::original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup"
+      ]
     }
   ],
   "history": [

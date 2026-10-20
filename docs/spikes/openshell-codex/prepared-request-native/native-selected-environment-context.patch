@@ -1,0 +1,502 @@
+diff --git a/codex-rs/core/src/context/world_state/environment.rs b/codex-rs/core/src/context/world_state/environment.rs
+index d51c3a0c705b646ad418de9e45fcfeeeda451378..823f5abda6251112aad9a61f6a33cb1d21ebd6f5 100644
+--- a/codex-rs/core/src/context/world_state/environment.rs
++++ b/codex-rs/core/src/context/world_state/environment.rs
+@@ -50,6 +50,26 @@ pub(crate) struct ResolvedEnvironmentSources<'a> {
+     pub(crate) network: Option<NetworkContext>,
+ }
+ 
++/// Incomplete source-owned display projection. It cannot implement a native
++/// WorldState section or render without the ORIGINAL thread-keyed agent state.
++#[allow(
++    dead_code,
++    reason = "Retained original inputs await the native identity/agent-state producer."
++)]
++pub(crate) struct InitialEnvironmentProjection(EnvironmentsState);
++impl InitialEnvironmentProjection {
++    #[allow(
++        dead_code,
++        reason = "The original native identity/agent-state producer is not yet available before Session."
++    )]
++    pub(crate) fn with_original_subagents(
++        self,
++        state: crate::session::OriginalEnvironmentSubagentState,
++    ) -> EnvironmentsState {
++        self.0.with_subagents(state.into_text())
++    }
++}
++
+ impl EnvironmentsState {
+     pub(crate) async fn from_turn_context_with_environments(
+         turn_context: &TurnContext,
+@@ -103,6 +123,44 @@ impl EnvironmentsState {
+         }
+     }
+ 
++    /// Original local selected-start data projection. Child-agent state remains
++    /// an independent REQUIRED source; this does not pretend it is empty.
++    pub(crate) fn from_selected_start_sources(
++        source: &crate::environment_selection::initial_context::SelectedStartEnvironmentContext<'_>,
++        current_date: String,
++        timezone: String,
++    ) -> InitialEnvironmentProjection {
++        let environments = source
++            .entries()
++            .iter()
++            .enumerate()
++            .map(|(index, entry)| {
++                (
++                    entry.selection.environment_id.clone(),
++                    available_environment_state(
++                        entry.selection.cwd.clone(),
++                        Some(source.shell().name().to_string()),
++                        index == 0,
++                    ),
++                )
++            })
++            .collect();
++        InitialEnvironmentProjection(Self {
++            environments,
++            shell_version: None,
++            current_date: Some(current_date),
++            timezone: Some(timezone),
++            network: network_from_config(&source.sources().start_options().config),
++            filesystem: source.entries().first().map(|entry| {
++                FileSystemContext::from_permission_profile(
++                    &entry.profile,
++                    &entry.selection.workspace_roots,
++                )
++            }),
++            subagents: None,
++        })
++    }
++
+     pub(crate) fn with_subagents(mut self, subagents: String) -> Self {
+         if !subagents.is_empty() {
+             self.subagents = Some(subagents);
+@@ -488,6 +546,20 @@ async fn powershell_version(shell_path: &Path) -> Option<String> {
+     version
+ }
+ 
++fn available_environment_state(
++    cwd: PathUri,
++    shell: Option<String>,
++    is_primary: bool,
++) -> EnvironmentState {
++    EnvironmentState {
++        cwd,
++        status: EnvironmentStatus::Available,
++        error: None,
++        shell,
++        is_primary,
++    }
++}
++
+ fn environment_states(snapshot: &TurnEnvironmentSnapshot) -> BTreeMap<String, EnvironmentState> {
+     let mut environments = snapshot
+         .turn_environments()
+@@ -495,16 +567,14 @@ fn environment_states(snapshot: &TurnEnvironmentSnapshot) -> BTreeMap<String, En
+         .map(|(index, environment)| {
+             (
+                 environment.selection.environment_id.clone(),
+-                EnvironmentState {
+-                    cwd: environment.cwd().clone(),
+-                    status: EnvironmentStatus::Available,
+-                    error: None,
+-                    shell: environment
++                available_environment_state(
++                    environment.cwd().clone(),
++                    environment
+                         .shell
+                         .as_ref()
+                         .map(|shell| shell.name().to_string()),
+-                    is_primary: index == 0,
+-                },
++                    index == 0,
++                ),
+             )
+         })
+         .collect::<BTreeMap<_, _>>();
+@@ -559,12 +629,10 @@ fn environment_context_markers() -> (&'static str, &'static str) {
+ }
+ 
+ fn network_from_turn_context(turn_context: &TurnContext) -> Option<NetworkContext> {
+-    let network = turn_context
+-        .config
+-        .config_layer_stack
+-        .requirements()
+-        .network
+-        .as_ref()?;
++    network_from_config(&turn_context.config)
++}
++fn network_from_config(config: &crate::config::Config) -> Option<NetworkContext> {
++    let network = config.config_layer_stack.requirements().network.as_ref()?;
+ 
+     Some(NetworkContext::new(
+         network
+diff --git a/codex-rs/core/src/context/world_state/mod.rs b/codex-rs/core/src/context/world_state/mod.rs
+index 263c0fcf913f837ef199ec3a7526fe0c5cdc9e5a..e45ebf340626250ea5ea099a6de766c9e71f1cb8 100644
+--- a/codex-rs/core/src/context/world_state/mod.rs
++++ b/codex-rs/core/src/context/world_state/mod.rs
+@@ -42,6 +42,7 @@ pub(crate) use collaboration_mode::CollaborationModeState;
+ pub(crate) use compact_permissions::CompactPermissionsState;
+ pub(crate) use context_window_guidance::ContextWindowGuidanceState;
+ pub(crate) use environment::EnvironmentsState;
++pub(crate) use environment::InitialEnvironmentProjection;
+ pub(crate) use environment::ResolvedEnvironmentSources;
+ pub(crate) use environments_instructions::EnvironmentsInstructionsState;
+ pub(crate) use managed_developer_instructions::ManagedDeveloperInstructions;
+diff --git a/codex-rs/core/src/environment_selection.rs b/codex-rs/core/src/environment_selection.rs
+index fb49d5ac8baef70a7831bce18a7f136b908a1a8e..d199b863f2ae04052d6c1c9135dc0477c02cbc6d 100644
+--- a/codex-rs/core/src/environment_selection.rs
++++ b/codex-rs/core/src/environment_selection.rs
+@@ -1,3 +1,6 @@
++#[path = "environment_selection/initial_context.rs"]
++pub(crate) mod initial_context;
++
+ use std::collections::HashMap;
+ use std::collections::HashSet;
+ use std::fmt;
+diff --git a/codex-rs/core/src/environment_selection/initial_context.rs b/codex-rs/core/src/environment_selection/initial_context.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..5155204bd705b5df80fa01b37ba84d471eaf77af
+--- /dev/null
++++ b/codex-rs/core/src/environment_selection/initial_context.rs
+@@ -0,0 +1,133 @@
++//! Initial environment display/permission DATA from retained original handles.
++//! Does not create TurnEnvironmentSnapshot/TurnContext, connect, publish config,
++//! install a shell snapshot or execute a shell/version probe. Remote/owner-ready
++//! configurations require their own exact ordinary validation/currency contract.
++use crate::PreSessionMcpSources;
++use crate::config::Config;
++use crate::shell::Shell;
++use crate::shell::ShellType;
++use codex_features::Feature;
++use codex_protocol::models::PermissionProfile;
++use codex_protocol::protocol::EnvironmentConfigState;
++use codex_protocol::protocol::TurnEnvironmentSelection;
++use codex_utils_absolute_path::AbsolutePathBuf;
++
++#[derive(Debug, thiserror::Error, PartialEq, Eq)]
++pub(crate) enum InitialEnvironmentContextRefusal {
++    #[error("original start shell source is unavailable")]
++    ShellSource,
++    #[error("original PowerShell version probe is unresolved")]
++    ShellVersionProbe,
++    #[error("ordinary selected environments are unresolved or changed")]
++    Selection,
++    #[error("initial context requires retained ready local environments")]
++    RemoteOrChangedHandle,
++    #[error("owner-provided environment context requires its original currency source")]
++    OwnerConfiguration,
++    #[error("selected initial environment sources changed")]
++    Changed,
++}
++
++#[derive(Clone)]
++pub(crate) struct InitialEnvironmentEntry {
++    pub(crate) selection: TurnEnvironmentSelection,
++    pub(crate) profile: PermissionProfile,
++}
++/// Only this original source module constructs these selected values.
++pub(crate) struct SelectedStartEnvironmentContext<'a> {
++    sources: &'a PreSessionMcpSources,
++    entries: Vec<InitialEnvironmentEntry>,
++    shell: Shell,
++}
++impl<'a> SelectedStartEnvironmentContext<'a> {
++    pub(crate) fn sources(&self) -> &PreSessionMcpSources {
++        self.sources
++    }
++    pub(crate) fn entries(&self) -> &[InitialEnvironmentEntry] {
++        &self.entries
++    }
++    pub(crate) fn shell(&self) -> &Shell {
++        &self.shell
++    }
++
++    pub(crate) fn observe(
++        sources: &'a PreSessionMcpSources,
++    ) -> Result<Self, InitialEnvironmentContextRefusal> {
++        let config = &sources.start_options().config;
++        let shell = crate::shell::select_start_shell(config, /*user_shell_override*/ None)
++            .map_err(|_| InitialEnvironmentContextRefusal::ShellSource)?;
++        if config.features.enabled(Feature::PowerShellShellVersion)
++            && shell.shell_type == ShellType::PowerShell
++        {
++            return Err(InitialEnvironmentContextRefusal::ShellVersionProbe);
++        }
++        let selections = sources
++            .start_options()
++            .environments
++            .as_ref()
++            .ok_or_else(|| InitialEnvironmentContextRefusal::Selection)?;
++        let handles = sources.captured_environment_handles();
++        if selections.len() != handles.len() {
++            return Err(InitialEnvironmentContextRefusal::Selection);
++        }
++        let mut entries = Vec::with_capacity(selections.len());
++        for (selection, (id, handle)) in selections.iter().zip(handles) {
++            if id != &selection.environment_id || handle.is_remote() {
++                return Err(InitialEnvironmentContextRefusal::RemoteOrChangedHandle);
++            }
++            // Original local wait_until_ready/readiness_result are unconditional
++            // ready (exec-server/environment.rs); no transport/probe is invoked.
++            // Only actual FromThread defaults are projected. Owner-ready, pending
++            // and failed inputs are not reinterpreted or overwritten.
++            if !matches!(&selection.config, EnvironmentConfigState::FromThread) {
++                return Err(InitialEnvironmentContextRefusal::OwnerConfiguration);
++            }
++            entries.push(InitialEnvironmentEntry {
++                selection: selection.clone(),
++                profile: config.permissions.permission_profile().clone(),
++            });
++        }
++        Ok(Self {
++            sources,
++            entries,
++            shell,
++        })
++    }
++    pub(crate) fn renew_local_sources(&self) -> Result<(), InitialEnvironmentContextRefusal> {
++        let current = Self::observe(self.sources)?;
++        if current.shell != self.shell
++            || current.entries.len() != self.entries.len()
++            || current
++                .entries
++                .iter()
++                .zip(&self.entries)
++                .any(|(a, b)| a.selection != b.selection || a.profile != b.profile)
++        {
++            return Err(InitialEnvironmentContextRefusal::Changed);
++        }
++        Ok(())
++    }
++    pub(crate) fn permission_profile(&self, config: &Config) -> PermissionProfile {
++        match self.entries.first() {
++            Some(entry) => entry
++                .profile
++                .clone()
++                .materialize_project_roots_with_path_uris(&entry.selection.workspace_roots),
++            None => config
++                .permissions
++                .permission_profile()
++                .clone()
++                .materialize_project_roots_with_path_uris(&[]),
++        }
++    }
++    pub(crate) fn permission_cwd(&self, config: &Config) -> AbsolutePathBuf {
++        self.entries
++            .first()
++            .and_then(|entry| entry.selection.cwd.to_abs_path().ok())
++            .unwrap_or_else(|| config.cwd.clone())
++    }
++}
++
++#[cfg(test)]
++#[path = "initial_context_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/environment_selection/initial_context_tests.rs b/codex-rs/core/src/environment_selection/initial_context_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..7f02aa9a2abd394b82a2e38536bd3f1165547b34
+--- /dev/null
++++ b/codex-rs/core/src/environment_selection/initial_context_tests.rs
+@@ -0,0 +1,111 @@
++use super::*;
++use crate::StartThreadOptions;
++use crate::ThreadManager;
++use crate::config::{ConfigBuilder, ConfigOverrides};
++use codex_exec_server::EnvironmentManager;
++use codex_login::CodexAuth;
++use pretty_assertions::assert_eq;
++use std::sync::Arc;
++
++async fn fixture() -> (tempfile::TempDir, Config, ThreadManager) {
++    let home = tempfile::tempdir().unwrap();
++    let config = ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .loader_overrides(
++            codex_config::LoaderOverrides::with_managed_config_path_for_tests(
++                home.path().join("managed.toml"),
++            ),
++        )
++        .harness_overrides(ConfigOverrides {
++            cwd: Some(home.path().to_path_buf()),
++            ..Default::default()
++        })
++        .build()
++        .await
++        .unwrap();
++    let manager = ThreadManager::with_models_provider_and_home_for_tests(
++        CodexAuth::from_api_key("synthetic-environment-source"),
++        config.model_provider.clone(),
++        home.path().to_path_buf(),
++        Arc::new(EnvironmentManager::default_for_tests()),
++    );
++    (home, config, manager)
++}
++
++#[tokio::test]
++async fn retained_original_local_owner_projects_exact_selection_permissions_and_shell_without_startup()
++ {
++    let (_home, config, manager) = fixture().await;
++    let mut selected = manager
++        .prepare_selected_start(StartThreadOptions::new(config.clone()))
++        .await
++        .unwrap();
++    manager
++        .capture_selected_start_api_mcp(
++            &mut selected,
++            manager
++                .auth_manager()
++                .capture_cached_api_key_credentials()
++                .unwrap(),
++        )
++        .unwrap();
++    let sources = selected.mcp_sources().unwrap();
++    let projected = SelectedStartEnvironmentContext::observe(sources).unwrap();
++    let selections = sources.start_options().environments.as_ref().unwrap();
++    assert_eq!(
++        projected
++            .entries
++            .iter()
++            .map(|entry| entry.selection.clone())
++            .collect::<Vec<_>>(),
++        *selections
++    );
++    assert_eq!(
++        projected.permission_profile(&config),
++        config
++            .permissions
++            .permission_profile()
++            .clone()
++            .materialize_project_roots_with_path_uris(&selections[0].workspace_roots)
++    );
++    assert_eq!(
++        projected.shell,
++        crate::shell::select_start_shell(&config, /*user_shell_override*/ None).unwrap()
++    );
++    projected.renew_local_sources().unwrap();
++    assert!(manager.list_thread_ids().await.is_empty());
++}
++
++#[tokio::test]
++async fn selected_owner_ready_configuration_is_not_silently_reinterpreted_as_thread_defaults() {
++    let (_home, config, manager) = fixture().await;
++    let mut options = StartThreadOptions::new(config);
++    // An actual ordinary fixture supplies the real owner-ready config. It is
++    // not a fabricated readiness marker and is never overwritten by capture.
++    let (_session, turn) = crate::session::tests::make_session_and_context().await;
++    let ready = turn
++        .initial_environments
++        .primary()
++        .unwrap()
++        .config()
++        .clone();
++    let mut selections = manager
++        .default_environment_selections(&options.config.cwd, &options.config.workspace_roots);
++    selections[0].config = EnvironmentConfigState::Ready(ready);
++    options.environments = Some(selections);
++    let mut selected = manager.prepare_selected_start(options).await.unwrap();
++    manager
++        .capture_selected_start_api_mcp(
++            &mut selected,
++            manager
++                .auth_manager()
++                .capture_cached_api_key_credentials()
++                .unwrap(),
++        )
++        .unwrap();
++    assert_eq!(
++        SelectedStartEnvironmentContext::observe(selected.mcp_sources().unwrap()).err(),
++        Some(InitialEnvironmentContextRefusal::OwnerConfiguration)
++    );
++    assert!(manager.list_thread_ids().await.is_empty());
++}
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index 824cf589cd4e584748bdb7071c156c0466f65ded..ff28e57c2fa342622f0c9861d0bf0857f6c3e696 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -1345,33 +1345,10 @@ impl Session {
+                 mcp_server_names.iter().map(String::as_str).collect(),
+             );
+ 
+-            let use_zsh_fork_shell = config.features.enabled(Feature::ShellZshFork);
+-            let default_shell = if let Some(user_shell_override) =
+-                session_configuration.user_shell_override.clone()
+-            {
+-                user_shell_override
+-            } else if use_zsh_fork_shell {
+-                let zsh_path = config.zsh_path.as_ref().ok_or_else(|| {
+-                    anyhow::anyhow!(
+-                        "zsh fork feature enabled, but no packaged zsh fork is available for this install"
+-                    )
+-                })?;
+-                if zsh_path.is_file() {
+-                    shell::Shell {
+-                        shell_type: shell::ShellType::Zsh,
+-                        shell_path: zsh_path.clone(),
+-                    }
+-                } else {
+-                    shell::get_shell(shell::ShellType::Zsh).ok_or_else(|| {
+-                        anyhow::anyhow!(
+-                            "zsh fork feature enabled, but packaged zsh fork `{}` is not usable",
+-                            zsh_path.display()
+-                        )
+-                    })?
+-                }
+-            } else {
+-                shell::default_user_shell()
+-            };
++            let default_shell = shell::select_start_shell(
++                &config,
++                session_configuration.user_shell_override.as_ref(),
++            )?;
+             let credential_broker_available = config.features.enabled(Feature::NetworkProxy)
+                 && config
+                     .config_layer_stack
+diff --git a/codex-rs/core/src/shell.rs b/codex-rs/core/src/shell.rs
+index 37a35bfe3f44c71c1829d03918185043880655af..7bdc711bd7ddf32b5d9b74611474ca9acf669338 100644
+--- a/codex-rs/core/src/shell.rs
++++ b/codex-rs/core/src/shell.rs
+@@ -102,3 +102,40 @@ fn default_user_shell_from_path(user_shell_path: Option<PathBuf>) -> Shell {
+ #[cfg(unix)]
+ #[path = "shell_tests.rs"]
+ mod tests;
++
++/// Original ordinary shell selection. Reads local account/PATH/filesystem
++/// metadata; never starts an executor, shell process or snapshot task. Retained
++/// callers must renew the result; this is not an external metadata lease.
++pub(crate) fn select_start_shell(
++    config: &crate::config::Config,
++    user_shell_override: Option<&Shell>,
++) -> anyhow::Result<Shell> {
++    let use_zsh_fork_shell = config
++        .features
++        .enabled(codex_features::Feature::ShellZshFork);
++    let default_shell = if let Some(user_shell_override) = user_shell_override.cloned() {
++        user_shell_override
++    } else if use_zsh_fork_shell {
++        let zsh_path = config.zsh_path.as_ref().ok_or_else(|| {
++            anyhow::anyhow!(
++                "zsh fork feature enabled, but no packaged zsh fork is available for this install"
++            )
++        })?;
++        if zsh_path.is_file() {
++            Shell {
++                shell_type: ShellType::Zsh,
++                shell_path: zsh_path.clone(),
++            }
++        } else {
++            get_shell(ShellType::Zsh).ok_or_else(|| {
++                anyhow::anyhow!(
++                    "zsh fork feature enabled, but packaged zsh fork `{}` is not usable",
++                    zsh_path.display()
++                )
++            })?
++        }
++    } else {
++        default_user_shell()
++    };
++    Ok(default_shell)
++}

@@ -184,7 +184,7 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
     path: string;
     status: number;
     body?: unknown;
-    bodyRead?: { state: 'not-read'; reason: string };
+    bodyRead?: { state: 'not-read' | 'aborted'; reason: string };
   }> = [];
   const responseReads: Promise<void>[] = [];
   try {
@@ -534,6 +534,25 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
               record.body = body;
             })
             .catch((error) => {
+              // Original UI may cancel a superseded SOURCE metadata GET after
+              // headers. Its absent CDP body is an observed request abort, not
+              // a page error; every other response/read failure remains strict.
+              if (
+                request.method() === 'GET' &&
+                url.pathname === `/api/sessions/${sessionId}/meta` &&
+                response.status() === 200 &&
+                request.failure()?.errorText === 'net::ERR_ABORTED' &&
+                String(error).includes(
+                  'Protocol error (Network.getResponseBody): No data found for resource with given identifier',
+                )
+              ) {
+                record.bodyRead = {
+                  state: 'aborted',
+                  reason:
+                    'Original SOURCE metadata request aborted: net::ERR_ABORTED; no body invented',
+                };
+                return;
+              }
               browserErrors.push(
                 `Response capture ${record.method} ${record.path}: ${String(error)}`,
               );
@@ -810,6 +829,22 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       expect(reviews.length).toBeGreaterThanOrEqual(2);
       await Promise.all(responseReads);
       expect(browserErrors).toEqual([]);
+      // An aborted superseded read cannot substitute for an actual successful
+      // SOURCE metadata body in this same original browser context.
+      expect(
+        responses
+          .slice(responseStart)
+          .some(
+            (response) =>
+              response.method === 'GET' &&
+              response.path === `/api/sessions/${sessionId}/meta` &&
+              response.status === 200 &&
+              typeof response.body === 'object' &&
+              response.body !== null &&
+              'sessionId' in response.body &&
+              response.body.sessionId === sessionId,
+          ),
+      ).toBe(true);
       const initialReview = CollaborationApplicationReviewResultSchema.parse(reviews[0].body);
       const refrozen = CollaborationApplicationReviewResultSchema.parse(reviews.at(-1)!.body);
       expect(refrozen.snapshot.sourceConversationId).toBe(sessionId);

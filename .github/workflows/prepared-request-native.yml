@@ -23,8 +23,9 @@ jobs:
     name: Native offline fixtures (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # Cold setup/builds need room for the complete offline fixture suite.
-    # Linux run 39215620265 exceeded 90 minutes while tests were still passing.
-    timeout-minutes: 120
+    # Source89 run39463080370 hit120min on bothOS during the complete suite.
+    # Retain full coverage, one test thread and zero retries; allow completion.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:

@@ -1,0 +1,124 @@
+diff --git a/codex-rs/codex-api/src/requests/frozen_responses.rs b/codex-rs/codex-api/src/requests/frozen_responses.rs
+index b0e31b9fbeeeb7913742bd96b8ea637b4b1277c1..e2f01389717133901ccb8fdd1739ec24b17c91ef 100644
+--- a/codex-rs/codex-api/src/requests/frozen_responses.rs
++++ b/codex-rs/codex-api/src/requests/frozen_responses.rs
+@@ -270,8 +270,9 @@ fn validate_content(part: &Value) -> Result<(), ApiError> {
+         Some("input_image") => {
+             object(part, &["type", "image_url", "detail"])?;
+             ensure(
+-                part.get("detail")
+-                    .is_none_or(|v| matches!(v.as_str(), Some("auto" | "low" | "high"))),
++                part.get("detail").is_none_or(|v| {
++                    matches!(v.as_str(), Some("auto" | "low" | "high" | "original"))
++                }),
+             )?;
+             let url = part
+                 .get("image_url")
+diff --git a/codex-rs/codex-api/src/requests/frozen_responses_tests.rs b/codex-rs/codex-api/src/requests/frozen_responses_tests.rs
+index a5f0ac08df2fa37557f9c4d285b8b2681e492e87..dab211a5df8492734dea563df40d1e0b4186455b 100644
+--- a/codex-rs/codex-api/src/requests/frozen_responses_tests.rs
++++ b/codex-rs/codex-api/src/requests/frozen_responses_tests.rs
+@@ -34,6 +34,28 @@ fn frozen_retains_final_generation_body_and_exact_count_projection() {
+     assert_eq!(frozen.max_output_tokens(), 16);
+ }
+ 
++#[test]
++fn frozen_preserves_original_image_detail_in_create_count_and_restoration() {
++    let mut request = body();
++    request["input"][0]["content"][1]["detail"] = json!("original");
++    let frozen = FrozenResponsesRequest::new(request.clone(), 16).unwrap();
++    assert_eq!(frozen.body(), &request);
++    assert_eq!(frozen.count_body()["input"], request["input"]);
++    let restored = FrozenResponsesRequest::from_encoded(frozen.encoded_body(), 16).unwrap();
++    assert_eq!(restored.body(), frozen.body());
++    assert_eq!(restored.count_body(), frozen.count_body());
++    assert_eq!(restored.encoded_body(), frozen.encoded_body());
++
++    for detail in [json!("future_detail"), json!(null), json!(42)] {
++        request["input"][0]["content"][1]["detail"] = detail;
++        assert!(FrozenResponsesRequest::new(request.clone(), 16).is_err());
++        assert!(
++            FrozenResponsesRequest::from_encoded(&serde_json::to_vec(&request).unwrap(), 16)
++                .is_err()
++        );
++    }
++}
++
+ #[test]
+ fn frozen_refuses_unknown_internal_or_stateful_fields() {
+     for field in [
+diff --git a/codex-rs/core/src/client_public_responses_capture_tests.rs b/codex-rs/core/src/client_public_responses_capture_tests.rs
+index 2deaee9522e49a954caf1905435f4efc53000122..f784c6e80ad6724381a27220288bc82883839b28 100644
+--- a/codex-rs/core/src/client_public_responses_capture_tests.rs
++++ b/codex-rs/core/src/client_public_responses_capture_tests.rs
+@@ -227,8 +227,11 @@ fn public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row
+         native_inputs.generation,
+     )
+     .unwrap();
++    assert_eq!(native.instructions, "");
+     let native = serde_json::to_value(native).unwrap();
+-    assert_eq!(native["instructions"], json!(""));
++    // The original Lite encoder omits empty instructions; it retains their
++    // model-visible bytes in the generated input prefix instead.
++    assert!(native.get("instructions").is_none());
+     assert_eq!(native["input"][0]["type"], json!("additional_tools"));
+     assert_eq!(native["parallel_tool_calls"], json!(false));
+     assert_eq!(native["reasoning"]["context"], json!("all_turns"));
+@@ -273,10 +276,19 @@ fn bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_
+     let original = selected_model.clone();
+     assert!(selected_model.use_responses_lite);
+     assert!(selected_model.supported_in_api);
++    assert!(selected_model.supports_image_detail_original);
+     let captured =
+         capture_public_api_responses_request(&prompt(), &selected_model, inputs(), &[]).unwrap();
+     assert_eq!(captured.model_info(), &original);
+     assert_eq!(captured.request().body()["model"], json!("gpt-6-luna"));
++    assert_eq!(
++        captured.request().body()["input"][0]["content"][1]["detail"],
++        json!("original")
++    );
++    assert_eq!(
++        captured.request().count_body()["input"],
++        captured.request().body()["input"]
++    );
+     assert_eq!(
+         captured.request().body()["instructions"],
+         json!("retained instructions and brief")
+diff --git a/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs b/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
+index 97beac055767dc1bd9d887b48d0902a015cf30fd..dc5daa2dc6a2d9a3f315b35e18d713657fe4fc8b 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
+@@ -1,7 +1,10 @@
+ use std::collections::HashMap;
+ use std::sync::Arc;
+ 
++use codex_config::ConfigLayerEntry;
++use codex_config::ConfigLayerSource;
+ use codex_config::ConfigLayerStack;
++use codex_config::ConfigRequirementsToml;
+ use codex_config::Constrained;
+ use codex_config::config_toml::ConfigToml;
+ use codex_exec_server::EnvironmentManager;
+@@ -31,7 +34,21 @@ async fn config(home: &tempfile::TempDir) -> Config {
+             ..Default::default()
+         },
+         AbsolutePathBuf::from_absolute_path(home.path()).unwrap(),
+-        ConfigLayerStack::default(),
++        // Host discovery derives the user skills root from its original User
++        // layer, not merely Config.codex_home. Retain the real temporary owner.
++        ConfigLayerStack::new(
++            vec![ConfigLayerEntry::new(
++                ConfigLayerSource::User {
++                    file: AbsolutePathBuf::from_absolute_path(home.path().join("config.toml"))
++                        .unwrap(),
++                    profile: None,
++                },
++                toml::from_str("model='gpt-6-luna'\n[skills.bundled]\nenabled=false\n").unwrap(),
++            )],
++            Default::default(),
++            ConfigRequirementsToml::default(),
++        )
++        .unwrap(),
+     )
+     .await
+     .unwrap();

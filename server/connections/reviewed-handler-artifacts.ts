@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.435-symposium-provider-fixture-correction';
+  'v1.0.449-symposium-original-context-inputs';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1291,4 +1291,24 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '82a93d73cc17247366037d16e0909473fbbb8f64b73a1730f1456bbadf701077',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-provider-header-fixture.patch':
     'd4617e4f8c868cd76883310d0cd4768fea72d413a9279d9666c3d216b6344f7b',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-initial-context-data.patch':
+    'b6fffacfcb934fd51eeb671d8d2a4003751a01ab640ca2a29d031a0e202a9205',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-context-partitions.patch':
+    '945c08dd4d8ee9bc6914c1393624d977c5444cbb96847666cfd3a67b0c288b58',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-model-provenance-import.patch':
+    'f2ab3f724083611f435b61f3b432c87cf3313519bb9e8049697f35cfea3107e5',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-builtin-initial-context-producer.patch':
+    'f619ed402c154221a0d6920b18bc704e8c1f0b8dd1802a54d31fde45e3737318',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-environment-context.patch':
+    'cbf63f5f22172a84534c8ecbee3923fe5a234901d3809a2d0537d8835467a4ad',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-missing-source-policy-refusal.patch':
+    '1c87962921cd62d392680f5c77739d313e4cf529ef7a2cab9a91147246123c64',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-selected-allocation.patch':
+    '8353c066db35ce16bb110262ef9862d0ca5386b51bce28ddad4f20a39a9592d5',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-client-input-adoption.patch':
+    'f7ee3f66efd0d4184c2ada03ed3746872a3fab9f26becca598b79a516126e6c9',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-client-source-projection.patch':
+    'c308396b865d06621c313dcda9c7d6dd7c628ac22389899ca3038b6602a048c4',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-image-and-source-fixtures.patch':
+    'ec446a7d3a47cef1367abd4781e7e9cd647324cf275170bb84f4c5d1f3562d80',
 });

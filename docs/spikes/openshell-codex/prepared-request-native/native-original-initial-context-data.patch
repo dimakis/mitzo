@@ -1,0 +1,489 @@
+diff --git a/codex-rs/core/src/session/initial_context_builtin.rs b/codex-rs/core/src/session/initial_context_builtin.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..d1ee6a0fc87bffd228501c04036b160bf32e52f0
+--- /dev/null
++++ b/codex-rs/core/src/session/initial_context_builtin.rs
+@@ -0,0 +1,141 @@
++//! Original builtin initial-context construction, after source acquisition.
++//! These pure projections confer no source coverage or currentness authority.
++use crate::config::Config;
++use crate::connectors;
++use crate::context::ContextualUserFragment;
++use crate::context::DeveloperInstructions;
++use crate::context::world_state::AppsInstructionsState;
++use crate::context::world_state::EnvironmentsInstructionsState;
++use crate::context::world_state::ManagedDeveloperInstructionsState;
++use crate::context::world_state::PluginsInstructionsState;
++use codex_connectors::AppToolPolicyEvaluator;
++use codex_context_fragments::RenderedFragment;
++use codex_extension_api::PromptFragment;
++use codex_extension_api::PromptSlot;
++use codex_features::Feature;
++use codex_mcp::McpBinding;
++use codex_prompts::render_model_instructions;
++use codex_protocol::models::BaseInstructions;
++use codex_protocol::models::BaseInstructionsProvenance;
++use codex_protocol::openai_models::ModelInfo;
++use codex_protocol::protocol::SessionSource;
++
++pub(crate) fn model_instructions(config: &Config, model: &ModelInfo) -> String {
++    let instructions = render_model_instructions(model);
++    if !config.update_plan_enabled
++        && config.model_catalog.is_none()
++        && (config.base_instructions.is_none()
++            || matches!(
++                config.base_instructions_provenance,
++                Some(BaseInstructionsProvenance::Model { .. })
++            ))
++    {
++        codex_prompts::without_update_plan_instructions(&instructions)
++    } else {
++        instructions
++    }
++}
++
++pub(crate) fn prompt_base_instructions(
++    config: &Config,
++    instructions: BaseInstructions,
++) -> BaseInstructions {
++    if !config.update_plan_enabled
++        && config.model_catalog.is_none()
++        && matches!(
++            instructions.provenance,
++            Some(BaseInstructionsProvenance::Model { .. })
++        )
++    {
++        BaseInstructions {
++            text: codex_prompts::without_update_plan_instructions(&instructions.text),
++            ..instructions
++        }
++    } else {
++        instructions
++    }
++}
++
++/// Original effective MCP policy projection, not feature-flag absence.
++/// Source acquisition and the final tool plan remain with their actual owners.
++pub(crate) fn execution_guidance(
++    config: &Config,
++    model: &ModelInfo,
++    mcp: &McpBinding,
++    apps_enabled: bool,
++) -> (
++    EnvironmentsInstructionsState,
++    AppsInstructionsState,
++    PluginsInstructionsState,
++) {
++    let apps_available = if config.include_apps_instructions && apps_enabled {
++        AppToolPolicyEvaluator::new(&config.config_layer_stack)
++            .apply_app_enabled_state(connectors::accessible_connectors_from_mcp_tools(
++                mcp.tools(),
++            ))
++            .into_iter()
++            .any(|connector| connector.is_accessible && connector.is_enabled)
++    } else {
++        false
++    };
++    (
++        EnvironmentsInstructionsState::new(
++            config.include_environment_context
++                && config.features.enabled(Feature::DeferredExecutor),
++        ),
++        AppsInstructionsState::new(apps_available && model.include_apps_usage_instructions),
++        PluginsInstructionsState::new(
++            mcp.plugins_available() && model.include_plugin_usage_instructions,
++        ),
++    )
++}
++
++pub(crate) fn managed_developer_section(
++    config: &Config,
++    source: &SessionSource,
++) -> Option<ManagedDeveloperInstructionsState> {
++    (!crate::guardian::is_basic_session_source(source)).then(|| {
++        ManagedDeveloperInstructionsState::new(
++            config
++                .config_layer_stack
++                .requirements()
++                .additional_developer_instructions
++                .as_ref(),
++        )
++    })
++}
++
++/// Slot application shared with ordinary initial context. ContextWindow data
++/// remains a hint partition; it must not become an ordinary developer fragment.
++#[derive(Default)]
++pub(crate) struct InitialDeveloperData {
++    pub(crate) developer_sections: Vec<RenderedFragment>,
++    pub(crate) context_window_hints: Vec<String>,
++}
++impl InitialDeveloperData {
++    pub(crate) fn new(source: &SessionSource, developer_instructions: Option<&str>) -> Self {
++        let mut data = Self::default();
++        if !crate::guardian::is_basic_session_source(source)
++            && let Some(instructions) = developer_instructions
++            && !instructions.is_empty()
++        {
++            data.developer_sections
++                .push(DeveloperInstructions::new(instructions).render_fragment());
++        }
++        data
++    }
++    pub(crate) fn push_thread_fragment(&mut self, fragment: PromptFragment) {
++        match fragment.slot() {
++            PromptSlot::ContextWindow => {
++                self.context_window_hints.push(fragment.text().to_string())
++            }
++            PromptSlot::DeveloperPolicy | PromptSlot::DeveloperCapabilities => {
++                self.developer_sections.push(fragment.into())
++            }
++        }
++    }
++}
++
++#[cfg(test)]
++#[path = "initial_context_builtin_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/initial_context_builtin_tests.rs b/codex-rs/core/src/session/initial_context_builtin_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..ca21d4059a7caf4bac293aebaaf093f02cfb5ae7
+--- /dev/null
++++ b/codex-rs/core/src/session/initial_context_builtin_tests.rs
+@@ -0,0 +1,76 @@
++use super::*;
++use crate::context::world_state::EnvironmentsInstructionsState;
++use crate::context::world_state::ModelInstructionsState;
++use crate::context::world_state::WorldState;
++use crate::session::initial_context_render::ResolvedInitialSection;
++use codex_protocol::models::ContentItemKind;
++use pretty_assertions::assert_eq;
++
++#[test]
++fn shared_slot_application_preserves_roles_and_context_window_hints() {
++    let policy =
++        PromptFragment::developer_policy("selected policy\n", ContentItemKind("policy".into()));
++    let capability = PromptFragment::developer_capability(
++        "selected capability λ",
++        ContentItemKind("capability".into()),
++    );
++    let hint = PromptFragment::new(
++        PromptSlot::ContextWindow,
++        "original window hint",
++        ContentItemKind("hint".into()),
++    );
++    let mut data = InitialDeveloperData::new(
++        &SessionSource::Exec,
++        Some("original developer instructions"),
++    );
++    for fragment in [policy.clone(), hint.clone(), capability.clone()] {
++        data.push_thread_fragment(fragment);
++    }
++    assert_eq!(
++        data.developer_sections,
++        vec![
++            DeveloperInstructions::new("original developer instructions").render_fragment(),
++            policy.into(),
++            capability.into(),
++        ]
++    );
++    assert_eq!(data.context_window_hints, vec![hint.text().to_string()]);
++    assert!(
++        data.developer_sections
++            .iter()
++            .all(|fragment| fragment.role() == "developer")
++    );
++}
++
++#[test]
++fn native_section_projection_preserves_ordinary_initial_fragments() {
++    // The original ordinary container is used only as a pure parity oracle;
++    // preparation invokes the concrete native renderers without a WorldState.
++    let model = ModelInstructionsState::new(
++        "selected-model",
++        Some("previous-model"),
++        "original model framing".into(),
++    );
++    let environments = EnvironmentsInstructionsState::new(/*enabled*/ true);
++    let mut ordinary = WorldState::default();
++    ordinary.add_section(model.clone());
++    ordinary.add_section(environments);
++    let expected = ordinary
++        .render_full()
++        .into_iter()
++        .map(|fragment| fragment.render_fragment())
++        .collect::<Vec<_>>();
++    let actual = [
++        ResolvedInitialSection::native(model),
++        ResolvedInitialSection::native(environments),
++    ]
++    .into_iter()
++    .flat_map(|section| {
++        section
++            .fragments
++            .into_iter()
++            .map(|fragment| fragment.rendered)
++    })
++    .collect::<Vec<_>>();
++    assert_eq!(actual, expected);
++}
+diff --git a/codex-rs/core/src/session/initial_context_render.rs b/codex-rs/core/src/session/initial_context_render.rs
+index 683d88915c6aee3a2e5eb606a5a59a73d912c287..c54766eef0c13b4189a4118e48f613d41277e1bb 100644
+--- a/codex-rs/core/src/session/initial_context_render.rs
++++ b/codex-rs/core/src/session/initial_context_render.rs
+@@ -50,6 +50,26 @@ pub(crate) struct ResolvedInitialSection {
+     pub(crate) fragments: Vec<ResolvedInitialFragment>,
+ }
+ 
++impl ResolvedInitialSection {
++    /// Uses the SAME native section renderer as ordinary WorldState::render_full,
++    /// with its original initial (Absent) comparison. No synthetic WorldState.
++    pub(crate) fn native<S: crate::context::world_state::WorldStateSection>(section: S) -> Self {
++        Self {
++            id: S::ID,
++            origin: WorldStateSectionOrigin::Native,
++            fragments: section
++                .render_diff(crate::context::world_state::PreviousSectionState::Absent)
++                .map(|fragment| ResolvedInitialFragment {
++                    rendered: fragment.render_fragment(),
++                    start_marker: fragment.markers().0,
++                    requires_separate_message: fragment.requires_separate_message(),
++                })
++                .into_iter()
++                .collect(),
++        }
++    }
++}
++
+ impl ResolvedInitialWorldState {
+     /// Callback-free collection from already resolved source data. The caller
+     /// must separately establish every real source, complete registry coverage
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 1e82b35115b1b7ded758f7f7054d145352c9039d..66ca8241d4a78658f699dfdd97b10a13ed616318 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -23,7 +23,6 @@ use crate::compact::CompactedHistoryMetadata;
+ use crate::config::ManagedFeatures;
+ use crate::config::resolve_tool_suggest_config_from_layer_stack;
+ use crate::context::ContextualUserFragment;
+-use crate::context::DeveloperInstructions;
+ use crate::context::NetworkRuleSaved;
+ use crate::context::RecommendedPluginsInstructions;
+ use crate::context::world_state::WorldState;
+@@ -68,7 +67,6 @@ use codex_exec_server::EnvironmentManager;
+ use codex_execpolicy::prefix_rule_migration;
+ use codex_extension_api::ConversationHistorySnapshot;
+ use codex_extension_api::ExtensionDataInit;
+-use codex_extension_api::PromptSlot;
+ use codex_extension_api::TurnContextContributionInput;
+ use codex_features::FEATURES;
+ use codex_features::Feature;
+@@ -230,6 +228,7 @@ mod extension_interruption;
+ pub(crate) mod extension_metrics;
+ mod guardian_checkpoint;
+ mod handlers;
++pub(crate) mod initial_context_builtin;
+ pub(crate) mod initial_context_render;
+ mod inject;
+ mod reasoning_effort;
+@@ -1488,20 +1487,7 @@ impl Session {
+     pub(crate) async fn get_prompt_base_instructions(&self) -> BaseInstructions {
+         let config = self.get_config().await;
+         let instructions = self.get_base_instructions().await;
+-        if !config.update_plan_enabled
+-            && config.model_catalog.is_none()
+-            && matches!(
+-                instructions.provenance,
+-                Some(BaseInstructionsProvenance::Model { .. })
+-            )
+-        {
+-            BaseInstructions {
+-                text: codex_prompts::without_update_plan_instructions(&instructions.text),
+-                ..instructions
+-            }
+-        } else {
+-            instructions
+-        }
++        initial_context_builtin::prompt_base_instructions(&config, instructions)
+     }
+ 
+     // Merges connector IDs into the session-level explicit connector selection.
+@@ -4303,10 +4289,8 @@ impl Session {
+         world_state: &WorldState,
+     ) -> Vec<ResponseItem> {
+         let turn_context = step_context.turn.as_ref();
+-        let mut developer_sections = Vec::<RenderedFragment>::with_capacity(8);
+         let contextual_user_sections = Vec::<RenderedFragment>::with_capacity(2);
+         let mut separate_developer_sections = Vec::<RenderedFragment>::new();
+-        let mut context_window_hints = Vec::new();
+         let (session_source, auto_compact_window_ids) = {
+             let state = self.state.lock().await;
+             (
+@@ -4316,15 +4300,10 @@ impl Session {
+         };
+         let separate_guardian_developer_message =
+             crate::guardian::is_basic_session_source(&session_source);
+-        // Keep the guardian policy prompt out of the aggregated developer bundle so it
+-        // stays isolated as its own top-level developer message for guardian subagents.
+-        if !separate_guardian_developer_message
+-            && let Some(developer_instructions) = turn_context.developer_instructions.as_deref()
+-            && !developer_instructions.is_empty()
+-        {
+-            developer_sections
+-                .push(DeveloperInstructions::new(developer_instructions).render_fragment());
+-        }
++        let mut developer_data = initial_context_builtin::InitialDeveloperData::new(
++            &session_source,
++            turn_context.developer_instructions.as_deref(),
++        );
+         let loaded_plugins = self
+             .services
+             .plugins_manager
+@@ -4360,16 +4339,13 @@ impl Session {
+                 )
+                 .await
+             {
+-                match fragment.slot() {
+-                    PromptSlot::ContextWindow => {
+-                        context_window_hints.push(fragment.text().to_string());
+-                    }
+-                    PromptSlot::DeveloperPolicy | PromptSlot::DeveloperCapabilities => {
+-                        developer_sections.push(fragment.into());
+-                    }
+-                }
++                developer_data.push_thread_fragment(fragment);
+             }
+         }
++        let initial_context_builtin::InitialDeveloperData {
++            mut developer_sections,
++            mut context_window_hints,
++        } = developer_data;
+         for contributor in &context_contributors {
+             for fragment in contributor
+                 .contribute_turn_context(TurnContextContributionInput {
+diff --git a/codex-rs/core/src/session/world_state.rs b/codex-rs/core/src/session/world_state.rs
+index e021a742d08f92babf5ab42aac7e8f3dd171e2d0..e59be611a57b115bc4eb08fc1d54d588d184cee1 100644
+--- a/codex-rs/core/src/session/world_state.rs
++++ b/codex-rs/core/src/session/world_state.rs
+@@ -1,33 +1,27 @@
+ use std::sync::Arc;
+ 
++use super::initial_context_builtin;
+ use super::session::Session;
+ use super::step_context::StepContext;
+-use crate::connectors;
+ use crate::context::TokenBudgetContext;
+ use crate::context::world_state::AgentsMdState;
+-use crate::context::world_state::AppsInstructionsState;
+ use crate::context::world_state::CollaborationModeState;
+ use crate::context::world_state::CompactPermissionsState;
+ use crate::context::world_state::ContextWindowGuidanceState;
+-use crate::context::world_state::EnvironmentsInstructionsState;
+ use crate::context::world_state::EnvironmentsState;
+-use crate::context::world_state::ManagedDeveloperInstructionsState;
+ use crate::context::world_state::ModelInstructionsState;
+ use crate::context::world_state::MultiAgentModeState;
+ use crate::context::world_state::MultiAgentUsageHintState;
+ use crate::context::world_state::PermissionsState;
+ use crate::context::world_state::PersistentModeState;
+-use crate::context::world_state::PluginsInstructionsState;
+ use crate::context::world_state::RealtimeState;
+ use crate::context::world_state::ToolsState;
+ use crate::context::world_state::WorldState;
+-use codex_connectors::AppToolPolicyEvaluator;
+ use codex_extension_api::WorldStateContributionInput;
+ use codex_features::Feature;
+ use codex_file_system::FileSystemSandboxContext;
+ use codex_prompts::ApprovalPromptContext;
+ use codex_prompts::ResolvedModelMessages;
+-use codex_prompts::render_model_instructions;
+ use codex_protocol::error::Result as CodexResult;
+ use codex_protocol::models::BaseInstructionsProvenance;
+ use codex_protocol::protocol::MultiAgentVersion;
+@@ -49,18 +43,8 @@ impl Session {
+             selected_capability_root_count = step_context.selected_capability_roots.len(),
+             "building step world state"
+         );
+-        let model_instructions = render_model_instructions(model_info);
+-        let model_instructions = if !turn_context.config.update_plan_enabled
+-            && turn_context.config.model_catalog.is_none()
+-            && (turn_context.config.base_instructions.is_none()
+-                || matches!(
+-                    turn_context.config.base_instructions_provenance,
+-                    Some(BaseInstructionsProvenance::Model { .. })
+-                )) {
+-            codex_prompts::without_update_plan_instructions(&model_instructions)
+-        } else {
+-            model_instructions
+-        };
++        let model_instructions =
++            initial_context_builtin::model_instructions(&turn_context.config, model_info);
+         let base_instructions = self.get_prompt_base_instructions().await.text;
+         let previous_model = {
+             let state = self.state.lock().await;
+@@ -240,34 +224,16 @@ impl Session {
+                 .with_subagents(environment_subagents),
+             );
+         }
+-        world_state.add_section(EnvironmentsInstructionsState::new(
+-            turn_context.config.include_environment_context
+-                && turn_context
+-                    .config
+-                    .features
+-                    .enabled(Feature::DeferredExecutor),
+-        ));
+-        let apps_available =
+-            if turn_context.config.include_apps_instructions && turn_context.apps_enabled() {
+-                AppToolPolicyEvaluator::new(&turn_context.config.config_layer_stack)
+-                    .apply_app_enabled_state(connectors::accessible_connectors_from_mcp_tools(
+-                        step_context.mcp.tools(),
+-                    ))
+-                    .into_iter()
+-                    .any(|connector| connector.is_accessible && connector.is_enabled)
+-            } else {
+-                false
+-            };
+-        let apps_usage_instructions_available =
+-            apps_available && model_info.include_apps_usage_instructions;
+-        world_state.add_section(AppsInstructionsState::new(
+-            apps_usage_instructions_available,
+-        ));
+-        let plugins_usage_instructions_available =
+-            step_context.mcp.plugins_available() && model_info.include_plugin_usage_instructions;
+-        world_state.add_section(PluginsInstructionsState::new(
+-            plugins_usage_instructions_available,
+-        ));
++        let (environments_instructions, apps_instructions, plugins_instructions) =
++            initial_context_builtin::execution_guidance(
++                &turn_context.config,
++                model_info,
++                &step_context.mcp,
++                turn_context.apps_enabled(),
++            );
++        world_state.add_section(environments_instructions);
++        world_state.add_section(apps_instructions);
++        world_state.add_section(plugins_instructions);
+         let extension_metrics = super::extension_metrics::from_session_telemetry(
+             step_context.session_telemetry.clone(),
+         );
+@@ -319,15 +285,11 @@ impl Session {
+             world_state.add_section(usage_hint);
+         }
+         world_state.add_section(multi_agent_mode);
+-        if !crate::guardian::is_basic_session_source(&turn_context.session_source) {
+-            world_state.add_section(ManagedDeveloperInstructionsState::new(
+-                turn_context
+-                    .config
+-                    .config_layer_stack
+-                    .requirements()
+-                    .additional_developer_instructions
+-                    .as_ref(),
+-            ));
++        if let Some(managed) = initial_context_builtin::managed_developer_section(
++            &turn_context.config,
++            &turn_context.session_source,
++        ) {
++            world_state.add_section(managed);
+         }
+         Ok(world_state)
+     }

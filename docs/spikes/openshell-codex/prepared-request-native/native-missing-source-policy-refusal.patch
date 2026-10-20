@@ -1,0 +1,357 @@
+diff --git a/codex-rs/app-server/src/extensions/pre_session_context_tests.rs b/codex-rs/app-server/src/extensions/pre_session_context_tests.rs
+index 397dbcbefed660db919e10d11e8388b8f76e4aa8..13f812a4d8d2dc3086b8eda2d82ea1b50dd730c5 100644
+--- a/codex-rs/app-server/src/extensions/pre_session_context_tests.rs
++++ b/codex-rs/app-server/src/extensions/pre_session_context_tests.rs
+@@ -401,9 +401,11 @@ async fn installed_selected_start_preserves_original_context_partitions() {
+         raw_model
+     };
+     assert_eq!(observed.builtin.model_instructions(), expected_model);
+-    assert!(observed.builtin.unresolved_partitions().contains(
+-        &codex_core::UnresolvedInitialContextPartition::PermissionsAndEnvironmentSnapshot
+-    ));
++    assert!(
++        observed.builtin.unresolved_partitions().contains(
++            &codex_core::UnresolvedInitialContextPartition::FirstCommandPermissionSettings
++        )
++    );
+     assert!(
+         observed
+             .builtin
+@@ -419,6 +421,16 @@ async fn installed_selected_start_preserves_original_context_partitions() {
+     assert_eq!(calls.load(Ordering::SeqCst), 0);
+     assert!(manager.list_thread_ids().await.is_empty());
+     assert!(backend.received_requests().await.unwrap().is_empty());
++    let missing = observed
++        .builtin
++        .into_complete_builtin_context()
++        .err()
++        .unwrap();
++    assert!(
++        matches!(missing, codex_core::PreSessionBuiltinContextRefusal::MissingOriginalInputs(ref inputs)
++        if inputs.contains(&codex_core::UnresolvedInitialContextPartition::OriginalFreshHistoryAndAgentState)
++            && inputs.contains(&codex_core::UnresolvedInitialContextPartition::FirstCommandPermissionSettings))
++    );
+     // A changed actual selected config source invalidates renewal, even though
+     // all retained data and registered contributors remain available.
+     std::fs::write(
+diff --git a/codex-rs/core/src/exec_policy.rs b/codex-rs/core/src/exec_policy.rs
+index bc02a149bca7e409fcf3286c8d997fd942b4cee0..0b3e02334eebc6e95861a308ec193b957caf0485 100644
+--- a/codex-rs/core/src/exec_policy.rs
++++ b/codex-rs/core/src/exec_policy.rs
+@@ -42,6 +42,7 @@ use shlex::try_join as shlex_try_join;
+ 
+ mod executable_identity;
+ mod model_policy;
++pub(crate) use model_policy::prefix_rule_selection;
+ mod passive_source;
+ mod selected_start;
+ pub(crate) use selected_start::SelectedStartPolicy;
+diff --git a/codex-rs/core/src/exec_policy/model_policy.rs b/codex-rs/core/src/exec_policy/model_policy.rs
+index 2943dcc58db631a769a913dae065227ddd5ba802..c5c756015fbbb71810290b0c5d25a23bb28dda40 100644
+--- a/codex-rs/core/src/exec_policy/model_policy.rs
++++ b/codex-rs/core/src/exec_policy/model_policy.rs
+@@ -65,3 +65,25 @@ pub(super) fn project_for_prefix_rules(
+ #[cfg(test)]
+ #[path = "model_policy_tests.rs"]
+ mod tests;
++
++/// Original turn model/config selection, shared before a Session exists.
++pub(crate) fn prefix_rule_selection(
++    config: &crate::config::Config,
++    model: &codex_protocol::openai_models::ModelInfo,
++) -> AllowPrefixRules {
++    let ignore_rules = config
++        .config_layer_stack
++        .requirements_toml()
++        .auto_review
++        .as_ref()
++        .and_then(|auto_review| auto_review.ignore_rules.as_ref())
++        .is_some_and(|models| models.contains(&model.slug));
++    if model.model_specialty.as_deref()
++        == Some(codex_protocol::openai_models::MODEL_SPECIALTY_CYBER)
++        || ignore_rules
++    {
++        AllowPrefixRules::IgnoreForCyberModel
++    } else {
++        AllowPrefixRules::Honor
++    }
++}
+diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
+index 19fb1dc597b045a04671f06bb82cdc6e6af126f8..cef1339ecf62ad02d05cce513c42e007592e9b1e 100644
+--- a/codex-rs/core/src/lib.rs
++++ b/codex-rs/core/src/lib.rs
+@@ -147,10 +147,12 @@ pub use codex_prompts as review_prompts;
+ mod thread_manager;
+ pub(crate) mod web_search;
+ pub(crate) mod windows_sandbox_read_grants;
++pub use session::initial_world_state_data::CompleteBuiltinInitialContextData;
+ pub use thread_manager::ForkSnapshot;
+ pub use thread_manager::InternalSessionParent;
+ pub use thread_manager::NewThread;
+ pub use thread_manager::PreSessionBuiltinContextData;
++pub use thread_manager::PreSessionBuiltinContextRefusal;
+ pub use thread_manager::PreSessionClockError;
+ pub use thread_manager::PreSessionSkillsObservation;
+ pub use thread_manager::PreSessionSystemClockObservation;
+diff --git a/codex-rs/core/src/session/turn_context.rs b/codex-rs/core/src/session/turn_context.rs
+index e0a462ad7b623753dd58465e69f13831aa7de162..a4f87beed29f5c5bb8aa0e48f07ebb9929ae579d 100644
+--- a/codex-rs/core/src/session/turn_context.rs
++++ b/codex-rs/core/src/session/turn_context.rs
+@@ -23,7 +23,6 @@ use codex_protocol::SessionId;
+ use codex_protocol::ThreadId;
+ use codex_protocol::config_types::ShellEnvironmentPolicy;
+ use codex_protocol::models::AdditionalPermissionProfile;
+-use codex_protocol::openai_models::MODEL_SPECIALTY_CYBER;
+ use codex_protocol::openai_models::ModelInfo;
+ use codex_protocol::permissions::RawFileSystemSandboxPolicy;
+ use codex_protocol::protocol::EnvironmentConfig;
+@@ -498,21 +497,7 @@ impl TurnContext {
+     /// Legacy: returns the frozen initial-turn prefix-rule policy.
+     /// Step-scoped consumers should use their captured `StepContext::settings`.
+     pub(crate) fn allow_prefix_rules(&self) -> AllowPrefixRules {
+-        let ignore_rules = self
+-            .config
+-            .config_layer_stack
+-            .requirements_toml()
+-            .auto_review
+-            .as_ref()
+-            .and_then(|auto_review| auto_review.ignore_rules.as_ref())
+-            .is_some_and(|models| models.contains(&self.model_info().slug));
+-        if self.model_info().model_specialty.as_deref() == Some(MODEL_SPECIALTY_CYBER)
+-            || ignore_rules
+-        {
+-            AllowPrefixRules::IgnoreForCyberModel
+-        } else {
+-            AllowPrefixRules::Honor
+-        }
++        crate::exec_policy::prefix_rule_selection(&self.config, self.model_info())
+     }
+ 
+     pub(crate) async fn plugin_metrics_operation_for_command(
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index 9e9f7478366b79a9f243b46c2873f7fc002246ae..c879d58f17d7c18dc7a0026c3ebb3c2c9a712678 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -243,6 +243,7 @@ pub struct ThreadManager {
+ #[path = "thread_manager/pre_session_builtin_context.rs"]
+ mod pre_session_builtin_context;
+ pub use pre_session_builtin_context::PreSessionBuiltinContextData;
++pub use pre_session_builtin_context::PreSessionBuiltinContextRefusal;
+ pub use pre_session_builtin_context::UnresolvedInitialContextPartition;
+ #[path = "thread_manager/pre_session_clock.rs"]
+ mod pre_session_clock;
+diff --git a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+index 3ec661f87505a387d7f79d35802902ff58d0b604..cbe21dc633ae5b52903320782f12b45f5b9e3712 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+@@ -20,6 +20,10 @@ pub enum UnresolvedInitialContextPartition {
+     ModelAndBaseInstructionsSelection,
+     InitialTurnSettings,
+     PermissionsAndEnvironmentSnapshot,
++    FirstCommandPermissionSettings,
++    OriginalFreshHistoryAndAgentState,
++    EnvironmentChildAgentState,
++    CurrentTimeReminder,
+     RepositoryInstructions,
+     RealtimeAndSubagentState,
+     FinalizedToolPlan,
+@@ -30,62 +34,66 @@ pub enum UnresolvedInitialContextPartition {
+ 
+ /// Non-Clone/non-Serialize partial data. Section IDs/bytes and source checks
+ /// cannot establish readiness. No method constructs a Prompt or ResponseItems.
++#[allow(
++    dead_code,
++    reason = "Retained typed inputs await complete original first-command/history producers."
++)]
+ pub struct PreSessionBuiltinContextData {
+     model_instructions: String,
+     sections: Vec<ResolvedInitialSection>,
+     trailing_sections: Vec<ResolvedInitialSection>,
+     developer: InitialDeveloperData,
++    pub(crate) selected_permission: SelectedStartPermissionProjection,
++    pub(crate) selected_environment: crate::context::world_state::InitialEnvironmentProjection,
+     unresolved: Vec<UnresolvedInitialContextPartition>,
+ }
++/// Baseline selected-start data, deliberately NOT effective first-command
++/// permissions. Only this source owner can unwrap after first-command capture.
++#[allow(
++    dead_code,
++    reason = "Selected baseline is not effective first-command permission authority."
++)]
++pub(crate) struct SelectedStartPermissionProjection {
++    section: crate::session::initial_world_state_data::PermissionInitialContext,
++}
+ impl PreSessionBuiltinContextData {
+     pub fn model_instructions(&self) -> &str {
+         &self.model_instructions
+     }
+-    /// Each section is separate: missing sections MUST NOT be flattened away
+-    /// into purported full-world-state order. Extension composition belongs
+-    /// between the leading and trailing partitions at the original owner.
+-    pub fn leading_sections(
+-        &self,
+-    ) -> impl Iterator<Item = (&'static str, Vec<RenderedFragment>)> + '_ {
+-        self.sections.iter().map(|section| {
+-            (
+-                section.id,
+-                section
+-                    .fragments
+-                    .iter()
+-                    .map(|fragment| fragment.rendered.clone())
+-                    .collect(),
+-            )
+-        })
+-    }
+-    pub fn trailing_sections(
+-        &self,
+-    ) -> impl Iterator<Item = (&'static str, Vec<RenderedFragment>)> + '_ {
+-        self.trailing_sections.iter().map(|section| {
+-            (
+-                section.id,
+-                section
+-                    .fragments
+-                    .iter()
+-                    .map(|fragment| fragment.rendered.clone())
+-                    .collect(),
+-            )
+-        })
+-    }
+     pub fn developer_fragments(&self) -> &[RenderedFragment] {
+         &self.developer.developer_sections
+     }
+     pub fn unresolved_partitions(&self) -> &[UnresolvedInitialContextPartition] {
+         &self.unresolved
+     }
++    /// Strict source-owner refusal, never a readiness bit. The currently missing
++    /// native identity/history/agent-state and first-command producers cannot be
++    /// substituted by a fresh label, selected baseline or flattened fragments.
++    pub fn into_complete_builtin_context(
++        self,
++    ) -> Result<
++        crate::session::initial_world_state_data::CompleteBuiltinInitialContextData,
++        PreSessionBuiltinContextRefusal,
++    > {
++        Err(PreSessionBuiltinContextRefusal::MissingOriginalInputs(
++            self.unresolved,
++        ))
++    }
+ }
++#[derive(Debug, thiserror::Error, PartialEq, Eq)]
++pub enum PreSessionBuiltinContextRefusal {
++    #[error("original initial-context sources are unresolved: {0:?}")]
++    MissingOriginalInputs(Vec<UnresolvedInitialContextPartition>),
++}
++
+ fn unavailable(message: &'static str) -> io::Error {
+     io::Error::other(message)
+ }
+ impl ThreadManager {
+     /// Projects only settled builtin inputs from the actual selected-start and
+-    /// its same Skills/clock observations. Full model selection, effective turn
+-    /// settings, ordinary environment snapshot and history remain unresolved.
++    /// its same Skills/clock observations. Full model selection, effective first-command settings, native identity,
++    /// history and agent state remain unresolved; baseline permission and local
++    /// environment projections do not establish those missing sources.
+     pub async fn observe_pre_session_builtin_context(
+         &self,
+         selected: &SelectedStartInputs,
+@@ -130,6 +138,36 @@ impl ThreadManager {
+             sources.binding(),
+             apps_enabled,
+         );
++        let environment_source = crate::environment_selection::initial_context::SelectedStartEnvironmentContext::observe(sources)
++            .map_err(io::Error::other)?;
++        let policy = selected.initial_context_policy(model)?;
++        let selected_permission = if config.include_permissions_instructions {
++            crate::session::initial_world_state_data::PermissionInitialContext::Full(
++                initial_context_builtin::permission_section(
++                    config,
++                    model,
++                    policy.as_ref(),
++                    &environment_source.permission_profile(config),
++                    config.permissions.approval_policy.value(),
++                    config.approvals_reviewer,
++                    environment_source.permission_cwd(config).as_path(),
++                    /*paths*/ None,
++                ),
++            )
++        } else {
++            crate::session::initial_world_state_data::PermissionInitialContext::Compact(
++                crate::context::world_state::CompactPermissionsState::new(policy.as_ref()),
++            )
++        };
++        // Display DATA retains the real date/timezone. It is deliberately NOT
++        // installed as a complete EnvironmentsState until child-agent data is
++        // supplied by the original native identity/agent-state owner.
++        let selected_environment =
++            crate::context::world_state::EnvironmentsState::from_selected_start_sources(
++                &environment_source,
++                clock.environment_date().to_string(),
++                clock.timezone().to_string(),
++            );
+         let sections = vec![
+             ResolvedInitialSection::native(environments),
+             ResolvedInitialSection::native(apps),
+@@ -142,7 +180,9 @@ impl ThreadManager {
+         let mut unresolved = vec![
+             UnresolvedInitialContextPartition::ModelAndBaseInstructionsSelection,
+             UnresolvedInitialContextPartition::InitialTurnSettings,
+-            UnresolvedInitialContextPartition::PermissionsAndEnvironmentSnapshot,
++            UnresolvedInitialContextPartition::FirstCommandPermissionSettings,
++            UnresolvedInitialContextPartition::OriginalFreshHistoryAndAgentState,
++            UnresolvedInitialContextPartition::EnvironmentChildAgentState,
+             UnresolvedInitialContextPartition::RepositoryInstructions,
+             UnresolvedInitialContextPartition::RealtimeAndSubagentState,
+             UnresolvedInitialContextPartition::FinalizedToolPlan,
+@@ -153,6 +193,9 @@ impl ThreadManager {
+         {
+             unresolved.push(UnresolvedInitialContextPartition::TokenBudgetHistory);
+         }
++        if config.features.enabled(Feature::CurrentTimeReminder) {
++            unresolved.push(UnresolvedInitialContextPartition::CurrentTimeReminder);
++        }
+         if config.features.plugin_recommendations_enabled() {
+             unresolved.push(UnresolvedInitialContextPartition::PluginRecommendations);
+         }
+@@ -161,6 +204,10 @@ impl ThreadManager {
+             sections,
+             trailing_sections,
+             developer: InitialDeveloperData::new(source, config.developer_instructions.as_deref()),
++            selected_permission: SelectedStartPermissionProjection {
++                section: selected_permission,
++            },
++            selected_environment,
+             unresolved,
+         };
+         // Renew the original selected publications, never a caller readiness bit.
+@@ -191,6 +238,9 @@ impl ThreadManager {
+         renewed
+             .map_err(|_| unavailable("selected environment changed"))?
+             .map_err(|_| unavailable("host Skills source changed"))?;
++        environment_source
++            .renew_local_sources()
++            .map_err(io::Error::other)?;
+         self.with_current_selected_start(selected, || ())?;
+         drop(catalog);
+         Ok(data)
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index 245fe1e641ededf1cfa3acc7fe609d60be8667fc..15cdc12af468f06dabb9f791ed79f7880047c039 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -42,6 +42,16 @@ impl SelectedStartInputs {
+             _ => None,
+         }
+     }
++    pub(crate) fn initial_context_policy(
++        &self,
++        model: &codex_protocol::openai_models::ModelInfo,
++    ) -> io::Result<Arc<codex_execpolicy::Policy>> {
++        let config = &self.start_options()?.config;
++        Ok(self
++            .policy
++            .manager
++            .current_for_prefix_rules(crate::exec_policy::prefix_rule_selection(config, model)))
++    }
+     pub fn policy(&self) -> &Arc<codex_execpolicy::Policy> {
+         self.policy.policy()
+     }

@@ -1,0 +1,12 @@
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 66ca8241d4a78658f699dfdd97b10a13ed616318..f7c81e29a4911fbe0089d2caff6492cf54598a60 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -112,7 +112,6 @@ use codex_protocol::items::UserMessageItem;
+ use codex_protocol::models::ActivePermissionProfile;
+ use codex_protocol::models::AdditionalPermissionProfile;
+ use codex_protocol::models::BaseInstructions;
+-use codex_protocol::models::BaseInstructionsProvenance;
+ use codex_protocol::models::ContentItem;
+ use codex_protocol::models::ContentItemKind;
+ use codex_protocol::models::ImageReference;

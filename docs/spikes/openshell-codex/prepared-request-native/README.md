@@ -6,7 +6,37 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 89 patches
+## Current composed source: 99 patches
+
+The 99 ordered patches reconstruct native tree
+`6e7109d979ed7deeb4e00fe3ec3473083d0e1b74` (local source `b2f34ca45571ca7514b5f307b76a78b475829769`).
+All first 89 patch records and bytes remain unchanged. Patches 90–98 extract
+original initial-context data, selected environment/source partitions and the
+ordinary ModelClient allocation and consumed inputs. They do not construct a
+pre-session ModelClient or complete the fresh request factory. The private
+equivalent of public patch 89 is not applied a second time.
+
+Patch 99 preserves documented image detail `original` through the exact public
+generation body, count projection and restoration; unknown detail values still
+refuse. It also supplies the actual temporary User layer to the hidden Knowledge
+fixture and asserts the original Lite serializer's omission of empty instructions.
+The bundled Luna model and original Knowledge bytes remain unchanged.
+
+Source 89 run `39463080370` ended on both platforms at the 120-minute job limit.
+Retained fixture logs contain 6,828 Linux passes and three failures through record
+6,831 of 9,568, and 6,171 Mac passes and the same three failures through record
+6,174 of 9,352. These are overlapping partial platform records, not final totals or
+a passing suite. No final JUnit summary exists and formatting skipped. The three
+failures are repaired in patch 99; the next exact-source CI has 240 minutes with
+the same complete package list, one test thread and zero retries.
+
+All new Rust compilation and test execution remain pending CI. Locally only exact
+source reconstruction, scoped Rust formatting and static checks are performed.
+Complete original request assembly, registry/source authority, count/State
+association, actual app-server/host adoption and executable joining remain open.
+No installed runtime, account selection, model call or Ready grant is made.
+
+## Retained 89-patch checkpoint
 
 The 89 ordered patches reconstruct native tree
 `5afdd74dd6631cf91d32325d78914dff3bc6a8f7` (local source `349165924d187197140074b8cfefe087d2e73cba`).
