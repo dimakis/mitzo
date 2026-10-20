@@ -1158,8 +1158,11 @@ export class CollaborationConversationStore {
           messageIds.add(message.messageId);
         }
         if (
-          new Set(input.artifacts.map((a) => `${a.artifactId}:${a.revision}`)).size !==
-          input.artifacts.length
+          new Set(
+            input.artifacts.map(
+              (a) => `${'kind' in a ? a.kind : 'inlineOutput'}:${a.artifactId}:${a.revision}`,
+            ),
+          ).size !== input.artifacts.length
         )
           throw new ContractError('snapshot_changed');
         if (input.summary) {

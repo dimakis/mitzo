@@ -82,21 +82,43 @@ export const CollaborationSnapshotReferenceSchema = z.strictObject({
   sha256: digest,
 });
 /** Public selectors only: the source owner must authorize and read exact versions server-side. */
+export const CollaborationInlineArtifactPinSchema = z.strictObject({
+  artifactId: id,
+  revision: z.number().int().positive().safe(),
+  sha256: digest,
+});
+export const CollaborationRetainedArtifactPinSchema = CollaborationInlineArtifactPinSchema.extend({
+  kind: z.literal('retainedArtifactVersion'),
+});
+export const CollaborationArtifactPinSchema = z.union([
+  CollaborationInlineArtifactPinSchema,
+  CollaborationRetainedArtifactPinSchema,
+]);
+export type CollaborationArtifactPin = z.infer<typeof CollaborationArtifactPinSchema>;
+export const CollaborationRetainedArtifactMetadataSchema =
+  CollaborationRetainedArtifactPinSchema.extend({
+    retention: z.literal('independent'),
+    itemId: id,
+    filename: z.string().min(1).max(1000),
+    title: z.string().min(1).max(1000),
+    provenance: z.strictObject({
+      sessionId: id,
+      sourceKind: z.enum(['user_upload', 'user_edit', 'session_artifact', 'external_codex_report']),
+      sourcePath: z.string().max(4096).nullable(),
+    }),
+    mediaType: z.literal('application/octet-stream'),
+    sizeBytes: sequence,
+  });
+export type CollaborationRetainedArtifactMetadata = z.infer<
+  typeof CollaborationRetainedArtifactMetadataSchema
+>;
 export const CollaborationSnapshotSelectionSchema = z.strictObject({
   ...request,
   sourceConversationId: id,
   boundary: z.strictObject({ sequence, messageId: id.nullable() }),
   mode: z.enum(['conversation_so_far', 'selected']),
   messageIds: z.array(id).max(500),
-  artifacts: z
-    .array(
-      z.strictObject({
-        artifactId: id,
-        revision: z.number().int().positive().safe(),
-        sha256: digest,
-      }),
-    )
-    .max(100),
+  artifacts: z.array(CollaborationArtifactPinSchema).max(100),
   purpose: z.string().trim().min(1).max(4000),
   joiningBrief: z.string().max(20_000),
 });
@@ -277,7 +299,7 @@ export const CollaborationDurableTranscriptSchema = z
       context.addIssue({ code: 'custom', message: 'Durable source exceeds byte limit' });
   });
 export type CollaborationDurableTranscript = z.infer<typeof CollaborationDurableTranscriptSchema>;
-const artifact = z.strictObject({
+const inlineArtifact = z.strictObject({
   artifactId: id,
   revision: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
   sha256: digest,
@@ -290,6 +312,10 @@ const artifact = z.strictObject({
     .max(512 * 1024)
     .optional(),
 });
+const artifact = z.union([
+  inlineArtifact,
+  CollaborationRetainedArtifactMetadataSchema.extend({ contentBase64: z.string().max(512 * 1024) }),
+]);
 /** Public fit evidence only. This review scope can never authorize command consumption. */
 export const CollaborationNativeCapacityAssessmentSchema = z
   .strictObject({
@@ -410,13 +436,16 @@ export const CollaborationApplicationReviewResultSchema = z.strictObject({
   expectedMembershipRevision: sequence,
   artifactLabels: z
     .array(
-      z.strictObject({
-        artifactId: id,
-        revision: z.number().int().positive().safe(),
-        sha256: digest,
-        title: z.string().trim().min(1).max(1000),
-        filename: z.string().trim().min(1).max(1000).optional(),
-      }),
+      z.union([
+        CollaborationInlineArtifactPinSchema.extend({
+          title: z.string().trim().min(1).max(1000),
+          filename: z.string().trim().min(1).max(1000).optional(),
+        }),
+        CollaborationRetainedArtifactPinSchema.extend({
+          title: z.string().trim().min(1).max(1000),
+          filename: z.string().trim().min(1).max(1000).optional(),
+        }),
+      ]),
     )
     .max(100)
     .optional(),

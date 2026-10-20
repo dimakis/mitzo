@@ -378,3 +378,4 @@ export * from './telos-work-role-context.js';
 export * from './telos-work-delegation.js';
 export { AgentLibraryEditableDefinitionSchema } from './agent-library-editable.js';
 export * from './telos-work-role-presentation.js';
+export * from './ordinary-workspace.js';
