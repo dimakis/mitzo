@@ -1,3 +1,4 @@
+import { ChatStatusMessage } from '../components/ChatStatusMessage';
 import { TelosAdvisorDraft } from '../components/TelosAdvisorDraft';
 import { bindChatDraftToSession, getSessionChatDraft } from '../lib/chat-drafts';
 import { TelosRoleSetup } from '../components/TelosRoleSetup';
@@ -1486,20 +1487,10 @@ export function ChatView() {
       <TelosSourceWorkLink conversationId={activeSessionId ?? undefined} />
       <AgentLibraryChatLink sources={builderSources} />
       {builderLinkError && <p role="alert">{builderLinkError}</p>}
-
-      {(sendError || sendStatus) && (
-        <div
-          role={sendError ? 'alert' : 'status'}
-          className={
-            sendError ? 'chat-delivery-status chat-delivery-error' : 'chat-delivery-status'
-          }
-        >
-          {sendError || sendStatus}
-        </div>
-      )}
+      {isSymposium && <ChatStatusMessage status={sendStatus} error={sendError} busy />}
 
       {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
-        <div role="status">Loading conversation…</div>
+        <ChatStatusMessage status="Loading conversation…" busy />
       )}
       {historyError && (
         <div role="alert">
@@ -1592,6 +1583,11 @@ export function ChatView() {
           progressByToolId,
           voice,
         }}
+        pendingFeedback={
+          !isSymposium ? (
+            <ChatStatusMessage status={sendStatus} error={sendError} busy />
+          ) : undefined
+        }
         ordinaryComposer={
           <div
             className={`conversation-composer${!activeSessionId ? ' conversation-composer--new' : ''}`}
@@ -1632,7 +1628,11 @@ export function ChatView() {
               </div>
             )}
 
-            {!controlsBlocked && <CodexQueueStatus sessionId={activeSessionId} />}
+            <CodexQueueStatus
+              sessionId={controlsBlocked ? null : activeSessionId}
+              deliveryStatus={sendStatus}
+              deliveryError={sendError}
+            />
             {invalidRoleSetup && (
               <p role="alert">
                 This work conversation setup is unavailable. Return to the work item and choose a

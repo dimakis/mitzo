@@ -1177,3 +1177,46 @@ it('preserves preparation for a fresh command in the ended session despite old a
   });
   expect(store.getState().sendStatus).toBeNull();
 });
+
+it('clears preparation progress when a newer assistant snapshot arrives after reconnect', () => {
+  const { store } = setup();
+  channel.listener({ type: 'session_id', sessionId: 'snapshot-chat' });
+  channel.listener({
+    type: 'user_message',
+    sessionId: 'snapshot-chat',
+    seq: 1,
+    messageId: 'snapshot-prompt',
+    text: 'Synthetic request',
+  });
+  channel.listener({
+    type: '_send_accepted',
+    sessionId: 'snapshot-chat',
+    clientMsgId: 'snapshot-prompt',
+    retained: true,
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'message_snapshot',
+    sessionId: 'other-chat',
+    messageId: 'other-answer',
+    startedSeq: 3,
+    blocks: [],
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'message_snapshot',
+    sessionId: 'snapshot-chat',
+    messageId: 'old-answer',
+    startedSeq: 0,
+    blocks: [],
+  });
+  expect(store.getState().sendStatus).toBe('Preparing response…');
+  channel.listener({
+    type: 'message_snapshot',
+    sessionId: 'snapshot-chat',
+    messageId: 'answer',
+    startedSeq: 3,
+    blocks: [],
+  });
+  expect(store.getState().sendStatus).toBeNull();
+});

@@ -1,3 +1,4 @@
+import { ChatStatusMessage } from './ChatStatusMessage';
 import { MotionPresence } from './MotionPresence';
 import { ComposerResponders, type ComposerResponderSelection } from './ComposerResponders';
 import {
@@ -1068,7 +1069,7 @@ export function ChatInput({
         </div>
       ))}
       {recipientUpgradeError && <p role="alert">{recipientUpgradeError}</p>}
-      {sendDisabledReason && <span role="status">{sendDisabledReason}</span>}
+      <ChatStatusMessage status={sendDisabledReason} />
       <div className="chat-input-row">
         <textarea
           ref={textareaRef}

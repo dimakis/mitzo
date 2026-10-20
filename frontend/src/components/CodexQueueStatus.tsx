@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import { useMitzoStore } from '@mitzo/client/hooks';
+import { ChatStatusMessage } from './ChatStatusMessage';
+import { UiIcon } from './UiIcon';
 import './CodexQueueStatus.css';
 
 const CapacityRecovery = z.object({
@@ -55,7 +57,15 @@ function setHidden(sessionId: string, hidden: boolean) {
   }
 }
 
-export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
+export function CodexQueueStatus({
+  sessionId,
+  deliveryStatus,
+  deliveryError,
+}: {
+  sessionId: string | null;
+  deliveryStatus?: string | null;
+  deliveryError?: string | null;
+}) {
   const getTransportConnectionId = useMitzoStore((state) => state.getTransportConnectionId);
   const queueRevision = useMitzoStore((state) => state.queueRevision);
   const previousQueueRevision = useRef(queueRevision);
@@ -187,8 +197,6 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
           setQueue(parsed.success ? parsed.data : null);
           if (!parsed.success || parsed.data.queued === 0) clearDetails();
           setError('');
-          if (parsed.success && parsed.data.connected && reattachRequested.current === sessionId)
-            setNotice('Provider restarted. The failed turn is ready for review.');
         }
         if (parsed.success && parsed.data.queued > 0) void readCommands();
       } catch {
@@ -249,7 +257,6 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     reattachRequested.current = sessionId;
     const epoch = sessionEpoch.current;
     setReattaching(true);
-    setNotice('Restarting provider… The failed turn remains saved.');
     void apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/codex-queue/reattach`, {
       method: 'POST',
       signal: AbortSignal.timeout(15000),
@@ -265,13 +272,9 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         }
         if (epoch === sessionEpoch.current) await refresh.current();
       })
-      .catch((error: unknown) => {
-        if (epoch === sessionEpoch.current)
-          setNotice(
-            error instanceof Error
-              ? error.message
-              : 'Mitzo could not restart the provider yet. The failed turn remains saved.',
-          );
+      .catch(() => {
+        // Background recovery is reflected by current queue metadata. A failed
+        // attempt is not a durable user-action error or proof the turn was lost.
       })
       .finally(() => {
         if (epoch === sessionEpoch.current) {
@@ -299,7 +302,8 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     else hideButton.current?.focus();
   }, [collapsed]);
 
-  if (!queue) return null;
+  const delivery = <ChatStatusMessage status={deliveryStatus} error={deliveryError} busy />;
+  if (!queue) return delivery;
   const actionable =
     !!queue.recovering ||
     queue.queued > 0 ||
@@ -307,7 +311,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     !!queue.capacityRecovery ||
     !!error ||
     !!notice;
-  if (!actionable) return null;
+  if (!actionable) return delivery;
 
   const retryWaitSeconds = queue.retryAvailableAt
     ? Math.max(0, Math.ceil((queue.retryAvailableAt - Date.now()) / 1_000))
@@ -336,8 +340,8 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
     capacityStatus ??
     (queue.recovering
       ? queue.recoveryPhase === 'starting_workspace'
-        ? 'Starting workspace… Your message is saved.'
-        : 'Reconnecting… Your message is saved.'
+        ? 'Starting workspace…'
+        : 'Reconnecting…'
       : queue.failed > 0
         ? queue.retryable === false
           ? 'This failed turn needs attention and cannot be retried.'
@@ -351,9 +355,16 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         : queue.paused
           ? 'Reconnection needed. Your message is saved.'
           : queue.queued > 0
-            ? `${queue.queued} ${queue.queued === 1 ? 'message is' : 'messages are'} waiting behind the current turn.`
-            : 'An earlier step may be incomplete.');
+            ? `${queue.queued} ${queue.queued === 1 ? 'message' : 'messages'} queued`
+            : notice || error || deliveryError || '');
 
+  const attention = !!(
+    error ||
+    notice ||
+    deliveryError ||
+    (!queue.recovering && queue.failed > 0 && queue.connected) ||
+    (capacity && ['stopped', 'exhausted'].includes(capacity.status))
+  );
   const hide = () => {
     if (sessionId) {
       setHidden(sessionId, true);
@@ -392,7 +403,6 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         );
       }
       if (epoch === sessionEpoch.current) {
-        setNotice('Reconnected. Continuing saved messages.');
         await refresh.current();
       }
     } catch (error) {
@@ -431,7 +441,6 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         );
       }
       if (epoch === sessionEpoch.current) {
-        setNotice('Retrying the saved turn.');
         await refresh.current();
       }
     } catch (error) {
@@ -521,25 +530,28 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
 
   if (collapsed) {
     return (
-      <div className="codex-status-anchor">
-        <button
-          className="codex-queue-status-tab"
-          type="button"
-          ref={statusTab}
-          aria-controls={drawerId}
-          aria-expanded="false"
-          onClick={show}
-        >
-          Chat status
-        </button>
-      </div>
+      <>
+        {deliveryError && delivery}
+        <div className="codex-status-anchor">
+          <button
+            className="codex-queue-status-tab"
+            type="button"
+            ref={statusTab}
+            aria-controls={drawerId}
+            aria-expanded="false"
+            onClick={show}
+          >
+            Chat status
+          </button>
+        </div>
+      </>
     );
   }
 
   return (
     <div className="codex-status-anchor codex-status-anchor--expanded">
       <aside
-        className="codex-queue-status"
+        className={`codex-queue-status${attention ? ' codex-queue-status--attention' : ''}`}
         id={drawerId}
         role="status"
         aria-live="polite"
@@ -571,10 +583,12 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
         <div
           className={`codex-queue-status-line${capacity ? ' codex-queue-status-line--capacity' : ''}`}
         >
-          {(error || notice) && (
+          {attention ? (
             <span className="codex-queue-status-attention" role="img" aria-label="Attention">
-              !
+              <UiIcon name="warning" size={16} />
             </span>
+          ) : (
+            <UiIcon name={queue.recovering ? 'loading' : 'queue'} size={16} />
           )}
           <strong>{status}</strong>
           {capacity && (
@@ -658,7 +672,7 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
             onClick={hide}
             aria-label="Hide status"
           >
-            Hide
+            <UiIcon name="close" size={16} />
           </button>
         </div>
         {drawerOpen && queue.queued > 0 && (
@@ -696,7 +710,9 @@ export function CodexQueueStatus({ sessionId }: { sessionId: string | null }) {
             )}
           </div>
         )}
-        {(error || notice) && <p role="alert">{error || notice}</p>}
+        {(deliveryError || error || notice) && status !== (deliveryError || error || notice) && (
+          <p role="alert">{deliveryError || error || notice}</p>
+        )}
         {error && (
           <button type="button" onClick={() => void refresh.current()}>
             Retry

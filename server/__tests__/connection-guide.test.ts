@@ -15,6 +15,20 @@ describe('runtime-owned connection guidance', () => {
       connectionGuide('troubleshoot', credentialConnectionToolDefinitions).instructions,
     ).toContain('requests');
   });
+  it('distinguishes attached service access from grantability and missing local CLIs', () => {
+    const use = connectionGuide('use', credentialConnectionToolDefinitions).instructions;
+    expect(use).toContain('Only access "request_session_access" needs RequestConnectionAccess');
+    expect(use).toContain('Missing ./mgmt is not missing Jira access');
+    expect(use).toContain('/usr/bin/python3 or curl');
+    const troubleshoot = connectionGuide(
+      'troubleshoot',
+      credentialConnectionToolDefinitions,
+    ).instructions;
+    expect(troubleshoot).toContain('one bounded authenticated read');
+    expect(troubleshoot).toContain(
+      'do not retry a confirmed permission denial or any uncertain write',
+    );
+  });
   it('keeps the initial hint small and defers workflow detail to the guide', () => {
     expect(CONNECTION_TOOL_INSTRUCTIONS.length).toBeLessThan(500);
     expect(CONNECTION_TOOL_INSTRUCTIONS).toContain('GetConnectionGuide');

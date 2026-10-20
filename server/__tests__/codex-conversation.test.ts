@@ -5744,3 +5744,221 @@ it('does not duplicate a targeted cancellation invoked during the actual accepta
     { target: { commandId: 'observer-target' }, disposition: 'claimed' },
   );
 });
+
+it('automatically reconnects a dropped transport and dispatches saved FIFO work without replaying the interrupted turn', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onClose(new Error('connection closed'));
+  expect(f.c.isRecovering()).toBe(true);
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.c.queue().map(({ id, status }) => ({ id, status }))).toEqual([
+    { id: 'lost', status: 'interrupted' },
+    { id: 'saved', status: 'running' },
+  ]);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+  expect(f.c.isRecovering()).toBe(false);
+});
+
+it('retries transient reconnect failures with backoff without consuming saved commands', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.rpc.initialize.mockRejectedValueOnce(new Error('temporary outage'));
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(f.c.isRecovering()).toBe(true);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('running');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+});
+
+it('cancels pending automatic recovery when the user stops the conversation', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onClose(new Error('connection closed'));
+  await f.c.interrupt();
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.c.isRecovering()).toBe(false);
+});
+
+it('does not release saved work while provider metadata still reports an active turn', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic first request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'thread/turns/list'
+      ? { data: [{ id: 'turn-1', status: 'inProgress' }], nextCursor: null }
+      : request(method, params),
+  );
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  f.rpc.request.mockImplementation(request);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('running');
+  expect(f.rpc.request).toHaveBeenCalledWith(
+    'thread/turns/list',
+    expect.objectContaining({ itemsView: 'notLoaded', limit: 1 }),
+  );
+});
+
+it('bounds automatic reconnect attempts and preserves the queue during a sustained outage', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.rpc.initialize.mockRejectedValue(new Error('still offline'));
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(f.rpc.initialize).toHaveBeenCalledTimes(6); // first initialization + five reconnects
+  expect(f.c.isRecovering()).toBe(false);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
+it('does not undo an explicit Stop when its idle transport later closes', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'first', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  await f.c.interrupt();
+  f.callbacks.onClose(new Error('idle transport expired'));
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.c.isPaused()).toBe(true);
+  expect(f.c.isRecovering()).toBe(false);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
+it('fences an in-flight automatic reconnect when Stop arrives during workspace startup', async () => {
+  vi.useFakeTimers();
+  let release!: () => void;
+  const args: Parameters<typeof setup> = [];
+  args[5] = () =>
+    new Promise<void>((resolve) => {
+      release = resolve;
+    });
+  const f = await setup(...args);
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  await f.c.interrupt();
+  release();
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(f.c.isRecovering()).toBe(false);
+});
+
+it('retains qualified transport recovery across a cold reattach without replaying previous work', async () => {
+  vi.useFakeTimers();
+  const first = await setup();
+  await first.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await first.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  first.callbacks.onClose(new Error('connection closed'));
+  expect(first.store.automaticRecoveryPending('app', first.getBinding())).toBe(true);
+  first.c.close();
+  expect(first.store.automaticRecoveryPending('app', first.getBinding())).toBe(true);
+  const restored = await setup(first.store);
+  restored.c.recoverSavedQueue();
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(restored.c.queue().find(({ id }) => id === 'saved')?.status).toBe('running');
+  expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  expect(first.store.automaticRecoveryPending('app', first.getBinding())).toBe(false);
+});
+
+it('does not restore automatic eligibility when a reconnect transport closes after Stop', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  let release!: () => void;
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/turns/list') {
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return { data: [], nextCursor: null };
+    }
+    return request(method, params);
+  });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  await f.c.interrupt();
+  f.callbacks.onClose(new Error('reconnect closed after Stop'));
+  expect(f.store.automaticRecoveryPending('app', f.getBinding())).toBe(false);
+  release();
+  await vi.advanceTimersByTimeAsync(60000);
+  f.c.close();
+  expect(f.store.automaticRecoveryPending('app', f.getBinding())).toBe(false);
+  const restored = await setup(f.store);
+  restored.c.recoverSavedQueue();
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(restored.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(restored.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+});
+
+it('rejects recovery metadata from a transport that closes before its continuation runs', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'thread/turns/list') {
+      f.callbacks.onClose(new Error('metadata transport closed'));
+      return { data: [], nextCursor: null };
+    }
+    return request(method, params);
+  });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('queued');
+  expect(f.store.automaticRecoveryPending('app', f.getBinding())).toBe(true);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+  f.rpc.request.mockImplementation(request);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(f.c.queue().find(({ id }) => id === 'saved')?.status).toBe('running');
+});
+
+it('leaves recovery of guarded ordinary routes to their existing runtime owner', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  f.conversationOptions.canClaimCommand = () => true;
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'saved', prompt: 'Synthetic follow-up' });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(60000);
+  expect(f.c.isRecovering()).toBe(false);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
+it('does not drain further saved commands if the automatic follow-up loses its transport too', async () => {
+  vi.useFakeTimers();
+  const f = await setup();
+  await f.c.send({ id: 'lost', prompt: 'Synthetic request' });
+  await f.c.send({ id: 'probe', prompt: 'Synthetic follow-up' });
+  await f.c.send({ id: 'preserved', prompt: 'Synthetic later work' });
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    const result = await request(method, params);
+    if (method === 'turn/start') f.callbacks.onClose(new Error('still offline'));
+    return result;
+  });
+  f.callbacks.onClose(new Error('connection closed'));
+  await vi.advanceTimersByTimeAsync(120000);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+  expect(f.c.queue().find(({ id }) => id === 'preserved')?.status).toBe('queued');
+  expect(f.c.isRecovering()).toBe(false);
+});
