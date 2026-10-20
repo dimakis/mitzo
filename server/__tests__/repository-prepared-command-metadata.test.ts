@@ -270,6 +270,22 @@ it.each([false, true])(
     });
     expect((await send(wire, foreignToken, foreignConnection)).status).toBe(403);
     expect((await send(wire)).status).toBe(202);
+    const { repositoryPreparedCommandStatus } = await import('../repository-prepared-command.js');
+    const firstOnlyAuthority = vi.fn(() => {
+      throw Error('First-command-only authority must not govern an already-started session');
+    });
+    const firstOnlyWorkspace = vi.fn(() => f.workspace);
+    expect(
+      await repositoryPreparedCommandStatus({
+        events: f.events,
+        workspaces: firstOnlyWorkspace,
+        sessionId: first.reservation.conversationId,
+        signal: new AbortController().signal,
+        assertCurrent: firstOnlyAuthority,
+      }),
+    ).toEqual({ prepared: false });
+    expect(firstOnlyAuthority).not.toHaveBeenCalled();
+    expect(firstOnlyWorkspace).not.toHaveBeenCalled();
     auth.revokeAuthSession(actor);
     expect((await send(wire)).status).toBe(401);
     expect(turns).toBe(1);
@@ -337,6 +353,7 @@ it.each([
   'wrong-settings',
   'wrong-root',
   'missing-proof',
+  'missing-runtime-binding',
 ] as const)(
   'withholds prepared-first for %s repository preparation without repairing it',
   async (damage) => {
@@ -361,7 +378,11 @@ it.each([
           ),
           record.id,
         );
-      } else if (damage === 'missing')
+      } else if (damage === 'missing-runtime-binding')
+        db.prepare('UPDATE sessions SET runtime_binding=NULL WHERE session_id=?').run(
+          first.reservation.conversationId,
+        );
+      else if (damage === 'missing')
         db.prepare('DELETE FROM ordinary_session_preparations WHERE session_id=?').run(
           first.reservation.conversationId,
         );
@@ -384,3 +405,75 @@ it.each([
     expect(f.events.getOrdinaryInitialCommandId(first.reservation.conversationId)).toBeUndefined();
   },
 );
+
+it('still withholds an unstarted Local Codex preparation when its route is disabled, without qualification or effects', async () => {
+  const flag = process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED;
+  const qualify = vi.spyOn(f.workspace, 'qualifyPreparedHostSession');
+  const before = f.events.getOrdinarySessionPreparationForConversation(
+    first.reservation.conversationId,
+  );
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '0');
+  try {
+    const response = await get();
+    expect(response.status).toBe(200);
+    expect(response.body.runtimeCommandScope).toBe('first-command-only');
+    expect(response.body.runtimeCommandReason).toMatch(/preserve|original|unavailable/i);
+    expect(
+      f.events.getOrdinarySessionPreparationForConversation(first.reservation.conversationId),
+    ).toEqual(before);
+    expect(f.events.getOrdinaryInitialCommandId(first.reservation.conversationId)).toBeUndefined();
+    expect(qualify).not.toHaveBeenCalled();
+    expect(first.launch).not.toHaveBeenCalled();
+  } finally {
+    vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', flag);
+  }
+});
+
+it('keeps the original uncertain repository receipt under continuation metadata without first-only authority or new effects', async () => {
+  const prepared = f.events.getOrdinarySessionPreparationForConversation(
+    first.reservation.conversationId,
+  )!;
+  const meta = f.events.getSession(first.reservation.conversationId)!;
+  const admitted = f.events.admitPreparedOrdinaryCommand(
+    prepared.allocationOperationId,
+    {
+      sessionId: meta.sessionId,
+      repositoryWorkspaceId: meta.repositoryWorkspaceId,
+      cwd: meta.cwd,
+      accountBinding: meta.accountBinding,
+      agentProfile: meta.agentProfile,
+      selectedModel: meta.selectedModel,
+      reasoningEffort: meta.reasoningEffort,
+      mode: meta.mode,
+    },
+    prepared.settings.binding,
+    {
+      clientMsgId: first.request.clientMsgId,
+      requestFingerprint: 'offline-uncertain-repository-metadata',
+      selection: first.request.selection,
+      payload: first.request.payload,
+    },
+  );
+  expect(admitted.admission.state).toBe('reserved');
+  expect(f.events.claimOrdinaryLocalCommandDispatch(first.request.clientMsgId)).toBe(true);
+  const before = f.events.getOrdinaryCommandAdmission(first.request.clientMsgId);
+  expect(before?.state).toBe('uncertain');
+  const authority = vi.fn(() => {
+    throw Error('Do not requalify an uncertain original first command');
+  });
+  const workspace = vi.fn(() => f.workspace);
+  const { repositoryPreparedCommandStatus } = await import('../repository-prepared-command.js');
+  expect(
+    await repositoryPreparedCommandStatus({
+      events: f.events,
+      workspaces: workspace,
+      sessionId: meta.sessionId,
+      signal: new AbortController().signal,
+      assertCurrent: authority,
+    }),
+  ).toEqual({ prepared: false });
+  expect(f.events.getOrdinaryCommandAdmission(first.request.clientMsgId)).toEqual(before);
+  expect(authority).not.toHaveBeenCalled();
+  expect(workspace).not.toHaveBeenCalled();
+  expect(first.launch).not.toHaveBeenCalled();
+});
