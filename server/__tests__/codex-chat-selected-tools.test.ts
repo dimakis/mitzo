@@ -19,6 +19,7 @@ vi.mock('../codex-conversation.js', () => ({
     constructor(private options: { onClosed(): void }) {
       mocks.conversationOptions = options;
     }
+    recoverSavedQueue = vi.fn();
     initialize = mocks.initialize;
     send = mocks.send;
     getTurnDispatchCount = () => 0;

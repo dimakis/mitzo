@@ -105,7 +105,7 @@ it.each(['failed', 'stalled'])(
     queueSignal.revision++;
     view.rerender(<CodexQueueStatus sessionId="invalidated-details" />);
     await act(async () => {});
-    expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+    expect(screen.getByText('1 message queued')).toBeTruthy();
     expect(screen.queryByText('Synthetic first preview')).toBeNull();
     expect(screen.queryByText('Synthetic second preview')).toBeNull();
     expect(screen.queryAllByRole('button', { name: 'Cancel' })).toHaveLength(0);
@@ -132,7 +132,7 @@ it('clears populated previews when an unchanged fallback details read fails', as
   });
   expect(screen.queryByText('Synthetic preview')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
-  expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+  expect(screen.getByText('1 message queued')).toBeTruthy();
 });
 
 it('shows and clears waiting work on queue notifications without advancing the polling clock', async () => {
@@ -149,7 +149,7 @@ it('shows and clears waiting work on queue notifications without advancing the p
   queueSignal.revision++;
   view.rerender(<CodexQueueStatus sessionId="live" />);
   await act(async () => {});
-  expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+  expect(screen.getByText('1 message queued')).toBeTruthy();
 
   queued = 0;
   queueSignal.revision++;
@@ -195,7 +195,7 @@ it('updates the count while queue preview details are stalled and ignores late d
   );
   const view = render(<CodexQueueStatus sessionId="slow-details" />);
   await act(async () => {});
-  expect(screen.getByText('1 message is waiting behind the current turn.')).toBeTruthy();
+  expect(screen.getByText('1 message queued')).toBeTruthy();
   queued = 0;
   queueSignal.revision++;
   view.rerender(<CodexQueueStatus sessionId="slow-details" />);
@@ -517,7 +517,7 @@ it('shows waiting work with a drawer that cancels only an identified queued mess
     .mockResolvedValueOnce(commands([{ id: 'two', preview: 'Second saved message' }]));
 
   render(<CodexQueueStatus sessionId="task" />);
-  await screen.findByText('2 messages are waiting behind the current turn.');
+  await screen.findByText('2 messages queued');
   await userEvent.click(screen.getByRole('button', { name: 'Review queue' }));
   expect(screen.getByText('First saved message')).toBeTruthy();
   expect(screen.getByText('Second saved message')).toBeTruthy();
@@ -536,7 +536,7 @@ it('shows waiting work with a drawer that cancels only an identified queued mess
 it.each([
   [
     { paused: false, connected: true, queued: 1, interrupted: 0, recovering: false },
-    '1 message is waiting behind the current turn.',
+    '1 message queued',
   ],
   [
     {
@@ -547,7 +547,7 @@ it.each([
       recovering: true,
       recoveryPhase: 'reconnecting',
     },
-    'Reconnecting… Your message is saved.',
+    'Reconnecting…',
   ],
   [
     {
@@ -558,7 +558,7 @@ it.each([
       recovering: true,
       recoveryPhase: 'reconnecting',
     },
-    'Reconnecting… Your message is saved.',
+    'Reconnecting…',
   ],
 ])('uses compact, accurate status text', async (queue, label) => {
   vi.mocked(apiFetch).mockResolvedValue(meta(queue));
@@ -587,7 +587,7 @@ it('lets a paused connected chat explicitly reconnect and continue saved work', 
       signal: expect.any(AbortSignal),
     }),
   );
-  expect(await screen.findByText('Reconnected. Continuing saved messages.')).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
 });
 
 it('allows the qualified original cold Responses queue to reconnect without adding or cancelling accepted work', async () => {
@@ -614,7 +614,7 @@ it('allows the qualified original cold Responses queue to reconnect without addi
     headers: { 'X-Connection-ID': 'owned-sse' },
     signal: expect.any(AbortSignal),
   });
-  expect(await screen.findByText('Reconnected. Continuing saved messages.')).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
 });
 
 it('does not offer a cold queue effect without the server original-owner qualification', async () => {
@@ -682,7 +682,7 @@ it('offers an explicit retry for the saved failed turn without queued follow-ups
       signal: expect.any(AbortSignal),
     }),
   );
-  expect(await screen.findByText('Retrying the saved turn.')).toBeTruthy();
+  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
 });
 
 it('honors the provider retry window before enabling the saved turn', async () => {
@@ -775,7 +775,8 @@ it('reattaches a disconnected provider in the background while preserving the fa
     { timeout: 5000 },
   );
   expect(await screen.findByRole('button', { name: 'Retry saved turn' })).toBeTruthy();
-  expect(screen.getByText('Provider restarted. The failed turn is ready for review.')).toBeTruthy();
+  expect(screen.getByText('Previous turn failed. Retry when available.')).toBeTruthy();
+  expect(screen.queryByText('Provider restarted. The failed turn is ready for review.')).toBeNull();
 });
 
 it('warns before retrying an ambiguous turn that already invoked tools', async () => {
@@ -987,4 +988,69 @@ it('does not resurrect a status row for historical interrupted work with nothing
   await act(async () => {});
   expect(screen.queryByRole('status')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Chat status' })).toBeNull();
+});
+
+it('clears a successful reconnect notice when fresh metadata reports no pending work', async () => {
+  vi.mocked(apiFetch)
+    .mockResolvedValueOnce(meta({ paused: true, connected: true, queued: 1, interrupted: 1 }))
+    .mockResolvedValueOnce(commands([{ id: 'saved', preview: 'Synthetic saved work' }]))
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) } as Response)
+    .mockResolvedValueOnce(
+      meta({ paused: false, connected: true, queued: 0, interrupted: 0, failed: 0 }),
+    );
+  render(<CodexQueueStatus sessionId="cleared" />);
+  await userEvent.click(await screen.findByRole('button', { name: 'Reconnect and continue' }));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(4));
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.queryByText('An earlier step may be incomplete.')).toBeNull();
+  expect(screen.queryByText('Reconnected. Continuing saved messages.')).toBeNull();
+});
+
+it('uses delivery progress without an attention panel when no saved work needs action', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(meta(idleQueue));
+  const view = render(<CodexQueueStatus sessionId="quiet" deliveryStatus="Preparing response…" />);
+  expect((await screen.findByRole('status')).textContent).toContain('Preparing response…');
+  expect(screen.queryByRole('img', { name: 'Attention' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Hide status' })).toBeNull();
+  view.rerender(<CodexQueueStatus sessionId="quiet" deliveryStatus={null} />);
+  await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+});
+
+it('prioritizes queue recovery over duplicate delivery progress', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(meta({ ...idleQueue, recovering: true }));
+  render(<CodexQueueStatus sessionId="one-status" deliveryStatus="Preparing response…" />);
+  await screen.findByText('Reconnecting…');
+  expect(screen.queryByText('Preparing response…')).toBeNull();
+  expect(screen.getAllByRole('status')).toHaveLength(1);
+});
+
+it('does not preserve a failed background reattach notice after healthy metadata arrives', async () => {
+  vi.useFakeTimers();
+  let healthy = false;
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (String(path).endsWith('/reattach'))
+      return { ok: false, json: async () => ({ error: 'Temporary restart failure' }) } as Response;
+    return meta(
+      healthy ? idleQueue : { ...idleQueue, connected: false, failed: 1, retryable: true },
+    );
+  });
+  render(<CodexQueueStatus sessionId="background-recovered" />);
+  await act(async () => {});
+  expect(screen.queryByText('Temporary restart failure')).toBeNull();
+  expect(screen.queryByRole('img', { name: 'Attention' })).toBeNull();
+  healthy = true;
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.queryByRole('status')).toBeNull();
+});
+
+it('keeps a new delivery failure visible when queue details were previously hidden', async () => {
+  sessionStorage.setItem('mitzo-codex-status-hidden:hidden-error', '1');
+  vi.mocked(apiFetch).mockResolvedValue(meta({ ...idleQueue, queued: 1 }));
+  render(
+    <CodexQueueStatus sessionId="hidden-error" deliveryError="Message delivery needs review" />,
+  );
+  expect(await screen.findByRole('alert')).toBeTruthy();
+  expect(screen.getByText('Message delivery needs review')).toBeTruthy();
 });

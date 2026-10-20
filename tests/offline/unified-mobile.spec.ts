@@ -1420,7 +1420,7 @@ test('desktop Work starts an unsent planning draft from the canonical collection
   }
 });
 
-test('accent-filled controls retain their paired foreground on hover and in user-message utilities', async ({
+test('accent-filled controls retain paired foregrounds and warnings use outline colors', async ({
   page,
 }) => {
   const html = await readFile(resolve('frontend/dist/index.html'), 'utf8');
@@ -1439,7 +1439,7 @@ test('accent-filled controls retain their paired foreground on hover and in user
   expect(css).toContain('--color-on-accent');
   await page.setContent(`<style>${css}</style>
     <span id="paired-reference" style="color:var(--color-on-accent)">Reference</span>
-    <span id="status-reference" style="color:var(--color-on-status)">Status reference</span>
+    <span id="status-reference" style="color:var(--color-warning)">Outline warning reference</span>
     <div class="chat-input--compact"><button class="chat-input-btn--queue">Queue</button></div>
     <span class="codex-queue-status-attention">!</span>
     <div class="html-preview-card-content">HTML card canvas</div>
@@ -1490,6 +1490,11 @@ test('accent-filled controls retain their paired foreground on hover and in user
           .locator('#status-reference')
           .evaluate((element) => getComputedStyle(element).color),
       );
+      expect(
+        await page
+          .locator('.codex-queue-status-attention')
+          .evaluate((element) => getComputedStyle(element).backgroundColor),
+      ).toBe('rgba(0, 0, 0, 0)');
       expect(
         await page
           .locator('.html-preview-card-content')
