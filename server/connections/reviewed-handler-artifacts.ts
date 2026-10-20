@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.419-symposium-native-page-candidate';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.420-symposium-bounded-motion';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -381,11 +380,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/tokens.css':
     'f028f328310f111d619e015e09774c02e5caec9049863756d77095425b82d97f',
   '../../frontend/src/hooks/useMotionPresence.ts':
-    'ace66416845a7e8a85ce17c07c8310b4b7089e89f09ce6e8cb7919907d035838',
+    '355c33e3465657f632910580edf7a3ffeb62648416671e6e6b1811a062d04b6b',
   '../../frontend/src/hooks/useReducedMotion.ts':
     'bac83b87d2170b27345c415117c7ec3af58071633433e58c0ac57b4cfe8318b0',
   '../../frontend/src/lib/motion.ts':
-    'ad00f4a8c52926e6b4527c84d9abd38935b538c9452566395a5bb8b998540589',
+    'a47d7b84c9dc21c89ee09852d35ce84ed3e3ecb6e2fc5eef1359d574b4813e0c',
   '../../frontend/src/types/account-selection.ts':
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   '../../frontend/src/components/ConversationAgents.tsx':
@@ -1090,7 +1089,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/AgentSettingsPicker.css':
     'bd30b16df165a784f34285058165f6e4cb6dd07839da21fe258be8410303d408',
   '../../frontend/src/components/AgentSettingsPicker.tsx':
-    '34a3cc605bd76ab3d371bb04b06b6df317f60923d1f23e412a415c354239e595',
+    'bfccf9c31c9fe8f8893b885599634b6aa88dc99f41f8afe8d2d0e070fc5781f1',
   '../../frontend/src/components/UiIcon.tsx':
     '90b9c941eaa16cbc5a5b738c6bd653457e4ab5f69e1e0c4862ec9724d8d68898',
   '../../frontend/src/components/AttentionFeed.tsx':
