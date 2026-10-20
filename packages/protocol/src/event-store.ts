@@ -1326,6 +1326,9 @@ export class EventStore {
       this.collaborationConversation.membershipChanged(membership),
     );
     this.collaborationConversation = new CollaborationConversationStore(db, {
+      sourceSetupAvailable: (id) =>
+        this.isCollaborationParticipantAvailable(id) &&
+        this.getSession(id)?.conversationSource !== 'external_import',
       membership: (id) => this.getSessionCollaboration(id),
       setMembership: (id, input) => this.setSessionCollaboration(id, input),
       beginMembership: (id, sourceSessionId) =>

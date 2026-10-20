@@ -303,11 +303,17 @@ export class TelosArtifactStore {
           );
         // Reviewed source packets are retained evidence. Their pinned source
         // relationship is owned by TelosWorkStore, not a produced file/link.
+        // The link's Added date belongs to the association, not its latest
+        // revision. Update its metadata without replacing the recorded date;
+        // each immutable revision still gets its own created_at above.
         if (!input.sessionId.startsWith('source-capture:'))
           this.db
             .prepare(
-              `INSERT OR REPLACE INTO links (id,item_id,type,url,title,description,created_at)
-        VALUES (?,?,?,?,?,?,?)`,
+              `INSERT INTO links (id,item_id,type,url,title,description,created_at)
+        VALUES (?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET
+          item_id=excluded.item_id, type=excluded.type, url=excluded.url,
+          title=excluded.title, description=excluded.description`,
             )
             .run(
               `artifact-${id}`,

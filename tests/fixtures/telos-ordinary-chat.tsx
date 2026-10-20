@@ -5,6 +5,9 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { clientStore } from '../../frontend/src/client-store';
 import { ResponsiveChatView } from '../../frontend/src/components/ResponsiveChatView';
 import { MobileShell } from '../../frontend/src/components/MobileShell';
+import { DesktopShell } from '../../frontend/src/components/DesktopShell';
+import { FileViewer } from '../../frontend/src/pages/FileViewer';
+import { useIsDesktop } from '../../frontend/src/hooks/useMediaQuery';
 import {
   createChatDraft,
   saveChatDraft,
@@ -41,12 +44,16 @@ function Navigation() {
   }, [navigate]);
   return null;
 }
+function FilesRoute() {
+  return useIsDesktop() ? <DesktopShell center={<FileViewer />} /> : <FileViewer />;
+}
 createRoot(document.getElementById('root')!).render(
   <MitzoStoreProvider value={clientStore}>
     <BrowserRouter>
       <Navigation />
       <MobileShell>
         <Routes>
+          <Route path="/files" element={<FilesRoute />} />
           <Route path="/chat" element={<ResponsiveChatView />} />
           <Route path="/chat/:sessionId" element={<ResponsiveChatView />} />
         </Routes>

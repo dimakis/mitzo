@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { resolveCollaborationSourceSetup } from './collaboration-source-setup-owner.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
   CollaborationForwardPrepareInputSchema,
@@ -69,6 +70,7 @@ interface Owners {
   setMembership(id: string, input: unknown): SessionCollaboration;
   beginMembership(id: string, sourceSessionId: string): SessionCollaboration;
   available(sessionId: string): boolean;
+  sourceSetupAvailable(sessionId: string): boolean;
   settings(sessionId: string): CollaborationSettings | undefined;
   /** Existing ordinary preparation/first-command owners supply this proof, never the client. */
   allocation(operationId: string):
@@ -161,6 +163,8 @@ export class CollaborationConversationStore {
       CREATE TABLE IF NOT EXISTS collaboration_requests (
         collaboration_id TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
         result TEXT NOT NULL, PRIMARY KEY(collaboration_id,request_id));
+      CREATE INDEX IF NOT EXISTS idx_collaboration_request_origin
+        ON collaboration_requests(collaboration_id);
       CREATE INDEX IF NOT EXISTS idx_collaboration_message_heads
         ON collaboration_records(collaboration_id,record_id,revision DESC) WHERE kind='message';
     `);
@@ -257,6 +261,17 @@ export class CollaborationConversationStore {
       .immediate();
   }
   /** First Add agent starts from one ordinary source, before any fresh session exists. */
+  sourceSetup(sourceConversationId: string) {
+    return resolveCollaborationSourceSetup(
+      this.db,
+      sourceConversationId,
+      {
+        available: this.owners.sourceSetupAvailable,
+        membership: this.owners.membership,
+      },
+      sha,
+    );
+  }
   begin(group: string, raw: unknown) {
     const input = CollaborationBeginSchema.parse(raw);
     return this.mutation(

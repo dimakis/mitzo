@@ -242,7 +242,7 @@ jobs:
         run: python3 scripts/test-watch-chat-receipts.py
 
       - name: Build iPhone app with Watch companion
-        if: always()
+        if: ${{ !cancelled() }}
         run: >-
           xcodebuild -project frontend/ios/App/App.xcodeproj -scheme App
           -destination 'generic/platform=iOS Simulator'
@@ -328,30 +328,31 @@ jobs:
         id: format
         run: npm run format:check
 
+      # Continue independent checks after failure, but release superseded runs.
       - name: Design token contract
         id: design
-        if: always()
+        if: ${{ !cancelled() }}
         run: npm run test:design
 
       - name: Type check (server)
         id: typecheck-server
-        if: always()
+        if: ${{ !cancelled() }}
         run: npx tsc --noEmit
 
       - name: Type check (frontend)
         id: typecheck-frontend
-        if: always()
+        if: ${{ !cancelled() }}
         run: cd frontend && npx tsc -b
 
       - name: Test
         shell: bash
         id: test
-        if: always()
+        if: ${{ !cancelled() }}
         run: npm test 2>&1 | tee test-output.txt
 
       - name: Test count guard
         id: test-count
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           COUNT=$(grep 'Tests' test-output.txt | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')
           echo "Test count: $COUNT"
@@ -362,30 +363,30 @@ jobs:
 
       - name: Audit
         id: audit
-        if: always()
+        if: ${{ !cancelled() }}
         run: npm audit --audit-level=high
         continue-on-error: true
 
       - name: Secret scan
         id: secret-scan
-        if: always()
+        if: ${{ !cancelled() }}
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build MCP server
         id: build-mcp
-        if: always()
+        if: ${{ !cancelled() }}
         run: cd mcp-server && npm ci && npm run build
 
       - name: Build
         id: build
-        if: always()
+        if: ${{ !cancelled() }}
         run: npm run build
 
       - name: Bundle size
         id: bundle-size
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           JS_SIZE=$(wc -c < frontend/dist/assets/index-*.js 2>/dev/null || echo 0)
           CSS_SIZE=$(wc -c < frontend/dist/assets/index-*.css 2>/dev/null || echo 0)
