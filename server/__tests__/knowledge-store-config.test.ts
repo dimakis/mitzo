@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   mkdtempSync,
   mkdirSync,
@@ -9,12 +9,14 @@ import {
   realpathSync,
   chmodSync,
   symlinkSync,
+  existsSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { knowledgeStoreFromEnvironment, mgmtKnowledgeAdapter } from '../knowledge-store-config.js';
 const roots: string[] = [];
 afterEach(() => {
+  vi.unstubAllEnvs();
   for (const root of roots) rmSync(root, { recursive: true, force: true });
   roots.length = 0;
 });
@@ -121,9 +123,18 @@ it.each([
   'cached-metadata-tamper',
   'cached-new-revision',
   'cached-config-change',
+  'combined-probe',
+  'wrong-commit',
+  'attached',
+  'detached-named-branch',
+  'linked-worktree',
+  'tracked-dirty',
+  'staged-dirty',
+  'untracked-directory',
+  'missing-release',
 ])('requires a %s publications directory while running the pinned adapter', async (kind) => {
   const f = fixture();
-  const release = join(f.root, 'release');
+  let release = join(f.root, 'release');
   mkdirSync(join(release, 'mgmt_lib'), { recursive: true });
   writeFileSync(join(release, '.gitignore'), '__pycache__/\n');
   writeFileSync(join(release, 'mgmt_lib/__init__.py'), '');
@@ -180,19 +191,73 @@ print(json.dumps(output))
   git('commit', '-qm', 'test: adapter fixture');
   const releaseCommit = git('rev-parse', 'HEAD');
   git('checkout', '-q', '--detach');
+  if (kind === 'linked-worktree') {
+    const linked = join(f.root, 'linked-release');
+    git('worktree', 'add', '-q', '--detach', linked, releaseCommit);
+    release = linked;
+  }
   const adapterConfiguration = JSON.parse(readFileSync(f.adapterConfig, 'utf8'));
   writeFileSync(f.adapterConfig, JSON.stringify({ ...adapterConfiguration, fixtureMode: kind }));
   const adapter = mgmtKnowledgeAdapter(
     {
       kind: 'mgmt-v1',
       release,
-      releaseCommit,
+      releaseCommit: kind === 'wrong-commit' ? '0'.repeat(40) : releaseCommit,
       python: '/usr/bin/python3',
       config: f.adapterConfig,
     },
     f.config.stores[0] ? 'https://example.com/other.git' : '',
   );
   const revision = 'c'.repeat(40);
+  const probeCases = [
+    'combined-probe',
+    'wrong-commit',
+    'attached',
+    'detached-named-branch',
+    'linked-worktree',
+    'tracked-dirty',
+    'staged-dirty',
+    'untracked-directory',
+    'missing-release',
+  ];
+  const gitCalls = join(f.root, 'git-calls');
+  if (probeCases.includes(kind)) {
+    const bin = join(f.root, 'bin');
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, 'git'),
+      `#!/bin/sh\nprintf '%s\\n' "$*" >> "$MITZO_TEST_ADAPTER_GIT_CALLS"\nexec /usr/bin/git "$@"\n`,
+      { mode: 0o700 },
+    );
+    // Observe the real subprocess boundary without replacing Git's parser/output.
+    vi.stubEnv('PATH', bin + ':' + process.env.PATH);
+    vi.stubEnv('MITZO_TEST_ADAPTER_GIT_CALLS', gitCalls);
+    if (kind === 'attached') git('checkout', '-q', 'main');
+    if (kind === 'detached-named-branch') git('checkout', '-q', '-b', '(detached)');
+    if (kind === 'tracked-dirty')
+      writeFileSync(join(release, '.gitignore'), '# unaccepted change\n');
+    if (kind === 'staged-dirty') {
+      writeFileSync(join(release, '.gitignore'), '# staged change\n');
+      git('add', '.gitignore');
+    }
+    if (kind === 'untracked-directory') {
+      mkdirSync(join(release, 'untracked'));
+      writeFileSync(join(release, 'untracked/file.md'), 'not accepted');
+    }
+    if (kind === 'missing-release') rmSync(release, { recursive: true });
+    // Fixture setup uses execFileSync; count only adapter admission subprocesses.
+    writeFileSync(gitCalls, '');
+    if (!['combined-probe', 'linked-worktree'].includes(kind)) {
+      const result = expect(adapter({ revision }, AbortSignal.timeout(5000))).rejects;
+      if (kind === 'missing-release') await result.toThrow();
+      else await result.toThrow('clean pinned detached release');
+      expect(readFileSync(gitCalls, 'utf8').trim().split('\n')).toHaveLength(
+        kind === 'detached-named-branch' ? 2 : 1,
+      );
+      expect(existsSync(join(f.root, 'adapter/adapter-calls'))).toBe(false);
+      return;
+    }
+  }
   if (kind === 'symlink') {
     mkdirSync(join(f.root, 'outside'));
     symlinkSync(join(f.root, 'outside'), join(f.root, 'adapter/publications'));
@@ -214,6 +279,12 @@ print(json.dumps(output))
     baselineSha256: JSON.parse(readFileSync(join(result.seed, '..', 'publication.json'), 'utf8'))
       .baselineSha256,
   });
+  if (['combined-probe', 'linked-worktree'].includes(kind)) {
+    expect(readFileSync(gitCalls, 'utf8').trim().split('\n')).toHaveLength(2);
+    expect(await adapter({ revision }, AbortSignal.timeout(5000))).toEqual(result);
+    expect(readFileSync(gitCalls, 'utf8').trim().split('\n')).toHaveLength(4);
+    expect(readFileSync(join(f.root, 'adapter/adapter-calls'), 'utf8')).toBe('1');
+  }
   if (kind.startsWith('cached')) {
     const file = join(result.seed, 'AGENTS.md');
     if (kind === 'cached-file-tamper') writeFileSync(file, 'unaccepted instructions');
