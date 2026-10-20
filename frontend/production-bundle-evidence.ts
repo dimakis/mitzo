@@ -26,7 +26,9 @@ export function productionBundleEvidence(): Plugin[] {
           'frontend/production-bundle-evidence.ts',
         ]);
         const virtualModules: Record<string, string> = {};
-        for (const id of this.getModuleIds()) {
+        // Watched inputs include preprocessing dependencies such as CSS imports
+        // that need not have a separate module in the final Rollup graph.
+        for (const id of new Set([...this.getModuleIds(), ...this.getWatchFiles()])) {
           const path = id.split('?')[0];
           if (isAbsolute(path) && existsSync(path) && statSync(path).isFile())
             files.add(relative(root, path));

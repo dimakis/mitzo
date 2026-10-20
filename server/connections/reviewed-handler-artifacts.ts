@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.450-telos-canonical-startup-and-build-evidence';
+  'v1.0.451-telos-permission-matrix-and-build-inputs';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1280,7 +1280,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/vite.config.ts':
     'd16fdd1ae58a1e47b00ffd3a34830e73dbb5a24bd78006cbe9a2f840f80310be',
   '../../frontend/production-bundle-evidence.ts':
-    '302cd4b78cdf59873faf658e93db4cffccc59897743947bdbca34c7aaf5368ef',
+    'b6a57cad11c1b602605f2b1407965e10122218082f17dfc8510c38b3a54f6759',
   '../../scripts/retain-production-bundle.mjs':
     '541eec48db5d274bb5cb850a49737ef1a9f5f3584a2e45f8236885afb0333f95',
 });
