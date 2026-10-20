@@ -1,0 +1,41 @@
+{
+  "observedAt": "2026-10-20T04:04:40.343637+00:00",
+  "head": "8b42fb9df26995d10486014a44d70d1d48a2c391",
+  "tree": "3b7ec203aa8508f16d727ec5e4b0154705646e35",
+  "parents": ["3d607a26168d50aa78c242ca1faa3eb6b139f13c"],
+  "actualReviewedPins": {
+    "count": 659,
+    "mismatches": 0,
+    "runtimeRevision": "v1.0.351-symposium-pending-command-identity"
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "native": {
+    "commit": "46df3041feb4fbf9bf6f47d41452abe341de61e9",
+    "tree": "900c92af991875072ff94fe76c1df8fa76ca684d",
+    "orderedPatches": 79,
+    "allPatchHashesMatch": true,
+    "original77OrderAndBytesExact": true,
+    "patch78ByteExactReviewed811Correction": true,
+    "patch79SHA256": "f4f113471f2404a412a0bc7d6a261c39c6fca373c7c258fd2c42ef69bd7ec2a0",
+    "workflowByteExact77": true
+  },
+  "c14aceAdoption": {
+    "aliasParent": "3d607a26168d50aa78c242ca1faa3eb6b139f13c",
+    "all15DocsByteExact": true
+  },
+  "existingCI": {
+    "run": 39366560285,
+    "status": "in_progress",
+    "linuxJob": 118444637275,
+    "macJob": 118444637025,
+    "snapshot": "Existing currentrun/jobs retained alongside; no execution result yet."
+  },
+  "qualification": "No additional publication-preservation blocker found. Native79source fixture correction reviewed separatelydf4d and priorisolationcorrectioned84; no old77failure/old60green transfer. Fresh existing79CI requires its own result. No full16criteria readiness.",
+  "independentActivity": "Read immutable Git source/allactualpins/protected refs/existing CI metadata and copy producer evidence only. No tests/builds/typechecks/Rust/model/provider/retry/cancel/dispatch/newreview/campaign."
+}

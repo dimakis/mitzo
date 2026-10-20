@@ -320,10 +320,14 @@
     {
       "file": "native-pending-command-fixture-identity.patch",
       "sha256": "f4f113471f2404a412a0bc7d6a261c39c6fca373c7c258fd2c42ef69bd7ec2a0"
+    },
+    {
+      "file": "native-model-limit-catalog-owner.patch",
+      "sha256": "54ae4cf67c005f57f9dc70d4514bf5d0abe59e774c15296e170aa87fff96031e"
     }
   ],
-  "sourceTree": "900c92af991875072ff94fe76c1df8fa76ca684d",
-  "localSourceCommit": "46df3041feb4fbf9bf6f47d41452abe341de61e9",
+  "sourceTree": "882c55487b91a962f32fd4ecb051d4b3c9a03d38",
+  "localSourceCommit": "5015dbe8bbc95f4844183ece500907ebf8f6f3bc",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -408,7 +412,9 @@
     "f75d65a1a6133ed3eecc42b92c9f74e84741e835",
     "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
     "865e2f6fb59451d834a7b31fe7a0b9eac4396afc",
-    "46df3041feb4fbf9bf6f47d41452abe341de61e9"
+    "46df3041feb4fbf9bf6f47d41452abe341de61e9",
+    "a290a94637b7782996e980bbce5b66c3629ac987",
+    "5015dbe8bbc95f4844183ece500907ebf8f6f3bc"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -837,6 +843,28 @@
       },
       "rustCompilationOrTestsRunLocally": false,
       "executionQualification": "pending exact new source CI"
+    },
+    "modelLimitCandidate": {
+      "sourceOnly": true,
+      "nativeExecution": false,
+      "candidateType": "UnverifiedModelLimitCandidate; not account/provider/Responses/config/count/admission authority",
+      "owner": "Actual existing OpenAiModelsManager exact unique nonfallback API-supported model row; static/other manager default unsupported",
+      "descriptor": "Reviewed exact gpt-6-luna; 1050000 context,128000 maxoutput; canonical285bytes SHA89ceab0f696672378ae781a4d91fe7d470ccbdf8f12409eb9924c0d012cb20c2; policy openai-public-responses-provider-spec-v1",
+      "clamps": "Only lower provider context by original and actually resolved usable windows, preserving full ordinary configured ModelInfo. Unknown/alias/duplicate/custom/fallback/APIunsupported/nonpositive/invalidpercent refuse.",
+      "publicationGuard": "Private actual-owner/publication Arc identities; actual read lock retained, token replaced on every existing publish/cache/equal-data publish/explicit failure clear/provider builder clear under same catalog lock; rejects foreign owner and publication ABA",
+      "guardScope": "Catalog publication only. Bundled/cache may supply descriptive rows. No live endpoint identity, discovery-policy, actual config owner, account, public route, credential, source or CAS authority is supplied.",
+      "fixturesAuthored": {
+        "providerSpec": 3,
+        "actualManager": 6
+      },
+      "actualNegativeFlags": "5015 adds explicit actual rows with APIunsupported/fallback flags; a290 earlier authored coverage is not retrospectively expanded",
+      "independentSourceReview": {
+        "a290": "2bf390ec0d2d339040ba45103b0a22d87cfd0521c4841d413dd3aa6dbf7db46e",
+        "5015": "dd481f356a73cf67ba05384ea9a6076ab19db840d38eced6c0efc2a1574a8eae"
+      },
+      "localRustCompilationTestsClippy": false,
+      "requiredExactSourceCI": "codex-models-manager unit tests and formatting explicitly selected on both OS; transitive compile alone is insufficient",
+      "productionPreparationCountConsumeInstalled": false
     }
   },
   "runtimeQualified": false,
@@ -847,7 +875,7 @@
   "remaining": [
     "pure native capture/expansion without thread allocation or effectful source/tool discovery",
     "semantic-preserving public policy for actual ordinary metadata and late contributors",
-    "trusted selected account/credential/route/model context and output-limit authority",
+    "complete actual account/credential/public-route/model eligibility and live config/currentness; reviewed spec/catalog limit candidate exists but grants no count or admission",
     "app-server prepare/measure/read and current non-Stop authority ordering",
     "stale pre-consumption database-copy/custody replacement refusal through actual selected admission owner",
     "move-only exact selected-client transport dispatch; current raw frozen transport API is not a one-use admission owner",
@@ -1419,6 +1447,14 @@
       "publishedPr": 1063,
       "nativeCi": 39357179342,
       "qualification": "Both OS jobs executed fixtures and failed the pending-custody fixture reusing one command root; no native77 qualification. Separate original fixture results retained."
+    },
+    {
+      "sourceTree": "900c92af991875072ff94fe76c1df8fa76ca684d",
+      "localSourceCommit": "46df3041feb4fbf9bf6f47d41452abe341de61e9",
+      "patchCount": 79,
+      "publishedPr": 1063,
+      "nativeCi": 39366560285,
+      "qualification": "Both OS exact79 CI still running at candidate construction; no qualification transferred"
     }
   ],
   "history": [

@@ -1,0 +1,130 @@
+{
+  "observedAt": "2026-10-20T03:12:11.465415+00:00",
+  "commit": "427b3a2b2b3b9a3f338be3a53b4b3063c632de1b",
+  "tree": "0f5c1ae1aec89ac192df9713717652b865cb29e1",
+  "parent": "fe0257685b9111b49f56e7434c004a699d9f13c2",
+  "changedFiles": [
+    "docs/features/symposium-conversation-contracts.md",
+    "server/__tests__/collaboration-retained-context-source.test.ts",
+    "server/__tests__/collaboration-retained-origin.test.ts",
+    "server/collaboration-context-source.ts",
+    "server/collaboration-retained-context-source.ts",
+    "server/connections/reviewed-handler-artifacts.ts",
+    "server/telos-artifact-store.ts"
+  ],
+  "sourceHashes": {
+    "docs/features/symposium-conversation-contracts.md": "ba469292dfff3e842ca5b3348fd173cd391c3bf5c225f3e60c02ec1c804cb9f8",
+    "server/__tests__/collaboration-retained-context-source.test.ts": "0b2cd2354c673eaa5c4e9b7d075eac0aefd5451f3888bcde9d34865c1016012c",
+    "server/__tests__/collaboration-retained-origin.test.ts": "fbdb2addbb59c7b352736b1de1d7cf43f78892934abd3c3ab813c640fdfcf6cd",
+    "server/collaboration-context-source.ts": "47b8f3a48982779c976955ff7b48c07239d65256bc8b6a22d07ae65ccb98bfbb",
+    "server/collaboration-retained-context-source.ts": "f893ad79536d1594228d20c48afc520b9ead4145a03417e885a87866ace94d50",
+    "server/connections/reviewed-handler-artifacts.ts": "6333bbef6fc0cd9c1e5611bc0a2a8bf38f318bc37a21ab20becce30ae86e6e6a",
+    "server/telos-artifact-store.ts": "d791e6b91db24a270cea7a99d4dce05ae056942f7a59ad0fc5af5ff2a6b2e24c",
+    "server/collaboration-joining-retained-artifacts.ts": "696cd73f112bf49fba37c06f7d5bc771f617d75749bb39e3551ac95ec1c468b0",
+    "server/collaboration-retained-artifact-source.ts": "817f3b03bacbec5ca607d04c352e1271ebc87f93b668f92054c443151858b2c1",
+    "server/telos-source-materials.ts": "c9ba03795ba968fe4726ce09ccd366bc6f9c7966277986c2a28580780c922111",
+    "packages/protocol/src/collaboration-visible-source.ts": "8747b800cf069cad636dc5ae6e92a347e55b59c9f01fe64af84587e047af1567",
+    "server/collaboration-context-compiler.ts": "917b32aa231511e6391a7e722723642794a547aa1b2e543ab86d99b889d184b6",
+    "server/collaboration-application-review.ts": "620d3455583727da0480f007294d66a2e06e4a727a4df23864d5fbbc0fc06966",
+    "server/__tests__/fixtures/collaboration-retained-artifacts.ts": "dc2a4ee3e6149f083053ef9b49852734250e33ed7c7f85ac6a0daf6ba1229fbb"
+  },
+  "actualReviewedPins": {
+    "count": 639,
+    "mismatches": 0
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "producerEvidence": {
+    "retained-context-source-fences.log": {
+      "sha256": "3cc36807ec63a74ccf1cc2939aa9f4327c0ccde1416e4dd09cfecdc64106a50a",
+      "bytes": 274
+    },
+    "retained-context-source-final-tests.log": {
+      "sha256": "3032f582d3b0e3260d150621b0ded6100ab197c5745046e4e89eed19434c7668",
+      "bytes": 276
+    },
+    "retained-context-source-final-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "retained-context-source-first-green.log": {
+      "sha256": "c02e06f4814e3333db8713e6dae1ce3e9560e97a7dad0f1646cb8f7ca5061bb8",
+      "bytes": 274
+    },
+    "retained-context-source-lint.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "retained-context-source-owner-tests.log": {
+      "sha256": "7856abaa0533223d3aa0f55311c2cb23c1537f37c0655cd36a21681eca23dc18",
+      "bytes": 274
+    },
+    "retained-context-source-red.log": {
+      "sha256": "7571ab6febbca673b993d0cbaf2b59c132f35381946d63006835b5de57930043",
+      "bytes": 3574
+    },
+    "retained-context-source-types-corrected.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "retained-context-source-types.log": {
+      "sha256": "2874fac0b43177c2e53a23b76671caebc30e527fa506b114bb86b48cbe257d79",
+      "bytes": 521
+    },
+    "retained-origin-green.log": {
+      "sha256": "6ae8c0865bb43b702d23af215e63e7d80d1f5f4a7022c2679a668d112abcd369",
+      "bytes": 274
+    },
+    "retained-origin-red.log": {
+      "sha256": "bdae75212c2ee57574618e9f1c2927ee8900e4b32f5fef11db391b0f7458444a",
+      "bytes": 3092
+    },
+    "retained-origin-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "retained-context-source-tsconfig.json": {
+      "sha256": "dd4aee08081cbd51928a5527daa57f19055e0f820576e38a8e7bbb56dc88c0fd",
+      "bytes": 3028
+    },
+    "retained-origin-tsconfig.json": {
+      "sha256": "1fde2bd6457b936f95989428902372abec5951e3e8344d2efa25922c153aee38",
+      "bytes": 2870
+    }
+  },
+  "independentFindings": [
+    "Canonical origin lookup selects exact retained id/revision and sameitem origin revision in opened source, excludes source-capture origin, renews actual item privacy, loads no BLOB/latest/Work-wide enumeration or origin transcript. Same-Work unrelated artifact cannot establish association. Private B bridge/last-callback fixes are unchanged.",
+    "Visible association uses existing telosMaterialDestinations parser and shared renderer preprocessing: actual Markdown link/image destinations, excluding code/inlinecode/HTML/labels/titles. References come from actual opened EventStore complete bounded prefix, not a caller-provided association list. Explicit Selected may choose another exact version of that artifact ID; origin alone does not include it in So-far.",
+    "So-far prepares only versioned visible refs, rejects unversioned link rather than latest substitution, hydrates exact metadata+sha; repeated refs dedupe by id/revision and page/witness remain consistent across101messages. Source helper bounds parser references separately at10000 and selected versions100/512KiB. Missing optional retained owner fails closed when retained refs need hydration. Bare inline selectors always use original inline lookup and never fallback.",
+    "Source operator callback and actual source availability guard are renewed around reads, with actual retained owner metadata/privacy and raw byte SHA checks. This composes current global operator/source authorization with existing canonical Work privacy; it is not a new item permission/grant registry. Source-capture/LifeOps and unavailable item bytes remain refused.",
+    "Final save first invokes all supplied authority callbacks, including every retained read callback. Then actual original opened-prefix checks, aggregate inline+retained bounds, all inline original bytes and every retained association/metadata/privacy/byte witness run callback-free. Cached refs remain tied to that original prefix witness. Later-artifact callbacks cannot mutate earlier bytes or delete its only origin without final refusal. No cross-owner admission/ABA authority inferred.",
+    "Read-only opener uses actual SQLite readonly+fileMustExist, checks existing items/links/revisions, returns before schema creation/index migration and has no write capability; missing database refuses without creation. Busy/foreignkey PRAGMAs are connection settings. Real owner initialization adds only canonical origin index for writers.",
+    "Production application still does not pass retained owner or dispatch kind-aware labels/catalog. Optional host source is genuine component composition, not public ready joining. Existing actual application review is otherwise unchanged. All seven extra inspected source dependencies remain byte-identical parentfe025."
+  ],
+  "assertionScope": [
+    "Real temporary TelosArtifactStore and EventStore verify exact r2 CRLF/\u03c0 bytes/provenance while r3 exists, current source origin association and hidden selected-origin transcript, rendered-link Selected-other-version and So-far exact ref, same-Work refusal/bare alias before BLOB, source/Work privacy revocation, unversioned So-far refusal and101 repeated refs.",
+    "Two late-callback faults target first artifact from callback8 on later artifact; one replaces equal-length bytes without stored digest change, the other deletes the only original source-origin revision. mutated=true ensures fault actually ran; final save fence must throw.",
+    "Actual readonly store regression confirms no schema change/write capability and no missing-db creation. It is not an on-disk canonical production test or actual process-crash proof."
+  ],
+  "producerReported": {
+    "final": "231PASS8files5.90s,1worker/1GiB; overlaps prior213/112/62 and intermediate42/44/82, not added.",
+    "contextRed": "3FAIL2PASS before tagged source composition; exact source/So-far/renewal assertions failed.",
+    "originRed": "3FAIL1PASS due missing hasConversationOrigin/openReadOnly methods, not actual security refusal/owner-omission qualification. Retained raw log.",
+    "types": "Initial actual TS2345 nullable revision and TS18048 bridge narrowing errors retained; corrected/final source+test types and normal hooks PASS reported. Empty success logs alone are not C execution.",
+    "newCampaign": "No C tests/types/build/browser/native/model/provider or duplicate campaign."
+  },
+  "acceptance": "No additional concrete blocker found within bounded canonical retained-source/local final-fence composition. Source/assertion/provenance only.",
+  "limits": [
+    "Fixture hides selected origin transcript; it does not delete the actual transcript. Source code has no origin-transcript dependency, but physical removal/fullApp behavior remains separate qualification.",
+    "Live authorization callback is still supplied by actual public caller; production catalog/label/source integration unmounted. No public source access or ready capacity claim.",
+    "Final synchronous checks catch supplied-callback mutation and current owned state, not atomicity across independent databases/processes or retrospective monotonic-revision/ABA proof. Native/host admission/release must supply genuine original-source guards.",
+    "So-far missing store or unversioned material now refuses rather than silently omitting retained content; no blanket legacy conversation baseline rerun claimed.",
+    "No actual browser target/refreeze/recovery/native count/consume/delivery/reply journey, deployed runtime or live account qualification."
+  ],
+  "independentActivity": "Read immutable7file source/actual owner/prefix/parser/Bbridge/fences/assertions, rehash all actual source pins/protected refs and retain producer logs only. No C tests/schemaexecution/build/browser/native/model/provider/retry/cancel/dispatch/freshreview/new campaign."
+}

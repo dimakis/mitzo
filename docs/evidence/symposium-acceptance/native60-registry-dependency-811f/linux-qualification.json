@@ -1,0 +1,143 @@
+{
+  "observedAt": "2026-10-20T04:03:54.284987+00:00",
+  "run": 39358899994,
+  "attempt": 1,
+  "job": 118420139878,
+  "platform": "ubuntu-24.04",
+  "jobConclusion": "success",
+  "source": {
+    "publishedHead": "811f058b5acf712ce52d738551172b0316ed8c0e",
+    "publishedTree": "eb65d3692d9c42f54ce7394215556c4b244b67f4",
+    "actualCheckout": "5c7c69907b34a8e5f4b700f915f8e0e015c41b0c",
+    "actualCheckoutTree": "eb65d3692d9c42f54ce7394215556c4b244b67f4",
+    "actualCheckoutParents": [
+      "63f5b4f786f24da8b1174547b95e16d320db0b70",
+      "811f058b5acf712ce52d738551172b0316ed8c0e"
+    ],
+    "commit": "ea6416336b5275e8a3c13e508f1c68df289f75a3",
+    "tree": "203e5ac78c2f6653251ee6828163d1234897216f",
+    "proofByteExactTo098992": true,
+    "all61PatchesByteExactAndHashesMatch": true,
+    "workflowByteExactTo098992": true,
+    "workflowSHA256": "893464b75c824cacf71964aeb8321f449b9a5c2bd72b04d3b1dcda748d24a670",
+    "lineage": "Corrected native60 plus isolated-registry policy, not historical61 metadata or native77.",
+    "artifactSourceProofByteExact": true
+  },
+  "results": {
+    "executed": 6144,
+    "passed": 6144,
+    "failed": 0,
+    "nextestSkipped": 11,
+    "seconds": 2596.896,
+    "junit": {
+      "name": "nextest-run",
+      "tests": "6144",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "uuid": "d92695a2-241e-4baf-9b70-310d3d31c99f",
+      "timestamp": "2026-10-20T03:16:34.694+00:00",
+      "time": "2596.896"
+    },
+    "namedCases": [
+      {
+        "suite": "codex-core",
+        "name": "thread_manager::pre_session_inputs::tests::fresh_capture_retains_ordinary_inputs_without_startup_or_default_reselection",
+        "result": "PASS",
+        "seconds": "0.031"
+      },
+      {
+        "suite": "codex-core",
+        "name": "thread_manager::pre_session_inputs::tests::configured_or_selected_sources_refuse_instead_of_becoming_an_empty_binding",
+        "result": "PASS",
+        "seconds": "0.031"
+      },
+      {
+        "suite": "codex-core",
+        "name": "thread_manager::pre_session_inputs::tests::unknown_registration_refuses_before_closed_plans_or_runtime_callbacks",
+        "result": "PASS",
+        "seconds": "0.031"
+      },
+      {
+        "suite": "codex-core",
+        "name": "thread_manager::pre_session_inputs::tests::unresolved_and_duplicate_environments_refuse_and_replaced_owners_invalidate",
+        "result": "PASS",
+        "seconds": "0.033"
+      },
+      {
+        "suite": "codex-core",
+        "name": "thread_manager::pre_session_inputs::tests::new_default_or_selected_remote_refuses_without_starting_its_provider",
+        "result": "PASS",
+        "seconds": "0.036"
+      },
+      {
+        "suite": "codex-extension-api::pre_session_mcp",
+        "name": "closed_registration_owns_ordinary_metadata_instead_of_an_empty_inventory_promise",
+        "result": "PASS",
+        "seconds": "0.006"
+      },
+      {
+        "suite": "codex-mcp-extension",
+        "name": "tests::installed_sources_share_closed_absence_and_refuse_enabled_discovery",
+        "result": "PASS",
+        "seconds": "0.023"
+      },
+      {
+        "suite": "codex-login",
+        "name": "auth::default_client::single_attempt_transport::tests::single_attempt_factory_offline_cases",
+        "result": "PASS",
+        "seconds": "0.324"
+      },
+      {
+        "suite": "codex-extension-api::pre_session_tools",
+        "name": "config_plan_owns_ordinary_absence_and_renews_without_runtime_callbacks",
+        "result": "PASS",
+        "seconds": "0.006"
+      },
+      {
+        "suite": "codex-extension-api::pre_session_tools",
+        "name": "missing_tool_plan_preflights_before_any_closed_plan_or_runtime_callback",
+        "result": "PASS",
+        "seconds": "0.006"
+      },
+      {
+        "suite": "codex-memories-extension",
+        "name": "tests::installed_memory_source_declares_only_config_proven_tool_absence",
+        "result": "PASS",
+        "seconds": "0.016"
+      },
+      {
+        "suite": "codex-web-search-extension",
+        "name": "extension::tests::ordinary_and_pre_session_tool_selection_preserve_disabled_web_mode",
+        "result": "PASS",
+        "seconds": "0.008"
+      },
+      {
+        "suite": "codex-core",
+        "name": "thread_manager::pre_session_inputs::tests::isolated_registry_refuses_before_inherited_plans_or_runtime_callbacks",
+        "result": "PASS",
+        "seconds": "0.031"
+      },
+      {
+        "suite": "codex-core",
+        "name": "thread_manager::pre_session_inputs::tests::retained_source_and_isolation_do_not_reselect_manager_defaults",
+        "result": "PASS",
+        "seconds": "0.032"
+      }
+    ],
+    "sourceReconstruction": "PASS",
+    "formatting": "PASS",
+    "skipAccounting": "Executed-onlyJUnit0skips does not remove nextest exclusions. Platform/source totals overlap, not summed."
+  },
+  "evidence": {
+    "artifactId": 12239761558,
+    "artifactZIPDigest": "22be4d8268d92def272414c7d478b704dc2fef52d3a0f4b86b719217900199ce",
+    "digestMatchesActions": true,
+    "junitSHA256": "31a99c4a66b606d0edcfc5fe235c4ffd0ffce5444567ac3adc9336851f733678",
+    "sourceProofSHA256": "99097ff7040b7f8821e93bfdc4990acf32dc97e296c20cbb31cca7d4c94da441",
+    "jobLogSHA256": "cd501c62cec529aa0c0a989f4fc2b6c16c505e1caebdf037197aebf240058730",
+    "jobMetadataSHA256": "7ae0957a4e77565edd77cefbf80404483809001b940d2c45eee7dac956c51e6a"
+  },
+  "qualification": "Source-bound native fixture/format CI result only. No complete account/route/request/count/consume/release/runtime/full-app/positive delivery acceptance and no transfer to different head/tree.",
+  "independentActivity": "Read/download already-existing exact CI artifact/log/JUnit/proof/checkout only; no tests/builds/model/provider/retry/cancel/dispatch/newcampaign."
+}

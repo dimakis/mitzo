@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.351-symposium-pending-command-identity';
+  'v1.0.352-symposium-model-limit-candidate';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-model-limit-catalog-owner.patch':
+    '54ae4cf67c005f57f9dc70d4514bf5d0abe59e774c15296e170aa87fff96031e',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-pending-command-fixture-identity.patch':
     'f4f113471f2404a412a0bc7d6a261c39c6fca373c7c258fd2c42ef69bd7ec2a0',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-effective-mcp-registry-policy.patch':

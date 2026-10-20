@@ -1,0 +1,84 @@
+{
+  "observedAt": "2026-10-20T03:27:47.974276+00:00",
+  "pr": 1064,
+  "head": "58e5cf46ac0fe74eeaf59a64baedf8d09d9c1d25",
+  "tree": "652b4adbeb8eae8e308a94e6bc307b19050a938e",
+  "parents": [
+    "f479612ce7b77cc86f435be6f922e2a79add13f6",
+    "1b94d0c54beb93c925b8fe1f64c2e15be9eb1cbf"
+  ],
+  "githubHeadAndBaseVerified": true,
+  "incomingPaths": [
+    "docs/design/telos-workspaces/s5b-ordinary-workspace-contract.md",
+    "packages/protocol/src/index.ts",
+    "packages/protocol/src/telos-ordinary-work.ts",
+    "packages/protocol/src/telos-work-api.ts",
+    "server/__tests__/fixtures/owned-ordinary-workspace-runtime.ts",
+    "server/__tests__/fixtures/telos-ordinary-work.ts",
+    "server/__tests__/ordinary-workspace-custody.test.ts",
+    "server/__tests__/telos-assignment-history-projection.test.ts",
+    "server/__tests__/telos-ordinary-work-contract.test.ts",
+    "server/__tests__/telos-ordinary-work-delegation.test.ts",
+    "server/__tests__/telos-ordinary-work-role-setup.test.ts",
+    "server/connections/reviewed-handler-artifacts.ts",
+    "server/ordinary-repository-preparation-authority.ts",
+    "server/ordinary-workspace-custody.ts",
+    "server/repository-workspaces.ts",
+    "server/telos-ordinary-work-role-setup.ts",
+    "server/telos-work-delegation-host.ts",
+    "server/telos-work-delegation.ts",
+    "server/telos-work-role-setup.ts",
+    "server/telos-work-store.ts"
+  ],
+  "all17IncomingNonsharedPathsByteExact": true,
+  "allOriginalAPINonsharedPathsByteExact": true,
+  "repositoryComposition": {
+    "sha256": "1df672ff4394f023b95fd6c01f2c46b43a8acfde0c92eef59c8ef9ff337ba3a7",
+    "removeOnly10AcceptedLinesRestoresWholeF479": true,
+    "exactMethods": {
+      "preview": {
+        "byteExactToF479": true,
+        "sha256": "d5d310616331ec01be5b65c1c82dd0dd07ea5a946ce142bd6a0f3a6f21c0a2fc"
+      },
+      "assertOrdinaryPreparation": {
+        "byteExactToF479": true,
+        "sha256": "1e48cd62dc095a3b95b28df0a8ce7b8bde81a7656c7a62b47b74c7f5368ec431"
+      }
+    },
+    "meaning": "Original terminal fix and exact preview/ordinary authorization/custody retained; accepted optional selection type+two ordinary wrappers exactincoming."
+  },
+  "barrel": "Exact parent f479 barrel plus one blank line and accepted telos-ordinary-work export; original sourceSetup exports unchanged.",
+  "eventStoreByteExactToF479": true,
+  "manifest": {
+    "actualPins": 641,
+    "mismatches": 0,
+    "exactParentKeyUnion": true,
+    "runtimeRevision": "v1.0.397-symposium-terminal-recovery-current-base"
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "producerEvidence": {
+    "source-api-terminal-1b94-preservation.json": {
+      "sha256": "9a10ffcdebddbb184b71dd3ea530654cce2d80bbc6d4c6712c9f36cbc2f02e79",
+      "bytes": 185
+    },
+    "source-api-terminal-1b94-tests.log": {
+      "sha256": "d8c59d17a39650c21d23da4e06d877dc8c655f4dae8d4c593246bbf4b04062da",
+      "bytes": 8350
+    },
+    "source-api-terminal-1b94-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    }
+  },
+  "producerReported": "151PASS12files, scoped source types/hooksPASS. Counts overlap earlier149/115/30 and are not summed; no C execution.",
+  "metadataWrapperDiagnostic": "Initial C wrapper mistook two added barrel lines for two exports; actual diff is blankline+oneexport. Corrected exact byte suffix comparison only, with no source/test/assertion changes or rerun.",
+  "sourceCorrectionReceiptSHA256": "2fd8d93725feb952d79ee64c1d5b5ccc23a56d7e91a8bdd9c6a33489fec78f3a",
+  "qualification": "No additional bounded merge/publication-preservation blocker. CEN-D37507564B60 source mechanism remains closed in exact code. Fresh normal current-head CI/trustedreview/App/strictbase/actualslot not inferred from source check or old greens. Earlier9745/77a/f479 records immutable.",
+  "independentActivity": "Read immutable parents/exact shared compositions/all641sourcepins/protected refs/GitHubhead-base/producer provenance only. No tests/types/build/browser/native/model/provider/retry/dispatch/reviewreset/new campaign."
+}

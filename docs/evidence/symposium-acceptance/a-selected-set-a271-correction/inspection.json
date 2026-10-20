@@ -1,0 +1,44 @@
+{
+  "observedAt": "2026-10-20T02:48:12.226992+00:00",
+  "commit": "a2717e2e4703667fc2770e9bebfc45824e987583",
+  "tree": "73c25e1b2592e21e4ce4b5aefcc33ff89d522fc0",
+  "parent": "85749b7b4b375a0a439cf266d8e61e23aa71a90c",
+  "sourceHashes": {
+    "frontend/src/hooks/__tests__/useConversationJoiningReview.test.tsx": "f060523e60a1573856cf50ca9f9b30a9b88c9d7634bc4b9b216885ae49a77a4d",
+    "frontend/src/hooks/useConversationJoiningReview.ts": "0e8ce8027bd613a84b97bb09197382f78683d8086f574538141a8597198cae06"
+  },
+  "patchSHA256": "04f06fd191f66146e8da813e9a2dc0fdf351f2b7aa4b01804a27556924915e80",
+  "finding": "CA-selected-extra-kind",
+  "status": "CLOSED at source/assertion level on exact correction; no C execution",
+  "originalReceiptSHA256": "93052f55ab77da71775eed80adf96c093a8954600fb244a515c7757c8fc54dd1",
+  "independentFindings": [
+    "Selected branch computes sorted kind/id/revision/SHA keys for requested and frozen artifacts, rejects duplicate exact pin identities on either side and requires exact array/count equality. Requested-inline+unselected-retained superset cannot pass.",
+    "So-far branch retains original requested-subset rule, allowing already-compiled prefix additions. Exact retained title/filename comparison and all existing owner/source/settings/brief/refreeze checks unchanged. Source helper key is unchanged and preserves both owner kinds.",
+    "Targeted hook cases reproduce original extra retained response as behavioralRED and preserve So-far positive; separate equal-count duplicate request+response failure was reproduced before added duplicate check. Final tests require refusal/error/no confirmation for mismatch/duplicates. Positive models compiled prefix data; this does not independently prove genuine prefix authority."
+  ],
+  "producerEvidence": {
+    "joining-selected-exact-artifacts-red.log": {
+      "sha256": "b34c4b867f698f4bdbb7fc29ea84e9a7d5b56b74883c43bc4630153ed3614d4f",
+      "bytes": 1405
+    },
+    "joining-selected-duplicates-red.log": {
+      "sha256": "5893385d778ccf62cb7ee4e0ea709d27e0dc4d9f18f3421fd1dcbb02e7ec044b",
+      "bytes": 1321
+    },
+    "joining-selected-exact-artifacts-green.log": {
+      "sha256": "2333d24bf11401f06a7eb39cfb04d2fb6a3a06bb1b50c10b73c480834b376589",
+      "bytes": 287
+    },
+    "joining-selected-exact-artifacts-types.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "joining-selected-exact-artifacts-design.log": {
+      "sha256": "0233359dbf0f992176eea095971cb713c6deb5cad8e89dd326072dc1ec83ece2",
+      "bytes": 386
+    }
+  },
+  "producerReported": "Extra-kind RED1fail1pass25unselected; equal-count duplicate RED1fail1pass27unselected; corrected82PASS3files3.04s1worker/1GiB; design108PASS1existingSkip; focused source-mapped types/hooks PASS. Totals overlap original101 and prior suites, not added. Bootstrap WIP excluded from commit/test source according to A; no C test execution.",
+  "limits": "Core CA-retained-label-normalization remains OPEN and exact metadata guard intentionally unchanged. Shared current production inline source refuses tags; catalog/source adapter/owner mount/native/fullApp qualification remain open.",
+  "independentActivity": "Immutable two-file diff/assertions and original/producer raw logs/patch hashes only; no C tests/types/build/browser/native/model/provider/retry/dispatch/new campaign."
+}

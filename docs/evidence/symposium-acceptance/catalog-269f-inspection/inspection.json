@@ -1,0 +1,147 @@
+{
+  "observedAt": "2026-10-20T04:01:36.690261+00:00",
+  "commit": "269f8b5be12e49136a45b08ece4c89cb2053e414",
+  "tree": "6ce50d4565983543d89ae613ea9e09d3934fa305",
+  "parent": "120ca3e7c0bd4549af025b076b4507fe1928bead",
+  "changedFiles": [
+    "docs/features/symposium.md",
+    "packages/client/src/__tests__/collaboration-source-catalog.test.ts",
+    "packages/client/src/collaboration-api.ts",
+    "packages/protocol/src/collaboration-source-catalog.ts",
+    "packages/protocol/src/index.ts",
+    "server/__tests__/collaboration-application-retained-review.test.ts",
+    "server/__tests__/collaboration-retained-context-source.test.ts",
+    "server/__tests__/collaboration-source-catalog.test.ts",
+    "server/__tests__/repository-workspaces.test.ts",
+    "server/app.ts",
+    "server/collaboration-application-review.ts",
+    "server/collaboration-retained-context-source.ts",
+    "server/collaboration-source-catalog.ts",
+    "server/connections/reviewed-handler-artifacts.ts",
+    "server/repository-workspace-runtime.ts",
+    "server/repository-workspaces.ts",
+    "server/session-collaboration-router.ts"
+  ],
+  "sourceHashes": {
+    "docs/features/symposium.md": "c66c9e497d313a3fbd8d216a60796612c964772ff1a0468ea1ef9a888f6f1747",
+    "packages/client/src/__tests__/collaboration-source-catalog.test.ts": "297d65778b83aae8f48062c131b61e3dbcf489ba7104ec1e2b76e4b36af93514",
+    "packages/client/src/collaboration-api.ts": "6a2f8b6270c1970a7c44388fe5f42b0ef33bcd0d54067dc76ee018cb83fa6739",
+    "packages/protocol/src/collaboration-source-catalog.ts": "fde9f163f2e3e277c72b34f28cbd89d7c157e02bba8fea66fdd0cffb2b47bd7d",
+    "packages/protocol/src/index.ts": "274c93d448aae50061de5be2108b7613087358ae68aad89ccae417c5bf843ff7",
+    "server/__tests__/collaboration-application-retained-review.test.ts": "df806df08256618a8559e0eb1992ee394682c1520fd5d6d2db0c7862e4e5c36d",
+    "server/__tests__/collaboration-retained-context-source.test.ts": "12673db00f996dd0f176a16222bd5b9c0c41cc1c258c96ea8e77a776d60cf1f9",
+    "server/__tests__/collaboration-source-catalog.test.ts": "16ada87ac9cab9beea6af4c5b71cb48003e479ccaae284735103ce2c37bdfc38",
+    "server/__tests__/repository-workspaces.test.ts": "d1c4591953b92802ceb0e1645551b2715ce0fd797335602252f352c44c33c39a",
+    "server/app.ts": "9a5c2972fcb13eb1e7d0a6c08b44a8a24d933c748a397f4947489c4ebf106456",
+    "server/collaboration-application-review.ts": "4b28ed1ff1e82f17210b36915a9c74091cef0bc1d3d7a673a2052e6b681045a8",
+    "server/collaboration-retained-context-source.ts": "229abff7f4898c717fd9019523cb0739cde72e6e303f9dbecf1f3bef0ce624cc",
+    "server/collaboration-source-catalog.ts": "97778f796b842253212bd100a1be79873286e4c13543f6d144d0c0cf5f56ead9",
+    "server/connections/reviewed-handler-artifacts.ts": "4bd9f3e66efa70d9e65a1dc3af9c2c19a7bb593521b94f7520a8d1c2eba160e8",
+    "server/repository-workspace-runtime.ts": "a60d140a7854decf3966e16dcc0d4e8059930279577134cbc83420871f8123dc",
+    "server/repository-workspaces.ts": "78411dbf1b1e3cb2e6e8ed961c9af67ebfc2d048cf46dc2cc21465bac9b85ac3",
+    "server/session-collaboration-router.ts": "9942aad799316c357c2673096f3a8f0e1c61ae510a71ec51a10d462abaa4be5b",
+    "server/collaboration-context-source.ts": "47b8f3a48982779c976955ff7b48c07239d65256bc8b6a22d07ae65ccb98bfbb",
+    "server/collaboration-context-compiler.ts": "917b32aa231511e6391a7e722723642794a547aa1b2e543ab86d99b889d184b6",
+    "server/telos-artifact-store.ts": "d791e6b91db24a270cea7a99d4dce05ae056942f7a59ad0fc5af5ff2a6b2e24c",
+    "server/collaboration-joining-retained-artifacts.ts": "696cd73f112bf49fba37c06f7d5bc771f617d75749bb39e3551ac95ec1c468b0",
+    "server/collaboration-retained-artifact-source.ts": "817f3b03bacbec5ca607d04c352e1271ebc87f93b668f92054c443151858b2c1",
+    "server/telos-source-materials.ts": "c9ba03795ba968fe4726ce09ccd366bc6f9c7966277986c2a28580780c922111"
+  },
+  "actualReviewedPins": {
+    "count": 645,
+    "mismatches": 0,
+    "runtimeRevision": "v1.0.399-symposium-source-catalog"
+  },
+  "protectedHashesUnchanged": {
+    "docs/design/approved/symposium/fresh-agent-review.html": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc",
+    "docs/design/approved/symposium/approved-context-review.png": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a",
+    "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb",
+    "tests/offline/symposium-approved-design.spec.ts": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b",
+    "docs/design/approved/ledger.json": "6fdfa1aa5232f8df73452ed2b0f1eacb50311523ac32fb8f80f555800f02ccda"
+  },
+  "producerEvidence": {
+    "source-catalog-types-final.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "source-catalog-page-fence.log": {
+      "bytes": 274,
+      "sha256": "42d6e6843dc9c3e40604c6cd9cf9625c2d846347c3769f25d5ba100950da4c49"
+    },
+    "source-catalog-format.log": {
+      "bytes": 759,
+      "sha256": "81d75a36b42811f102e636704d660b1385593a98f8384c2768d73f47eaad81dd"
+    },
+    "source-catalog-final-types.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "source-catalog-types.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "source-catalog-tsconfig.json": {
+      "bytes": 3635,
+      "sha256": "3dd585fdf90491bfa768eb8701ec69534f209e7d31818c8b287998c69d04d8e6"
+    },
+    "source-catalog-final-focused.log": {
+      "bytes": 660,
+      "sha256": "ff6c61706c808ccf3a7c394a5446bf3b1365221d06effa73a29af16a8e4e5785"
+    },
+    "source-catalog-red.log": {
+      "bytes": 1165,
+      "sha256": "2f484304d97160ecb53b5329498b73878eddce3b7fd1a953d4828693fc64aa85"
+    },
+    "source-catalog-final-format.log": {
+      "bytes": 237,
+      "sha256": "f57d0512c56a72c2bbc39c7e0a220297b5f5860813bdb77e57760b2b1eb76f47"
+    },
+    "source-catalog-first-green.log": {
+      "bytes": 272,
+      "sha256": "6802e7cb4b646f58be5b04480a0abc2c4a4bb01432b3d6ed50edd26376318f93"
+    },
+    "catalog-pin-format.log": {
+      "bytes": 54,
+      "sha256": "e9d371a97cd27f96206721275fb39b39b9f1a36734de667dc80061f343e7ada1"
+    },
+    "catalog-owners-adversarial.log": {
+      "bytes": 1557,
+      "sha256": "aebacbf6608a22386d8962843d421324f8c3cd176915dd7de321fd5f8bb4703b"
+    },
+    "catalog-final-byte-types.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "catalog-review-byte-renewal.log": {
+      "bytes": 275,
+      "sha256": "29f973fc0fd1cc059af50a690138cd9000dab6bc148b15dc63f068ebe4231069"
+    },
+    "catalog-review-integration.log": {
+      "bytes": 276,
+      "sha256": "1c255ea44bb97ca50040a8a037da300cfc3cc782c01803965a384bf337f3d8d3"
+    },
+    "catalog-repository-client.log": {
+      "bytes": 1588,
+      "sha256": "d63521f50b84a0cd91a2187d59bb76f37dc1756e5c51fc97d0fca9ccdf0b1a89"
+    },
+    "catalog-review-lint-format.log": {
+      "bytes": 48,
+      "sha256": "930500e8792f56a808f0cf9e67c07074e1b4d330b5d479f8a039b6ad1533d6f4"
+    }
+  },
+  "independentFindings": [
+    "Strict observational public protocol/client selectors retain exact opened source/prefix and bounded origin/version pagination. New routes require same-origin JSON, recent operator and same live transport; abort/revocation/deadline listeners cleaned in finally. No caller grants or capability-bearing repository fields.",
+    "Catalog opens only existing read-only actual Telos storage; missing store reports unavailable, versions/pagination requiring it refuse. App lease finally closes on review or catalog errors. Actual origin relation100/page and exact rendered versioned references; no unversioned latest fallback, BLOB hydration or Work enumeration. All six prior parser/compiler/byte-owner dependencies remain byte-exact parent.",
+    "Metadata private full-owner witnesses survive all async authority callbacks. Final original prefix, metadata/privacy/association, inline output and source repository-ID observations precede return with no further supplied callbacks. Version seed association and each returned revision are independently renewed. New late-callback attack actually changes earlier title after later revision observation and then tests final refusal; deterministic Date ordering corrects fixture ordering only.",
+    "Source repository intent reads readonly/fileMustExist actual claimed ledger, bound conversation/id and validated JSON identity/state/canonical repository; returns only repository name. No source directory reads, preparation, replacement claim, credentials, account or access grant.",
+    "Actual ApplicationReview composes retained owner with original compiler/save, exact kind-aware labels and original whitespace metadata. Recovery renews current retained metadata/privacy/association and verifies frozen snapshot bytes size/SHA; it does not claim to re-read current live BLOB. Fresh compile/save retains prior actual raw-byte fence. Capacity remains unverified; no native adapter/join/session/turn/effect added."
+  ],
+  "assertionScope": [
+    "Producer real temporary EventStore/Telos/RepositoryWorkspaces tests exercise r2 while r3 exists, metadata-only catalog/version limit/cursor, exact origin and visible reference association, missing storage, strict caller extras, hidden source/revoked operator, and101 actual origins across two pages. Route fixture uses express/supertest plus synthetic operator injection, not full application mount/browser acceptance.",
+    "Actual AppReview fixture proves exact retained r2 frozen body/provenance/title/filename, exact retry and current Workprivacy revocation, one source session and unverified capacity. hidden-origin is a provenance string here, not independently actual hidden/deleted-origin lifecycle evidence.",
+    "Client uses recording fetch; synthetic digest for Hello is structural protocol evidence only. Repository test deletes actual fixture source and claimed directories then reads intent; no authorize/prepare repeats, missing db not created."
+  ],
+  "producerReported": "125PASS9files precedes final frozen-byte check; affected30PASS2files after it, with mappedtypes/hooks reported. Counts overlap, not summed; no final125 rerun inferred. Earlier missing module RED and actual AppReview execution_unavailable RED, initial typing diagnostics and nondeterministic ordering failure preserved as producer logs. Empty stdout alone does not prove exit status.",
+  "qualification": "No additional concrete blocker found within this bounded source/assertion/provenance review. New catalog/application wiring is source-reviewed component progress, not executed C full-app integration, browser, joining/delivery/reply, current model/account/route/count/consume/release or all16criteria acceptance. Existing dcbad actual-app baseline remains separate.",
+  "independentActivity": "Read immutable269f source/assertions/all645actualpins/protected refs and copy producer logs only. No tests/builds/typechecks/browser/model/provider/retry/cancel/dispatch/newworker/review campaign."
+}

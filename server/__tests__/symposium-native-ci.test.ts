@@ -84,6 +84,8 @@ it.each(['Linux', 'macOS'])(
       'codex-history-notes-extension',
       '-p',
       'codex-goal-extension',
+      '-p',
+      'codex-models-manager',
       ...(runnerOs === 'Linux' ? ['-p', 'codex-linux-sandbox'] : []),
       '--test-threads',
       '1',
@@ -291,6 +293,7 @@ it('tests and formats the affected Guardian and extension registry owners on bot
         'codex-login',
         'codex-memories-extension',
         'codex-web-search-extension',
+        'codex-models-manager',
       ]),
     );
   }
@@ -304,6 +307,7 @@ it('tests and formats the affected Guardian and extension registry owners on bot
     'codex-login',
     'codex-memories-extension',
     'codex-web-search-extension',
+    'codex-models-manager',
   ])
     expect(formatting?.run).toMatch(new RegExp(`(?:^|\\s)-p\\s+${crate}(?:\\s|$)`));
 });

@@ -1,0 +1,28 @@
+{
+  "observedAt": "2026-10-20T04:01:01.323350+00:00",
+  "run": 39357179342,
+  "head": "dd5edbd2799885760ae2df9e5eaaf62bff590c92",
+  "tree": "e07d1ba85c086b31897a50d1331dce7131623e7e",
+  "terminalConclusion": "failure",
+  "platforms": {
+    "Linux": {
+      "receipt": "linux-executed-failure.json",
+      "sha256": "d000fa50548c95942eee01c04f3675d4353ab07e0d1e0d42663dd7b214df3903",
+      "job": 118414639970,
+      "executed": 6205,
+      "passed": 6204,
+      "failed": 1,
+      "nextestSkipped": 11
+    },
+    "macOS": {
+      "receipt": "mac-executed-failure.json",
+      "sha256": "f5324636665ef2f5e04b6ba8fb26f9de1b429baad6b8bee7f2f85e4c4a7e12e2",
+      "job": 118414639835,
+      "executed": 5984,
+      "passed": 5983,
+      "failed": 1,
+      "nextestSkipped": 27
+    }
+  },
+  "qualification": "Both platforms executed the same fixture failure at375 withSQLite2067; native77 NOT qualified. Raw failures preserved. No totals summed and no transfer to native79 correction."
+}

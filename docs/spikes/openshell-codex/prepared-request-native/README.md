@@ -6,10 +6,27 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 79 patches
+## Current composed source: 80 patches
 
-The 79 ordered patches reconstruct native tree
-`900c92af991875072ff94fe76c1df8fa76ca684d` (local source `46df3041feb4fbf9bf6f47d41452abe341de61e9`).
+The 80 ordered patches reconstruct native tree
+`882c55487b91a962f32fd4ecb051d4b3c9a03d38` (local source `5015dbe8bbc95f4844183ece500907ebf8f6f3bc`).
+
+Patch 80 adds an explicitly unverified model-limit candidate under the existing
+ModelsManager owner. The reviewed exact `gpt-6-luna` descriptor retains both
+provider specification ceilings and provenance. Actual unique model metadata
+and ordinary configuration can only lower the context ceiling. Unknown aliases,
+duplicate/fallback/API-unsupported rows, custom catalogs and invalid limits
+refuse. Private owner/publication identities reject a foreign manager and catalog
+publication ABA, including equal data and cache publication; renewal retains the
+actual catalog read lock. Ordinary model-info/picker behavior is unchanged.
+
+Bundled or cached metadata is descriptive and supplies no account, provider,
+public Responses route, live configuration, input count, credential or admission
+proof. There is no producer caller or readiness grant. Six manager fixtures and
+three descriptor fixtures are authored but unexecuted locally. Exact source CI
+explicitly tests and formats `codex-models-manager` on both platforms; transitive
+compilation alone does not execute these fixtures.
+
 Patches 71–73 add the source-only pending-effect state gate; 74–76 add
 synchronous SQLite commitment inside actual credential custody and independent
 committed-row observation fixtures. Patch 77 fixes two child assertion imports.
