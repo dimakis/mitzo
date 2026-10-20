@@ -17,6 +17,7 @@ import type {
   TelosWorkRoleSetupInput,
 } from '../../packages/protocol/src/telos-work-api';
 import { TelosWorkRoleSetupInputSchema } from '../../packages/protocol/src/telos-work-api';
+import { TelosWorkControlCommandSchema } from '../../packages/protocol/src/telos-work-controls';
 
 test.use({ baseURL: 'https://mitzo-ui.test' });
 // Each lead case also covers rejection/reload and explicit fresh confirmation.
@@ -71,6 +72,7 @@ for (const journey of ['lead', 'refine', 'child', 'leaf', 'coordinator'] as cons
       const calls: TelosWorkRoleSetupInput[] = [],
         unexpected: string[] = [],
         errors: string[] = [];
+      const inboxReads: unknown[] = [];
       const briefText = JSON.stringify({
         summary: 'Home studio',
         intent: 'Record clearly',
@@ -146,6 +148,13 @@ for (const journey of ['lead', 'refine', 'child', 'leaf', 'coordinator'] as cons
         if (path === '/api/telos/work/items/advisor-child')
           return route.fulfill({ json: savedWork });
         if (path === '/api/telos/work/items/studio') return route.fulfill({ json: work });
+        if (path === '/api/telos/work/controls' && route.request().method() === 'POST') {
+          const input: unknown = route.request().postDataJSON();
+          expect(journey).toBe('coordinator');
+          expect(input).toEqual({ operation: 'inbox', itemId: 'studio' });
+          inboxReads.push(TelosWorkControlCommandSchema.parse(input));
+          return route.fulfill({ json: [] });
+        }
         if (path === '/api/telos/work/roles/context' || path === '/api/telos/work/roles/review') {
           contextReviews++;
           const request = route.request().postDataJSON();
@@ -780,4 +789,6 @@ for (const journey of ['lead', 'refine', 'child', 'leaf', 'coordinator'] as cons
       ).toBe(true);
       expect(errors).toEqual([]);
       expect(unexpected).toEqual([]);
+      if (journey === 'coordinator') expect(inboxReads.length).toBeGreaterThan(0);
+      else expect(inboxReads).toEqual([]);
     });

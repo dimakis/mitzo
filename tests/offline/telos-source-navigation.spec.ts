@@ -336,7 +336,7 @@ for (const { theme, sourceStatus } of sourceCases)
     ).toBe(true);
     await page.screenshot({ path: info.outputPath(`telos-source-${theme}.png`) });
     await page.getByRole('button', { name: 'View item: Home studio', exact: true }).click();
-    await expect(page).toHaveURL(/\/todos\/studio$/);
+    await expect(page).toHaveURL(/\/todos\/studio\?view=Overview$/);
     await expect(page.getByRole('button', { name: 'Open original chat' })).toBeVisible();
     await page.getByRole('button', { name: 'Open original chat' }).click();
     await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('Keep my draft');
