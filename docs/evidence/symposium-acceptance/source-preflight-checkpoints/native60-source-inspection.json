@@ -1,0 +1,55 @@
+{
+  "observedAt": "2026-10-20T00:06:01.844450+00:00",
+  "published": {
+    "pr": 1060,
+    "head": "07014d87b97a1faf012817d6ffcc6a94a383fe96",
+    "tree": "ec77d838d55fa28506cd17762d1d8638c527a487",
+    "basePr": 1058,
+    "baseHead": "0fd922430b1452d706f361bfde72a47eea584bda"
+  },
+  "native": {
+    "head": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+    "tree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
+    "narrowNewCommits": [
+      "43d48041b06eb631e9e80ecfaa1a1974eeb91b49",
+      "bb5bedc2e334700b930352c58e6c50660c173e2e"
+    ],
+    "prior58Inspection": "../native58-source-input-inspection/inspection.json",
+    "patchesHashed": 60,
+    "prior54Unchanged": true,
+    "sourceHashes": {
+      "codex-rs/ext/extension-api/src/lib.rs": "5153c68004b6f05cd56dc21fb1021a0364e63348771bbcf3fa3315717c8d0466",
+      "codex-rs/ext/extension-api/src/registry.rs": "3a9aca1570b8c69d4aca4aebf2c8d4db8df1c2eb1a5d539c73f75f3db591a033",
+      "codex-rs/ext/extension-api/src/registry/pre_session_tools.rs": "e8a1723e805c64d89ab97e272d55937005975ef3a52ab6cb0dea4552e6eed4d0",
+      "codex-rs/ext/extension-api/src/tool_inventory.rs": "d3ee05accd443de95ed120045286bee127044b362e054e67d2c539d492cc8014",
+      "codex-rs/ext/extension-api/src/tool_pre_session.rs": "d08fedbd766ded52fc7db358edfb0982682e427ed1bd56ae7a6f1b18c40385f8",
+      "codex-rs/ext/extension-api/tests/pre_session_tools.rs": "23b6fc4c11b283b7b29437bc9b25a606ea179a998735b77b049be4cf4d403337",
+      "codex-rs/ext/memories/src/extension.rs": "eac4fbc133c55b7303f1fbc96075b12298dfc82c3507a0732914ecdf89bb6e8f",
+      "codex-rs/ext/memories/src/tests.rs": "8a4e0a1638759f8158508d6054be6a58109e1c7e6de84354c6367012634998c6",
+      "codex-rs/ext/web-search/src/extension.rs": "68ebe1036c4676a6c0c8ba584a79b7fca9c4e465db8aa1e5df20f6aa2f6b5b48"
+    }
+  },
+  "independentActivity": "Immutable Git source/assertions/workflow/hash inspection only. No Rust compilation, execution, reconstruction rerun or model calls by C. Core reconstruction PASS is producer evidence, independently checked matching manifest/native Git tree and patch hashes here.",
+  "sourceFindings": [
+    "Registry preflights all missing plans before invoking any declared config plan; opaque capture retains registry identity; config-selected captures refuse config-free renewal.",
+    "One registered plan installs per-thread selections through actual startup and config-change contributors. Ordinary tools and per-step selection enforce NoTools; ordinary runtime contributor callbacks still execute before filtering, as authored tests explicitly expect. No-runtime-callback claim is limited to pre-session capture/renewal.",
+    "Current config renewal recaptures source-owned selection and compares fixed definitions under exact registry identity. It does not supply whole-request/account/currentness custody.",
+    "Memory enabled/dedicated and supported enabled web modes remain Unresolved. Shared ordinary selection helpers declare only config-proven tool absence. Memory prompt/context instructions remain separately registered.",
+    "Config-aware capture/renewal call sites are registry helpers and tests only in this native candidate. No production request planner or whole-native request/count/consume bridge is established."
+  ],
+  "authoredTestsNotExecutedByC": [
+    "config_plan_owns_ordinary_absence_and_renews_without_runtime_callbacks",
+    "missing_tool_plan_preflights_before_any_closed_plan_or_runtime_callback",
+    "installed_memory_source_declares_only_config_proven_tool_absence",
+    "ordinary_and_pre_session_tool_selection_preserve_disabled_web_mode"
+  ],
+  "ci": {
+    "run": 39345244430,
+    "head": "07014d87b97a1faf012817d6ffcc6a94a383fe96",
+    "linuxJob": 118376147716,
+    "macJob": 118376147653,
+    "status": "Pending independent execution qualification; existing CI only. Native54 results cannot qualify native60.",
+    "coverage": "New mcp-extension/login/memories/web-search packages plus previous platform package scope and formatting."
+  },
+  "acceptance": "No additional source blocker found within these two narrow partitions. Not full PR/security review, native capability approval, runtime adoption or positive application journey. Genuine production preparation/joining/delivery/replies and request/count/consume remain prerequisites."
+}
