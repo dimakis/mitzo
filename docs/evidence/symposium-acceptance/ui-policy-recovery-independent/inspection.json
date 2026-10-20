@@ -1,0 +1,47 @@
+{
+  "inspectedAt": "2026-10-17T23:07:58.743390+00:00",
+  "inspectorSession": "01a14bdc-d152-7912-84d4-c0012e9d5206",
+  "ownerHead": "153fbe4da624c070da3e2d07494087f59f1eb23b",
+  "ownerTree": "6a1f59a89e6b8df8d6e4667c4cec75afe3cef8a8",
+  "implementationSource": "6bfbe8d5a5df1ca154df1437e0c5cd9ea11b3a35",
+  "captures": [
+    {
+      "sourcePath": "docs/design/assets/symposium-policy-refresh-needed-mobile-webkit-dark.png",
+      "retainedPath": "symposium-policy-refresh-needed-mobile-webkit-dark.png",
+      "sha256": "46278e66902411672522ce4eea31af7a943b18b5d7b2931a3a5d21a73385ff77",
+      "bytes": 239805
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-policy-refresh-needed-mobile-webkit-light.png",
+      "retainedPath": "symposium-policy-refresh-needed-mobile-webkit-light.png",
+      "sha256": "827c3f3d8b80ab611726a95ecdcfe376b5ea210d2b1ab115d1770f6d7faffadc",
+      "bytes": 256329
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-policy-refresh-needed-desktop-chromium-dark.png",
+      "retainedPath": "symposium-policy-refresh-needed-desktop-chromium-dark.png",
+      "sha256": "585a66cc7bcda22b711b8e661e5883364bb0b7d1a06f456e03e0ac06c48f94ec",
+      "bytes": 98359
+    },
+    {
+      "sourcePath": "docs/design/assets/symposium-policy-refresh-needed-desktop-chromium-light.png",
+      "retainedPath": "symposium-policy-refresh-needed-desktop-chromium-light.png",
+      "sha256": "b1d84d521fae0bd36071f599d100fd8c0f145be9e0ef6f2d566f4be1e35f83d4",
+      "bytes": 100973
+    }
+  ],
+  "committedBytesVerified": true,
+  "inspection": "view_image of four owner PNGs; retained exact committed bytes",
+  "observations": [
+    "Saved-state explanation and actual confirmation-read error are visible within Agents in all four renders.",
+    "Refresh sharing is visible and the original Reads future discussion checkbox is unchecked; dimmed controls are rendered.",
+    "Done and Add agent footer is visible; mobile body content scrolls within the dialog.",
+    "Existing successful transcript reply remains behind the desktop dialog."
+  ],
+  "limits": [
+    "Static images do not independently prove disabled DOM controls, focus, GET-only retry, request counts or recovery completion.",
+    "Those behaviors are A-reported unit/browser coverage; no independent browser rerun was performed by C.",
+    "Actual full application mounting/joining/reply and physical iOS acceptance remain open."
+  ],
+  "fullCombinedUxAccepted": false
+}

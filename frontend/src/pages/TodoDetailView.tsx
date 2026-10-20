@@ -1,11 +1,14 @@
+import { TelosItemWorkspace } from '../components/TelosItemWorkspace';
+import { useTelosRecords } from '../hooks/useTelosRecords';
 import { TelosItemSources } from '../components/TelosItemSources';
 import { TelosItemRoleEntries } from '../components/TelosItemRoleEntries';
 import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { findInTree, useTodoData, useLatestTodoPriority } from '../hooks/useTodoData';
 import { TodoPrioritySelect } from '../components/TodoPrioritySelect';
+import { createTodoPrioritySaveState } from '../lib/todo-priority-save-state';
 import type { TodoItem } from '../types/todo';
 import { sourceIcon, buildPrompt, buildTodoContext, todoPriority } from '../lib/todo-utils';
 import { WorkOutputs } from '../components/WorkOutputs';
@@ -22,9 +25,14 @@ function urgencyLabel(urgency: number): string {
   return 'minimal';
 }
 
+function parseItemHistory(value: unknown): string[] {
+  return Array.isArray(value) && value.every((id) => typeof id === 'string') ? value : [];
+}
+
 export function TodoDetailView() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const prioritySaveState = useMemo(() => createTodoPrioritySaveState(id), [id]);
   const {
     items,
     loading,
@@ -35,6 +43,26 @@ export function TodoDetailView() {
   } = useTodoData(undefined, id);
   const setPendingSession = useStageChatLaunch();
   const location = useLocation();
+  const historyKey = 'telos.item.history.' + id;
+  const navigationHistory = (location.state as { telosHistory?: unknown } | null)?.telosHistory;
+  // Artifact selectors and Files own URL navigation; S7 owns its item trail.
+  useEffect(() => {
+    if (navigationHistory === undefined) return;
+    try {
+      sessionStorage.setItem(historyKey, JSON.stringify(parseItemHistory(navigationHistory)));
+    } catch {
+      /* Navigation remains available when device preferences are unavailable. */
+    }
+  }, [historyKey, navigationHistory]);
+  function itemHistory() {
+    if (navigationHistory !== undefined) return parseItemHistory(navigationHistory);
+    try {
+      return parseItemHistory(JSON.parse(sessionStorage.getItem(historyKey) ?? '[]'));
+    } catch {
+      return [];
+    }
+  }
+
   const navigationItem = (location.state as { item?: TodoItem } | null)?.item;
   const [stateItem, setStateItem] = useState(navigationItem);
   useEffect(() => setStateItem(navigationItem), [navigationItem]);
@@ -48,11 +76,85 @@ export function TodoDetailView() {
 
   const item = (id ? findInTree(items, id) : undefined) ?? fallbackItem;
 
+  const recordIds = id ? [id] : [];
+  function collectRecordIds(value: TodoItem) {
+    for (const child of value.children) {
+      recordIds.push(child.id);
+      collectRecordIds(child);
+    }
+  }
+  if (item) {
+    collectRecordIds(item);
+    if (item.parentId) recordIds.push(item.parentId);
+  }
+  const canonical = useTelosRecords(recordIds);
+  const record = canonical.records.find((value) => value.itemId === id);
+
   useEffect(() => {
-    // A retained list may predate a newly saved child. Confirm absence with this
-    // mount's read before leaving its detail route.
-    if (!loading && !refreshing && !error && !item) navigate('/todos', { replace: true });
-  }, [loading, refreshing, error, item, navigate]);
+    if (!loading && !refreshing && !error && !item && !canonical.loading && !record)
+      navigate('/todos', { replace: true });
+  }, [loading, refreshing, error, item, navigate, canonical.loading, record]);
+
+  if (record)
+    return (
+      <div className="todo-detail-page telos-canonical-page">
+        <div className="todo-detail-scroll">
+          {canonical.unavailable.length > 0 && (
+            <p role="alert">
+              Some related outcome records are unavailable.{' '}
+              <button onClick={canonical.refresh}>Try again</button>
+            </p>
+          )}
+          <TelosItemWorkspace
+            key={record.itemId}
+            record={record}
+            prioritySaveState={prioritySaveState}
+            refreshKey={canonical.refreshKey}
+            relatedState={
+              error
+                ? 'unavailable'
+                : !item
+                  ? 'loading'
+                  : canonical.unavailable.some(
+                        (value) => value !== record.itemId && value !== record.parentId,
+                      )
+                    ? 'unavailable'
+                    : 'ready'
+            }
+            onRefresh={() => {
+              refresh();
+              canonical.refresh();
+            }}
+            records={canonical.records}
+            onBack={() => {
+              const history = itemHistory();
+              navigate(
+                history.length
+                  ? `/todos/${encodeURIComponent(history[history.length - 1])}`
+                  : '/todos',
+                { state: { ...location.state, telosHistory: history.slice(0, -1) } },
+              );
+            }}
+            onOpen={(itemId, view) => {
+              if (view) {
+                try {
+                  sessionStorage.setItem('telos.item.tab.' + itemId, view);
+                } catch {
+                  /* Preferences are optional. */
+                }
+              }
+              navigate(`/todos/${encodeURIComponent(itemId)}`, {
+                state: {
+                  ...location.state,
+                  item: undefined,
+                  telosHistory: [...itemHistory(), record.itemId],
+                },
+              });
+            }}
+          />
+        </div>
+      </div>
+    );
 
   if (!item) {
     if (error)
@@ -167,6 +269,7 @@ export function TodoDetailView() {
         <div className="todo-detail-actions">
           <TodoPrioritySelect
             key={item.id}
+            saveState={prioritySaveState}
             priority={todoPriority(item)}
             onChange={handlePriority}
           />
@@ -190,6 +293,9 @@ export function TodoDetailView() {
       {promoteError && <div className="todo-detail-error">{promoteError}</div>}
 
       <div className="todo-detail-scroll">
+        {canonical.unavailable.includes(item.id) && (
+          <p role="alert">Outcome workspace unavailable. Showing original Telos fields.</p>
+        )}
         <div className="todo-detail-summary">{item.summary}</div>
 
         <div className="todo-detail-meta">
@@ -239,7 +345,7 @@ export function TodoDetailView() {
           </section>
         )}
 
-        <WorkOutputs key={item.id} itemId={item.id} profile={item.profile} />
+        <WorkOutputs key={'outputs:' + item.id} itemId={item.id} profile={item.profile} />
 
         {item.children.length > 0 && (
           <section className="todo-detail-children">

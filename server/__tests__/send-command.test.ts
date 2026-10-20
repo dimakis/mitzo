@@ -345,3 +345,72 @@ describe('durable send acceptance', () => {
     }
   });
 });
+
+it('acknowledges a durably echoed prompt while startup waits, without dispatching a retry', async () => {
+  const store = new EventStore(':memory:');
+  let finish!: () => void;
+  let receipt: unknown;
+  const dispatch = vi.fn<Parameters<typeof acceptSendCommandAsync>[2]>(
+    async (_message, sessionId, retained) => {
+      store.upsertSession({ sessionId });
+      store.append(sessionId, 'user_message', { messageId: message.clientMsgId });
+      retained?.();
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+    },
+  );
+  const preparation = vi.spyOn(store, 'setSendCommandPreparing');
+  try {
+    const first = acceptSendCommandAsync(store, message, dispatch, { acknowledgeRetained: true });
+    void first.then((value) => {
+      receipt = value;
+    });
+    await vi.waitFor(() => expect(receipt).toMatchObject({ accepted: true, retained: true }), {
+      timeout: 100,
+    });
+    const retry = acceptSendCommandAsync(store, message, dispatch, { acknowledgeRetained: true });
+    expect(await retry).toEqual(receipt);
+    expect(dispatch).toHaveBeenCalledOnce();
+    finish();
+    await vi.waitFor(() =>
+      expect(preparation).toHaveBeenLastCalledWith(message.clientMsgId, false),
+    );
+  } finally {
+    finish?.();
+    store.close();
+  }
+});
+it('cannot acknowledge retention before the exact prompt is durably stored', async () => {
+  const store = new EventStore(':memory:');
+  try {
+    await expect(
+      acceptSendCommandAsync(
+        store,
+        message,
+        async (_msg, _id, retained) => {
+          retained();
+        },
+        { acknowledgeRetained: true },
+      ),
+    ).rejects.toThrow(/durable prompt/i);
+  } finally {
+    store.close();
+  }
+});
+it('reports interrupted preparation after restart even when the prompt was already echoed', () => {
+  const store = new EventStore(':memory:');
+  try {
+    const receipt = acceptSendCommand(store, message, () => {});
+    store.upsertSession({ sessionId: receipt.sessionId! });
+    store.append(receipt.sessionId!, 'user_message', { messageId: message.clientMsgId });
+    store.setSendCommandPreparing(message.clientMsgId, true);
+    store.recoverPendingSendCommands();
+    expect(store.getSendCommand(message.clientMsgId)?.error).toMatch(/restart/i);
+    expect(
+      store.getEventsAfter(receipt.sessionId!, 0).some((event) => event.type === 'error'),
+    ).toBe(true);
+  } finally {
+    store.close();
+  }
+});

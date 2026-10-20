@@ -5533,3 +5533,214 @@ it.each([
     expect(requests).toEqual(['account/read', 'config/read']);
   },
 );
+
+it('claims an exact accepted target once and reconciles its original interruption without another RPC', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  expect(target).toMatchObject({
+    commandId: 'target-a',
+    attempt: 1,
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+    generation: 0,
+  });
+  const first = await f.c.interruptIfCurrent('stop-a', target);
+  expect(first).toMatchObject({
+    status: 'claimed',
+    replayed: false,
+    receipt: { requestId: 'stop-a', target: { commandId: 'target-a' } },
+  });
+  expect(await f.c.interruptIfCurrent('stop-a', target)).toMatchObject({
+    status: 'claimed',
+    replayed: true,
+  });
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toEqual([
+    { method: 'turn/interrupt', params: { threadId: target.threadId, turnId: target.turnId } },
+  ]);
+  expect(f.store.targetedInterruptReceipt('app', f.getBinding(), 'stop-a')).toEqual(
+    first.status === 'claimed' ? first.receipt : undefined,
+  );
+});
+it('refuses a retired target before pausing or cancelling the successor', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+  await f.c.send({ id: 'target-b', prompt: 'Second' });
+  const before = f.store.read('app', f.getBinding());
+  expect(await f.c.interruptIfCurrent('stale-stop', target)).toEqual({ status: 'stale_target' });
+  expect(f.store.read('app', f.getBinding())).toEqual(before);
+  expect(f.c.isPaused()).toBe(false);
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(0);
+  expect(f.c.queue().find((c) => c.id === 'target-b')?.status).toBe('running');
+});
+it('refuses copied and foreign target metadata before any effect', async () => {
+  const f = await setup(),
+    other = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  await other.c.send({ id: 'target-a', prompt: 'Same labels, different owner' });
+  const target = f.c.captureInterruptTarget()!;
+  const before = f.store.read('app', f.getBinding());
+  expect(await f.c.interruptIfCurrent('copy', { ...target })).toEqual({ status: 'stale_target' });
+  expect(await f.c.interruptIfCurrent('foreign', other.c.captureInterruptTarget()!)).toEqual({
+    status: 'stale_target',
+  });
+  expect(f.store.read('app', f.getBinding())).toEqual(before);
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(0);
+});
+it('retains an ambiguous interruption claim after a lost RPC response without reissuing it', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  const original = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/interrupt') {
+      f.requests.push({ method, params });
+      throw Error('Lost interruption response');
+    }
+    return original(method, params);
+  });
+  await expect(f.c.interruptIfCurrent('lost-stop', target)).rejects.toThrow(
+    'Lost interruption response',
+  );
+  expect(f.c.queue()[0].status).toBe('running');
+  expect(f.store.read('app', f.getBinding()).recovery).toBe(1);
+  expect(await f.c.interruptIfCurrent('lost-stop', target)).toMatchObject({
+    status: 'claimed',
+    replayed: true,
+  });
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+});
+it('refuses a changed durable attempt or generation before pause, abort or RPC', async () => {
+  for (const changed of ['attempt', 'generation'] as const) {
+    const f = await setup();
+    await f.c.send({ id: 'target-a', prompt: 'First' });
+    const target = f.c.captureInterruptTarget()!;
+    const privateStore = f.store as unknown as { db: Database.Database };
+    if (changed === 'attempt')
+      privateStore.db
+        .prepare('UPDATE codex_commands SET attempt=attempt+1 WHERE conversation_id=? AND id=?')
+        .run('app', 'target-a');
+    else
+      privateStore.db
+        .prepare('UPDATE codex_conversations SET thread_generation=thread_generation+1 WHERE id=?')
+        .run('app');
+    const before = f.store.read('app', f.getBinding());
+    expect(await f.c.interruptIfCurrent(`stale-${changed}`, target)).toEqual({
+      status: 'stale_target',
+    });
+    expect(f.store.read('app', f.getBinding())).toEqual(before);
+    expect(f.c.isPaused()).toBe(false);
+    expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(0);
+  }
+});
+it('refuses a retired transport and never borrows the successor client', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  f.callbacks.onClose(new Error('Retired original transport'));
+  const before = f.store.read('app', f.getBinding());
+  expect(await f.c.interruptIfCurrent('retired-stop', target)).toEqual({ status: 'stale_target' });
+  expect(f.store.read('app', f.getBinding())).toEqual(before);
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(0);
+});
+it('refuses an original interruption request reused against an actual successor turn', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const original = f.c.captureInterruptTarget()!;
+  await f.c.interruptIfCurrent('same-control', original);
+  await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('interrupted'));
+  await f.c.send({ id: 'target-b', prompt: 'Second' });
+  await f.c.resumeAfterExplicitSend();
+  const successor = f.c.captureInterruptTarget()!;
+  expect(successor.commandId).toBe('target-b');
+  const before = f.store.read('app', f.getBinding());
+  await expect(f.c.interruptIfCurrent('same-control', successor)).rejects.toThrow(
+    /different target/,
+  );
+  expect(f.store.read('app', f.getBinding())).toEqual(before);
+  expect(f.c.isPaused()).toBe(false);
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+  expect(await f.c.interruptIfCurrent('same-control', original)).toMatchObject({
+    status: 'claimed',
+    replayed: true,
+  });
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+});
+it('has no cancellation target while the actual turn/start acknowledgement is pending', async () => {
+  const f = await setup();
+  expect(f.c.captureInterruptTarget()).toBeUndefined();
+  const original = f.rpc.request.getMockImplementation()!;
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start') await pending;
+    return original(method, params);
+  });
+  const send = f.c.send({ id: 'pending-ack', prompt: 'First' });
+  await vi.waitFor(() => expect(f.c.queue()[0]?.status).toBe('running'));
+  expect(f.c.captureInterruptTarget()).toBeUndefined();
+  release();
+  await send;
+  expect(f.c.captureInterruptTarget()?.commandId).toBe('pending-ack');
+});
+it('retains the original cancellation claim if an abort listener retires the actual transport', async () => {
+  const f = await setup();
+  await f.c.send({ id: 'target-a', prompt: 'First' });
+  const target = f.c.captureInterruptTarget()!;
+  let toolSignal: AbortSignal | undefined;
+  f.execute.mockImplementation((_name, _input, signal) => {
+    toolSignal = signal;
+    return new Promise((resolve) =>
+      signal.addEventListener('abort', () => {
+        f.callbacks.onClose(new Error('Retired during abort'));
+        resolve({ content: 'cancelled', isError: true });
+      }),
+    );
+  });
+  const tool = f.callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: target.threadId,
+      turnId: target.turnId,
+      callId: 'abort-retirement',
+      namespace: null,
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  await vi.waitFor(() => expect(toolSignal).toBeDefined());
+  await expect(f.c.interruptIfCurrent('retired-during-abort', target)).rejects.toThrow(
+    /transport retired/,
+  );
+  await tool;
+  expect(toolSignal?.aborted).toBe(true);
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(0);
+  expect(
+    f.store.targetedInterruptReceipt('app', f.getBinding(), 'retired-during-abort'),
+  ).toMatchObject({ target: { commandId: 'target-a' }, disposition: 'claimed' });
+});
+it('does not duplicate a targeted cancellation invoked during the actual acceptance observer', async () => {
+  const f = await setup();
+  let interrupted: ReturnType<typeof f.c.interruptIfCurrent> | undefined;
+  f.conversationOptions.onProviderAccepted = () => {
+    const target = f.c.captureInterruptTarget()!;
+    expect(target.commandId).toBe('observer-target');
+    interrupted = f.c.interruptIfCurrent('observer-control', target);
+  };
+  await f.c.send({ id: 'observer-target', prompt: 'First' });
+  expect(interrupted).toBeDefined();
+  expect(await interrupted).toMatchObject({ status: 'claimed', replayed: false });
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+  expect(f.store.targetedInterruptReceipt('app', f.getBinding(), 'observer-control')).toMatchObject(
+    { target: { commandId: 'observer-target' }, disposition: 'claimed' },
+  );
+});

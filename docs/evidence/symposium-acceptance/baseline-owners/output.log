@@ -1,0 +1,204 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/mitzo
+
+{"level":40,"time":1792274496362,"pid":96988,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792274496530,"pid":96988,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+{"level":40,"time":1792274496699,"pid":96988,"hostname":"Dimitris-MacBook-Pro","module":"codex-conversation","msg":"Application context acknowledgement observer also failed."}
+ ❯ server/__tests__/collaboration-conversation-router.test.ts (5 tests | 5 failed) 50021ms
+   × authenticates all conversation reads and mutations and rejects cross-origin JSON writes 10005ms
+   × publishes versioned policies, exact receipts and bounded cursor replay without side effects 10003ms
+   × keeps unfinished execution and source compilation disabled with a typed reason 10002ms
+   × does not accept receipt forgery or arbitrary source bytes and distinguishes invalid/missing identities 10001ms
+   × round-trips the shared typed client through authenticated Express and durable replay 10008ms
+ ❯ server/__tests__/session-collaboration-joining-router.test.ts (2 tests | 2 failed) 1364ms
+   × recovers an authenticated HTTP join from the real retained ordinary preparation after restart 911ms
+   × refuses actual unverified native capacity through HTTP without reserving a session 452ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 7 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  server/__tests__/collaboration-conversation-router.test.ts > authenticates all conversation reads and mutations and rejects cross-origin JSON writes
+ FAIL  server/__tests__/collaboration-conversation-router.test.ts > publishes versioned policies, exact receipts and bounded cursor replay without side effects
+ FAIL  server/__tests__/collaboration-conversation-router.test.ts > keeps unfinished execution and source compilation disabled with a typed reason
+ FAIL  server/__tests__/collaboration-conversation-router.test.ts > does not accept receipt forgery or arbitrary source bytes and distinguishes invalid/missing identities
+ FAIL  server/__tests__/collaboration-conversation-router.test.ts > round-trips the shared typed client through authenticated Express and durable replay
+Error: Hook timed out in 10000ms.
+If this is a long-running hook, pass a timeout value as the last argument or configure it globally with "hookTimeout".
+ ❯ server/__tests__/collaboration-conversation-router.test.ts:15:1
+     13|
+     14| let store: EventStore, app: express.Express, path: string, server: Ser…
+     15| beforeEach(async () => {
+       | ^
+     16|   store = new EventStore(':memory:');
+     17|   const group = randomUUID();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/12]⎯
+
+ FAIL  server/__tests__/collaboration-conversation-router.test.ts > authenticates all conversation reads and mutations and rejects cross-origin JSON writes
+ FAIL  server/__tests__/collaboration-conversation-router.test.ts > publishes versioned policies, exact receipts and bounded cursor replay without side effects
+ FAIL  server/__tests__/collaboration-conversation-router.test.ts > keeps unfinished execution and source compilation disabled with a typed reason
+ FAIL  server/__tests__/collaboration-conversation-router.test.ts > does not accept receipt forgery or arbitrary source bytes and distinguishes invalid/missing identities
+ FAIL  server/__tests__/collaboration-conversation-router.test.ts > round-trips the shared typed client through authenticated Express and durable replay
+Error: Server is not running.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/12]⎯
+
+ FAIL  server/__tests__/session-collaboration-joining-router.test.ts > recovers an authenticated HTTP join from the real retained ordinary preparation after restart
+TypeError: Cannot read properties of null (reading 'port')
+ ❯ Test.serverAddress ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/lib/test.js:67:31
+ ❯ new Test ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/lib/test.js:49:14
+ ❯ Object.obj.<computed> [as post] ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/index.js:40:18
+ ❯ server/__tests__/session-collaboration-joining-router.test.ts:27:30
+     25|   let app = application(f);
+     26|   const path = `/collaborations/${f.group}`;
+     27|   expect((await request(app).post(`${path}/joins`).send(f.input)).stat…
+       |                              ^
+     28|   expect(f.store.listSessions()).toHaveLength(1);
+     29|   const record = vi
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/12]⎯
+
+ FAIL  server/__tests__/session-collaboration-joining-router.test.ts > refuses actual unverified native capacity through HTTP without reserving a session
+TypeError: Cannot read properties of null (reading 'port')
+ ❯ Test.serverAddress ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/lib/test.js:67:31
+ ❯ new Test ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/lib/test.js:49:14
+ ❯ Object.obj.<computed> [as post] ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/index.js:40:18
+ ❯ server/__tests__/session-collaboration-joining-router.test.ts:88:6
+     86|   const f = await createJoiningFixture(false);
+     87|   const response = await request(application(f))
+     88|     .post(`/collaborations/${f.group}/joins`)
+       |      ^
+     89|     .set('x-operator', 'yes')
+     90|     .send(f.input);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/12]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 7 unhandled errors during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: listen EPERM: operation not permitted 127.0.0.1
+ ❯ Server.setupListenHandle [as _listen2] node:net:1918:21
+ ❯ listenInCluster node:net:1997:12
+ ❯ node:net:2206:7
+ ❯ processTicksAndRejections node:internal/process/task_queues:90:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'EPERM', errno: -1, syscall: 'listen', address: '127.0.0.1' }
+This error originated in "server/__tests__/collaboration-conversation-router.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "authenticates all conversation reads and mutations and rejects cross-origin JSON writes". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: listen EPERM: operation not permitted 127.0.0.1
+ ❯ Server.setupListenHandle [as _listen2] node:net:1918:21
+ ❯ listenInCluster node:net:1997:12
+ ❯ node:net:2206:7
+ ❯ processTicksAndRejections node:internal/process/task_queues:90:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'EPERM', errno: -1, syscall: 'listen', address: '127.0.0.1' }
+This error originated in "server/__tests__/collaboration-conversation-router.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "publishes versioned policies, exact receipts and bounded cursor replay without side effects". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: listen EPERM: operation not permitted 127.0.0.1
+ ❯ Server.setupListenHandle [as _listen2] node:net:1918:21
+ ❯ listenInCluster node:net:1997:12
+ ❯ node:net:2206:7
+ ❯ processTicksAndRejections node:internal/process/task_queues:90:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'EPERM', errno: -1, syscall: 'listen', address: '127.0.0.1' }
+This error originated in "server/__tests__/collaboration-conversation-router.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "keeps unfinished execution and source compilation disabled with a typed reason". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: listen EPERM: operation not permitted 127.0.0.1
+ ❯ Server.setupListenHandle [as _listen2] node:net:1918:21
+ ❯ listenInCluster node:net:1997:12
+ ❯ node:net:2206:7
+ ❯ processTicksAndRejections node:internal/process/task_queues:90:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'EPERM', errno: -1, syscall: 'listen', address: '127.0.0.1' }
+This error originated in "server/__tests__/collaboration-conversation-router.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "does not accept receipt forgery or arbitrary source bytes and distinguishes invalid/missing identities". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: listen EPERM: operation not permitted 127.0.0.1
+ ❯ Server.setupListenHandle [as _listen2] node:net:1918:21
+ ❯ listenInCluster node:net:1997:12
+ ❯ node:net:2206:7
+ ❯ processTicksAndRejections node:internal/process/task_queues:90:21
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'EPERM', errno: -1, syscall: 'listen', address: '127.0.0.1' }
+This error originated in "server/__tests__/collaboration-conversation-router.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "round-trips the shared typed client through authenticated Express and durable replay". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: listen EPERM: operation not permitted 0.0.0.0
+ ❯ Server.setupListenHandle [as _listen2] node:net:1918:21
+ ❯ listenInCluster node:net:1997:12
+ ❯ Server.listen node:net:2102:7
+ ❯ Test.serverAddress ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/lib/test.js:63:35
+ ❯ new Test ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/lib/test.js:49:14
+ ❯ Object.obj.<computed> [as post] ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/index.js:40:18
+ ❯ server/__tests__/session-collaboration-joining-router.test.ts:27:30
+     25|   let app = application(f);
+     26|   const path = `/collaborations/${f.group}`;
+     27|   expect((await request(app).post(`${path}/joins`).send(f.input)).stat…
+       |                              ^
+     28|   expect(f.store.listSessions()).toHaveLength(1);
+     29|   const record = vi
+ ❯ ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'EPERM', errno: -1, syscall: 'listen', address: '0.0.0.0' }
+This error originated in "server/__tests__/session-collaboration-joining-router.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "recovers an authenticated HTTP join from the real retained ordinary preparation after restart". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+
+⎯⎯⎯⎯⎯ Uncaught Exception ⎯⎯⎯⎯⎯
+Error: listen EPERM: operation not permitted 0.0.0.0
+ ❯ Server.setupListenHandle [as _listen2] node:net:1918:21
+ ❯ listenInCluster node:net:1997:12
+ ❯ Server.listen node:net:2102:7
+ ❯ Test.serverAddress ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/lib/test.js:63:35
+ ❯ new Test ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/lib/test.js:49:14
+ ❯ Object.obj.<computed> [as post] ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/supertest/index.js:40:18
+ ❯ server/__tests__/session-collaboration-joining-router.test.ts:88:6
+     86|   const f = await createJoiningFixture(false);
+     87|   const response = await request(application(f))
+     88|     .post(`/collaborations/${f.group}/joins`)
+       |      ^
+     89|     .set('x-operator', 'yes')
+     90|     .send(f.input);
+ ❯ ../../../2026-10-15/why-the-hell-is-the-chat/mitzo/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'EPERM', errno: -1, syscall: 'listen', address: '0.0.0.0' }
+This error originated in "server/__tests__/session-collaboration-joining-router.test.ts" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+The latest test that might've caused the error is "refuses actual unverified native capacity through HTTP without reserving a session". It might mean one of the following:
+- The error was thrown, while Vitest was running this test.
+- If the error occurred after the test had been completed, this was the last documented test before it was thrown.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  2 failed | 7 passed (9)
+      Tests  7 failed | 92 passed (99)
+     Errors  7 errors
+   Start at  23:01:33
+   Duration  64.84s (transform 1.08s, setup 0ms, import 5.09s, tests 58.78s, environment 0ms)
+

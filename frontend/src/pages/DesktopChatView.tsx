@@ -6,6 +6,7 @@ import { AgentLibraryChatLink } from '../components/AgentLibraryChatSource';
 import { markAgentBuilderAssigned } from '../lib/agent-builder-chat';
 import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
 import { ConversationAgents } from '../components/ConversationAgents';
+import { conversationRepositoryLabel } from '../lib/conversation-repository-label';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
 import {
@@ -20,6 +21,7 @@ import {
   buildLocalFirstCommand,
   prepareLocalFirstCommand,
   prepareLocalContinuationCommand,
+  prepareOrdinaryWorkspaceCommand,
 } from '../lib/explicit-local-chat';
 import { createBrowserId } from '../lib/browser-crypto';
 import { useNewChatDraft, useChatDraftSearch } from '../hooks/useNewChatDraft';
@@ -161,6 +163,8 @@ export function DesktopChatView() {
   const localCommand = useMitzoStore((s) => s.localCommand);
   const localTransportAvailable = useMitzoStore((s) => s.localFirstCommandTransportAvailable);
   const sendLocalFirstCommand = useMitzoStore((s) => s.sendLocalFirstCommand);
+  const sendPreparedRepositoryCommand = useMitzoStore((s) => s.sendPreparedRepositoryCommand);
+  const sendOrdinaryWorkspaceCommand = useMitzoStore((s) => s.sendOrdinaryWorkspaceCommand);
   const recoverLocalCommand = useMitzoStore((s) => s.recoverLocalCommand);
   const localRuntime = useExplicitLocalChat(
     newChatDraft.draft.id,
@@ -171,9 +175,38 @@ export function DesktopChatView() {
     newChatDraft.restored ? newChatDraft.draft.settings.selection : undefined,
   );
   const explicitNew = localRuntime.visible && !activeSessionId;
+  const conversationRepository = conversationRepositoryLabel({
+    routeConversationId: sessionId,
+    conversationId: activeSessionId,
+    repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
+    repositoryContext: localRuntime.repositoryContext,
+    metadataPending: localRuntime.metadataPending,
+    repoNames: messages.activeWorktrees.map(({ repoName }) => repoName),
+  });
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
-  const localFirstCommand = explicitNew;
+  const localFirstCommand = explicitNew || localRuntime.preparedFirst;
+  const refreshedFirstCommand = useRef<string | null>(null);
+  const { preparedFirst, refresh: refreshRuntimeMetadata } = localRuntime;
+  useEffect(() => {
+    const request = localCommand?.request;
+    if (
+      !preparedFirst ||
+      localCommand?.ordinaryPhase !== 'first' ||
+      localCommand.state !== 'consumed' ||
+      localCommand.sessionId !== activeSessionId ||
+      !request ||
+      !(
+        ('workspace' in request && request.version === 2) ||
+        localCommand.preparedSessionId === activeSessionId
+      )
+    )
+      return;
+    const key = JSON.stringify([activeSessionId, request.clientMsgId]);
+    if (refreshedFirstCommand.current === key) return;
+    refreshedFirstCommand.current = key;
+    refreshRuntimeMetadata();
+  }, [activeSessionId, localCommand, preparedFirst, refreshRuntimeMetadata]);
   const roleSearch = searchParams.toString();
   const roleIntent = useMemo(
     () => (!sessionId ? readTelosRoleIntent(new URLSearchParams(roleSearch)) : null),
@@ -193,7 +226,7 @@ export function DesktopChatView() {
   }, []);
   const controlsBlocked =
     roleSetupLocked ||
-    (localBound && !localRuntime.continuation) ||
+    (localBound && !localRuntime.commandAvailable) ||
     localRuntime.metadataPending ||
     (!!sessionId && sessionId !== activeSessionId);
 
@@ -256,7 +289,7 @@ export function DesktopChatView() {
     selection: AccountSelection | null;
   } | null>(null);
   const accountSelection =
-    explicitNew || localRuntime.continuation
+    explicitNew || localRuntime.commandAvailable
       ? localRuntime.intent.account
       : accountChoice?.scope === accountScope
         ? accountChoice.selection
@@ -646,6 +679,21 @@ export function DesktopChatView() {
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
+  function prepareOrdinaryCommand(text: string, images?: ImageAttachment[]) {
+    if (!activeSessionId || !localRuntime.ordinaryWorkspaceId)
+      return { request: null, reason: 'Conversation workspace settings are unavailable.' };
+    return prepareOrdinaryWorkspaceCommand(localRuntime.intent, localRuntime.inventory, {
+      sessionId: activeSessionId,
+      ordinaryWorkspaceId: localRuntime.ordinaryWorkspaceId,
+      clientMsgId: createBrowserId(),
+      mode: localRuntime.mode ?? 'agent',
+      retainedAgentProfile: localRuntime.agentProfile,
+      retainedAgentContext: localRuntime.agentContext,
+      text,
+      images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
+    });
+  }
+
   function handleSend(
     text: string,
     images?: ImageAttachment[],
@@ -655,6 +703,39 @@ export function DesktopChatView() {
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
     if (roleSetupRequested || controlsBlocked || builderSourceReason) return false;
+    if (localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable && activeSessionId) {
+      if (ctxBlocks?.length || launching || localRuntime.reason) return false;
+      const command = prepareOrdinaryCommand(text, images);
+      return (
+        !!command.request &&
+        sendOrdinaryWorkspaceCommand(
+          command.request,
+          localRuntime.preparedFirst ? 'first' : 'continue',
+          {
+            onDelivery,
+            ...(boundDraftOwner.sessionId === activeSessionId && boundDraftOwner.draftId
+              ? { draftId: boundDraftOwner.draftId }
+              : {}),
+          },
+        )
+      );
+    }
+    if (localRuntime.preparedFirst && localRuntime.repositoryWorkspaceId && activeSessionId) {
+      if (ctxBlocks?.length || launching || localRuntime.reason) return false;
+      const command = prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
+        clientMsgId: createBrowserId(),
+        repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
+        mode: localRuntime.mode ?? 'agent',
+        retainedAgentProfile: localRuntime.agentProfile,
+        retainedAgentContext: localRuntime.agentContext,
+        text,
+        images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
+      });
+      return (
+        !!command.request &&
+        sendPreparedRepositoryCommand(command.request, activeSessionId, { onDelivery })
+      );
+    }
     if (localRuntime.continuation && activeSessionId) {
       if (
         ctxBlocks?.length ||
@@ -854,7 +935,7 @@ export function DesktopChatView() {
       <AccountModelPicker
         presentation="settings"
         controlled={
-          explicitNew || localRuntime.continuation
+          explicitNew || localRuntime.commandAvailable
             ? {
                 accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
@@ -887,7 +968,10 @@ export function DesktopChatView() {
               : undefined
         }
         lockAccount={localBound || preparedExecutionLocked}
-        lockAccountModel={draftEnabled && preparedExecutionLocked && !preparedModelEditable}
+        lockAccountModel={
+          localRuntime.preparedFirst ||
+          (draftEnabled && preparedExecutionLocked && !preparedModelEditable)
+        }
         requiredSelection={
           !activeSessionId && repositoryHandoff.preparation && !preparedModelEditable
             ? {
@@ -913,6 +997,7 @@ export function DesktopChatView() {
         onSessionHydrated={hydrateAccount}
         onSummaryChange={setWorkspaceSummary}
         disabled={
+          localRuntime.preparedFirst ||
           (messages.running && !localRuntime.continuation) ||
           controlsBlocked ||
           repositoryHandoff.loading ||
@@ -928,7 +1013,7 @@ export function DesktopChatView() {
       label="Agent"
       onLabelChange={setAgentLabel}
       controlled={
-        explicitNew || localRuntime.continuation
+        explicitNew || localRuntime.commandAvailable
           ? {
               versions: localRuntime.inventory?.agentProfiles ?? [],
               selection: localRuntime.intent.agentProfile,
@@ -1052,11 +1137,11 @@ export function DesktopChatView() {
               </dd>
               <dt>Run on</dt>
               <dd>
-                {(explicitNew || localRuntime.continuation
+                {(explicitNew || localRuntime.commandAvailable
                   ? localRuntime.intent.execution.location
                   : workspaceSummary?.location) === 'local'
                   ? 'Local Mac'
-                  : (explicitNew || localRuntime.continuation
+                  : (explicitNew || localRuntime.commandAvailable
                         ? localRuntime.intent.execution.location
                         : workspaceSummary?.location) === 'openshell'
                     ? 'OpenShell'
@@ -1065,9 +1150,17 @@ export function DesktopChatView() {
               <dt>Agent software</dt>
               <dd>{agentSoftware ?? 'Unavailable'}</dd>
               <dt>Workspace</dt>
-              <dd>{localRuntime.repositoryWorkspaceId ?? messages.wtId ?? 'Unavailable'}</dd>
+              <dd>
+                {localRuntime.ordinaryWorkspaceId
+                  ? 'Conversation files'
+                  : (localRuntime.repositoryWorkspaceId ?? messages.wtId ?? 'Unavailable')}
+              </dd>
               <dt>Branch</dt>
-              <dd>{messages.branch || 'Unavailable'}</dd>
+              <dd>
+                {localRuntime.ordinaryWorkspaceId
+                  ? 'Not applicable'
+                  : messages.branch || 'Unavailable'}
+              </dd>
             </dl>
           </details>
         ) : undefined
@@ -1087,12 +1180,13 @@ export function DesktopChatView() {
       settings={settings}
       agent={!isSymposium ? (agentLabel ?? 'Mitzo') : undefined}
       scopeKey={activeSessionId ?? newChatDraft.draft.id}
-      onDone={explicitNew || localRuntime.continuation ? localRuntime.review : undefined}
+      onDone={explicitNew || localRuntime.commandAvailable ? localRuntime.review : undefined}
       actions={
         <>
           {activeSessionId && !isSymposium && !controlsBlocked && (
             <ConversationAgents
               compact
+              repository={conversationRepository}
               scope={activeSessionId}
               agents={[
                 {
@@ -1116,7 +1210,7 @@ export function DesktopChatView() {
       }
       attention={!!roleIntent || !!launch || repositoryHandoff.present || !!localRuntime.reason}
       summary={
-        explicitNew || localRuntime.continuation
+        explicitNew || localRuntime.commandAvailable
           ? {
               profile:
                 localRuntime.inventory?.accounts.find(
@@ -1358,6 +1452,7 @@ export function DesktopChatView() {
               navigate(path);
             }}
             conversationLayout={{
+              repository: conversationRepository,
               settings: workspaceControls,
               showHeader: isSymposium,
               actions: (
@@ -1486,38 +1581,47 @@ export function DesktopChatView() {
                   compactionTruncated={compactionHistory.truncated}
                   sendLabel={!activeSessionId && ordinaryControls ? 'Start session' : undefined}
                   boundedFirstCommand={localFirstCommand || controlsBlocked}
-                  guardedConversation={localRuntime.continuation}
+                  guardedConversation={localRuntime.commandAvailable}
                   validateSend={
-                    localRuntime.continuation &&
-                    activeSessionId &&
-                    localRuntime.repositoryWorkspaceId
-                      ? (text, images) =>
-                          prepareLocalContinuationCommand(
-                            localRuntime.intent,
-                            localRuntime.inventory,
-                            {
-                              sessionId: activeSessionId,
-                              clientMsgId: createBrowserId(),
-                              repositoryWorkspaceId: localRuntime.repositoryWorkspaceId!,
-                              mode: localRuntime.mode ?? 'agent',
-                              retainedAgentProfile: localRuntime.agentProfile,
-                              retainedAgentContext: localRuntime.agentContext,
-                              nativeConstraint: localRuntime.nativeConstraint,
-                              text,
-                              images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
-                            },
-                          ).reason
-                      : localFirstCommand && repositorySelection?.repositoryWorkspaceId
+                    localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable
+                      ? (text, images) => prepareOrdinaryCommand(text, images).reason
+                      : localRuntime.continuation &&
+                          activeSessionId &&
+                          localRuntime.repositoryWorkspaceId
                         ? (text, images) =>
-                            prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
-                              clientMsgId: createBrowserId(),
-                              repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId!,
-                              mode,
-                              text,
-                              sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
-                              images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
-                            }).reason
-                        : undefined
+                            prepareLocalContinuationCommand(
+                              localRuntime.intent,
+                              localRuntime.inventory,
+                              {
+                                sessionId: activeSessionId,
+                                clientMsgId: createBrowserId(),
+                                repositoryWorkspaceId: localRuntime.repositoryWorkspaceId!,
+                                mode: localRuntime.mode ?? 'agent',
+                                retainedAgentProfile: localRuntime.agentProfile,
+                                retainedAgentContext: localRuntime.agentContext,
+                                nativeConstraint: localRuntime.nativeConstraint,
+                                text,
+                                images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
+                              },
+                            ).reason
+                        : localFirstCommand && repositorySelection?.repositoryWorkspaceId
+                          ? (text, images) =>
+                              prepareLocalFirstCommand(
+                                localRuntime.intent,
+                                localRuntime.inventory,
+                                {
+                                  clientMsgId: createBrowserId(),
+                                  repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId!,
+                                  mode,
+                                  text,
+                                  sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
+                                  images: images?.map(({ data, mediaType }) => ({
+                                    data,
+                                    mediaType,
+                                  })),
+                                },
+                              ).reason
+                          : undefined
                   }
                   savedChatDraft={savedChatDraft}
                   composerGeneration={chatDraftRevision}
@@ -1535,7 +1639,9 @@ export function DesktopChatView() {
                     builderSourceReason ??
                     localRuntime.reason ??
                     (controlsBlocked ? 'Loading conversation settings…' : undefined) ??
-                    (localRuntime.continuation && localCommand && localCommand.state !== 'consumed'
+                    (localRuntime.commandAvailable &&
+                    localCommand &&
+                    localCommand.state !== 'consumed'
                       ? 'Review the retained Local command before sending.'
                       : undefined) ??
                     (explicitNew && localCommand && localCommand.state !== 'consumed'
@@ -1544,7 +1650,7 @@ export function DesktopChatView() {
                     (localFirstCommand && (!localTransportAvailable || !connected)
                       ? 'Execution connection is unavailable. Reconnect before sending.'
                       : undefined) ??
-                    (localFirstCommand && !repositorySelection?.repositoryWorkspaceId
+                    (explicitNew && !repositorySelection?.repositoryWorkspaceId
                       ? 'Prepare a repository before sending the command.'
                       : undefined) ??
                     (launchDeliveryPending

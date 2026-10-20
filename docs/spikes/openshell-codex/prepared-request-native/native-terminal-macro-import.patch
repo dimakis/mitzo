@@ -1,0 +1,24 @@
+From 118d2aaec34b9e2df016beec8203a6a774cdbe25 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 17:27:33 +0100
+Subject: [PATCH] test: disambiguate persistent terminal assertion macro
+
+---
+ .../unified_exec_zsh_fork_persistent_terminal_refusal_tests.rs   | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/codex-rs/core/tests/suite/unified_exec_zsh_fork_persistent_terminal_refusal_tests.rs b/codex-rs/core/tests/suite/unified_exec_zsh_fork_persistent_terminal_refusal_tests.rs
+index bda7e19..e22671b 100644
+--- a/codex-rs/core/tests/suite/unified_exec_zsh_fork_persistent_terminal_refusal_tests.rs
++++ b/codex-rs/core/tests/suite/unified_exec_zsh_fork_persistent_terminal_refusal_tests.rs
+@@ -1,6 +1,7 @@
+ //! Filesystem changes cannot be approved onto an already-running terminal.
+ 
+ use super::*;
++use pretty_assertions::assert_eq;
+ 
+ #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+ async fn persistent_terminal_refuses_changed_denied_reads_before_stdin_or_guardian() -> Result<()> {
+-- 
+2.54.0 (Apple Git-157)
+

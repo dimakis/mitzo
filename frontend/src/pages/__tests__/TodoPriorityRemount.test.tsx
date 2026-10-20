@@ -60,7 +60,8 @@ function WorkspaceRoute() {
       <Link to="/todos/other-item" state={{ item: otherItem, activeProfile: 'work' }}>
         Other item
       </Link>
-      <TodoWorkspace />
+      {/* Mirrors the host replacing its shell at the responsive breakpoint. */}
+      <TodoWorkspace key={viewport.desktop ? 'desktop' : 'mobile'} />
     </>
   );
 }
@@ -87,7 +88,7 @@ afterEach(() => {
 });
 
 it.each(['missing', 'failed'])(
-  'retains confirmed fallback priority across actual responsive remounts with a %s read',
+  'retains confirmed fallback priority across responsive host remounts with a %s read',
   async (outcome) => {
     let authoritative: number | undefined;
     let persisted = 5;
@@ -123,11 +124,15 @@ it.each(['missing', 'failed'])(
     const select = () => screen.getByRole('combobox', { name: 'Priority' }) as HTMLSelectElement;
     fireEvent.change(select(), { target: { value: '7' } });
     await waitFor(() => expect(select().value).toBe('7'));
-    expect(filtered.result.current.items[0].priority).toBe(7);
+    await waitFor(() => expect(filtered.result.current.items[0].priority).toBe(7));
     expect(navigationItem.priority).toBe(5);
+    const previousDetail = view.container.querySelector('.todo-detail-page');
     viewport.desktop = true;
     view.rerender(app());
-    await waitFor(() => expect(screen.getByRole('region', { name: 'Work details' })).toBeTruthy());
+    await waitFor(() => {
+      expect(view.container.querySelector('.todo-detail-page')).toBeTruthy();
+      expect(view.container.querySelector('.todo-detail-page')).not.toBe(previousDetail);
+    });
     expect(select().value).toBe('7');
     await waitFor(() => expect(select().disabled).toBe(false));
     fireEvent.change(select(), { target: { value: '9' } });
@@ -156,7 +161,7 @@ it.each(['missing', 'failed'])(
 );
 
 it.each(['missing', 'failed'])(
-  'publishes a delayed confirmation after a responsive remount with a %s read',
+  'publishes a delayed confirmation after a responsive host remount with a %s read',
   async (outcome) => {
     let finish!: (response: Response) => void;
     const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) => {
@@ -174,9 +179,13 @@ it.each(['missing', 'failed'])(
     const select = () => screen.getByRole('combobox', { name: 'Priority' }) as HTMLSelectElement;
     fireEvent.change(select(), { target: { value: '7' } });
     await waitFor(() => expect(finish).toBeTypeOf('function'));
+    const previousDetail = view.container.querySelector('.todo-detail-page');
     viewport.desktop = true;
     view.rerender(app());
-    await screen.findByRole('region', { name: 'Work details' });
+    await waitFor(() => {
+      expect(view.container.querySelector('.todo-detail-page')).toBeTruthy();
+      expect(view.container.querySelector('.todo-detail-page')).not.toBe(previousDetail);
+    });
     expect(select().value).toBe('5');
     await act(async () => {
       finish(Response.json({ ok: true }));

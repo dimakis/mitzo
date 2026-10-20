@@ -1,5 +1,6 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { startKnowledgePrewarming } from './knowledge-prewarming.js';
 import { startWarmPoolHost } from './openshell-warm-pool-host.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import {
@@ -158,6 +159,7 @@ import { runWorktreeCleanupForRepos } from './repository-maintenance.js';
 import { contextFromTraceparent } from './trace-context.js';
 import { SseTransport } from './sse-transport.js';
 import { createChatRestRouter } from './chat-rest-handler.js';
+import { createOwnedOrdinaryWorkspaceCommandRouter } from './ordinary-local-codex-entry.js';
 import { initializeSymposiumNativeHost } from './symposium-native-host.js';
 
 const log = createLogger('server');
@@ -275,6 +277,10 @@ setConnectionRegistry(connRegistry);
 // Lifecycle construction happens only after the authoritative session, event,
 // task and queue readers exist. It is still inert unless OpenShell is enabled.
 const configuredOpenShellRuntime = openShellRuntimeConfig(process.env);
+const knowledgePrewarming = startKnowledgePrewarming(configuredOpenShellRuntime?.knowledgeStore, {
+  onError: () =>
+    log.warn('Knowledge conversion prewarming unavailable; commands retain fresh admission'),
+});
 const warmPoolHost = startWarmPoolHost(configuredOpenShellRuntime, {
   root: codexPrivateDirectory(),
   enrolled: process.env.MITZO_OPENSHELL_WARM_POOL_ENABLED === '1',
@@ -798,6 +804,10 @@ app.get('/api/chat/events', (req, res) => {
 // Mount HTTP POST chat endpoints (authenticated)
 const chatRestRouter = createChatRestRouter(chatSseRegistry, v2Ctx);
 app.use('/api/chat', chatRestRouter);
+app.use(
+  '/api/ordinary/workspaces/commands',
+  createOwnedOrdinaryWorkspaceCommandRouter(chatSseRegistry, v2Ctx),
+);
 
 /**
  * Handle a v2 WebSocket connection (after hello handshake detected).
@@ -1456,6 +1466,7 @@ async function shutdown(signal: string) {
   server.close();
   await terminalPlanAdviserHost?.close();
   lifecycleAbort.abort();
+  await knowledgePrewarming?.close();
   if (lifecycleTimer) clearInterval(lifecycleTimer);
   try {
     await warmPoolHost?.close();

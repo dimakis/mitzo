@@ -1,0 +1,865 @@
+From a8d3f212bbcf22e1dae9dca84165788b2f7b49db Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 19:12:46 +0100
+Subject: [PATCH] fix: retain complete local parent environment custody
+
+---
+ .../core/src/tools/runtimes/unified_exec.rs   |  47 ++
+ .../runtimes/unified_exec/parent_binding.rs   |  31 +-
+ .../zsh_fork/ordinary_parent_binding_tests.rs | 666 ++++++++++++++++++
+ .../runtimes/zsh_fork/unix_escalation.rs      |  14 +
+ codex-rs/core/tests/common/zsh_fork.rs        |   5 +
+ 5 files changed, 761 insertions(+), 2 deletions(-)
+ create mode 100644 codex-rs/core/src/tools/runtimes/zsh_fork/ordinary_parent_binding_tests.rs
+
+diff --git a/codex-rs/core/src/tools/runtimes/unified_exec.rs b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+index fda3615..b4409a9 100644
+--- a/codex-rs/core/src/tools/runtimes/unified_exec.rs
++++ b/codex-rs/core/src/tools/runtimes/unified_exec.rs
+@@ -71,6 +71,42 @@ pub(super) mod parent_binding;
+ use launch::with_launch_failure_events;
+ use parent_binding::InitialParentRestrictedLaunch;
+ 
++#[cfg(all(test, unix))]
++#[derive(Default)]
++pub(super) struct ParentBindingTrace {
++    pub(super) events: std::sync::Mutex<Vec<ParentBindingPhase>>,
++}
++
++#[cfg(all(test, unix))]
++#[derive(Debug, PartialEq, Eq)]
++pub(super) enum ParentBindingPhase {
++    CandidateRetained {
++        call_id: String,
++        environment_id: String,
++        descriptor_present: bool,
++    },
++    ExecutorBound {
++        call_id: String,
++        environment_id: String,
++        descriptor_present: bool,
++        bound: bool,
++    },
++}
++
++#[cfg(all(test, unix))]
++pub(super) fn record_parent_binding_phase(
++    session: &crate::session::session::Session,
++    phase: ParentBindingPhase,
++) {
++    if let Some(trace) = session
++        .services
++        .session_extension_data
++        .get::<ParentBindingTrace>()
++    {
++        trace.events.lock().unwrap().push(phase);
++    }
++}
++
+ // Allow 5s for Guardian cleanup and 5s for controller processing after review.
+ const REMOTE_NETWORK_POLICY_DECISION_MARGIN: Duration = Duration::from_secs(10);
+ 
+@@ -800,6 +836,17 @@ impl<'a> ToolRuntime<UnifiedExecRequest, UnifiedExecAttempt> for UnifiedExecRunt
+                     ),
+                 })
+             });
++            #[cfg(all(test, unix))]
++            if parent_approval.is_some() {
++                record_parent_binding_phase(
++                    &ctx.session,
++                    ParentBindingPhase::CandidateRetained {
++                        call_id: ctx.call_id.clone(),
++                        environment_id: req.turn_environment.selection.environment_id.clone(),
++                        descriptor_present: req.exec_server_env_config.is_some(),
++                    },
++                );
++            }
+             match zsh_fork::maybe_prepare_unified_exec(
+                 req,
+                 attempt,
+diff --git a/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs b/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
+index b7481e4..ee55958 100644
+--- a/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
++++ b/codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs
+@@ -40,6 +40,24 @@ pub(in crate::tools::runtimes) struct InitialParentRestrictedLaunch {
+     request_env: HashMap<String, String>,
+     request_cwd: PathUri,
+     request_sandbox_cwd: PathUri,
++    request_exec_server_env_config: Option<ObservedExecServerEnvConfig>,
++    transformed_exec_server_env_config: Option<ObservedExecServerEnvConfig>,
++}
++
++/// Exact optional descriptor custody, including every policy field and baseline entry.
++#[derive(PartialEq)]
++struct ObservedExecServerEnvConfig {
++    policy: codex_exec_server::ExecEnvPolicy,
++    local_policy_env: HashMap<String, String>,
++}
++
++impl From<&crate::sandboxing::ExecServerEnvConfig> for ObservedExecServerEnvConfig {
++    fn from(config: &crate::sandboxing::ExecServerEnvConfig) -> Self {
++        Self {
++            policy: config.policy.clone(),
++            local_policy_env: config.local_policy_env.clone(),
++        }
++    }
+ }
+ 
+ /// Borrowed from the actual executor, before its escalation-session environment overlay.
+@@ -92,6 +110,14 @@ impl InitialParentRestrictedLaunch {
+             request_env: req.env.clone(),
+             request_cwd: req.cwd.clone(),
+             request_sandbox_cwd: req.sandbox_cwd.clone(),
++            request_exec_server_env_config: req
++                .exec_server_env_config
++                .as_ref()
++                .map(ObservedExecServerEnvConfig::from),
++            transformed_exec_server_env_config: exec
++                .exec_server_env_config
++                .as_ref()
++                .map(ObservedExecServerEnvConfig::from),
+         }
+     }
+ 
+@@ -120,7 +146,9 @@ impl InitialParentRestrictedLaunch {
+             && !req.turn_environment.environment.is_remote()
+             && req.turn_environment.config().exec_policy.is_none()
+             && req.turn_environment.config().network_policy.is_none()
+-            && req.exec_server_env_config.is_none()
++            // The supported local, snapshot-free spawn uses the bound concrete env.
++            // Preserve the descriptor intact; exec-server/snapshot routes remain refused.
++            && self.request_exec_server_env_config == self.transformed_exec_server_env_config
+             && req.shell_snapshot.is_none()
+             && req.network.is_none()
+             && req.additional_permissions.is_none()
+@@ -128,7 +156,6 @@ impl InitialParentRestrictedLaunch {
+             && attempt.network_proxy.is_none()
+             && !attempt.enforce_managed_network
+             && attempt.network_denial_cancellation_token.is_none()
+-            && exec.exec_server_env_config.is_none()
+             && exec.exec_server_shell_snapshot.is_none()
+             && exec.windows_sandbox_filesystem_overrides.is_none()
+             && exec.network.is_none()
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/ordinary_parent_binding_tests.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/ordinary_parent_binding_tests.rs
+new file mode 100644
+index 0000000..4873501
+--- /dev/null
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/ordinary_parent_binding_tests.rs
+@@ -0,0 +1,666 @@
++//! Real manager composition and descriptor custody; no inherited child admission.
++use super::*;
++use crate::sandboxing::ExecServerEnvConfig;
++use crate::session::step_context::StepContext;
++use crate::session::tests::make_session_and_context_with_auth_and_config_and_rx;
++use crate::tasks::SessionTask;
++use crate::tasks::SessionTaskResult;
++use crate::tools::ApprovalContext;
++use crate::tools::approvals::FreshParentApproval;
++use crate::tools::runtimes::unified_exec::ParentBindingPhase;
++use crate::tools::runtimes::unified_exec::ParentBindingTrace;
++use crate::tools::runtimes::unified_exec::UnifiedExecRequest;
++use crate::tools::runtimes::unified_exec::UnifiedExecRuntime;
++use crate::tools::runtimes::unified_exec::parent_binding::InitialParentRestrictedLaunch;
++use crate::tools::sandboxing::Approvable;
++use crate::tools::sandboxing::ExecApprovalRequirement;
++use crate::unified_exec::ExecCommandRequest;
++use crate::unified_exec::UnifiedExecContext;
++use codex_protocol::config_types::ApprovalsReviewer;
++use codex_protocol::config_types::ShellEnvironmentPolicyInherit;
++use codex_protocol::permissions::FileSystemAccessMode;
++use codex_protocol::permissions::FileSystemPath;
++use codex_protocol::permissions::FileSystemSandboxEntry;
++use codex_protocol::permissions::FileSystemSandboxPolicy;
++use codex_protocol::permissions::FileSystemSpecialPath;
++use codex_protocol::permissions::NetworkSandboxPolicy;
++use codex_protocol::protocol::Event;
++use codex_protocol::protocol::EventMsg;
++use codex_tools::UnifiedExecShellMode;
++use codex_tools::ZshForkConfig;
++use core_test_support::skip_if_sandbox;
++use core_test_support::zsh_fork::ZshForkRuntime;
++use core_test_support::zsh_fork::zsh_fork_runtime;
++use pretty_assertions::assert_eq;
++use std::time::Duration;
++use tokio_util::sync::CancellationToken;
++
++const CALL: &str = "ordinary-parent-binding";
++const SECRET: &[u8] = b"Q1-secret-must-not-appear";
++
++struct PendingTask(CancellationToken);
++impl SessionTask for PendingTask {
++    fn kind(&self) -> crate::state::TaskKind {
++        crate::state::TaskKind::Regular
++    }
++    fn span_name(&self) -> &'static str {
++        "ordinary_parent_binding_test"
++    }
++    async fn run(
++        self: Arc<Self>,
++        _session: Arc<crate::session::session::Session>,
++        _turn: Arc<crate::session::turn_context::TurnContext>,
++        _input: Vec<crate::session::TurnInput>,
++        cancellation: CancellationToken,
++    ) -> SessionTaskResult {
++        tokio::select! {
++            _ = cancellation.cancelled() => {},
++            _ = self.0.cancelled() => {},
++        }
++        Ok(None)
++    }
++}
++
++struct Fixture {
++    session: Arc<crate::session::session::Session>,
++    step: Arc<StepContext>,
++    events: async_channel::Receiver<Event>,
++    cancellation: CancellationToken,
++    _task_cleanup: tokio_util::sync::DropGuard,
++    _root: tempfile::TempDir,
++    secret: AbsolutePathBuf,
++    shell_mode: UnifiedExecShellMode,
++    sandbox_manager: SandboxManager,
++}
++impl Drop for Fixture {
++    fn drop(&mut self) {
++        self.cancellation.cancel();
++    }
++}
++impl Fixture {
++    async fn new(runtime: &ZshForkRuntime) -> anyhow::Result<Self> {
++        let root = tempfile::tempdir()?;
++        let root_path = std::fs::canonicalize(root.path())?;
++        let secret = AbsolutePathBuf::try_from(root_path.join("never-read.env"))?;
++        std::fs::write(&secret, SECRET)?;
++        let denied = FileSystemSandboxPolicy::restricted(vec![
++            FileSystemSandboxEntry {
++                path: FileSystemPath::Special {
++                    value: FileSystemSpecialPath::Root,
++                },
++                access: FileSystemAccessMode::Read,
++                missing_path_behavior: None,
++            },
++            FileSystemSandboxEntry {
++                path: FileSystemPath::GlobPattern {
++                    pattern: secret.to_string_lossy().into_owned(),
++                },
++                access: FileSystemAccessMode::Deny,
++                missing_path_behavior: None,
++            },
++        ]);
++        let profile =
++            PermissionProfile::from_runtime_permissions(&denied, NetworkSandboxPolicy::Restricted);
++        let (zsh, wrapper) = runtime.verified_paths();
++        let shell_mode = UnifiedExecShellMode::ZshFork(ZshForkConfig {
++            shell_zsh_path: AbsolutePathBuf::try_from(zsh)?,
++            main_execve_wrapper_exe: AbsolutePathBuf::try_from(wrapper)?,
++        });
++        let (session, turn, events) = make_session_and_context_with_auth_and_config_and_rx(
++            codex_login::CodexAuth::from_api_key("offline-test"),
++            Vec::new(),
++            |config| {
++                config.permissions.approval_policy =
++                    codex_config::Constrained::allow_any(AskForApproval::OnRequest);
++                config.permissions.allow_login_shell = false;
++                config.approvals_reviewer = ApprovalsReviewer::User;
++                config
++                    .features
++                    .disable(codex_features::Feature::GuardianV2)
++                    .expect("disable test Guardian V2");
++                for feature in [
++                    codex_features::Feature::ShellTool,
++                    codex_features::Feature::UnifiedExec,
++                    codex_features::Feature::ShellZshFork,
++                    codex_features::Feature::UnifiedExecZshFork,
++                ] {
++                    config.features.enable(feature).unwrap();
++                }
++                config.zsh_path = Some(zsh.to_path_buf());
++                config.main_execve_wrapper_exe = Some(wrapper.to_path_buf());
++                #[cfg(target_os = "linux")]
++                {
++                    config.codex_linux_sandbox_exe = Some(
++                        codex_utils_cargo_bin::cargo_bin("codex-linux-sandbox")
++                            .expect("built Linux sandbox helper"),
++                    );
++                }
++                config.permissions.set_permission_profile(profile).unwrap();
++            },
++        )
++        .await;
++        let task_cancellation = CancellationToken::new();
++        let task_cleanup = task_cancellation.clone().drop_guard();
++        session
++            .start_task(turn, Vec::new(), PendingTask(task_cancellation))
++            .await;
++        session.services.turn_environments.snapshot().await;
++        let (turn, settings, environments, strict) = session
++            .active_turn_context_and_strict_auto_review()
++            .await
++            .ok_or_else(|| anyhow::anyhow!("actual active task"))?;
++        assert!(!strict);
++        assert!(environments.primary().is_some());
++        let mut step = StepContext::for_test(turn);
++        let selected = Arc::get_mut(&mut step).unwrap();
++        selected.settings = settings;
++        selected.environments = environments;
++        Ok(Self {
++            session,
++            step,
++            events,
++            cancellation: CancellationToken::new(),
++            _task_cleanup: task_cleanup,
++            _root: root,
++            secret,
++            shell_mode,
++            sandbox_manager: SandboxManager::new(),
++        })
++    }
++    fn context(&self) -> ToolCtx {
++        ToolCtx {
++            session: Arc::clone(&self.session),
++            step_context: Arc::clone(&self.step),
++            cancellation_token: self.cancellation.clone(),
++            call_id: CALL.into(),
++            tool_name: ToolName::plain("exec_command"),
++        }
++    }
++    fn request(&self) -> UnifiedExecRequest {
++        let environment = self.step.environments.primary().unwrap().clone();
++        UnifiedExecRequest {
++            command: vec!["offline-command".into()],
++            shell_type: crate::shell::ShellType::Sh,
++            hook_command: "offline-command".into(),
++            process_id: 1,
++            cwd: environment.cwd().clone(),
++            sandbox_cwd: environment.cwd().clone(),
++            turn_environment: environment,
++            env: HashMap::from([("Q1_CONCRETE".into(), "retained".into())]),
++            exec_server_env_config: Some(descriptor()),
++            shell_snapshot: None,
++            explicit_env_overrides: HashMap::new(),
++            network: None,
++            tty: false,
++            sandbox_permissions: SandboxPermissions::RequireEscalated,
++            additional_permissions: None,
++            additional_permissions_preapproved: false,
++            justification: None,
++            exec_approval_requirement: ExecApprovalRequirement::NeedsApproval {
++                reason: None,
++                proposed_execpolicy_amendment: None,
++            },
++        }
++    }
++    async fn approve(&self, req: &UnifiedExecRequest) -> anyhow::Result<FreshParentApproval> {
++        let runtime = UnifiedExecRuntime::new(
++            &self.session.services.unified_exec_manager,
++            UnifiedExecShellMode::Direct,
++        );
++        let action = runtime.approval_action(req, CALL)?;
++        let approval = self.session.request_initial_exec_approval(
++            action,
++            ApprovalContext {
++                review_context: GuardianReviewContext::from(&self.step),
++                cancellation_token: Some(self.cancellation.clone()),
++                call_id: CALL.into(),
++                tool_name: ToolName::plain("exec_command"),
++                strict_auto_review: false,
++                approval_reason: None,
++                retry_reason: None,
++                network_approval_context: None,
++            },
++            &self.step,
++        );
++        tokio::pin!(approval);
++        tokio::time::timeout(Duration::from_secs(10), async {
++            loop {
++                tokio::select! {
++                    result = &mut approval => anyhow::bail!("approval completed without User: {}", result.is_ok()),
++                    event = self.events.recv() => {
++                        if let EventMsg::ExecApprovalRequest(request) = event?.msg {
++                            assert_eq!(request.call_id, CALL);
++                            self.session.notify_approval(
++                                request.approval_id.as_deref().unwrap_or(&request.call_id),
++                                ReviewDecision::Approved,
++                            ).await;
++                            let result = approval.await
++                                .map_err(|error| anyhow::anyhow!("approval: {error:?}"))?;
++                            assert_eq!(result.decision, ReviewDecision::Approved);
++                            return result.parent_approval
++                                .ok_or_else(|| anyhow::anyhow!("actual fresh User proof"));
++                        }
++                    }
++                }
++            }
++        }).await?
++    }
++    fn attempt<'a>(&'a self, req: &'a UnifiedExecRequest) -> SandboxAttempt<'a> {
++        let profile = req.turn_environment.permission_profile();
++        SandboxAttempt {
++            sandbox: self.sandbox_manager.select_initial(
++                profile,
++                SandboxablePreference::Auto,
++                SandboxType::None,
++                /*has_managed_network_requirements*/ false,
++            ),
++            sandbox_requested: true,
++            permissions: profile,
++            exec_server_permissions: profile,
++            enforce_managed_network: false,
++            manager: &self.sandbox_manager,
++            sandbox_cwd: &req.sandbox_cwd,
++            workspace_roots: &req.turn_environment.selection.workspace_roots,
++            sandbox_exe: self.step.turn.config.codex_linux_sandbox_exe.as_ref(),
++            use_legacy_landlock: req.turn_environment.config().use_legacy_landlock,
++            windows_sandbox_type: SandboxType::None,
++            windows_sandbox_level: WindowsSandboxLevel::Disabled,
++            network_denial_cancellation_token: None,
++            network_proxy: None,
++        }
++    }
++    async fn close(&self) {
++        self.session
++            .abort_all_tasks(codex_protocol::protocol::TurnAbortReason::Interrupted)
++            .await;
++    }
++}
++
++fn descriptor() -> ExecServerEnvConfig {
++    ExecServerEnvConfig {
++        policy: codex_exec_server::ExecEnvPolicy {
++            inherit: ShellEnvironmentPolicyInherit::Core,
++            ignore_default_excludes: false,
++            exclude: vec!["PRIVATE_*".into()],
++            r#set: HashMap::from([("Q1_SET".into(), "original".into())]),
++            include_only: vec!["PUBLIC_*".into()],
++        },
++        local_policy_env: HashMap::from([
++            ("Q1_BASE_A".into(), "first".into()),
++            ("Q1_BASE_B".into(), "second".into()),
++        ]),
++    }
++}
++
++struct RunningCall {
++    call: Option<
++        tokio::task::JoinHandle<
++            Result<
++                crate::tools::context::ExecCommandToolOutput,
++                crate::unified_exec::UnifiedExecError,
++            >,
++        >,
++    >,
++    session: Arc<crate::session::session::Session>,
++    process_id: i32,
++    cancellation: CancellationToken,
++    cleaned: bool,
++}
++impl Drop for RunningCall {
++    fn drop(&mut self) {
++        if self.cleaned {
++            return;
++        }
++        if let Some(call) = &self.call {
++            call.abort();
++        }
++        self.cancellation.cancel();
++        let session = Arc::clone(&self.session);
++        let id = self.process_id;
++        tokio::spawn(async move {
++            session
++                .services
++                .unified_exec_manager
++                .terminate_all_processes()
++                .await;
++            session
++                .services
++                .unified_exec_manager
++                .release_process_id(id)
++                .await;
++        });
++    }
++}
++impl RunningCall {
++    async fn cleanup(&mut self) {
++        self.cancellation.cancel();
++        if let Some(call) = self.call.take() {
++            call.abort();
++            let _ = call.await;
++        }
++        self.session
++            .services
++            .unified_exec_manager
++            .terminate_all_processes()
++            .await;
++        self.session
++            .services
++            .unified_exec_manager
++            .release_process_id(self.process_id)
++            .await;
++        self.cleaned = true;
++    }
++}
++
++#[tokio::test]
++async fn ordinary_manager_retains_populated_descriptor_and_real_bound_parent() -> anyhow::Result<()>
++{
++    skip_if_sandbox!(Ok(()));
++    let Some(runtime) =
++        zsh_fork_runtime("ordinary_manager_retains_populated_descriptor_and_real_bound_parent")?
++    else {
++        return Ok(());
++    };
++    let fixture = Fixture::new(&runtime).await?;
++    fixture
++        .session
++        .services
++        .session_extension_data
++        .insert(ParentBindingTrace::default());
++    let environment = fixture.step.environments.primary().unwrap().clone();
++    let UnifiedExecShellMode::ZshFork(config) = &fixture.shell_mode else {
++        unreachable!()
++    };
++    let script = format!(
++        "printf 'Q1-marker\\n'; /bin/cat {}",
++        shlex::try_quote(fixture.secret.to_string_lossy().as_ref())?
++    );
++    let manager = &fixture.session.services.unified_exec_manager;
++    let process_id = manager.allocate_process_id().await;
++    let request = ExecCommandRequest {
++        command: vec![
++            config.shell_zsh_path.to_string_lossy().into_owned(),
++            "-c".into(),
++            script.clone(),
++        ],
++        shell_type: crate::shell::ShellType::Zsh,
++        hook_command: script,
++        process_id,
++        yield_time_ms: 30_000,
++        max_output_tokens: Some(1000),
++        cwd: environment.cwd().clone(),
++        sandbox_cwd: environment.cwd().clone(),
++        turn_environment: environment.clone(),
++        shell_mode: fixture.shell_mode.clone(),
++        network: None,
++        tty: false,
++        sandbox_permissions: SandboxPermissions::RequireEscalated,
++        additional_permissions: None,
++        additional_permissions_preapproved: false,
++        justification: None,
++        prefix_rule: None,
++    };
++    let context = UnifiedExecContext::new(
++        Arc::clone(&fixture.session),
++        Arc::clone(&fixture.step),
++        fixture.cancellation.clone(),
++        CALL.into(),
++    );
++    let expected_initial_command = request.command.clone();
++    let mut running = RunningCall {
++        call: Some(tokio::spawn(async move {
++            Box::pin(
++                context
++                    .session
++                    .services
++                    .unified_exec_manager
++                    .exec_command(request, &context),
++            )
++            .await
++        })),
++        session: Arc::clone(&fixture.session),
++        process_id,
++        cancellation: fixture.cancellation.clone(),
++        cleaned: false,
++    };
++    let result = async {
++        let mut approvals = Vec::new();
++        let output = tokio::time::timeout(Duration::from_secs(45), async {
++            loop {
++                tokio::select! {
++                    result = running.call.as_mut().unwrap() => {
++                        running.call.take();
++                        return result.map_err(anyhow::Error::from)?.map_err(anyhow::Error::from);
++                    },
++                    event = fixture.events.recv() => {
++                        if let EventMsg::ExecApprovalRequest(request) = event?.msg {
++                            assert_eq!(request.call_id, CALL);
++                            assert!(approvals.len() < 2, "unexpected additional manual approval");
++                            assert_eq!(request.approval_id.is_some(), !approvals.is_empty());
++                            fixture.session.notify_approval(
++                                request.approval_id.as_deref().unwrap_or(&request.call_id),
++                                ReviewDecision::Approved,
++                            ).await;
++                            approvals.push(request);
++                        }
++                    }
++                }
++            }
++        })
++        .await??;
++        assert_eq!(approvals.len(), 2);
++        assert_eq!(approvals[0].command, expected_initial_command);
++        assert_eq!(approvals[1].command.len(), 2);
++        assert!(matches!(
++            approvals[1].command[0].as_str(),
++            "/bin/cat" | "/usr/bin/cat"
++        ));
++        assert_eq!(approvals[1].command[1], fixture.secret.to_string_lossy());
++        assert_eq!(output.exit_code, Some(1));
++        assert!(output.process_id.is_none());
++        let text = String::from_utf8_lossy(&output.raw_output);
++        assert!(text.contains("Q1-marker"));
++        assert!(!text.contains(std::str::from_utf8(SECRET)?));
++        assert_eq!(std::fs::read(&fixture.secret)?, SECRET);
++        while let Ok(event) = fixture.events.try_recv() {
++            assert!(!matches!(event.msg, EventMsg::ExecApprovalRequest(_)));
++        }
++        let trace = fixture
++            .session
++            .services
++            .session_extension_data
++            .get::<ParentBindingTrace>()
++            .unwrap();
++        assert_eq!(
++            *trace.events.lock().unwrap(),
++            vec![
++                ParentBindingPhase::CandidateRetained {
++                    call_id: CALL.into(),
++                    environment_id: environment.selection.environment_id.clone(),
++                    descriptor_present: true
++                },
++                ParentBindingPhase::ExecutorBound {
++                    call_id: CALL.into(),
++                    environment_id: environment.selection.environment_id,
++                    descriptor_present: true,
++                    bound: true
++                },
++            ]
++        );
++        Ok::<(), anyhow::Error>(())
++    }
++    .await;
++    tokio::time::timeout(Duration::from_secs(10), async {
++        running.cleanup().await;
++        fixture.close().await;
++    })
++    .await
++    .map_err(|error| anyhow::anyhow!("bounded actual process/task cleanup: {error}"))?;
++    result
++}
++
++#[tokio::test]
++async fn actual_user_descriptor_custody_checks_every_policy_field_map_and_tag() -> anyhow::Result<()>
++{
++    let Some(runtime) =
++        zsh_fork_runtime("actual_user_descriptor_custody_checks_every_policy_field_map_and_tag")?
++    else {
++        return Ok(());
++    };
++    let fixture = Fixture::new(&runtime).await?;
++    let req = fixture.request();
++    let proof = fixture.approve(&req).await?;
++    let attempt = fixture.attempt(&req);
++    let mut exec = attempt
++        .env_for(
++            codex_sandboxing::SandboxCommand {
++                program: req.command[0].clone().into(),
++                args: req.command[1..].to_vec(),
++                cwd: req.cwd.clone(),
++                env: req.env.clone(),
++                managed_network: None,
++                additional_permissions: None,
++            },
++            crate::sandboxing::ExecOptions {
++                expiration: ExecExpiration::DefaultTimeout,
++                capture_policy: ExecCapturePolicy::ShellTool,
++            },
++            /*network*/ None,
++            Some(&req.turn_environment.selection.environment_id),
++        )
++        .map_err(|error| anyhow::anyhow!("actual transform: {error:?}"))?;
++    exec.exec_server_env_config = req.exec_server_env_config.clone();
++    let executor =
++        CoreShellCommandExecutor::for_initial_request(&req, &attempt, &fixture.context(), &exec)
++            .map_err(|error| anyhow::anyhow!("actual executor: {error:?}"))?;
++    let policy = fixture.session.services.exec_policy.current();
++    let facts = InitialParentRestrictedLaunch::capture(&req, &attempt, &exec);
++    assert!(
++        proof.matches_original_launch(
++            &UnifiedExecRuntime::new(
++                &fixture.session.services.unified_exec_manager,
++                UnifiedExecShellMode::Direct
++            )
++            .approval_action(&req, CALL)?,
++            &fixture.session,
++            &fixture.step,
++            &req.turn_environment
++        )
++    );
++    assert!(facts.matches_executor(
++        &proof,
++        &req,
++        &attempt,
++        &exec,
++        executor.parent_launch_view(),
++        &policy
++    ));
++    for position in ["request", "transformed"] {
++        for field in [
++            "inherit",
++            "ignore_default_excludes",
++            "exclude",
++            "set",
++            "include_only",
++            "local_policy_env",
++            "tag",
++        ] {
++            let mut changed_req = req.clone();
++            let original_exec_descriptor = exec.exec_server_env_config.clone();
++            let changed = if position == "request" {
++                &mut changed_req.exec_server_env_config
++            } else {
++                &mut exec.exec_server_env_config
++            };
++            if field == "tag" {
++                *changed = None;
++            } else {
++                let changed = changed.as_mut().unwrap();
++                match field {
++                    "inherit" => changed.policy.inherit = ShellEnvironmentPolicyInherit::None,
++                    "ignore_default_excludes" => changed.policy.ignore_default_excludes = true,
++                    "exclude" => changed.policy.exclude.push("OTHER_*".into()),
++                    "set" => {
++                        changed
++                            .policy
++                            .r#set
++                            .insert("Q1_SET".into(), "changed".into());
++                    }
++                    "include_only" => changed.policy.include_only.push("OTHER_*".into()),
++                    "local_policy_env" => {
++                        changed
++                            .local_policy_env
++                            .insert("Q1_BASE_B".into(), "changed".into());
++                    }
++                    _ => unreachable!(),
++                }
++            }
++            let changed_attempt = fixture.attempt(&changed_req);
++            assert!(
++                !facts.matches_executor(
++                    &proof,
++                    &changed_req,
++                    &changed_attempt,
++                    &exec,
++                    executor.parent_launch_view(),
++                    &policy
++                ),
++                "retained custody: {position}/{field}"
++            );
++            let recaptured =
++                InitialParentRestrictedLaunch::capture(&changed_req, &changed_attempt, &exec);
++            assert!(
++                !recaptured.matches_executor(
++                    &proof,
++                    &changed_req,
++                    &changed_attempt,
++                    &exec,
++                    executor.parent_launch_view(),
++                    &policy
++                ),
++                "request/transformed mismatch: {position}/{field}"
++            );
++            exec.exec_server_env_config = original_exec_descriptor;
++        }
++    }
++    let mut both_changed = req.clone();
++    both_changed
++        .exec_server_env_config
++        .as_mut()
++        .unwrap()
++        .local_policy_env
++        .insert("Q1_BASE_A".into(), "changed".into());
++    exec.exec_server_env_config = both_changed.exec_server_env_config.clone();
++    let changed_attempt = fixture.attempt(&both_changed);
++    assert!(!facts.matches_executor(
++        &proof,
++        &both_changed,
++        &changed_attempt,
++        &exec,
++        executor.parent_launch_view(),
++        &policy
++    ));
++    let mut none_req = req.clone();
++    none_req.exec_server_env_config = None;
++    exec.exec_server_env_config = None;
++    let none_attempt = fixture.attempt(&none_req);
++    assert!(!facts.matches_executor(
++        &proof,
++        &none_req,
++        &none_attempt,
++        &exec,
++        executor.parent_launch_view(),
++        &policy
++    ));
++    let none_facts = InitialParentRestrictedLaunch::capture(&none_req, &none_attempt, &exec);
++    assert!(none_facts.matches_executor(
++        &proof,
++        &none_req,
++        &none_attempt,
++        &exec,
++        executor.parent_launch_view(),
++        &policy
++    ));
++    fixture.close().await;
++    Ok(())
++}
+diff --git a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+index 326cfea..04e57a9 100644
+--- a/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
++++ b/codex-rs/core/src/tools/runtimes/zsh_fork/unix_escalation.rs
+@@ -134,6 +134,16 @@ pub(crate) async fn prepare_unified_exec_zsh_fork(
+             Arc::clone(&parent_exec_policy),
+         )
+     });
++    #[cfg(test)]
++    crate::tools::runtimes::unified_exec::record_parent_binding_phase(
++        &ctx.session,
++        crate::tools::runtimes::unified_exec::ParentBindingPhase::ExecutorBound {
++            call_id: ctx.call_id.clone(),
++            environment_id: req.turn_environment.selection.environment_id.clone(),
++            descriptor_present: exec_request.exec_server_env_config.is_some(),
++            bound: parent_approval.is_some(),
++        },
++    );
+     let escalation_policy = CoreShellActionProvider {
+         policy: Arc::clone(&exec_policy),
+         session: Arc::clone(&ctx.session),
+@@ -951,6 +961,10 @@ fn join_program_and_argv(program: &AbsolutePathBuf, argv: &[String]) -> Vec<Stri
+ #[path = "unix_escalation_tests.rs"]
+ mod tests;
+ 
++#[cfg(test)]
++#[path = "ordinary_parent_binding_tests.rs"]
++mod ordinary_parent_binding_tests;
++
+ #[cfg(test)]
+ #[path = "current_prompt_tests.rs"]
+ mod current_prompt_tests;
+diff --git a/codex-rs/core/tests/common/zsh_fork.rs b/codex-rs/core/tests/common/zsh_fork.rs
+index 225867d..b702b47 100644
+--- a/codex-rs/core/tests/common/zsh_fork.rs
++++ b/codex-rs/core/tests/common/zsh_fork.rs
+@@ -20,6 +20,11 @@ pub struct ZshForkRuntime {
+ }
+ 
+ impl ZshForkRuntime {
++    /// Borrow the paths already checked by the shared runtime guard.
++    pub fn verified_paths(&self) -> (&Path, &Path) {
++        (&self.zsh_path, &self.main_execve_wrapper_exe)
++    }
++
+     fn apply_to_config(&self, config: &mut Config, approval_policy: AskForApproval) {
+         config
+             .features
+-- 
+2.54.0 (Apple Git-157)
+

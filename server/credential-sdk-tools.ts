@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { knowledgeToolSchemas, knowledgeToolDefinitions } from './session-knowledge-tools.js';
 import { profileToolSchemas, profileToolDefinitions } from './session-profile-tools.js';
 import { repositoryChatSchemas, repositoryChatToolDefinitions } from './repository-chat-tools.js';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
@@ -15,11 +16,17 @@ import {
 import { sessionCredentialTools } from './session-credential-tools.js';
 
 const prefix = 'mcp__mitzo-connections__';
-const schemas = { ...credentialConnectionSchemas, ...repositoryChatSchemas, ...profileToolSchemas };
+const schemas = {
+  ...credentialConnectionSchemas,
+  ...repositoryChatSchemas,
+  ...profileToolSchemas,
+  ...knowledgeToolSchemas,
+};
 const definitions = [
   ...credentialConnectionToolDefinitions,
   ...repositoryChatToolDefinitions,
   ...profileToolDefinitions,
+  ...knowledgeToolDefinitions,
 ];
 /** Only this server's validated handlers bypass the SDK's generic MCP prompt; connection grants still force their own card. */
 export function credentialSdkPermission(
@@ -49,7 +56,8 @@ export function credentialSdkPermission(
       !['GET', 'HEAD'].includes(String(input.method))) ||
       (short === 'HomeAssistantDashboard' && input.operation === 'save') ||
       short === 'ConnectionWebSocket' ||
-      short === 'PrepareRepositoryChat')
+      short === 'PrepareRepositoryChat' ||
+      short === 'SaveKnowledgeDraft')
   )
     return { behavior: 'deny' as const, message: 'Ask mode only permits connection reads' };
   return { behavior: 'allow' as const, updatedInput: input };
