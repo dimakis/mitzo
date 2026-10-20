@@ -328,10 +328,14 @@
     {
       "file": "native-model-publication-guard-clone.patch",
       "sha256": "c7b35f9c8851a5ebd8e6d98847f07e237ff59a3c5c7f3f2c17606e9c770c8ec7"
+    },
+    {
+      "file": "native-fresh-request-inputs.patch",
+      "sha256": "40bb63a12250c94e3c6d8dda6cc0065d3832c0805fd8864d88a15b3f348047fe"
     }
   ],
-  "sourceTree": "e2b7d2093d6a671ac0929730a0297139ca2067b7",
-  "localSourceCommit": "673a893f754b03ded8efba534b452c29233ffc8e",
+  "sourceTree": "331cff2bf4265a921309546b02d886228a57f2d3",
+  "localSourceCommit": "732be8922a2a1009f8af760439886fc79c1812d3",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -419,7 +423,15 @@
     "46df3041feb4fbf9bf6f47d41452abe341de61e9",
     "a290a94637b7782996e980bbce5b66c3629ac987",
     "5015dbe8bbc95f4844183ece500907ebf8f6f3bc",
-    "673a893f754b03ded8efba534b452c29233ffc8e"
+    "673a893f754b03ded8efba534b452c29233ffc8e",
+    "50cad85f6fec4f09ee4067ef4c2458a57dc933a9",
+    "c9ba1c2286c85f4d57e3ecaad37142f4b3c0aa69",
+    "8991323acc8abedb63f31345c63e7d6d92f15f24",
+    "b627bb760a2476ed490cedd38544a9c3ba91d4b9",
+    "0b792ddc32940760f77075b7d56825039c48ce63",
+    "92ba082a51a1d5e119e209e4d48c9b920c80d7eb",
+    "f37544a2ba863cde296e8df46d19af23dc19eba8",
+    "732be8922a2a1009f8af760439886fc79c1812d3"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -429,22 +441,22 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "77-patch source: two explicit child fixture macro imports correct concrete E0659 compilation failure; prior guarded credential CAS production bytes unchanged. Other native epochs, canonical host proof, model limits and production preparation/admission remain incomplete.",
+    "scope": "82-patch source: original callback-free context rendering, registration-owned readonly global instructions, exact client-owned public capture/count with original provider/header envelope and standard public encoding. Complete factory/admission is not installed.",
     "localFocused": {
-      "status": "source_and_scoped_format_only",
+      "status": "source_reconstruction_and_scoped_format_only",
       "rustTestsExecuted": false,
       "compiled": false,
-      "dynamicGreenClaimed": false,
-      "allOrderedChecksumsReconstructExactTree": true
+      "allNewRustFixtures": "UNRUN",
+      "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_77_patch_fixture_compilation_correction",
+      "status": "pending_82_exact_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
-        "codex-api",
-        "codex-state",
         "codex-http-client",
+        "codex-state",
+        "codex-api",
         "codex-guardian-reviewer",
         "codex-extension-api",
         "codex-mcp-extension",
@@ -452,432 +464,16 @@
         "codex-memories-extension",
         "codex-web-search-extension",
         "codex-history-notes-extension",
-        "codex-goal-extension"
+        "codex-goal-extension",
+        "codex-models-manager",
+        "codex-home",
+        "codex-model-provider-info"
       ],
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
-      "newCIJobs": 0,
-      "previousRun": 39205754915,
-      "previousSourceTree": "1452a4d6a69783b77707953ca8cef2df916a75f2",
-      "previousObservedResults": {
-        "observedAt": "2026-10-19T07:20:07.374110+00:00",
-        "sourceHead": "9f14ad71a414f599fc8edbd34bedfbc0bc65420d",
-        "nativeRun": 39205754915,
-        "linux": {
-          "job": 117908107137,
-          "conclusion": "success",
-          "passed": 5821,
-          "failed": 0,
-          "skipped": 11,
-          "formatting": "success"
-        },
-        "macos": {
-          "job": 117908107469,
-          "conclusion": "failure",
-          "passed": 5598,
-          "failed": 1,
-          "skipped": 27,
-          "failure": "original denied-read integration unexpectedly requests child cat approval",
-          "formatting": "skipped after test failure"
-        },
-        "trustedRootOnlyRepresentationDifferenceObserved": true,
-        "repairEstablished": false,
-        "immutableDirectoryIdentityOrRetargetProofEstablished": false,
-        "retainedFiles": {
-          "native52-final-native-run.json": "4162cb15e6ba7e376bbca1e47d631e815aecd3068ed01ebf7da3afd589ad94c5",
-          "native52-linux-final.log": "3a1f0f67335fb8522bd855b7fcf743d21486cddb95990fa8b2a685849a26f756",
-          "native52-mac-final.log": "1d2e7b1271bc925678b0950c201f7a3d7b8d739ea458a62956fc2a5fca761ce2",
-          "native52-linux-result.json": "3759b64232c171dd0d7dd22c72ac86c5628dda4da194563d484fbf4b779e38c8",
-          "native52-mac-result.json": "0c27741c4aba83ac170aca52c52521c64fc7afd33cc3a056cce3678ee6a8398f"
-        }
-      },
-      "zeroNativeSkipsClaimed": false,
-      "historical46PatchCompilation": {
-        "previousRun": 39168656856,
-        "previousSourceTree": "5f034709e0a618d7d12ae44cb37c99b493efac41",
-        "previousObservedResults": {
-          "linux": {
-            "conclusion": "failure",
-            "stage": "test compilation",
-            "errors": 3,
-            "testsExecuted": false,
-            "job": 117796904135
-          },
-          "macos": {
-            "conclusion": "failure",
-            "stage": "test compilation",
-            "errors": 3,
-            "testsExecuted": false,
-            "job": 117796904391
-          }
-        }
-      },
-      "historical47PatchCompilation": {
-        "previousRun": 39172947853,
-        "previousSourceTree": "a18caf2a3c076637cd5dc83de174abe21f69d00c",
-        "previousObservedResults": {
-          "linux": {
-            "conclusion": "failure",
-            "stage": "test compilation",
-            "errors": 1,
-            "errorCode": "E0308",
-            "testsExecuted": false,
-            "job": 117809637948
-          },
-          "macos": {
-            "conclusion": "failure",
-            "stage": "test compilation",
-            "errors": 1,
-            "errorCode": "E0308",
-            "testsExecuted": false,
-            "job": 117809637985
-          }
-        }
-      },
-      "jobTimeBudgetMinutes": {
-        "ubuntu-24.04": 90,
-        "macos-26": 120
-      },
-      "jobTimeBudgetReason": "Actual48 macOS cold setup and compilation used ~59min;90min budget canceled a progressing run at4405/5599 selected results, including the same6 typed-denial failures. Coverage/workers/retries/gates unchanged.",
-      "historical49ExecutedResults": {
-        "run": 39184386351,
-        "sourceTree": "58f83c08f2df67c830fe6cf1ee435a03a8b3f6f0",
-        "results": {
-          "linux": {
-            "conclusion": "success",
-            "testsRun": 5821,
-            "passed": 5821,
-            "failed": 0,
-            "skipped": 11,
-            "job": 117843619216,
-            "formatting": "success"
-          },
-          "macos": {
-            "conclusion": "failure",
-            "testsRun": 5599,
-            "passed": 5598,
-            "failed": 1,
-            "skipped": 27,
-            "job": 117843619014,
-            "exitCode": 100,
-            "failure": "suite::unified_exec_zsh_fork_approvals::unified_exec_zsh_fork_parent_approval_preserves_denied_reads",
-            "observed": "Unexpected /bin/cat child approval after actual initial User approval; original no-child-prompt assertion failed. No timeout or compilation failure.",
-            "formatting": "skipped after test failure"
-          }
-        }
-      }
-    },
-    "testCountsOverlap": true,
-    "ordinaryParentApproval": {
-      "hasActiveConsumer": true,
-      "sameInitialInvocationLifetimeOnly": true,
-      "originalLifetimeGuardNeverReopened": true,
-      "physicalDeniedReadRestrictionsPreserved": true,
-      "hooksAndContributorsPrecedencePreserved": true,
-      "allUserFallbackRevalidatedAfterAttempt": true,
-      "inheritedApprovalNotFreshUser": true,
-      "allIntegrationSuiteFilesExactPrevious31": false,
-      "originalApprovedGuardianWholeFileBlob": "e22671bcf8033c245745ab680349a332a143ca0d",
-      "testOnlyPostNoneScheduler": true,
-      "knownPrivateStateTestAccessesCorrected": true,
-      "rootAndIndependentSourceReview": true,
-      "rustCompilationAndFixtures": "pending_existing_CI",
-      "originalDeniedReadWholeFileBlobBeforeDiagnostics": "8d7761204a5fd12c7c2d2eb45e36ec187e89769d",
-      "originalDeniedReadInputsObserverAndAssertionsTokenExact49": true,
-      "currentDeniedReadWholeFileBlob": "c063818b5333a4ae95d7605b6c6792792438f4a9"
-    },
-    "preparedRequestAuthority": {
-      "hasActualPurePreSessionCapture": false,
-      "hasAppServerPreparationRPCs": false,
-      "hasOrdinaryPreparedDispatchConsumer": false,
-      "consumableAdmissionAvailable": false,
-      "installedRuntimeQualified": false,
-      "applicationJoiningComplete": false,
-      "liveCallsAuthorized": false
-    },
-    "testCompilationCorrection": {
-      "sourceCommit": "ef263974e5dc5ab280003282a8bbfb1a404a5ebf",
-      "paths": ["codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs"],
-      "changes": "import actual EventMsg and CodexErrorDetails; inspect existing CodexErr.details() for TurnAborted rather than using an associated constant pattern",
-      "productionCodeChanged": false,
-      "semanticCancellationAssertionRetained": true,
-      "scopedRustfmtPassed": true,
-      "compiledOrExecutedLocally": false
-    },
-    "refusalObservation": {
-      "diagnosticOnly": true,
-      "sourceCommit": "ff92b351fbc3ae89a9e0a57d3268975b2347ce92",
-      "scope": "Seven files: diagnostic helper/wrapping and failing integration target-only subscriber",
-      "helperOutput": "Static gate name and boolean only; unchanged boolean returned",
-      "sourceTokenEquivalenceAfterRemovingDiagnostics": true,
-      "originalShortCircuitingAndPredicateOrderPreserved": true,
-      "noExtraLoadsOfMutableAuthority": true,
-      "noPathsCommandsEnvironmentValuesIdentifiersPointersOrReceiptsLogged": true,
-      "subscriber": "Only original failing integration installs process-scoped target-filtered subscriber; prescribed nextest isolates this test process. Ordinary spawned tasks do not all propagate scoped dispatchers.",
-      "timingMayBeAffected": true,
-      "passingRunAloneWouldNotDiagnoseOrFixOriginalFailure": true,
-      "candidateRefusalFirstLabelCombinesProfileAndSandboxRequested": true,
-      "someEarlyQuestionMarkReturnsUnlabeled": true,
-      "rootAndExistingIndependentSourceReview": true,
-      "compiledOrExecutedLocally": false
-    },
-    "diagnosticImportCorrection": {
-      "sourceCommit": "3ec49f15814168d9be0553f7bc12e6d78542371a",
-      "paths": ["codex-rs/core/src/session/parent_approval.rs", "codex-rs/core/src/tools/mod.rs"],
-      "changes": "crate-private tools facade re-export and Session import through that facade",
-      "allDiagnosticImportsCrateModuleAndCfgBoundariesWalked": true,
-      "noExternalApiOrPrivateModuleVisibilityWidened": true,
-      "rootAndExistingIndependentSourceReview": true,
-      "helperPredicatesDiagnosticsAndTestAssertionsUnchanged": true,
-      "scopedRustfmtPassed": true,
-      "compiledOrExecutedLocally": false
-    },
-    "trustedRootCwdObservation": {
-      "sourceCommit": "a69928ec137aafd75d89111ef46c1aadc15e38f1",
-      "paths": ["codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs"],
-      "onlyAfterRawCwdMismatch": true,
-      "originalRawEqualityStillReturned": true,
-      "observations": [
-        "native path conversions succeeded",
-        "existing trusted-root normalizations succeeded",
-        "normalized results match",
-        "original or child spelling changed through root-only utility",
-        "root-only change accounts for raw mismatch"
-      ],
-      "existingUtility": "AbsolutePathBuf::normalize_system_aliases; trusted top-level root only, all lower components remain logical",
-      "noPathsCommandsEnvironmentValuesErrorsOrReceiptsEmitted": true,
-      "noNewCwdAuthorityOrLaunchChange": true,
-      "synchronousFsReadsCanAffectTimingEvenWithoutSubscriber": true,
-      "notImmutableDirectoryIdentityOrRetargetProof": true,
-      "originalIntegrationWholeFileExact51": true,
-      "rootAndExistingIndependentSourceReview": true,
-      "scopedFormatAndSourceEquivalencePassed": true,
-      "localRustCompilationOrExecution": false,
-      "noRepairClaim": true,
-      "historicalPatch52Only": true
-    },
-    "trustedRootChildCwdFix": {
-      "sourceCommit": "4cea83bbbf2330e7ffc22389eafcc6dc6f18d8a2",
-      "paths": [
-        "codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs",
-        "codex-rs/core/src/tools/runtimes/zsh_fork/parent_admission_scope_tests.rs"
-      ],
-      "actual52RootOnlyRepresentationMismatchObserved": true,
-      "requiresBothNativeConversionsAndRootNormalizations": true,
-      "noRawEqualityBypassOnError": true,
-      "existingUtility": "AbsolutePathBuf::normalize_system_aliases; only trusted top-level root, lower components remain logical",
-      "rawRequestAndExecutorCustodyUnchanged": true,
-      "allOtherGatesAndDownstreamOwnersUnchanged": true,
-      "launchCwdAndCommandUnchanged": true,
-      "originalIntegrationWholeFileExact52": true,
-      "regressions": [
-        "real macOS root alias both directions and other context mismatches",
-        "different directories and similar siblings",
-        "mutable nested alias before and after retarget",
-        "foreign path conversion failures even raw equal",
-        "actual root IO error even raw equal"
-      ],
-      "rootAndExistingIndependentScopedSourceReview": "clear, no concrete blocker; not second independent full material-permission pass",
-      "scopedFormatAndSourceChecksPassed": true,
-      "localRustCompilationOrExecution": false,
-      "runtimeRepairEstablished": false,
-      "notImmutableDirectoryIdentityOrSameSpellingRetargetProof": true
-    },
-    "extensionToolInventory": {
-      "sourceCommit": "557ce440b823868ea853e583c2277d16ec0af726",
-      "sourceTree": "77a800c70646406a5165ea56237219e56518c36b",
-      "crate": "codex-extension-api",
-      "registryOwner": "ExtensionRegistry / ExtensionRegistryBuilder",
-      "registration": "fixed_tools retains real executors and freezes metadata for both ordinary planning and capture; tool_contributor remains explicitly unresolved",
-      "capture": "capture_pre_session_tools, no caller inventory or callbacks, returns only extension partition",
-      "renewal": "renew_pre_session_tools requires identical immutable registry identity; every rebuild invalidates prior capture",
-      "offlineRegressions": 4,
-      "regressionCoverage": [
-        "mixed unresolved contributors refuse without discovery or tool execution",
-        "ordinary order, initial/deferred specs, exposure and parallel metadata retained despite underlying metadata drift",
-        "original tool invocation delegated once through retained executable runtime",
-        "rebuild/addition/ABA refuses even with equal definitions; empty registry distinct from empty state-bound result"
-      ],
-      "scopedRustfmtPassed": true,
-      "localRustCompilationOrTests": false,
-      "ciResult": "pending",
-      "productionStateBoundContributorsUpgraded": false,
-      "wholeRequestPreparationReady": false,
-      "runtimeActivation": false
-    },
-    "closedSourceInputs": {
-      "sourceCommit": "bb5bedc2e334700b930352c58e6c50660c173e2e",
-      "sourceTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
-      "mcpSources": "Actual installed Apps/plugin sources register closed source-owned declarations; same declaration owns ordinary metadata and pure selection. Unknown/enabled sources refuse before callbacks.",
-      "freshInputs": "ThreadManager captures original StartThreadOptions, actual default/explicit process-local environments and real empty MCP config/binding only when source absence is proven; rejects prior history/inheritance/reserved native IDs, roots, pending/failed/remote environments and configured MCP/Apps/plugins.",
-      "custody": "Retains actual source-manager and selected EnvironmentManager/Environment owner identities; defaults and handle replacement invalidate. This partition is not source/account ordered native consume authority.",
-      "singleAttemptTransport": "Existing login/HttpClientFactory policy creates route-aware pool with no redirects/default headers/cookies/replay fallbacks; effective system proxy fallback, configured cookies and active residency refuse. Ordinary default factory and low-level single-attempt guards unchanged.",
-      "toolSelection": "Config-only source-owned absence plan controls ordinary startup/config/step metadata too; missing registrations preflight before plans or runtime callbacks. Fixed executable definitions retain ordinary order; configuration-selected captures require explicit current-config renewal.",
-      "productionSources": "Memory and web search share their actual configuration selection helpers with their absence declarations. Enabled tools remain unresolved; all other state-bound sources remain unresolved. Memory context/instructions remain separate.",
-      "newFixtureScopes": [
-        "extension-api pre_session_mcp",
-        "extension-api pre_session_tools",
-        "mcp-extension actual installed closed source parity",
-        "core ThreadManager fresh source custody/refusal",
-        "login actual single-attempt factory child-process cases",
-        "memories-extension actual config capture and ordinary lifecycle parity",
-        "web-search-extension mode selection"
-      ],
-      "localScopedRustfmt": "passed",
-      "localRustCompilationOrTests": false,
-      "ciResult": "pending exact new composed tree",
-      "wholeRequestPreparationReady": false,
-      "runtimeActivation": false
-    },
-    "ordinaryPublicBodyAndPlanning": {
-      "sourceCommit": "d615a63d687555242ede9cb3874d2699f99520c3",
-      "sourceTree": "9ce8eecf782809ae5d33f63715000e8396ab2e55",
-      "publicMetadata": "Named ordinary construction policy before the existing formatter; coherent full CodexResponsesMetadata retained privately beside strict public frozen body. Unknown extras/controls/contributors refuse without callbacks. No renaming or removing populated native metadata inside the freezer.",
-      "sourcePolicy": "Metadata ThreadSource None/User only; actual ModelClient owner also refuses unsupported native source families. Field checks are not complete source attestation.",
-      "credentialCustody": "Opaque actual AuthManager/API-key cached selection with owner/generation/key/factory. Existing external-auth then cached-auth read locks held through bounded synchronous closure; credential writer publishes revision under same write lock. Not managed policy/network/source/route/model/limit/consume authority.",
-      "actualModelOwner": "ModelClient capture_public_api_responses_body derives own context, selected provider AuthManager and real contributor inventory; context resolver shared with ordinary builder. Provider callbacks before credential guard; completed pure formatted body returned synchronously. No later consume authority is conferred.",
-      "corePlanning": "Actual ordinary utility/shell/MCP-resource/collaboration-handler/mode/exposure/code-mode registry owners use resolved data without fabricated Session/TurnContext. Original eligibility/provider/role loading and final owner boundaries remain; metadata getter callbacks remain where documented. This is not complete callback-free fresh inventory.",
-      "semanticPreservation": "Named-input substitution/token comparisons and existing C bounded source inspections retained; actual existing ordinary callers use new owners. Source67 stale imports corrected in68.",
-      "authoredOfflineFixtures": {
-        "publicMetadata": 3,
-        "actualModelClient": 1,
-        "credentialGuard": 2
-      },
-      "localScopedRustfmtAndWhitespace": "passed",
-      "localRustCompilationOrExecution": false,
-      "nativeFixtureResult": "pending exact new composed tree",
-      "wholePreparationReady": false,
-      "actualPrepareCountConsumeRPCInstalled": false,
-      "applicationReady": false
-    },
-    "pendingEffectGate": {
-      "sourceOnly": true,
-      "nativeExecution": false,
-      "noProductionCaller": true,
-      "storage": "Existing StateRuntime prepared_requests, migration0062; no new ledger",
-      "states": ["ordinary", "pending", "released", "refused_before_effects"],
-      "proofStillRequired": [
-        "Original canonical monotonic owner revisions/ABA across native commitment",
-        "Exact private one-use retrospective response binding",
-        "Actual bounded native CAS inside native credential/source guards",
-        "Production prepare/count/consume/ordinary first-command admission"
-      ],
-      "fixturesAuthored": [
-        "disabled_history_notes_capture_tracks_ordinary_configuration",
-        "disabled_goal_capture_tracks_ordinary_configuration",
-        "pending_claim_cannot_acknowledge_and_refusal_survives_restart",
-        "release_and_cancellation_have_one_durable_winner",
-        "pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain",
-        "forced_release_preserves_executable_handoff_and_restart_uncertainty",
-        "continuation_requires_released_predecessor_and_original_acceptance"
-      ],
-      "ordinaryLegacyUncertaintyPreserved": true,
-      "noReceiptsOrContinuationWhilePendingOrRefused": true,
-      "goalIntegrationTarget": "goal_extension_backend (Cargo auto-discovered integration test; lib test=false does not exclude it)",
-      "independentFixtureCorrections": "C identified missing forced successful release and sampling coverage in72;73 adds both without changing production code or weakening assertions"
-    },
-    "guardedNativeClaim": {
-      "sourceOnly": true,
-      "nativeExecution": false,
-      "actualOwnerBridge": "ModelClient -> immutable ConfiguredModelProvider AuthManager Arc -> with_current_api_key_credentials -> PendingPreparedRequestCommit.commit",
-      "localDatabaseOwner": "Existing StateRuntime FULL-sync close-on-drop pooled connection; raw BEGIN IMMEDIATE before guard; LockedSqliteHandle pauses SQLx worker; exactly two bound UPDATEs plus synchronous COMMIT inside guard",
-      "noSQLxTransactionObjectOrPoolReuse": true,
-      "noFutureOrReusableEpochGuardResult": true,
-      "original65CredentialRouteGateByteExact": true,
-      "fixturesAuthored": [
-        "guarded_commit_denial_rolls_back_and_success_is_durable_before_guard_returns",
-        "guard_response_loss_after_commit_cannot_release_or_replay_claim",
-        "guarded_commit_rolls_back_partial_update_and_rejects_another_claim",
-        "ordinary_credential_owner_guards_real_pending_cas_and_logout_refuses",
-        "ordinary_logout_races_actual_guarded_claim_without_future_escape"
-      ],
-      "proofStillRequired": [
-        "All other native history/config/source/runtime/network-policy fences",
-        "Canonical original monotonic owner revision/ABA retrospective proof and private response binding",
-        "Trusted native ModelsManager both-ceiling witness bound to actual account/public route",
-        "Complete production request preparation/count/consume RPC and original ordinary admission",
-        "Authorization to release pending effects and final source-ACK/reply composition"
-      ],
-      "independentFixtureCorrection": "C observed74fixture only checked in-memoryflags insideguard;76 nowrequires actualcommittedrow through independentpreopenedreadonlyobserver beforecallbackexit, retaining laterreopenproof"
-    },
-    "fixtureCompilationCorrection": {
-      "nativeCommit": "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
-      "productionChanges": false,
-      "observedFailure": {
-        "run": 39351558521,
-        "linuxJob": 118396661575,
-        "head": "5bdbce1b02266e92967441f0ef57d323ed992650",
-        "diagnostic": "22 E0659 ambiguous assert_eq! during cargo test --no-run; no fixture outcomes"
-      },
-      "fix": "Explicit pretty_assertions::assert_eq imports in effects and guarded_commit children, preserving actual parent assertion semantics",
-      "rustCompilationOrTestsRunLocally": false,
-      "executionQualification": "pending exact-source CI"
-    },
-    "effectiveRegistryCorrection": {
-      "finding": "CEN-487055AFEF4D",
-      "nativeCommit": "865e2f6fb59451d834a7b31fe7a0b9eac4396afc",
-      "ordinaryPolicy": "Same private helper preserves explicit policy > actual source/default guardian isolation; ordinary spawn still selects the original registry branch",
-      "preSession": "Refuse effective Isolated before manager/env/registry proof, retain actual resolved source and Inherit in original options",
-      "regressionsAuthored": 2,
-      "nativeTestsExecutedLocally": false,
-      "compiledLocally": false,
-      "executionQualification": "pending exact-source CI",
-      "lineage": "Same exact correction patch as native60+61, now native77+78; no test qualification transferred"
-    },
-    "pendingFixtureCommandIdentity": {
-      "nativeCommit": "46df3041feb4fbf9bf6f47d41452abe341de61e9",
-      "productionChanges": false,
-      "fix": "Independent pending/ordinary fixture cases now each use a fresh request with a distinct binding.command_id. Consumed command-root uniqueness and every pool-local/ordinary uncertainty assertion remain unchanged.",
-      "observedFailure": {
-        "run": 39357179342,
-        "linuxJob": 118414639970,
-        "macJob": 118414639835,
-        "diagnostic": "Executed fixture failed SQLite2067 prepared_requests_consumed_command_root at effects.rs:375; not a compile failure",
-        "linux": {
-          "run": 6205,
-          "passed": 6204,
-          "failed": 1,
-          "skipped": 11
-        },
-        "mac": {
-          "run": 5984,
-          "passed": 5983,
-          "failed": 1,
-          "skipped": 27
-        }
-      },
-      "rustCompilationOrTestsRunLocally": false,
-      "executionQualification": "pending exact new source CI"
-    },
-    "modelLimitCandidate": {
-      "sourceOnly": true,
-      "nativeExecution": false,
-      "candidateType": "UnverifiedModelLimitCandidate; not account/provider/Responses/config/count/admission authority",
-      "owner": "Actual existing OpenAiModelsManager exact unique nonfallback API-supported model row; static/other manager default unsupported",
-      "descriptor": "Reviewed exact gpt-6-luna; 1050000 context,128000 maxoutput; canonical285bytes SHA89ceab0f696672378ae781a4d91fe7d470ccbdf8f12409eb9924c0d012cb20c2; policy openai-public-responses-provider-spec-v1",
-      "clamps": "Only lower provider context by original and actually resolved usable windows, preserving full ordinary configured ModelInfo. Unknown/alias/duplicate/custom/fallback/APIunsupported/nonpositive/invalidpercent refuse.",
-      "publicationGuard": "Private actual-owner/publication Arc identities; actual read lock retained, token replaced on every existing publish/cache/equal-data publish/explicit failure clear/provider builder clear under same catalog lock; rejects foreign owner and publication ABA",
-      "guardScope": "Catalog publication only. Bundled/cache may supply descriptive rows. No live endpoint identity, discovery-policy, actual config owner, account, public route, credential, source or CAS authority is supplied.",
-      "fixturesAuthored": {
-        "providerSpec": 3,
-        "actualManager": 6
-      },
-      "actualNegativeFlags": "5015 adds explicit actual rows with APIunsupported/fallback flags; a290 earlier authored coverage is not retrospectively expanded",
-      "independentSourceReview": {
-        "a290": "2bf390ec0d2d339040ba45103b0a22d87cfd0521c4841d413dd3aa6dbf7db46e",
-        "5015": "dd481f356a73cf67ba05384ea9a6076ab19db840d38eced6c0efc2a1574a8eae"
-      },
-      "localRustCompilationTestsClippy": false,
-      "requiredExactSourceCI": "codex-models-manager unit tests and formatting explicitly selected on both OS; transitive compile alone is insufficient",
-      "productionPreparationCountConsumeInstalled": false
-    },
-    "modelPublicationCloneCorrection": {
-      "sourceCommit": "673a893f754b03ded8efba534b452c29233ffc8e",
-      "actualFailure": "39368960594 both OS, E0308 at two Arc::clone calls expecting Arc but receiving MutexGuard; helperbuilds before cratefixtures/format",
-      "changes": "Bind actual publication MutexGuard in a short scope; explicit &*guard clone; same catalog-then-publication lock order and pointer, guard dropped before candidate return",
-      "productionPolicyOrTestsChanged": false,
-      "localRustCompilationTestsClippy": false,
-      "executionQualification": "pending own exact81 source CI"
+      "testThreads": 1,
+      "retries": 0,
+      "prior81QualificationTransfers": false
     }
   },
   "runtimeQualified": false,
@@ -886,15 +482,10 @@
   "concreteAccountSelected": false,
   "modelCalls": 0,
   "remaining": [
-    "pure native capture/expansion without thread allocation or effectful source/tool discovery",
-    "semantic-preserving public policy for actual ordinary metadata and late contributors",
-    "complete actual account/credential/public-route/model eligibility and live config/currentness; reviewed spec/catalog limit candidate exists but grants no count or admission",
-    "app-server prepare/measure/read and current non-Stop authority ordering",
-    "stale pre-consumption database-copy/custody replacement refusal through actual selected admission owner",
-    "move-only exact selected-client transport dispatch; current raw frozen transport API is not a one-use admission owner",
-    "actual ordinary turn/start consumption, exact-body dispatch, context ACK and finalized attribution",
-    "reviewed reproducible binary delivery and feature negotiation for each consumer",
-    "application joining and independent silent reader/default/@ delivery composition"
+    "Connect actual ThreadManager/config selection to complete fresh context/tool capture without Session/lifecycle effects; preserve configured Knowledge/tools and refuse unknown contributors.",
+    "Bind native count and complete original account/source/config/runtime/model authorities to StateRuntime guarded commitment; observations alone are not admission.",
+    "Wire original app-server RPC and real application host caller to the source-owned factory; do not install a no-op/always-unavailable factory or forge Ready.",
+    "Qualify all new source on both OS with actual codex-home/model-provider-info fixture and formatting selection; no real model-backed tests without supported Luna and exact charged account announcement."
   ],
   "integratedDependencies": {
     "formatter": {
@@ -2627,6 +2218,492 @@
       "publishedPr": 1063,
       "nativeCi": 39353493313,
       "qualification": "Native execution pending at correction construction; source-derived same child macro ambiguity; no execution qualification transferred"
+    },
+    {
+      "sourceRevision": 81,
+      "localSourceCommit": "673a893f754b03ded8efba534b452c29233ffc8e",
+      "sourceTree": "e2b7d2093d6a671ac0929730a0297139ca2067b7",
+      "retainedCurrentHeadReview": 5581483736,
+      "priorCheckAnnotation": {
+        "scope": "77-patch source: two explicit child fixture macro imports correct concrete E0659 compilation failure; prior guarded credential CAS production bytes unchanged. Other native epochs, canonical host proof, model limits and production preparation/admission remain incomplete.",
+        "localFocused": {
+          "status": "source_and_scoped_format_only",
+          "rustTestsExecuted": false,
+          "compiled": false,
+          "dynamicGreenClaimed": false,
+          "allOrderedChecksumsReconstructExactTree": true
+        },
+        "ci": {
+          "status": "pending_77_patch_fixture_compilation_correction",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-api",
+            "codex-state",
+            "codex-http-client",
+            "codex-guardian-reviewer",
+            "codex-extension-api",
+            "codex-mcp-extension",
+            "codex-login",
+            "codex-memories-extension",
+            "codex-web-search-extension",
+            "codex-history-notes-extension",
+            "codex-goal-extension"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "newCIJobs": 0,
+          "previousRun": 39205754915,
+          "previousSourceTree": "1452a4d6a69783b77707953ca8cef2df916a75f2",
+          "previousObservedResults": {
+            "observedAt": "2026-10-19T07:20:07.374110+00:00",
+            "sourceHead": "9f14ad71a414f599fc8edbd34bedfbc0bc65420d",
+            "nativeRun": 39205754915,
+            "linux": {
+              "job": 117908107137,
+              "conclusion": "success",
+              "passed": 5821,
+              "failed": 0,
+              "skipped": 11,
+              "formatting": "success"
+            },
+            "macos": {
+              "job": 117908107469,
+              "conclusion": "failure",
+              "passed": 5598,
+              "failed": 1,
+              "skipped": 27,
+              "failure": "original denied-read integration unexpectedly requests child cat approval",
+              "formatting": "skipped after test failure"
+            },
+            "trustedRootOnlyRepresentationDifferenceObserved": true,
+            "repairEstablished": false,
+            "immutableDirectoryIdentityOrRetargetProofEstablished": false,
+            "retainedFiles": {
+              "native52-final-native-run.json": "4162cb15e6ba7e376bbca1e47d631e815aecd3068ed01ebf7da3afd589ad94c5",
+              "native52-linux-final.log": "3a1f0f67335fb8522bd855b7fcf743d21486cddb95990fa8b2a685849a26f756",
+              "native52-mac-final.log": "1d2e7b1271bc925678b0950c201f7a3d7b8d739ea458a62956fc2a5fca761ce2",
+              "native52-linux-result.json": "3759b64232c171dd0d7dd22c72ac86c5628dda4da194563d484fbf4b779e38c8",
+              "native52-mac-result.json": "0c27741c4aba83ac170aca52c52521c64fc7afd33cc3a056cce3678ee6a8398f"
+            }
+          },
+          "zeroNativeSkipsClaimed": false,
+          "historical46PatchCompilation": {
+            "previousRun": 39168656856,
+            "previousSourceTree": "5f034709e0a618d7d12ae44cb37c99b493efac41",
+            "previousObservedResults": {
+              "linux": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 3,
+                "testsExecuted": false,
+                "job": 117796904135
+              },
+              "macos": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 3,
+                "testsExecuted": false,
+                "job": 117796904391
+              }
+            }
+          },
+          "historical47PatchCompilation": {
+            "previousRun": 39172947853,
+            "previousSourceTree": "a18caf2a3c076637cd5dc83de174abe21f69d00c",
+            "previousObservedResults": {
+              "linux": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 1,
+                "errorCode": "E0308",
+                "testsExecuted": false,
+                "job": 117809637948
+              },
+              "macos": {
+                "conclusion": "failure",
+                "stage": "test compilation",
+                "errors": 1,
+                "errorCode": "E0308",
+                "testsExecuted": false,
+                "job": 117809637985
+              }
+            }
+          },
+          "jobTimeBudgetMinutes": {
+            "ubuntu-24.04": 90,
+            "macos-26": 120
+          },
+          "jobTimeBudgetReason": "Actual48 macOS cold setup and compilation used ~59min;90min budget canceled a progressing run at4405/5599 selected results, including the same6 typed-denial failures. Coverage/workers/retries/gates unchanged.",
+          "historical49ExecutedResults": {
+            "run": 39184386351,
+            "sourceTree": "58f83c08f2df67c830fe6cf1ee435a03a8b3f6f0",
+            "results": {
+              "linux": {
+                "conclusion": "success",
+                "testsRun": 5821,
+                "passed": 5821,
+                "failed": 0,
+                "skipped": 11,
+                "job": 117843619216,
+                "formatting": "success"
+              },
+              "macos": {
+                "conclusion": "failure",
+                "testsRun": 5599,
+                "passed": 5598,
+                "failed": 1,
+                "skipped": 27,
+                "job": 117843619014,
+                "exitCode": 100,
+                "failure": "suite::unified_exec_zsh_fork_approvals::unified_exec_zsh_fork_parent_approval_preserves_denied_reads",
+                "observed": "Unexpected /bin/cat child approval after actual initial User approval; original no-child-prompt assertion failed. No timeout or compilation failure.",
+                "formatting": "skipped after test failure"
+              }
+            }
+          }
+        },
+        "testCountsOverlap": true,
+        "ordinaryParentApproval": {
+          "hasActiveConsumer": true,
+          "sameInitialInvocationLifetimeOnly": true,
+          "originalLifetimeGuardNeverReopened": true,
+          "physicalDeniedReadRestrictionsPreserved": true,
+          "hooksAndContributorsPrecedencePreserved": true,
+          "allUserFallbackRevalidatedAfterAttempt": true,
+          "inheritedApprovalNotFreshUser": true,
+          "allIntegrationSuiteFilesExactPrevious31": false,
+          "originalApprovedGuardianWholeFileBlob": "e22671bcf8033c245745ab680349a332a143ca0d",
+          "testOnlyPostNoneScheduler": true,
+          "knownPrivateStateTestAccessesCorrected": true,
+          "rootAndIndependentSourceReview": true,
+          "rustCompilationAndFixtures": "pending_existing_CI",
+          "originalDeniedReadWholeFileBlobBeforeDiagnostics": "8d7761204a5fd12c7c2d2eb45e36ec187e89769d",
+          "originalDeniedReadInputsObserverAndAssertionsTokenExact49": true,
+          "currentDeniedReadWholeFileBlob": "c063818b5333a4ae95d7605b6c6792792438f4a9"
+        },
+        "preparedRequestAuthority": {
+          "hasActualPurePreSessionCapture": false,
+          "hasAppServerPreparationRPCs": false,
+          "hasOrdinaryPreparedDispatchConsumer": false,
+          "consumableAdmissionAvailable": false,
+          "installedRuntimeQualified": false,
+          "applicationJoiningComplete": false,
+          "liveCallsAuthorized": false
+        },
+        "testCompilationCorrection": {
+          "sourceCommit": "ef263974e5dc5ab280003282a8bbfb1a404a5ebf",
+          "paths": ["codex-rs/core/src/tools/approvals/parent_consumer_routing_tests.rs"],
+          "changes": "import actual EventMsg and CodexErrorDetails; inspect existing CodexErr.details() for TurnAborted rather than using an associated constant pattern",
+          "productionCodeChanged": false,
+          "semanticCancellationAssertionRetained": true,
+          "scopedRustfmtPassed": true,
+          "compiledOrExecutedLocally": false
+        },
+        "refusalObservation": {
+          "diagnosticOnly": true,
+          "sourceCommit": "ff92b351fbc3ae89a9e0a57d3268975b2347ce92",
+          "scope": "Seven files: diagnostic helper/wrapping and failing integration target-only subscriber",
+          "helperOutput": "Static gate name and boolean only; unchanged boolean returned",
+          "sourceTokenEquivalenceAfterRemovingDiagnostics": true,
+          "originalShortCircuitingAndPredicateOrderPreserved": true,
+          "noExtraLoadsOfMutableAuthority": true,
+          "noPathsCommandsEnvironmentValuesIdentifiersPointersOrReceiptsLogged": true,
+          "subscriber": "Only original failing integration installs process-scoped target-filtered subscriber; prescribed nextest isolates this test process. Ordinary spawned tasks do not all propagate scoped dispatchers.",
+          "timingMayBeAffected": true,
+          "passingRunAloneWouldNotDiagnoseOrFixOriginalFailure": true,
+          "candidateRefusalFirstLabelCombinesProfileAndSandboxRequested": true,
+          "someEarlyQuestionMarkReturnsUnlabeled": true,
+          "rootAndExistingIndependentSourceReview": true,
+          "compiledOrExecutedLocally": false
+        },
+        "diagnosticImportCorrection": {
+          "sourceCommit": "3ec49f15814168d9be0553f7bc12e6d78542371a",
+          "paths": [
+            "codex-rs/core/src/session/parent_approval.rs",
+            "codex-rs/core/src/tools/mod.rs"
+          ],
+          "changes": "crate-private tools facade re-export and Session import through that facade",
+          "allDiagnosticImportsCrateModuleAndCfgBoundariesWalked": true,
+          "noExternalApiOrPrivateModuleVisibilityWidened": true,
+          "rootAndExistingIndependentSourceReview": true,
+          "helperPredicatesDiagnosticsAndTestAssertionsUnchanged": true,
+          "scopedRustfmtPassed": true,
+          "compiledOrExecutedLocally": false
+        },
+        "trustedRootCwdObservation": {
+          "sourceCommit": "a69928ec137aafd75d89111ef46c1aadc15e38f1",
+          "paths": ["codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs"],
+          "onlyAfterRawCwdMismatch": true,
+          "originalRawEqualityStillReturned": true,
+          "observations": [
+            "native path conversions succeeded",
+            "existing trusted-root normalizations succeeded",
+            "normalized results match",
+            "original or child spelling changed through root-only utility",
+            "root-only change accounts for raw mismatch"
+          ],
+          "existingUtility": "AbsolutePathBuf::normalize_system_aliases; trusted top-level root only, all lower components remain logical",
+          "noPathsCommandsEnvironmentValuesErrorsOrReceiptsEmitted": true,
+          "noNewCwdAuthorityOrLaunchChange": true,
+          "synchronousFsReadsCanAffectTimingEvenWithoutSubscriber": true,
+          "notImmutableDirectoryIdentityOrRetargetProof": true,
+          "originalIntegrationWholeFileExact51": true,
+          "rootAndExistingIndependentSourceReview": true,
+          "scopedFormatAndSourceEquivalencePassed": true,
+          "localRustCompilationOrExecution": false,
+          "noRepairClaim": true,
+          "historicalPatch52Only": true
+        },
+        "trustedRootChildCwdFix": {
+          "sourceCommit": "4cea83bbbf2330e7ffc22389eafcc6dc6f18d8a2",
+          "paths": [
+            "codex-rs/core/src/tools/runtimes/unified_exec/parent_binding.rs",
+            "codex-rs/core/src/tools/runtimes/zsh_fork/parent_admission_scope_tests.rs"
+          ],
+          "actual52RootOnlyRepresentationMismatchObserved": true,
+          "requiresBothNativeConversionsAndRootNormalizations": true,
+          "noRawEqualityBypassOnError": true,
+          "existingUtility": "AbsolutePathBuf::normalize_system_aliases; only trusted top-level root, lower components remain logical",
+          "rawRequestAndExecutorCustodyUnchanged": true,
+          "allOtherGatesAndDownstreamOwnersUnchanged": true,
+          "launchCwdAndCommandUnchanged": true,
+          "originalIntegrationWholeFileExact52": true,
+          "regressions": [
+            "real macOS root alias both directions and other context mismatches",
+            "different directories and similar siblings",
+            "mutable nested alias before and after retarget",
+            "foreign path conversion failures even raw equal",
+            "actual root IO error even raw equal"
+          ],
+          "rootAndExistingIndependentScopedSourceReview": "clear, no concrete blocker; not second independent full material-permission pass",
+          "scopedFormatAndSourceChecksPassed": true,
+          "localRustCompilationOrExecution": false,
+          "runtimeRepairEstablished": false,
+          "notImmutableDirectoryIdentityOrSameSpellingRetargetProof": true
+        },
+        "extensionToolInventory": {
+          "sourceCommit": "557ce440b823868ea853e583c2277d16ec0af726",
+          "sourceTree": "77a800c70646406a5165ea56237219e56518c36b",
+          "crate": "codex-extension-api",
+          "registryOwner": "ExtensionRegistry / ExtensionRegistryBuilder",
+          "registration": "fixed_tools retains real executors and freezes metadata for both ordinary planning and capture; tool_contributor remains explicitly unresolved",
+          "capture": "capture_pre_session_tools, no caller inventory or callbacks, returns only extension partition",
+          "renewal": "renew_pre_session_tools requires identical immutable registry identity; every rebuild invalidates prior capture",
+          "offlineRegressions": 4,
+          "regressionCoverage": [
+            "mixed unresolved contributors refuse without discovery or tool execution",
+            "ordinary order, initial/deferred specs, exposure and parallel metadata retained despite underlying metadata drift",
+            "original tool invocation delegated once through retained executable runtime",
+            "rebuild/addition/ABA refuses even with equal definitions; empty registry distinct from empty state-bound result"
+          ],
+          "scopedRustfmtPassed": true,
+          "localRustCompilationOrTests": false,
+          "ciResult": "pending",
+          "productionStateBoundContributorsUpgraded": false,
+          "wholeRequestPreparationReady": false,
+          "runtimeActivation": false
+        },
+        "closedSourceInputs": {
+          "sourceCommit": "bb5bedc2e334700b930352c58e6c50660c173e2e",
+          "sourceTree": "b28e456e2791162cd7cbb6b4443e339e5e4aad03",
+          "mcpSources": "Actual installed Apps/plugin sources register closed source-owned declarations; same declaration owns ordinary metadata and pure selection. Unknown/enabled sources refuse before callbacks.",
+          "freshInputs": "ThreadManager captures original StartThreadOptions, actual default/explicit process-local environments and real empty MCP config/binding only when source absence is proven; rejects prior history/inheritance/reserved native IDs, roots, pending/failed/remote environments and configured MCP/Apps/plugins.",
+          "custody": "Retains actual source-manager and selected EnvironmentManager/Environment owner identities; defaults and handle replacement invalidate. This partition is not source/account ordered native consume authority.",
+          "singleAttemptTransport": "Existing login/HttpClientFactory policy creates route-aware pool with no redirects/default headers/cookies/replay fallbacks; effective system proxy fallback, configured cookies and active residency refuse. Ordinary default factory and low-level single-attempt guards unchanged.",
+          "toolSelection": "Config-only source-owned absence plan controls ordinary startup/config/step metadata too; missing registrations preflight before plans or runtime callbacks. Fixed executable definitions retain ordinary order; configuration-selected captures require explicit current-config renewal.",
+          "productionSources": "Memory and web search share their actual configuration selection helpers with their absence declarations. Enabled tools remain unresolved; all other state-bound sources remain unresolved. Memory context/instructions remain separate.",
+          "newFixtureScopes": [
+            "extension-api pre_session_mcp",
+            "extension-api pre_session_tools",
+            "mcp-extension actual installed closed source parity",
+            "core ThreadManager fresh source custody/refusal",
+            "login actual single-attempt factory child-process cases",
+            "memories-extension actual config capture and ordinary lifecycle parity",
+            "web-search-extension mode selection"
+          ],
+          "localScopedRustfmt": "passed",
+          "localRustCompilationOrTests": false,
+          "ciResult": "pending exact new composed tree",
+          "wholeRequestPreparationReady": false,
+          "runtimeActivation": false
+        },
+        "ordinaryPublicBodyAndPlanning": {
+          "sourceCommit": "d615a63d687555242ede9cb3874d2699f99520c3",
+          "sourceTree": "9ce8eecf782809ae5d33f63715000e8396ab2e55",
+          "publicMetadata": "Named ordinary construction policy before the existing formatter; coherent full CodexResponsesMetadata retained privately beside strict public frozen body. Unknown extras/controls/contributors refuse without callbacks. No renaming or removing populated native metadata inside the freezer.",
+          "sourcePolicy": "Metadata ThreadSource None/User only; actual ModelClient owner also refuses unsupported native source families. Field checks are not complete source attestation.",
+          "credentialCustody": "Opaque actual AuthManager/API-key cached selection with owner/generation/key/factory. Existing external-auth then cached-auth read locks held through bounded synchronous closure; credential writer publishes revision under same write lock. Not managed policy/network/source/route/model/limit/consume authority.",
+          "actualModelOwner": "ModelClient capture_public_api_responses_body derives own context, selected provider AuthManager and real contributor inventory; context resolver shared with ordinary builder. Provider callbacks before credential guard; completed pure formatted body returned synchronously. No later consume authority is conferred.",
+          "corePlanning": "Actual ordinary utility/shell/MCP-resource/collaboration-handler/mode/exposure/code-mode registry owners use resolved data without fabricated Session/TurnContext. Original eligibility/provider/role loading and final owner boundaries remain; metadata getter callbacks remain where documented. This is not complete callback-free fresh inventory.",
+          "semanticPreservation": "Named-input substitution/token comparisons and existing C bounded source inspections retained; actual existing ordinary callers use new owners. Source67 stale imports corrected in68.",
+          "authoredOfflineFixtures": {
+            "publicMetadata": 3,
+            "actualModelClient": 1,
+            "credentialGuard": 2
+          },
+          "localScopedRustfmtAndWhitespace": "passed",
+          "localRustCompilationOrExecution": false,
+          "nativeFixtureResult": "pending exact new composed tree",
+          "wholePreparationReady": false,
+          "actualPrepareCountConsumeRPCInstalled": false,
+          "applicationReady": false
+        },
+        "pendingEffectGate": {
+          "sourceOnly": true,
+          "nativeExecution": false,
+          "noProductionCaller": true,
+          "storage": "Existing StateRuntime prepared_requests, migration0062; no new ledger",
+          "states": ["ordinary", "pending", "released", "refused_before_effects"],
+          "proofStillRequired": [
+            "Original canonical monotonic owner revisions/ABA across native commitment",
+            "Exact private one-use retrospective response binding",
+            "Actual bounded native CAS inside native credential/source guards",
+            "Production prepare/count/consume/ordinary first-command admission"
+          ],
+          "fixturesAuthored": [
+            "disabled_history_notes_capture_tracks_ordinary_configuration",
+            "disabled_goal_capture_tracks_ordinary_configuration",
+            "pending_claim_cannot_acknowledge_and_refusal_survives_restart",
+            "release_and_cancellation_have_one_durable_winner",
+            "pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain",
+            "forced_release_preserves_executable_handoff_and_restart_uncertainty",
+            "continuation_requires_released_predecessor_and_original_acceptance"
+          ],
+          "ordinaryLegacyUncertaintyPreserved": true,
+          "noReceiptsOrContinuationWhilePendingOrRefused": true,
+          "goalIntegrationTarget": "goal_extension_backend (Cargo auto-discovered integration test; lib test=false does not exclude it)",
+          "independentFixtureCorrections": "C identified missing forced successful release and sampling coverage in72;73 adds both without changing production code or weakening assertions"
+        },
+        "guardedNativeClaim": {
+          "sourceOnly": true,
+          "nativeExecution": false,
+          "actualOwnerBridge": "ModelClient -> immutable ConfiguredModelProvider AuthManager Arc -> with_current_api_key_credentials -> PendingPreparedRequestCommit.commit",
+          "localDatabaseOwner": "Existing StateRuntime FULL-sync close-on-drop pooled connection; raw BEGIN IMMEDIATE before guard; LockedSqliteHandle pauses SQLx worker; exactly two bound UPDATEs plus synchronous COMMIT inside guard",
+          "noSQLxTransactionObjectOrPoolReuse": true,
+          "noFutureOrReusableEpochGuardResult": true,
+          "original65CredentialRouteGateByteExact": true,
+          "fixturesAuthored": [
+            "guarded_commit_denial_rolls_back_and_success_is_durable_before_guard_returns",
+            "guard_response_loss_after_commit_cannot_release_or_replay_claim",
+            "guarded_commit_rolls_back_partial_update_and_rejects_another_claim",
+            "ordinary_credential_owner_guards_real_pending_cas_and_logout_refuses",
+            "ordinary_logout_races_actual_guarded_claim_without_future_escape"
+          ],
+          "proofStillRequired": [
+            "All other native history/config/source/runtime/network-policy fences",
+            "Canonical original monotonic owner revision/ABA retrospective proof and private response binding",
+            "Trusted native ModelsManager both-ceiling witness bound to actual account/public route",
+            "Complete production request preparation/count/consume RPC and original ordinary admission",
+            "Authorization to release pending effects and final source-ACK/reply composition"
+          ],
+          "independentFixtureCorrection": "C observed74fixture only checked in-memoryflags insideguard;76 nowrequires actualcommittedrow through independentpreopenedreadonlyobserver beforecallbackexit, retaining laterreopenproof"
+        },
+        "fixtureCompilationCorrection": {
+          "nativeCommit": "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
+          "productionChanges": false,
+          "observedFailure": {
+            "run": 39351558521,
+            "linuxJob": 118396661575,
+            "head": "5bdbce1b02266e92967441f0ef57d323ed992650",
+            "diagnostic": "22 E0659 ambiguous assert_eq! during cargo test --no-run; no fixture outcomes"
+          },
+          "fix": "Explicit pretty_assertions::assert_eq imports in effects and guarded_commit children, preserving actual parent assertion semantics",
+          "rustCompilationOrTestsRunLocally": false,
+          "executionQualification": "pending exact-source CI"
+        },
+        "effectiveRegistryCorrection": {
+          "finding": "CEN-487055AFEF4D",
+          "nativeCommit": "865e2f6fb59451d834a7b31fe7a0b9eac4396afc",
+          "ordinaryPolicy": "Same private helper preserves explicit policy > actual source/default guardian isolation; ordinary spawn still selects the original registry branch",
+          "preSession": "Refuse effective Isolated before manager/env/registry proof, retain actual resolved source and Inherit in original options",
+          "regressionsAuthored": 2,
+          "nativeTestsExecutedLocally": false,
+          "compiledLocally": false,
+          "executionQualification": "pending exact-source CI",
+          "lineage": "Same exact correction patch as native60+61, now native77+78; no test qualification transferred"
+        },
+        "pendingFixtureCommandIdentity": {
+          "nativeCommit": "46df3041feb4fbf9bf6f47d41452abe341de61e9",
+          "productionChanges": false,
+          "fix": "Independent pending/ordinary fixture cases now each use a fresh request with a distinct binding.command_id. Consumed command-root uniqueness and every pool-local/ordinary uncertainty assertion remain unchanged.",
+          "observedFailure": {
+            "run": 39357179342,
+            "linuxJob": 118414639970,
+            "macJob": 118414639835,
+            "diagnostic": "Executed fixture failed SQLite2067 prepared_requests_consumed_command_root at effects.rs:375; not a compile failure",
+            "linux": {
+              "run": 6205,
+              "passed": 6204,
+              "failed": 1,
+              "skipped": 11
+            },
+            "mac": {
+              "run": 5984,
+              "passed": 5983,
+              "failed": 1,
+              "skipped": 27
+            }
+          },
+          "rustCompilationOrTestsRunLocally": false,
+          "executionQualification": "pending exact new source CI"
+        },
+        "modelLimitCandidate": {
+          "sourceOnly": true,
+          "nativeExecution": false,
+          "candidateType": "UnverifiedModelLimitCandidate; not account/provider/Responses/config/count/admission authority",
+          "owner": "Actual existing OpenAiModelsManager exact unique nonfallback API-supported model row; static/other manager default unsupported",
+          "descriptor": "Reviewed exact gpt-6-luna; 1050000 context,128000 maxoutput; canonical285bytes SHA89ceab0f696672378ae781a4d91fe7d470ccbdf8f12409eb9924c0d012cb20c2; policy openai-public-responses-provider-spec-v1",
+          "clamps": "Only lower provider context by original and actually resolved usable windows, preserving full ordinary configured ModelInfo. Unknown/alias/duplicate/custom/fallback/APIunsupported/nonpositive/invalidpercent refuse.",
+          "publicationGuard": "Private actual-owner/publication Arc identities; actual read lock retained, token replaced on every existing publish/cache/equal-data publish/explicit failure clear/provider builder clear under same catalog lock; rejects foreign owner and publication ABA",
+          "guardScope": "Catalog publication only. Bundled/cache may supply descriptive rows. No live endpoint identity, discovery-policy, actual config owner, account, public route, credential, source or CAS authority is supplied.",
+          "fixturesAuthored": {
+            "providerSpec": 3,
+            "actualManager": 6
+          },
+          "actualNegativeFlags": "5015 adds explicit actual rows with APIunsupported/fallback flags; a290 earlier authored coverage is not retrospectively expanded",
+          "independentSourceReview": {
+            "a290": "2bf390ec0d2d339040ba45103b0a22d87cfd0521c4841d413dd3aa6dbf7db46e",
+            "5015": "dd481f356a73cf67ba05384ea9a6076ab19db840d38eced6c0efc2a1574a8eae"
+          },
+          "localRustCompilationTestsClippy": false,
+          "requiredExactSourceCI": "codex-models-manager unit tests and formatting explicitly selected on both OS; transitive compile alone is insufficient",
+          "productionPreparationCountConsumeInstalled": false
+        },
+        "modelPublicationCloneCorrection": {
+          "sourceCommit": "673a893f754b03ded8efba534b452c29233ffc8e",
+          "actualFailure": "39368960594 both OS, E0308 at two Arc::clone calls expecting Arc but receiving MutexGuard; helperbuilds before cratefixtures/format",
+          "changes": "Bind actual publication MutexGuard in a short scope; explicit &*guard clone; same catalog-then-publication lock order and pointer, guard dropped before candidate return",
+          "productionPolicyOrTestsChanged": false,
+          "localRustCompilationTestsClippy": false,
+          "executionQualification": "pending own exact81 source CI"
+        }
+      },
+      "priorRemaining": [
+        "pure native capture/expansion without thread allocation or effectful source/tool discovery",
+        "semantic-preserving public policy for actual ordinary metadata and late contributors",
+        "complete actual account/credential/public-route/model eligibility and live config/currentness; reviewed spec/catalog limit candidate exists but grants no count or admission",
+        "app-server prepare/measure/read and current non-Stop authority ordering",
+        "stale pre-consumption database-copy/custody replacement refusal through actual selected admission owner",
+        "move-only exact selected-client transport dispatch; current raw frozen transport API is not a one-use admission owner",
+        "actual ordinary turn/start consumption, exact-body dispatch, context ACK and finalized attribution",
+        "reviewed reproducible binary delivery and feature negotiation for each consumer",
+        "application joining and independent silent reader/default/@ delivery composition"
+      ],
+      "actualNativeCampaign": {
+        "head": "3601ae36e4aba5227003aabee12a1df7c9892c2d",
+        "run": 39371503521,
+        "linux": {
+          "passed": 6270,
+          "skipped": 11
+        },
+        "mac": {
+          "passed": 6049,
+          "skipped": 27
+        },
+        "originalReceiptSha256": "c27c35d24057846f2df29c91b287b2ac500e6b811f664c53d8995aec1bdf24cb",
+        "qualification": "original81source only; no82 transfer"
+      }
     }
   ]
 }
