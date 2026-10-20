@@ -1820,3 +1820,7 @@ WebKit/Chromium and desktop Chromium in dark Mint/System and light Teal/Georgia,
 recovery, keyboard fallback activation, cleared status, quiet preparing progress
 and retained drafts. Shared motion supplies the loading icon and reduced-motion
 fallback. These checks use synthetic metadata, no backend and no model calls.
+
+Inspected captures: [phone progress](assets/chat-progress-mobile-dark.png) and
+[desktop progress](assets/chat-progress-desktop-light.png). These show isolated
+actual composer/status components, not a live chat or a change to approved settings.
