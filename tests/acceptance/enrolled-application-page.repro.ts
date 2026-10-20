@@ -169,6 +169,8 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
   let context: BrowserContext | undefined;
   let page: Page | undefined;
   let succeeded = false;
+  const primaryErrors: unknown[] = [];
+  const cleanupErrors: unknown[] = [];
   const providerRequests: unknown[] = [];
   const browserErrors: string[] = [];
   const outsideRequests: string[] = [];
@@ -385,7 +387,18 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
         payload: { text: 'Read the repository source.' },
       },
     });
-    expect(sent).toMatchObject({ status: 202, body: { dispatched: true, state: 'consumed' } });
+    await writeFile(
+      join(evidence, 'source-command-http.json'),
+      JSON.stringify(
+        { method: 'POST', path: '/api/chat/runtime/send', status: sent.status, body: sent.body },
+        null,
+        2,
+      ),
+    );
+    expect(sent, JSON.stringify({ status: sent.status, body: sent.body })).toMatchObject({
+      status: 202,
+      body: { dispatched: true, state: 'consumed' },
+    });
     await vi.waitFor(
       () => expect(chat.eventStore.getSession(sessionId)?.executionPhase).toBe('TERMINAL'),
       { timeout: 10000 },
@@ -458,6 +471,10 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
     await page.getByRole('button', { name: 'Add agent', exact: true }).click();
     const add = page.getByRole('dialog', { name: 'Add agent', exact: true });
     await uiExpect(add).toBeVisible();
+    const runOn = add.getByRole('radio', { name: 'Mac host', exact: true });
+    await runOn.check();
+    await uiExpect(runOn).toBeChecked();
+    await uiExpect(add.getByLabel('Agent', { exact: true })).toBeVisible();
     const agentValue = await add
       .getByLabel('Agent', { exact: true })
       .getByRole('option', { name: /Source agent/ })
@@ -607,35 +624,71 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       ),
     );
     succeeded = true;
+  } catch (error) {
+    primaryErrors.push(error);
+    await writeFile(
+      join(evidence, 'primary-error.json'),
+      JSON.stringify({
+        message: String(error),
+        stack: error instanceof Error ? error.stack : null,
+      }),
+    );
   } finally {
+    const finish = async (action: () => void | Promise<void>) => {
+      try {
+        await action();
+      } catch (error) {
+        cleanupErrors.push(error);
+      }
+    };
     if (page && !succeeded) {
       await page
         .screenshot({ path: join(evidence, 'failure.png'), fullPage: true })
         .catch(() => {});
-      await writeFile(
-        join(evidence, 'failure.html'),
-        await page.content().catch(() => 'Page unavailable'),
-      );
+      const html = await page.content().catch(() => 'Page unavailable');
+      await finish(() => writeFile(join(evidence, 'failure.html'), html));
     }
-    await Promise.all(responseReads);
-    await writeFile(
-      join(evidence, 'network.json'),
-      JSON.stringify(
-        {
-          responses,
-          browserErrors,
-          outsideRequests,
-          providerRequestCount: providerRequests.length,
-        },
-        null,
-        2,
-      ),
-    );
-    await context?.tracing.stop({ path: join(evidence, 'trace.zip') });
-    await context?.close();
-    await browser?.close();
-    for (const close of cleanup.reverse()) await close();
+    await finish(async () => {
+      await Promise.all(responseReads);
+      await writeFile(
+        join(evidence, 'network.json'),
+        JSON.stringify(
+          {
+            responses,
+            browserErrors,
+            outsideRequests,
+            providerRequestCount: providerRequests.length,
+          },
+          null,
+          2,
+        ),
+      );
+    });
+    await finish(() => context?.tracing.stop({ path: join(evidence, 'trace.zip') }));
+    await finish(() => context?.close());
+    await finish(() => browser?.close());
+    for (const close of cleanup.reverse()) await finish(close);
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+    if (cleanupErrors.length) {
+      const errors = [...primaryErrors, ...cleanupErrors];
+      await writeFile(
+        join(evidence, 'cleanup-errors.json'),
+        JSON.stringify(
+          errors.map((error) => ({
+            message: String(error),
+            stack: error instanceof Error ? error.stack : null,
+          })),
+          null,
+          2,
+        ),
+      );
+    }
   }
+  if (cleanupErrors.length)
+    throw new AggregateError(
+      [...primaryErrors, ...cleanupErrors],
+      'Application page failed with retained cleanup errors',
+    );
+  if (primaryErrors.length) throw primaryErrors[0];
 }, 60000);

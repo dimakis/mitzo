@@ -114,7 +114,7 @@ export async function createApplicationBrowserTransport(
                 ? client.delete(path)
                 : undefined;
       if (!operation) throw Error('Unsupported application test HTTP method');
-      operation.set('Host', 'acceptance.invalid').set(input.headers ?? {});
+      operation.set(input.headers ?? {});
       if (input.body !== undefined) operation.type('json').send(JSON.stringify(input.body));
       const response = await operation.timeout(10000);
       return { status: response.status, body: response.body, headers: response.headers };
@@ -123,9 +123,10 @@ export async function createApplicationBrowserTransport(
       closed = true;
       for (const stream of streams) stream.close();
       if (!server.listening) return;
-      await new Promise<void>((resolve, reject) =>
-        server.close((error) => (error ? reject(error) : resolve())),
-      );
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        server.closeAllConnections();
+      });
     },
   };
 }
