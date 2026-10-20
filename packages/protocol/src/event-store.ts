@@ -1,7 +1,9 @@
 import {
   OrdinarySessionPreparationReceiptSchema,
+  OrdinarySessionPreparationReceiptV2Schema,
   type OrdinarySessionPreparationReceipt,
 } from './ordinary-prepared-session.js';
+import { OrdinaryWorkspaceSessionStore } from './ordinary-workspace-session-store.js';
 import type { CollaborationSettings } from './collaboration-conversation.js';
 import {
   OrdinaryLocalVertexCustodySchema,
@@ -12,6 +14,7 @@ import {
   rowToSession,
   REGISTERED_CONVERSATION_SQL,
   LEGACY_CONVERSATION_EVIDENCE_SQL,
+  sessionWorkspaceId,
   type SessionRow,
   type SessionUpsert,
 } from './session-metadata-store.js';
@@ -388,6 +391,7 @@ export class EventStore {
   readonly collaborationConversation: CollaborationConversationStore;
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
   private readonly sessionMetadata: SessionMetadataStore;
+  private readonly ordinaryWorkspaceSessions: OrdinaryWorkspaceSessionStore;
   private readonly sessionLifecycle: SessionLifecycleStore;
   private readonly executionLedger: ExecutionLedger<SessionRow>;
   private log: EventStoreLogger;
@@ -475,6 +479,29 @@ export class EventStore {
     ).run(clientMsgId, sessionId, JSON.stringify(payload));
   }
 
+  prepareOrdinaryWorkspaceSession(...args: Parameters<OrdinaryWorkspaceSessionStore['prepare']>) {
+    return this.ordinaryWorkspaceSessions.prepare(...args);
+  }
+  getOrdinaryWorkspaceSessionPreparation(operationId: string) {
+    return this.ordinaryWorkspaceSessions.get(operationId);
+  }
+  getOrdinaryWorkspaceSessionPreparationForConversation(sessionId: string) {
+    return this.ordinaryWorkspaceSessions.forConversation(sessionId);
+  }
+  getOrdinaryWorkspaceConversationSettings(sessionId: string) {
+    return this.ordinaryWorkspaceSessions.settings(sessionId);
+  }
+  assertPreparedOrdinaryWorkspaceSession(
+    ...args: Parameters<OrdinaryWorkspaceSessionStore['assert']>
+  ) {
+    return this.ordinaryWorkspaceSessions.assert(...args);
+  }
+  admitPreparedOrdinaryWorkspaceCommand(
+    ...args: Parameters<OrdinaryWorkspaceSessionStore['admit']>
+  ) {
+    return this.ordinaryWorkspaceSessions.admit(...args);
+  }
+
   /** Trusted workspace owner only: reservation/source/runtime fences precede this commit.
    * No command, event, native queue, execution admission or provider is created. */
   prepareOrdinarySession(
@@ -541,7 +568,13 @@ export class EventStore {
     const row = this.db!.prepare(
       'SELECT receipt FROM ordinary_session_preparations WHERE operation_id=?',
     ).get(operationId) as { receipt: string } | undefined;
-    return row ? OrdinarySessionPreparationReceiptSchema.parse(JSON.parse(row.receipt)) : undefined;
+    if (!row) return undefined;
+    const raw = JSON.parse(row.receipt);
+    if (raw?.version === 2) {
+      OrdinarySessionPreparationReceiptV2Schema.parse(raw);
+      return undefined;
+    }
+    return OrdinarySessionPreparationReceiptSchema.parse(raw);
   }
   private assertPreparedOrdinaryMetadata(
     receipt: OrdinarySessionPreparationReceipt,
@@ -827,6 +860,11 @@ export class EventStore {
     location: 'local' | 'openshell' | 'responses' | 'vertex',
     preparationOperationId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    if (meta.ordinaryWorkspaceId != null) {
+      if (location !== 'local' || !preparationOperationId)
+        throw Error('Ordinary workspace requires its original prepared local admission');
+      this.ordinaryWorkspaceSessions.assert(preparationOperationId, meta, binding, input.selection);
+    }
     const schema =
       location === 'vertex'
         ? OrdinaryLocalVertexCommandAdmissionSchema
@@ -838,7 +876,7 @@ export class EventStore {
     const admission = schema.parse({
       version: 1,
       binding,
-      workspace: { workspaceId: meta.repositoryWorkspaceId, cwd: meta.cwd },
+      workspace: { workspaceId: sessionWorkspaceId(meta), cwd: meta.cwd },
       selection: input.selection,
       requestFingerprint: input.requestFingerprint,
       state: 'reserved',
@@ -897,6 +935,16 @@ export class EventStore {
     input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
     location: 'local' | 'openshell' | 'responses' | 'vertex',
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    if (meta.ordinaryWorkspaceId != null) {
+      const prepared = this.ordinaryWorkspaceSessions.forConversation(meta.sessionId);
+      if (
+        location !== 'local' ||
+        !prepared ||
+        prepared.firstCommandId === null ||
+        prepared.workspaceId !== meta.ordinaryWorkspaceId
+      )
+        throw Error('Original prepared ordinary workspace continuation required');
+    }
     const schema =
       location === 'vertex'
         ? OrdinaryLocalVertexCommandAdmissionSchema
@@ -908,7 +956,7 @@ export class EventStore {
     const admission = schema.parse({
       version: 1,
       binding,
-      workspace: { workspaceId: meta.repositoryWorkspaceId, cwd: meta.cwd },
+      workspace: { workspaceId: sessionWorkspaceId(meta), cwd: meta.cwd },
       selection: input.selection,
       requestFingerprint: input.requestFingerprint,
       state: 'reserved',
@@ -992,6 +1040,7 @@ export class EventStore {
     return row ? this.getOrdinarySessionPreparation(row.operation_id) : undefined;
   }
   getOrdinaryConversationSettings(id: string): CollaborationSettings | undefined {
+    if (this.getSession(id)?.ordinaryWorkspaceId) return undefined;
     const db = this.db!;
     const admission = this.getLatestOrdinaryCommandAdmission(id);
     if (!admission) {
@@ -1061,7 +1110,8 @@ export class EventStore {
     const session = this.getSession(row.session_id);
     if (
       JSON.stringify(runtime) !== JSON.stringify(admission.binding) ||
-      session?.repositoryWorkspaceId !== admission.workspace.workspaceId ||
+      !session ||
+      sessionWorkspaceId(session) !== admission.workspace.workspaceId ||
       session?.cwd !== admission.workspace.cwd
     )
       throw new Error('Ordinary command admission does not match durable session identity');
@@ -1304,6 +1354,8 @@ export class EventStore {
           };
         }
         const command = this.getSendCommand(operationId);
+        if (command?.sessionId && this.getSession(command.sessionId)?.ordinaryWorkspaceId)
+          return undefined;
         const admission = this.getOrdinaryCommandAdmission(operationId);
         if (!command?.sessionId || command.error || !admission) return undefined;
         const first = db
@@ -1425,6 +1477,18 @@ export class EventStore {
       assertConversationIdentity: (id) => this.assertConversationIdentity(id),
       getInternalSdkExecution: (id) => this.getInternalSdkExecution(id),
       upsertSession: (meta) => this.upsertSession(meta),
+    });
+    this.ordinaryWorkspaceSessions = new OrdinaryWorkspaceSessionStore({
+      database: () => this.db,
+      getSession: (id) => this.getSession(id),
+      getSessionRuntimeBinding: (id) => this.getSessionRuntimeBinding(id),
+      createSessionWithRuntimeBinding: (meta, binding) =>
+        this.createSessionWithRuntimeBinding(meta, binding),
+      getSendCommand: (id) => this.getSendCommand(id),
+      getOrdinaryInitialCommandId: (id) => this.getOrdinaryInitialCommandId(id),
+      getLatestOrdinaryCommandAdmission: (id) => this.getLatestOrdinaryCommandAdmission(id),
+      admit: (meta, binding, command, operation) =>
+        this.admitOrdinaryCommand(meta, binding, command, 'local', operation),
     });
     this.executionLedger = new ExecutionLedger<SessionRow>({
       database: () => this.db,
@@ -1608,6 +1672,8 @@ export class EventStore {
       db.exec('ALTER TABLE sessions ADD COLUMN repository_workspace_id TEXT');
       this.log.info('migrated sessions table: added repository_workspace_id');
     }
+    if (!columnNames.has('ordinary_workspace_id'))
+      db.exec('ALTER TABLE sessions ADD COLUMN ordinary_workspace_id TEXT');
     if (!columnNames.has('selected_model')) {
       db.exec('ALTER TABLE sessions ADD COLUMN selected_model TEXT');
       this.log.info('migrated sessions table: added selected_model');

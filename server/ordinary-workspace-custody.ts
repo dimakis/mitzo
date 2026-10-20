@@ -352,6 +352,18 @@ export class OrdinaryWorkspaceCustody {
     sameDirectory(directory, record.taskIdentity.root);
     return record;
   }
+  /** Recheck an existing reservation without allocation or materialization. */
+  async revalidate(input: OrdinaryWorkspaceClaimInput) {
+    const original = this.get(input.id);
+    this.assertClaimScope(original, input);
+    if (!['reserved', 'claimed'].includes(original.state))
+      throw Error('Ordinary workspace claim is uncertain; preserve its original identity');
+    await this.assertReadiness(original.preparationId, input.binding, input.signal);
+    this.unchanged(original);
+    this.assertClaimScope(original, input);
+    if (original.state === 'claimed') this.validate(original.conversationId, original.directory);
+    return original;
+  }
   async claim(input: OrdinaryWorkspaceClaimInput) {
     const binding = AccountBindingSchema.parse(structuredClone(input.binding));
     const selected = { ...input, binding };
