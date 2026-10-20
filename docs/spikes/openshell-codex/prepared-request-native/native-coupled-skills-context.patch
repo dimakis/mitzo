@@ -1,0 +1,2711 @@
+diff --git a/codex-rs/app-server/src/extensions.rs b/codex-rs/app-server/src/extensions.rs
+index c2d6d6d..c9f3bac 100644
+--- a/codex-rs/app-server/src/extensions.rs
++++ b/codex-rs/app-server/src/extensions.rs
+@@ -39,7 +39,7 @@ pub(crate) struct ThreadExtensionDependencies {
+     pub(crate) thread_manager: Weak<ThreadManager>,
+     pub(crate) goal_service: Arc<GoalService>,
+     pub(crate) environment_manager: Arc<EnvironmentManager>,
+-    pub(crate) executor_skill_provider: Arc<dyn codex_skills_extension::SkillProvider>,
++    pub(crate) executor_skill_provider: Arc<codex_skills_extension::ExecutorSkillProvider>,
+     pub(crate) git_attribution_base_url: String,
+     pub(crate) http_client_factory: HttpClientFactory,
+     /// Process-scoped queue shared by idle dispatch and app-server requests.
+@@ -102,8 +102,8 @@ pub(crate) fn thread_extensions(
+         Some(config.codex_home.clone())
+     });
+     let skill_providers = codex_skills_extension::SkillProviders::new()
+-        .with_executor_provider(executor_skill_provider)
+-        .with_host_provider(Arc::new(codex_skills_extension::HostSkillProvider::new()));
++        .with_native_executor_provider(executor_skill_provider)
++        .with_native_host_provider(Arc::new(codex_skills_extension::HostSkillProvider::new()));
+     codex_skills_extension::install_with_providers_and_metrics(
+         &mut builder,
+         skill_providers,
+diff --git a/codex-rs/app-server/src/mcp_refresh.rs b/codex-rs/app-server/src/mcp_refresh.rs
+index b654ad6..74cec58 100644
+--- a/codex-rs/app-server/src/mcp_refresh.rs
++++ b/codex-rs/app-server/src/mcp_refresh.rs
+@@ -314,7 +314,7 @@ enabled = false
+             .expect("refresh tests require state db");
+         let thread_store = thread_store_from_config(&good_config, Some(state_db.clone()));
+         let environment_manager = Arc::new(EnvironmentManager::default_for_tests());
+-        let executor_skill_provider: Arc<dyn codex_skills_extension::SkillProvider> = Arc::new(
++        let executor_skill_provider: Arc<codex_skills_extension::ExecutorSkillProvider> = Arc::new(
+             codex_skills_extension::ExecutorSkillProvider::new_with_restriction_product(
+                 Arc::clone(&environment_manager),
+                 SessionSource::Exec.restriction_product(),
+diff --git a/codex-rs/app-server/src/message_processor.rs b/codex-rs/app-server/src/message_processor.rs
+index 9e9a904..07f553c 100644
+--- a/codex-rs/app-server/src/message_processor.rs
++++ b/codex-rs/app-server/src/message_processor.rs
+@@ -311,7 +311,7 @@ impl MessageProcessor {
+         let environment_manager_for_requests = Arc::clone(&environment_manager);
+         let environment_manager_for_extensions = Arc::clone(&environment_manager);
+         let restriction_product = session_source.restriction_product();
+-        let executor_skill_provider: Arc<dyn codex_skills_extension::SkillProvider> = Arc::new(
++        let executor_skill_provider: Arc<codex_skills_extension::ExecutorSkillProvider> = Arc::new(
+             codex_skills_extension::ExecutorSkillProvider::new_with_restriction_product(
+                 Arc::clone(&environment_manager_for_extensions),
+                 restriction_product,
+diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
+index 5b335c2..f44917d 100644
+--- a/codex-rs/core/src/session/turn.rs
++++ b/codex-rs/core/src/session/turn.rs
+@@ -1152,18 +1152,11 @@ async fn build_skills_and_plugins(
+         }
+     }
+ 
+-    let mut injection_items = match injected_host_skill_prompts {
+-        Some(injected_host_skill_prompts) => skill_items
+-            .into_iter()
+-            .zip(injected_host_skills.iter())
+-            .filter_map(|(item, skill)| {
+-                (!injected_host_skill_prompts
+-                    .contains_path(&skill.path_to_skills_md.to_string_lossy()))
+-                .then_some(item)
+-            })
+-            .collect(),
+-        None => skill_items,
+-    };
++    let mut injection_items = codex_skills_extension::deduplicate_host_skill_items(
++        skill_items,
++        &injected_host_skills,
++        injected_host_skill_prompts.as_deref(),
++    );
+     injection_items.extend(plugin_items);
+     injection_items.extend(extension_injection_items);
+     Some((injection_items, explicitly_enabled_connectors))
+diff --git a/codex-rs/exec-server/src/capability_discovery_cache.rs b/codex-rs/exec-server/src/capability_discovery_cache.rs
+index 9497325..35ba69d 100644
+--- a/codex-rs/exec-server/src/capability_discovery_cache.rs
++++ b/codex-rs/exec-server/src/capability_discovery_cache.rs
+@@ -8,13 +8,15 @@ use codex_protocol::capabilities::CapabilityRootLocation;
+ use codex_protocol::capabilities::SelectedCapabilityRoot;
+ use tokio::sync::Mutex;
+ 
+-use crate::CapabilityRootDiscoverRequest;
+ use crate::CapabilityRootDiscovery;
+-use crate::CapabilityRootsDiscoverParams;
+ use crate::EnvironmentManager;
+ use crate::ExecutorCapabilityDiscoverySnapshot;
+ use crate::FileSystemSandboxContext;
+ 
++mod resolved;
++use resolved::discover_batch;
++pub use resolved::discover_resolved_capability_roots;
++
+ /// Thread-scoped cache shared by capability consumers using the high-level executor API.
+ ///
+ /// A single miss batches every requested root by environment. Successful discoveries and
+@@ -170,75 +172,7 @@ impl ExecutorCapabilityDiscoveryCache {
+                         })
+                         .collect::<Vec<_>>();
+                 };
+-                let params = CapabilityRootsDiscoverParams {
+-                    roots: selected_roots
+-                        .iter()
+-                        .map(|selected_root| {
+-                            let CapabilityRootLocation::Environment { path, .. } =
+-                                &selected_root.location;
+-                            CapabilityRootDiscoverRequest {
+-                                id: selected_root.id.clone(),
+-                                path: path.clone(),
+-                                sandbox: sandbox.clone(),
+-                            }
+-                        })
+-                        .collect(),
+-                };
+-                let response = match environment.discover_capability_roots(params).await {
+-                    Ok(response) => response,
+-                    Err(error) => {
+-                        let retryable = crate::client::can_retry_connection_attempt(&error);
+-                        let error = error.to_string();
+-                        return selected_roots
+-                            .into_iter()
+-                            .map(|selected_root| CachedRoot {
+-                                selected_root,
+-                                sandbox: sandbox.clone(),
+-                                result: Err(error.clone()),
+-                                retryable,
+-                            })
+-                            .collect();
+-                    }
+-                };
+-                if response.roots.len() != selected_roots.len() {
+-                    let error = format!(
+-                        "exec-server returned {} capability roots for {} requests",
+-                        response.roots.len(),
+-                        selected_roots.len()
+-                    );
+-                    return selected_roots
+-                        .into_iter()
+-                        .map(|selected_root| CachedRoot {
+-                            selected_root,
+-                            sandbox: sandbox.clone(),
+-                            result: Err(error.clone()),
+-                            retryable: false,
+-                        })
+-                        .collect();
+-                }
+-                selected_roots
+-                    .into_iter()
+-                    .zip(response.roots)
+-                    .map(|(selected_root, discovery)| {
+-                        let CapabilityRootLocation::Environment { path, .. } =
+-                            &selected_root.location;
+-                        let result = if discovery.id == selected_root.id && discovery.path == *path
+-                        {
+-                            Ok(Arc::new(discovery))
+-                        } else {
+-                            Err(format!(
+-                                "exec-server returned mismatched capability root `{}` at {}",
+-                                discovery.id, discovery.path
+-                            ))
+-                        };
+-                        CachedRoot {
+-                            selected_root,
+-                            sandbox: sandbox.clone(),
+-                            result,
+-                            retryable: false,
+-                        }
+-                    })
+-                    .collect()
++                discover_batch(environment, selected_roots, sandbox).await
+             }))
+             .await;
+         discoveries.into_iter().flatten().collect()
+diff --git a/codex-rs/exec-server/src/capability_discovery_cache/resolved.rs b/codex-rs/exec-server/src/capability_discovery_cache/resolved.rs
+new file mode 100644
+index 0000000..ae863fb
+--- /dev/null
++++ b/codex-rs/exec-server/src/capability_discovery_cache/resolved.rs
+@@ -0,0 +1,147 @@
++use std::collections::BTreeMap;
++use std::collections::HashMap;
++use std::sync::Arc;
++
++use codex_protocol::capabilities::CapabilityRootLocation;
++use codex_protocol::capabilities::SelectedCapabilityRoot;
++
++use super::CachedRoot;
++use crate::CapabilityRootDiscoverRequest;
++use crate::CapabilityRootsDiscoverParams;
++use crate::Environment;
++use crate::ExecutorCapabilityDiscoverySnapshot;
++use crate::FileSystemSandboxContext;
++use crate::ResolvedSelectedCapabilityRoot;
++
++/// Reads through the exact already-resolved environment handles, without
++/// selecting another environment from a manager or publishing a thread cache.
++/// This performs discovery I/O; it is not a source/permission lease. Callers
++/// must apply their source's activation and readiness restrictions first.
++pub async fn discover_resolved_capability_roots(
++    resolved: &[ResolvedSelectedCapabilityRoot],
++    sandbox_contexts: &HashMap<String, FileSystemSandboxContext>,
++) -> Result<ExecutorCapabilityDiscoverySnapshot, String> {
++    let mut grouped = BTreeMap::<String, (Arc<Environment>, Vec<SelectedCapabilityRoot>)>::new();
++    for root in resolved {
++        let CapabilityRootLocation::Environment { environment_id, .. } =
++            &root.selected_root().location;
++        let (environment, roots) = grouped
++            .entry(environment_id.clone())
++            .or_insert_with(|| (Arc::clone(root.environment()), Vec::new()));
++        if !Arc::ptr_eq(environment, root.environment()) {
++            return Err("selected roots contain different handles for one environment".to_string());
++        }
++        roots.push(root.selected_root().clone());
++    }
++    let batches = grouped
++        .into_iter()
++        .flat_map(|(environment_id, (environment, roots))| {
++            roots
++                .chunks(crate::capability_discovery::MAX_ROOTS_PER_REQUEST)
++                .map(|batch| {
++                    (
++                        Arc::clone(&environment),
++                        batch.to_vec(),
++                        sandbox_contexts.get(&environment_id).cloned(),
++                    )
++                })
++                .collect::<Vec<_>>()
++        });
++    let discoveries = futures::future::join_all(
++        batches.map(|(environment, roots, sandbox)| discover_batch(environment, roots, sandbox)),
++    )
++    .await;
++    let discoveries = discoveries.into_iter().flatten().collect::<Vec<_>>();
++    let selected = resolved
++        .iter()
++        .map(|root| root.selected_root().clone())
++        .collect::<Vec<_>>();
++    let ordered = selected
++        .iter()
++        .map(|root| {
++            discoveries
++                .iter()
++                .find(|result| result.selected_root == *root)
++                .map(|result| result.result.clone())
++                .unwrap_or_else(|| Err("selected root discovery is missing".to_string()))
++        })
++        .collect();
++    Ok(ExecutorCapabilityDiscoverySnapshot::new(
++        &selected,
++        ordered,
++        sandbox_contexts.clone(),
++    ))
++}
++
++pub(super) async fn discover_batch(
++    environment: Arc<Environment>,
++    selected_roots: Vec<SelectedCapabilityRoot>,
++    sandbox: Option<FileSystemSandboxContext>,
++) -> Vec<CachedRoot> {
++    let params = CapabilityRootsDiscoverParams {
++        roots: selected_roots
++            .iter()
++            .map(|selected_root| {
++                let CapabilityRootLocation::Environment { path, .. } = &selected_root.location;
++                CapabilityRootDiscoverRequest {
++                    id: selected_root.id.clone(),
++                    path: path.clone(),
++                    sandbox: sandbox.clone(),
++                }
++            })
++            .collect(),
++    };
++    let response = match environment.discover_capability_roots(params).await {
++        Ok(response) => response,
++        Err(error) => {
++            let retryable = crate::client::can_retry_connection_attempt(&error);
++            let error = error.to_string();
++            return selected_roots
++                .into_iter()
++                .map(|selected_root| CachedRoot {
++                    selected_root,
++                    sandbox: sandbox.clone(),
++                    result: Err(error.clone()),
++                    retryable,
++                })
++                .collect();
++        }
++    };
++    if response.roots.len() != selected_roots.len() {
++        let error = format!(
++            "exec-server returned {} capability roots for {} requests",
++            response.roots.len(),
++            selected_roots.len()
++        );
++        return selected_roots
++            .into_iter()
++            .map(|selected_root| CachedRoot {
++                selected_root,
++                sandbox: sandbox.clone(),
++                result: Err(error.clone()),
++                retryable: false,
++            })
++            .collect();
++    }
++    selected_roots
++        .into_iter()
++        .zip(response.roots)
++        .map(|(selected_root, discovery)| {
++            let CapabilityRootLocation::Environment { path, .. } = &selected_root.location;
++            let result = if discovery.id == selected_root.id && discovery.path == *path {
++                Ok(Arc::new(discovery))
++            } else {
++                Err(format!(
++                    "exec-server returned mismatched capability root `{}` at {}",
++                    discovery.id, discovery.path
++                ))
++            };
++            CachedRoot {
++                selected_root,
++                sandbox: sandbox.clone(),
++                result,
++                retryable: false,
++            }
++        })
++        .collect()
++}
+diff --git a/codex-rs/exec-server/src/lib.rs b/codex-rs/exec-server/src/lib.rs
+index 2d850e9..e121026 100644
+--- a/codex-rs/exec-server/src/lib.rs
++++ b/codex-rs/exec-server/src/lib.rs
+@@ -66,6 +66,7 @@ pub use arg0_exec_helper::main as run_arg0_exec_helper_main;
+ pub use capability_discovery::CapabilityDiscoveryError;
+ pub use capability_discovery::discover_capability_roots;
+ pub use capability_discovery_cache::ExecutorCapabilityDiscoveryCache;
++pub use capability_discovery_cache::discover_resolved_capability_roots;
+ pub use client::ExecServerClient;
+ pub use client::ExecServerError;
+ pub use client::http_client::HttpResponseBodyStream;
+diff --git a/codex-rs/exec-server/src/resolved_capability.rs b/codex-rs/exec-server/src/resolved_capability.rs
+index 078b2b9..6ccab55 100644
+--- a/codex-rs/exec-server/src/resolved_capability.rs
++++ b/codex-rs/exec-server/src/resolved_capability.rs
+@@ -107,6 +107,32 @@ impl EnvironmentManager {
+         }
+     }
+ 
++    /// Observes only ready handles without starting, waiting or recovering an
++    /// environment. Missing/pending/failed selections remain absent from the
++    /// returned observation; consumers requiring complete selection must refuse.
++    /// This retains handles, not a registry/readiness/permission publication lease.
++    pub fn observe_ready_selected_capability_roots(
++        &self,
++        selected_roots: &[SelectedCapabilityRoot],
++    ) -> Vec<ResolvedSelectedCapabilityRoot> {
++        self.inspect_selected_capability_roots(selected_roots)
++            .ready_roots
++            .into_iter()
++            .filter_map(|selected_root| {
++                let CapabilityRootLocation::Environment { environment_id, .. } =
++                    &selected_root.location;
++                let environment = self.get_environment(environment_id)?;
++                if !matches!(environment.readiness_result(), Some(Ok(()))) {
++                    return None;
++                }
++                Some(ResolvedSelectedCapabilityRoot {
++                    selected_root,
++                    environment,
++                })
++            })
++            .collect()
++    }
++
+     /// Resolves selected roots whose stable environments are ready for the current model step.
+     ///
+     /// Environment identity comes from the selected root's stable environment ID. A ready
+diff --git a/codex-rs/exec-server/tests/selected_capability_roots.rs b/codex-rs/exec-server/tests/selected_capability_roots.rs
+index 3c621e1..18eba1d 100644
+--- a/codex-rs/exec-server/tests/selected_capability_roots.rs
++++ b/codex-rs/exec-server/tests/selected_capability_roots.rs
+@@ -67,3 +67,31 @@ async fn selected_capability_roots_use_captured_handle_after_replacement() -> an
+     executor.shutdown().await?;
+     Ok(())
+ }
++
++#[tokio::test]
++async fn passive_root_observation_retains_ready_local_handle_without_creating_missing_environments()
++{
++    let manager = codex_exec_server::EnvironmentManager::default_for_tests();
++    let local = manager
++        .try_local_environment()
++        .expect("original local environment");
++    let local_root = SelectedCapabilityRoot {
++        id: "passive-local".into(),
++        location: CapabilityRootLocation::Environment {
++            environment_id: "local".into(),
++            path: PathUri::parse("file:///passive-observation").unwrap(),
++        },
++    };
++    let mut absent_root = local_root.clone();
++    absent_root.id = "passive-missing".into();
++    absent_root.location = CapabilityRootLocation::Environment {
++        environment_id: "never-created".into(),
++        path: PathUri::parse("file:///passive-observation").unwrap(),
++    };
++    let observed =
++        manager.observe_ready_selected_capability_roots(&[local_root.clone(), absent_root]);
++    assert_eq!(observed.len(), 1);
++    assert_eq!(observed[0].selected_root(), &local_root);
++    assert!(Arc::ptr_eq(observed[0].environment(), &local));
++    assert!(manager.get_environment("never-created").is_none());
++}
+diff --git a/codex-rs/ext/extension-api/src/lib.rs b/codex-rs/ext/extension-api/src/lib.rs
+index e6e3f83..fd89c6a 100644
+--- a/codex-rs/ext/extension-api/src/lib.rs
++++ b/codex-rs/ext/extension-api/src/lib.rs
+@@ -106,8 +106,10 @@ pub use contributors::WorldStateSectionContribution;
+ pub use mcp_pre_session::McpPreSessionContext;
+ pub use mcp_pre_session::McpPreSessionOverlay;
+ pub use mcp_pre_session::McpPreSessionPlan;
++pub use registry::ContextSourceRegistrationError;
+ pub use registry::ExtensionRegistry;
+ pub use registry::ExtensionRegistryBuilder;
++pub use registry::RegisteredContextSource;
+ pub use registry::empty_extension_registry;
+ pub use state::ExtensionData;
+ pub use state::ExtensionDataInit;
+diff --git a/codex-rs/ext/extension-api/src/registry.rs b/codex-rs/ext/extension-api/src/registry.rs
+index 302f5a4..80efff8 100644
+--- a/codex-rs/ext/extension-api/src/registry.rs
++++ b/codex-rs/ext/extension-api/src/registry.rs
+@@ -1,4 +1,8 @@
++mod context_sources;
+ mod pre_session_tools;
++pub use context_sources::ContextSourceRegistrationError;
++use context_sources::CoupledContextSource;
++pub use context_sources::RegisteredContextSource;
+ 
+ use std::sync::Arc;
+ 
+@@ -47,6 +51,7 @@ impl<C: Sync> Default for ExtensionRegistryBuilder<C> {
+                 skill_invocation_contributors: Vec::new(),
+                 approval_review_contributors: Vec::new(),
+                 context_contributors: Vec::new(),
++                coupled_context_sources: Vec::new(),
+                 mcp_server_contributors: Vec::new(),
+                 mcp_pre_session_plans: Vec::new(),
+                 turn_input_contributors: Vec::new(),
+@@ -234,6 +239,7 @@ pub struct ExtensionRegistry<C: Sync> {
+     token_usage_contributors: Vec<Arc<dyn TokenUsageContributor>>,
+     skill_invocation_contributors: Vec<Arc<dyn SkillInvocationContributor>>,
+     context_contributors: Vec<Arc<dyn ContextContributor>>,
++    coupled_context_sources: Vec<CoupledContextSource>,
+     mcp_server_contributors: Vec<Arc<dyn McpServerContributor<C>>>,
+     mcp_pre_session_plans: Vec<Option<McpPreSessionPlan<C>>>,
+     turn_input_contributors: Vec<Arc<dyn TurnInputContributor>>,
+@@ -260,6 +266,7 @@ impl<C: Sync> ExtensionRegistry<C> {
+                 token_usage_contributors: self.token_usage_contributors.clone(),
+                 skill_invocation_contributors: self.skill_invocation_contributors.clone(),
+                 context_contributors: self.context_contributors.clone(),
++                coupled_context_sources: self.coupled_context_sources.clone(),
+                 mcp_server_contributors: self.mcp_server_contributors.clone(),
+                 mcp_pre_session_plans: self.mcp_pre_session_plans.clone(),
+                 turn_input_contributors: self.turn_input_contributors.clone(),
+diff --git a/codex-rs/ext/extension-api/src/registry/context_sources.rs b/codex-rs/ext/extension-api/src/registry/context_sources.rs
+new file mode 100644
+index 0000000..eafbf95
+--- /dev/null
++++ b/codex-rs/ext/extension-api/src/registry/context_sources.rs
+@@ -0,0 +1,122 @@
++use std::any::Any;
++use std::sync::Arc;
++
++use super::ExtensionRegistry;
++use super::ExtensionRegistryBuilder;
++use crate::ContextContributor;
++use crate::ToolContributor;
++use crate::TurnInputContributor;
++
++#[derive(Clone)]
++pub(super) struct CoupledContextSource {
++    source: Arc<dyn Any + Send + Sync>,
++    context_index: usize,
++    turn_input_index: usize,
++    tool_index: usize,
++}
++
++/// Original registered owner shared by prompt, turn-input and tool contributions.
++/// This is provenance only: it does not settle any partition's captured content,
++/// source currentness or preparation/admission authority.
++pub struct RegisteredContextSource<T> {
++    source: Arc<T>,
++    registry_identity: Arc<()>,
++    context_index: usize,
++    turn_input_index: usize,
++    tool_index: usize,
++}
++
++impl<T> RegisteredContextSource<T> {
++    pub fn source(&self) -> &T {
++        &self.source
++    }
++
++    /// Original indexes in the prompt, turn-input and tool contributor vectors.
++    pub fn registration_indexes(&self) -> (usize, usize, usize) {
++        (self.context_index, self.turn_input_index, self.tool_index)
++    }
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum ContextSourceRegistrationError {
++    RegistryChanged,
++    ContributorsChanged,
++}
++
++impl<C: Sync> ExtensionRegistryBuilder<C> {
++    /// Registers the SAME original allocation for all three context partitions.
++    /// State-bound tools remain unresolved in the existing tool inventory until
++    /// their actual source-owned selection is captured; no callback is invoked.
++    pub fn coupled_context_contributor<T>(&mut self, source: Arc<T>)
++    where
++        T: ContextContributor + TurnInputContributor + ToolContributor + 'static,
++    {
++        let registration = CoupledContextSource {
++            source: source.clone(),
++            context_index: self.registry.context_contributors.len(),
++            turn_input_index: self.registry.turn_input_contributors.len(),
++            tool_index: self.registry.tool_contributors.len(),
++        };
++        self.prompt_contributor(source.clone());
++        self.turn_input_contributor(source.clone());
++        self.tool_contributor(source);
++        self.registry.coupled_context_sources.push(registration);
++    }
++}
++
++impl<C: Sync> ExtensionRegistry<C> {
++    /// Finds only actual coupled owners of this concrete type, in registration
++    /// order. An empty result proves no absence for other contributor sources.
++    pub fn registered_context_sources<T>(&self) -> Vec<RegisteredContextSource<T>>
++    where
++        T: ContextContributor + TurnInputContributor + ToolContributor + 'static,
++    {
++        self.coupled_context_sources
++            .iter()
++            .filter_map(|registration| {
++                Arc::clone(&registration.source)
++                    .downcast::<T>()
++                    .ok()
++                    .map(|source| RegisteredContextSource {
++                        source,
++                        registry_identity: Arc::clone(&self.tool_inventory_identity),
++                        context_index: registration.context_index,
++                        turn_input_index: registration.turn_input_index,
++                        tool_index: registration.tool_index,
++                    })
++            })
++            .collect()
++    }
++
++    /// Checks only exact registry identity and the three original allocation
++    /// pointers. Provider/configuration/filesystem capture and renewal remain
++    /// obligations of the registered native source, not this metadata check.
++    pub fn assert_context_source_registration<T>(
++        &self,
++        source: &RegisteredContextSource<T>,
++    ) -> Result<(), ContextSourceRegistrationError>
++    where
++        T: ContextContributor + TurnInputContributor + ToolContributor + 'static,
++    {
++        if !Arc::ptr_eq(&self.tool_inventory_identity, &source.registry_identity) {
++            return Err(ContextSourceRegistrationError::RegistryChanged);
++        }
++        let pointer = Arc::as_ptr(&source.source).cast::<()>();
++        let context = self
++            .context_contributors
++            .get(source.context_index)
++            .map(|source| Arc::as_ptr(source).cast::<()>());
++        let turn_input = self
++            .turn_input_contributors
++            .get(source.turn_input_index)
++            .map(|source| Arc::as_ptr(source).cast::<()>());
++        let tool = self
++            .tool_contributors
++            .get(source.tool_index)
++            .map(|source| Arc::as_ptr(source).cast::<()>());
++        if context != Some(pointer) || turn_input != Some(pointer) || tool != Some(pointer) {
++            return Err(ContextSourceRegistrationError::ContributorsChanged);
++        }
++        Ok(())
++    }
++}
+diff --git a/codex-rs/ext/extension-api/tests/registry.rs b/codex-rs/ext/extension-api/tests/registry.rs
+index daf9192..70f61bc 100644
+--- a/codex-rs/ext/extension-api/tests/registry.rs
++++ b/codex-rs/ext/extension-api/tests/registry.rs
+@@ -437,3 +437,83 @@ fn warning_event(id: &str, message: &str) -> Event {
+         }),
+     }
+ }
++
++#[test]
++fn coupled_context_registration_retains_original_owner_without_settling_tools() {
++    let source = Arc::new(AllContributors);
++    let mut builder = ExtensionRegistryBuilder::<()>::new();
++    builder.coupled_context_contributor(source.clone());
++    let registry = builder.build();
++    let sources = registry.registered_context_sources::<AllContributors>();
++    assert_eq!(sources.len(), 1);
++    assert!(std::ptr::eq(sources[0].source(), source.as_ref()));
++    assert_eq!(sources[0].registration_indexes(), (0, 0, 0));
++    assert_eq!(
++        registry.assert_context_source_registration(&sources[0]),
++        Ok(())
++    );
++    assert_eq!(
++        registry.capture_pre_session_tools().err(),
++        Some(
++            codex_extension_api::PreSessionToolInventoryError::StateBoundContributors {
++                registration_indexes: vec![0],
++            }
++        ),
++    );
++}
++
++#[test]
++fn copied_registry_requires_its_own_context_registration_packet() {
++    let source = Arc::new(AllContributors);
++    let mut builder = ExtensionRegistryBuilder::<()>::new();
++    builder.coupled_context_contributor(source.clone());
++    let original = builder.build();
++    let sources = original.registered_context_sources::<AllContributors>();
++    let copied = original.to_builder().build();
++    assert_eq!(
++        copied.assert_context_source_registration(&sources[0]),
++        Err(codex_extension_api::ContextSourceRegistrationError::RegistryChanged),
++    );
++    let copied_sources = copied.registered_context_sources::<AllContributors>();
++    assert_eq!(copied_sources.len(), 1);
++    assert!(std::ptr::eq(copied_sources[0].source(), source.as_ref()));
++    assert_eq!(
++        copied.assert_context_source_registration(&copied_sources[0]),
++        Ok(())
++    );
++    assert_eq!(
++        original.assert_context_source_registration(&copied_sources[0]),
++        Err(codex_extension_api::ContextSourceRegistrationError::RegistryChanged),
++    );
++}
++
++#[test]
++fn coupled_context_sources_preserve_order_without_enrolling_legacy_registrations() {
++    let legacy = Arc::new(AllContributors);
++    let first = Arc::new(AllContributors);
++    let second = Arc::new(AllContributors);
++    let mut builder = ExtensionRegistryBuilder::<()>::new();
++    builder.prompt_contributor(legacy.clone());
++    builder.turn_input_contributor(legacy.clone());
++    builder.tool_contributor(legacy);
++    builder.coupled_context_contributor(first.clone());
++    builder.coupled_context_contributor(second.clone());
++    let registry = builder.build();
++    let sources = registry.registered_context_sources::<AllContributors>();
++    assert_eq!(sources.len(), 2);
++    assert!(std::ptr::eq(sources[0].source(), first.as_ref()));
++    assert!(std::ptr::eq(sources[1].source(), second.as_ref()));
++    assert_eq!(sources[0].registration_indexes(), (1, 1, 1));
++    assert_eq!(sources[1].registration_indexes(), (2, 2, 2));
++    assert_eq!(registry.context_contributors().len(), 3);
++    assert_eq!(registry.turn_input_contributors().len(), 3);
++    assert_eq!(registry.tool_contributors().len(), 3);
++    assert_eq!(
++        registry.capture_pre_session_tools().err(),
++        Some(
++            codex_extension_api::PreSessionToolInventoryError::StateBoundContributors {
++                registration_indexes: vec![0, 1, 2],
++            }
++        ),
++    );
++}
+diff --git a/codex-rs/ext/skills/src/extension.rs b/codex-rs/ext/skills/src/extension.rs
+index 1f66b44..008501f 100644
+--- a/codex-rs/ext/skills/src/extension.rs
++++ b/codex-rs/ext/skills/src/extension.rs
+@@ -42,7 +42,9 @@ use crate::catalog::SkillCatalogEntry;
+ use crate::catalog::SkillReadResult;
+ use crate::catalog::SkillSourceKind;
+ use crate::fragments::AvailableSkillsInstructions;
++use crate::fragments::main_prompt_truncation_warning;
+ use crate::fragments::render_selected_skill_instructions;
++use crate::host_prompt::supersede_selected_host_prompts;
+ use crate::provider::HostSkillProvider;
+ use crate::provider::SkillListQuery;
+ use crate::provider::SkillReadRequest;
+@@ -75,6 +77,14 @@ use crate::world_state_catalogs::CatalogStatus;
+ #[path = "cloud_skill.rs"]
+ mod cloud_skill;
+ 
++#[path = "registered_source.rs"]
++mod registered_source;
++pub use registered_source::RegisteredSkillsSource;
++pub use registered_source::RegisteredSkillsSourceError;
++pub use registered_source::SkillsContextObservation;
++pub use registered_source::SkillsInputObservation;
++pub use registered_source::registered_skills_sources;
++
+ struct SkillsExtension<C> {
+     providers: SkillProviders,
+     event_sink: Arc<dyn ExtensionEventSink>,
+@@ -485,10 +495,7 @@ where
+                             read_result.contents.as_str(),
+                         );
+                         if truncated {
+-                            let warning = format!(
+-                                "Skill `{}` exceeded the main prompt context limit and was truncated.",
+-                                entry.name
+-                            );
++                            let warning = main_prompt_truncation_warning(entry);
+                             self.emit_warning(
+                                 thread_store.level_id(),
+                                 Some(&input.turn_id),
+@@ -524,20 +531,11 @@ where
+             }
+ 
+             if let Some(host_snapshot) = &host_snapshot {
+-                for entry in selected_entries
+-                    .iter()
+-                    .filter(|entry| entry.authority.kind != SkillSourceKind::Host)
+-                {
+-                    for host_skill in host_snapshot
+-                        .outcome()
+-                        .skills
+-                        .iter()
+-                        .filter(|host_skill| host_skill.name == entry.name)
+-                    {
+-                        injected_host_skill_prompts
+-                            .insert_superseded_path(host_skill.path_to_skills_md.to_string_lossy());
+-                    }
+-                }
++                supersede_selected_host_prompts(
++                    host_snapshot,
++                    &selected_entries,
++                    &mut injected_host_skill_prompts,
++                );
+             }
+ 
+             turn_store.insert(SkillsTurnState {
+@@ -635,7 +633,7 @@ pub fn install<C>(
+ {
+     install_with_providers(
+         registry,
+-        SkillProviders::new().with_host_provider(Arc::new(HostSkillProvider::new())),
++        SkillProviders::new().with_native_host_provider(Arc::new(HostSkillProvider::new())),
+         config_from_host,
+     );
+ }
+@@ -673,8 +671,6 @@ pub fn install_with_providers_and_metrics<C>(
+     registry.turn_lifecycle_contributor(Arc::new(SkillTelemetry));
+     registry.turn_lifecycle_contributor(extension.clone());
+     registry.config_contributor(extension.clone());
+-    registry.prompt_contributor(extension.clone());
+-    registry.turn_input_contributor(extension.clone());
+-    registry.skill_invocation_contributor(extension.clone());
+-    registry.tool_contributor(extension);
++    registry.coupled_context_contributor(extension.clone());
++    registry.skill_invocation_contributor(extension);
+ }
+diff --git a/codex-rs/ext/skills/src/extension_tests.rs b/codex-rs/ext/skills/src/extension_tests.rs
+index 118812b..5f6c36d 100644
+--- a/codex-rs/ext/skills/src/extension_tests.rs
++++ b/codex-rs/ext/skills/src/extension_tests.rs
+@@ -69,3 +69,55 @@ fn empty_catalog_records_zero_metrics_without_a_fragment() {
+         ]
+     );
+ }
++
++#[test]
++fn registered_original_skills_projects_config_without_runtime_state_or_tool_grant() {
++    use std::sync::atomic::AtomicUsize;
++    use std::sync::atomic::Ordering;
++
++    let projections = Arc::new(AtomicUsize::new(0));
++    let observed_projections = Arc::clone(&projections);
++    let mut builder = ExtensionRegistryBuilder::<bool>::new();
++    install(&mut builder, move |include: &bool| {
++        observed_projections.fetch_add(1, Ordering::SeqCst);
++        SkillsExtensionConfig {
++            include_instructions: *include,
++            max_context_tokens: None,
++            bundled_skills_enabled: true,
++            cloud_skill_enabled: false,
++            shadow_selection_enabled: false,
++        }
++    });
++    let registry = builder.build();
++    let sources = registered_skills_sources(&registry);
++    assert_eq!(sources.len(), 1);
++    assert_eq!(projections.load(Ordering::SeqCst), 0);
++    let hidden_catalog = false;
++    assert!(
++        !sources[0]
++            .project_configuration(&registry, &hidden_catalog)
++            .unwrap()
++            .include_instructions
++    );
++    assert_eq!(projections.load(Ordering::SeqCst), 1);
++    // include_instructions=false must not be converted into a NoTools grant.
++    assert!(registry.capture_pre_session_tools().is_err());
++    let copied = registry.to_builder().build();
++    assert_eq!(
++        sources[0].project_configuration(&copied, &hidden_catalog),
++        Err(codex_extension_api::ContextSourceRegistrationError::RegistryChanged),
++    );
++    assert_eq!(projections.load(Ordering::SeqCst), 1);
++    let visible_catalog = true;
++    let copied_sources = registered_skills_sources(&copied);
++    assert!(
++        copied_sources[0]
++            .project_configuration(&copied, &visible_catalog)
++            .unwrap()
++            .include_instructions
++    );
++    assert_eq!(projections.load(Ordering::SeqCst), 2);
++}
++
++#[path = "registered_source_tests.rs"]
++mod registered_source;
+diff --git a/codex-rs/ext/skills/src/first_context_observation.rs b/codex-rs/ext/skills/src/first_context_observation.rs
+new file mode 100644
+index 0000000..ecb643f
+--- /dev/null
++++ b/codex-rs/ext/skills/src/first_context_observation.rs
+@@ -0,0 +1,228 @@
++use std::collections::HashMap;
++
++use codex_extension_api::ContextualUserFragment;
++use codex_extension_api::ExtensionRegistry;
++use codex_extension_api::PromptFragment;
++use codex_extension_api::RenderedWorldStateFragment;
++use codex_extension_api::ToolSpec;
++use codex_protocol::models::ResponseItem;
++use codex_protocol::openai_models::ModelInfo;
++use codex_protocol::user_input::UserInput;
++
++use super::RegisteredSkillsSource;
++use super::RegisteredSkillsSourceError;
++use crate::ExecutorSkillsObservation;
++use crate::HostSkillPromptObservation;
++use crate::HostSkillsObservation;
++use crate::InjectedHostSkillPrompts;
++use crate::SkillsExtensionConfig;
++use crate::fragments::main_prompt_truncation_warning;
++use crate::fragments::render_selected_skill_instructions;
++use crate::host_prompt::supersede_selected_host_prompts;
++use crate::selection::collect_explicit_skill_mentions;
++use crate::sources::NativeSkillProviderSource;
++use crate::world_state_catalogs::InitialSkillCatalogs;
++use crate::world_state_catalogs::render_initial_filesystem_catalogs;
++
++/// Original source projection and exact first input facts. Private construction
++/// keeps them paired; selected config/model/connector currency is not a lease.
++pub struct SkillsInputObservation<'a, C: Sync> {
++    source: &'a RegisteredSkillsSource<C>,
++    registry: &'a ExtensionRegistry<C>,
++    config: SkillsExtensionConfig,
++    model: ModelInfo,
++    user_input: Vec<UserInput>,
++    connector_slug_counts: HashMap<String, usize>,
++}
++
++/// Coupled Skills prompt/world-state/first-input/tool DATA from the installed
++/// native pair. No Session or runtime stores, callbacks during rendering,
++/// source publication lease, complete extension inventory or Ready grant.
++pub struct SkillsContextObservation<'a, C: Sync> {
++    input: SkillsInputObservation<'a, C>,
++    executor: ExecutorSkillsObservation<'a>,
++    host: HostSkillPromptObservation,
++    initial_catalogs: InitialSkillCatalogs,
++    extension_items: Vec<ResponseItem>,
++    extension_warnings: Vec<String>,
++    injected_host: InjectedHostSkillPrompts,
++    tools: Vec<ToolSpec>,
++    thread_context: Vec<PromptFragment>,
++}
++
++impl<C> RegisteredSkillsSource<C>
++where
++    C: Send + Sync + 'static,
++{
++    /// Projects only this original source. All native providers are preflighted
++    /// before discovery; unknown/extra providers stay explicitly unresolved.
++    pub fn observe_first_input<'a>(
++        &'a self,
++        registry: &'a ExtensionRegistry<C>,
++        config: &C,
++        model: &ModelInfo,
++        user_input: &[UserInput],
++        connector_slug_counts: &HashMap<String, usize>,
++    ) -> Result<SkillsInputObservation<'a, C>, RegisteredSkillsSourceError> {
++        let projected = self
++            .project_configuration(registry, config)
++            .map_err(RegisteredSkillsSourceError::Registration)?;
++        let providers = self
++            .registration
++            .source()
++            .providers
++            .native_pre_session_sources()
++            .map_err(RegisteredSkillsSourceError::UnresolvedProviders)?;
++        if providers
++            .iter()
++            .filter(|source| matches!(source, NativeSkillProviderSource::Host(_)))
++            .count()
++            != 1
++        {
++            return Err(RegisteredSkillsSourceError::MissingOrAmbiguousHostProvider);
++        }
++        if providers
++            .iter()
++            .filter(|source| matches!(source, NativeSkillProviderSource::Executor(_)))
++            .count()
++            != 1
++        {
++            return Err(RegisteredSkillsSourceError::MissingOrAmbiguousExecutorProvider);
++        }
++        Ok(SkillsInputObservation {
++            source: self,
++            registry,
++            config: projected,
++            model: model.clone(),
++            user_input: user_input.to_vec(),
++            connector_slug_counts: connector_slug_counts.clone(),
++        })
++    }
++
++    /// Captures this source's three partitions from genuine native observations.
++    /// The caller still owns selected HostSkillsService/config/model/permission
++    /// currentness; these data cannot be used as a later transaction guard.
++    pub async fn observe_first_context<'a>(
++        &'a self,
++        input: SkillsInputObservation<'a, C>,
++        host: HostSkillsObservation,
++        executor: ExecutorSkillsObservation<'a>,
++    ) -> Result<SkillsContextObservation<'a, C>, RegisteredSkillsSourceError> {
++        input
++            .registry
++            .assert_context_source_registration(&self.registration)
++            .map_err(RegisteredSkillsSourceError::Registration)?;
++        if !std::ptr::eq(
++            self.registration.source(),
++            input.source.registration.source(),
++        ) {
++            return Err(RegisteredSkillsSourceError::InputSourceChanged);
++        }
++        let providers = self
++            .registration
++            .source()
++            .providers
++            .native_pre_session_sources()
++            .map_err(RegisteredSkillsSourceError::UnresolvedProviders)?;
++        let mut host_catalog = None;
++        let mut executor_matches = 0;
++        for provider in providers {
++            match provider {
++                NativeSkillProviderSource::Host(provider) => {
++                    if host_catalog.is_some() {
++                        return Err(RegisteredSkillsSourceError::MissingOrAmbiguousHostProvider);
++                    }
++                    host_catalog = Some(provider.catalog_for_snapshot(host.snapshot()));
++                }
++                NativeSkillProviderSource::Executor(provider) => {
++                    provider
++                        .assert_pre_session_observation_owner(&executor)
++                        .map_err(RegisteredSkillsSourceError::Executor)?;
++                    executor_matches += 1;
++                }
++            }
++        }
++        if executor_matches != 1 {
++            return Err(RegisteredSkillsSourceError::MissingOrAmbiguousExecutorProvider);
++        }
++        let host_catalog =
++            host_catalog.ok_or(RegisteredSkillsSourceError::MissingOrAmbiguousHostProvider)?;
++        let initial_catalogs = render_initial_filesystem_catalogs(
++            &input.config,
++            &input.model,
++            executor.catalog().clone(),
++            host_catalog,
++        );
++        let selected = collect_explicit_skill_mentions(&input.user_input, executor.catalog());
++        let mut extension_items = Vec::new();
++        let mut extension_warnings = Vec::new();
++        for entry in &selected {
++            let contents = entry
++                .main_prompt
++                .environment_contents()
++                .ok_or(RegisteredSkillsSourceError::MissingExecutorPromptBytes)?;
++            let (fragment, truncated) = render_selected_skill_instructions(entry, contents);
++            if truncated {
++                extension_warnings.push(main_prompt_truncation_warning(entry));
++            }
++            extension_items.push(ResponseItem::from(fragment.render_fragment()));
++        }
++        let mut injected_host = InjectedHostSkillPrompts::default();
++        supersede_selected_host_prompts(host.snapshot(), &selected, &mut injected_host);
++        let host = host
++            .observe_explicit_prompts(&input.user_input, &input.connector_slug_counts)
++            .await
++            .map_err(RegisteredSkillsSourceError::Host)?;
++        let tools = executor.tool_specs();
++        Ok(SkillsContextObservation {
++            input,
++            executor,
++            host,
++            initial_catalogs,
++            extension_items,
++            extension_warnings,
++            injected_host,
++            tools,
++            thread_context: Vec::new(),
++        })
++    }
++}
++
++impl<C: Sync> SkillsContextObservation<'_, C> {
++    /// Native-only providers have no thread-context contribution under the
++    /// original thread query (host/cloud excluded, executor roots absent).
++    pub fn thread_context(&self) -> &[PromptFragment] {
++        &self.thread_context
++    }
++
++    pub fn initial_world_state(&self) -> &[(&'static str, RenderedWorldStateFragment)] {
++        &self.initial_catalogs.fragments
++    }
++    pub fn catalog_warnings(&self) -> &[String] {
++        &self.initial_catalogs.warnings
++    }
++    pub fn host_items(&self) -> Vec<ResponseItem> {
++        self.host.render_items(Some(&self.injected_host))
++    }
++    pub fn extension_items(&self) -> &[ResponseItem] {
++        &self.extension_items
++    }
++    pub fn extension_warnings(&self) -> &[String] {
++        &self.extension_warnings
++    }
++    pub fn host_observation(&self) -> &HostSkillPromptObservation {
++        &self.host
++    }
++    pub fn executor_observation(&self) -> &ExecutorSkillsObservation<'_> {
++        &self.executor
++    }
++    pub fn tool_specs(&self) -> &[ToolSpec] {
++        &self.tools
++    }
++    pub fn model(&self) -> &ModelInfo {
++        &self.input.model
++    }
++    pub fn user_input(&self) -> &[UserInput] {
++        &self.input.user_input
++    }
++}
+diff --git a/codex-rs/ext/skills/src/first_context_observation_tests.rs b/codex-rs/ext/skills/src/first_context_observation_tests.rs
+new file mode 100644
+index 0000000..a3875b0
+--- /dev/null
++++ b/codex-rs/ext/skills/src/first_context_observation_tests.rs
+@@ -0,0 +1,219 @@
++use super::*;
++use crate::HostSkillsLoadInput;
++use crate::HostSkillsService;
++use codex_config::ConfigLayerEntry;
++use codex_config::ConfigLayerSource;
++use codex_config::ConfigLayerStack;
++use codex_config::ConfigRequirementsToml;
++use codex_exec_server::LOCAL_FS;
++use codex_protocol::capabilities::CapabilityRootLocation;
++use codex_protocol::capabilities::SelectedCapabilityRoot;
++use codex_protocol::user_input::UserInput;
++use codex_utils_absolute_path::test_support::PathExt;
++use codex_utils_path_uri::PathUri;
++use pretty_assertions::assert_eq;
++
++enum ContextCase {
++    HiddenDistinctKnowledge,
++    VisibleExecutorPrecedence,
++    ForeignExecutor,
++}
++
++async fn capture(case: ContextCase) {
++    let include_catalog = matches!(case, ContextCase::VisibleExecutorPrecedence);
++    let same_name = matches!(case, ContextCase::VisibleExecutorPrecedence);
++    let home = tempfile::tempdir().unwrap();
++    let cwd = tempfile::tempdir().unwrap();
++    let executor_root = tempfile::tempdir().unwrap();
++    let host_dir = home.path().join("skills/knowledge");
++    let executor_dir = executor_root.path().join("knowledge");
++    std::fs::create_dir_all(&host_dir).unwrap();
++    std::fs::create_dir_all(&executor_dir).unwrap();
++    let host_name = if same_name {
++        "shared-knowledge"
++    } else {
++        "knowledge-host"
++    };
++    let executor_name = if same_name {
++        "shared-knowledge"
++    } else {
++        "knowledge-executor"
++    };
++    let host_text = format!(
++        "---\nname: {host_name}\ndescription: Original host Knowledge\n---\nHOST_KNOWLEDGE_BYTES\n"
++    );
++    let executor_text = format!(
++        "---\nname: {executor_name}\ndescription: Original executor Knowledge\n---\nEXECUTOR_KNOWLEDGE_BYTES\n"
++    );
++    std::fs::write(host_dir.join("SKILL.md"), &host_text).unwrap();
++    std::fs::write(executor_dir.join("SKILL.md"), &executor_text).unwrap();
++    let stack = ConfigLayerStack::new(
++        vec![ConfigLayerEntry::new(
++            ConfigLayerSource::User {
++                file: home.path().join("config.toml").abs(),
++                profile: None,
++            },
++            toml::from_str("[skills.bundled]\nenabled=false\n").unwrap(),
++        )],
++        Default::default(),
++        ConfigRequirementsToml::default(),
++    )
++    .unwrap();
++    let service = Arc::new(HostSkillsService::new_with_restriction_product(
++        home.path().abs(),
++        /*bundled_skills_enabled*/ false,
++        /*restriction_product*/ None,
++    ));
++    let host_input = HostSkillsLoadInput::new(cwd.path().abs(), Vec::new(), stack);
++    let host = service
++        .observe_pre_session_for_config(&host_input, Some(Arc::clone(&LOCAL_FS)))
++        .await
++        .unwrap();
++    let provider = Arc::new(ExecutorSkillProvider::new_with_restriction_product(
++        Arc::new(EnvironmentManager::default_for_tests()),
++        /*restriction_product*/ None,
++    ));
++    let providers = SkillProviders::new()
++        .with_native_executor_provider(Arc::clone(&provider))
++        .with_native_host_provider(Arc::new(HostSkillProvider::new()));
++    let mut builder = ExtensionRegistryBuilder::<bool>::new();
++    install_with_providers(&mut builder, providers, |include: &bool| {
++        SkillsExtensionConfig {
++            include_instructions: *include,
++            max_context_tokens: None,
++            bundled_skills_enabled: false,
++            cloud_skill_enabled: false,
++            shadow_selection_enabled: false,
++        }
++    });
++    let registry = builder.build();
++    let sources = registered_skills_sources(&registry);
++    let model = codex_models_manager::bundled_models_response()
++        .unwrap()
++        .models
++        .into_iter()
++        .find(|model| model.slug == "gpt-6-luna")
++        .unwrap();
++    let model_json = serde_json::to_value(&model).unwrap();
++    let inputs = vec![UserInput::Text {
++        text: format!("${host_name} ${executor_name}"),
++        text_elements: Vec::new(),
++    }];
++    let selected = sources[0]
++        .observe_first_input(
++            &registry,
++            &include_catalog,
++            &model,
++            &inputs,
++            &HashMap::new(),
++        )
++        .unwrap();
++    let roots = vec![SelectedCapabilityRoot {
++        id: "original-knowledge".into(),
++        location: CapabilityRootLocation::Environment {
++            environment_id: "local".into(),
++            path: PathUri::from_host_native_path(executor_root.path()).unwrap(),
++        },
++    }];
++    if matches!(case, ContextCase::ForeignExecutor) {
++        let foreign = ExecutorSkillProvider::new_with_restriction_product(
++            Arc::new(EnvironmentManager::default_for_tests()),
++            /*restriction_product*/ None,
++        );
++        let executor = foreign
++            .observe_pre_session(&roots, &HashMap::new(), /*selected_plugins*/ None)
++            .await
++            .unwrap();
++        std::fs::remove_file(host_dir.join("SKILL.md")).unwrap();
++        let result = sources[0]
++            .observe_first_context(selected, host, executor)
++            .await;
++        assert!(matches!(
++            result,
++            Err(RegisteredSkillsSourceError::Executor(
++                crate::ExecutorSkillsObservationError::ForeignProvider
++            ))
++        ));
++        return;
++    }
++    let executor = sources[0]
++        .observe_executor_source(
++            &registry,
++            &roots,
++            &HashMap::new(),
++            /*selected_plugins*/ None,
++        )
++        .await
++        .unwrap();
++    let captured = sources[0]
++        .observe_first_context(selected, host, executor)
++        .await
++        .unwrap();
++    fn assert_send_sync<T: Send + Sync>(_: &T) {}
++    assert_send_sync(&captured);
++    service
++        .assert_pre_session_prompt_observation_owner(captured.host_observation())
++        .unwrap();
++    provider
++        .assert_pre_session_observation_owner(captured.executor_observation())
++        .unwrap();
++    assert!(captured.thread_context().is_empty());
++    assert_eq!(captured.user_input(), inputs);
++    assert_eq!(serde_json::to_value(captured.model()).unwrap(), model_json);
++    assert_eq!(captured.tool_specs().len(), 2);
++    assert_eq!(captured.extension_items().len(), 1);
++    assert!(
++        serde_json::to_string(captured.extension_items())
++            .unwrap()
++            .contains("EXECUTOR_KNOWLEDGE_BYTES")
++    );
++    assert_eq!(
++        captured.host_observation().source_bytes().next().unwrap().1,
++        host_text
++    );
++    if same_name {
++        assert!(captured.host_items().is_empty());
++    } else {
++        assert_eq!(captured.host_items().len(), 1);
++        assert!(
++            serde_json::to_string(&captured.host_items())
++                .unwrap()
++                .contains("HOST_KNOWLEDGE_BYTES")
++        );
++    }
++    if include_catalog {
++        assert!(!captured.initial_world_state().is_empty());
++        assert!(
++            captured
++                .initial_world_state()
++                .iter()
++                .any(|(_, fragment)| fragment.body().contains(executor_name))
++        );
++    } else {
++        assert!(captured.initial_world_state().is_empty());
++    }
++    let host_items = captured.host_items();
++    let extension_items = captured.extension_items().to_vec();
++    // This proves immutable rendering only. A real final source lease must
++    // separately refuse edits before association/commit; no Ready is asserted.
++    std::fs::remove_file(host_dir.join("SKILL.md")).unwrap();
++    std::fs::remove_file(executor_dir.join("SKILL.md")).unwrap();
++    assert_eq!(captured.host_items(), host_items);
++    assert_eq!(captured.extension_items(), extension_items);
++    assert!(registry.capture_pre_session_tools().is_err());
++}
++
++#[tokio::test]
++async fn hidden_catalog_preserves_original_explicit_knowledge_and_executable_metadata() {
++    capture(ContextCase::HiddenDistinctKnowledge).await;
++}
++
++#[tokio::test]
++async fn visible_catalog_and_shared_name_preserve_original_executor_precedence() {
++    capture(ContextCase::VisibleExecutorPrecedence).await;
++}
++
++#[tokio::test]
++async fn foreign_executor_observation_refuses_before_selected_host_prompt_read() {
++    capture(ContextCase::ForeignExecutor).await;
++}
+diff --git a/codex-rs/ext/skills/src/fragments.rs b/codex-rs/ext/skills/src/fragments.rs
+index a862084..71808df 100644
+--- a/codex-rs/ext/skills/src/fragments.rs
++++ b/codex-rs/ext/skills/src/fragments.rs
+@@ -78,6 +78,13 @@ pub(crate) struct SkillResourceAccess {
+     pub(crate) main_resource: String,
+ }
+ 
++pub(crate) fn main_prompt_truncation_warning(entry: &SkillCatalogEntry) -> String {
++    format!(
++        "Skill `{}` exceeded the main prompt context limit and was truncated.",
++        entry.name
++    )
++}
++
+ /// Formats an already-read extension skill prompt without provider or lifecycle callbacks.
+ pub(crate) fn render_selected_skill_instructions(
+     entry: &SkillCatalogEntry,
+diff --git a/codex-rs/ext/skills/src/host_pre_session.rs b/codex-rs/ext/skills/src/host_pre_session.rs
+index f4f6299..930c569 100644
+--- a/codex-rs/ext/skills/src/host_pre_session.rs
++++ b/codex-rs/ext/skills/src/host_pre_session.rs
+@@ -11,6 +11,10 @@ use super::apply_skill_config_rules;
+ use crate::HostSkillsSnapshot;
+ use crate::loader::observe_and_merge_host_skill_roots;
+ 
++#[path = "host_prompt_observation.rs"]
++mod prompt_observation;
++pub use prompt_observation::HostSkillPromptObservation;
++
+ /// Read-only discovery from the original host service. Main-prompt bytes are not
+ /// frozen here, and no configuration/filesystem publication lease is established.
+ /// This observation alone cannot authorize count association, consume or dispatch.
+@@ -31,6 +35,7 @@ pub enum HostSkillsObservationError {
+     ExtraRootsChanged,
+     DiscoveryErrors(Vec<String>),
+     ForeignService,
++    PromptReadErrors(Vec<String>),
+ }
+ 
+ impl HostSkillsService {
+diff --git a/codex-rs/ext/skills/src/host_pre_session_tests.rs b/codex-rs/ext/skills/src/host_pre_session_tests.rs
+index 617d1b1..b62ed6a 100644
+--- a/codex-rs/ext/skills/src/host_pre_session_tests.rs
++++ b/codex-rs/ext/skills/src/host_pre_session_tests.rs
+@@ -1,4 +1,5 @@
+ use super::*;
++use pretty_assertions::assert_eq;
+ 
+ #[tokio::test]
+ async fn observation_refuses_missing_bundled_materialization_without_installing() {
+@@ -169,3 +170,195 @@ async fn observation_refuses_discovery_errors_without_overwriting_ordinary_cache
+     assert_eq!(retained.outcome().skills, ordinary.outcome().skills);
+     assert_eq!(retained.outcome().errors, ordinary.outcome().errors);
+ }
++
++#[tokio::test]
++async fn explicit_host_observation_retains_original_bytes_and_ordinary_precedence_after_file_edit()
++{
++    use codex_protocol::user_input::UserInput;
++    let home = tempfile::tempdir().unwrap();
++    let cwd = tempfile::tempdir().unwrap();
++    write_user_skill(&home, "knowledge", "knowledge-host", "Original Knowledge");
++    let path = home.path().join("skills/knowledge/SKILL.md");
++    let original = fs::read_to_string(&path).unwrap();
++    let input = HostSkillsLoadInput::new(
++        cwd.path().abs(),
++        Vec::new(),
++        config_stack(&home, "[skills.bundled]\nenabled = false\n"),
++    );
++    let service = Arc::new(HostSkillsService::new(
++        home.path().abs(),
++        /*bundled_skills_enabled*/ false,
++    ));
++    let host = service
++        .observe_pre_session_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await
++        .unwrap();
++    let skill = host
++        .snapshot()
++        .outcome()
++        .skills
++        .iter()
++        .find(|skill| skill.name == "knowledge-host")
++        .unwrap()
++        .clone();
++    let ordinary = host
++        .snapshot()
++        .load_skill_prompts(std::slice::from_ref(&skill))
++        .await;
++    let ordinary_items: Vec<codex_protocol::models::ResponseItem> = ordinary
++        .fragments
++        .into_iter()
++        .map(codex_extension_api::ContextualUserFragment::into_boxed_response_item)
++        .collect();
++    let inputs = vec![UserInput::Skill {
++        name: skill.name.clone(),
++        path: skill.path_to_skills_md.as_path().to_path_buf(),
++    }];
++    let observed = host
++        .observe_explicit_prompts(&inputs, &HashMap::new())
++        .await
++        .unwrap();
++    service
++        .assert_pre_session_prompt_observation_owner(&observed)
++        .unwrap();
++    assert_eq!(
++        observed
++            .source_bytes()
++            .map(|(_, bytes)| bytes)
++            .collect::<Vec<_>>(),
++        vec![original.as_str()]
++    );
++    fs::write(&path, "replaced after capture").unwrap();
++    assert_eq!(
++        observed.render_items(/*extension_injected*/ None),
++        ordinary_items
++    );
++    assert_eq!(
++        observed.render_items(/*extension_injected*/ None),
++        ordinary_items
++    );
++    let mut superseded = crate::InjectedHostSkillPrompts::default();
++    superseded.insert_superseded_path(skill.path_to_skills_md.to_string_lossy());
++    assert!(observed.render_items(Some(&superseded)).is_empty());
++    assert_eq!(observed.source_bytes().count(), 1);
++    assert!(service.cache_by_config.read().unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn explicit_host_observation_refuses_selected_read_failure_instead_of_empty_capture() {
++    use codex_protocol::user_input::UserInput;
++    let home = tempfile::tempdir().unwrap();
++    let cwd = tempfile::tempdir().unwrap();
++    write_user_skill(&home, "knowledge", "knowledge-host", "Original Knowledge");
++    let path = home.path().join("skills/knowledge/SKILL.md");
++    let input = HostSkillsLoadInput::new(
++        cwd.path().abs(),
++        Vec::new(),
++        config_stack(&home, "[skills.bundled]\nenabled = false\n"),
++    );
++    let service = Arc::new(HostSkillsService::new(
++        home.path().abs(),
++        /*bundled_skills_enabled*/ false,
++    ));
++    let host = service
++        .observe_pre_session_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await
++        .unwrap();
++    let selected_path = host
++        .snapshot()
++        .outcome()
++        .skills
++        .iter()
++        .find(|skill| skill.name == "knowledge-host")
++        .unwrap()
++        .path_to_skills_md
++        .as_path()
++        .to_path_buf();
++    fs::remove_file(&path).unwrap();
++    let inputs = vec![UserInput::Skill {
++        name: "knowledge-host".into(),
++        path: selected_path,
++    }];
++    let result = host
++        .observe_explicit_prompts(&inputs, &HashMap::new())
++        .await;
++    assert!(
++        matches!(result, Err(HostSkillsObservationError::PromptReadErrors(warnings)) if !warnings.is_empty())
++    );
++}
++
++#[tokio::test]
++async fn explicit_agent_plugin_observation_preserves_full_source_and_original_truncation() {
++    use codex_protocol::user_input::UserInput;
++    let home = tempfile::tempdir().unwrap();
++    let cwd = tempfile::tempdir().unwrap();
++    let path = write_plugin_skill(
++        &home,
++        "test",
++        "sample",
++        "search",
++        "search",
++        "Knowledge plugin",
++    );
++    let original = format!(
++        "{}{}",
++        fs::read_to_string(&path).unwrap(),
++        "Ω".repeat(9_000)
++    );
++    fs::write(&path, &original).unwrap();
++    let mut root = plugin_skill_root_for_skill_path(&path, "sample@test", "sample");
++    root.discovery_mode = SkillDiscoveryMode::DirectChildren;
++    let input = HostSkillsLoadInput::new(
++        cwd.path().abs(),
++        vec![root],
++        config_stack(&home, "[skills.bundled]\nenabled = false\n"),
++    );
++    let service = Arc::new(HostSkillsService::new(
++        home.path().abs(),
++        /*bundled_skills_enabled*/ false,
++    ));
++    let host = service
++        .observe_pre_session_for_config(&input, Some(Arc::clone(&LOCAL_FS)))
++        .await
++        .unwrap();
++    let skill = host
++        .snapshot()
++        .outcome()
++        .skills
++        .iter()
++        .find(|skill| skill.description == "Knowledge plugin")
++        .unwrap()
++        .clone();
++    let ordinary = host
++        .snapshot()
++        .load_skill_prompts(std::slice::from_ref(&skill))
++        .await;
++    let warnings = ordinary.warnings;
++    let ordinary_items: Vec<codex_protocol::models::ResponseItem> = ordinary
++        .fragments
++        .into_iter()
++        .map(codex_extension_api::ContextualUserFragment::into_boxed_response_item)
++        .collect();
++    let observed = host
++        .observe_explicit_prompts(
++            &[UserInput::Skill {
++                name: skill.name.clone(),
++                path: skill.path_to_skills_md.as_path().to_path_buf(),
++            }],
++            &HashMap::new(),
++        )
++        .await
++        .unwrap();
++    assert_eq!(observed.warnings(), warnings);
++    assert!(
++        observed
++            .warnings()
++            .iter()
++            .any(|warning| warning.contains("was truncated"))
++    );
++    assert_eq!(
++        observed.render_items(/*extension_injected*/ None),
++        ordinary_items
++    );
++    assert_eq!(observed.source_bytes().next().unwrap().1, original);
++}
+diff --git a/codex-rs/ext/skills/src/host_prompt.rs b/codex-rs/ext/skills/src/host_prompt.rs
+index 8e59720..2ef95a5 100644
+--- a/codex-rs/ext/skills/src/host_prompt.rs
++++ b/codex-rs/ext/skills/src/host_prompt.rs
+@@ -1,10 +1,13 @@
+ use std::collections::HashSet;
+ 
+ use codex_extension_api::ContextualUserFragment;
++use codex_protocol::models::ResponseItem;
+ use codex_skills::SkillMetadata;
+ use codex_skills::normalize_skill_path;
+ 
+ use crate::HostSkillsSnapshot;
++use crate::catalog::SkillCatalogEntry;
++use crate::catalog::SkillSourceKind;
+ use crate::fragments::SkillInstructions;
+ use crate::render::truncate_main_prompt_contents;
+ 
+@@ -53,6 +56,63 @@ pub struct HostSkillPrompts {
+     pub warnings: Vec<String>,
+ }
+ 
++pub(crate) fn supersede_selected_host_prompts(
++    host_snapshot: &HostSkillsSnapshot,
++    selected_entries: &[SkillCatalogEntry],
++    injected_host_skill_prompts: &mut InjectedHostSkillPrompts,
++) {
++    for entry in selected_entries
++        .iter()
++        .filter(|entry| entry.authority.kind != SkillSourceKind::Host)
++    {
++        for host_skill in host_snapshot
++            .outcome()
++            .skills
++            .iter()
++            .filter(|host_skill| host_skill.name == entry.name)
++        {
++            injected_host_skill_prompts
++                .insert_superseded_path(host_skill.path_to_skills_md.to_string_lossy());
++        }
++    }
++}
++
++/// Applies original extension-supplied/superseded host prompt precedence.
++/// Pure response data filtering; it establishes no source or dispatch authority.
++pub fn deduplicate_host_skill_items(
++    items: Vec<ResponseItem>,
++    injected_skills: &[SkillMetadata],
++    extension_injected: Option<&InjectedHostSkillPrompts>,
++) -> Vec<ResponseItem> {
++    match extension_injected {
++        Some(extension_injected) => items
++            .into_iter()
++            .zip(injected_skills.iter())
++            .filter_map(|(item, skill)| {
++                (!extension_injected.contains_path(&skill.path_to_skills_md.to_string_lossy()))
++                    .then_some(item)
++            })
++            .collect(),
++        None => items,
++    }
++}
++
++#[derive(Clone, Copy)]
++pub(crate) enum HostSkillSourceRetention {
++    Discard,
++    Retain,
++}
++
++pub(crate) struct RetainedHostSkillSource {
++    pub(crate) skill: SkillMetadata,
++    pub(crate) contents: String,
++}
++
++pub(crate) struct HostSkillPromptReads {
++    pub(crate) prompts: HostSkillPrompts,
++    pub(crate) sources: Vec<RetainedHostSkillSource>,
++}
++
+ fn normalize_host_skill_path(path: &str) -> String {
+     normalize_skill_path(path).replace('\\', "/")
+ }
+@@ -67,6 +127,17 @@ impl HostSkillsSnapshot {
+         fields(selected_skill_count = selected_skills.len())
+     )]
+     pub async fn load_skill_prompts(&self, selected_skills: &[SkillMetadata]) -> HostSkillPrompts {
++        self.load_skill_prompt_reads(selected_skills, HostSkillSourceRetention::Discard)
++            .await
++            .prompts
++    }
++
++    pub(crate) async fn load_skill_prompt_reads(
++        &self,
++        selected_skills: &[SkillMetadata],
++        retention: HostSkillSourceRetention,
++    ) -> HostSkillPromptReads {
++        let mut sources = Vec::new();
+         let mut prompts = HostSkillPrompts {
+             fragments: Vec::with_capacity(selected_skills.len()),
+             injected: Vec::with_capacity(selected_skills.len()),
+@@ -76,6 +147,12 @@ impl HostSkillsSnapshot {
+         for skill in selected_skills {
+             match self.read_skill_text(skill).await {
+                 Ok(contents) => {
++                    if matches!(retention, HostSkillSourceRetention::Retain) {
++                        sources.push(RetainedHostSkillSource {
++                            skill: skill.clone(),
++                            contents: contents.clone(),
++                        });
++                    }
+                     let (contents, truncated) = if self.outcome().is_agent_plugin_skill(skill) {
+                         truncate_main_prompt_contents(&contents)
+                     } else {
+@@ -105,6 +182,6 @@ impl HostSkillsSnapshot {
+             }
+         }
+ 
+-        prompts
++        HostSkillPromptReads { prompts, sources }
+     }
+ }
+diff --git a/codex-rs/ext/skills/src/host_prompt_observation.rs b/codex-rs/ext/skills/src/host_prompt_observation.rs
+new file mode 100644
+index 0000000..15d98f9
+--- /dev/null
++++ b/codex-rs/ext/skills/src/host_prompt_observation.rs
+@@ -0,0 +1,95 @@
++use std::collections::HashMap;
++
++use codex_protocol::models::ResponseItem;
++use codex_protocol::user_input::UserInput;
++use codex_skills::SkillMetadata;
++use codex_skills::collect_explicit_skill_mentions;
++
++use super::HostSkillsObservation;
++use super::HostSkillsObservationError;
++use crate::HostSkillPrompts;
++use crate::HostSkillsService;
++use crate::InjectedHostSkillPrompts;
++use crate::deduplicate_host_skill_items;
++use crate::host_prompt::HostSkillSourceRetention;
++use crate::host_prompt::RetainedHostSkillSource;
++
++/// Original selected host bytes and ordinary prompt formatting, retained together.
++/// No source publication/currentness lease or count/consume authority is supplied.
++pub struct HostSkillPromptObservation {
++    host: HostSkillsObservation,
++    items: Vec<ResponseItem>,
++    injected: Vec<SkillMetadata>,
++    warnings: Vec<String>,
++    sources: Vec<RetainedHostSkillSource>,
++}
++
++impl HostSkillsObservation {
++    /// Selects with Core's original host selector and reads through the original
++    /// snapshot/filesystem. Input/connector policy must come from native capture;
++    /// no Session, installer, invocation analytics or runtime store is constructed.
++    pub async fn observe_explicit_prompts(
++        self,
++        inputs: &[UserInput],
++        connector_slug_counts: &HashMap<String, usize>,
++    ) -> Result<HostSkillPromptObservation, HostSkillsObservationError> {
++        let selected =
++            collect_explicit_skill_mentions(inputs, self.snapshot.outcome(), connector_slug_counts);
++        let reads = self
++            .snapshot
++            .load_skill_prompt_reads(&selected, HostSkillSourceRetention::Retain)
++            .await;
++        if reads.prompts.injected.len() != selected.len() || reads.sources.len() != selected.len() {
++            return Err(HostSkillsObservationError::PromptReadErrors(
++                reads.prompts.warnings,
++            ));
++        }
++        let HostSkillPrompts {
++            fragments,
++            injected,
++            warnings,
++        } = reads.prompts;
++        let items = fragments
++            .into_iter()
++            .map(codex_extension_api::ContextualUserFragment::into_boxed_response_item)
++            .collect();
++        Ok(HostSkillPromptObservation {
++            host: self,
++            items,
++            injected,
++            warnings,
++            sources: reads.sources,
++        })
++    }
++}
++
++impl HostSkillPromptObservation {
++    pub fn warnings(&self) -> &[String] {
++        &self.warnings
++    }
++
++    /// Exact file text read through each original selected source, before the
++    /// existing agent-plugin truncation policy. No new cap or omission is applied.
++    pub fn source_bytes(&self) -> impl Iterator<Item = (&SkillMetadata, &str)> {
++        self.sources
++            .iter()
++            .map(|source| (&source.skill, source.contents.as_str()))
++    }
++
++    /// Pure ordinary formatting and precedence; never re-reads providers/files.
++    pub fn render_items(
++        &self,
++        extension_injected: Option<&InjectedHostSkillPrompts>,
++    ) -> Vec<ResponseItem> {
++        deduplicate_host_skill_items(self.items.clone(), &self.injected, extension_injected)
++    }
++}
++
++impl HostSkillsService {
++    pub fn assert_pre_session_prompt_observation_owner(
++        &self,
++        observation: &HostSkillPromptObservation,
++    ) -> Result<(), HostSkillsObservationError> {
++        self.assert_pre_session_observation_owner(&observation.host)
++    }
++}
+diff --git a/codex-rs/ext/skills/src/host_service.rs b/codex-rs/ext/skills/src/host_service.rs
+index e59af7c..b4cfe94 100644
+--- a/codex-rs/ext/skills/src/host_service.rs
++++ b/codex-rs/ext/skills/src/host_service.rs
+@@ -42,6 +42,7 @@ const CONFIG_SKILLS_CACHE_CAPACITY: usize = 32;
+ 
+ #[path = "host_pre_session.rs"]
+ mod pre_session;
++pub use pre_session::HostSkillPromptObservation;
+ pub use pre_session::HostSkillsObservation;
+ pub use pre_session::HostSkillsObservationError;
+ 
+diff --git a/codex-rs/ext/skills/src/initial_catalog_render.rs b/codex-rs/ext/skills/src/initial_catalog_render.rs
+new file mode 100644
+index 0000000..a8f2d89
+--- /dev/null
++++ b/codex-rs/ext/skills/src/initial_catalog_render.rs
+@@ -0,0 +1,96 @@
++use codex_extension_api::ContextualUserFragment;
++use codex_extension_api::RenderedWorldStateFragment;
++use codex_protocol::openai_models::ModelInfo;
++
++use super::CatalogContribution;
++use super::CatalogContributions;
++use super::CatalogKind;
++use super::CatalogStatus;
++use super::rendering::CatalogRenderer;
++use crate::SkillsExtensionConfig;
++use crate::catalog::SkillCatalog;
++use crate::render::skill_metadata_budget;
++use crate::world_state::CLOUD_SKILLS_WORLD_STATE_ID;
++use crate::world_state::HOST_SKILLS_WORLD_STATE_ID;
++use crate::world_state::SKILLS_WORLD_STATE_ID;
++use crate::world_state::host_skills_catalog_body;
++use crate::world_state::initial_skills_world_state_fragment;
++
++pub(crate) struct InitialSkillCatalogs {
++    pub(crate) fragments: Vec<(&'static str, RenderedWorldStateFragment)>,
++    pub(crate) warnings: Vec<String>,
++}
++
++/// Pure initial rendering after the registered source has established that its
++/// exact providers are native host/executor sources. Cloud/custom coverage is
++/// NOT inferred here; unqualified registrations must refuse before this call.
++pub(crate) fn render_initial_filesystem_catalogs(
++    config: &SkillsExtensionConfig,
++    model: &ModelInfo,
++    executor: SkillCatalog,
++    host: SkillCatalog,
++) -> InitialSkillCatalogs {
++    let include_usage = model.include_skills_usage_instructions;
++    let catalogs = CatalogContributions {
++        executor: CatalogContribution {
++            catalog: executor,
++            status: CatalogStatus::Enabled,
++        },
++        cloud: CatalogContribution::unavailable(),
++        host: CatalogContribution {
++            catalog: if config.include_instructions || config.shadow_selection_enabled {
++                host
++            } else {
++                SkillCatalog::default()
++            },
++            status: CatalogStatus::Enabled,
++        },
++    };
++    let rendered = CatalogRenderer {
++        config,
++        metadata_budget: skill_metadata_budget(
++            model.resolved_context_window(),
++            config.max_context_tokens,
++        ),
++        include_usage,
++        previous_world_state: None,
++    }
++    .render_catalogs(catalogs);
++    let mut output = InitialSkillCatalogs {
++        fragments: Vec::new(),
++        warnings: Vec::new(),
++    };
++    for catalog in rendered {
++        if catalog.status == CatalogStatus::Unavailable {
++            continue;
++        }
++        let report = catalog
++            .rendered
++            .as_ref()
++            .map(|value| value.report.clone())
++            .unwrap_or_default();
++        let body = catalog
++            .rendered
++            .and_then(|value| value.into_fragment(include_usage))
++            .map(|fragment| fragment.body());
++        let body = match catalog.kind {
++            CatalogKind::Host => host_skills_catalog_body(body, &report),
++            CatalogKind::Executor | CatalogKind::Cloud => body,
++        };
++        if let Some(fragment) = initial_skills_world_state_fragment(body.as_deref()) {
++            if config.include_instructions
++                && catalog.status == CatalogStatus::Enabled
++                && let Some(warning) = report.warning_message()
++            {
++                output.warnings.push(warning);
++            }
++            let id = match catalog.kind {
++                CatalogKind::Executor => SKILLS_WORLD_STATE_ID,
++                CatalogKind::Cloud => CLOUD_SKILLS_WORLD_STATE_ID,
++                CatalogKind::Host => HOST_SKILLS_WORLD_STATE_ID,
++            };
++            output.fragments.push((id, fragment));
++        }
++    }
++    output
++}
+diff --git a/codex-rs/ext/skills/src/lib.rs b/codex-rs/ext/skills/src/lib.rs
+index 9c388a4..7fe298f 100644
+--- a/codex-rs/ext/skills/src/lib.rs
++++ b/codex-rs/ext/skills/src/lib.rs
+@@ -28,12 +28,19 @@ mod world_state;
+ mod world_state_catalogs;
+ 
+ pub use config::SkillsExtensionConfig;
++pub use extension::RegisteredSkillsSource;
++pub use extension::RegisteredSkillsSourceError;
++pub use extension::SkillsContextObservation;
++pub use extension::SkillsInputObservation;
+ pub use extension::install;
+ pub use extension::install_with_providers;
+ pub use extension::install_with_providers_and_metrics;
++pub use extension::registered_skills_sources;
+ pub use host_outcome::SkillLoadOutcome;
+ pub use host_prompt::HostSkillPrompts;
+ pub use host_prompt::InjectedHostSkillPrompts;
++pub use host_prompt::deduplicate_host_skill_items;
++pub use host_service::HostSkillPromptObservation;
+ pub use host_service::HostSkillsLoadInput;
+ pub use host_service::HostSkillsObservation;
+ pub use host_service::HostSkillsObservationError;
+@@ -42,6 +49,8 @@ pub use host_service::HostSkillsService;
+ pub use host_snapshot::HostSkillsSnapshot;
+ pub use invocation::detect_implicit_skill_invocation;
+ pub use provider::ExecutorSkillProvider;
++pub use provider::ExecutorSkillsObservation;
++pub use provider::ExecutorSkillsObservationError;
+ pub use provider::HostSkillProvider;
+ pub use provider::SkillProvider;
+ pub(crate) use skills_extension_state::SkillsExtensionState;
+diff --git a/codex-rs/ext/skills/src/provider.rs b/codex-rs/ext/skills/src/provider.rs
+index 0802cb4..7a4e4c6 100644
+--- a/codex-rs/ext/skills/src/provider.rs
++++ b/codex-rs/ext/skills/src/provider.rs
+@@ -22,6 +22,8 @@ use crate::catalog::SkillResourceId;
+ use crate::catalog::SkillSearchResult;
+ 
+ pub use executor::ExecutorSkillProvider;
++pub use executor::ExecutorSkillsObservation;
++pub use executor::ExecutorSkillsObservationError;
+ pub(crate) use executor::attribute_executor_plugins;
+ pub use host::HostSkillProvider;
+ 
+diff --git a/codex-rs/ext/skills/src/provider/executor.rs b/codex-rs/ext/skills/src/provider/executor.rs
+index ede0445..eb3726f 100644
+--- a/codex-rs/ext/skills/src/provider/executor.rs
++++ b/codex-rs/ext/skills/src/provider/executor.rs
+@@ -32,6 +32,11 @@ use crate::provider::SkillProviderFuture;
+ use crate::provider::SkillReadRequest;
+ use crate::provider::SkillSearchRequest;
+ 
++#[path = "executor_pre_session.rs"]
++mod pre_session;
++pub use pre_session::ExecutorSkillsObservation;
++pub use pre_session::ExecutorSkillsObservationError;
++
+ /// Discovers and reads skills through the filesystem owned by an execution environment.
+ #[derive(Clone, Debug)]
+ pub struct ExecutorSkillProvider {
+diff --git a/codex-rs/ext/skills/src/provider/executor_pre_session.rs b/codex-rs/ext/skills/src/provider/executor_pre_session.rs
+new file mode 100644
+index 0000000..7a31759
+--- /dev/null
++++ b/codex-rs/ext/skills/src/provider/executor_pre_session.rs
+@@ -0,0 +1,120 @@
++use std::collections::HashMap;
++use std::sync::Arc;
++
++use codex_exec_server::ExecutorCapabilityDiscoverySnapshot;
++use codex_exec_server::FileSystemSandboxContext;
++use codex_exec_server::ResolvedSelectedCapabilityRoot;
++use codex_exec_server::discover_resolved_capability_roots;
++use codex_extension_api::SelectedPluginSnapshot;
++use codex_extension_api::ToolSpec;
++use codex_protocol::capabilities::SelectedCapabilityRoot;
++
++use super::ExecutorSkillProvider;
++use crate::catalog::SkillCatalog;
++use crate::provider::attribute_executor_plugins;
++use crate::tools::skill_tool_specs;
++
++/// Discovery bytes produced through the original provider/environment owner.
++/// No environment/permission/config publication lease or admission is supplied.
++pub struct ExecutorSkillsObservation<'a> {
++    provider: &'a ExecutorSkillProvider,
++    discovery: ExecutorCapabilityDiscoverySnapshot,
++    resolved_roots: Vec<ResolvedSelectedCapabilityRoot>,
++    selected_plugins: Option<Arc<SelectedPluginSnapshot>>,
++    catalog: SkillCatalog,
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub enum ExecutorSkillsObservationError {
++    DiscoveryErrors(Vec<String>),
++    ForeignProvider,
++    SelectedRootsUnresolved,
++    RemoteSourceRequiresCapturedObservation,
++}
++
++impl ExecutorSkillProvider {
++    /// Uses the original native discovery constructor with this provider's
++    /// actual EnvironmentManager and exact passive ready handles. No thread
++    /// cache, Session/lifecycle/tool executor or inferred provider is constructed.
++    /// Selected roots, sandboxes and plugin policy must come from native capture.
++    pub async fn observe_pre_session<'a>(
++        &'a self,
++        selected_roots: &[SelectedCapabilityRoot],
++        sandbox_contexts: &HashMap<String, FileSystemSandboxContext>,
++        selected_plugins: Option<Arc<SelectedPluginSnapshot>>,
++    ) -> Result<ExecutorSkillsObservation<'a>, ExecutorSkillsObservationError> {
++        let resolved_roots = self
++            .environment_manager
++            .observe_ready_selected_capability_roots(selected_roots);
++        if resolved_roots.len() != selected_roots.len()
++            || resolved_roots
++                .iter()
++                .zip(selected_roots)
++                .any(|(resolved, selected)| resolved.selected_root() != selected)
++        {
++            return Err(ExecutorSkillsObservationError::SelectedRootsUnresolved);
++        }
++        // Ordinary remote discovery may reconnect. Preparation requires its own
++        // already-captured passive source; never activate it through this path.
++        if resolved_roots
++            .iter()
++            .any(|root| root.environment().is_remote())
++        {
++            return Err(ExecutorSkillsObservationError::RemoteSourceRequiresCapturedObservation);
++        }
++        let discovery = discover_resolved_capability_roots(&resolved_roots, sandbox_contexts)
++            .await
++            .map_err(|error| ExecutorSkillsObservationError::DiscoveryErrors(vec![error]))?;
++        let mut catalog = self.list_from_discovery(&discovery);
++        if !catalog.warnings.is_empty() {
++            return Err(ExecutorSkillsObservationError::DiscoveryErrors(
++                catalog.warnings,
++            ));
++        }
++        if let Some(plugins) = selected_plugins.as_deref() {
++            attribute_executor_plugins(&mut catalog, plugins);
++        }
++        Ok(ExecutorSkillsObservation {
++            provider: self,
++            discovery,
++            resolved_roots,
++            selected_plugins,
++            catalog,
++        })
++    }
++
++    /// Original provider pointer only; not an epoch, permission or source lease.
++    pub fn assert_pre_session_observation_owner(
++        &self,
++        observation: &ExecutorSkillsObservation<'_>,
++    ) -> Result<(), ExecutorSkillsObservationError> {
++        if !std::ptr::eq(self, observation.provider) {
++            return Err(ExecutorSkillsObservationError::ForeignProvider);
++        }
++        Ok(())
++    }
++}
++
++impl ExecutorSkillsObservation<'_> {
++    pub fn catalog(&self) -> &SkillCatalog {
++        &self.catalog
++    }
++
++    pub fn discovery(&self) -> &ExecutorCapabilityDiscoverySnapshot {
++        &self.discovery
++    }
++
++    pub fn selected_plugins(&self) -> Option<&SelectedPluginSnapshot> {
++        self.selected_plugins.as_deref()
++    }
++
++    /// This executor partition's ordinary root-selected schemas. Other sources
++    /// (including cloud) and Core policy remain separate unresolved partitions.
++    pub fn tool_specs(&self) -> Vec<ToolSpec> {
++        if self.resolved_roots.is_empty() {
++            Vec::new()
++        } else {
++            skill_tool_specs().into()
++        }
++    }
++}
+diff --git a/codex-rs/ext/skills/src/provider/host.rs b/codex-rs/ext/skills/src/provider/host.rs
+index 9aed896..4e6153f 100644
+--- a/codex-rs/ext/skills/src/provider/host.rs
++++ b/codex-rs/ext/skills/src/provider/host.rs
+@@ -1,5 +1,6 @@
+ use std::collections::HashMap;
+ 
++use crate::HostSkillsSnapshot;
+ use crate::SkillLoadOutcome;
+ use codex_skills::SkillMetadata;
+ 
+@@ -31,6 +32,10 @@ impl HostSkillProvider {
+     pub fn new() -> Self {
+         Self
+     }
++
++    pub(crate) fn catalog_for_snapshot(&self, snapshot: &HostSkillsSnapshot) -> SkillCatalog {
++        catalog_from_outcome(snapshot.outcome())
++    }
+ }
+ 
+ impl SkillProvider for HostSkillProvider {
+@@ -42,7 +47,7 @@ impl SkillProvider for HostSkillProvider {
+                 ));
+             };
+ 
+-            Ok(catalog_from_outcome(host_snapshot.outcome()))
++            Ok(self.catalog_for_snapshot(&host_snapshot))
+         })
+     }
+ 
+diff --git a/codex-rs/ext/skills/src/registered_source.rs b/codex-rs/ext/skills/src/registered_source.rs
+new file mode 100644
+index 0000000..bc965ab
+--- /dev/null
++++ b/codex-rs/ext/skills/src/registered_source.rs
+@@ -0,0 +1,105 @@
++use std::collections::HashMap;
++use std::sync::Arc;
++
++use codex_exec_server::FileSystemSandboxContext;
++use codex_extension_api::ContextSourceRegistrationError;
++use codex_extension_api::ExtensionRegistry;
++use codex_extension_api::RegisteredContextSource;
++use codex_extension_api::SelectedPluginSnapshot;
++use codex_protocol::capabilities::SelectedCapabilityRoot;
++
++use super::SkillsExtension;
++use crate::ExecutorSkillsObservation;
++use crate::ExecutorSkillsObservationError;
++use crate::SkillsExtensionConfig;
++use crate::sources::NativeSkillProviderSource;
++
++#[path = "first_context_observation.rs"]
++mod first_context;
++pub use first_context::SkillsContextObservation;
++pub use first_context::SkillsInputObservation;
++
++/// The original installed Skills owner shared by all three context partitions.
++/// Registry provenance/config projection only; this is not captured context,
++/// tool selection, source-currentness authority or an admission permit.
++pub struct RegisteredSkillsSource<C> {
++    registration: RegisteredContextSource<SkillsExtension<C>>,
++}
++
++pub fn registered_skills_sources<C>(
++    registry: &ExtensionRegistry<C>,
++) -> Vec<RegisteredSkillsSource<C>>
++where
++    C: Send + Sync + 'static,
++{
++    registry
++        .registered_context_sources::<SkillsExtension<C>>()
++        .into_iter()
++        .map(|registration| RegisteredSkillsSource { registration })
++        .collect()
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub enum RegisteredSkillsSourceError {
++    Registration(ContextSourceRegistrationError),
++    UnresolvedProviders(Vec<usize>),
++    MissingOrAmbiguousExecutorProvider,
++    MissingOrAmbiguousHostProvider,
++    InputSourceChanged,
++    MissingExecutorPromptBytes,
++    Host(crate::HostSkillsObservationError),
++    Executor(ExecutorSkillsObservationError),
++}
++
++impl<C> RegisteredSkillsSource<C>
++where
++    C: Send + Sync + 'static,
++{
++    /// Observes the exact concrete executor retained at ordinary registration.
++    /// All provider provenance is checked before discovery; unknown/dynamic
++    /// providers cannot borrow another native provider or disappear as empty.
++    /// This captures only the executor partition, not complete Skills context.
++    pub async fn observe_executor_source<'a>(
++        &'a self,
++        registry: &ExtensionRegistry<C>,
++        selected_roots: &[SelectedCapabilityRoot],
++        sandbox_contexts: &HashMap<String, FileSystemSandboxContext>,
++        selected_plugins: Option<Arc<SelectedPluginSnapshot>>,
++    ) -> Result<ExecutorSkillsObservation<'a>, RegisteredSkillsSourceError> {
++        registry
++            .assert_context_source_registration(&self.registration)
++            .map_err(RegisteredSkillsSourceError::Registration)?;
++        let providers = self
++            .registration
++            .source()
++            .providers
++            .native_pre_session_sources()
++            .map_err(RegisteredSkillsSourceError::UnresolvedProviders)?;
++        let mut executors = providers.into_iter().filter_map(|provider| match provider {
++            NativeSkillProviderSource::Executor(provider) => Some(provider),
++            NativeSkillProviderSource::Host(_) => None,
++        });
++        let provider = executors
++            .next()
++            .ok_or(RegisteredSkillsSourceError::MissingOrAmbiguousExecutorProvider)?;
++        if executors.next().is_some() {
++            return Err(RegisteredSkillsSourceError::MissingOrAmbiguousExecutorProvider);
++        }
++        provider
++            .observe_pre_session(selected_roots, sandbox_contexts, selected_plugins)
++            .await
++            .map_err(RegisteredSkillsSourceError::Executor)
++    }
++
++    /// Uses the original installed projection after checking exact registry and
++    /// contributor allocation. Actual effective config selection/renewal remains
++    /// with the native preparation owner; this accepts no caller success flag.
++    pub fn project_configuration(
++        &self,
++        registry: &ExtensionRegistry<C>,
++        config: &C,
++    ) -> Result<SkillsExtensionConfig, ContextSourceRegistrationError> {
++        registry.assert_context_source_registration(&self.registration)?;
++        Ok((self.registration.source().config_from_host)(config))
++    }
++}
+diff --git a/codex-rs/ext/skills/src/registered_source_tests.rs b/codex-rs/ext/skills/src/registered_source_tests.rs
+new file mode 100644
+index 0000000..cdc9dd2
+--- /dev/null
++++ b/codex-rs/ext/skills/src/registered_source_tests.rs
+@@ -0,0 +1,120 @@
++use super::*;
++use crate::ExecutorSkillProvider;
++use crate::RegisteredSkillsSourceError;
++use crate::SkillProviderSource;
++use crate::catalog::SkillSearchResult;
++use crate::provider::SkillProvider;
++use crate::provider::SkillProviderFuture;
++use crate::provider::SkillSearchRequest;
++use codex_exec_server::EnvironmentManager;
++use pretty_assertions::assert_eq;
++
++fn config(_: &()) -> SkillsExtensionConfig {
++    SkillsExtensionConfig {
++        include_instructions: false,
++        max_context_tokens: None,
++        bundled_skills_enabled: false,
++        cloud_skill_enabled: false,
++        shadow_selection_enabled: false,
++    }
++}
++
++struct UnknownKnowledge;
++impl SkillProvider for UnknownKnowledge {
++    fn list(&self, _: SkillListQuery) -> SkillProviderFuture<'_, SkillCatalog> {
++        panic!("unknown Knowledge discovery must not run")
++    }
++    fn read<'a>(&'a self, _: SkillReadRequest<'a>) -> SkillProviderFuture<'a, SkillReadResult> {
++        panic!("unknown Knowledge read must not run")
++    }
++    fn search(&self, _: SkillSearchRequest) -> SkillProviderFuture<'_, SkillSearchResult> {
++        panic!("unknown Knowledge search must not run")
++    }
++}
++
++#[tokio::test]
++async fn registered_native_pair_observes_only_its_original_executor_owner() {
++    let executor = Arc::new(ExecutorSkillProvider::new_with_restriction_product(
++        Arc::new(EnvironmentManager::default_for_tests()),
++        /*restriction_product*/ None,
++    ));
++    let providers = SkillProviders::new()
++        .with_native_executor_provider(Arc::clone(&executor))
++        .with_native_host_provider(Arc::new(HostSkillProvider::new()));
++    let mut builder = ExtensionRegistryBuilder::<()>::new();
++    install_with_providers(&mut builder, providers, config);
++    let registry = builder.build();
++    let sources = registered_skills_sources(&registry);
++    let observed = sources[0]
++        .observe_executor_source(
++            &registry,
++            &[],
++            &HashMap::new(),
++            /*selected_plugins*/ None,
++        )
++        .await
++        .unwrap();
++    executor
++        .assert_pre_session_observation_owner(&observed)
++        .unwrap();
++    assert!(observed.catalog().entries.is_empty());
++    assert!(observed.tool_specs().is_empty());
++    // Per-source observation does not settle the ordinary registered inventory.
++    assert!(registry.capture_pre_session_tools().is_err());
++}
++
++#[tokio::test]
++async fn unknown_knowledge_registration_refuses_before_discovery_despite_hidden_catalog() {
++    let executor = Arc::new(ExecutorSkillProvider::new_with_restriction_product(
++        Arc::new(EnvironmentManager::default_for_tests()),
++        /*restriction_product*/ None,
++    ));
++    let providers = SkillProviders::new()
++        .with_provider(SkillProviderSource::host(
++            "Knowledge",
++            Arc::new(UnknownKnowledge),
++        ))
++        .with_native_executor_provider(executor);
++    let mut builder = ExtensionRegistryBuilder::<()>::new();
++    install_with_providers(&mut builder, providers, config);
++    let registry = builder.build();
++    let sources = registered_skills_sources(&registry);
++    let result = sources[0]
++        .observe_executor_source(
++            &registry,
++            &[],
++            &HashMap::new(),
++            /*selected_plugins*/ None,
++        )
++        .await;
++    assert!(
++        matches!(result, Err(RegisteredSkillsSourceError::UnresolvedProviders(indexes)) if indexes == vec![0])
++    );
++}
++
++#[tokio::test]
++async fn dynamic_executor_kind_cannot_borrow_typed_native_registration_authority() {
++    let executor = Arc::new(ExecutorSkillProvider::new_with_restriction_product(
++        Arc::new(EnvironmentManager::default_for_tests()),
++        /*restriction_product*/ None,
++    ));
++    let providers = SkillProviders::new().with_executor_provider(executor);
++    let mut builder = ExtensionRegistryBuilder::<()>::new();
++    install_with_providers(&mut builder, providers, config);
++    let registry = builder.build();
++    let sources = registered_skills_sources(&registry);
++    let result = sources[0]
++        .observe_executor_source(
++            &registry,
++            &[],
++            &HashMap::new(),
++            /*selected_plugins*/ None,
++        )
++        .await;
++    assert!(
++        matches!(result, Err(RegisteredSkillsSourceError::UnresolvedProviders(indexes)) if indexes == vec![0])
++    );
++}
++
++#[path = "first_context_observation_tests.rs"]
++mod first_context;
+diff --git a/codex-rs/ext/skills/src/sources.rs b/codex-rs/ext/skills/src/sources.rs
+index 2d5d198..9c8bc84 100644
+--- a/codex-rs/ext/skills/src/sources.rs
++++ b/codex-rs/ext/skills/src/sources.rs
+@@ -7,16 +7,25 @@ use crate::catalog::SkillProviderResult;
+ use crate::catalog::SkillReadResult;
+ use crate::catalog::SkillSearchResult;
+ use crate::catalog::SkillSourceKind;
++use crate::provider::ExecutorSkillProvider;
++use crate::provider::HostSkillProvider;
+ use crate::provider::SkillListQuery;
+ use crate::provider::SkillProvider;
+ use crate::provider::SkillReadRequest;
+ use crate::provider::SkillSearchRequest;
+ 
++#[derive(Clone)]
++pub(crate) enum NativeSkillProviderSource {
++    Host(Arc<HostSkillProvider>),
++    Executor(Arc<ExecutorSkillProvider>),
++}
++
+ #[derive(Clone)]
+ pub struct SkillProviderSource {
+     kind: SkillSourceKind,
+     label: String,
+     provider: Arc<dyn SkillProvider>,
++    native_source: Option<NativeSkillProviderSource>,
+ }
+ 
+ impl SkillProviderSource {
+@@ -29,6 +38,7 @@ impl SkillProviderSource {
+             kind,
+             label: label.into(),
+             provider,
++            native_source: None,
+         }
+     }
+ 
+@@ -95,6 +105,65 @@ impl SkillProviders {
+         self
+     }
+ 
++    /// Retains the same concrete native owner for ordinary dispatch and
++    /// preparation. Dynamic/legacy source constructors remain unresolved.
++    pub fn with_native_host_provider(mut self, provider: Arc<HostSkillProvider>) -> Self {
++        self.sources.push(SkillProviderSource {
++            kind: SkillSourceKind::Host,
++            label: "host".to_string(),
++            provider: provider.clone(),
++            native_source: Some(NativeSkillProviderSource::Host(provider)),
++        });
++        self
++    }
++
++    pub fn with_native_executor_provider(mut self, provider: Arc<ExecutorSkillProvider>) -> Self {
++        self.sources.push(SkillProviderSource {
++            kind: SkillSourceKind::Executor,
++            label: "executor".to_string(),
++            provider: provider.clone(),
++            native_source: Some(NativeSkillProviderSource::Executor(provider)),
++        });
++        self
++    }
++
++    /// Rejects every unproven provider before any discovery/read callback. Typed
++    /// constructors bind the concrete owner to the exact ordinary trait-object
++    /// allocation; a dynamic provider cannot self-label another native source.
++    pub(crate) fn native_pre_session_sources(
++        &self,
++    ) -> Result<Vec<&NativeSkillProviderSource>, Vec<usize>> {
++        let missing = self
++            .sources
++            .iter()
++            .enumerate()
++            .filter_map(|(index, source)| {
++                let native_pointer = match source.native_source.as_ref() {
++                    Some(NativeSkillProviderSource::Host(provider))
++                        if source.kind == SkillSourceKind::Host =>
++                    {
++                        Arc::as_ptr(provider).cast::<()>()
++                    }
++                    Some(NativeSkillProviderSource::Executor(provider))
++                        if source.kind == SkillSourceKind::Executor =>
++                    {
++                        Arc::as_ptr(provider).cast::<()>()
++                    }
++                    _ => return Some(index),
++                };
++                (Arc::as_ptr(&source.provider).cast::<()>() != native_pointer).then_some(index)
++            })
++            .collect::<Vec<_>>();
++        if !missing.is_empty() {
++            return Err(missing);
++        }
++        Ok(self
++            .sources
++            .iter()
++            .filter_map(|source| source.native_source.as_ref())
++            .collect())
++    }
++
+     pub fn with_cloud_provider(mut self, provider: Arc<dyn SkillProvider>) -> Self {
+         self.sources
+             .push(SkillProviderSource::cloud("cloud", provider));
+diff --git a/codex-rs/ext/skills/src/tools/mod.rs b/codex-rs/ext/skills/src/tools/mod.rs
+index 167d358..5d7cc98 100644
+--- a/codex-rs/ext/skills/src/tools/mod.rs
++++ b/codex-rs/ext/skills/src/tools/mod.rs
+@@ -56,6 +56,11 @@ const SKILLS_NAMESPACE: &str = "skills";
+ const MAX_HANDLE_BYTES: usize = 2_048;
+ const MAX_SKILL_RESPONSE_BYTES: usize = 512 * 1024;
+ 
++/// The same concrete schemas returned by the existing ordinary executors.
++pub(crate) fn skill_tool_specs() -> [ToolSpec; 2] {
++    [list::tool_spec(), read::tool_spec()]
++}
++
+ pub(crate) fn skill_tools(
+     providers: SkillProviders,
+     session_store: &ExtensionData,
+diff --git a/codex-rs/ext/skills/src/world_state.rs b/codex-rs/ext/skills/src/world_state.rs
+index 31a9bd8..43b246f 100644
+--- a/codex-rs/ext/skills/src/world_state.rs
++++ b/codex-rs/ext/skills/src/world_state.rs
+@@ -23,6 +23,30 @@ const NO_HOST_SKILLS_BODY: &str =
+ const HIDDEN_HOST_SKILLS_BODY: &str = "\n## Host skills update\nHost skills are not listed automatically. Explicit skill mentions can still be resolved when available.\n";
+ const OMITTED_HOST_SKILLS_BODY: &str = "\n## Host skills update\nHost skills are available but omitted from the model-visible skills list because the skills context budget was exceeded.\n";
+ 
++/// Pure first-world-state rendering from already-selected native body data.
++/// Ordinary callbacks remain outside this boundary.
++pub(crate) fn initial_skills_world_state_fragment(
++    body: Option<&str>,
++) -> Option<RenderedWorldStateFragment> {
++    body.map(|body| {
++        RenderedWorldStateFragment::new(
++            "developer",
++            (SKILLS_INSTRUCTIONS_OPEN_TAG, SKILLS_INSTRUCTIONS_CLOSE_TAG),
++            body,
++        )
++    })
++}
++
++pub(crate) fn host_skills_catalog_body(
++    body: Option<String>,
++    report: &SkillRenderReport,
++) -> Option<String> {
++    body.or_else(|| {
++        (report.included_count == 0 && report.omitted_count > 0)
++            .then(|| OMITTED_HOST_SKILLS_BODY.to_string())
++    })
++}
++
+ pub(crate) type CatalogRenderCallback = Box<dyn Fn() + Send + Sync>;
+ 
+ #[derive(Serialize)]
+@@ -68,6 +92,13 @@ pub(crate) fn executor_skills_world_state_section(
+         SKILLS_WORLD_STATE_ID,
+         snapshot,
+         move |previous| {
++            if matches!(previous, PreviousWorldStateSection::Absent) {
++                let fragment = initial_skills_world_state_fragment(body.as_deref());
++                if fragment.is_some() {
++                    on_render();
++                }
++                return fragment;
++            }
+             if let PreviousWorldStateSection::Known(previous) = &previous
+                 && previous.get("includeInstructions").and_then(serde_json::Value::as_bool)
+                     == Some(include_instructions)
+@@ -157,6 +188,13 @@ fn skills_world_state_section(
+     let retained_body = body.clone();
+ 
+     let contribution = WorldStateSectionContribution::new(id, snapshot, move |previous| {
++        if matches!(previous, PreviousWorldStateSection::Absent) {
++            let fragment = initial_skills_world_state_fragment(body.as_deref());
++            if fragment.is_some() {
++                on_render();
++            }
++            return fragment;
++        }
+         if let PreviousWorldStateSection::Known(previous) = &previous {
+             let previous_body = previous.get("body").and_then(serde_json::Value::as_str);
+             let previous_include_instructions = previous
+@@ -199,10 +237,7 @@ pub(crate) fn host_skills_world_state_section(
+     report: &SkillRenderReport,
+     on_render: CatalogRenderCallback,
+ ) -> WorldStateSectionContribution {
+-    let body = body.or_else(|| {
+-        (report.included_count == 0 && report.omitted_count > 0)
+-            .then(|| OMITTED_HOST_SKILLS_BODY.to_string())
+-    });
++    let body = host_skills_catalog_body(body, report);
+     let retained_fragment = body
+         .as_ref()
+         .map(|body| format!("{SKILLS_INSTRUCTIONS_OPEN_TAG}{body}{SKILLS_INSTRUCTIONS_CLOSE_TAG}"));
+@@ -226,3 +261,7 @@ pub(crate) fn host_skills_world_state_section(
+         None => contribution,
+     }
+ }
++
++#[cfg(test)]
++#[path = "world_state_initial_tests.rs"]
++mod initial_tests;
+diff --git a/codex-rs/ext/skills/src/world_state_catalogs.rs b/codex-rs/ext/skills/src/world_state_catalogs.rs
+index 25a3c6f..be58649 100644
+--- a/codex-rs/ext/skills/src/world_state_catalogs.rs
++++ b/codex-rs/ext/skills/src/world_state_catalogs.rs
+@@ -35,6 +35,11 @@ use crate::world_state::host_skills_world_state_section;
+ mod rendering;
+ use rendering::CatalogRenderer;
+ 
++#[path = "initial_catalog_render.rs"]
++mod initial_render;
++pub(crate) use initial_render::InitialSkillCatalogs;
++pub(crate) use initial_render::render_initial_filesystem_catalogs;
++
+ // Start with one quarter reserved for filesystem skills, before their inventory is known.
+ const FILESYSTEM_BUDGET_DIVISOR: usize = 4;
+ 
+diff --git a/codex-rs/ext/skills/src/world_state_initial_tests.rs b/codex-rs/ext/skills/src/world_state_initial_tests.rs
+new file mode 100644
+index 0000000..a5ff78f
+--- /dev/null
++++ b/codex-rs/ext/skills/src/world_state_initial_tests.rs
+@@ -0,0 +1,57 @@
++use pretty_assertions::assert_eq;
++use std::sync::Arc;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++
++use super::*;
++
++#[test]
++fn initial_native_skill_render_matches_ordinary_without_invoking_its_callback() {
++    let calls = Arc::new(AtomicUsize::new(0));
++    let observed_calls = Arc::clone(&calls);
++    let body = "\nKnowledge retained from the original provider.\n";
++    let pure = initial_skills_world_state_fragment(Some(body));
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    let ordinary = executor_skills_world_state_section(
++        Some(body.to_string()),
++        /*include_instructions*/ true,
++        /*previous_snapshot*/ None,
++        Box::new(move || {
++            observed_calls.fetch_add(1, Ordering::SeqCst);
++        }),
++    );
++    assert_eq!(
++        ordinary.render_diff(PreviousWorldStateSection::Absent),
++        pure
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 1);
++    assert_eq!(initial_skills_world_state_fragment(Some(body)), pure);
++    assert!(initial_skills_world_state_fragment(/*body*/ None).is_none());
++    assert_eq!(calls.load(Ordering::SeqCst), 1);
++}
++
++#[test]
++fn initial_host_omission_uses_original_placeholder_and_ordinary_callback() {
++    let report = SkillRenderReport {
++        omitted_count: 1,
++        ..Default::default()
++    };
++    let body = host_skills_catalog_body(/*body*/ None, &report);
++    let pure = initial_skills_world_state_fragment(body.as_deref());
++    let calls = Arc::new(AtomicUsize::new(0));
++    let observed_calls = Arc::clone(&calls);
++    let ordinary = host_skills_world_state_section(
++        /*body*/ None,
++        /*include_instructions*/ true,
++        &report,
++        Box::new(move || {
++            observed_calls.fetch_add(1, Ordering::SeqCst);
++        }),
++    );
++    assert_eq!(
++        ordinary.render_diff(PreviousWorldStateSection::Absent),
++        pure
++    );
++    assert!(pure.unwrap().body().contains("omitted"));
++    assert_eq!(calls.load(Ordering::SeqCst), 1);
++}
+diff --git a/codex-rs/ext/skills/tests/executor_file_system_authority.rs b/codex-rs/ext/skills/tests/executor_file_system_authority.rs
+index ef7f653..f6957e3 100644
+--- a/codex-rs/ext/skills/tests/executor_file_system_authority.rs
++++ b/codex-rs/ext/skills/tests/executor_file_system_authority.rs
+@@ -1048,3 +1048,96 @@ fn create_local_skill_root(label: &str) -> io::Result<std::path::PathBuf> {
+     std::fs::write(skill_dir.join("SKILL.md"), SKILL_CONTENTS)?;
+     Ok(test_root)
+ }
++
++#[tokio::test]
++async fn prepared_executor_observation_uses_original_ready_owner_and_retained_bytes() {
++    let root_path = create_local_skill_root("prepared-observation").expect("local skill fixture");
++    let manager = Arc::new(EnvironmentManager::default_for_tests());
++    let provider = ExecutorSkillProvider::new_with_restriction_product(
++        Arc::clone(&manager),
++        /*restriction_product*/ None,
++    );
++    let roots = vec![SelectedCapabilityRoot {
++        id: "prepared-root".to_string(),
++        location: CapabilityRootLocation::Environment {
++            environment_id: "local".to_string(),
++            path: PathUri::from_host_native_path(&root_path).unwrap(),
++        },
++    }];
++    let observation = provider
++        .observe_pre_session(&roots, &HashMap::new(), /*selected_plugins*/ None)
++        .await
++        .unwrap();
++    provider
++        .assert_pre_session_observation_owner(&observation)
++        .unwrap();
++    let ordinary = provider
++        .list(SkillListQuery {
++            turn_id: "ordinary-fixture".into(),
++            executor_roots: roots,
++            resolved_executor_roots: Vec::new(),
++            host_snapshot: None,
++            include_host_skills: false,
++            include_bundled_skills: false,
++            include_cloud_skills: false,
++            mcp_resources: None,
++            executor_capability_discovery: Some(observation.discovery().clone()),
++        })
++        .await
++        .unwrap();
++    assert_eq!(observation.catalog().entries, ordinary.entries);
++    assert_eq!(observation.catalog().warnings, ordinary.warnings);
++    assert_eq!(observation.catalog().entries.len(), 1);
++    assert_eq!(observation.tool_specs().len(), 2);
++    let entry = &observation.catalog().entries[0];
++    std::fs::remove_dir_all(&root_path).unwrap();
++    let retained = provider
++        .read(SkillReadRequest {
++            _lifetime: PhantomData,
++            authority: entry.authority.clone(),
++            package: entry.id.clone(),
++            resource: entry.main_prompt.clone(),
++            resolved_executor_roots: Vec::new(),
++            sandbox: None,
++            host_snapshot: None,
++            mcp_resources: None,
++        })
++        .await
++        .unwrap();
++    assert_eq!(retained.contents, SKILL_CONTENTS);
++    let foreign = ExecutorSkillProvider::new_with_restriction_product(
++        manager, /*restriction_product*/ None,
++    );
++    assert_eq!(
++        foreign.assert_pre_session_observation_owner(&observation),
++        Err(codex_skills_extension::ExecutorSkillsObservationError::ForeignProvider)
++    );
++}
++
++#[tokio::test]
++async fn prepared_executor_observation_refuses_unresolved_selection_without_absence_grant() {
++    let provider = ExecutorSkillProvider::new_with_restriction_product(
++        Arc::new(EnvironmentManager::default_for_tests()),
++        /*restriction_product*/ None,
++    );
++    let roots = vec![SelectedCapabilityRoot {
++        id: "unavailable-root".into(),
++        location: CapabilityRootLocation::Environment {
++            environment_id: "unavailable-environment".into(),
++            path: PathUri::parse("file:///unavailable-skills").unwrap(),
++        },
++    }];
++    let result = provider
++        .observe_pre_session(&roots, &HashMap::new(), /*selected_plugins*/ None)
++        .await;
++    assert!(matches!(
++        result,
++        Err(codex_skills_extension::ExecutorSkillsObservationError::SelectedRootsUnresolved)
++    ));
++    let empty = provider
++        .observe_pre_session(&[], &HashMap::new(), /*selected_plugins*/ None)
++        .await
++        .unwrap();
++    assert!(empty.catalog().entries.is_empty());
++    assert!(empty.tool_specs().is_empty());
++}

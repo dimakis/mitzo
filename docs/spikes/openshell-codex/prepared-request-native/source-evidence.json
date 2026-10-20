@@ -336,10 +336,14 @@
     {
       "file": "native-skills-readonly-context.patch",
       "sha256": "a8221d494e396ad10fecc75d0312a7e99c03b597f69a9b215bd3aeb287b5e549"
+    },
+    {
+      "file": "native-coupled-skills-context.patch",
+      "sha256": "026b5eb684e75e04cdcb13a0b2b23b8760c8d229ed94964155bd8a192837e56b"
     }
   ],
-  "sourceTree": "e5452ea1c12e6870775d7a364971fafb811a43da",
-  "localSourceCommit": "937ad73d6471eb6ab61b12fea839abdb5c2b9098",
+  "sourceTree": "49bf5c8bd9190162eed9ac3adc029d740f2083e3",
+  "localSourceCommit": "00c01d1023a2d7ce41432303cfa68bf78ed3c818",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -438,7 +442,14 @@
     "732be8922a2a1009f8af760439886fc79c1812d3",
     "eaabb2d4dda600cd87cd4c11c7f122b3d33158b3",
     "5623462d20397e21538e893013219b884ea76474",
-    "937ad73d6471eb6ab61b12fea839abdb5c2b9098"
+    "937ad73d6471eb6ab61b12fea839abdb5c2b9098",
+    "c45aef10470d5de264ee9603dbdbdeef28a51017",
+    "44823069bb2ce03e922c4c01324bb9db4e9c637b",
+    "eff977bf8525dd2bb9362a8ee8ca20f6bae18057",
+    "517206504aef97da211bd3c4a71d853c6c8f23ff",
+    "69a87a94c68ec4a8192b12185c5160bdffd24eaf",
+    "bfc59f9977774d7b826cf38846995489d3fb949a",
+    "00c01d1023a2d7ce41432303cfa68bf78ed3c818"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -448,7 +459,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "83-patch source: retain82; correct ordinary formatter fixture import; share original Skills catalog allocation, tool specs and selected-prompt formatting; observe real HostSkillsService catalogs without installation or cache publication. Complete source lease/coupled factory/admission is not installed.",
+    "scope": "84-patch source: correct explicit Skills test assertion imports; original coupled prompt/first-input/tool registration, selected host bytes and precedence, passive original executor observations, concrete native provider bindings, and coupled Skills data capture. Complete source/currentness leases and Core factory/State/app-server/application callers remain open.",
     "localFocused": {
       "status": "source_reconstruction_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -457,7 +468,7 @@
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_83_exact_source",
+      "status": "pending_84_exact_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -476,14 +487,17 @@
         "codex-home",
         "codex-model-provider-info",
         "codex-skills-extension",
-        "codex-skills"
+        "codex-skills",
+        "codex-exec-server",
+        "codex-app-server"
       ],
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
       "testThreads": 1,
       "retries": 0,
       "prior81QualificationTransfers": false,
-      "prior82QualificationTransfers": false
+      "prior82QualificationTransfers": false,
+      "prior83QualificationTransfers": false
     }
   },
   "runtimeQualified": false,
@@ -496,7 +510,7 @@
     "Finish original Skills registration-owned coupled prompt/turn-input/tool capture, original source publication/currentness guards and selected prompt-byte retention; read-only catalog observations do not settle these obligations.",
     "Bind native count and complete original account/source/config/runtime/model authorities to StateRuntime guarded commitment; observations alone are not admission.",
     "Wire original app-server RPC and real application host caller to the source-owned factory; do not install a no-op/always-unavailable factory or forge Ready.",
-    "Qualify all new source on both OS, explicitly selecting codex-home, codex-model-provider-info, codex-skills-extension and codex-skills fixtures/format; no real model tests without supported Luna and exact charged account announcement."
+    "Qualify exact new source on both OS, explicitly selecting Skills/SkillsExtension/ExecServer/AppServer fixtures and formatting alongside all original packages; live model tests require supported Luna and exact charged-account announcement."
   ],
   "integratedDependencies": {
     "formatter": {
@@ -2763,6 +2777,58 @@
         "newFixturesExecuted": false,
         "mac": "Separate pending original job at source publication preparation; no result inferred"
       }
+    },
+    {
+      "sourceCommit": "937ad73d6471eb6ab61b12fea839abdb5c2b9098",
+      "sourceTree": "e5452ea1c12e6870775d7a364971fafb811a43da",
+      "patches": 83,
+      "checks": {
+        "scope": "83-patch source: retain82; correct ordinary formatter fixture import; share original Skills catalog allocation, tool specs and selected-prompt formatting; observe real HostSkillsService catalogs without installation or cache publication. Complete source lease/coupled factory/admission is not installed.",
+        "localFocused": {
+          "status": "source_reconstruction_and_scoped_format_only",
+          "rustTestsExecuted": false,
+          "compiled": false,
+          "allNewRustFixtures": "UNRUN",
+          "dynamicGreenClaimed": false
+        },
+        "ci": {
+          "status": "pending_83_exact_source",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-http-client",
+            "codex-state",
+            "codex-api",
+            "codex-guardian-reviewer",
+            "codex-extension-api",
+            "codex-mcp-extension",
+            "codex-login",
+            "codex-memories-extension",
+            "codex-web-search-extension",
+            "codex-history-notes-extension",
+            "codex-goal-extension",
+            "codex-models-manager",
+            "codex-home",
+            "codex-model-provider-info",
+            "codex-skills-extension",
+            "codex-skills"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "testThreads": 1,
+          "retries": 0,
+          "prior81QualificationTransfers": false,
+          "prior82QualificationTransfers": false
+        }
+      },
+      "actualLinuxCompileFailure": {
+        "run": 39388392115,
+        "job": 118513842547,
+        "diagnostic": "Nine E0659 ambiguous assert_eq macros in host_pre_session_tests child glob import; lib-test compilation failed before nextest",
+        "receiptSha256": "9f8107d5dc03a69e0d91f429ffc605376eff98f2e22004415d31cfb0e8a3a801",
+        "fixtureExecutionQualified": false,
+        "mac": "Separate platform result; no qualification inferred"
+      }
     }
   ],
   "skillsReadOnlyPrerequisite": {
@@ -2773,5 +2839,21 @@
     "localRustCompileTestClippy": false,
     "sourceLeaseOrWholeFactoryReady": false,
     "independentRendererSourceReceipt": "6d1fe7adee0e46730df1826daaefa06db37d366480babca90e1d133e47557fda"
+  },
+  "skillsCoupledDataPrerequisite": {
+    "source": "Original installed Skills Arc and exact concrete Host/Executor provider allocations; dynamic/custom/cloud registrations refuse before callbacks",
+    "capture": "Private first-input/config/model/connector projection; real HostService+passive ready executor observations; complete retained selected bytes, original catalog budgets/aliases/dedup and first-Absent world-state section IDs; original host/extension order boundary and original tool schemas",
+    "model": "Whole selected ModelInfo retained; bundled real gpt-6-luna row used only as offline fixture data, not account/model access authority",
+    "effects": "No Session/lifecycle/tool executor/prewarm/inference; remote executor observation refuses before reconnect; pure rendering stores plain native data",
+    "currentness": "Registry/provider identity only. Actual HostService/config/model/permission/file/Ready-report source publishers and guarded consumption remain separate unresolved requirements. No complete factory or Ready claim.",
+    "authoredFixtures": 18,
+    "fixturesExecutedLocally": false,
+    "independentSourceReceipts": {
+      "registry": "e0e62e91ad15c2e3bb810949e29f1fb795e58be6f88efb1d31b2cf99c5436356",
+      "hostBytes": "8c6a36e17919a90e53c9f27c689532c91bfb5f3bee3b784d43f7ca6e8e8fa313",
+      "executorAndTypedRegistration": "a2c4f400390ae6400c592d692c9f74af22d3077686d898d4d27059f89491e99c",
+      "coupledData": "37d11c2750d38ad906e97eb299be27828d10bacfa07a09a874ac2baa9b01efc7",
+      "assertImports": "398be80f82d20a95bf56b38d27ba6fd0dc590c02e881f354071bdfb706785217"
+    }
   }
 }

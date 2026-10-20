@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.404-symposium-skills-readonly-inputs';
+  'v1.0.405-symposium-coupled-skills-context';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-coupled-skills-context.patch':
+    '026b5eb684e75e04cdcb13a0b2b23b8760c8d229ed94964155bd8a192837e56b',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-skills-readonly-context.patch':
     'a8221d494e396ad10fecc75d0312a7e99c03b597f69a9b215bd3aeb287b5e549',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-fresh-request-inputs.patch':
