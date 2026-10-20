@@ -1,4 +1,5 @@
 import { contextDigest } from './agent-context-compiler.js';
+import { OrdinaryWorkspaceCustody } from './ordinary-workspace-custody.js';
 import type { EventStore } from './event-store.js';
 import { nativeStartupSessionId } from './ordinary-repository-startup.js';
 import {
@@ -6,6 +7,7 @@ import {
   OrdinaryOpenShellCommandAdmissionSchema,
   type AgentLibraryVersion,
   type CollaborationSettings,
+  type OrdinarySessionPreparationReceipt,
 } from '@mitzo/protocol';
 import {
   OrdinaryRepositoryPreparationSchema,
@@ -256,6 +258,10 @@ interface Dependencies {
       binding: AccountBinding,
       signal: AbortSignal,
       requireModelReadiness?: boolean,
+      selection?: Pick<
+        import('@mitzo/protocol').OrdinaryWorkspaceSettings['selection'],
+        'model' | 'thinking'
+      >,
     ): Promise<void>;
   };
   authorize(
@@ -271,6 +277,7 @@ interface Dependencies {
 /** Durable preparations are bound to the exact selected AI account and GitHub connection revision. */
 export class RepositoryWorkspaces {
   private db: Database.Database;
+  private ordinaryWorkspaceCustody?: OrdinaryWorkspaceCustody;
   private activeOperations = 0;
   private released = false;
   private assertAvailable() {
@@ -318,6 +325,40 @@ export class RepositoryWorkspaces {
     );
     this.db.exec(`CREATE TABLE IF NOT EXISTS ordinary_preparation_allocations (
       operation_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL);`);
+  }
+  private ordinaryWorkspaceProvider() {
+    this.assertAvailable();
+    return (this.ordinaryWorkspaceCustody ??= new OrdinaryWorkspaceCustody(
+      this.db,
+      this.deps.ordinaryPreparation,
+    ));
+  }
+  prepareOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['prepare']>[0]) {
+    return this.runOperation(() => this.ordinaryWorkspaceProvider().prepare(input));
+  }
+  qualifyOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['qualify']>[0]) {
+    return this.runOperation(() => this.ordinaryWorkspaceProvider().qualify(input));
+  }
+  reserveOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['reserve']>[0]) {
+    return this.runOperation(() => this.ordinaryWorkspaceProvider().reserve(input));
+  }
+  validateRetainedOrdinaryWorkspace(conversationId: string) {
+    return this.ordinaryWorkspaceProvider().validateRetained(conversationId);
+  }
+  revalidateOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['revalidate']>[0]) {
+    return this.runOperation(() => this.ordinaryWorkspaceProvider().revalidate(input));
+  }
+  claimOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['claim']>[0]) {
+    return this.runOperation(() => this.ordinaryWorkspaceProvider().claim(input));
+  }
+  getOrdinaryWorkspace(id: string) {
+    return this.ordinaryWorkspaceProvider().get(id);
+  }
+  getOrdinaryWorkspaceForConversation(conversationId: string) {
+    return this.ordinaryWorkspaceProvider().forConversation(conversationId);
+  }
+  validateOrdinaryWorkspace(conversationId: string, directory: string) {
+    return this.ordinaryWorkspaceProvider().validate(conversationId, directory);
   }
   /** Durable application session + real workspace reservation only. Native startup,
    * queues and first-command admission remain entirely with the ordinary owners. */
@@ -1208,6 +1249,46 @@ export class RepositoryWorkspaces {
     signal.throwIfAborted();
     this.assertUnchangedHostRecord(record);
     await this.assertHostSource(record, signal);
+  }
+  /** Read-only qualification of an existing silent preparation. No reserve/claim or repair. */
+  async qualifyPreparedHostSession(
+    receipt: OrdinarySessionPreparationReceipt,
+    binding: AccountBinding,
+    signal: AbortSignal,
+  ): Promise<void> {
+    return this.runOperation(async () => {
+      const record = this.getHostRecord(receipt.workspaceId);
+      if (
+        receipt.firstCommandId !== null ||
+        receipt.workspaceId !== receipt.settings.repositoryWorkspaceId ||
+        record.state !== 'reserved' ||
+        !record.ordinaryPreparation ||
+        !record.hostReservation ||
+        record.sandbox !== false ||
+        !isDeepStrictEqual(record.ordinaryFirstReservation, {
+          conversationId: receipt.sessionId,
+          binding,
+          commandFingerprint: receipt.preparationFingerprint,
+        })
+      )
+        throw Error('Original silent repository reservation unavailable');
+      const reservation = {
+        id: receipt.workspaceId,
+        conversationId: receipt.sessionId,
+        binding,
+        taskRoot: record.hostReservation.taskRoot,
+        runtimeBinding: receipt.settings.binding,
+        commandFingerprint: receipt.preparationFingerprint,
+      };
+      this.getHostReservation(reservation);
+      await this.firstBinding(record, reservation, signal);
+      await this.authorizeHostRecord(record, binding, signal);
+      await this.verifyHostSource(record, signal);
+      await this.assertHostRoot(record.hostReservation);
+      signal.throwIfAborted();
+      this.assertUnchangedHostRecord(record);
+      this.getHostReservation(reservation);
+    });
   }
   /** Pins host identity in the existing SQLite row, without creating destination files. */
   async reserveHostTask(input: HostRepositoryReservationInput): Promise<HostRepositoryReservation> {

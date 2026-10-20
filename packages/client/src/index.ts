@@ -93,3 +93,5 @@ export type {
 } from './event-bus.js';
 
 export { TelosWorkApiClient, TelosWorkApiError } from './telos-work-api.js';
+
+export { OrdinaryWorkspaceApiClient, OrdinaryWorkspaceApiError } from './ordinary-workspace-api.js';

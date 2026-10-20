@@ -1,3 +1,6 @@
+import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
+import type { LocalWorkspaceRecord } from './ordinary-local-workspace-owner.js';
+import type { LocalWorkspaceKind } from './ordinary-local-workspace-owner.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
 import { TelosWorkStore } from './telos-work-store.js';
@@ -45,6 +48,7 @@ import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { SourceSnapshotsSchema, type SourceSnapshot } from '@mitzo/protocol';
 import { recordAcceptedReplaySession, replayError } from './public-replay-error.js';
 import {
+  getOrdinaryWorkspaces,
   getRepositoryWorkspaces,
   readRepositoryWorkspaceForConversation,
 } from './repository-workspace-runtime.js';
@@ -3049,6 +3053,7 @@ export async function startOwnedLocalCodexCommand(
   transport: SessionTransport,
   clientId: string,
   input: {
+    workspaceKind?: LocalWorkspaceKind;
     command: unknown;
     reservation: Omit<HostRepositoryReservationInput, 'signal'>;
     commandId: string;
@@ -3070,7 +3075,7 @@ export async function startOwnedLocalCodexCommand(
     custodianOwnerMode
   )
     throw unavailable();
-  let driver: OrdinaryLocalCodexOwnedRuntime | undefined;
+  let driver: OrdinaryLocalCodexOwnedRuntime<LocalWorkspaceKind> | undefined;
   let prepared: Awaited<ReturnType<typeof prepareOwnedLocalCodexChat>> | undefined;
   let released = false;
   const release = () => {
@@ -3121,11 +3126,15 @@ export async function startOwnedLocalCodexCommand(
       resolveOwnedTelosWorkCommandScope(sessionId);
       return { ...result, sessionId };
     }
-    driver = new OrdinaryLocalCodexOwnedRuntime({
+    driver = new OrdinaryLocalCodexOwnedRuntime<LocalWorkspaceKind>({
       enabled: true,
       eventStore,
       library: getAgentLibrary(),
-      workspace: getRepositoryWorkspaces(true),
+      workspaceKind: input.workspaceKind,
+      workspace:
+        input.workspaceKind === 'ordinary'
+          ? getOrdinaryWorkspaces(true)
+          : getRepositoryWorkspaces(true),
       reservation,
       commandId,
       operatorConnectionId,
@@ -3260,10 +3269,16 @@ export async function startOwnedLocalCodexCommand(
  */
 export const prepareOwnedLocalCodexChat = prepareOwnedCodexChat;
 
+function isOrdinaryWorkspace(
+  value: LocalWorkspaceRecord<LocalWorkspaceKind>,
+): value is OrdinaryWorkspaceRecord {
+  return 'kind' in value && value.kind === 'ordinary';
+}
+
 export async function prepareOwnedCodexChat(
   transport: SessionTransport,
   clientId: string,
-  input: OrdinaryLocalCodexOwnedDispatch | OrdinaryOpenShellCodexOwnedDispatch,
+  input: OrdinaryLocalCodexOwnedDispatch<LocalWorkspaceKind> | OrdinaryOpenShellCodexOwnedDispatch,
   options: {
     ownerConnectionId?: string;
     ownerAuthSessionId?: string;
@@ -3289,7 +3304,7 @@ export async function prepareOwnedCodexChat(
   let selected: {
     expected:
       OrdinaryLocalCodexOwnedDispatch['expected'] | OrdinaryOpenShellCodexOwnedDispatch['expected'];
-    workspace: OrdinaryLocalCodexOwnedDispatch['workspace'];
+    workspace: OrdinaryLocalCodexOwnedDispatch<LocalWorkspaceKind>['workspace'];
     payload: OrdinaryLocalCodexOwnedDispatch['payload'];
     profile: OrdinaryLocalCodexOwnedDispatch['profile'];
   };
@@ -3319,7 +3334,7 @@ export async function prepareOwnedCodexChat(
       workspace.directory = expected.workspace.cwd;
     if (
       workspace.state !== 'claimed' ||
-      Boolean(workspace.sandbox) !== Boolean(openShellAdmission) ||
+      Boolean('sandbox' in workspace && workspace.sandbox) !== Boolean(openShellAdmission) ||
       workspace.conversationId !== input.sessionId ||
       workspace.id !== expected.workspace.workspaceId ||
       workspace.directory !== expected.workspace.cwd ||
@@ -3340,7 +3355,9 @@ export async function prepareOwnedCodexChat(
       reasoningEffort: expected.selection.thinking,
       agentProfile: expected.agentProfile,
       agentContext: expected.agentContext,
-      repositoryWorkspace: workspace,
+      ...(isOrdinaryWorkspace(workspace)
+        ? { ordinaryWorkspace: workspace }
+        : { repositoryWorkspace: workspace }),
     });
   } catch {
     throw unavailable();
@@ -3406,7 +3423,7 @@ export async function prepareOwnedCodexChat(
       cwd: expected.workspace.cwd,
       mode: expected.selection.permission.mode,
       model: expected.selection.model,
-      branch: workspace.featureBranch,
+      branch: 'featureBranch' in workspace ? workspace.featureBranch : undefined,
       agentName: expected.agentProfile?.definition.name,
       accountBinding: structuredClone(boundAccount),
       sessionAllowList: new Set(),
@@ -3431,7 +3448,7 @@ export async function prepareOwnedCodexChat(
       type: 'session_info',
       sessionId,
       cwd: expected.workspace.cwd,
-      branch: workspace.featureBranch,
+      branch: 'featureBranch' in workspace ? workspace.featureBranch : undefined,
       worktree: false,
     });
     storeAndEchoIfNew(
@@ -3468,7 +3485,9 @@ export async function prepareOwnedCodexChat(
       profile,
       session,
       registry,
-      repositoryWorkspace: workspace,
+      ...(isOrdinaryWorkspace(workspace)
+        ? { ordinaryWorkspace: workspace }
+        : { repositoryWorkspace: workspace }),
       agentProfile: expected.agentProfile,
       agentContext: expected.agentContext,
       prepareAgentContext: async (signal) => {
@@ -3512,9 +3531,11 @@ export async function prepareOwnedCodexChat(
         ...(supportsHostTaskTools(!!openShellAdmission) ? buildTaskMcpServer(clientId) : null),
       },
       eventStore,
-      publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
-        .filter(Boolean)
-        .map((root) => join(root, '.git')),
+      publishingGitStorageRoots: isOrdinaryWorkspace(workspace)
+        ? undefined
+        : [BASE_REPO, ...Object.values(getRepoConfig().repos)]
+            .filter(Boolean)
+            .map((root) => join(root, '.git')),
     });
     resolveOwnedTelosWorkCommandScope(sessionId);
     if (closed || abortController.signal.aborted) {

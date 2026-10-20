@@ -3,6 +3,7 @@ import {
   TelosWorkRoleSetupInputSchema,
   type TelosWorkRoleSetupIntent,
   type TelosWorkCommandReceipt,
+  type TelosWorkRoleSetupRequestIntent,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
@@ -52,47 +53,90 @@ export class TelosWorkRoleSetup {
       throw new TelosWorkError('invalid', 'Role context selection scope mismatch');
     renderTelosWorkRoleContext(contextSelection);
     signal.throwIfAborted();
-    // Persist one operation before asynchronous preparation, including uncertain
-    // failures; an exact retry always recovers this operation's original session.
-    const retained = this.deps.work.prepareRoleSetup(input, actor);
-    const setup = structuredClone(retained.setup);
-    const scope = () => structuredClone({ actor, setup });
-    const authorize = async () => {
-      signal.throwIfAborted();
-      await this.deps.authorize(scope(), signal);
-      signal.throwIfAborted();
-    };
-    await authorize();
-    if (retained.receipt) return retained.receipt;
-    let receipt = this.deps.events.getOrdinarySessionPreparation(setup.allocationOperationId);
-    if (!receipt) {
-      const resolved = structuredClone(await this.deps.resolvePreparation(scope(), signal));
-      await authorize();
-      receipt = (
-        await this.deps.workspaces.prepareOrdinarySession(
-          {
-            ...resolved,
-            allocationOperationId: setup.allocationOperationId,
-            id: setup.input.settings.repositoryWorkspaceId,
-            settings: structuredClone(setup.input.settings),
-            signal,
-          },
-          this.deps.events,
-        )
-      ).receipt;
-      await authorize();
-    }
-    if (
-      receipt.allocationOperationId !== setup.allocationOperationId ||
-      !isDeepStrictEqual(receipt.settings, setup.input.settings)
-    )
-      throw new TelosWorkError('conflict', 'Ordinary role preparation scope mismatch');
-    await this.deps.retainContext({ ...scope(), conversationId: receipt.sessionId }, signal);
-    await authorize();
-    const conversationId = receipt.sessionId;
-    return this.deps.work.completeRoleSetup(setup, conversationId, actor, () => {
-      signal.throwIfAborted();
-      this.deps.assertBeforeApply({ ...scope(), conversationId });
+    return runTelosWorkRoleSetup(actor, input, signal, {
+      prepare: () => this.deps.work.prepareRoleSetup(input, actor),
+      authorize: (scope, signal) => this.deps.authorize(scope, signal),
+      getReceipt: (id) => this.deps.events.getOrdinarySessionPreparation(id),
+      allocate: async (scope, authorize) => {
+        const resolved = structuredClone(await this.deps.resolvePreparation(scope, signal));
+        await authorize();
+        return (
+          await this.deps.workspaces.prepareOrdinarySession(
+            {
+              ...resolved,
+              allocationOperationId: scope.setup.allocationOperationId,
+              id: scope.setup.input.settings.repositoryWorkspaceId,
+              settings: structuredClone(scope.setup.input.settings),
+              signal,
+            },
+            this.deps.events,
+          )
+        ).receipt;
+      },
+      retainContext: (scope, signal) => this.deps.retainContext(scope, signal),
+      assertBeforeApply: (scope) => this.deps.assertBeforeApply(scope),
+      complete: (setup, id, assert) => this.deps.work.completeRoleSetup(setup, id, actor, assert),
     });
   }
+}
+
+type RoleScope<T extends TelosWorkRoleSetupRequestIntent> = { actor: TelosWorkActor; setup: T };
+/** Shared role workflow. Allocation and persistence remain in their existing owners. */
+export async function runTelosWorkRoleSetup<
+  T extends TelosWorkRoleSetupRequestIntent,
+  R extends { allocationOperationId: string; sessionId: string; settings: T['input']['settings'] },
+>(
+  actor: TelosWorkActor,
+  input: T['input'],
+  signal: AbortSignal,
+  deps: {
+    prepare(): { setup: T; receipt: TelosWorkCommandReceipt | null };
+    authorize(scope: RoleScope<T>, signal: AbortSignal): Promise<void>;
+    verifyRetained?(scope: RoleScope<T>): Promise<void>;
+    getReceipt(operationId: string): R | undefined;
+    allocate(scope: RoleScope<T>, authorize: () => Promise<void>): Promise<R>;
+    retainContext(
+      scope: RoleScope<T> & { conversationId: string },
+      signal: AbortSignal,
+    ): Promise<void>;
+    assertBeforeApply(scope: RoleScope<T> & { conversationId: string }): void;
+    complete(
+      setup: T,
+      conversationId: string,
+      assertBeforeApply: () => void,
+    ): TelosWorkCommandReceipt;
+  },
+): Promise<TelosWorkCommandReceipt> {
+  // Persist one operation before asynchronous preparation, including uncertain
+  // failures; an exact retry always recovers this operation's original session.
+  const retained = deps.prepare();
+  const setup = structuredClone(retained.setup);
+  const scope = () => structuredClone({ actor, setup });
+  const authorize = async () => {
+    signal.throwIfAborted();
+    await deps.authorize(scope(), signal);
+    signal.throwIfAborted();
+  };
+  await authorize();
+  if (retained.receipt) {
+    await deps.verifyRetained?.(scope());
+    return retained.receipt;
+  }
+  let receipt = deps.getReceipt(setup.allocationOperationId);
+  if (!receipt) {
+    receipt = await deps.allocate(scope(), authorize);
+    await authorize();
+  }
+  if (
+    receipt.allocationOperationId !== setup.allocationOperationId ||
+    !isDeepStrictEqual(receipt.settings, setup.input.settings)
+  )
+    throw new TelosWorkError('conflict', 'Ordinary role preparation scope mismatch');
+  await deps.retainContext({ ...scope(), conversationId: receipt.sessionId }, signal);
+  await authorize();
+  const conversationId = receipt.sessionId;
+  return deps.complete(setup, conversationId, () => {
+    signal.throwIfAborted();
+    deps.assertBeforeApply({ ...scope(), conversationId });
+  });
 }

@@ -41,11 +41,13 @@ it('boots with authentication, workspace and tracing settings supplied only by t
         Promise.all([
           import(${JSON.stringify(new URL('../constants.ts', import.meta.url).href)}),
           import(${JSON.stringify(createRequire(import.meta.url).resolve('@opentelemetry/api'))}),
-        ]).then(([constants, { trace }]) => {
+          import(${JSON.stringify(new URL('../chat.ts', import.meta.url).href)}),
+        ]).then(([constants, { trace }, chat]) => {
           const span = trace.getTracer('startup-fixture').startSpan('dotenv-configuration');
           const ready = process.env.AUTH_PASSPHRASE === 'startup-fixture-passphrase'
             && process.env.AUTH_SECRET === 'startup-fixture-secret-long-enough-for-hs256'
             && process.env.REPO_PATH === ${JSON.stringify(workspace)}
+            && chat.BASE_REPO === ${JSON.stringify(workspace)}
             && constants.TRACE_CONTENT_MAX_CHARS === 1234
             && span.isRecording();
           process.stdout.write('STARTUP_ENV_READY=' + ready + '\\n');
