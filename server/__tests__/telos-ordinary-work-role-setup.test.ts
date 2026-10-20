@@ -304,3 +304,56 @@ it.each(['abort', 'revoke'] as const)(
     expect(f.native.workspaces.getOrdinaryWorkspaceForConversation(conversationId)).toBeDefined();
   },
 );
+
+it.each(['unchanged', 'replaced-root'] as const)(
+  'recovers a lost committed preparation response only with %s original custody',
+  async (damage) => {
+    const f = await fixture();
+    const before = f.native.events.listSessions().length;
+    const prepare = f.native.events.prepareOrdinaryWorkspaceSession.bind(f.native.events);
+    vi.spyOn(f.native.events, 'prepareOrdinaryWorkspaceSession').mockImplementationOnce(
+      (...args) => {
+        prepare(...args);
+        throw Error('Injected lost committed preparation response');
+      },
+    );
+    await expect(f.owner.setup(f.actor, f.input, f.native.signal.signal)).rejects.toThrow(
+      'Injected lost committed preparation response',
+    );
+    const intent = f.work.prepareOrdinaryRoleSetup(f.input, f.actor);
+    expect(intent.receipt).toBeNull();
+    const preparation = f.native.events.getOrdinaryWorkspaceSessionPreparation(
+      intent.setup.allocationOperationId,
+    )!;
+    expect(preparation).toBeTruthy();
+    const original = f.native.workspaces.getOrdinaryWorkspaceForConversation(
+      preparation.sessionId,
+    )!;
+    expect(f.native.events.listSessions()).toHaveLength(before + 1);
+    if (damage === 'replaced-root') {
+      renameSync(f.native.taskRoot, f.native.taskRoot + '-retained');
+      mkdirSync(f.native.taskRoot, { mode: 0o700 });
+    }
+    f.restart();
+    if (damage === 'replaced-root') {
+      await expect(f.owner.setup(f.actor, f.input, f.native.signal.signal)).rejects.toThrow();
+      expect(f.work.prepareOrdinaryRoleSetup(f.input, f.actor).receipt).toBeNull();
+      expect(
+        f.native.events
+          .getSessionEvents(preparation.sessionId)
+          .filter((event) => event.type === 'telos_work_role_context'),
+      ).toEqual([]);
+    } else {
+      const recovered = await f.owner.setup(f.actor, f.input, f.native.signal.signal);
+      expect(
+        recovered.work.links.find((link) => link.role === 'lead')?.conversation.conversationId,
+      ).toBe(preparation.sessionId);
+    }
+    expect(f.native.events.listSessions()).toHaveLength(before + 1);
+    expect(f.native.workspaces.getOrdinaryWorkspaceForConversation(preparation.sessionId)?.id).toBe(
+      original.id,
+    );
+    expect(f.native.first.launch).not.toHaveBeenCalled();
+    expect(f.native.forbidden).not.toHaveBeenCalled();
+  },
+);

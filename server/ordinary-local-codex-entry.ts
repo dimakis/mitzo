@@ -636,6 +636,37 @@ function createOwnedCodexEntryRouter(
         )
           throw Error(unavailable);
         if (!ordinary && (!BASE_REPO || !isAbsolute(BASE_REPO))) throw Error(unavailable);
+        const preparedRepository =
+          !ordinary && !continuation
+            ? ctx.eventStore.getOrdinarySessionPreparationForConversation(sessionId)
+            : undefined;
+        const preparedRepositoryRecord = preparedRepository
+          ? getRepositoryWorkspaces(true).get(preparedRepository.workspaceId)
+          : undefined;
+        if (preparedRepository) {
+          const meta = ctx.eventStore.getSession(sessionId);
+          const resolved = catalog.resolve(input.runtime);
+          if (
+            input.runOn !== 'local' ||
+            input.runtime.harness !== 'codex' ||
+            preparedRepository.workspaceId !== repositoryWorkspaceId ||
+            preparedRepository.sessionId !== sessionId ||
+            (preparedRepository.firstCommandId !== null &&
+              preparedRepository.firstCommandId !== input.clientMsgId) ||
+            resolved.status !== 'compatible' ||
+            !isDeepStrictEqual(resolved.binding, preparedRepository.settings.binding) ||
+            !isDeepStrictEqual(input.selection, preparedRepository.settings.selection) ||
+            !meta ||
+            meta.isHidden ||
+            meta.ordinaryWorkspaceId != null ||
+            meta.repositoryWorkspaceId !== repositoryWorkspaceId ||
+            meta.cwd !== preparedRepositoryRecord?.directory ||
+            !preparedRepositoryRecord?.hostReservation ||
+            !preparedRepositoryRecord.ordinaryPreparation ||
+            !isDeepStrictEqual(meta.accountBinding, binding)
+          )
+            throw Error(unavailable);
+        }
         const reservation = {
           id: ordinaryWorkspace ? ordinaryWorkspace.id : repositoryWorkspaceId!,
           binding: ordinaryWorkspace
@@ -646,14 +677,15 @@ function createOwnedCodexEntryRouter(
           conversationId: sessionId,
           taskRoot: ordinaryWorkspace
             ? ordinaryWorkspace.hostReservation.taskRoot
-            : join(BASE_REPO, '.claude', 'repository-tasks'),
+            : (preparedRepositoryRecord?.hostReservation?.taskRoot ??
+              join(BASE_REPO, '.claude', 'repository-tasks')),
           ...(ordinaryWorkspace
             ? { commandFingerprint: ordinaryWorkspace.preparationFingerprint }
             : !continuation
               ? {
-                  commandFingerprint: createHash('sha256')
-                    .update(JSON.stringify(input))
-                    .digest('hex'),
+                  commandFingerprint:
+                    preparedRepository?.preparationFingerprint ??
+                    createHash('sha256').update(JSON.stringify(input)).digest('hex'),
                 }
               : {}),
           runtimeBinding: (() => {
@@ -761,7 +793,9 @@ function createOwnedCodexEntryRouter(
                       workspaceKind: ordinary ? 'ordinary' : 'repository',
                       ...(!continuation && ordinaryWorkspace
                         ? { preparationOperationId: ordinaryWorkspace.allocationOperationId }
-                        : {}),
+                        : preparedRepository
+                          ? { preparationOperationId: preparedRepository.allocationOperationId }
+                          : {}),
                       command,
                       reservation,
                       commandId: input.clientMsgId,

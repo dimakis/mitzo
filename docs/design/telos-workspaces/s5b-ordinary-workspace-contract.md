@@ -177,3 +177,13 @@ store recreation; a different chat acknowledgment cannot consume it. Ordinary
 V2 first/continuation delivery keeps its existing separate strict local metadata
 and routes. Both forms share the same outbox, pending-command exclusion and
 source-handoff owner.
+
+The repository prepared-first metadata hint is read-only eligibility. It requires
+current persistent interactive authority, the original strict V1 preparation,
+matching session/binding/reservation and verified source/root readiness. The
+ordinary hint retains its canonical role/task incompleteness checks. Authority
+and original identity are checked again after awaited qualification; metadata
+inspection does not allocate, claim or launch. The first guarded POST remains
+the admission authority. A consumed exact retry reconciles the original V1
+preparation fingerprint and retained role launch context without another native
+effect; changed request data cannot reuse that receipt.

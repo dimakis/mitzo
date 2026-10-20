@@ -123,6 +123,7 @@ export async function runTelosWorkRoleSetup<
     return retained.receipt;
   }
   let receipt = deps.getReceipt(setup.allocationOperationId);
+  const recoveredAllocation = receipt !== undefined;
   if (!receipt) {
     receipt = await deps.allocate(scope(), authorize);
     await authorize();
@@ -132,6 +133,13 @@ export async function runTelosWorkRoleSetup<
     !isDeepStrictEqual(receipt.settings, setup.input.settings)
   )
     throw new TelosWorkError('conflict', 'Ordinary role preparation scope mismatch');
+  // A committed ordinary preparation can survive a lost allocation response
+  // before the role receipt exists. Recovery must renew the original workspace
+  // custody just like replay of a completed role, before retaining context.
+  if (recoveredAllocation) {
+    await deps.verifyRetained?.(scope());
+    await authorize();
+  }
   await deps.retainContext({ ...scope(), conversationId: receipt.sessionId }, signal);
   await authorize();
   const conversationId = receipt.sessionId;
