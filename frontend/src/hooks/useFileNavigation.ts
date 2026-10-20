@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { LocalCodexFirstCommandSchema, OrdinaryWorkspaceFirstCommandSchema } from '@mitzo/protocol';
 import type { SetURLSearchParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
 import { artifactApiUrl, isTelosArtifactUrl, telosDocumentUrl } from '../lib/file-paths';
@@ -27,6 +28,26 @@ interface FileRoot {
   path: string;
 }
 
+type WorkspaceKind = 'ordinary' | 'repository' | 'unknown';
+interface ScopedWorkspace {
+  scope: string;
+  owner: object;
+  kind: WorkspaceKind;
+  gitInfo: GitInfo | null;
+  roots: FileRoot[];
+  worktreesLoading: boolean;
+  worktreesError: string;
+}
+const emptyWorkspace = (scope: string, owner: object): ScopedWorkspace => ({
+  scope,
+  owner,
+  kind: 'unknown',
+  gitInfo: null,
+  roots: [],
+  worktreesLoading: false,
+  worktreesError: '',
+});
+
 export interface FileNavState {
   content: string;
   ext: string;
@@ -36,6 +57,7 @@ export interface FileNavState {
   loading: boolean;
   error: string;
   gitInfo: GitInfo | null;
+  canLoadWorktrees: boolean;
   worktreesLoading: boolean;
   worktreesError: string;
   roots: FileRoot[];
@@ -75,16 +97,39 @@ export function useFileNavigation(
   const [browserRoot, setBrowserRoot] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
-  const [roots, setRoots] = useState<FileRoot[]>([]);
-  const [worktreesLoading, setWorktreesLoading] = useState(false);
-  const [worktreesError, setWorktreesError] = useState('');
-  const worktreeRequest = useRef<Promise<void> | null>(null);
-  const worktreesLoaded = useRef(false);
+  const navigationScope = JSON.stringify([sessionId, telos]);
+  const navigationOwner = useRef({ scope: navigationScope });
+  if (navigationOwner.current.scope !== navigationScope)
+    navigationOwner.current = { scope: navigationScope };
+  const navigationToken = navigationOwner.current;
+  const [workspace, setWorkspace] = useState(() =>
+    emptyWorkspace(navigationScope, navigationToken),
+  );
+  const selectedWorkspace = workspace.owner === navigationToken ? workspace : null;
+  const gitInfo = selectedWorkspace?.gitInfo ?? null;
+  const roots =
+    selectedWorkspace && selectedWorkspace.kind !== 'unknown' ? selectedWorkspace.roots : [];
+  const canLoadWorktrees = selectedWorkspace?.kind === 'repository';
+  const worktreesLoading = selectedWorkspace?.worktreesLoading ?? false;
+  const worktreesError = selectedWorkspace?.worktreesError ?? '';
+  const classification = useRef<{ scope: string; promise: Promise<WorkspaceKind> } | null>(null);
+  const worktreeRequest = useRef<{
+    owner: object;
+    classification: object;
+    promise: Promise<void>;
+  } | null>(null);
   // With session authority the server defaults to that session's workspace.
   // Only an explicitly selected root should override it.
   const activeRoot = rootParam || (sessionId ? '' : gitInfo?.repoPath || '');
+  const resourceScope = JSON.stringify([identity, dirPath, activeRoot]);
+  const resourceOwner = useRef({ scope: resourceScope });
+  if (resourceOwner.current.scope !== resourceScope)
+    resourceOwner.current = { scope: resourceScope };
+  const resourceToken = resourceOwner.current;
+  const [loadedToken, setLoadedToken] = useState<object | null>(null);
+  const currentResource = loadedToken === resourceToken;
   const canGoUp = Boolean(
+    currentResource &&
     currentDir &&
     browserRoot &&
     currentDir !== browserRoot &&
@@ -92,36 +137,108 @@ export function useFileNavigation(
   );
 
   useEffect(() => {
-    if (telos) return;
+    navigationOwner.current = navigationToken;
     let disposed = false;
-    apiFetch('/api/git/info')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: GitInfo | null) => {
-        if (data && !disposed) {
-          setGitInfo((current) => current ?? data);
+    setWorkspace(emptyWorkspace(navigationScope, navigationToken));
+    const apply = (
+      patch: Partial<ScopedWorkspace> | ((previous: ScopedWorkspace) => Partial<ScopedWorkspace>),
+    ) => {
+      if (disposed || navigationOwner.current !== navigationToken) return;
+      setWorkspace((previous) => {
+        if (disposed || navigationOwner.current !== navigationToken) return previous;
+        const owned =
+          previous.owner === navigationToken
+            ? previous
+            : emptyWorkspace(navigationScope, navigationToken);
+        return { ...owned, ...(typeof patch === 'function' ? patch(owned) : patch) };
+      });
+    };
+    const classify = async (): Promise<WorkspaceKind> => {
+      if (telos) return 'unknown';
+      if (!sessionId) return 'repository';
+      try {
+        const response = await apiFetch(`/api/sessions/${encodeURIComponent(sessionId)}/meta`);
+        if (!response.ok) return 'unknown';
+        const body = await response.json();
+        if (
+          !body ||
+          typeof body !== 'object' ||
+          Array.isArray(body) ||
+          body.sessionId !== sessionId
+        )
+          return 'unknown';
+        if (body.ordinaryWorkspaceId != null) {
+          const id =
+            OrdinaryWorkspaceFirstCommandSchema.shape.workspace.shape.workspaceId.safeParse(
+              body.ordinaryWorkspaceId,
+            );
+          return id.success && body.repositoryWorkspaceId == null ? 'ordinary' : 'unknown';
         }
-      })
-      .catch(() => {
-        // Network error loading git info — non-fatal
-      });
-
-    apiFetch('/api/files/roots')
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data: FileRoot[]) => {
-        if (!disposed && Array.isArray(data)) setRoots(data);
-      })
-      .catch(() => {
-        // Network error loading roots — non-fatal
-      });
+        if (body.runtimeCommandScope === 'prepared-first-command') return 'unknown';
+        if (body.repositoryWorkspaceId != null)
+          return LocalCodexFirstCommandSchema.shape.repositoryWorkspaceId.safeParse(
+            body.repositoryWorkspaceId,
+          ).success
+            ? 'repository'
+            : 'unknown';
+        // A bound runtime without its workspace identity is not legacy Git scope.
+        if (
+          body.repositoryWorkspaceId == null &&
+          (body.runtimeBinding != null || body.runtimeCommandScope != null)
+        )
+          return 'unknown';
+        return 'repository';
+      } catch {
+        return 'unknown';
+      }
+    };
+    const promise = classify();
+    classification.current = { scope: navigationScope, promise };
+    void promise.then((kind) => {
+      if (disposed || navigationOwner.current !== navigationToken) return;
+      apply({ kind });
+      if (kind !== 'repository') return;
+      void apiFetch('/api/git/info')
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data: GitInfo | null) => {
+          if (data) apply((previous) => ({ gitInfo: previous.gitInfo ?? data }));
+        })
+        .catch(() => {
+          /* Optional legacy Git metadata never supplies ordinary scope. */
+        });
+    });
+    if (!telos) {
+      const params = new URLSearchParams();
+      if (sessionId) params.set('sessionId', sessionId);
+      void apiFetch(`/api/files/roots${params.size ? '?' + params.toString() : ''}`)
+        .then((response) => (response.ok ? response.json() : []))
+        .then((data: FileRoot[]) => {
+          if (Array.isArray(data)) apply({ roots: data });
+        })
+        .catch(() => {
+          /* Scoped directory/file reads expose actionable errors. */
+        });
+    }
     return () => {
       disposed = true;
+      if (navigationOwner.current === navigationToken) navigationOwner.current = { scope: '' };
     };
-  }, [telos]);
+  }, [navigationToken, navigationScope, sessionId, telos]);
 
   useEffect(() => {
+    resourceOwner.current = resourceToken;
     let disposed = false;
     setLoading(true);
     setError('');
+    setContent('');
+    setExt('');
+    setEntries([]);
+    setCurrentDir('');
+    setBrowserRoot('');
+    setDisplayName('');
+    setPreviewUnavailable(false);
+    setArtifactRevision(undefined);
+    setArtifactEditable(false);
 
     const directoryParams = new URLSearchParams({ dir: dirPath });
     if (activeRoot) directoryParams.set('root', activeRoot);
@@ -141,7 +258,7 @@ export function useFileNavigation(
       });
       read
         .then((data) => {
-          if (disposed) return;
+          if (disposed || resourceOwner.current !== resourceToken) return;
           setResolvedFile({
             identity,
             path: typeof data.path === 'string' && data.path ? data.path : filePath,
@@ -154,10 +271,13 @@ export function useFileNavigation(
           setExt(data.ext);
         })
         .catch((err) => {
-          if (!disposed) setError(err.message);
+          if (!disposed && resourceOwner.current === resourceToken) setError(err.message);
         })
         .finally(() => {
-          if (!disposed) setLoading(false);
+          if (!disposed && resourceOwner.current === resourceToken) {
+            setLoadedToken(resourceToken);
+            setLoading(false);
+          }
         });
     } else {
       apiFetch(`/api/files?${directoryParams.toString()}`)
@@ -169,43 +289,80 @@ export function useFileNavigation(
           return r.json();
         })
         .then((data) => {
-          if (disposed) return;
+          if (disposed || resourceOwner.current !== resourceToken) return;
           setEntries(data.entries);
           setCurrentDir(data.dir);
           setBrowserRoot(data.root);
         })
         .catch((err) => {
-          if (!disposed) setError(err.message);
+          if (!disposed && resourceOwner.current === resourceToken) setError(err.message);
         })
         .finally(() => {
-          if (!disposed) setLoading(false);
+          if (!disposed && resourceOwner.current === resourceToken) {
+            setLoadedToken(resourceToken);
+            setLoading(false);
+          }
         });
     }
     return () => {
       disposed = true;
+      if (resourceOwner.current === resourceToken) resourceOwner.current = { scope: '' };
     };
-  }, [identity, filePath, dirPath, isViewing, activeRoot, sessionId, telos]);
+  }, [
+    resourceToken,
+    resourceScope,
+    identity,
+    filePath,
+    dirPath,
+    isViewing,
+    activeRoot,
+    sessionId,
+    telos,
+  ]);
 
-  function loadWorktrees(): Promise<void> {
-    if (worktreesLoaded.current) return Promise.resolve();
-    if (worktreeRequest.current) return worktreeRequest.current;
-    setWorktreesLoading(true);
-    setWorktreesError('');
+  async function loadWorktrees(): Promise<void> {
+    const selected = classification.current;
+    if (selected?.scope !== navigationScope || navigationOwner.current !== navigationToken) return;
+    if (
+      (await selected.promise) !== 'repository' ||
+      navigationOwner.current !== navigationToken ||
+      classification.current !== selected
+    )
+      return;
+    if (workspace.owner === navigationToken && workspace.gitInfo?.worktreesLoaded) return;
+    if (
+      worktreeRequest.current?.owner === navigationToken &&
+      worktreeRequest.current.classification === selected
+    )
+      return worktreeRequest.current.promise;
+    const updateWorkspace = (patch: Partial<ScopedWorkspace>) => {
+      if (navigationOwner.current !== navigationToken || classification.current !== selected)
+        return;
+      setWorkspace((previous) =>
+        previous.owner === navigationToken ? { ...previous, ...patch } : previous,
+      );
+    };
+    updateWorkspace({ worktreesLoading: true, worktreesError: '' });
     const request = apiFetch('/api/git/info?worktrees=1')
       .then(async (response) => {
         if (!response.ok) throw new Error('Failed to load worktrees');
         const data: GitInfo = await response.json();
-        setGitInfo(data);
-        worktreesLoaded.current = data.worktreesLoaded === true;
-        if (!worktreesLoaded.current)
-          setWorktreesError('Some worktrees could not be loaded. Try again.');
+        updateWorkspace({
+          gitInfo: data,
+          worktreesError:
+            data.worktreesLoaded === true ? '' : 'Some worktrees could not be loaded. Try again.',
+        });
       })
-      .catch(() => setWorktreesError('Failed to load worktrees'))
+      .catch(() => updateWorkspace({ worktreesError: 'Failed to load worktrees' }))
       .finally(() => {
-        setWorktreesLoading(false);
-        worktreeRequest.current = null;
+        updateWorkspace({ worktreesLoading: false });
+        if (worktreeRequest.current?.promise === request) worktreeRequest.current = null;
       });
-    worktreeRequest.current = request;
+    worktreeRequest.current = {
+      owner: navigationToken,
+      classification: selected,
+      promise: request,
+    };
     return request;
   }
 
@@ -217,6 +374,7 @@ export function useFileNavigation(
   }
 
   function openEntry(entry: DirEntry, dirty: boolean) {
+    if (!currentResource || resourceOwner.current !== resourceToken) return;
     if (dirty && !confirm('Discard unsaved changes?')) return;
     const full = currentDir ? `${currentDir}/${entry.name}` : entry.name;
     const params = navigationParams();
@@ -229,6 +387,7 @@ export function useFileNavigation(
   }
 
   function goUp(dirty: boolean) {
+    if (resourceOwner.current !== resourceToken) return;
     if (dirty && !confirm('Discard unsaved changes?')) return;
     if (!canGoUp) return;
     const parent = currentDir.replace(/\/[^/]+$/, '');
@@ -242,6 +401,7 @@ export function useFileNavigation(
   }
 
   function handleBack(dirty: boolean) {
+    if (resourceOwner.current !== resourceToken) return;
     if (dirty && !confirm('Discard unsaved changes?')) return;
     if (isViewing) {
       if (telos) {
@@ -261,6 +421,7 @@ export function useFileNavigation(
   }
 
   function handleRootChange(newRoot: string, dirty: boolean) {
+    if (navigationOwner.current !== navigationToken) return;
     if (dirty && !confirm('Discard unsaved changes?')) return;
     const params: Record<string, string> = {};
     if (newRoot) params.root = newRoot;
@@ -269,24 +430,25 @@ export function useFileNavigation(
   }
 
   const state: FileNavState = {
-    content,
-    ext,
-    entries,
-    currentDir,
+    content: currentResource ? content : '',
+    ext: currentResource ? ext : '',
+    entries: currentResource ? entries : [],
+    currentDir: currentResource ? currentDir : '',
     canGoUp,
-    loading,
-    error,
+    loading: !currentResource || loading,
+    error: currentResource ? error : '',
     gitInfo,
+    canLoadWorktrees,
     worktreesLoading,
     worktreesError,
     roots,
     activeRoot,
     isViewing,
     filePath: openedPath,
-    displayName,
-    previewUnavailable,
-    artifactRevision,
-    artifactEditable,
+    displayName: currentResource ? displayName : '',
+    previewUnavailable: currentResource && previewUnavailable,
+    artifactRevision: currentResource ? artifactRevision : undefined,
+    artifactEditable: currentResource && artifactEditable,
     dirPath,
     sessionId,
   };
@@ -294,6 +456,7 @@ export function useFileNavigation(
   return {
     state,
     setContent: (content: string, savedPath?: string) => {
+      if (!currentResource || resourceOwner.current !== resourceToken) return;
       setContent(content);
       if (telos && savedPath) {
         const params = new URLSearchParams(searchParams);
@@ -301,7 +464,9 @@ export function useFileNavigation(
         setSearchParams(params, { replace: true });
       }
     },
-    setError,
+    setError: (message: string) => {
+      if (resourceOwner.current === resourceToken) setError(message);
+    },
     openEntry,
     goUp,
     handleBack,

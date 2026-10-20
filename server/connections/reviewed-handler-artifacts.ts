@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.411-quiet-chat-recovery-status';
+  'v1.0.412-quiet-chat-recovery-files';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,17 +23,20 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/hooks/useFileNavigation.ts':
+    '2d0a2969210ac8947dbee201b20d6270f835c8a5d1e466b44bd1b299c13e41c1',
+
   '../../frontend/src/hooks/useOrdinaryWorkspacePreparation.ts':
     'f46b3eab3dc2cdf7aa2c86c66e3105183a0393615a148bac85aad7c59731ec58',
   '../../frontend/src/lib/ordinary-workspace-preparation.ts':
     '495b3ca8f62ea9fa668c9f05742af38ef7754f5a81a25e8c5f7b19aefa65b990',
+
   '../repository-prepared-command.ts':
     'f6ef0586e88e3e325fdfc151fe8809619bb6b9d38b10615e450c6b1911ecd502',
   '../ordinary-workspace-prepared-command.ts':
     'c8d91b0bb39c856032797c97d6a5245bdd759b6037b5f3cfe08d50ff018ab1bf',
   '../../packages/client/src/local-command-delivery.ts':
     'd00bb3c218edd6b0258a2743805726c18733d568e2248786d5163fd201453876',
-
   '../ordinary-workspace-artifact-root.ts':
     'c8432fa77fc88b058c0a62a8357d0a816da8ce2d711fe09e6de7e6705fff570c',
 
@@ -237,7 +240,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../telos-source-routes.ts': '9fe592fae24c3ecb1a0915b0370b4e525facfa4b34a473981c5cc8e032187cad',
   '../../packages/protocol/src/telos-source.ts':
     '6ca8887c2d88f73eb14a5886e441da54c0036f0767392f4e72352f783d33eda7',
-  '../telos-artifact-store.ts': 'fc6594b9c886fb95dba1d2b715abfaeb2da98696c7058a10777eb54f03d6f08c',
+  '../telos-artifact-store.ts': 'df5f1bc68bf16822e3e4c6a0d998c1bc32dd460e19ad9e995bf71c94905a1865',
   '../telos-source-capture.ts': '9b42d3f627e7923a29b0b22fb44e6b46eea5e9b2466a5faa95ae835f9b91b641',
   '../telos-conversation-source.ts':
     '0217975022f987f5ad65876d53467417774e3f0f186ba4fc70bc6f30c9860308',
@@ -509,6 +512,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
     'cc6601ea07ccc4398835154261424b9cda6a631d28d36adc283261644486a963',
+
+  // Explicit authenticated Local entry, immutable request and shared startup ownership.
   '../../packages/protocol/src/local-codex-first-command.ts':
     'b7dd2d112112aeadabc51d968397e5ddb1806f8130e6207ded0394a863d39865',
   '../ordinary-local-codex-entry.ts':
@@ -1149,7 +1154,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/TodoWorkspace.tsx':
     '4ef4ba56945500aa99e4cfb550b7c059a33406f532a1e6ad89a006fadae618d3',
   '../../frontend/src/pages/FileViewer.tsx':
-    'eb145dff42d666e388a1fe81dbafe37e3d840874bf4a99b945c57d74edd53157',
+    '9b8b8637790030d943979c66e8788af95a7e488122fe15bb9cad4e29c0b2fc80',
   '../../frontend/src/components/ChatStatusMessage.tsx':
     '1af936451abe0baf0f0a28536acaf66d5aaba3c10c83996286f4ca627732675d',
   '../../frontend/src/components/ChatStatusMessage.css':
