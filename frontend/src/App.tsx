@@ -76,7 +76,7 @@ function dismissKeyboard(e: React.MouseEvent | React.TouchEvent) {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
   if (
     target.closest(
-      'button, a, select, [role="button"], .chat-input, .slash-picker, .context-picker, .terminal-console',
+      'button, a, select, summary, [role="button"], .chat-input, .slash-picker, .context-picker, .terminal-console',
     )
   )
     return;

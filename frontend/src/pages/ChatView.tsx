@@ -1,3 +1,6 @@
+import { useTelosChatRoute } from '../hooks/useTelosChatRoute';
+import { TelosChatRouteLayout } from '../components/TelosChatRouteLayout';
+import { TelosWorkControls } from '../components/TelosWorkControls';
 import { ChatStatusMessage } from '../components/ChatStatusMessage';
 import { TelosAdvisorDraft } from '../components/TelosAdvisorDraft';
 import { bindChatDraftToSession, getSessionChatDraft } from '../lib/chat-drafts';
@@ -120,6 +123,7 @@ export function ChatView() {
   const sendError = useMitzoStore((s) => s.sendError);
   const sendStatus = useMitzoStore((s) => s.sendStatus);
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const telosRoute = useTelosChatRoute(activeSessionId);
   const conversationTitle = useMitzoStore(
     (s) => s.sessions.list?.find((item) => item.id === s.sessions.active)?.summary,
   );
@@ -1196,7 +1200,12 @@ export function ChatView() {
             : conversationTitle || 'Chat'
       }
       leading={
-        <Link to="/sessions" className="chat-top-action" aria-label="Back to chats">
+        <Link
+          to={telosRoute.back?.path ?? '/sessions'}
+          state={telosRoute.back?.state}
+          className="chat-top-action"
+          aria-label={telosRoute.back ? 'Back' : 'Back to chats'}
+        >
           <UiIcon name="back" />
         </Link>
       }
@@ -1418,343 +1427,363 @@ export function ChatView() {
     <div
       className={`chat-page workspace-chat${!activeSessionId ? ' chat-page--new' : ''}${keyboardOpen ? ' keyboard-open' : ''}`}
     >
-      <div className="chat-mobile-topbar">
-        <h1 className="sr-only">
-          {briefingChat.isBriefing
-            ? briefingChat.name
-            : activeSessionId
-              ? 'Conversation'
-              : 'New chat'}
-        </h1>
-        <BriefingChatBanner
-          name={briefingChat.name}
-          initialSelection={
-            accountSelection ??
-            launch?.accountSelection ??
-            (briefingChat.binding
-              ? { accountId: briefingChat.binding.accountId, model: briefingChat.binding.model }
-              : undefined)
-          }
-          source={briefingChat.source}
-          registrationError={registrationError}
-          registrationSaving={registrationSaving}
-          retryRegistration={retryRegistration}
-          lookupError={briefingChat.error}
-          retryLookup={briefingChat.retry}
-          lookupLoading={briefingChat.loading}
-        />
-        {!isSymposium && workspaceControls}
-      </div>
-
-      <TelosSourceWorkLink conversationId={activeSessionId ?? undefined} />
-      <AgentLibraryChatLink sources={builderSources} />
-      {builderLinkError && <p role="alert">{builderLinkError}</p>}
-      {isSymposium && <ChatStatusMessage status={sendStatus} error={sendError} busy />}
-
-      {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
-        <ChatStatusMessage status="Loading conversation…" busy />
-      )}
-      {historyError && (
-        <div role="alert">
-          {historyError}{' '}
-          <button
-            type="button"
-            onClick={() => {
-              if (sessionId) void storeSwitchSession(sessionId);
-            }}
-          >
-            Retry loading conversation
-          </button>
-        </div>
-      )}
-      {!roleIntent && (
-        <ChatWelcome
-          active={
-            !activeSessionId &&
-            !briefingChat.isBriefing &&
-            !messages.running &&
-            messages.messages.length === 0 &&
-            !messages.current
-          }
-        />
-      )}
-      <SymposiumConversation
-        onContinueInNewChat={(text) => {
-          const path = newChatPathWithDraft(text);
-          storeNewSession();
-          navigate(path);
-        }}
-        conversationLayout={{
-          repository: conversationRepository,
-          settings: workspaceControls,
-          showHeader: isSymposium,
-          leading: (
-            <Link to="/sessions" className="chat-top-action" aria-label="Back to chats">
-              <UiIcon name="back" />
-            </Link>
-          ),
-          actions: (
-            <>
-              <SessionAccess
-                sessionId={activeSessionId ?? undefined}
-                selection={accountSelection}
-                connected={connected}
-              />
-              <button
-                type="button"
-                className="chat-top-action"
-                aria-label="New chat"
-                onClick={() => {
-                  storeNewSession();
-                  navigate('/chat');
-                }}
-              >
-                <UiIcon name="edit" />
-              </button>
-            </>
-          ),
-        }}
-        ordinaryConfirmed={
-          (!sessionId || sessionId === activeSessionId) && !isSymposium && localRuntime.bound
-        }
-        ordinaryExcluded={isSymposium}
-        ordinaryProfileProposalReview={
-          localRuntime.bound &&
-          !localRuntime.metadataPending &&
-          (!sessionId || sessionId === activeSessionId) &&
-          !isSymposium
-        }
-        profileToolsTarget={profileToolsTarget}
-        readOnly={controlsBlocked || localBound}
-        sessionId={sessionId ?? activeSessionId}
-        chat={{
-          afterMessages: !isSymposium ? (
-            <TelosAdvisorDraft conversationId={activeSessionId ?? undefined} />
-          ) : undefined,
-          compactions: compactionHistory.records,
-          sessionId: sessionId || activeSessionId || undefined,
-          messages: sessionId && sessionId !== activeSessionId ? [] : messages.messages,
-          current: sessionId && sessionId !== activeSessionId ? null : messages.current,
-          currentByMessage:
-            sessionId && sessionId !== activeSessionId ? {} : messages.currentByMessage,
-          running: messages.running,
-          permission: messages.permission,
-          onPermissionRespond: handlePermission,
-          onPermissionExpire: storeExpirePermission,
-          scrollRef,
-          progressByToolId,
-          voice,
-        }}
-        pendingFeedback={
-          !isSymposium ? (
-            <ChatStatusMessage status={sendStatus} error={sendError} busy />
-          ) : undefined
-        }
-        ordinaryComposer={
-          <div
-            className={`conversation-composer${!activeSessionId ? ' conversation-composer--new' : ''}`}
-          >
-            <RepositoryChatDraftNotice handoff={repositoryHandoff} />
-            {missingDraftReason && <div role="alert">{missingDraftReason}</div>}
-            {repositoryAccountReason && <div role="alert">{repositoryAccountReason}</div>}
-            {draftEnabled && repositorySelection?.repositoryWorkspaceId && (
-              <p role="status">
-                {preparedModelEditable
-                  ? 'The prepared checkout keeps its account and environment. Model and thinking apply to the first message.'
-                  : 'Remove the repository preparation to change account or model.'}
-              </p>
-            )}
-            {newChatDraft.settingsError && (
-              <div role="alert">Draft settings could not be saved on this device.</div>
-            )}
-            {launch && !repositoryHandoff.present && (
-              <div role="status" className="chat-account-bar">
-                <p>
-                  Which account and model should handle this task? Check Agent settings, then send.
-                </p>
-                <details className="chat-launch-prompt">
-                  <summary>Review launch prompt</summary>
-                  <p>{launch.prompt}</p>
-                </details>
-                <button
-                  disabled={
-                    launchSending ||
-                    (!activeSessionId &&
-                      (!accountSelection || messages.running || repositorySelection?.blocked))
-                  }
-                  onClick={() => handleSend(launch.prompt, undefined, undefined, true)}
-                >
-                  {activeSessionId ? 'Review launch in new chat' : 'Send launch prompt'}
-                </button>
-                <button onClick={dismissLaunch}>Dismiss launch</button>
-              </div>
-            )}
-
-            <CodexQueueStatus
-              sessionId={controlsBlocked ? null : activeSessionId}
-              deliveryStatus={sendStatus}
-              deliveryError={sendError}
+      <TelosChatRouteLayout
+        route={telosRoute}
+        conversationId={activeSessionId}
+        header={
+          <div className="chat-mobile-topbar">
+            <h1 className="sr-only">
+              {briefingChat.isBriefing
+                ? briefingChat.name
+                : activeSessionId
+                  ? 'Conversation'
+                  : 'New chat'}
+            </h1>
+            <BriefingChatBanner
+              name={briefingChat.name}
+              initialSelection={
+                accountSelection ??
+                launch?.accountSelection ??
+                (briefingChat.binding
+                  ? { accountId: briefingChat.binding.accountId, model: briefingChat.binding.model }
+                  : undefined)
+              }
+              source={briefingChat.source}
+              registrationError={registrationError}
+              registrationSaving={registrationSaving}
+              retryRegistration={retryRegistration}
+              lookupError={briefingChat.error}
+              retryLookup={briefingChat.retry}
+              lookupLoading={briefingChat.loading}
             />
-            {invalidRoleSetup && (
-              <p role="alert">
-                This work conversation setup is unavailable. Return to the work item and choose a
-                supported role.
-              </p>
-            )}
-            {roleIntent && roleDraftError && <p role="alert">{roleDraftError}</p>}
-            {roleIntent && (
-              <TelosRoleSetup
-                intent={roleIntent}
-                runtime={localRuntime}
-                repositoryWorkspaceId={repositorySelection?.repositoryWorkspaceId}
-                mode={mode}
-                draftId={newChatDraft.draft.id}
-                onLocked={setRoleSetupLocked}
-                beforeConfirm={flushRoleDraft}
-                onBound={(id) => {
-                  if (!flushRoleDraft()) return;
-                  if (getSessionChatDraft(id)) {
-                    navigate(`/chat/${encodeURIComponent(id)}`);
-                    return;
-                  }
-                  const result = bindChatDraftToSession(newChatDraft.draft.id, id);
-                  if (result === 'failed') {
-                    setRoleDraftError(
-                      'Could not preserve this draft. Keep this chat open and retry.',
-                    );
-                    return;
-                  }
-                  setRoleDraftError(null);
-                  navigate(`/chat/${encodeURIComponent(id)}`);
-                }}
-              />
-            )}
-            <ChatInput
-              collaboration={
-                activeSessionId && !controlsBlocked && !localBound && ordinaryControls ? (
-                  <OrdinaryCollaborationEntry sessionId={activeSessionId} compact />
-                ) : undefined
-              }
-              compactions={compactionHistory.records}
-              compactionError={compactionHistory.error}
-              compactionTruncated={compactionHistory.truncated}
-              sendLabel={!activeSessionId && ordinaryControls ? 'Start session' : undefined}
-              boundedFirstCommand={localFirstCommand || controlsBlocked}
-              guardedConversation={localRuntime.commandAvailable}
-              validateSend={
-                localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable
-                  ? (text, images) => prepareOrdinaryCommand(text, images).reason
-                  : localRuntime.continuation &&
-                      activeSessionId &&
-                      localRuntime.repositoryWorkspaceId
-                    ? (text, images) =>
-                        prepareLocalContinuationCommand(
-                          localRuntime.intent,
-                          localRuntime.inventory,
-                          {
-                            sessionId: activeSessionId,
-                            clientMsgId: createBrowserId(),
-                            repositoryWorkspaceId: localRuntime.repositoryWorkspaceId!,
-                            mode: localRuntime.mode ?? 'agent',
-                            retainedAgentProfile: localRuntime.agentProfile,
-                            retainedAgentContext: localRuntime.agentContext,
-                            nativeConstraint: localRuntime.nativeConstraint,
-                            text,
-                            images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
-                          },
-                        ).reason
-                    : localFirstCommand && repositorySelection?.repositoryWorkspaceId
-                      ? (text, images) =>
-                          prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
-                            clientMsgId: createBrowserId(),
-                            repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId!,
-                            mode,
-                            text,
-                            sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
-                            images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
-                          }).reason
-                      : undefined
-              }
-              savedChatDraft={savedChatDraft}
-              composerGeneration={chatDraftRevision}
-              key={
-                repositoryHandoff.present
-                  ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
-                  : undefined
-              }
-              onSend={(text, images, context, onDelivery, onSessionAssigned) =>
-                handleSend(text, images, context, false, onDelivery, onSessionAssigned)
-              }
-              onStop={handleStop}
-              onInterrupt={localBound ? undefined : handleInterrupt}
-              running={repositoryHandoff.present ? false : messages.running}
-              initialText={initialPrompt}
-              draftControl={
-                repositoryHandoff.present || roleIntent ? repositoryDraftControl : undefined
-              }
-              draftStorageKey={
-                repositoryHandoff.present
-                  ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')
-                  : launch?.draftId
-                    ? chatDraftTextKey(launch.draftId)
-                    : newChatDraft.missing
-                      ? chatDraftStorageKey(newChatDraft.draft.id)
-                      : undefined
-              }
-              sendDisabledReason={
-                (invalidRoleSetup
-                  ? 'This work conversation setup is unavailable. Return to the work item and choose a supported role.'
-                  : roleIntent
-                    ? 'Open the bound work chat before sending a message.'
-                    : undefined) ??
-                builderSourceReason ??
-                localRuntime.reason ??
-                (controlsBlocked ? 'Loading conversation settings…' : undefined) ??
-                (localRuntime.commandAvailable && localCommand && localCommand.state !== 'consumed'
-                  ? 'Review the retained Local command before sending.'
-                  : undefined) ??
-                (explicitNew && localCommand && localCommand.state !== 'consumed'
-                  ? 'Review the retained Local command before sending.'
-                  : undefined) ??
-                (localFirstCommand && (!localTransportAvailable || !connected)
-                  ? 'Execution connection is unavailable. Reconnect before sending.'
-                  : undefined) ??
-                (explicitNew && !repositorySelection?.repositoryWorkspaceId
-                  ? 'Prepare a repository before sending the command.'
-                  : undefined) ??
-                (launchDeliveryPending
-                  ? 'Waiting for this launch’s delivery confirmation. Its draft is retained.'
-                  : undefined) ??
-                (launchAccountError || undefined) ??
-                missingDraftReason ??
-                repositoryAccountReason ??
-                (launch?.briefing
-                  ? 'Send the reviewed briefing prompt first, then ask a follow-up.'
-                  : undefined) ??
-                repositoryHandoffReason ??
-                (!activeSessionId && !explicitNew ? agentProfileBlocked : undefined) ??
-                (!activeSessionId && repositorySelection?.blocked
-                  ? 'Prepare or remove the repository before sending.'
-                  : !activeSessionId && !accountSelection
-                    ? 'Select an account before sending.'
-                    : undefined)
-              }
-              voice={voice}
-              branch={messages.branch || undefined}
-              isolation={isolation}
-              onIsolationChange={!activeSessionId && !explicitNew ? setIsolation : undefined}
-              isWorktree={messages.isWorktree}
-              wtId={messages.wtId || undefined}
-              sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
-              tokenState={tokens}
-              messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
-              current={sessionId && sessionId !== activeSessionId ? null : messages.current}
-              bootContext={bootContext}
-              sessionContext={sessionContext}
-            />
+            {!isSymposium && workspaceControls}
           </div>
         }
-      />
+      >
+        <TelosSourceWorkLink
+          conversationId={activeSessionId ?? undefined}
+          hideItemLink={!!telosRoute.data}
+        />
+        <AgentLibraryChatLink sources={builderSources} />
+        {builderLinkError && <p role="alert">{builderLinkError}</p>}
+        {isSymposium && <ChatStatusMessage status={sendStatus} error={sendError} busy />}
+
+        {(historyLoading || (sessionId && sessionId !== activeSessionId)) && (
+          <ChatStatusMessage status="Loading conversation…" busy />
+        )}
+        {historyError && (
+          <div role="alert">
+            {historyError}{' '}
+            <button
+              type="button"
+              onClick={() => {
+                if (sessionId) void storeSwitchSession(sessionId);
+              }}
+            >
+              Retry loading conversation
+            </button>
+          </div>
+        )}
+        {!roleIntent && (
+          <ChatWelcome
+            active={
+              !activeSessionId &&
+              !briefingChat.isBriefing &&
+              !messages.running &&
+              messages.messages.length === 0 &&
+              !messages.current
+            }
+          />
+        )}
+        <SymposiumConversation
+          onContinueInNewChat={(text) => {
+            const path = newChatPathWithDraft(text);
+            storeNewSession();
+            navigate(path);
+          }}
+          conversationLayout={{
+            repository: conversationRepository,
+            settings: workspaceControls,
+            showHeader: isSymposium,
+            leading: (
+              <Link
+                to={telosRoute.back?.path ?? '/sessions'}
+                state={telosRoute.back?.state}
+                className="chat-top-action"
+                aria-label={telosRoute.back ? 'Back' : 'Back to chats'}
+              >
+                <UiIcon name="back" />
+              </Link>
+            ),
+            actions: (
+              <>
+                <SessionAccess
+                  sessionId={activeSessionId ?? undefined}
+                  selection={accountSelection}
+                  connected={connected}
+                />
+                <button
+                  type="button"
+                  className="chat-top-action"
+                  aria-label="New chat"
+                  onClick={() => {
+                    storeNewSession();
+                    navigate('/chat');
+                  }}
+                >
+                  <UiIcon name="edit" />
+                </button>
+              </>
+            ),
+          }}
+          ordinaryConfirmed={
+            (!sessionId || sessionId === activeSessionId) && !isSymposium && localRuntime.bound
+          }
+          ordinaryExcluded={isSymposium}
+          ordinaryProfileProposalReview={
+            localRuntime.bound &&
+            !localRuntime.metadataPending &&
+            (!sessionId || sessionId === activeSessionId) &&
+            !isSymposium
+          }
+          profileToolsTarget={profileToolsTarget}
+          readOnly={controlsBlocked || localBound}
+          sessionId={sessionId ?? activeSessionId}
+          chat={{
+            afterMessages: !isSymposium ? (
+              <>
+                <TelosAdvisorDraft conversationId={activeSessionId ?? undefined} />
+                <TelosWorkControls data={telosRoute.data} conversationId={activeSessionId} />
+              </>
+            ) : undefined,
+            compactions: compactionHistory.records,
+            sessionId: sessionId || activeSessionId || undefined,
+            messages: sessionId && sessionId !== activeSessionId ? [] : messages.messages,
+            current: sessionId && sessionId !== activeSessionId ? null : messages.current,
+            currentByMessage:
+              sessionId && sessionId !== activeSessionId ? {} : messages.currentByMessage,
+            running: messages.running,
+            permission: messages.permission,
+            onPermissionRespond: handlePermission,
+            onPermissionExpire: storeExpirePermission,
+            scrollRef,
+            progressByToolId,
+            voice,
+          }}
+          pendingFeedback={
+            !isSymposium ? (
+              <ChatStatusMessage status={sendStatus} error={sendError} busy />
+            ) : undefined
+          }
+          ordinaryComposer={
+            <div
+              className={`conversation-composer${!activeSessionId ? ' conversation-composer--new' : ''}`}
+            >
+              <RepositoryChatDraftNotice handoff={repositoryHandoff} />
+              {missingDraftReason && <div role="alert">{missingDraftReason}</div>}
+              {repositoryAccountReason && <div role="alert">{repositoryAccountReason}</div>}
+              {draftEnabled && repositorySelection?.repositoryWorkspaceId && (
+                <p role="status">
+                  {preparedModelEditable
+                    ? 'The prepared checkout keeps its account and environment. Model and thinking apply to the first message.'
+                    : 'Remove the repository preparation to change account or model.'}
+                </p>
+              )}
+              {newChatDraft.settingsError && (
+                <div role="alert">Draft settings could not be saved on this device.</div>
+              )}
+              {launch && !repositoryHandoff.present && (
+                <div role="status" className="chat-account-bar">
+                  <p>
+                    Which account and model should handle this task? Check Agent settings, then
+                    send.
+                  </p>
+                  <details className="chat-launch-prompt">
+                    <summary>Review launch prompt</summary>
+                    <p>{launch.prompt}</p>
+                  </details>
+                  <button
+                    disabled={
+                      launchSending ||
+                      (!activeSessionId &&
+                        (!accountSelection || messages.running || repositorySelection?.blocked))
+                    }
+                    onClick={() => handleSend(launch.prompt, undefined, undefined, true)}
+                  >
+                    {activeSessionId ? 'Review launch in new chat' : 'Send launch prompt'}
+                  </button>
+                  <button onClick={dismissLaunch}>Dismiss launch</button>
+                </div>
+              )}
+
+              <CodexQueueStatus
+                sessionId={controlsBlocked ? null : activeSessionId}
+                deliveryStatus={sendStatus}
+                deliveryError={sendError}
+              />
+              {invalidRoleSetup && (
+                <p role="alert">
+                  This work conversation setup is unavailable. Return to the work item and choose a
+                  supported role.
+                </p>
+              )}
+              {roleIntent && roleDraftError && <p role="alert">{roleDraftError}</p>}
+              {roleIntent && (
+                <TelosRoleSetup
+                  intent={roleIntent}
+                  runtime={localRuntime}
+                  repositoryWorkspaceId={repositorySelection?.repositoryWorkspaceId}
+                  mode={mode}
+                  draftId={newChatDraft.draft.id}
+                  onLocked={setRoleSetupLocked}
+                  beforeConfirm={flushRoleDraft}
+                  onBound={(id) => {
+                    if (!flushRoleDraft()) return;
+                    if (getSessionChatDraft(id)) {
+                      navigate(`/chat/${encodeURIComponent(id)}`);
+                      return;
+                    }
+                    const result = bindChatDraftToSession(newChatDraft.draft.id, id);
+                    if (result === 'failed') {
+                      setRoleDraftError(
+                        'Could not preserve this draft. Keep this chat open and retry.',
+                      );
+                      return;
+                    }
+                    setRoleDraftError(null);
+                    navigate(`/chat/${encodeURIComponent(id)}`);
+                  }}
+                />
+              )}
+              <ChatInput
+                collaboration={
+                  activeSessionId && !controlsBlocked && !localBound && ordinaryControls ? (
+                    <OrdinaryCollaborationEntry sessionId={activeSessionId} compact />
+                  ) : undefined
+                }
+                compactions={compactionHistory.records}
+                compactionError={compactionHistory.error}
+                compactionTruncated={compactionHistory.truncated}
+                sendLabel={!activeSessionId && ordinaryControls ? 'Start session' : undefined}
+                boundedFirstCommand={localFirstCommand || controlsBlocked}
+                guardedConversation={localRuntime.commandAvailable}
+                validateSend={
+                  localRuntime.ordinaryWorkspaceId && localRuntime.commandAvailable
+                    ? (text, images) => prepareOrdinaryCommand(text, images).reason
+                    : localRuntime.continuation &&
+                        activeSessionId &&
+                        localRuntime.repositoryWorkspaceId
+                      ? (text, images) =>
+                          prepareLocalContinuationCommand(
+                            localRuntime.intent,
+                            localRuntime.inventory,
+                            {
+                              sessionId: activeSessionId,
+                              clientMsgId: createBrowserId(),
+                              repositoryWorkspaceId: localRuntime.repositoryWorkspaceId!,
+                              mode: localRuntime.mode ?? 'agent',
+                              retainedAgentProfile: localRuntime.agentProfile,
+                              retainedAgentContext: localRuntime.agentContext,
+                              nativeConstraint: localRuntime.nativeConstraint,
+                              text,
+                              images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
+                            },
+                          ).reason
+                      : localFirstCommand && repositorySelection?.repositoryWorkspaceId
+                        ? (text, images) =>
+                            prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
+                              clientMsgId: createBrowserId(),
+                              repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId!,
+                              mode,
+                              text,
+                              sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
+                              images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
+                            }).reason
+                        : undefined
+                }
+                savedChatDraft={savedChatDraft}
+                composerGeneration={chatDraftRevision}
+                key={
+                  repositoryHandoff.present
+                    ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
+                    : undefined
+                }
+                onSend={(text, images, context, onDelivery, onSessionAssigned) =>
+                  handleSend(text, images, context, false, onDelivery, onSessionAssigned)
+                }
+                onStop={handleStop}
+                onInterrupt={localBound ? undefined : handleInterrupt}
+                running={repositoryHandoff.present ? false : messages.running}
+                initialText={initialPrompt}
+                draftControl={
+                  repositoryHandoff.present || roleIntent ? repositoryDraftControl : undefined
+                }
+                draftStorageKey={
+                  repositoryHandoff.present
+                    ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')
+                    : launch?.draftId
+                      ? chatDraftTextKey(launch.draftId)
+                      : newChatDraft.missing
+                        ? chatDraftStorageKey(newChatDraft.draft.id)
+                        : undefined
+                }
+                sendDisabledReason={
+                  (invalidRoleSetup
+                    ? 'This work conversation setup is unavailable. Return to the work item and choose a supported role.'
+                    : roleIntent
+                      ? 'Open the bound work chat before sending a message.'
+                      : undefined) ??
+                  builderSourceReason ??
+                  localRuntime.reason ??
+                  (controlsBlocked ? 'Loading conversation settings…' : undefined) ??
+                  (localRuntime.commandAvailable &&
+                  localCommand &&
+                  localCommand.state !== 'consumed'
+                    ? 'Review the retained Local command before sending.'
+                    : undefined) ??
+                  (explicitNew && localCommand && localCommand.state !== 'consumed'
+                    ? 'Review the retained Local command before sending.'
+                    : undefined) ??
+                  (localFirstCommand && (!localTransportAvailable || !connected)
+                    ? 'Execution connection is unavailable. Reconnect before sending.'
+                    : undefined) ??
+                  (explicitNew && !repositorySelection?.repositoryWorkspaceId
+                    ? 'Prepare a repository before sending the command.'
+                    : undefined) ??
+                  (launchDeliveryPending
+                    ? 'Waiting for this launch’s delivery confirmation. Its draft is retained.'
+                    : undefined) ??
+                  (launchAccountError || undefined) ??
+                  missingDraftReason ??
+                  repositoryAccountReason ??
+                  (launch?.briefing
+                    ? 'Send the reviewed briefing prompt first, then ask a follow-up.'
+                    : undefined) ??
+                  repositoryHandoffReason ??
+                  (!activeSessionId && !explicitNew ? agentProfileBlocked : undefined) ??
+                  (!activeSessionId && repositorySelection?.blocked
+                    ? 'Prepare or remove the repository before sending.'
+                    : !activeSessionId && !accountSelection
+                      ? 'Select an account before sending.'
+                      : undefined)
+                }
+                voice={voice}
+                branch={messages.branch || undefined}
+                isolation={isolation}
+                onIsolationChange={!activeSessionId && !explicitNew ? setIsolation : undefined}
+                isWorktree={messages.isWorktree}
+                wtId={messages.wtId || undefined}
+                sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
+                tokenState={tokens}
+                messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
+                current={sessionId && sessionId !== activeSessionId ? null : messages.current}
+                bootContext={bootContext}
+                sessionContext={sessionContext}
+              />
+            </div>
+          }
+        />
+      </TelosChatRouteLayout>
     </div>
   );
 }

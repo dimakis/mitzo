@@ -3577,6 +3577,11 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   if (res.destroyed) return;
   res.json({
     sessionId: meta.sessionId,
+    ...(Number.isSafeInteger(meta.createdAt) &&
+    meta.createdAt >= 0 &&
+    Number.isFinite(new Date(meta.createdAt).getTime())
+      ? { createdAt: meta.createdAt }
+      : {}),
     ...(repositoryContext ? { repositoryContext } : {}),
     ...(telosWorkRoleContext ? { telosWorkRoleContext } : {}),
     ...(telosWorkRolePresentation ? { telosWorkRolePresentation } : {}),

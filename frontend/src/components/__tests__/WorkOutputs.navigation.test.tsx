@@ -16,6 +16,11 @@ vi.mock('../UserOutputUpload', () => ({ UserOutputUpload: () => null }));
 vi.mock('../TelosItemRoleEntries', () => ({
   TelosItemRoleEntries: () => <p>Ordinary role entry</p>,
 }));
+// This suite owns artifact/tab navigation; actual store-backed Chat entry is
+// exercised through TelosItemChatTab and full ordinary route fixtures.
+vi.mock('../TelosItemChatTab', () => ({
+  TelosItemChatTab: () => <p>Ordinary role entry</p>,
+}));
 vi.mock('../TelosItemSources', () => ({ TelosItemSources: () => null }));
 const id = 'a'.repeat(32);
 const version = (revision: number) => ({

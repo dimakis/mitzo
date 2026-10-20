@@ -276,8 +276,10 @@ let _connRegistry: ConnectionRegistry | null = null;
 export function getConnectionRegistry(): ConnectionRegistry | null {
   return _connRegistry;
 }
-export function setConnectionRegistry(registry: ConnectionRegistry): void {
-  _connRegistry = registry;
+export function setConnectionRegistry(connections: ConnectionRegistry | null): void {
+  if (!connections && !registry.entries(true).next().done)
+    throw Error('Chat session owners are active');
+  _connRegistry = connections;
 }
 
 /** Fan out an already durable Symposium event through both WS and SSE watchers. */

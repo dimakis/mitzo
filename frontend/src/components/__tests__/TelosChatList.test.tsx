@@ -38,6 +38,29 @@ function work(): TelosWorkView {
   });
 }
 describe('approved S8 conversation selection', () => {
+  it('uses authoritative chat titles and settings while retaining current role labels', () => {
+    const current = work();
+    const row = telosChatRows(current)[1];
+    render(
+      <TelosChatList
+        work={current}
+        title="Slice"
+        details={{
+          [row.key]: {
+            title: 'Recording implementation',
+            description: 'Personal account · Luna fixture · Local Mac',
+          },
+        }}
+        onOpen={vi.fn()}
+        onNewChat={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole('button', { name: 'Open Assigned worker: Recording implementation' }),
+    ).toBeTruthy();
+    expect(screen.getByText('Assigned worker')).toBeTruthy();
+    expect(screen.getByText('Personal account · Luna fixture · Local Mac')).toBeTruthy();
+  });
   it('delegates explicit external-origin inspection without ordinary direct entry or assignment', () => {
     const view = work();
     const conversation = {

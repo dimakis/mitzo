@@ -223,6 +223,19 @@ export function ChatArea({
     return () => el.removeEventListener('scroll', updateFollowState);
   }, [scrollRef]);
 
+  // Async work context can resize the transcript after session restore. Keep
+  // following only when the reader already chose to follow; a retained source
+  // boundary and a reader scrolled away from the bottom remain authoritative.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (!sourceKey && shouldFollowStreamRef.current) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [scrollRef, sourceKey]);
+
   // Track which block is currently being read aloud
   const [speakingBlockId, setSpeakingBlockId] = useState<string | null>(null);
 

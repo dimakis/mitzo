@@ -1,0 +1,78 @@
+
+Running 3 tests using 1 worker
+
+(node:51471) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (165ms)
+(node:51478) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  2 [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (non-code) (4.0s)
+(node:51641) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  3 [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (repository) (3.8s)
+
+
+  1) [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (non-code) 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    Expected: {"activeProfile": undefined, "scrollTop": 0, "telosHistory": []}
+    Received: null
+
+      549 |     await expect(page).toHaveURL(/\/chat\/worker\?telosItem=slice&telosSource=source-review$/);
+      550 |     await expect(page.getByRole('button', { name: 'View item: ' + record.summary })).toBeVisible();
+    > 551 |     expect(await page.evaluate(() => history.state.usr)).toEqual(sourceReturnState);
+          |                                                          ^
+      552 |     await expect(input).toHaveValue('Worker independent draft');
+      553 |     await page.getByRole('link', { name: 'Back', exact: true }).click();
+      554 |     await expect(page.getByRole('heading', { name: 'Chats · 2' })).toBeVisible();
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-adoption/tests/offline/telos-chat-routes.spec.ts:551:58
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-routes-S8-actua-f0c01-in-chat-ownership-non-code--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-chat-routes-S8-actua-f0c01-in-chat-ownership-non-code--desktop-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-routes-S8-actua-f0c01-in-chat-ownership-non-code--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-chat-routes-S8-actua-f0c01-in-chat-ownership-non-code--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (repository) 
+
+    Error: expect(received).toEqual(expected) // deep equality
+
+    Expected: {"activeProfile": undefined, "scrollTop": 0, "telosHistory": []}
+    Received: null
+
+      549 |     await expect(page).toHaveURL(/\/chat\/worker\?telosItem=slice&telosSource=source-review$/);
+      550 |     await expect(page.getByRole('button', { name: 'View item: ' + record.summary })).toBeVisible();
+    > 551 |     expect(await page.evaluate(() => history.state.usr)).toEqual(sourceReturnState);
+          |                                                          ^
+      552 |     await expect(input).toHaveValue('Worker independent draft');
+      553 |     await page.getByRole('link', { name: 'Back', exact: true }).click();
+      554 |     await expect(page.getByRole('heading', { name: 'Chats · 2' })).toBeVisible();
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-adoption/tests/offline/telos-chat-routes.spec.ts:551:58
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-routes-S8-actua-459d5--chat-ownership-repository--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-chat-routes-S8-actua-459d5--chat-ownership-repository--desktop-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-routes-S8-actua-459d5--chat-ownership-repository--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-chat-routes-S8-actua-459d5--chat-ownership-repository--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (non-code) 
+    [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (repository) 
+  1 passed (10.8s)

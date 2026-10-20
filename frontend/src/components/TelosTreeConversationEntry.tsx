@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { TelosWorkApiClient } from '@mitzo/client';
 import type { TelosWorkView } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
+import { telosWorkEntryRole } from '../lib/telos-work-entry-role';
 const api = new TelosWorkApiClient(apiFetch);
 /** A workspace entry, never an allocator or a second role setup owner. */
 export function TelosTreeConversationEntry({
@@ -34,19 +35,21 @@ export function TelosTreeConversationEntry({
     return <span className="telos-node-meta">Loading conversations…</span>;
   if (result.failed) return <span className="telos-node-meta">Conversations unavailable</span>;
   const work = result.view!;
-  if (!work.kind) return <span className="telos-node-meta">Role unclassified</span>;
-  const role =
-    work.kind === 'work_item' ? 'worker' : work.kind === 'coordinator' ? 'coordinator' : 'lead';
+  const role = telosWorkEntryRole(work.kind);
+  if (!role) return <span className="telos-node-meta">Role unclassified</span>;
+  const displayRole = work.kind === 'coordinator' ? 'coordinator' : role;
   const assignment = work.assignments.find((value) => value.role === role);
   return (
     <div className="telos-tree-conversation">
       <span className="telos-node-meta">
-        {assignment ? `${role[0].toUpperCase() + role.slice(1)} assigned` : `No ${role} assigned`}
+        {assignment
+          ? `${displayRole[0].toUpperCase() + displayRole.slice(1)} assigned`
+          : `No ${displayRole} assigned`}
       </span>
       <button onClick={onOpenChat}>
         {assignment
-          ? `${role[0].toUpperCase() + role.slice(1)} chat`
-          : role === 'coordinator'
+          ? `${displayRole[0].toUpperCase() + displayRole.slice(1)} chat`
+          : displayRole === 'coordinator'
             ? 'View coordinator'
             : `Choose ${role}`}
       </button>

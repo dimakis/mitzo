@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { TelosWorkApiClient } from '@mitzo/client';
 import type { TelosWorkSourceSnapshot, TelosWorkSessionLink } from '@mitzo/protocol';
 import type { TodoSource } from '../types/todo';
 import { apiFetch } from '../lib/api-fetch';
 import { sourceIcon } from '../lib/todo-utils';
 import { UiIcon } from './UiIcon';
+import { telosChatReturnState } from '../lib/telos-chat-return';
 const api = new TelosWorkApiClient(apiFetch);
 
 /** Original evidence is separate from output files and collaborator assignment.
@@ -14,12 +15,15 @@ export function TelosItemSources({
   itemId,
   legacySources,
   onOpenExternal,
+  returnPath,
 }: {
   itemId: string;
   legacySources: TodoSource[];
   onOpenExternal: (url: string) => void;
+  returnPath?: string;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [result, setResult] = useState<{
     itemId: string;
     sources: TelosWorkSourceSnapshot[];
@@ -85,7 +89,17 @@ export function TelosItemSources({
       if (controller.signal.aborted || currentItem.current !== itemId) return;
       if (!view.available)
         throw Error('Original conversation unavailable. Retained sources are preserved.');
-      navigate(view.sourceHref);
+      navigate(view.sourceHref, {
+        state:
+          source.source?.namespace === 'mitzo'
+            ? telosChatReturnState(
+                location.state,
+                itemId,
+                source.source.conversationId,
+                returnPath ?? location.pathname + location.search,
+              )
+            : location.state,
+      });
     } catch {
       if (!controller.signal.aborted && currentItem.current === itemId)
         setError('Original conversation unavailable. Retained sources are preserved.');

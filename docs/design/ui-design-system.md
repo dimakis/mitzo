@@ -1798,6 +1798,63 @@ normal-motion exit retains it, preserving transcript height/width, draft and foc
 Six normal-motion browser scenarios sample that exit in addition to the original
 six reduced-motion scenarios. See the [correction evidence](../evidence/telos-s8-components/review-corrections/checks.json).
 
+## Telos ordinary route adoption
+
+The ordinary coordinator control consumer uses the existing transcript-card slot,
+shared type/spacing/semantic tokens and quiet receipt rows. Priority selection
+chooses an exact directly attached outcome for this control; it does not change
+the item's numeric priority. Publication, new-worker-dispatch and safe-point scopes
+remain distinct. Human request/read/release actions use the existing signed operator
+route; recipient acknowledgement and host application come only from retained backend
+evidence. Missing recipients, uncertainty, refusal and current-main revalidation
+remain explicit. Session storage retains only the exact pending retry envelope,
+with no automatic submission or control authority. Receipts reload from the server inbox.
+
+The chat work panel scopes its approved compact tree treatment through
+`.telos-chat-tree`: node icons and the full assignment sidecar are omitted there,
+while the amended `P<n>` badge stays visible as a compact token. Canonical item
+status flows beneath the kind metadata, separately from execution-task state. Titles,
+kind badges, nesting and disclosure navigation retain reading room.
+The `compact` prop alone does not select this treatment: Overview/Work child
+trees retain their numeric priority, status and role-entry controls. Font and
+indentation use the existing type/spacing scales; no shared tree rule changes.
+The focused offline `telos-chat-compact-panel` fixture checks both scopes at
+320px and 1280px, light/dark, and retains keyboard close/focus and draft state.
+
+The chooser follows the approved primary hierarchy: conversation title,
+role/account/model, then profile/execution target/conversation-created date.
+Creation uses the exact persisted session timestamp exposed by the existing
+identity-checked metadata read. Missing or invalid dates remain unavailable;
+link time and last-modified time never substitute for creation. All recorded
+role-link authors/times and retained source provenance remain in a native
+**Conversation provenance** disclosure outside the chat-opening button. It reuses
+the existing native-disclosure pattern, semantic tokens and 44px focusable summary;
+technical identifiers remain readable on request rather than filling the primary row.
+Native disclosure summaries share the App keyboard-dismiss exemption with other
+interactive controls, so keyboard activation keeps focus through opening and closing.
+The current-item read is keyed to the route item independently of related
+collection membership. Parent/child hydration and related errors update their
+regions without replacing an active same-item workspace or its native disclosure.
+Manual, event and resume refresh retain the existing abort/identity/priority owners;
+real item navigation and authoritative primary unavailability keep their reset behavior.
+
+The S8 adoption candidate wires its chooser into the real item Chat tab and its
+slim item/chats/work row into the existing mobile and desktop ordinary headers.
+It retains the approved settings, Access, Resources and composer owners. The
+frame remains structurally stable during async association hydration and refresh,
+so an unsent draft is not remounted. Unlinked chats retain their original layout.
+The tree uses the canonical Telos records/priorities and exact attempt/task
+associations; Awaiting review and Task done remain distinct from outcome completion.
+Role rows, counts and canonical records revalidate after reconnect and resume.
+
+Full-shell intercepted checks cover 320px WebKit/Chromium and desktop Chromium,
+dark Mint/System and light Teal/Georgia, repository/non-code records, distinct
+worker/reviewer settings, Resources, Back, reload and retained drafts. Shared
+tokens, focus rules and MotionPresence remain effective. See the [route adoption
+contract](telos-workspaces/s8-route-adoption.md) and [actual checks/captures](../evidence/telos-s8-adoption/checks.json).
+These are candidate UI results; complete S5b/native/peer and accepted-main
+qualification remain separate.
+
 ## Telos worker creation receipt
 
 `TelosWorkerReceiptCard` renders the frozen Telos mock's worker material row inside

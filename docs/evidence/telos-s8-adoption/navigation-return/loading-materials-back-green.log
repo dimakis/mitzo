@@ -1,0 +1,12 @@
+
+Running 3 tests using 1 worker
+
+(node:72962) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (209ms)
+(node:72967) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  2 [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (non-code) (3.9s)
+  ✓  3 [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (repository) (3.6s)
+
+  3 passed (9.0s)

@@ -4,15 +4,15 @@ import { join } from 'node:path';
 
 function routeSource(file: string, route: string): string {
   const source = readFileSync(join(import.meta.dirname, '..', file), 'utf8');
-  const start = source.indexOf(`app.get('${route}'`);
-  const end = source.indexOf('\n});', start);
+  const start = source.indexOf(`.get('${route}'`);
+  const end = source.indexOf(file === 'chat-event-stream.ts' ? '\n  });' : '\n});', start);
   return source.slice(start, end);
 }
 
 describe('SSE authentication cleanup ordering', () => {
   it.each([
     ['app.ts', '/api/events'],
-    ['index.ts', '/api/chat/events'],
+    ['chat-event-stream.ts', '/api/chat/events'],
   ])('installs close cleanup before auth registration in %s', (file, route) => {
     const source = routeSource(file, route);
 

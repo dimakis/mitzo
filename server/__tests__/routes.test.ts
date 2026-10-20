@@ -868,6 +868,7 @@ describe('session routes', () => {
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
       sessionId: 's1',
+      createdAt: 1000,
       branch: 'main',
       wtId: null,
       cwd: '/tmp/repo',

@@ -43,3 +43,25 @@ it('keeps failed relationship reads distinct from no assignment', async () => {
   expect(await screen.findByText('Conversations unavailable')).toBeTruthy();
   expect(screen.queryByText('No lead assigned')).toBeNull();
 });
+it('reads a coordinator current assignment from the retained lead role while preserving its display kind', async () => {
+  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue({
+    ...view,
+    kind: 'coordinator',
+  });
+  const open = vi.fn();
+  render(<TelosTreeConversationEntry refreshKey={0} itemId={item.itemId} onOpenChat={open} />);
+  expect(await screen.findByText('Coordinator assigned')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Coordinator chat' }));
+  expect(open).toHaveBeenCalledOnce();
+});
+it('does not treat an additional coordinator lead link as a current control assignment', async () => {
+  vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue({
+    ...view,
+    kind: 'coordinator',
+    assignments: [],
+  });
+  render(<TelosTreeConversationEntry refreshKey={0} itemId={item.itemId} onOpenChat={vi.fn()} />);
+  expect(await screen.findByText('No coordinator assigned')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'View coordinator' })).toBeTruthy();
+  expect(screen.queryByText('Coordinator assigned')).toBeNull();
+});

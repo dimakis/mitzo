@@ -335,6 +335,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   let reviewedAuthenticated = options.initiallyAuthenticated !== false;
   let reviewedSendScope = Date.now();
+  let taskReadSequence = 0;
   const reviewedOutbox = options.reviewedSendConfig
     ? new SendOutbox({
         url: options.reviewedSendConfig.url,
@@ -1391,8 +1392,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // ── Task actions ──────────────────────────────────────────────────────
 
     async loadTasks() {
+      const readSequence = ++taskReadSequence;
       try {
         const tasks = await api.getTasks();
+        if (readSequence !== taskReadSequence) return;
         set((s) => ({ tasks: { ...s.tasks, tree: tasks } }));
       } catch {
         // Graceful — keep existing tree

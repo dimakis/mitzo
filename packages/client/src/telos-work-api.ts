@@ -1,4 +1,7 @@
 import {
+  TelosWorkControlCommandSchema,
+  TelosWorkControlResultSchema,
+  type TelosWorkControlCommand,
   TelosOrdinaryWorkRoleSetupInputSchema,
   TelosOrdinaryWorkReviewedRoleSetupInputSchema,
   TelosOrdinaryWorkDelegationInputSchema,
@@ -73,6 +76,36 @@ export class TelosWorkApiError extends Error {
  */
 export class TelosWorkApiClient {
   constructor(private readonly fetch: ApiFetch) {}
+  /** Human request/read/release only. Recipient ACK and host evidence keep
+   * their existing native/internal owners; uncertain commands are not retried. */
+  async control(
+    command: Exclude<TelosWorkControlCommand, { operation: 'acknowledge' }>,
+    signal?: AbortSignal,
+  ) {
+    const input = TelosWorkControlCommandSchema.parse(command);
+    if (input.operation === 'acknowledge')
+      throw new TelosWorkApiError(
+        403,
+        'unauthorized',
+        'Acknowledgement requires the current recipient conversation',
+      );
+    const result = await this.request('controls', TelosWorkControlResultSchema, command, signal);
+    const mismatch =
+      (input.operation === 'inbox') !== Array.isArray(result) ||
+      (!Array.isArray(result) &&
+        (input.operation === 'request'
+          ? result.coordinatorItemId !== input.coordinatorItemId ||
+            result.priorityItemId !== input.priorityItemId ||
+            result.scope !== input.scope
+          : 'controlId' in input && result.controlId !== input.controlId));
+    if (mismatch)
+      throw new TelosWorkApiError(
+        502,
+        'invalid',
+        'Scoped control receipt differs from the selected operation',
+      );
+    return result;
+  }
   setupOrdinaryRole(
     input: TelosOrdinaryWorkRoleSetupInput,
     signal?: AbortSignal,

@@ -198,6 +198,10 @@ for (const { theme, sourceStatus } of sourceCases)
     await page.screenshot({ path: info.outputPath(`telos-item-sources-${theme}.png`) });
     await page.getByRole('button', { name: 'Open original chat' }).click();
     await expect(page).toHaveURL(new RegExp('/chat/planning\\?telosItem=studio&telosSource='));
+    await expect(page.getByRole('link', { name: 'Back', exact: true })).toHaveAttribute(
+      'href',
+      '/todos/studio?view=Overview',
+    );
     if (sourceStatus !== 'ready') {
       if (sourceStatus === 'unavailable')
         await expect(page.getByText('Opening original exchange…', { exact: true })).toBeVisible();
@@ -218,7 +222,9 @@ for (const { theme, sourceStatus } of sourceCases)
         expect(
           data.source.packet.context.messages[0].blocks.every((block) => !block.content.trim()),
         ).toBe(true);
-        await expect(page.getByRole('link', { name: 'Home studio', exact: true })).toBeVisible();
+        await expect(
+          page.getByRole('button', { name: 'View item: Home studio', exact: true }),
+        ).toBeVisible();
         await expect(page.getByRole('button', { name: /Activity:.*Read/ })).toBeAttached();
       }
       await expect(page.locator('[data-telos-source-anchor="true"]')).toHaveCount(0);
@@ -278,7 +284,9 @@ for (const { theme, sourceStatus } of sourceCases)
     await expect(anchor).toHaveCount(1);
     await expect(anchor).toContainText('Use the approved acoustic plan.');
     await expect(anchor).toBeInViewport();
-    await expect(page.getByRole('link', { name: 'Home studio', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'View item: Home studio', exact: true }),
+    ).toBeVisible();
     await expect(page.getByText('Studio discussion 60:', { exact: false })).toBeAttached();
     expect(transcripts).toHaveLength(1);
     const scroll = page.locator('.chat-messages');
@@ -321,14 +329,14 @@ for (const { theme, sourceStatus } of sourceCases)
     await page.evaluate(() => window.dispatchEvent(new Event('fixture-finish-reply')));
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible();
 
-    const height = await page.locator('.telos-chat-context').boundingBox();
+    const height = await page.locator('.telos-chat-context-row').boundingBox();
     expect(height!.height).toBeLessThan(90);
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
     await page.screenshot({ path: info.outputPath(`telos-source-${theme}.png`) });
-    await page.getByRole('link', { name: 'Home studio', exact: true }).click();
-    await expect(page).toHaveURL(/\/todos\/studio$/);
+    await page.getByRole('button', { name: 'View item: Home studio', exact: true }).click();
+    await expect(page).toHaveURL(/\/todos\/studio\?view=Overview$/);
     await expect(page.getByRole('button', { name: 'Open original chat' })).toBeVisible();
     await page.getByRole('button', { name: 'Open original chat' }).click();
     await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('Keep my draft');

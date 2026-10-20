@@ -2712,6 +2712,58 @@ describe('dispatchMessages', () => {
 });
 
 describe('loadTasks', () => {
+  it.each(['success', 'failure'] as const)(
+    'keeps the latest admitted task read authoritative after newer %s and an older late reply',
+    async (outcome) => {
+      let releaseOlder!: (response: Response) => void;
+      let releaseNewer!: (response: Response) => void;
+      let rejectNewer!: (cause: Error) => void;
+      const olderResponse = new Promise<Response>((resolve) => {
+        releaseOlder = resolve;
+      });
+      const newerResponse = new Promise<Response>((resolve, reject) => {
+        releaseNewer = resolve;
+        rejectNewer = reject;
+      });
+      const response = (id: string) =>
+        new Response(
+          JSON.stringify({
+            tasks: [{ id, title: id, status: 'pending_review', children: [] }],
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      const taskResponses = [Promise.resolve(response('last-good')), olderResponse, newerResponse];
+      const transport = mockTransport();
+      vi.mocked(transport.fetch).mockImplementation(async (url) => {
+        expect(url).toBe('/api/tasks');
+        const next = taskResponses.shift();
+        if (!next) throw Error('Unexpected extra task read');
+        return next;
+      });
+      const socket = vi.fn(() => {
+        throw Error('No socket allowed in task-read ordering test');
+      });
+      const options = makeOptions(transport);
+      const store = createMitzoStore({
+        ...options,
+        initiallyAuthenticated: false,
+        wsConfig: { ...options.wsConfig, createWebSocket: socket },
+      });
+      await store.getState().loadTasks();
+      const older = store.getState().loadTasks();
+      const newer = store.getState().loadTasks();
+      if (outcome === 'success') releaseNewer(response('newer-success'));
+      else rejectNewer(new Error('Latest task read failed'));
+      await newer;
+      const expected = outcome === 'success' ? 'newer-success' : 'last-good';
+      expect(store.getState().tasks.tree[0].id).toBe(expected);
+      releaseOlder(response('older-late'));
+      await older;
+      expect(store.getState().tasks.tree[0].id).toBe(expected);
+      expect(transport.fetch).toHaveBeenCalledTimes(3);
+      expect(socket).not.toHaveBeenCalled();
+    },
+  );
   it('fetches tasks from API and sets store.tasks.tree', async () => {
     const transport = mockTransport();
     (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) => {

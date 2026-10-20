@@ -18,7 +18,7 @@ function Location() {
   const location = useLocation();
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
-function fixture(kind: 'outcome' | 'work_item') {
+function fixture(kind: 'outcome' | 'work_item' | 'coordinator') {
   vi.spyOn(TelosWorkApiClient.prototype, 'read').mockResolvedValue(
     TelosWorkViewSchema.parse({
       itemId: 'selected',
@@ -45,6 +45,15 @@ function fixture(kind: 'outcome' | 'work_item') {
   );
   return { newSession, send };
 }
+it('offers an explicit ordinary lead assignment for a coordinator without turning New chat into authority', async () => {
+  const f = fixture('coordinator');
+  fireEvent.click(await screen.findByRole('button', { name: 'Choose lead collaborator' }));
+  const location = new URL(screen.getByTestId('location').textContent!, 'https://offline.test');
+  expect(location.searchParams.get('telosRole')).toBe('lead');
+  expect(location.searchParams.get('telosRoleMode')).toBe('assign');
+  expect(f.newSession).toHaveBeenCalledOnce();
+  expect(f.send).not.toHaveBeenCalled();
+});
 it('keeps leaf work item refinement but exposes no unsupported child creation entry', async () => {
   const f = fixture('work_item');
   const refine = await screen.findByRole('button', { name: 'Refine item' });

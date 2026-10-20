@@ -1,0 +1,68 @@
+
+Running 3 tests using 1 worker
+
+(node:49146) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (178ms)
+(node:49152) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  2 [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (non-code) (3.5s)
+(node:49250) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  3 [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (repository) (3.5s)
+
+
+  1) [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (non-code) 
+
+    Error: page.evaluate: TypeError: Cannot read properties of null (reading 'activeProfile')
+        at eval (eval at evaluate (:311:30), <anonymous>:1:25)
+        at UtilityScript.evaluate (<anonymous>:313:16)
+        at UtilityScript.<anonymous> (<anonymous>:1:44)
+        at eval (eval at evaluate (:311:30), <anonymous>:1:25)
+        at UtilityScript.evaluate (<anonymous>:313:16)
+        at UtilityScript.<anonymous> (<anonymous>:1:44)
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-adoption/tests/offline/telos-chat-routes.spec.ts:517:23
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-routes-S8-actua-f0c01-in-chat-ownership-non-code--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-chat-routes-S8-actua-f0c01-in-chat-ownership-non-code--desktop-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-routes-S8-actua-f0c01-in-chat-ownership-non-code--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-chat-routes-S8-actua-f0c01-in-chat-ownership-non-code--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (repository) 
+
+    Error: page.evaluate: TypeError: Cannot read properties of null (reading 'activeProfile')
+        at eval (eval at evaluate (:311:30), <anonymous>:1:25)
+        at UtilityScript.evaluate (<anonymous>:313:16)
+        at UtilityScript.<anonymous> (<anonymous>:1:44)
+        at eval (eval at evaluate (:311:30), <anonymous>:1:25)
+        at UtilityScript.evaluate (<anonymous>:313:16)
+        at UtilityScript.<anonymous> (<anonymous>:1:44)
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-adoption/tests/offline/telos-chat-routes.spec.ts:517:23
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-routes-S8-actua-459d5--chat-ownership-repository--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-chat-routes-S8-actua-459d5--chat-ownership-repository--desktop-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-chat-routes-S8-actua-459d5--chat-ownership-repository--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-chat-routes-S8-actua-459d5--chat-ownership-repository--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (non-code) 
+    [desktop-chromium] › tests/offline/telos-chat-routes.spec.ts:29:3 › S8 actual item and ordinary routes retain chat ownership (repository) 
+  1 passed (9.7s)

@@ -1,0 +1,9 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-adoption
+
+
+ Test Files  13 passed (13)
+      Tests  144 passed | 1 skipped (145)
+   Start at  00:00:02
+   Duration  8.82s (transform 589ms, setup 0ms, import 2.41s, tests 2.38s, environment 2.79s)
+

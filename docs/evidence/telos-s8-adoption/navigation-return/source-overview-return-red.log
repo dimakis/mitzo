@@ -1,0 +1,53 @@
+
+Running 2 tests using 1 worker
+
+(node:84960) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [browser-startup-1] › tests/support/browser-startup.setup.ts:5:1 › browser startup (168ms)
+(node:84968) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  2 [desktop-chromium] › tests/offline/telos-source-navigation.spec.ts:30:3 › retained source anchors visible assistant text and returns to its item (dark) (6.1s)
+
+
+  1) [desktop-chromium] › tests/offline/telos-source-navigation.spec.ts:30:3 › retained source anchors visible assistant text and returns to its item (dark) 
+
+    Error: expect(locator).toHaveAttribute(expected) failed
+
+    Locator:  getByRole('link', { name: 'Back', exact: true })
+    Expected: "/todos/studio?view=Overview"
+    Received: "/todos/studio?view=Materials"
+    Timeout:  5000ms
+
+    Call log:
+      - Expect "toHaveAttribute" getByRole('link', { name: 'Back', exact: true }) with timeout 5000ms
+      - waiting for getByRole('link', { name: 'Back', exact: true })
+        14 × locator resolved to <a aria-label="Back" data-discover="true" class="chat-top-action" href="/todos/studio?view=Materials">…</a>
+           - unexpected value "/todos/studio?view=Materials"
+
+
+      199 |     await page.getByRole('button', { name: 'Open original chat' }).click();
+      200 |     await expect(page).toHaveURL(new RegExp('/chat/planning\\?telosItem=studio&telosSource='));
+    > 201 |     await expect(page.getByRole('link', { name: 'Back', exact: true })).toHaveAttribute('href', '/todos/studio?view=Overview');
+          |                                                                         ^
+      202 |     if (sourceStatus !== 'ready') {
+      203 |       if (sourceStatus === 'unavailable')
+      204 |         await expect(page.getByText('Opening original exchange…', { exact: true })).toBeVisible();
+        at /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8-coordinator/tests/offline/telos-source-navigation.spec.ts:201:73
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/offline/telos-source-navigation-re-c5686-d-returns-to-its-item-dark--desktop-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/offline/telos-source-navigation-re-c5686-d-returns-to-its-item-dark--desktop-chromium/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    test-results/offline/telos-source-navigation-re-c5686-d-returns-to-its-item-dark--desktop-chromium/trace.zip
+    Usage:
+
+        npx playwright show-trace test-results/offline/telos-source-navigation-re-c5686-d-returns-to-its-item-dark--desktop-chromium/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  1 failed
+    [desktop-chromium] › tests/offline/telos-source-navigation.spec.ts:30:3 › retained source anchors visible assistant text and returns to its item (dark) 
+  1 passed (7.8s)

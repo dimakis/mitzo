@@ -160,6 +160,9 @@ afterEach(async () => {
     );
     streams?.remove(f.operatorConnectionId);
     transportAuth.releaseTransportConnection(f.operatorConnectionId, f.auth.id);
+    connections.dispose();
+    chat.setConnectionRegistry(null);
+    expect(chat.getConnectionRegistry()).toBeNull();
     chat.eventStore.close();
   }
   for (const close of cleanup.splice(0).reverse()) await close();
@@ -225,6 +228,9 @@ it('typed ordinary first HTTP reaches real chat/native custody and exact consume
   expect(chat.registry.findBySessionId(input.sessionId)?.session.ownedLocalAuthSessionId).toBe(
     f.auth.id,
   );
+  expect(chat.getConnectionRegistry()).toBe(connections);
+  expect(() => chat.setConnectionRegistry(null)).toThrow('Chat session owners are active');
+  expect(chat.getConnectionRegistry()).toBe(connections);
   expect(await api.firstCommand(input)).toMatchObject({ dispatched: false, state: 'consumed' });
   expect(native.CodexAppServerClient.launchIsolated).toHaveBeenCalledOnce();
   expect(f.first.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
