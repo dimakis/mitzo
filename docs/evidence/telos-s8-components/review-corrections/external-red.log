@@ -1,0 +1,53 @@
+
+ RUN  v4.1.11 /Users/dsaridak/Documents/Codex/2026-10-18/let-s-start-slice-8/mitzo-s8
+
+ ❯ frontend/src/components/__tests__/TelosChatList.test.tsx (7 tests | 2 failed) 85ms
+     × delegates explicit external-origin inspection without ordinary direct entry or assignment 57ms
+     × allows retained external source snapshots but keeps malformed external URLs disabled 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  frontend/src/components/__tests__/TelosChatList.test.tsx > approved S8 conversation selection > delegates explicit external-origin inspection without ordinary direct entry or assignment
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ frontend/src/components/__tests__/TelosChatList.test.tsx:53:52
+     51|     render(<TelosChatList work={view} title="Home studio" onOpen={onOp…
+     52|     const opener = screen.getByRole('button', { name: 'Open Originatin…
+     53|     expect((opener as HTMLButtonElement).disabled).toBe(false);
+       |                                                    ^
+     54|     expect(onOpen).not.toHaveBeenCalled();
+     55|     fireEvent.click(opener);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  frontend/src/components/__tests__/TelosChatList.test.tsx > approved S8 conversation selection > allows retained external source snapshots but keeps malformed external URLs disabled
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ frontend/src/components/__tests__/TelosChatList.test.tsx:70:115
+     68|     const props = { title: 'Home studio', onOpen: vi.fn(), onNewChat: …
+     69|     const { rerender } = render(<TelosChatList {...props} work={view} …
+     70|     expect((screen.getByRole('button', { name: 'Open Originating conve…
+       |                                                                                                                   ^
+     71|     expect(telosDirectChat(view)).toBeNull();
+     72|     conversation.url = 'https://unrelated.invalid/chat';
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 5 passed (7)
+   Start at  21:21:53
+   Duration  1.11s (transform 147ms, setup 0ms, import 363ms, tests 85ms, environment 559ms)
+

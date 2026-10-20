@@ -1,0 +1,148 @@
+.telos-chat-list,
+.telos-chat-frame {
+  min-width: 0;
+  color: var(--color-text);
+  font-family: var(--font-ui);
+}
+.telos-chat-list button,
+.telos-chat-context-row > button,
+.telos-chat-tree-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+}
+.telos-chat-list button:focus-visible,
+.telos-chat-context-row > button:focus-visible,
+.telos-chat-tree-close:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.telos-chat-list button:disabled {
+  color: var(--color-muted);
+  cursor: default;
+}
+.telos-chat-list h2,
+.telos-chat-tree h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.telos-chat-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+}
+.telos-chat-list ul {
+  list-style: none;
+  padding: 0;
+  margin-block: var(--space-4);
+}
+.telos-chat-list .telos-chat-row {
+  display: flex;
+  width: 100%;
+  text-align: left;
+  padding-block: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+  color: var(--color-text);
+}
+.telos-chat-row > svg,
+.telos-chat-context-row svg {
+  flex-shrink: 0;
+}
+.telos-chat-copy {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.telos-chat-copy strong,
+.telos-chat-copy small {
+  display: block;
+}
+.telos-chat-copy strong {
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+.telos-chat-copy small,
+.telos-chat-note {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+.telos-chat-frame {
+  container-type: inline-size;
+}
+.telos-chat-context-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-inline: var(--page-gutter);
+  border-block: 1px solid var(--color-border);
+  font-size: var(--text-xs);
+}
+.telos-chat-context-row .telos-chat-item {
+  justify-content: flex-start;
+  flex: 1;
+  min-width: 0;
+}
+.telos-chat-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.telos-chat-body {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+.telos-chat-body[data-tree-open='true'] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 20rem);
+}
+.telos-chat-transcript,
+.telos-chat-tree-presence {
+  min-width: 0;
+}
+/* MotionPresence retains an inert panel through its shared exit animation.
+   Restore the transcript column without placing that panel in a new grid row. */
+.telos-chat-body[data-tree-open='false'] > .telos-chat-tree-presence {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  width: min(100%, 20rem);
+  max-height: 100%;
+  overflow: hidden;
+}
+.telos-chat-tree {
+  border-left: 1px solid var(--color-border);
+  padding: var(--page-gutter);
+  overflow-wrap: anywhere;
+}
+@container (max-width: 48rem) {
+  .telos-chat-body[data-tree-open='false'] > .telos-chat-tree-presence {
+    width: 100%;
+  }
+  .telos-chat-body[data-tree-open='true'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .telos-chat-body[data-tree-open='true'] > .telos-chat-transcript {
+    display: none;
+  }
+  .telos-chat-tree {
+    border-left: 0;
+  }
+  .telos-chat-count-label {
+    display: none;
+  }
+}
