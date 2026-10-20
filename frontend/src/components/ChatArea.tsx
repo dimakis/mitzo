@@ -45,6 +45,11 @@ export interface ChatAreaProps {
   current: StreamingMessage | null;
   currentByMessage?: Record<string, StreamingMessage>;
   contextItems?: SymposiumContextItem[];
+  /** Presentation-only metadata keyed by the displayed message identity. */
+  renderMessageAttribution?(messageId: string): ReactNode;
+  renderMessageOutcome?(messageId: string): ReactNode;
+  /** Source-bound previews for shared messages; ordinary callers use sessionId. */
+  messageSessionId?(messageId: string): string | undefined;
   /** Additional transcript cards inside the same scroll area. */
   afterMessages?: ReactNode;
   onShareMessage?: (messageId: string, provenance?: SymposiumProvenance) => void;
@@ -136,6 +141,9 @@ export function ChatArea({
   currentByMessage = {},
   contextItems = [],
   afterMessages,
+  renderMessageAttribution,
+  renderMessageOutcome,
+  messageSessionId,
   onShareMessage,
   canShareMessage,
   shareInActions = false,
@@ -369,24 +377,28 @@ export function ChatArea({
               scope: 'user',
               endsTurn: true,
               value: (
-                <UserBubble
-                  key={turnKey(msg.messageId, msg.symposiumProvenance)}
-                  sourceAnchor={sourceAnchor(msg)}
-                  text={textBlock?.content}
-                  images={msg.images}
-                  contextBlocks={msg.contextBlocks}
-                  contextInjections={msg.contextInjections}
-                  timestamp={msg.timestamp}
-                  readAloud={
-                    voice?.ttsAvailable
-                      ? {
-                          active: speakingBlockId === msg.messageId,
-                          onSpeak: (text) => speakBlock(msg.messageId, text),
-                          onStop: stopBlock,
-                        }
-                      : undefined
-                  }
-                />
+                <>
+                  {renderMessageAttribution?.(msg.messageId)}
+                  <UserBubble
+                    key={turnKey(msg.messageId, msg.symposiumProvenance)}
+                    sourceAnchor={sourceAnchor(msg)}
+                    text={textBlock?.content}
+                    images={msg.images}
+                    contextBlocks={msg.contextBlocks}
+                    contextInjections={msg.contextInjections}
+                    timestamp={msg.timestamp}
+                    readAloud={
+                      voice?.ttsAvailable
+                        ? {
+                            active: speakingBlockId === msg.messageId,
+                            onSpeak: (text) => speakBlock(msg.messageId, text),
+                            onStop: stopBlock,
+                          }
+                        : undefined
+                    }
+                  />
+                  {renderMessageOutcome?.(msg.messageId)}
+                </>
               ),
             },
           ];
@@ -403,6 +415,12 @@ export function ChatArea({
           : turn.value.blocks;
       const ownerKey = `${sessionId ?? 'chat'}:${turnKey(msg.messageId, msg.symposiumProvenance)}`;
       const provenance = msg.symposiumProvenance;
+      const attribution =
+        !streaming && renderMessageAttribution ? (
+          renderMessageAttribution(msg.messageId)
+        ) : (
+          <SeatAttribution provenance={msg.symposiumProvenance} compact={compactAttribution} />
+        );
       const scope = JSON.stringify([
         sessionId ?? null,
         provenance?.seatId,
@@ -455,7 +473,9 @@ export function ChatArea({
                 content={block.content ?? ''}
                 streaming={streaming}
                 timestamp={turn.kind === 'finished' ? turn.value.timestamp : undefined}
-                artifactSessionId={sessionId}
+                artifactSessionId={
+                  !streaming && messageSessionId ? messageSessionId(msg.messageId) : sessionId
+                }
                 readAloud={
                   !streaming && voice?.ttsAvailable
                     ? {
@@ -471,25 +491,28 @@ export function ChatArea({
           return {
             key: `${ownerKey}:${bid}`,
             scope,
-            attribution: (
-              <SeatAttribution provenance={msg.symposiumProvenance} compact={compactAttribution} />
-            ),
+            attribution,
             block,
             streaming,
             keepVisible,
             value: (
               <div className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}>
-                {index === 0 && (keepVisible || block.blockType === 'text') && (
-                  <SeatAttribution
-                    provenance={msg.symposiumProvenance}
-                    compact={compactAttribution}
-                  />
-                )}
+                {index === 0 && (keepVisible || block.blockType === 'text') && attribution}
                 {content}
               </div>
             ),
           };
         });
+      if (!streaming && renderMessageOutcome) {
+        const last = rows.at(-1);
+        if (last)
+          last.value = (
+            <>
+              {last.value}
+              {renderMessageOutcome(msg.messageId)}
+            </>
+          );
+      }
       if (
         !streaming &&
         'role' in msg &&

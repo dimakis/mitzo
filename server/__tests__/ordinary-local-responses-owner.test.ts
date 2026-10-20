@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { writeFile, readFile } from 'node:fs/promises';
 import { AccountProfiles } from '../account-profiles.js';
+import { credentials } from '../credentials.js';
 import { ownedResponsesRuntimeFixture } from './fixtures/owned-local-responses-runtime.js';
 import { OrdinaryLocalResponsesOwnedRuntime } from '../ordinary-local-responses-owned-runtime.js';
 import { NativeResponsesStore } from '../native-responses-store.js';
@@ -11,9 +12,10 @@ const manager = vi.hoisted(() => ({
   manages: vi.fn(() => true),
   resolveKey: vi.fn(async () => 'offline-exact-key'),
 }));
-vi.mock('../connections-runtime.js', () => ({
-  getConnectionsRuntime: () => ({ openAIEnrollmentAuthority: manager }),
-}));
+vi.mock('../connections-runtime.js', () => {
+  const runtime = { openAIEnrollmentAuthority: manager };
+  return { getConnectionsRuntime: () => runtime };
+});
 vi.mock('../auth.js', async (original) => ({
   ...(await original<object>()),
   hasPersistentRevocationAuthority: () => true,
@@ -106,6 +108,19 @@ it('claims independent checkout and freezes future settings while retaining nati
   expect(native.readOrdinaryCustody(admitted.sessionId, admitted.binding)?.authSessionId).toBe(
     f.auth.id,
   );
+});
+
+it('admits an existing configured API account without re-enrollment and resolves its original credential', async () => {
+  const { f, create, dispatch } = await fixture();
+  vi.spyOn(AccountProfiles.prototype, 'isEnrolledOpenAIAccount').mockReturnValue(false);
+  const read = vi.spyOn(credentials, 'resolve').mockResolvedValue('existing-offline-key');
+  const owner = create();
+  await expect(owner.admit(f.request)).resolves.toEqual({ dispatched: true });
+  expect(dispatch.mock.calls[0][0].binding).toEqual(f.reservation.binding);
+  // Admission does not read a key or perform a validation/model request.
+  expect(manager.resolveKey).not.toHaveBeenCalled();
+  await expect(owner.resolveKey(f.request.clientMsgId)).resolves.toBe('existing-offline-key');
+  expect(read).toHaveBeenCalledWith(f.configuration[0].credentialRef);
 });
 
 it('claims the next accepted FIFO command when cancellation changes the head during its authority await', async () => {

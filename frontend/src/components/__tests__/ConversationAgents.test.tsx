@@ -87,7 +87,7 @@ it('keeps fresh-agent setup in the same view, with purpose and full or selected 
     within(dialog).getByRole('button', { name: 'Review joining brief' }).hasAttribute('disabled'),
   ).toBe(true);
   expect(screen.queryByRole('tab', { name: 'Existing chat' })).toBeNull();
-  fireEvent.click(within(dialog).getByRole('button', { name: 'Back to Agents' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
   fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
   expect((screen.getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).value).toBe(
     'Check the design.',

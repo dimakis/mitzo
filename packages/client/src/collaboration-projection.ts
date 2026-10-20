@@ -35,7 +35,18 @@ export function applyCollaborationEvents(
     const change = event.change;
     switch (change.kind) {
       case 'membership':
-        if (change.membership.revision !== view.membershipRevision + 1) return refuse();
+        if (
+          change.membership.collaborationId !== view.collaborationId ||
+          change.membership.revision !== view.membershipRevision + 1 ||
+          new Set(change.policies.map((p) => p.sessionId)).size !== change.policies.length ||
+          change.policies.some(
+            (p) =>
+              !change.membership.participantSessionIds.includes(p.sessionId) ||
+              p.membershipRevision > change.membership.revision ||
+              p.effectiveFromSequence > event.sequence + 1,
+          )
+        )
+          return refuse();
         view.membershipRevision = change.membership.revision;
         view.participantSessionIds = change.membership.participantSessionIds;
         view.unavailableParticipantSessionIds = view.unavailableParticipantSessionIds.filter((id) =>
@@ -46,7 +57,14 @@ export function applyCollaborationEvents(
         break;
       case 'policy': {
         const current = view.policies.find((p) => p.sessionId === change.policy.sessionId);
-        if (!current || change.policy.revision !== current.revision + 1) return refuse();
+        if (
+          !current ||
+          change.policy.revision !== current.revision + 1 ||
+          !view.participantSessionIds.includes(change.policy.sessionId) ||
+          change.policy.membershipRevision !== view.membershipRevision ||
+          change.policy.effectiveFromSequence !== event.sequence + 1
+        )
+          return refuse();
         view.policies = view.policies.map((p) =>
           p.sessionId === change.policy.sessionId ? change.policy : p,
         );
@@ -101,6 +119,7 @@ export function applyCollaborationEvents(
   if (
     page.cursor !== (page.events.at(-1)?.sequence ?? view.cursor) ||
     page.highWatermark < page.cursor ||
+    (page.hasMore && page.highWatermark === page.cursor) ||
     (!page.hasMore && page.highWatermark !== page.cursor)
   )
     return refuse();

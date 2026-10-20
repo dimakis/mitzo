@@ -7,6 +7,7 @@ import {
   OpenAIAccountEnrollment,
   OpenAIAccountEnrollmentStore,
   readReadyOpenAIAccountProfiles,
+  type OpenAIEnrollmentCredentialObservation,
 } from '../openai-account-enrollment.js';
 import { openAIEnrollmentCredentialReference } from '../openai-account-enrollment-keychain.js';
 const cleanup: (() => void)[] = [];
@@ -404,4 +405,146 @@ it('blocks a second controller request while the first validation is still in fl
     reopened.close();
   }
   expect((await first).state).toBe('ready');
+});
+
+it('observes immutable secret-free custody while holding the existing enrollment gate', async () => {
+  const f = fixture();
+  let gateDepth = 0;
+  const gateCalls = vi.fn();
+  const gate = async <T>(work: () => Promise<T>): Promise<T> => {
+    gateCalls();
+    expect(gateDepth).toBe(0);
+    gateDepth++;
+    try {
+      return await work();
+    } finally {
+      gateDepth--;
+    }
+  };
+  const service = new OpenAIAccountEnrollment({ ...f.options, gate });
+  const account = await service.enroll(f.input, AbortSignal.timeout(1000));
+  const row = f.store.account(account.id)!;
+  gateCalls.mockClear();
+  const observed = await service.withCredentialCustody(
+    account.id,
+    AbortSignal.timeout(1000),
+    async (observation) => {
+      expect(gateDepth).toBe(1);
+      expect(observation).toEqual({
+        version: 1,
+        accountId: account.id,
+        enrollmentOperationId: row.operationId,
+        controllerBinding: row.controllerBinding,
+        credentialVersion: row.operationId,
+        provider: row.provider,
+        credentialFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+      });
+      expect(Object.isFrozen(observation)).toBe(true);
+      expect(Object.isFrozen(observation.provider)).toBe(true);
+      expect(JSON.stringify(observation)).not.toContain(f.input.apiKey);
+      expect(() => Object.assign(observation.provider, { id: 'replacement' })).toThrow();
+      return observation;
+    },
+  );
+  expect(gateCalls).toHaveBeenCalledOnce();
+  expect(gateDepth).toBe(0);
+  expect(
+    await service.withCredentialCustody(
+      account.id,
+      AbortSignal.timeout(1000),
+      async (next) => next,
+    ),
+  ).toEqual(observed);
+  for (const path of [f.path, f.path + '-wal']) {
+    expect(readFileSync(path).includes(Buffer.from(observed.credentialFingerprint))).toBe(false);
+    expect(readFileSync(path).includes(Buffer.from(f.input.apiKey))).toBe(false);
+  }
+});
+
+it.each(['credential', 'provider', 'enrollment'] as const)(
+  'rejects %s drift during a custody callback without persisting or repairing it',
+  async (boundary) => {
+    const f = fixture();
+    const account = await f.service.enroll(f.input, AbortSignal.timeout(1000));
+    const row = f.store.account(account.id)!;
+    const read = vi.fn(async (observation: OpenAIEnrollmentCredentialObservation) => {
+      if (boundary === 'credential') {
+        f.secrets.set(openAIEnrollmentCredentialReference(row.operationId).service, {
+          value: 'sk-replaced-with-same-marker',
+          version: row.operationId,
+          managed: true,
+        });
+      } else if (boundary === 'provider') {
+        f.providers.set(row.operationId, { ...row.provider!, id: 'replaced-provider' });
+      } else f.store.update(row, { phase: 'needs_attention', errorCode: 'RESOURCE_DRIFT' });
+      return observation;
+    });
+    await expect(
+      f.service.withCredentialCustody(account.id, AbortSignal.timeout(1000), read),
+    ).rejects.toThrow('OpenAI enrolled account needs attention');
+    expect(read).toHaveBeenCalledOnce();
+    expect(f.gateway.create).toHaveBeenCalledOnce();
+    expect(f.keychain.create).toHaveBeenCalledOnce();
+  },
+);
+
+it.each(['assertReady', 'resolveKey'] as const)(
+  '%s rejects enrollment drift while credential observation is awaiting its providers',
+  async (operation) => {
+    const f = fixture();
+    const account = await f.service.enroll(f.input, AbortSignal.timeout(1000));
+    const row = f.store.account(account.id)!;
+    f.keychain.read.mockImplementationOnce(async (ref) => {
+      f.store.update(row, { phase: 'needs_attention', errorCode: 'RESOURCE_DRIFT' });
+      return f.secrets.get(ref.service)!;
+    });
+    await expect(f.service[operation](account.id, AbortSignal.timeout(1000))).rejects.toThrow(
+      'OpenAI enrolled account needs attention',
+    );
+  },
+);
+
+it('renews custody through resolveKey and rejects a key replacement retaining its managed marker', async () => {
+  const f = fixture();
+  const account = await f.service.enroll(f.input, AbortSignal.timeout(1000));
+  const row = f.store.account(account.id)!;
+  f.keychain.read.mockResolvedValueOnce({
+    value: f.input.apiKey,
+    version: row.operationId,
+    managed: true,
+  });
+  f.keychain.read.mockResolvedValueOnce({
+    value: 'sk-replaced-with-same-marker',
+    version: row.operationId,
+    managed: true,
+  });
+  await expect(f.service.resolveKey(account.id, AbortSignal.timeout(1000))).rejects.toThrow(
+    'OpenAI enrolled account needs attention',
+  );
+});
+
+it('preserves callback failures and releases the gate without returning a custody result', async () => {
+  const f = fixture();
+  const account = await f.service.enroll(f.input, AbortSignal.timeout(1000));
+  const failure = new Error('owned callback failure');
+  f.keychain.read.mockClear();
+  await expect(
+    f.service.withCredentialCustody(account.id, AbortSignal.timeout(1000), async () => {
+      throw failure;
+    }),
+  ).rejects.toBe(failure);
+  expect(f.keychain.read).toHaveBeenCalledOnce();
+  expect(await f.service.resolveKey(account.id, AbortSignal.timeout(1000))).toBe(f.input.apiKey);
+});
+
+it('rejects cancellation after the custody callback without exposing provider errors', async () => {
+  const f = fixture();
+  const account = await f.service.enroll(f.input, AbortSignal.timeout(1000));
+  const controller = new AbortController();
+  await expect(
+    f.service.withCredentialCustody(account.id, controller.signal, async () => {
+      controller.abort(new Error('sk-private-cancel-reason'));
+      return 'not-authorized';
+    }),
+  ).rejects.toThrow('OpenAI enrolled account needs attention');
 });

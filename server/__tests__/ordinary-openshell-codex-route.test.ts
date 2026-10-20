@@ -45,6 +45,7 @@ function fixture(provider: 'openai-codex' | 'openai' = 'openai-codex') {
             provider,
             credentialRef: { provider: 'fixture', service: 'fixture', account: 'fixture' },
             sandboxProvider: 'provider',
+            sandboxProviderId: 'provider-id',
             models: [{ id: 'fixture-model', label: 'Fixture', reasoningEfforts: ['low'] }],
           },
     ],
@@ -112,6 +113,33 @@ function retained(route: ReturnType<typeof assertOrdinaryOpenShellCodexRoute>): 
   };
 }
 describe('ordinary OpenShell configuration adoption (offline)', () => {
+  it('keeps an existing pinned API account selectable without a new enrollment', () => {
+    const input = fixture('openai');
+    expect(input.profiles.isEnrolledOpenAIAccount('account')).toBe(false);
+    const result = projectOrdinaryOpenShellCodexCapabilities({
+      profiles: input.profiles,
+      target: input.target,
+      deployment: 'ordinary',
+    });
+    expect(result.inventory.accounts.map(({ account }) => account.accountId)).toEqual(['account']);
+    expect(result.inventory.routes[0]).toMatchObject({ harness: 'codex', targetId: 'target' });
+    expect(JSON.stringify(result.inventory)).not.toMatch(/credentialRef|provider-id/);
+    expect(input.profiles.ordinaryOpenShellCodexInventory('target', false)).toEqual([]);
+  });
+  it('keeps an API account without a pinned sandbox identity available only locally', () => {
+    const profiles = new AccountProfiles([
+      {
+        id: 'work',
+        label: 'Work',
+        provider: 'openai',
+        credentialRef: { provider: 'fixture', service: 'fixture', account: 'fixture' },
+        sandboxProvider: 'provider',
+        models: [{ id: 'fixture-model', label: 'Fixture' }],
+      },
+    ]);
+    expect(profiles.ordinaryOpenShellCodexInventory('target', true)).toEqual([]);
+    expect(profiles.ordinaryLocalResponsesInventory()).toHaveLength(1);
+  });
   it('projects existing account metadata without claiming readiness or exposing auth', () => {
     const input = fixture();
     const result = projectOrdinaryOpenShellCodexCapabilities({

@@ -223,6 +223,144 @@
           "reason": "Allow already approved S7 navigation/layout expectations while retaining exact priority ordering and confirmed-value consistency safeguards."
         }
       ]
+    },
+    {
+      "id": "symposium-fresh-agent",
+      "activeRevision": "fresh-agent-review-2026-10-18-test-syntax",
+      "revisions": [
+        {
+          "id": "fresh-agent-review-2026-10-16",
+          "approvedBy": "User (originating Codex conversation)",
+          "approvedOn": "2026-10-16",
+          "approval": {
+            "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
+            "quote": "Looks decent. Let’s update telos and give a handover to start",
+            "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/symposium/fresh-agent-review.html",
+              "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc"
+            },
+            {
+              "path": "docs/design/approved/symposium/approved-context-review.png",
+              "sha256": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a"
+            }
+          ],
+          "invariants": [
+            "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
+            "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
+            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
+            "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
+            "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
+            "Shared tokens, components, native actions, focus restoration and motion preferences remain effective; body scrolls independently while footer stays reachable."
+          ],
+          "sources": [
+            "frontend/src/components/ConversationAgents.tsx",
+            "frontend/src/components/ConversationAgents.css",
+            "frontend/src/components/ConversationJoiningReview.tsx",
+            "frontend/src/components/SymposiumConversation.tsx",
+            "frontend/src/components/ComposerResponders.tsx",
+            "frontend/src/hooks/useConversationJoiningReview.ts",
+            "frontend/src/lib/conversation-joining-review.ts",
+            "frontend/src/lib/conversation-joining-recovery.ts",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+            "frontend/src/components/__tests__/ConversationAgents.test.tsx",
+            "frontend/src/components/__tests__/ConversationJoiningReview.test.tsx",
+            "tests/offline/symposium-approved-design.spec.ts",
+            "tests/offline/symposium-joining-review.spec.ts"
+          ],
+          "implementationEvidence": [],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+              "sha256": "c599aa4860389afb98e55cff7972264a8777c2b9d99f25a50fee3499e40cffd2"
+            },
+            {
+              "path": "tests/offline/symposium-approved-design.spec.ts",
+              "sha256": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b"
+            }
+          ],
+          "validation": "docs/design/approved/symposium/VALIDATION.md"
+        },
+        {
+          "id": "fresh-agent-review-2026-10-18-test-syntax",
+          "approvedBy": "Original design: user; syntax-only protection amendment: Symposium review orchestrator under the user's specific delegation",
+          "approvedOn": "2026-10-18",
+          "approval": {
+            "thread": "01a13ea4-6c32-7af0-b635-c3f5f56aecb5",
+            "quote": "Looks decent. Let’s update telos and give a handover to start",
+            "scope": "Fresh ordinary agent setup, reviewed joining brief, compact participant header, one Agents view and shared composer. Existing-chat import removed; Fork remains separate. Canonical Telos approval d2b5bce4090c39a595457335763271b5 revision 1."
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/symposium/fresh-agent-review.html",
+              "sha256": "175e801ff2acd66cd8d176d56bd389da9439d75a4cf061e214b4220357894bbc"
+            },
+            {
+              "path": "docs/design/approved/symposium/approved-context-review.png",
+              "sha256": "b79c58c7bb7f7d45568def98150f401441b93aead7aae71a389f44f6d992c64a"
+            }
+          ],
+          "invariants": [
+            "Ordinary chat first, compact participant header, one Agents dialog and the existing shared composer with stable recipient attribution.",
+            "Add agent is fresh editable setup with Agent, name, Account/Model/Thinking, Mac host then OpenShell runtime choices, real repository and full or selected starting context.",
+            "Add agent retains Cancel and Fresh session · starts with a prompt. in its reachable footer; returning to Agents preserves the editable draft.",
+            "Before joining retains Back/title/close, separate boot guidance, exact attributed context and saved artifact filenames/versions, editable refrozen brief on the same screen, flat Agents policy row, and Back / Join conversation.",
+            "No extra Freeze step, existing-chat import, cross-group enrollment or substitute recipient form; Fork remains separate.",
+            "Setup, review, joining and reading alone invoke no model; unavailable authority, stale review and uncertain recovery retain editable intent or original join identity.",
+            "Shared tokens, components, native actions, focus restoration and motion preferences remain effective; body scrolls independently while footer stays reachable."
+          ],
+          "sources": [
+            "frontend/src/components/ConversationAgents.tsx",
+            "frontend/src/components/ConversationAgents.css",
+            "frontend/src/components/ConversationJoiningReview.tsx",
+            "frontend/src/components/SymposiumConversation.tsx",
+            "frontend/src/components/ComposerResponders.tsx",
+            "frontend/src/hooks/useConversationJoiningReview.ts",
+            "frontend/src/lib/conversation-joining-review.ts",
+            "frontend/src/lib/conversation-joining-recovery.ts",
+            "frontend/src/pages/ChatView.tsx",
+            "frontend/src/pages/DesktopChatView.tsx"
+          ],
+          "checks": [
+            "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+            "frontend/src/components/__tests__/ConversationAgents.test.tsx",
+            "frontend/src/components/__tests__/ConversationJoiningReview.test.tsx",
+            "tests/offline/symposium-approved-design.spec.ts",
+            "tests/offline/symposium-joining-review.spec.ts"
+          ],
+          "implementationEvidence": [],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/SymposiumApprovedSetup.test.tsx",
+              "sha256": "4baaa1fa003f2e6b888d076b938edb43a88aa6e49d4c27d8cc98a4a2b6d28afb"
+            },
+            {
+              "path": "tests/offline/symposium-approved-design.spec.ts",
+              "sha256": "364ed02ff000da370f075f88445fa92094956b43bdb67a105b91da142875222b"
+            }
+          ],
+          "validation": "docs/design/approved/symposium/VALIDATION.md",
+          "reason": "Syntax-only correction required by current Testing Library types; retains exact accessible-name assertions and original design protections/history.",
+          "protectionAmendment": {
+            "thread": "01a14b49-df1f-7b82-be70-10be0789161c",
+            "message": "01a14c2b-6257-7402-a9e4-69876688f0ab",
+            "quote": "You should ask the orchestrator",
+            "scope": "User delegates this exact protected-test syntax/hash decision to the orchestrator; no redesign or broader protection waiver.",
+            "delegatedDecision": {
+              "thread": "01a14bab-6771-79e1-b832-6575ca1d2e6e",
+              "decision": "Approved exact five-line syntax correction and append-only protection-hash revision.",
+              "record": "docs/design/approved/symposium/test-syntax-approval-2026-10-18.md"
+            }
+          }
+        }
+      ]
     }
   ]
 }

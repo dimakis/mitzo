@@ -29,18 +29,14 @@ function fixture(defaults = false) {
   } as unknown as SymposiumSeatExecution;
   const verify = vi.fn();
   const fetch = vi.fn().mockResolvedValue('External source: page');
+  const resolve = vi.fn(async (url: string) => ({
+    url,
+    origin: new URL(url).origin,
+    addresses: [{ address: '127.0.0.1', family: 4 as const }],
+  }));
   const service = new SymposiumAccessRequests(
     ':memory:',
-    defaults
-      ? undefined
-      : {
-          resolve: async (url) => ({
-            url,
-            origin: new URL(url).origin,
-            addresses: [{ address: '127.0.0.1', family: 4 }],
-          }),
-          fetch,
-        },
+    defaults ? undefined : { resolve, fetch },
   );
   services.push(service);
   const tool = service.createTools({
@@ -48,7 +44,7 @@ function fixture(defaults = false) {
     workdir: '/sandbox/workspaces/mgmt',
     verifyCurrent: verify,
   });
-  return { abort, execution, verify, fetch, service, tool };
+  return { abort, execution, verify, fetch, resolve, service, tool };
 }
 const call = { turnId: 'turn', callId: 'call' };
 const request = {
@@ -56,6 +52,51 @@ const request = {
   url: 'http://localhost:8123/',
   reason: 'Read my HA instance',
 };
+it('releases an idle access owner idempotently without leaving a cached tool able to read', async () => {
+  const f = fixture();
+  expect(f.service.closeIdle).toBeTypeOf('function');
+  f.service.closeIdle();
+  services.splice(services.indexOf(f.service), 1);
+  f.service.closeIdle();
+  expect(() => f.service.list('session')).toThrow(/closed|open/i);
+  expect(await f.tool.executeTool('RequestWebAccess', request, f.abort.signal, call)).toMatchObject(
+    { isError: true },
+  );
+  expect(f.resolve).not.toHaveBeenCalled();
+  expect(f.fetch).not.toHaveBeenCalled();
+});
+it('refuses idle release while access approval is pending without cancelling the request', async () => {
+  const f = fixture();
+  const pending = f.tool.executeTool('RequestWebAccess', request, f.abort.signal, call);
+  try {
+    await vi.waitFor(() => expect(f.service.list('session')).toHaveLength(1));
+    expect(() => f.service.closeIdle()).toThrow('Access requests are active');
+    expect(f.service.list('session')[0].status).toBe('pending');
+    expect(f.fetch).not.toHaveBeenCalled();
+  } finally {
+    f.abort.abort();
+    await pending;
+  }
+});
+it('refuses idle release during resolution before an approval row exists', async () => {
+  const f = fixture();
+  let finish!: (target: Awaited<ReturnType<typeof f.resolve>>) => void;
+  f.resolve.mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+  const pending = f.tool.executeTool('RequestWebAccess', request, f.abort.signal, call);
+  try {
+    expect(f.resolve).toHaveBeenCalledOnce();
+    expect(f.service.list('session')).toHaveLength(0);
+    expect(() => f.service.closeIdle()).toThrow('Access requests are active');
+  } finally {
+    f.abort.abort();
+    finish({
+      url: request.url,
+      origin: new URL(request.url).origin,
+      addresses: [{ address: '127.0.0.1', family: 4 }],
+    });
+    await pending;
+  }
+});
 it('preserves complete bounded GitHub responses for seats without a full-view input', async () => {
   const url = 'https://api.github.com/repos/example/repo/contents/';
   const target = {
