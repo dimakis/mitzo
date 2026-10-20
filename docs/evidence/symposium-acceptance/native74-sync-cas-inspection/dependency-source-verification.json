@@ -1,0 +1,34 @@
+[
+  {
+    "name": "sqlx-sqlite",
+    "version": "0.9.0",
+    "archiveSHA256": "488e99c397a62007e4229aec669a179816339afc6d2620ca6fa420dbee2e982c",
+    "localSourceMatchesLockedArchive": true,
+    "files": [
+      {
+        "file": "src/connection/mod.rs",
+        "sha256": "a20c2e51a1505e298fd897b378f9032c89b82850838aa6e5d9409f612fb1e7fd"
+      },
+      {
+        "file": "src/connection/worker.rs",
+        "sha256": "b66aafc56f0e287eac3b09111c5d4997d350ab61294c5cc576ce359bc18cebe4"
+      },
+      {
+        "file": "src/connection/handle.rs",
+        "sha256": "63d9b11374ebd453f3f7d0be95a728030f05997d5ccdc756fd8057ee0d31dc6f"
+      }
+    ]
+  },
+  {
+    "name": "sqlx-core",
+    "version": "0.9.0",
+    "archiveSHA256": "05b44e85bf579a8eeb4ceaa77a3a523baf2bf0e9bac7e40f405d537b5d2d5ccb",
+    "localSourceMatchesLockedArchive": true,
+    "files": [
+      {
+        "file": "src/pool/connection.rs",
+        "sha256": "94269a532ef60aaa31321e43af17cba2424f919a36501d862328ed05958a08de"
+      }
+    ]
+  }
+]
