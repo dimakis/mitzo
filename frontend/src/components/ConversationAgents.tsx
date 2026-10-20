@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type { FinishedMessage } from '@mitzo/protocol';
 import type {
   ConversationAgentSetup,
@@ -54,11 +54,18 @@ export function ConversationAgents(props: {
   unavailableReason?: string;
   renderPreview?(agent: ConversationAgent): ReactNode;
   onPolicyChange?(id: string, policy: { reads: boolean; replies: boolean }): void;
+  /** Confirmed policy state and explicit recovery controls from the existing owner. */
+  policyFeedback?: ReactNode;
+  policyUnavailableReason?: string;
   /** Supplied only when real source, capacity and ordinary preparation owners exist. */
   joiningOwner?: ConversationJoiningOwner;
 }) {
   // A route change synchronously retires the dialog, callbacks and private setup.
   return <ConversationAgentsBody key={props.scope} {...props} />;
+}
+/** The query box is the available conversation width, before the header's own gutter. */
+function ParticipantHeaderFrame({ compact, children }: { compact?: boolean; children: ReactNode }) {
+  return compact ? children : <div className="conversation-participants-container">{children}</div>;
 }
 function ConversationAgentsBody({
   agents,
@@ -73,6 +80,8 @@ function ConversationAgentsBody({
   unavailableReason,
   renderPreview,
   onPolicyChange,
+  policyFeedback,
+  policyUnavailableReason,
   joiningOwner,
 }: Parameters<typeof ConversationAgents>[0]) {
   const [view, setView] = useState<
@@ -82,7 +91,6 @@ function ConversationAgentsBody({
   const { ref: dialogMotionRef, present } = useMotionPresence(open, 'fade');
   const [previewId, setPreviewId] = useState<string | null>(null);
   const previewAgent = agents.find((agent) => agent.id === previewId);
-  const [setup, setSetup] = useState(initial);
   const [profileReason, setProfileReason] = useState<string>();
   const joining = useConversationJoiningReview(joiningOwner, () => {
     setOpen(false);
@@ -90,7 +98,15 @@ function ConversationAgentsBody({
     setSetup(initial());
     setProfileReason(undefined);
   });
+  const [setup, setSetup] = useState(() =>
+    joining.setup ? structuredClone(joining.setup) : initial(),
+  );
+  const restoredSetup = joining.restoredSetup;
+  useEffect(() => {
+    if (restoredSetup) setSetup(structuredClone(restoredSetup));
+  }, [restoredSetup]);
   const names = agents.map((a) => a.name).join(', ');
+  const headerAgents = agents.slice(0, 2);
   const nameValid =
     /^[A-Za-z][A-Za-z0-9_-]{0,23}$/.test(setup.name) &&
     setup.name.toLowerCase() !== 'all' &&
@@ -116,50 +132,63 @@ function ConversationAgentsBody({
     'Fresh agents are not available in this conversation yet. Your setup stays here.';
   return (
     <>
-      <div
-        className={
-          compact
-            ? 'conversation-agents-entry'
-            : `conversation-participants${leading ? ' workspace-controls--navigation' : ''}`
-        }
-      >
-        {leading}
-        <button
-          type="button"
-          className="conversation-participants-trigger"
-          aria-label={`Agents${names ? ', ' + names : ''}`}
-          aria-expanded={open}
-          onClick={(event) => {
-            event.currentTarget.focus();
-            setView('agents');
-            setOpen(true);
-          }}
+      <ParticipantHeaderFrame compact={compact}>
+        <div
+          className={
+            compact
+              ? 'conversation-agents-entry'
+              : `conversation-participants${leading ? ' workspace-controls--navigation' : ''}`
+          }
         >
-          <UiIcon name={agents.length > 1 ? 'agents' : 'bot'} />
-          {!compact && (
-            <span>
-              <strong>
-                <span className="conversation-participant-names">
-                  {agents
-                    .slice(0, 2)
-                    .map((a) => a.name)
-                    .join(' · ') || 'Agents'}
-                </span>
-                {agents.length > 1 && (
-                  <span className="conversation-participant-count">+{agents.length - 1}</span>
-                )}
-              </strong>
-              <small>
-                {agents.length > 2 ? `+${agents.length - 2} · ` : ''}
-                {agents.length > 1 ? 'Shared discussion' : 'Agent chat'}
-              </small>
-            </span>
-          )}
-          {compact && <span>Agents</span>}
-          <UiIcon name="down" />
-        </button>
-        {actions}
-      </div>
+          {leading}
+          <button
+            type="button"
+            className="conversation-participants-trigger"
+            aria-label={`Agents${names ? ', ' + names : ''}`}
+            aria-expanded={open}
+            onClick={(event) => {
+              event.currentTarget.focus();
+              setView('agents');
+              setOpen(true);
+            }}
+          >
+            <UiIcon name={agents.length > 1 ? 'agents' : 'bot'} />
+            {!compact && (
+              <span>
+                <strong>
+                  <span className="conversation-participant-names">
+                    {headerAgents.map((a) => a.name).join(' · ')
+                      ? headerAgents.map((agent, index) => (
+                          <span
+                            key={agent.id}
+                            className={
+                              index === 1 ? 'conversation-participant-additional-name' : undefined
+                            }
+                          >
+                            {index === 1 ? ' · ' : ''}
+                            {agent.name}
+                          </span>
+                        ))
+                      : 'Agents'}
+                  </span>
+                  {agents.length > 2 && (
+                    <span className="conversation-participant-wide-count">
+                      +{agents.length - 2}
+                    </span>
+                  )}
+                  {agents.length > 1 && (
+                    <span className="conversation-participant-count">+{agents.length - 1}</span>
+                  )}
+                </strong>
+                <small>{agents.length > 1 ? 'Shared discussion' : 'Agent chat'}</small>
+              </span>
+            )}
+            {compact && <span>Agents</span>}
+            <UiIcon name="down" />
+          </button>
+          {actions}
+        </div>
+      </ParticipantHeaderFrame>
       {present && (
         <HomeDialog
           title={title}
@@ -182,6 +211,9 @@ function ConversationAgentsBody({
                   Choose who reads future discussion and who replies by default. @ changes who
                   replies to one prompt.
                 </p>
+                {policyFeedback && (
+                  <div className="conversation-policy-feedback">{policyFeedback}</div>
+                )}
                 {agents.length === 0 && <p role="status">Agent details are loading.</p>}
                 {agents.map((a) => (
                   <article className="conversation-agent-record" key={a.id}>
@@ -244,7 +276,8 @@ function ConversationAgentsBody({
                     </fieldset>
                     {(!a.policy || !onPolicyChange) && (
                       <small>
-                        Discussion sharing settings are not available for this agent yet.
+                        {policyUnavailableReason ??
+                          'Discussion sharing settings are not available for this agent yet.'}
                       </small>
                     )}
                     <button
@@ -362,7 +395,7 @@ function ConversationAgentsBody({
                 <h3>Execution</h3>
                 <fieldset className="conversation-agent-run-on">
                   <legend>Run on</legend>
-                  {(['openshell', 'local'] as const).map((runOn) => (
+                  {(['local', 'openshell'] as const).map((runOn) => (
                     <label key={runOn}>
                       <input
                         type="radio"
@@ -544,8 +577,7 @@ function ConversationAgentsBody({
                     className="conversation-agents-primary"
                     onClick={() => {
                       if (joining.join?.state === 'linked') {
-                        joining.startNew();
-                        setView('add');
+                        setView(joining.startNew() ? 'add' : 'review');
                       } else
                         setView(joining.locked || joining.hasAttemptFor(setup) ? 'review' : 'add');
                     }}
@@ -555,8 +587,9 @@ function ConversationAgentsBody({
                 </>
               ) : (
                 <>
+                  {view === 'add' && <small>Fresh session · starts with a prompt.</small>}
                   <button type="button" onClick={() => setView('agents')}>
-                    Back to Agents
+                    {view === 'add' ? 'Cancel' : 'Back to Agents'}
                   </button>
                   {view === 'add' && (
                     <button

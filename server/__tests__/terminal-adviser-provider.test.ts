@@ -9,6 +9,7 @@ vi.mock('../account-profiles.js', () => ({
     }),
     validateModelSelection: () => {},
     apiProfile: () => ({ credentialRef: { kind: 'test' } }),
+    apiRoutingProfile: () => ({ credentialRef: { kind: 'test' } }),
     isEnrolledOpenAIAccount: () => false,
     googleProfile: () => ({
       credentialRef: '/synthetic.json',

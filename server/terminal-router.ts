@@ -93,6 +93,32 @@ export function createTerminalRouter(options: {
       res.status(409).json({ error: 'Could not start adviser sign-in on the Mac. Retry.' });
     }
   });
+  router.post('/subscriptions/:id/retry', requireSameOriginJson, async (req, res) => {
+    if (!z.object({}).strict().safeParse(req.body).success)
+      return res.status(400).json({ error: 'Invalid adviser retry request' });
+    const host = planHost();
+    if (!host) return res.status(503).json({ error: 'Adviser accounts unavailable' });
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    const unobserve = (options.observeAuth ?? registerAuthSession)(res.locals.authSession, stop);
+    res.once('close', stop);
+    try {
+      return res.json(
+        await host.retryConnection(
+          String(req.params.id),
+          AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),
+        ),
+      );
+    } catch {
+      return res.status(409).json({
+        error:
+          'Saved adviser connection could not be restored. Refresh its status before signing in again.',
+      });
+    } finally {
+      unobserve();
+      res.off('close', stop);
+    }
+  });
   router.get('/subscriptions/attempts/:attempt', (req, res) => {
     res.setHeader('Cache-Control', 'private, no-store');
     try {

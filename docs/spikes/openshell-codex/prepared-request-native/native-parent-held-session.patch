@@ -1,0 +1,756 @@
+From 16861fb0a012e7ab0c67be50ead97c23ed30ec27 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Sun, 18 Oct 2026 20:34:00 +0100
+Subject: [PATCH] refactor(core): add held parent approval resolution gate
+
+---
+ codex-rs/core/src/session/parent_approval.rs  | 177 +++++++
+ .../src/tools/approvals/parent_approval.rs    |  24 +
+ .../tools/approvals/parent_approval_tests.rs  |   3 +
+ .../parent_resolution_owner_tests.rs          | 500 ++++++++++++++++++
+ 4 files changed, 704 insertions(+)
+ create mode 100644 codex-rs/core/src/tools/approvals/parent_resolution_owner_tests.rs
+
+diff --git a/codex-rs/core/src/session/parent_approval.rs b/codex-rs/core/src/session/parent_approval.rs
+index e8dcfd6..33abcc4 100644
+--- a/codex-rs/core/src/session/parent_approval.rs
++++ b/codex-rs/core/src/session/parent_approval.rs
+@@ -239,6 +239,183 @@ impl Session {
+     }
+ }
+ 
++/// Compares the entire derived launch scope, not just its target or ready-filtered subset.
++#[cfg(unix)]
++fn same_ready_parent_environments(
++    original: &TurnEnvironmentSnapshot,
++    selected: &TurnEnvironmentSnapshot,
++) -> bool {
++    use crate::environment_selection::TurnEnvironmentState;
++    use codex_protocol::protocol::EnvironmentConfigState;
++    !original.environments.is_empty()
++        && original.environments.len() == selected.environments.len()
++        && original
++            .environments
++            .iter()
++            .zip(&selected.environments)
++            .all(|(original, selected)| {
++                let (TurnEnvironmentState::Ready(original), TurnEnvironmentState::Ready(selected)) =
++                    (original, selected)
++                else {
++                    return false;
++                };
++                matches!(original.selection.config, EnvironmentConfigState::Ready(_))
++                    && matches!(selected.selection.config, EnvironmentConfigState::Ready(_))
++                    && original.selection == selected.selection
++                    && original.config_origin == selected.config_origin
++                    && Arc::ptr_eq(&original.environment, &selected.environment)
++                    && original.executor_platform_os == selected.executor_platform_os
++                    && original.user_home_dir == selected.user_home_dir
++                    && original.temporary_directories == selected.temporary_directories
++            })
++}
++
++impl Session {
++    /// Holds existing selected owners through an opaque finish; no runtime/lifetime admission.
++    #[cfg(unix)]
++    #[expect(clippy::too_many_arguments)]
++    #[expect(
++        clippy::await_holding_invalid_type,
++        reason = "retain the actual selected owners together"
++    )]
++    pub(crate) async fn with_current_parent_resolution(
++        self: &Arc<Self>,
++        issuer: &InitialExecApprovalIssuer,
++        original_action: &ApprovalAction,
++        selected: &InterceptedApprovalSelection,
++        used_config: &Arc<Config>,
++        evaluated_policy: &Arc<Policy>,
++        hooks: &crate::hook_runtime::PermissionRequestHookObservation,
++        finish: impl FnOnce() -> Option<crate::tools::ApprovalResolution> + Send,
++    ) -> Option<crate::tools::ApprovalResolution> {
++        let active = self.active_turn.lock().await;
++        let active = active.as_ref()?;
++        let task = active.task.as_ref()?;
++        let session_state = self.state.lock().await;
++        let turn_state = active.turn_state.lock().await;
++        let settings = task.turn_context.next_step_settings.load_full();
++        let config = &session_state
++            .session_configuration
++            .original_config_do_not_use;
++        let ApprovalAction::ExecCommand {
++            id: parent_id,
++            environment_id: parent_env,
++            ..
++        } = original_action
++        else {
++            return None;
++        };
++        let ApprovalAction::Execve {
++            id,
++            approval_id,
++            environment_id,
++            source,
++            program,
++            argv,
++            command,
++            additional_permissions,
++            ..
++        } = &selected.action
++        else {
++            return None;
++        };
++        let normalized = std::iter::once(program.to_string_lossy().into_owned())
++            .chain(argv.iter().skip(1).cloned())
++            .collect::<Vec<_>>();
++        let live_ignore = config
++            .config_layer_stack
++            .requirements_toml()
++            .auto_review
++            .as_ref()
++            .and_then(|review| review.ignore_rules.as_ref());
++        let frozen_ignore = task
++            .turn_context
++            .config
++            .config_layer_stack
++            .requirements_toml()
++            .auto_review
++            .as_ref()
++            .and_then(|review| review.ignore_rules.as_ref());
++        if parent_id != id
++            || id != &selected.context.call_id
++            || parent_env != environment_id
++            || environment_id != &selected.environment_id
++            || approval_id.is_empty()
++            || *source != codex_protocol::protocol::GuardianCommandSource::UnifiedExec
++            || *command != normalized
++            || additional_permissions.is_some()
++            || ![&issuer.session, &selected.session]
++                .into_iter()
++                .all(|owner| {
++                    owner
++                        .upgrade()
++                        .is_some_and(|owner| Arc::ptr_eq(&owner, self))
++                })
++            || !Arc::ptr_eq(&task.done, &issuer.task_done)
++            || !Arc::ptr_eq(&task.done, &selected.task_done)
++            || !Arc::ptr_eq(&task.turn_context, &issuer.turn)
++            || !Arc::ptr_eq(&task.turn_context, selected.context.review_context.turn())
++            || !Arc::ptr_eq(&settings, &issuer.settings)
++            || !Arc::ptr_eq(&settings, &selected.settings)
++            || settings.approval_policy() != AskForApproval::OnRequest
++            || settings.approvals_reviewer() != ApprovalsReviewer::User
++            || selected.context.review_context.approval_policy != AskForApproval::OnRequest
++            || selected.context.review_context.approvals_reviewer != ApprovalsReviewer::User
++            || !Arc::ptr_eq(&settings.model_info, task.turn_context.model_info())
++            || !Arc::ptr_eq(
++                &settings.model_info,
++                &selected.context.review_context.model_info,
++            )
++            || live_ignore != frozen_ignore
++            || task.turn_context.allow_prefix_rules() != crate::exec_policy::AllowPrefixRules::Honor
++            || turn_state.strict_auto_review_enabled()
++            || selected.context.strict_auto_review
++            || task.cancellation_token.is_cancelled()
++            || issuer.task_cancellation.is_cancelled()
++            || issuer.call_cancellation.is_cancelled()
++            || selected.task_cancellation.is_cancelled()
++            || selected
++                .context
++                .cancellation_token
++                .as_ref()
++                .is_some_and(CancellationToken::is_cancelled)
++            || ![&issuer.live_config, &selected.config, used_config]
++                .into_iter()
++                .all(|expected| Arc::ptr_eq(expected, config))
++            || ![
++                &issuer.base_exec_policy,
++                &selected.manager_policy,
++                &selected._evaluated_policy,
++            ]
++            .into_iter()
++            .all(|expected| Arc::ptr_eq(expected, evaluated_policy))
++            || !same_ready_parent_environments(
++                &issuer.environments,
++                selected.environments.snapshot(),
++            )
++            || issuer
++                .environments
++                .turn_environments()
++                .filter(|ready| ready.selection.environment_id == *environment_id)
++                .count()
++                != 1
++            || session_state.granted_permissions(environment_id).is_some()
++            || turn_state.granted_permissions(environment_id).is_some()
++            || hooks.matching_handler_count() != 0
++            || !hooks.matches_current(&self.hooks())
++        {
++            return None;
++        }
++        self.services
++            .exec_policy
++            .with_matching_parent_policy(evaluated_policy, || {
++                self.services
++                    .turn_environments
++                    .with_current_parent_environment(&selected.environments, environment_id, finish)
++            })
++    }
++}
++
+ pub(crate) struct InitialExecApprovalIssuer {
+     session: Weak<Session>,
+     task_done: Arc<Notify>,
+diff --git a/codex-rs/core/src/tools/approvals/parent_approval.rs b/codex-rs/core/src/tools/approvals/parent_approval.rs
+index 50eac77..37d1ab8 100644
+--- a/codex-rs/core/src/tools/approvals/parent_approval.rs
++++ b/codex-rs/core/src/tools/approvals/parent_approval.rs
+@@ -35,6 +35,30 @@ impl FreshParentApproval {
+         self.issuer.matches_original_exec_policy(policy)
+     }
+ 
++    /// Delegates only original private issuance observations; not a runtime admission.
++    #[cfg(unix)]
++    pub(crate) async fn with_current_parent_resolution(
++        &self,
++        session: &std::sync::Arc<crate::session::session::Session>,
++        selected: &crate::session::InterceptedApprovalSelection,
++        used_config: &std::sync::Arc<crate::config::Config>,
++        evaluated_policy: &std::sync::Arc<codex_execpolicy::Policy>,
++        hooks: &crate::hook_runtime::PermissionRequestHookObservation,
++        finish: impl FnOnce() -> Option<super::ApprovalResolution> + Send,
++    ) -> Option<super::ApprovalResolution> {
++        session
++            .with_current_parent_resolution(
++                &self.issuer,
++                &self.action,
++                selected,
++                used_config,
++                evaluated_policy,
++                hooks,
++                finish,
++            )
++            .await
++    }
++
+     // Only the actual approval-resolution owner can construct this evidence.
+     pub(super) fn from_resolution(
+         issuer: InitialExecApprovalIssuer,
+diff --git a/codex-rs/core/src/tools/approvals/parent_approval_tests.rs b/codex-rs/core/src/tools/approvals/parent_approval_tests.rs
+index eda22f7..f5521c2 100644
+--- a/codex-rs/core/src/tools/approvals/parent_approval_tests.rs
++++ b/codex-rs/core/src/tools/approvals/parent_approval_tests.rs
+@@ -429,3 +429,6 @@ async fn hook_plain_approved_is_not_a_user_receipt() -> anyhow::Result<()> {
+         .await;
+     Ok(())
+ }
++
++#[path = "parent_resolution_owner_tests.rs"]
++mod parent_resolution_owner_tests;
+diff --git a/codex-rs/core/src/tools/approvals/parent_resolution_owner_tests.rs b/codex-rs/core/src/tools/approvals/parent_resolution_owner_tests.rs
+new file mode 100644
+index 0000000..21ddb79
+--- /dev/null
++++ b/codex-rs/core/src/tools/approvals/parent_resolution_owner_tests.rs
+@@ -0,0 +1,500 @@
++//! Held Session/Fresh observations only. Every finish returns None; no child grant.
++use super::*;
++use crate::hook_runtime::PermissionRequestHookObservation;
++use crate::hook_runtime::run_permission_request_hooks_with_metadata;
++use crate::tools::ApprovalResolution;
++use codex_guardian_reviewer::ReviewDisposition;
++use codex_guardian_reviewer::UserPromptDisposition;
++use codex_protocol::protocol::GuardianCommandSource;
++use codex_utils_absolute_path::AbsolutePathBuf;
++use pretty_assertions::assert_eq;
++use std::future::Future;
++use std::time::Duration;
++
++const CALL: &str = "held-parent";
++struct Case {
++    fixture: Fixture,
++    _cancel: Option<tokio_util::sync::DropGuard>,
++}
++struct Packet {
++    selected: InterceptedApprovalSelection,
++    used: Arc<Config>,
++    policy: Arc<Policy>,
++    hooks: PermissionRequestHookObservation,
++}
++// Panic cleanup is best effort: a busy active-turn lock can prevent current-task cancellation.
++impl Drop for Case {
++    fn drop(&mut self) {
++        if let Ok(active) = self.fixture.session.active_turn.try_lock()
++            && let Some(task) = active.as_ref().and_then(|active| active.task.as_ref())
++        {
++            task.cancellation_token.cancel();
++        }
++    }
++}
++async fn bounded(body: impl Future<Output = anyhow::Result<()>>) -> anyhow::Result<()> {
++    tokio::time::timeout(Duration::from_secs(15), body).await?
++}
++impl Case {
++    async fn new() -> anyhow::Result<Self> {
++        let fixture = tokio::time::timeout(Duration::from_secs(15), Fixture::new(None)).await??;
++        let mut case = Self {
++            fixture,
++            _cancel: None,
++        };
++        let setup = bounded(async {
++            let cancellation = case
++                .fixture
++                .session
++                .active_turn
++                .lock()
++                .await
++                .as_ref()
++                .unwrap()
++                .task
++                .as_ref()
++                .unwrap()
++                .cancellation_token
++                .clone();
++            case._cancel = Some(cancellation.drop_guard());
++            case.synchronize().await;
++            Ok(())
++        })
++        .await;
++        match setup {
++            Ok(()) => Ok(case),
++            Err(error) => {
++                case.finish(Err(error)).await?;
++                unreachable!("failed setup returned success")
++            }
++        }
++    }
++    async fn synchronize(&mut self) {
++        self.fixture
++            .session
++            .services
++            .turn_environments
++            .snapshot()
++            .await;
++        let (turn, settings, environments, strict) = self
++            .fixture
++            .session
++            .active_turn_context_and_strict_auto_review()
++            .await
++            .unwrap();
++        assert!(!strict);
++        assert!(Arc::ptr_eq(&turn, &self.fixture.step.turn));
++        assert!(environments.primary().is_some());
++        let step = Arc::get_mut(&mut self.fixture.step).unwrap();
++        step.settings = settings;
++        step.environments = environments;
++    }
++    async fn finish(self, result: anyhow::Result<()>) -> anyhow::Result<()> {
++        let cleanup = tokio::time::timeout(
++            Duration::from_secs(5),
++            self.fixture
++                .session
++                .abort_all_tasks(TurnAbortReason::Interrupted),
++        )
++        .await;
++        match (result, cleanup) {
++            (Ok(()), Ok(())) => Ok(()),
++            (Err(error), Ok(())) => Err(error),
++            (Ok(()), Err(cleanup)) => Err(cleanup.into()),
++            (Err(error), Err(cleanup)) => {
++                Err(error.context(format!("task cleanup also timed out: {cleanup}")))
++            }
++        }
++    }
++    async fn fresh(&self) -> anyhow::Result<InitialExecApproval> {
++        let result = self
++            .fixture
++            .approve(CALL, ReviewDecision::Approved, Drift::None)
++            .await?;
++        assert_eq!(result.decision, ReviewDecision::Approved);
++        assert!(result.parent_approval.is_some());
++        Ok(result)
++    }
++    async fn packet(&self) -> anyhow::Result<Packet> {
++        let policy = self.fixture.session.services.exec_policy.current();
++        let ready = self.fixture.step.environments.primary().unwrap();
++        let program = AbsolutePathBuf::current_dir()?.join("q4a-not-executed");
++        let command = vec![program.to_string_lossy().into_owned(), "argument".into()];
++        let selected = self
++            .fixture
++            .session
++            .capture_intercepted_approval_selection(
++                ApprovalAction::Execve {
++                    id: CALL.into(),
++                    approval_id: "actual-child-request".into(),
++                    environment_id: ready.selection.environment_id.clone(),
++                    source: GuardianCommandSource::UnifiedExec,
++                    program,
++                    argv: command.clone(),
++                    command,
++                    cwd: ready.cwd().to_abs_path()?,
++                    additional_permissions: None,
++                },
++                CALL,
++                &ToolName::plain("exec_command"),
++                &GuardianReviewContext::from(&self.fixture.step),
++                Arc::clone(&policy),
++            )
++            .await
++            .map_err(|error| anyhow::anyhow!("capture: {error:?}"))?;
++        let (action, context) = selected.approval_request();
++        let (decision, hooks) = run_permission_request_hooks_with_metadata(
++            &self.fixture.session,
++            &context.review_context,
++            "held-hooks",
++            action.permission_request_payload(),
++        )
++        .await
++        .into_parts();
++        assert_eq!(decision, None);
++        let routing = self
++            .fixture
++            .session
++            .request_guardian_approval_with_routing(action, &context)
++            .await;
++        assert_eq!(
++            routing.disposition(),
++            &ReviewDisposition::UserPrompt(UserPromptDisposition::NoContributorDefaultUser {
++                fresh_review_required: false
++            })
++        );
++        let used = Arc::clone(
++            routing
++                .used_config()
++                .expect("actual pre-callback selection"),
++        );
++        Ok(Packet {
++            selected,
++            used,
++            policy,
++            hooks,
++        })
++    }
++    async fn entries(&self, approval: &InitialExecApproval, packet: &Packet) -> usize {
++        let count = AtomicUsize::new(0);
++        let result = approval
++            .parent_approval
++            .as_ref()
++            .unwrap()
++            .with_current_parent_resolution(
++                &self.fixture.session,
++                &packet.selected,
++                &packet.used,
++                &packet.policy,
++                &packet.hooks,
++                || {
++                    count.fetch_add(1, Ordering::SeqCst);
++                    None
++                },
++            )
++            .await;
++        assert!(result.is_none());
++        count.load(Ordering::SeqCst)
++    }
++}
++
++#[tokio::test]
++async fn actual_fresh_delegation_holds_all_existing_owners_until_none_finish() -> anyhow::Result<()>
++{
++    let case = Case::new().await?;
++    let result = bounded(async {
++        let approval = case.fresh().await?;
++        let packet = case.packet().await?;
++        let turn_state = Arc::clone(
++            &case
++                .fixture
++                .session
++                .active_turn
++                .lock()
++                .await
++                .as_ref()
++                .unwrap()
++                .turn_state,
++        );
++        let count = AtomicUsize::new(0);
++        let result = approval
++            .parent_approval
++            .as_ref()
++            .unwrap()
++            .with_current_parent_resolution(
++                &case.fixture.session,
++                &packet.selected,
++                &packet.used,
++                &packet.policy,
++                &packet.hooks,
++                || {
++                    assert!(case.fixture.session.active_turn.try_lock().is_err());
++                    assert!(case.fixture.session.state.try_lock().is_err());
++                    assert!(turn_state.try_lock().is_err());
++                    assert!(
++                        case.fixture
++                            .session
++                            .services
++                            .exec_policy
++                            .with_matching_parent_policy(&packet.policy, || panic!(
++                                "policy permit escaped"
++                            ),)
++                            .is_none()
++                    );
++                    assert!(
++                        case.fixture
++                            .session
++                            .services
++                            .turn_environments
++                            .with_current_parent_environment(
++                                &packet.selected.environments,
++                                &packet.selected.environment_id,
++                                || panic!("environment mutex escaped"),
++                            )
++                            .is_none()
++                    );
++                    count.fetch_add(1, Ordering::SeqCst);
++                    None::<ApprovalResolution>
++                },
++            )
++            .await;
++        assert!(result.is_none());
++        assert_eq!(count.load(Ordering::SeqCst), 1);
++        assert_eq!(case.fixture.calls.load(Ordering::SeqCst), 2);
++        assert!(
++            !std::iter::from_fn(|| case.fixture.events.try_recv().ok())
++                .any(|event| matches!(event.msg, EventMsg::ExecApprovalRequest(_)))
++        );
++        Ok(())
++    })
++    .await;
++    case.finish(result).await
++}
++
++#[tokio::test]
++async fn actual_owner_drift_never_enters_an_already_approved_parent_finish() -> anyhow::Result<()> {
++    for drift in [
++        Drift::Settings,
++        Drift::Config,
++        Drift::Policy,
++        Drift::Task,
++        Drift::Strict,
++        Drift::Cancel,
++    ] {
++        let case = Case::new().await?;
++        let result = bounded(async {
++            let approval = case.fresh().await?;
++            let packet = case.packet().await?;
++            let mut replacement_cancellation = None;
++            match drift {
++                Drift::Settings => assert!(matches!(
++                    case.fixture
++                        .session
++                        .apply_turn_settings(
++                            &case.fixture.step.turn.sub_id,
++                            TurnSettingsUpdate {
++                                approvals_reviewer: Some(ApprovalsReviewer::User),
++                                ..Default::default()
++                            }
++                        )
++                        .await,
++                    TurnSettingsUpdateOutcome::Applied
++                )),
++                Drift::Config => {
++                    let config = case.fixture.session.get_config().await;
++                    case.fixture
++                        .session
++                        .refresh_runtime_config(config.as_ref().clone())
++                        .await;
++                }
++                Drift::Policy => {
++                    let home = tempfile::tempdir()?;
++                    case.fixture
++                        .session
++                        .services
++                        .exec_policy
++                        .append_amendment_and_update(
++                            home.path(),
++                            &codex_protocol::protocol::ExecPolicyAmendment {
++                                command: vec!["changed-parent-policy".into()],
++                            },
++                        )
++                        .await?;
++                }
++                Drift::Task => {
++                    case.fixture
++                        .session
++                        .abort_all_tasks(TurnAbortReason::Replaced)
++                        .await;
++                    case.fixture
++                        .session
++                        .start_task(Arc::clone(&case.fixture.step.turn), Vec::new(), PendingTask)
++                        .await;
++                    let active = case.fixture.session.active_turn.lock().await;
++                    let task = active.as_ref().unwrap().task.as_ref().unwrap();
++                    assert!(!Arc::ptr_eq(&task.done, &packet.selected.task_done));
++                    assert!(!task.cancellation_token.is_cancelled());
++                    replacement_cancellation = Some(task.cancellation_token.clone().drop_guard());
++                }
++                Drift::Strict => {
++                    let state = Arc::clone(
++                        &case
++                            .fixture
++                            .session
++                            .active_turn
++                            .lock()
++                            .await
++                            .as_ref()
++                            .unwrap()
++                            .turn_state,
++                    );
++                    state.lock().await.enable_strict_auto_review();
++                }
++                Drift::Cancel => case
++                    .fixture
++                    .session
++                    .active_turn
++                    .lock()
++                    .await
++                    .as_ref()
++                    .unwrap()
++                    .task
++                    .as_ref()
++                    .unwrap()
++                    .cancellation_token
++                    .cancel(),
++                Drift::None => unreachable!(),
++            }
++            assert_eq!(approval.decision, ReviewDecision::Approved);
++            assert_eq!(case.entries(&approval, &packet).await, 0);
++            drop(replacement_cancellation);
++            Ok(())
++        })
++        .await;
++        case.finish(result).await?;
++    }
++    let case = Case::new().await?;
++    let result = bounded(async {
++        let approval = case.fresh().await?;
++        let packet = case.packet().await?;
++        case.fixture
++            .session
++            .abort_all_tasks(TurnAbortReason::Interrupted)
++            .await;
++        assert_eq!(case.entries(&approval, &packet).await, 0);
++        Ok(())
++    })
++    .await;
++    case.finish(result).await
++}
++
++#[tokio::test]
++async fn unsupported_preissuer_model_and_requirements_inputs_only_narrow_optional_delegation()
++-> anyhow::Result<()> {
++    for replace_model in [true, false] {
++        let mut case = Case::new().await?;
++        let result = bounded(async {
++            // Unsupported owner-state input, NOT apply_turn_settings or runtime refresh.
++            let active = case.fixture.session.active_turn.lock().await;
++            let mut state = case.fixture.session.state.lock().await;
++            let task = active.as_ref().unwrap().task.as_ref().unwrap();
++            if replace_model {
++                let mut settings = task
++                    .turn_context
++                    .next_step_settings
++                    .load_full()
++                    .as_ref()
++                    .clone();
++                settings.model_info = Arc::new(settings.model_info.as_ref().clone());
++                assert_eq!(
++                    settings.model_info.slug,
++                    task.turn_context.model_info().slug
++                );
++                task.turn_context
++                    .next_step_settings
++                    .store(Arc::new(settings));
++            } else {
++                let original = Arc::clone(&state.session_configuration.original_config_do_not_use);
++                let stack = &original.config_layer_stack;
++                let mut raw = stack.requirements_toml().clone();
++                raw.auto_review
++                    .get_or_insert_with(Default::default)
++                    .ignore_rules = Some(vec!["q4a-unrelated-not-selected-model".into()]);
++                let mut config = original.as_ref().clone();
++                config.config_layer_stack = codex_config::ConfigLayerStack::new(
++                    stack.all_layers_low_to_high().cloned().collect(),
++                    stack.requirements().clone(),
++                    raw,
++                )?;
++                state.session_configuration.original_config_do_not_use = Arc::new(config);
++            }
++            drop(state);
++            drop(active);
++            case.synchronize().await;
++            let approval = case.fresh().await?;
++            let packet = case.packet().await?;
++            assert!(Arc::ptr_eq(
++                &packet.selected.settings,
++                &case.fixture.step.settings
++            ));
++            assert!(Arc::ptr_eq(&packet.selected.config, &packet.used));
++            assert!(Arc::ptr_eq(
++                &packet.used,
++                &case.fixture.session.get_config().await
++            ));
++            if replace_model {
++                assert!(!Arc::ptr_eq(
++                    &packet.selected.settings.model_info,
++                    case.fixture.step.turn.model_info()
++                ));
++                assert_eq!(
++                    packet.selected.settings.model_info.slug,
++                    case.fixture.step.turn.model_info().slug
++                );
++            } else {
++                assert!(Arc::ptr_eq(
++                    &packet.selected.settings.model_info,
++                    case.fixture.step.turn.model_info()
++                ));
++                let live = packet
++                    .used
++                    .config_layer_stack
++                    .requirements_toml()
++                    .auto_review
++                    .as_ref()
++                    .and_then(|review| review.ignore_rules.as_ref());
++                let frozen = case
++                    .fixture
++                    .step
++                    .turn
++                    .config
++                    .config_layer_stack
++                    .requirements_toml()
++                    .auto_review
++                    .as_ref()
++                    .and_then(|review| review.ignore_rules.as_ref());
++                assert_ne!(live, frozen);
++                assert!(
++                    !live
++                        .unwrap()
++                        .contains(&packet.selected.settings.model_info.slug)
++                );
++                assert_eq!(
++                    packet.used.config_layer_stack.requirements(),
++                    case.fixture
++                        .step
++                        .turn
++                        .config
++                        .config_layer_stack
++                        .requirements()
++                );
++            }
++            assert_eq!(case.entries(&approval, &packet).await, 0);
++            assert_eq!(approval.decision, ReviewDecision::Approved);
++            Ok(())
++        })
++        .await;
++        case.finish(result).await?;
++    }
++    Ok(())
++}
+-- 
+2.54.0 (Apple Git-157)
+

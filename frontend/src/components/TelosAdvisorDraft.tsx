@@ -179,7 +179,18 @@ export function TelosAdvisorDraft({ conversationId }: { conversationId?: string 
             mode: 'conversation_so_far' as const,
             boundary: { sequence: last.completedSeq, messageId: last.messageId },
             messageIds: [],
-            artifacts: [],
+            // Carry only the immutable pins already reviewed for this advisor.
+            // Current canonical materials are not a substitute for that selection.
+            artifacts: [
+              ...new Map(
+                [...scope.artifacts, ...scope.sources.flatMap((source) => source.artifacts)].map(
+                  ({ artifactId, revision, sha256 }) => [
+                    JSON.stringify([artifactId, revision, sha256]),
+                    { artifactId, revision, sha256 },
+                  ],
+                ),
+              ).values(),
+            ],
             purpose: 'Save the reviewed advisor draft',
             joiningBrief: '',
           },

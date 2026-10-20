@@ -1,30 +1,29 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useMemo, useSyncExternalStore } from 'react';
+
+import {
+  createTodoPrioritySaveState,
+  type TodoPrioritySaveState,
+} from '../lib/todo-priority-save-state';
 
 interface TodoPrioritySelectProps {
   priority: number;
   onChange: (priority: number) => Promise<void>;
+  saveState?: TodoPrioritySaveState;
 }
 
 /** A confirmed value stays visible until the owner acknowledges the save. */
-export function TodoPrioritySelect({ priority, onChange }: TodoPrioritySelectProps) {
+export function TodoPrioritySelect({ priority, onChange, saveState }: TodoPrioritySelectProps) {
   const errorId = useId();
-  const pending = useRef(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const local = useMemo(() => createTodoPrioritySaveState(), []);
+  const owner = saveState ?? local;
+  const { saving, error } = useSyncExternalStore(
+    owner.subscribe,
+    owner.getSnapshot,
+    owner.getSnapshot,
+  );
 
-  async function save(next: number) {
-    if (pending.current || next === priority) return;
-    pending.current = true;
-    setSaving(true);
-    setError(null);
-    try {
-      await onChange(next);
-    } catch {
-      setError('Couldn’t confirm this priority. Refresh to check its status.');
-    } finally {
-      pending.current = false;
-      setSaving(false);
-    }
+  function save(next: number) {
+    if (next !== priority) void owner.save(() => onChange(next));
   }
 
   return (

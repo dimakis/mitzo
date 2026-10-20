@@ -3,13 +3,22 @@ import {
   OrdinaryRuntimeFirstCommandSchema,
   OrdinaryRuntimeContinuationCommandSchema,
   OrdinaryWorkspaceFirstCommandSchema,
+  LocalCodexFirstCommandSchema,
 } from '@mitzo/protocol';
 
 /** Local delivery metadata, never a wire grant. A prepared first command already has a session. */
-export const OrdinaryCommandDeliverySchema = z.strictObject({
-  version: z.literal(2),
-  phase: z.enum(['first', 'continue']),
-});
+export const OrdinaryCommandDeliverySchema = z
+  .strictObject({
+    version: z.literal(2),
+    phase: z.enum(['first', 'continue']),
+  })
+  .or(
+    z.strictObject({
+      version: z.literal(1),
+      phase: z.literal('first'),
+      sessionId: z.string().min(1).max(200).regex(/^\S+$/),
+    }),
+  );
 export type OrdinaryCommandDelivery = z.infer<typeof OrdinaryCommandDeliverySchema>;
 export type OrdinaryCommandPhase = OrdinaryCommandDelivery['phase'];
 const legacy = OrdinaryRuntimeFirstCommandSchema.or(OrdinaryRuntimeContinuationCommandSchema);
@@ -20,8 +29,10 @@ export function parseLocalCommandDelivery(
   ordinaryDelivery?: unknown,
 ): LocalCommandRequest {
   if (ordinaryDelivery !== undefined) {
-    OrdinaryCommandDeliverySchema.parse(ordinaryDelivery);
-    return OrdinaryWorkspaceFirstCommandSchema.parse(body);
+    const delivery = OrdinaryCommandDeliverySchema.parse(ordinaryDelivery);
+    return delivery.version === 2
+      ? OrdinaryWorkspaceFirstCommandSchema.parse(body)
+      : LocalCodexFirstCommandSchema.parse(body);
   }
   return legacy.parse(body);
 }

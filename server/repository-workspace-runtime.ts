@@ -13,6 +13,13 @@ import { codexPrivateDirectory } from './codex-private-path.js';
 import { RepositoryWorkspaces } from './repository-workspaces.js';
 
 let service: RepositoryWorkspaces | undefined;
+let idleReleased = false;
+/** Release only the existing idle singleton; never create persistence to close it. */
+export function closeIdleRepositoryWorkspaces(): void {
+  if (!service) return;
+  service.closeIdle();
+  idleReleased = true;
+}
 export function repositoryWorkspacesEnabled() {
   return process.env.MITZO_REPOSITORY_WORKSPACES_ENABLED === '1';
 }
@@ -79,6 +86,7 @@ export function repositoryWorkspaceCatalog(binding: AccountBinding) {
 }
 /** Lazy, explicit enrollment: importing the app performs no source acquisition or metadata writes. */
 function workspaceOwner(readOnly = false, ordinary = false) {
+  if (idleReleased) throw Error('Repository workspace owner released');
   if (
     !readOnly &&
     (ordinary
@@ -174,6 +182,7 @@ export function readRepositoryWorkspaceForConversation(
   conversationId: string,
   expectedWorkspaceId?: string | null,
 ) {
+  if (idleReleased) throw Error('Repository workspace owner released');
   const directory = join(codexPrivateDirectory(), 'repository-sources');
   if (!existsSync(join(directory, 'workspaces.db'))) {
     if (expectedWorkspaceId)

@@ -94,6 +94,8 @@ export class SendOutbox {
               !entry.localReceipt.sessionId.length ||
               entry.localReceipt.sessionId.length > 200 ||
               ('sessionId' in body && entry.localReceipt.sessionId !== body.sessionId) ||
+              (ordinaryDelivery?.version === 1 &&
+                entry.localReceipt.sessionId !== ordinaryDelivery.sessionId) ||
               Object.keys(entry.localReceipt).length !== 2)
           )
             throw Error('Invalid Local receipt');
@@ -288,7 +290,7 @@ export class SendOutbox {
       if (!this.persist()) throw Error('Local intent could not be retained');
       const response = await Promise.race([
         this.config.fetch(
-          entry.ordinaryDelivery
+          entry.ordinaryDelivery?.version === 2
             ? '/api/ordinary/workspaces/commands/' + entry.ordinaryDelivery.phase
             : entry.body.runOn === 'openshell'
               ? typeof entry.body.sessionId === 'string'
@@ -317,6 +319,8 @@ export class SendOutbox {
       const observation = OrdinaryCodexRetainedCommandObservationSchema.safeParse(raw);
       const matching =
         raw?.clientMsgId === entry.body.clientMsgId &&
+        (entry.ordinaryDelivery?.version !== 1 ||
+          raw?.sessionId === entry.ordinaryDelivery.sessionId) &&
         (typeof entry.body.sessionId !== 'string' || raw?.sessionId === entry.body.sessionId);
       if (matching && response.status === 202 && success.success) {
         entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };

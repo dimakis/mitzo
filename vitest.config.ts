@@ -10,6 +10,10 @@ export default defineConfig({
         'packages/protocol/src/database-backup.ts',
       ),
       '@mitzo/protocol/event-store': resolve(__dirname, 'packages/protocol/src/event-store.ts'),
+      '@mitzo/protocol/collaboration-forward-custody': resolve(
+        __dirname,
+        'packages/protocol/src/collaboration-forward-custody.ts',
+      ),
       '@mitzo/protocol': resolve(__dirname, 'packages/protocol/src/index.ts'),
       '@mitzo/client/hooks': resolve(__dirname, 'packages/client/src/hooks/index.ts'),
       '@mitzo/client': resolve(__dirname, 'packages/client/src/index.ts'),
