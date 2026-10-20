@@ -44,6 +44,46 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('rechecks unavailable setup without clearing the editable draft or enabling a join', () => {
+  const retry = vi.fn();
+  const props = {
+    scope: 'source-chat',
+    agents: [{ id: 'source-chat', name: 'Mitzo', state: 'Current conversation' }],
+    messages: [],
+    unavailableReason: 'Fresh agent setup could not be checked.',
+    onRetryJoiningSetup: retry,
+  };
+  const view = render(<ConversationAgents {...props} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Agents, Mitzo' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Name in this chat' }), {
+    target: { value: 'Reviewer' },
+  });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Purpose' }), {
+    target: { value: 'Keep this setup draft.' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Check setup again' }));
+  expect(retry).toHaveBeenCalledOnce();
+  view.rerender(
+    <ConversationAgents
+      {...props}
+      unavailableReason="Checking fresh-agent setup…"
+      onRetryJoiningSetup={undefined}
+    />,
+  );
+  expect((screen.getByRole('textbox', { name: 'Purpose' }) as HTMLInputElement).value).toBe(
+    'Keep this setup draft.',
+  );
+  expect(
+    (screen.getByRole('textbox', { name: 'Name in this chat' }) as HTMLInputElement).value,
+  ).toBe('Reviewer');
+  expect(
+    screen.getByRole('button', { name: 'Review joining brief' }).hasAttribute('disabled'),
+  ).toBe(true);
+  expect(screen.getByText('Fresh session · starts with a prompt.')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+});
+
 it('seeds the approved initial brief on explicit Review and retains it when capture refuses and metadata changes', async () => {
   // This unit observes editable intent only. No source, capacity, association or
   // execution capability is fabricated: capture always refuses before review.

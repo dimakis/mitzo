@@ -54,6 +54,8 @@ export function ConversationAgents(props: {
   onPreview?(id: string): void;
   onDraftProfile?(id: string): void;
   unavailableReason?: string;
+  /** Rechecks observational setup metadata; never starts preparation or joining. */
+  onRetryJoiningSetup?(): void;
   renderPreview?(agent: ConversationAgent): ReactNode;
   onPolicyChange?(id: string, policy: { reads: boolean; replies: boolean }): void;
   /** Confirmed policy state and explicit recovery controls from the existing owner. */
@@ -81,6 +83,7 @@ function ConversationAgentsBody({
   onPreview,
   onDraftProfile,
   unavailableReason,
+  onRetryJoiningSetup,
   renderPreview,
   onPolicyChange,
   policyFeedback,
@@ -553,6 +556,11 @@ function ConversationAgentsBody({
                   </p>
                 )}
                 {!joiningOwner && <p role="status">{unavailable}</p>}
+                {!joiningOwner && onRetryJoiningSetup && (
+                  <button type="button" onClick={onRetryJoiningSetup}>
+                    Check setup again
+                  </button>
+                )}
               </>
             )}
             {view === 'review' && (

@@ -6,6 +6,7 @@ import { AgentLibraryChatLink } from '../components/AgentLibraryChatSource';
 import { markAgentBuilderAssigned } from '../lib/agent-builder-chat';
 import { TelosSourceWorkLink } from '../components/TelosSourceWorkLink';
 import { ConversationAgents } from '../components/ConversationAgents';
+import { useConversationJoiningSourceSetup } from '../hooks/useConversationJoiningSourceSetup';
 import { conversationRepositoryLabel } from '../lib/conversation-repository-label';
 import { useCompactionHistory } from '../hooks/useCompactionHistory';
 import { ChatWelcome } from '../components/ChatWelcome';
@@ -1084,6 +1085,13 @@ export function DesktopChatView() {
     />
   ) : undefined;
 
+  const joiningSourceSetup = useConversationJoiningSourceSetup({
+    sourceConversationId:
+      connected && !isSymposium && !controlsBlocked && sessionId === activeSessionId
+        ? activeSessionId
+        : null,
+    clientId: connectionId,
+  });
   const workspaceControls = (
     <WorkspaceControls
       title={
@@ -1103,6 +1111,10 @@ export function DesktopChatView() {
             <ConversationAgents
               compact
               conversationTitle={conversationTitle}
+              unavailableReason={joiningSourceSetup.reason}
+              onRetryJoiningSetup={
+                joiningSourceSetup.canRefresh ? joiningSourceSetup.refresh : undefined
+              }
               repository={conversationRepository}
               scope={activeSessionId}
               agents={[
