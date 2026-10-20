@@ -308,10 +308,14 @@
     {
       "file": "native-guarded-commit-durable-observer-fixture.patch",
       "sha256": "5a2aaa1e9a208302a340be908891aca7dd55bc478b157b2d1962e488f7e77070"
+    },
+    {
+      "file": "native-pending-fixture-explicit-assertions.patch",
+      "sha256": "f3e45065d91fe1032cf6b1d62cc96b3c0084fa72b9871d4d82f8b9a2e5993d8c"
     }
   ],
-  "sourceTree": "bd05b3b6597fe5640b41363e4b2d351dff060d53",
-  "localSourceCommit": "f75d65a1a6133ed3eecc42b92c9f74e84741e835",
+  "sourceTree": "61df68bdcee6a1939367e2ed54e61082d4ef3241",
+  "localSourceCommit": "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -393,7 +397,8 @@
     "311b9ae9c07874d9ff5964e95629e057f337dd9d",
     "712955521527345f477abb11f1c54be80bf64a27",
     "68d9e80ad6dbbbadf76312e8b685e6dd66b1f085",
-    "f75d65a1a6133ed3eecc42b92c9f74e84741e835"
+    "f75d65a1a6133ed3eecc42b92c9f74e84741e835",
+    "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -403,7 +408,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "76-patch source: actual ordinary cached-credential guard covers a synchronous pending-claim SQLite CAS. This is only the native credential partition; other native epochs, retrospective canonical host proof, limits and production preparation/admission remain incomplete.",
+    "scope": "77-patch source: two explicit child fixture macro imports correct concrete E0659 compilation failure; prior guarded credential CAS production bytes unchanged. Other native epochs, canonical host proof, model limits and production preparation/admission remain incomplete.",
     "localFocused": {
       "status": "source_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -412,7 +417,7 @@
       "allOrderedChecksumsReconstructExactTree": true
     },
     "ci": {
-      "status": "pending_76_patch_guarded_native_claim",
+      "status": "pending_77_patch_fixture_compilation_correction",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -773,6 +778,19 @@
         "Authorization to release pending effects and final source-ACK/reply composition"
       ],
       "independentFixtureCorrection": "C observed74fixture only checked in-memoryflags insideguard;76 nowrequires actualcommittedrow through independentpreopenedreadonlyobserver beforecallbackexit, retaining laterreopenproof"
+    },
+    "fixtureCompilationCorrection": {
+      "nativeCommit": "1d8ea29eea323d0ebe2112e76ba49a7e152a8f14",
+      "productionChanges": false,
+      "observedFailure": {
+        "run": 39351558521,
+        "linuxJob": 118396661575,
+        "head": "5bdbce1b02266e92967441f0ef57d323ed992650",
+        "diagnostic": "22 E0659 ambiguous assert_eq! during cargo test --no-run; no fixture outcomes"
+      },
+      "fix": "Explicit pretty_assertions::assert_eq imports in effects and guarded_commit children, preserving actual parent assertion semantics",
+      "rustCompilationOrTestsRunLocally": false,
+      "executionQualification": "pending exact-source CI"
     }
   },
   "runtimeQualified": false,
@@ -2490,6 +2508,14 @@
       "publishedPr": 1062,
       "nativeCi": 39351558521,
       "qualification": "Execution pending at next candidate construction; source-only qualification cannot transfer to new composed tree"
+    },
+    {
+      "sourceTree": "bd05b3b6597fe5640b41363e4b2d351dff060d53",
+      "localSourceCommit": "f75d65a1a6133ed3eecc42b92c9f74e84741e835",
+      "patchCount": 76,
+      "publishedPr": 1063,
+      "nativeCi": 39353493313,
+      "qualification": "Native execution pending at correction construction; source-derived same child macro ambiguity; no execution qualification transferred"
     }
   ]
 }
