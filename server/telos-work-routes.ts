@@ -5,6 +5,7 @@ import {
   TelosWorkIdSchema,
   TelosSourceConversationReferenceSchema,
   TelosWorkDelegationInputSchema,
+  TelosOrdinaryWorkDelegationInputSchema,
   TelosWorkDelegationReceiptSchema,
   TelosStartSliceInputSchema,
 } from '@mitzo/protocol';
@@ -40,6 +41,7 @@ export function createTelosWorkRouter(options: {
   roleContext?(request: TelosWorkRoleRequest): Promise<unknown>;
   advisorPreview?(request: TelosWorkRoleRequest): Promise<unknown>;
   advisorSave?(request: TelosWorkRoleRequest): Promise<unknown>;
+  ordinaryDelegateSlice?(request: TelosWorkRoleRequest): Promise<unknown>;
   delegateSlice?(request: TelosWorkRoleRequest): Promise<unknown>;
   assertRoleAssignment?(itemId: string, role: 'lead' | 'worker', conversationId: string): void;
 }) {
@@ -151,6 +153,7 @@ export function createTelosWorkRouter(options: {
     { path: 'advisor/preview', host: options.advisorPreview },
     { path: 'advisor/save', host: options.advisorSave },
     { path: 'delegation/start', host: options.delegateSlice },
+    { path: 'delegation/ordinary/start', host: options.ordinaryDelegateSlice },
   ])
     router.post(
       `/api/telos/work/${operation.path}`,
@@ -160,7 +163,9 @@ export function createTelosWorkRouter(options: {
         const authority = actor(res);
         if (!authority) return;
         const host = operation.host;
-        const delegation = operation.path === 'delegation/start';
+        const delegation = ['delegation/start', 'delegation/ordinary/start'].includes(
+          operation.path,
+        );
         if (!host) {
           res.status(503).json({
             code: 'unavailable',
@@ -170,7 +175,12 @@ export function createTelosWorkRouter(options: {
           });
           return;
         }
-        const parsed = delegation ? TelosWorkDelegationInputSchema.safeParse(req.body) : undefined;
+        const parsed = delegation
+          ? (operation.path === 'delegation/ordinary/start'
+              ? TelosOrdinaryWorkDelegationInputSchema
+              : TelosWorkDelegationInputSchema
+            ).safeParse(req.body)
+          : undefined;
         if (parsed && !parsed.success) {
           res.status(400).json({ code: 'invalid', error: 'Invalid work delegation' });
           return;
