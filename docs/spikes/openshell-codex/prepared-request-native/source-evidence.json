@@ -356,10 +356,14 @@
     {
       "file": "native-selected-start-custody.patch",
       "sha256": "6b97360f619920200d4ec1cbdb6d5bb853417f42783e66857396ce3711fcdcf3"
+    },
+    {
+      "file": "native-provider-header-fixture.patch",
+      "sha256": "d4617e4f8c868cd76883310d0cd4768fea72d413a9279d9666c3d216b6344f7b"
     }
   ],
-  "sourceTree": "149b473f6cb5d8a726aac6276bacc1ad2240bfa8",
-  "localSourceCommit": "cf3d8577c4dfde13788ad59ec91b4c615d1a4e0a",
+  "sourceTree": "5afdd74dd6631cf91d32325d78914dff3bc6a8f7",
+  "localSourceCommit": "349165924d187197140074b8cfefe087d2e73cba",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -492,7 +496,8 @@
     "0e324d3c492266404c1c8d5009c922f82dfc12c8",
     "d7e66646973baf68dd8f72f4241248f3e5673696",
     "a78cc0d8a9786ddb416ea1427fa2a1b89f9c1d3a",
-    "cf3d8577c4dfde13788ad59ec91b4c615d1a4e0a"
+    "cf3d8577c4dfde13788ad59ec91b4c615d1a4e0a",
+    "349165924d187197140074b8cfefe087d2e73cba"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -502,7 +507,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "88-patch source retains all87 original patch bytes unchanged. Adds actual ordinary selected Config/strict policy one-use adoption, original runtime feature DATA publication fences, System clock partition, environment/initial-context data paths and original registered extension owner identities. Full native request composition, count/State association, app-server route and host adoption remain OPEN; no capacity/Ready/execution grant.",
+    "scope": "89 ordered patches retain all88 prior patch records/bytes. Patch89 changes only three test literal values from String to the existing RedactedString type, preserving exact malformed/case-ambiguous header bytes and original assertions. Production native source and all complete-factory/readiness limits remain unchanged.",
     "localFocused": {
       "status": "exact_source_reconstruction_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -511,7 +516,7 @@
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_88_exact_source",
+      "status": "pending_89_exact_source",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -547,7 +552,19 @@
       "prior84QualificationTransfers": false,
       "prior85QualificationTransfers": false,
       "prior86QualificationTransfers": false,
-      "prior87QualificationTransfers": false
+      "prior87QualificationTransfers": false,
+      "prior88QualificationTransfers": false,
+      "prior88Failure": {
+        "run": 39454890578,
+        "linuxJob": 118739246813,
+        "conclusion": "failure",
+        "failure": "E0308 in model-provider-info/src/captured_provider.rs:124; test literal map used String instead of existing RedactedString",
+        "fixtureExecution": "No crate fixtures executed: cargo test --no-run compilation failed",
+        "macosJob": 118739246289,
+        "macosOutcomeAtCapture": "in_progress",
+        "linuxArtifact": 12283706338,
+        "linuxArtifactSha256": "bcb31395efcb667155ed665b217b57929c7d71dccc01a0a583c90c15966ecee2"
+      }
     }
   },
   "runtimeQualified": false,
@@ -3132,11 +3149,11 @@
     "wholeFactoryReady": false
   },
   "previousCheckpoint": {
-    "localSourceCommit": "a7498d7eb0bb7fb33130d2d4729c88fd980291e7",
-    "sourceTree": "f09fc186e1ee1beb81495f003feb736bfcab0756",
-    "sourceEvidenceSha256": "de7476e2bab36d1e1426deba643f8f059277dce5fb1ed1f283bd6aca4c3c8521",
+    "localSourceCommit": "cf3d8577c4dfde13788ad59ec91b4c615d1a4e0a",
+    "sourceTree": "149b473f6cb5d8a726aac6276bacc1ad2240bfa8",
+    "sourceEvidenceSha256": "ada43c8b0aa3a3b20089b04ff0700523a680531bf6d8f9be71a2c09e6ab5ccf2",
     "checks": {
-      "scope": "87-patch source retains first86 unchanged. Original disabled History/Memory prompt sources; original hosted Apps registration then API auth gate; original PluginContributor source plans; actual HostPlugins installed+loaded publication identities and same credential owner; default-enabled Core API projection and Skills renewal. Minimal E0624 newfixture correction calls same legal original loader. Full request/config/FS/permission/source leases, count-State, appserver and host factory remain OPEN.",
+      "scope": "88-patch source retains all87 original patch bytes unchanged. Adds actual ordinary selected Config/strict policy one-use adoption, original runtime feature DATA publication fences, System clock partition, environment/initial-context data paths and original registered extension owner identities. Full native request composition, count/State association, app-server route and host adoption remain OPEN; no capacity/Ready/execution grant.",
       "localFocused": {
         "status": "exact_source_reconstruction_and_scoped_format_only",
         "rustTestsExecuted": false,
@@ -3145,7 +3162,7 @@
         "dynamicGreenClaimed": false
       },
       "ci": {
-        "status": "pending_87_exact_source",
+        "status": "pending_88_exact_source",
         "workflow": ".github/workflows/prepared-request-native.yml",
         "scope": [
           "codex-core",
@@ -3168,7 +3185,8 @@
           "codex-exec-server",
           "codex-app-server",
           "codex-git-attribution",
-          "codex-core-plugins"
+          "codex-core-plugins",
+          "codex-execpolicy"
         ],
         "linuxAdditionalScope": ["codex-linux-sandbox"],
         "platforms": ["ubuntu-24.04", "macos-26"],
@@ -3179,7 +3197,60 @@
         "prior83QualificationTransfers": false,
         "prior84QualificationTransfers": false,
         "prior85QualificationTransfers": false,
-        "prior86QualificationTransfers": false
+        "prior86QualificationTransfers": false,
+        "prior87QualificationTransfers": false
+      }
+    },
+    "previousCheckpoint": {
+      "localSourceCommit": "a7498d7eb0bb7fb33130d2d4729c88fd980291e7",
+      "sourceTree": "f09fc186e1ee1beb81495f003feb736bfcab0756",
+      "sourceEvidenceSha256": "de7476e2bab36d1e1426deba643f8f059277dce5fb1ed1f283bd6aca4c3c8521",
+      "checks": {
+        "scope": "87-patch source retains first86 unchanged. Original disabled History/Memory prompt sources; original hosted Apps registration then API auth gate; original PluginContributor source plans; actual HostPlugins installed+loaded publication identities and same credential owner; default-enabled Core API projection and Skills renewal. Minimal E0624 newfixture correction calls same legal original loader. Full request/config/FS/permission/source leases, count-State, appserver and host factory remain OPEN.",
+        "localFocused": {
+          "status": "exact_source_reconstruction_and_scoped_format_only",
+          "rustTestsExecuted": false,
+          "compiled": false,
+          "allNewRustFixtures": "UNCOMPILED/UNRUN",
+          "dynamicGreenClaimed": false
+        },
+        "ci": {
+          "status": "pending_87_exact_source",
+          "workflow": ".github/workflows/prepared-request-native.yml",
+          "scope": [
+            "codex-core",
+            "codex-http-client",
+            "codex-state",
+            "codex-api",
+            "codex-guardian-reviewer",
+            "codex-extension-api",
+            "codex-mcp-extension",
+            "codex-login",
+            "codex-memories-extension",
+            "codex-web-search-extension",
+            "codex-history-notes-extension",
+            "codex-goal-extension",
+            "codex-models-manager",
+            "codex-home",
+            "codex-model-provider-info",
+            "codex-skills-extension",
+            "codex-skills",
+            "codex-exec-server",
+            "codex-app-server",
+            "codex-git-attribution",
+            "codex-core-plugins"
+          ],
+          "linuxAdditionalScope": ["codex-linux-sandbox"],
+          "platforms": ["ubuntu-24.04", "macos-26"],
+          "testThreads": 1,
+          "retries": 0,
+          "prior81QualificationTransfers": false,
+          "prior82QualificationTransfers": false,
+          "prior83QualificationTransfers": false,
+          "prior84QualificationTransfers": false,
+          "prior85QualificationTransfers": false,
+          "prior86QualificationTransfers": false
+        }
       }
     }
   }

@@ -6,7 +6,30 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 87 patches
+## Current composed source: 89 patches
+
+The 89 ordered patches reconstruct native tree
+`5afdd74dd6631cf91d32325d78914dff3bc6a8f7` (local source `349165924d187197140074b8cfefe087d2e73cba`).
+All first 88 patch records and bytes remain unchanged. Patch 89 corrects only
+three fixture header values to the existing `RedactedString` type. Their exact
+malformed/case-ambiguous bytes and every assertion are preserved; no production
+provider behavior, visibility, policy or guard changes.
+
+Source 88 run `39454890578`, Linux job `118739246813`, compiled the production
+helpers and Core/AppServer tests but failed the ModelProviderInfo library-test
+build with E0308 before any crate fixture executed. Mac was still compiling its
+fixture build at capture. Original logs and artifact `12283706338` are retained;
+these partial builds do not qualify either source. Exact source 89 compilation,
+fixture execution and formatting remain pending CI. Locally only exact source
+reconstruction, scoped Rust formatting and static checks are performed.
+
+Patch 88 retains actual ordinary selected Config and strict-policy one-use
+adoption, runtime-feature data publication fences, System-clock/environment
+partitions and registered extension identities. Complete original request
+assembly, native count/State association, actual app-server/host adoption and
+executable joining remain open. No installed runtime or Ready grant is made.
+
+## Retained 87-patch checkpoint
 
 The 87 ordered patches reconstruct native tree
 `f09fc186e1ee1beb81495f003feb736bfcab0756` (local source `a7498d7eb0bb7fb33130d2d4729c88fd980291e7`).

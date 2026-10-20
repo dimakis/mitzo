@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.434-symposium-accepted-telos-integration';
+  'v1.0.435-symposium-provider-fixture-correction';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1289,4 +1289,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '194170adf8cfc918b5b6d0482a413646641bce1de086616fb1a0ac32fa30b6f2',
   '../../frontend/src/lib/telos-chat-return.ts':
     '82a93d73cc17247366037d16e0909473fbbb8f64b73a1730f1456bbadf701077',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-provider-header-fixture.patch':
+    'd4617e4f8c868cd76883310d0cd4768fea72d413a9279d9666c3d216b6344f7b',
 });

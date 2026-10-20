@@ -1,0 +1,18 @@
+diff --git a/codex-rs/model-provider-info/src/captured_provider.rs b/codex-rs/model-provider-info/src/captured_provider.rs
+index 97a8c5a..e6c53f3 100644
+--- a/codex-rs/model-provider-info/src/captured_provider.rs
++++ b/codex-rs/model-provider-info/src/captured_provider.rs
+@@ -114,10 +114,10 @@ mod tests {
+     #[test]
+     fn capture_refuses_malformed_or_case_ambiguous_literals_without_changing_ordinary_conversion() {
+         for literals in [
+-            HashMap::from([("version".to_string(), "bad\nheader".to_string())]),
++            HashMap::from([("version".to_string(), RedactedString::from("bad\nheader"))]),
+             HashMap::from([
+-                ("version".to_string(), "one".to_string()),
+-                ("Version".to_string(), "two".to_string()),
++                ("version".to_string(), RedactedString::from("one")),
++                ("Version".to_string(), RedactedString::from("two")),
+             ]),
+         ] {
+             let mut info = ModelProviderInfo::create_openai_provider(None);
