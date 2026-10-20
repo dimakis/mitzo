@@ -6,10 +6,17 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 80 patches
+## Current composed source: 81 patches
 
-The 80 ordered patches reconstruct native tree
-`882c55487b91a962f32fd4ecb051d4b3c9a03d38` (local source `5015dbe8bbc95f4844183ece500907ebf8f6f3bc`).
+The 81 ordered patches reconstruct native tree
+`e2b7d2093d6a671ac0929730a0297139ca2067b7` (local source `673a893f754b03ded8efba534b452c29233ffc8e`).
+
+Patch 81 corrects two Arc cloning expressions in the actual catalog owner.
+Source 80 CI `39368960594` failed both library builds with E0308 before any
+crate fixture or formatting ran; none of its nine new fixtures is qualified.
+The correction binds and dereferences the real MutexGuard in a short scope,
+retaining the same lock order, Arc pointer and publication lifetime. No policy
+or fixture changes. Exact source 81 requires fresh native CI.
 
 Patch 80 adds an explicitly unverified model-limit candidate under the existing
 ModelsManager owner. The reviewed exact `gpt-6-luna` descriptor retains both

@@ -324,10 +324,14 @@
     {
       "file": "native-model-limit-catalog-owner.patch",
       "sha256": "54ae4cf67c005f57f9dc70d4514bf5d0abe59e774c15296e170aa87fff96031e"
+    },
+    {
+      "file": "native-model-publication-guard-clone.patch",
+      "sha256": "c7b35f9c8851a5ebd8e6d98847f07e237ff59a3c5c7f3f2c17606e9c770c8ec7"
     }
   ],
-  "sourceTree": "882c55487b91a962f32fd4ecb051d4b3c9a03d38",
-  "localSourceCommit": "5015dbe8bbc95f4844183ece500907ebf8f6f3bc",
+  "sourceTree": "e2b7d2093d6a671ac0929730a0297139ca2067b7",
+  "localSourceCommit": "673a893f754b03ded8efba534b452c29233ffc8e",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -414,7 +418,8 @@
     "865e2f6fb59451d834a7b31fe7a0b9eac4396afc",
     "46df3041feb4fbf9bf6f47d41452abe341de61e9",
     "a290a94637b7782996e980bbce5b66c3629ac987",
-    "5015dbe8bbc95f4844183ece500907ebf8f6f3bc"
+    "5015dbe8bbc95f4844183ece500907ebf8f6f3bc",
+    "673a893f754b03ded8efba534b452c29233ffc8e"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -865,6 +870,14 @@
       "localRustCompilationTestsClippy": false,
       "requiredExactSourceCI": "codex-models-manager unit tests and formatting explicitly selected on both OS; transitive compile alone is insufficient",
       "productionPreparationCountConsumeInstalled": false
+    },
+    "modelPublicationCloneCorrection": {
+      "sourceCommit": "673a893f754b03ded8efba534b452c29233ffc8e",
+      "actualFailure": "39368960594 both OS, E0308 at two Arc::clone calls expecting Arc but receiving MutexGuard; helperbuilds before cratefixtures/format",
+      "changes": "Bind actual publication MutexGuard in a short scope; explicit &*guard clone; same catalog-then-publication lock order and pointer, guard dropped before candidate return",
+      "productionPolicyOrTestsChanged": false,
+      "localRustCompilationTestsClippy": false,
+      "executionQualification": "pending own exact81 source CI"
     }
   },
   "runtimeQualified": false,
@@ -1455,6 +1468,14 @@
       "publishedPr": 1063,
       "nativeCi": 39366560285,
       "qualification": "Both OS exact79 CI still running at candidate construction; no qualification transferred"
+    },
+    {
+      "sourceTree": "882c55487b91a962f32fd4ecb051d4b3c9a03d38",
+      "localSourceCommit": "5015dbe8bbc95f4844183ece500907ebf8f6f3bc",
+      "patchCount": 80,
+      "publishedPr": 1065,
+      "nativeCi": 39368960594,
+      "qualification": "Both OS helper builds failed two E0308 library errors at manager.rs429/448 before fixtures/format; no fixture totals or execution qualification"
     }
   ],
   "history": [

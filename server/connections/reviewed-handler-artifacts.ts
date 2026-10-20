@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.352-symposium-model-limit-candidate';
+  'v1.0.353-symposium-model-publication-clone';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-model-publication-guard-clone.patch':
+    'c7b35f9c8851a5ebd8e6d98847f07e237ff59a3c5c7f3f2c17606e9c770c8ec7',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-model-limit-catalog-owner.patch':
     '54ae4cf67c005f57f9dc70d4514bf5d0abe59e774c15296e170aa87fff96031e',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-pending-command-fixture-identity.patch':
