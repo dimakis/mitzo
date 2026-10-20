@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.348-symposium-pending-effects';
+  'v1.0.349-symposium-guarded-native-claim';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-guarded-commit-durable-observer-fixture.patch':
+    '5a2aaa1e9a208302a340be908891aca7dd55bc478b157b2d1962e488f7e77070',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-synchronous-pending-commit.patch':
+    'd7b3cb3539c683b25b2c6027dcad96442ecaa3657329bc354d1ea4de6c0e8608',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-ordinary-credential-cas-owner.patch':
+    '2f59fdb4595e3b22b38e8e1208933bbf156684ee69f527ed62b1b7d042b29393',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-pending-effects-release-continuation-fixtures.patch':
     '7662c7227acbfd318b78c5cb20911e2f57932928fc5f4a5ef05372f7a0bfe673',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-disabled-notes-goals-plan.patch':

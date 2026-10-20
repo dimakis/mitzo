@@ -296,10 +296,22 @@
     {
       "file": "native-pending-effects-release-continuation-fixtures.patch",
       "sha256": "7662c7227acbfd318b78c5cb20911e2f57932928fc5f4a5ef05372f7a0bfe673"
+    },
+    {
+      "file": "native-synchronous-pending-commit.patch",
+      "sha256": "d7b3cb3539c683b25b2c6027dcad96442ecaa3657329bc354d1ea4de6c0e8608"
+    },
+    {
+      "file": "native-ordinary-credential-cas-owner.patch",
+      "sha256": "2f59fdb4595e3b22b38e8e1208933bbf156684ee69f527ed62b1b7d042b29393"
+    },
+    {
+      "file": "native-guarded-commit-durable-observer-fixture.patch",
+      "sha256": "5a2aaa1e9a208302a340be908891aca7dd55bc478b157b2d1962e488f7e77070"
     }
   ],
-  "sourceTree": "9e17d7d58b5a2e264520c9b923567c8789a1c123",
-  "localSourceCommit": "311b9ae9c07874d9ff5964e95629e057f337dd9d",
+  "sourceTree": "bd05b3b6597fe5640b41363e4b2d351dff060d53",
+  "localSourceCommit": "f75d65a1a6133ed3eecc42b92c9f74e84741e835",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -378,7 +390,10 @@
     "d615a63d687555242ede9cb3874d2699f99520c3",
     "a156fb9b0368681a3c5635d71aade56410c83ea3",
     "9a68030f69bc95951822cfefc09053f3292aed14",
-    "311b9ae9c07874d9ff5964e95629e057f337dd9d"
+    "311b9ae9c07874d9ff5964e95629e057f337dd9d",
+    "712955521527345f477abb11f1c54be80bf64a27",
+    "68d9e80ad6dbbbadf76312e8b685e6dd66b1f085",
+    "f75d65a1a6133ed3eecc42b92c9f74e84741e835"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -388,7 +403,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "73-patch source: ordinary config-only disabled history-notes/goal tool absence and private StateRuntime pending effect gate. Complete native authority proof/guarded CAS/request preparation and application admission remain incomplete.",
+    "scope": "76-patch source: actual ordinary cached-credential guard covers a synchronous pending-claim SQLite CAS. This is only the native credential partition; other native epochs, retrospective canonical host proof, limits and production preparation/admission remain incomplete.",
     "localFocused": {
       "status": "source_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -397,7 +412,7 @@
       "allOrderedChecksumsReconstructExactTree": true
     },
     "ci": {
-      "status": "pending_73_patch_native_effect_gate",
+      "status": "pending_76_patch_guarded_native_claim",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -734,6 +749,30 @@
       "noReceiptsOrContinuationWhilePendingOrRefused": true,
       "goalIntegrationTarget": "goal_extension_backend (Cargo auto-discovered integration test; lib test=false does not exclude it)",
       "independentFixtureCorrections": "C identified missing forced successful release and sampling coverage in72;73 adds both without changing production code or weakening assertions"
+    },
+    "guardedNativeClaim": {
+      "sourceOnly": true,
+      "nativeExecution": false,
+      "actualOwnerBridge": "ModelClient -> immutable ConfiguredModelProvider AuthManager Arc -> with_current_api_key_credentials -> PendingPreparedRequestCommit.commit",
+      "localDatabaseOwner": "Existing StateRuntime FULL-sync close-on-drop pooled connection; raw BEGIN IMMEDIATE before guard; LockedSqliteHandle pauses SQLx worker; exactly two bound UPDATEs plus synchronous COMMIT inside guard",
+      "noSQLxTransactionObjectOrPoolReuse": true,
+      "noFutureOrReusableEpochGuardResult": true,
+      "original65CredentialRouteGateByteExact": true,
+      "fixturesAuthored": [
+        "guarded_commit_denial_rolls_back_and_success_is_durable_before_guard_returns",
+        "guard_response_loss_after_commit_cannot_release_or_replay_claim",
+        "guarded_commit_rolls_back_partial_update_and_rejects_another_claim",
+        "ordinary_credential_owner_guards_real_pending_cas_and_logout_refuses",
+        "ordinary_logout_races_actual_guarded_claim_without_future_escape"
+      ],
+      "proofStillRequired": [
+        "All other native history/config/source/runtime/network-policy fences",
+        "Canonical original monotonic owner revision/ABA retrospective proof and private response binding",
+        "Trusted native ModelsManager both-ceiling witness bound to actual account/public route",
+        "Complete production request preparation/count/consume RPC and original ordinary admission",
+        "Authorization to release pending effects and final source-ACK/reply composition"
+      ],
+      "independentFixtureCorrection": "C observed74fixture only checked in-memoryflags insideguard;76 nowrequires actualcommittedrow through independentpreopenedreadonlyobserver beforecallbackexit, retaining laterreopenproof"
     }
   },
   "runtimeQualified": false,
@@ -2443,6 +2482,14 @@
       "publishedPr": 1061,
       "nativeCi": 39348949832,
       "qualification": "Native execution pending when next candidate constructed; no qualification transferred to new tree"
+    },
+    {
+      "sourceTree": "9e17d7d58b5a2e264520c9b923567c8789a1c123",
+      "localSourceCommit": "311b9ae9c07874d9ff5964e95629e057f337dd9d",
+      "patchCount": 73,
+      "publishedPr": 1062,
+      "nativeCi": 39351558521,
+      "qualification": "Execution pending at next candidate construction; source-only qualification cannot transfer to new composed tree"
     }
   ]
 }
