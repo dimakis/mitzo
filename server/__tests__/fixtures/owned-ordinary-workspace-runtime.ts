@@ -23,6 +23,7 @@ import {
 import { OwnedLocalCodexChatAdmission } from '../../owned-local-codex-chat-admission.js';
 import { bindAgentLibraryTransport } from '../../agent-library-transport.js';
 import {
+  setAuthRevocationStore,
   login,
   authenticateToken,
   isAuthSessionCurrent,
@@ -30,13 +31,22 @@ import {
 } from '../../auth.js';
 
 /** Non-Git storage, real account/native readiness and ordinary owners; only RPC/provider effects are fake. */
-export async function ownedOrdinaryRuntimeFixture(cleanups: Array<() => void | Promise<void>>) {
+export async function ownedOrdinaryRuntimeFixture(
+  cleanups: Array<() => void | Promise<void>>,
+  options: { chatRoute?: boolean; delegationAttemptId?: string } = {},
+) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-ordinary-native-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   const loginRoot = join(root, 'login'),
     privateRoot = join(root, 'native-custody'),
     taskRoot = join(root, 'tasks');
   for (const path of [loginRoot, privateRoot, taskRoot]) await mkdir(path, { mode: 0o700 });
+  if (options.chatRoute) {
+    await mkdir(join(root, '.mitzo'), { mode: 0o700 });
+    vi.stubEnv('REPO_PATH', root);
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', privateRoot);
+    vi.stubEnv('MITZO_ORDINARY_TASK_ROOT', taskRoot);
+  }
   await writeFile(
     join(loginRoot, 'auth.json'),
     JSON.stringify({
@@ -104,7 +114,7 @@ export async function ownedOrdinaryRuntimeFixture(cleanups: Array<() => void | P
     new OrdinaryLocalCodexHostRuntime(env).target(),
     'ordinary',
   );
-  const eventPath = join(root, 'events.db');
+  const eventPath = options.chatRoute ? join(root, '.mitzo', 'events.db') : join(root, 'events.db');
   let events = new EventStore(eventPath),
     library = new AgentLibraryStore(eventPath);
   cleanups.push(
@@ -149,6 +159,7 @@ export async function ownedOrdinaryRuntimeFixture(cleanups: Array<() => void | P
   cleanups.push(() => workspaces.close());
   let legacyLookup = vi.spyOn(workspaces, 'getHostReservation');
   const signal = new AbortController();
+  if (options.chatRoute) setAuthRevocationStore(events);
   const token = await login('test-passphrase-for-vitest');
   if (!token) throw Error('Synthetic operator login unavailable');
   const auth = await authenticateToken(token);
@@ -180,7 +191,7 @@ export async function ownedOrdinaryRuntimeFixture(cleanups: Array<() => void | P
         version: 1 as const,
         agent: { profileId: agentProfile.profileId, revision: agentProfile.revision },
         context: { source: 'none' as const, revision: null },
-        permission: { mode: 'agent' as const, revision: 0 },
+        permission: { mode: 'agent' as const, revision: 0 as const },
         model: 'fixture-model',
         thinking: 'low',
       },
@@ -212,7 +223,14 @@ export async function ownedOrdinaryRuntimeFixture(cleanups: Array<() => void | P
         reasoningEffort: request.selection.thinking,
         mode: 'agent',
       },
-      { allocationOperationId, preparationFingerprint: reserved.preparationFingerprint, settings },
+      {
+        allocationOperationId,
+        preparationFingerprint: reserved.preparationFingerprint,
+        settings,
+        ...(options.delegationAttemptId
+          ? { delegationAttemptId: options.delegationAttemptId }
+          : {}),
+      },
     );
     const reservation = {
       id: reserved.id,
@@ -360,17 +378,25 @@ export async function ownedOrdinaryRuntimeFixture(cleanups: Array<() => void | P
     get legacyLookup() {
       return legacyLookup;
     },
+    /** Reopen workspace custody while the server retains its original auth/EventStore owner. */
+    reopenWorkspaceOwner() {
+      workspaces.close();
+      workspaces = openWorkspaces();
+      legacyLookup = vi.spyOn(workspaces, 'getHostReservation');
+    },
     /** Reopen actual durable owners only after the test has stopped any driver. */
     reopenStorage() {
       library.close();
       events.close();
       workspaces.close();
       events = new EventStore(eventPath);
+      if (options.chatRoute) setAuthRevocationStore(events);
       library = new AgentLibraryStore(eventPath);
       workspaces = openWorkspaces();
       legacyLookup = vi.spyOn(workspaces, 'getHostReservation');
     },
     auth,
+    operatorConnectionId,
     token,
     signal,
     first: await prepareSession(),
