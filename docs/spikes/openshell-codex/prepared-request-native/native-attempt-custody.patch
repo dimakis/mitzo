@@ -1,0 +1,249 @@
+diff --git a/codex-rs/state/src/runtime/prepared_request_attempts.rs b/codex-rs/state/src/runtime/prepared_request_attempts.rs
+index 6eb5758..602cbee 100644
+--- a/codex-rs/state/src/runtime/prepared_request_attempts.rs
++++ b/codex-rs/state/src/runtime/prepared_request_attempts.rs
+@@ -8,6 +8,8 @@ use super::validate_request;
+ use super::validate_text;
+ use sqlx::Connection;
+ use sqlx::Row;
++use sqlx::SqlitePool;
++use std::sync::Arc;
+ 
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub enum PreparedRequestAttemptState {
+@@ -27,9 +29,11 @@ pub enum PreparedRequestClosure {
+ 
+ /// Created only by the winning consumption CAS. Dropping this loses the live right.
+ /// This is not authority: the trusted native caller must still hold its actual fence.
++/// Only the originating runtime and its clones share this live custody.
+ pub struct PreparedRequestConsumption {
+     pub(super) record: PreparedRequestRecord,
+     pub(super) nonce: String,
++    pub(super) owner_pool: Arc<SqlitePool>,
+ }
+ 
+ impl PreparedRequestConsumption {
+@@ -60,7 +64,12 @@ impl StateRuntime {
+         let PreparedRequestConsumption {
+             record: expected,
+             nonce,
++            owner_pool,
+         } = consumption;
++        anyhow::ensure!(
++            Arc::ptr_eq(&self.pool, &owner_pool),
++            "prepared consumption runtime custody conflicts"
++        );
+         validate_text(&expected.preparation_id)?;
+         validate_request(&expected.request)?;
+         let mut connection = self.prepared_request_connection().await?;
+diff --git a/codex-rs/state/src/runtime/prepared_request_attempts_tests.rs b/codex-rs/state/src/runtime/prepared_request_attempts_tests.rs
+index b959cf6..4339a3c 100644
+--- a/codex-rs/state/src/runtime/prepared_request_attempts_tests.rs
++++ b/codex-rs/state/src/runtime/prepared_request_attempts_tests.rs
+@@ -266,9 +266,10 @@ async fn prepared_request_attempt_concurrent_consumers_produce_only_one_live_cla
+         other.consume_prepared_request(&prepared.preparation_id, &request, "witness")
+     );
+     assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
++    let owner = if first.is_ok() { &runtime } else { &other };
+     let handle = first.or(second).unwrap();
+     assert_eq!(
+-        other
++        owner
+             .commit_prepared_request_attempt(handle)
+             .await
+             .unwrap()
+@@ -280,6 +281,169 @@ async fn prepared_request_attempt_concurrent_consumers_produce_only_one_live_cla
+     runtime.close().await;
+ }
+ 
++#[tokio::test]
++async fn prepared_request_attempt_custody_rejects_independently_opened_runtime() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let other = open(&home).await;
++    let request = request();
++    let prepared = measured(&runtime, "custody-other-runtime", &request).await;
++    let handle = runtime
++        .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++        .await
++        .unwrap();
++    let consumed = handle.record().clone();
++    let error = other
++        .commit_prepared_request_attempt(handle)
++        .await
++        .err()
++        .expect("another runtime must not inherit live consumption custody");
++    assert_eq!(
++        error.to_string(),
++        "prepared consumption runtime custody conflicts"
++    );
++    assert_eq!(
++        runtime
++            .read_prepared_request("custody-other-runtime")
++            .await
++            .unwrap(),
++        Some(consumed)
++    );
++    assert!(
++        runtime
++            .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++            .await
++            .is_err()
++    );
++    assert_eq!(
++        other
++            .close_prepared_request(&prepared.preparation_id, &request)
++            .await
++            .unwrap(),
++        PreparedRequestClosure::ClosedWithoutAttempt
++    );
++    other.close().await;
++    runtime.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_attempt_custody_rejects_copy_after_original_closure() {
++    let home = unique_temp_dir();
++    let copied_home = unique_temp_dir();
++    std::fs::create_dir_all(&copied_home).unwrap();
++    let runtime = open(&home).await;
++    let request = request();
++    let prepared = measured(&runtime, "custody-copied-runtime", &request).await;
++    let handle = runtime
++        .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++        .await
++        .unwrap();
++    let consumed = handle.record().clone();
++    let nonce: String = sqlx::query_scalar(
++        "SELECT consumption_nonce FROM prepared_requests WHERE preparation_id = ?",
++    )
++    .bind(&prepared.preparation_id)
++    .fetch_one(runtime.pool.as_ref())
++    .await
++    .unwrap();
++    let copied_sqlite = crate::SqliteConfig::new_for_testing(copied_home.abs());
++    sqlx::query("VACUUM INTO ?")
++        .bind(copied_sqlite.state_db_path().to_str().unwrap())
++        .execute(runtime.pool.as_ref())
++        .await
++        .unwrap();
++    assert_eq!(
++        runtime
++            .close_prepared_request(&prepared.preparation_id, &request)
++            .await
++            .unwrap(),
++        PreparedRequestClosure::ClosedWithoutAttempt
++    );
++    let copied = open(&copied_home).await;
++    assert_eq!(
++        copied
++            .read_prepared_request("custody-copied-runtime")
++            .await
++            .unwrap(),
++        Some(consumed.clone())
++    );
++    assert_eq!(
++        sqlx::query_scalar::<_, String>(
++            "SELECT consumption_nonce FROM prepared_requests WHERE preparation_id = ?"
++        )
++        .bind(&prepared.preparation_id)
++        .fetch_one(copied.pool.as_ref())
++        .await
++        .unwrap(),
++        nonce
++    );
++    let error = copied
++        .commit_prepared_request_attempt(handle)
++        .await
++        .err()
++        .expect("a copied database must not inherit live consumption custody");
++    assert_eq!(
++        error.to_string(),
++        "prepared consumption runtime custody conflicts"
++    );
++    assert_eq!(
++        copied
++            .read_prepared_request("custody-copied-runtime")
++            .await
++            .unwrap(),
++        Some(consumed.clone())
++    );
++    let mut closed = consumed;
++    closed.attempt_state = PreparedRequestAttemptState::ClosedWithoutAttempt;
++    assert_eq!(
++        runtime
++            .read_prepared_request("custody-copied-runtime")
++            .await
++            .unwrap(),
++        Some(closed)
++    );
++    for owner in [&runtime, &copied] {
++        assert!(
++            owner
++                .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++                .await
++                .is_err()
++        );
++    }
++    copied.close().await;
++    runtime.close().await;
++}
++
++#[tokio::test]
++async fn prepared_request_attempt_custody_preserves_same_runtime_clones() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let cloned_runtime = runtime.as_ref().clone();
++    let request = request();
++    let prepared = measured(&runtime, "custody-runtime-clone", &request).await;
++    let handle = runtime
++        .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++        .await
++        .unwrap();
++    let attempt = cloned_runtime
++        .commit_prepared_request_attempt(handle)
++        .await
++        .unwrap();
++    assert_eq!(
++        attempt.record().attempt_state,
++        PreparedRequestAttemptState::Committed
++    );
++    assert_eq!(
++        runtime
++            .read_prepared_request("custody-runtime-clone")
++            .await
++            .unwrap()
++            .as_ref(),
++        Some(attempt.record())
++    );
++    runtime.close().await;
++}
++
+ #[tokio::test]
+ async fn prepared_request_attempt_restart_keeps_unattempted_consumption_unusable() {
+     let home = unique_temp_dir();
+diff --git a/codex-rs/state/src/runtime/prepared_requests.rs b/codex-rs/state/src/runtime/prepared_requests.rs
+index 171d14b..b6eafcd 100644
+--- a/codex-rs/state/src/runtime/prepared_requests.rs
++++ b/codex-rs/state/src/runtime/prepared_requests.rs
+@@ -12,6 +12,7 @@ use sqlx::Row;
+ use sqlx::Sqlite;
+ use sqlx::pool::PoolConnection;
+ use sqlx::sqlite::SqliteRow;
++use std::sync::Arc;
+ use uuid::Uuid;
+ 
+ const MAX_BODY_BYTES: usize = 4 * 1024 * 1024;
+@@ -222,7 +223,11 @@ impl StateRuntime {
+         anyhow::ensure!(result.rows_affected() == 1, "prepared consumption lost");
+         transaction.commit().await?;
+         record.consumed = true;
+-        Ok(PreparedRequestConsumption { record, nonce })
++        Ok(PreparedRequestConsumption {
++            record,
++            nonce,
++            owner_pool: Arc::clone(&self.pool),
++        })
+     }
+ 
+     /// Retain exact native admission independently from upstream provider acceptance.

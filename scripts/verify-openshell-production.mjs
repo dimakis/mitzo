@@ -207,7 +207,7 @@ function portableKnowledgePath(path) {
   if (/^(?:AGENTS|CLAUDE|CONSTITUTION|KNOWLEDGE|SERVICES|README)\.md$/.test(path)) return true;
   if (/^memory\/manifest\/(?:index|wikilinks|by_type|by_tag)\.json$/.test(path)) return true;
   if (/^memory\/(?!scripts\/|manifest\/).+\.md$/.test(path)) return true;
-  return /^(?:jira_process|slack_observe|architecture|professional(?:\/(?:blog|linkedin))?|patents|music|health|command_center|knowledge_space|okrs\/shared_eng_excellence)\/(?:(?:AGENTS|CLAUDE|CONSTITUTION)\.md|context\/.+\.md)$/.test(
+  return /^(?:jira_process|slack_observe|architecture|professional(?:\/(?:blog|linkedin))?|patents|music|health|home_assistant|command_center|knowledge_space|okrs\/shared_eng_excellence)\/(?:(?:AGENTS|CLAUDE|CONSTITUTION)\.md|context\/.+\.md)$/.test(
     path,
   );
 }

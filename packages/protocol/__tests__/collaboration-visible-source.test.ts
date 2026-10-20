@@ -172,7 +172,7 @@ it('stops SQLite delta hydration at the byte limit rather than collecting the en
   event(8, 'block_end', { messageId: 'a1', blockId: 'b1' });
   event(9, 'message_end', { messageId: 'a1' });
   let hydrated = 0;
-  db.function('observe_delta', (value: string) => {
+  db.function('observe_delta', (value: Buffer) => {
     hydrated++;
     return value;
   });
@@ -180,14 +180,14 @@ it('stops SQLite delta hydration at the byte limit rather than collecting the en
   vi.spyOn(db, 'prepare').mockImplementation((sql: string) =>
     prepare(
       sql.replace(
-        "THEN json_extract(payload,'$.delta') END AS delta",
-        "THEN observe_delta(json_extract(payload,'$.delta')) END AS delta",
+        "THEN CAST(json_extract(payload,'$.delta') AS BLOB) END AS delta",
+        "THEN observe_delta(CAST(json_extract(payload,'$.delta') AS BLOB)) END AS delta",
       ),
     ),
   );
   const source = openCollaborationVisibleSource(db, 'one', { sequence: 9, messageId: 'a1' });
   expect(() => source.readSelected(['a1'])).toThrow('capacity_refused');
-  expect(hydrated).toBe(2);
+  expect(hydrated).toBe(1);
 });
 
 it('charges escaped assistant content before consuming malformed later rows', () => {

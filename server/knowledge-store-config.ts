@@ -1,4 +1,5 @@
 /** Trusted host enrollment. Documents and provider messages cannot select stores or adapter programs. */
+import { cachedKnowledgeConversion } from './knowledge-adapter-cache.js';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
@@ -50,6 +51,7 @@ const MgmtConfig = z.object({
 export interface KnowledgeStore {
   id: string;
   reconcile(signal: AbortSignal): Promise<KnowledgeBundleSelection>;
+  prewarm?(signal: AbortSignal): Promise<unknown>;
 }
 function json(path: string): unknown {
   return JSON.parse(readFileSync(path, 'utf8'));
@@ -77,7 +79,8 @@ function privateState(path: string, workspaces: string[]): void {
   }
 }
 export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
-  const adapter = MgmtConfig.parse(json(config.config));
+  const adapterBytes = readFileSync(config.config, 'utf8');
+  const adapter = MgmtConfig.parse(JSON.parse(adapterBytes));
   if (adapter.sourceUrl !== sourceUrl)
     throw new Error('Knowledge adapter source differs from publisher');
   const workspaces = [
@@ -100,6 +103,8 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
     signal: AbortSignal,
   ): Promise<KnowledgeBundleSelection> => {
     signal.throwIfAborted();
+    if (readFileSync(config.config, 'utf8') !== adapterBytes)
+      throw Error('Knowledge adapter configuration changed; reload enrollment');
     privateState(adapter.root, workspaces);
     verifyPublications();
     const env = Object.fromEntries(
@@ -122,6 +127,12 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
       (await git('branch', '--show-current'))
     )
       throw new Error('Knowledge adapter requires its clean pinned detached release');
+    const cached = cachedKnowledgeConversion(
+      adapter.root,
+      { revision: selection.revision, builderCommit: adapter.builderCommit, sourceUrl },
+      signal,
+    );
+    if (cached) return cached;
     let output: {
       status?: string;
       publishedCommit?: string;
@@ -221,5 +232,9 @@ export function knowledgeStoreFromEnvironment(env: NodeJS.ProcessEnv): Knowledge
     },
     mgmtKnowledgeAdapter(selected.adapter, source.url),
   );
-  return { id: selected.id, reconcile: (signal) => bridge.reconcile(signal) };
+  return {
+    id: selected.id,
+    reconcile: (signal) => bridge.reconcile(signal),
+    prewarm: (signal) => bridge.prewarm(signal),
+  };
 }

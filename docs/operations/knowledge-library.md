@@ -1,5 +1,37 @@
 # Host Knowledge Library enrollment
 
+## Updates requested in chat
+
+Ordinary chats can use `ReadKnowledge` to find the intended accepted document and
+read its exact revision, then `SaveKnowledgeDraft` to save revised text directly
+into this Library's **Drafts** tab. This path uses the enrolled host source and
+private draft store, independently of the chat's writable checkout and its Git
+seed mapping. It requires the chat's current interactive operator authorization
+and session permissions. Ask mode permits reads only. An unavailable enrollment
+or expired authorization does not fall back to another repository or local note.
+
+The save receipt names the exact documents, draft ID, version, Library location
+and next action. A stable request UUID scoped to the conversation, account and
+enrolled source makes a lost-response retry recover the existing draft; changed
+payloads cannot overwrite it. Recovery verifies the persisted original proposal
+fingerprint and returns the current receipt even if accepted Git history was
+rewritten or the draft was edited later. Older saved requests without that
+fingerprint remain available in the Library but cannot use this recovery path.
+New proposals refresh and verify the accepted
+revision before saving. If it changed, read and reconcile the intended document
+again. The initial chat path updates existing accepted documents; use the Library
+editor for new documents and structural changes. Saved drafts remain available
+across chats and devices through the existing Library workflow.
+
+Saving does not submit review or accept knowledge. Open **Knowledge → Drafts**,
+select the named draft and choose **Send for review**. A local task file or commit
+is not a Library draft, and a review PR is not accepted, published or adopted
+knowledge. Chat instructions require reporting the confirmed state explicitly.
+Accepted source publication and delivery into supported chats remain separate
+verified operations described in [MGMT knowledge publication](mgmt-knowledge-publication.md).
+
+## Operator editing and review
+
 The Library is an operator surface for a curated accepted GitHub source. Its source is
 an independent private bare mirror. It never reads the application's task checkout,
 dirty files, model sandbox, or other worktrees. Accepted documents are Git objects on

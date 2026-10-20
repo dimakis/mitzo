@@ -148,6 +148,7 @@ jobs:
             test-results/offline/**/local-*.png
             test-results/offline/**/quick-chat-settings-*.png
             test-results/offline/**/quick-sheet-*.png
+            test-results/offline/**/prompt-preparation-*.png
           retention-days: 7
           if-no-files-found: ignore
 
@@ -185,6 +186,7 @@ jobs:
             test-results/offline/telos-outcomes-workspace*/output-return-*.png
             test-results/offline/telos-outcomes-workspace*/coordinator-labels-*.png
             test-results/offline/telos-outcomes-workspace*/saved-reference-return-*.png
+            test-results/offline/telos-outcomes-workspace*/priority-handoff-*.png
           retention-days: 7
           if-no-files-found: ignore
 

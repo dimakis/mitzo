@@ -1,0 +1,875 @@
+diff --git a/codex-rs/core/src/guardian/decision.rs b/codex-rs/core/src/guardian/decision.rs
+index 5ed142d..7e54caa 100644
+--- a/codex-rs/core/src/guardian/decision.rs
++++ b/codex-rs/core/src/guardian/decision.rs
+@@ -12,8 +12,34 @@ use super::GuardianReviewContext;
+ use super::GuardianReviewOptions;
+ use super::runtime::ReviewAction;
+ use super::runtime::ReviewRuntime;
++use crate::config::Config;
+ use crate::session::session::Session;
+ 
++/// Observations from the review owner, never evidence of permission to execute.
++pub(crate) struct ReviewRoutingResult {
++    disposition: codex_guardian_reviewer::ReviewDisposition,
++    used_config: Option<Arc<Config>>,
++}
++impl ReviewRoutingResult {
++    pub(crate) fn disposition(&self) -> &codex_guardian_reviewer::ReviewDisposition {
++        &self.disposition
++    }
++    pub(crate) fn used_config(&self) -> Option<&Arc<Config>> {
++        self.used_config.as_ref()
++    }
++    pub(crate) fn into_legacy_decision(self) -> Option<ReviewDecision> {
++        self.disposition.into_legacy_decision()
++    }
++    pub(crate) fn worker_failed() -> Self {
++        Self {
++            disposition: codex_guardian_reviewer::ReviewDisposition::Decision(
++                ReviewDecision::denied("automatic approval review could not complete"),
++            ),
++            used_config: None,
++        }
++    }
++}
++
+ pub(crate) fn spawn_approval_decision(
+     session: Arc<Session>,
+     context: impl Into<GuardianReviewContext>,
+@@ -22,6 +48,45 @@ pub(crate) fn spawn_approval_decision(
+     reasons: ApprovalRequestReasons,
+     options: GuardianReviewOptions,
+ ) -> oneshot::Receiver<Option<ReviewDecision>> {
++    spawn_approval_routing(
++        session,
++        context,
++        review_id,
++        request,
++        reasons,
++        options,
++        ReviewRoutingResult::into_legacy_decision,
++    )
++}
++
++pub(crate) fn spawn_approval_decision_with_routing(
++    session: Arc<Session>,
++    context: impl Into<GuardianReviewContext>,
++    review_id: String,
++    request: impl Into<super::ReviewAction>,
++    reasons: ApprovalRequestReasons,
++    options: GuardianReviewOptions,
++) -> oneshot::Receiver<ReviewRoutingResult> {
++    spawn_approval_routing(
++        session,
++        context,
++        review_id,
++        request,
++        reasons,
++        options,
++        std::convert::identity,
++    )
++}
++
++fn spawn_approval_routing<T: Send + 'static>(
++    session: Arc<Session>,
++    context: impl Into<GuardianReviewContext>,
++    review_id: String,
++    request: impl Into<super::ReviewAction>,
++    reasons: ApprovalRequestReasons,
++    options: GuardianReviewOptions,
++    project: fn(ReviewRoutingResult) -> T,
++) -> oneshot::Receiver<T> {
+     let context: GuardianReviewContext = context.into();
+     let request: ReviewAction = request.into();
+     let (tx, rx) = oneshot::channel();
+@@ -30,10 +95,10 @@ pub(crate) fn spawn_approval_decision(
+         .name("codex-approval-review".to_string())
+         .stack_size(THREAD_STACK_SIZE_BYTES)
+         .spawn(move || {
+-            let decision = runtime.block_on(decide_approval(
++            let decision = runtime.block_on(decide_approval_with_routing(
+                 session, context, review_id, request, reasons, options,
+             ));
+-            let _ = tx.send(decision);
++            let _ = tx.send(project(decision));
+         });
+     if let Err(err) = spawn_result {
+         tracing::error!(%err, "failed to spawn automatic approval review worker");
+@@ -50,20 +115,33 @@ pub(crate) async fn decide_approval(
+     reasons: ApprovalRequestReasons,
+     options: GuardianReviewOptions,
+ ) -> Option<ReviewDecision> {
+-    super::decide_approval_with_disposition(session, context, review_id, request, reasons, options)
++    decide_approval_with_routing(session, context, review_id, request, reasons, options)
+         .await
+         .into_legacy_decision()
+ }
+ 
+ /// Retains the routing reason without granting any additional approval authority.
+ pub(crate) async fn decide_approval_with_disposition(
++    session: Arc<Session>,
++    context: impl Into<GuardianReviewContext>,
++    review_id: String,
++    request: impl Into<super::ReviewAction>,
++    reasons: ApprovalRequestReasons,
++    options: GuardianReviewOptions,
++) -> codex_guardian_reviewer::ReviewDisposition {
++    decide_approval_with_routing(session, context, review_id, request, reasons, options)
++        .await
++        .disposition
++}
++
++pub(crate) async fn decide_approval_with_routing(
+     session: Arc<Session>,
+     context: impl Into<GuardianReviewContext>,
+     review_id: String,
+     request: impl Into<ReviewAction>,
+     reasons: ApprovalRequestReasons,
+     mut options: GuardianReviewOptions,
+-) -> codex_guardian_reviewer::ReviewDisposition {
++) -> ReviewRoutingResult {
+     let context = context.into();
+     let request = request.into();
+     let (_, history_reset) = session.history_reset().await;
+@@ -139,9 +217,13 @@ pub(crate) async fn decide_approval_with_disposition(
+     .decide_with_disposition(&session.services.extensions)
+     .await;
+     // Enforce cancellation after extension callbacks too, including cached decisions.
+-    if history_reset.is_cancelled() || cancellation.is_cancelled() {
++    let disposition = if history_reset.is_cancelled() || cancellation.is_cancelled() {
+         codex_guardian_reviewer::ReviewDisposition::Decision(ReviewDecision::Abort)
+     } else {
+         decision
++    };
++    ReviewRoutingResult {
++        disposition,
++        used_config: Some(live_config),
+     }
+ }
+diff --git a/codex-rs/core/src/guardian/mod.rs b/codex-rs/core/src/guardian/mod.rs
+index 5e89266..ab7aed7 100644
+--- a/codex-rs/core/src/guardian/mod.rs
++++ b/codex-rs/core/src/guardian/mod.rs
+@@ -47,9 +47,12 @@ pub(crate) use approval_request::GuardianMcpAnnotations;
+ pub(crate) use approval_request::GuardianNetworkAccessTrigger;
+ #[cfg(test)]
+ pub(crate) use approval_request::guardian_approval_request_to_json;
++pub(crate) use decision::ReviewRoutingResult;
+ pub(crate) use decision::decide_approval;
+ pub(crate) use decision::decide_approval_with_disposition;
++pub(crate) use decision::decide_approval_with_routing;
+ pub(crate) use decision::spawn_approval_decision;
++pub(crate) use decision::spawn_approval_decision_with_routing;
+ pub(crate) use prompt::guardian_truncate_text;
+ pub(crate) use review::GuardianReviewOptions;
+ pub(crate) use review::is_basic_session_source;
+diff --git a/codex-rs/core/src/hook_runtime.rs b/codex-rs/core/src/hook_runtime.rs
+index 30c4162..c0b661d 100644
+--- a/codex-rs/core/src/hook_runtime.rs
++++ b/codex-rs/core/src/hook_runtime.rs
+@@ -255,12 +255,36 @@ fn tool_hook_cwd(environments: &TurnEnvironmentSnapshot, turn: &TurnContext) ->
+ // PermissionRequest hooks share the same preview/start/completed event flow as
+ // other hook types, but they return an optional decision instead of mutating
+ // tool input or post-run state.
++pub(crate) struct PermissionRequestHookResult {
++    decision: Option<PermissionRequestDecision>,
++    matching_handler_count: usize,
++}
++impl PermissionRequestHookResult {
++    pub(crate) fn matching_handler_count(&self) -> usize {
++        self.matching_handler_count
++    }
++    pub(crate) fn into_decision(self) -> Option<PermissionRequestDecision> {
++        self.decision
++    }
++}
++
+ pub(crate) async fn run_permission_request_hooks(
+     sess: &Arc<Session>,
+     review_context: &GuardianReviewContext,
+     run_id_suffix: &str,
+     payload: PermissionRequestPayload,
+ ) -> Option<PermissionRequestDecision> {
++    run_permission_request_hooks_with_metadata(sess, review_context, run_id_suffix, payload)
++        .await
++        .into_decision()
++}
++
++pub(crate) async fn run_permission_request_hooks_with_metadata(
++    sess: &Arc<Session>,
++    review_context: &GuardianReviewContext,
++    run_id_suffix: &str,
++    payload: PermissionRequestPayload,
++) -> PermissionRequestHookResult {
+     let turn_context = review_context.turn();
+     let request = PermissionRequestRequest {
+         session_id: sess.session_id().into(),
+@@ -277,6 +301,7 @@ pub(crate) async fn run_permission_request_hooks(
+     };
+     let hooks = sess.hooks();
+     let preview_runs = hooks.preview_permission_request(&request);
++    let matching_handler_count = preview_runs.len();
+     emit_hook_started_events(sess, turn_context, preview_runs).await;
+ 
+     let PermissionRequestOutcome {
+@@ -285,7 +310,10 @@ pub(crate) async fn run_permission_request_hooks(
+     } = hooks.run_permission_request(request).await;
+     emit_hook_completed_events(sess, turn_context, hook_events).await;
+ 
+-    decision
++    PermissionRequestHookResult {
++        decision,
++        matching_handler_count,
++    }
+ }
+ 
+ /// Runs matching `PostToolUse` hooks after a tool has produced a successful output.
+diff --git a/codex-rs/core/src/tools/approvals.rs b/codex-rs/core/src/tools/approvals.rs
+index 8bea9d2..c2612d4 100644
+--- a/codex-rs/core/src/tools/approvals.rs
++++ b/codex-rs/core/src/tools/approvals.rs
+@@ -5,10 +5,11 @@ use crate::exec_policy::prompt_is_rejected_by_policy;
+ use crate::guardian::GuardianNetworkAccessTrigger;
+ use crate::guardian::GuardianReviewContext;
+ use crate::guardian::GuardianReviewOptions;
+-use crate::guardian::decide_approval;
++use crate::guardian::ReviewRoutingResult;
++use crate::guardian::decide_approval_with_routing;
+ use crate::guardian::new_guardian_review_id;
+-use crate::guardian::spawn_approval_decision;
+-use crate::hook_runtime::run_permission_request_hooks;
++use crate::guardian::spawn_approval_decision_with_routing;
++use crate::hook_runtime::run_permission_request_hooks_with_metadata;
+ use crate::mcp_tool_call::request_mcp_tool_user_approval;
+ use crate::sandboxing::SandboxPermissions;
+ use crate::session::session::Session;
+@@ -544,14 +545,14 @@ impl Session {
+         // Approval precedence is:
+         // 1. Hooks
+         // 2. If StrictAutoReview || Guardian enabled, then Guardian. Else, user.
+-        let resolution = match run_permission_request_hooks(
++        let permission_request_hooks = run_permission_request_hooks_with_metadata(
+             self,
+             &ctx.review_context,
+             &permission_request_run_id,
+             action.permission_request_payload(),
+         )
+-        .await
+-        {
++        .await;
++        let resolution = match permission_request_hooks.into_decision() {
+             Some(PermissionRequestDecision::Allow) => ApprovalResolution {
+                 decision: ReviewDecision::Approved,
+                 source: ApprovalResolutionSource::Hook,
+@@ -633,6 +634,16 @@ impl Session {
+         action: ApprovalAction,
+         ctx: &ApprovalContext,
+     ) -> Option<ReviewDecision> {
++        self.request_guardian_approval_with_routing(action, ctx)
++            .await
++            .into_legacy_decision()
++    }
++
++    pub(crate) async fn request_guardian_approval_with_routing(
++        self: &Arc<Self>,
++        action: ApprovalAction,
++        ctx: &ApprovalContext,
++    ) -> ReviewRoutingResult {
+         let mut context = ctx.review_context.clone();
+         if let ApprovalAction::McpToolCall {
+             approval_policy,
+@@ -686,7 +697,7 @@ impl Session {
+             require_synchronous_review: false,
+         };
+         if ctx.cancellation_token.is_some() {
+-            spawn_approval_decision(
++            spawn_approval_decision_with_routing(
+                 Arc::clone(self),
+                 context,
+                 review_id,
+@@ -695,15 +706,11 @@ impl Session {
+                 options,
+             )
+             .await
+-            .unwrap_or_else(|_| {
+-                Some(ReviewDecision::denied(
+-                    "automatic approval review could not complete",
+-                ))
+-            })
++            .unwrap_or_else(|_| ReviewRoutingResult::worker_failed())
+         } else if is_network_approval {
+             let review_cancel = CancellationToken::new();
+             let review_cancel_guard = review_cancel.clone().drop_guard();
+-            let review = tokio::spawn(decide_approval(
++            let review = tokio::spawn(decide_approval_with_routing(
+                 Arc::clone(self),
+                 context,
+                 review_id,
+@@ -716,14 +723,12 @@ impl Session {
+             ));
+             let decision = review.await.unwrap_or_else(|err| {
+                 warn!("network Guardian review task failed: {err}");
+-                Some(ReviewDecision::denied(
+-                    "automatic approval review could not complete",
+-                ))
++                ReviewRoutingResult::worker_failed()
+             });
+             drop(review_cancel_guard.disarm());
+             decision
+         } else {
+-            decide_approval(
++            decide_approval_with_routing(
+                 Arc::clone(self),
+                 context,
+                 review_id,
+@@ -946,3 +951,7 @@ fn record_resolution(ctx: &ApprovalContext, resolution: &ApprovalResolution) {
+ #[cfg(all(test, unix))]
+ #[path = "approvals_tests.rs"]
+ mod tests;
++
++#[cfg(all(test, unix))]
++#[path = "approvals/parent_routing_tests.rs"]
++mod parent_routing_tests;
+diff --git a/codex-rs/core/src/tools/approvals/parent_routing_tests.rs b/codex-rs/core/src/tools/approvals/parent_routing_tests.rs
+new file mode 100644
+index 0000000..a8d798e
+--- /dev/null
++++ b/codex-rs/core/src/tools/approvals/parent_routing_tests.rs
+@@ -0,0 +1,536 @@
++//! Actual review and trusted hook owners produce observations; no grants are constructed.
++use super::*;
++use crate::guardian::ReviewRoutingResult;
++use crate::hook_runtime::run_permission_request_hooks_with_metadata;
++use crate::session::step_context::StepContext;
++use crate::session::tests::make_session_and_context_with_auth_and_config_and_rx;
++use codex_extension_api::ApprovalDecision;
++use codex_extension_api::ApprovalReviewContributor;
++use codex_guardian_reviewer::ReviewDisposition;
++use codex_guardian_reviewer::UserPromptDisposition;
++use codex_protocol::models::PermissionProfile;
++use codex_protocol::protocol::Event;
++use pretty_assertions::assert_eq;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++use tokio::sync::Notify;
++use tokio::time::Duration;
++
++struct ReleaseOnDrop(Arc<Notify>);
++impl Drop for ReleaseOnDrop {
++    fn drop(&mut self) {
++        self.0.notify_one();
++    }
++}
++
++struct Contributor {
++    decision: Option<ApprovalDecision>,
++    calls: Arc<AtomicUsize>,
++    gate: Option<(Arc<Notify>, Arc<Notify>)>,
++    panic: bool,
++}
++impl ApprovalReviewContributor for Contributor {
++    fn decide<'a>(
++        &'a self,
++        _input: &'a codex_extension_api::ApprovalDecisionInput<'_>,
++    ) -> codex_extension_api::ExtensionFuture<'a, Option<ApprovalDecision>> {
++        Box::pin(async move {
++            self.calls.fetch_add(1, Ordering::SeqCst);
++            if let Some((entered, release)) = &self.gate {
++                entered.notify_one();
++                release.notified().await;
++            }
++            assert!(!self.panic, "intentional review worker failure");
++            self.decision.clone()
++        })
++    }
++}
++struct Fixture {
++    session: Arc<Session>,
++    step: Arc<StepContext>,
++    calls: Arc<AtomicUsize>,
++    _events: async_channel::Receiver<Event>,
++}
++impl Fixture {
++    async fn new(
++        decision: Option<ApprovalDecision>,
++        gate: Option<(Arc<Notify>, Arc<Notify>)>,
++        panic: bool,
++    ) -> anyhow::Result<Self> {
++        let (mut session, turn, events) = make_session_and_context_with_auth_and_config_and_rx(
++            codex_login::CodexAuth::from_api_key("offline-test"),
++            Vec::new(),
++            |config| {
++                config.permissions.approval_policy =
++                    codex_config::Constrained::allow_any(AskForApproval::OnRequest);
++                config.approvals_reviewer = ApprovalsReviewer::User;
++                config
++                    .permissions
++                    .set_permission_profile(PermissionProfile::read_only())
++                    .expect("test permissions");
++            },
++        )
++        .await;
++        let calls = Arc::new(AtomicUsize::new(0));
++        let mut registry = codex_extension_api::ExtensionRegistryBuilder::new();
++        registry.approval_review_contributor(Arc::new(Contributor {
++            decision,
++            calls: Arc::clone(&calls),
++            gate,
++            panic,
++        }));
++        Arc::get_mut(&mut session)
++            .ok_or_else(|| anyhow::anyhow!("unshared fixture"))?
++            .services
++            .extensions = Arc::new(registry.build());
++        Ok(Self {
++            session,
++            step: StepContext::for_test(turn),
++            calls,
++            _events: events,
++        })
++    }
++    fn action(&self) -> ApprovalAction {
++        ApprovalAction::ExecCommand {
++            id: "routing".into(),
++            environment_id: codex_exec_server::LOCAL_ENVIRONMENT_ID.into(),
++            command: vec!["offline-command".into()],
++            hook_command: "offline-command".into(),
++            cwd: self
++                .step
++                .environments
++                .primary()
++                .expect("local environment")
++                .cwd()
++                .clone(),
++            sandbox_permissions: SandboxPermissions::UseDefault,
++            additional_permissions: None,
++            justification: None,
++            tty: false,
++            proposed_execpolicy_amendment: None,
++        }
++    }
++    fn context(&self, cancellation_token: Option<CancellationToken>) -> ApprovalContext {
++        ApprovalContext {
++            review_context: GuardianReviewContext::from(&self.step),
++            cancellation_token,
++            call_id: "routing".into(),
++            tool_name: ToolName::plain("exec_command"),
++            strict_auto_review: false,
++            approval_reason: None,
++            retry_reason: None,
++            network_approval_context: None,
++        }
++    }
++    async fn typed(&self, ctx: &ApprovalContext) -> ReviewRoutingResult {
++        self.session
++            .request_guardian_approval_with_routing(self.action(), ctx)
++            .await
++    }
++    fn trusted_hooks(&self, commands: Vec<(String, bool)>) -> anyhow::Result<tempfile::TempDir> {
++        let home = tempfile::tempdir()?;
++        let config_path =
++            AbsolutePathBuf::try_from(home.path().join(codex_config::CONFIG_TOML_FILE))?;
++        let stack = self
++            .step
++            .turn
++            .config
++            .config_layer_stack
++            .with_user_config(&config_path, serde_json::from_value(serde_json::json!({}))?)?;
++        std::fs::write(home.path().join("hooks.json"), serde_json::json!({"hooks":{"PermissionRequest":[{"matcher":"Bash", "hooks": commands.into_iter().map(|(command, asynchronous)| serde_json::json!({"type":"command", "command":command, "async":asynchronous})).collect::<Vec<_>>()}]}}).to_string())?;
++        let listed = codex_hooks::list_hooks(codex_hooks::HooksConfig {
++            feature_enabled: true,
++            config_layer_stack: Some(stack.clone()),
++            ..Default::default()
++        });
++        assert!(!listed.hooks.is_empty());
++        let states = listed
++            .hooks
++            .iter()
++            .map(|hook| {
++                (
++                    hook.key.clone(),
++                    serde_json::json!({"trusted_hash":hook.current_hash}),
++                )
++            })
++            .collect::<serde_json::Map<_, _>>();
++        let stack = stack.with_user_config(
++            &config_path,
++            serde_json::from_value(serde_json::json!({"hooks":{"state":states}}))?,
++        )?;
++        let hooks = self.session.hooks().reconfigured(codex_hooks::HooksConfig {
++            feature_enabled: true,
++            config_layer_stack: Some(stack),
++            shell_program: Some("/bin/sh".into()),
++            shell_args: vec!["-c".into()],
++            ..Default::default()
++        });
++        self.session.services.hooks.store(Arc::new(hooks));
++        Ok(home)
++    }
++}
++
++#[tokio::test]
++async fn typed_and_legacy_routes_execute_each_actual_contributor_once() -> anyhow::Result<()> {
++    for cancellation in [None, Some(CancellationToken::new())] {
++        for (decision, expected) in [
++            (
++                None,
++                ReviewDisposition::UserPrompt(UserPromptDisposition::NoContributorDefaultUser {
++                    fresh_review_required: false,
++                }),
++            ),
++            (
++                Some(ApprovalDecision::AskUser),
++                ReviewDisposition::UserPrompt(UserPromptDisposition::ContributorAskUser),
++            ),
++            (
++                Some(ApprovalDecision::Reviewed(ReviewDecision::Approved)),
++                ReviewDisposition::Decision(ReviewDecision::Approved),
++            ),
++        ] {
++            let fixture = Fixture::new(decision, /*gate*/ None, /*panic*/ false).await?;
++            let ctx = fixture.context(cancellation.clone());
++            let config = fixture.session.get_config().await;
++            let typed = fixture.typed(&ctx).await;
++            assert_eq!(typed.disposition(), &expected);
++            assert!(Arc::ptr_eq(
++                typed.used_config().expect("actual selected config"),
++                &config
++            ));
++            assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
++            let legacy = fixture
++                .session
++                .request_guardian_approval(fixture.action(), &ctx)
++                .await;
++            assert_eq!(legacy, expected.into_legacy_decision());
++            assert_eq!(fixture.calls.load(Ordering::SeqCst), 2);
++        }
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn real_review_retains_config_selected_before_contributor_await() -> anyhow::Result<()> {
++    let entered = Arc::new(Notify::new());
++    let release = Arc::new(Notify::new());
++    let fixture = Fixture::new(
++        None,
++        Some((Arc::clone(&entered), Arc::clone(&release))),
++        /*panic*/ false,
++    )
++    .await?;
++    let _release_on_drop = ReleaseOnDrop(Arc::clone(&release));
++    let original = fixture.session.get_config().await;
++    let ctx = fixture.context(/*cancellation_token*/ None);
++    let review = fixture.typed(&ctx);
++    tokio::pin!(review);
++    tokio::time::timeout(Duration::from_secs(5), async {
++        tokio::select! { _ = entered.notified() => {}, _ = &mut review => panic!("review completed before contributor gate") }
++    }).await?;
++    fixture
++        .session
++        .refresh_runtime_config(original.as_ref().clone())
++        .await;
++    assert!(!Arc::ptr_eq(&original, &fixture.session.get_config().await));
++    release.notify_one();
++    let result = tokio::time::timeout(Duration::from_secs(5), review).await?;
++    assert!(Arc::ptr_eq(
++        result.used_config().expect("issuing config"),
++        &original
++    ));
++    assert_eq!(
++        result.disposition(),
++        &ReviewDisposition::UserPrompt(UserPromptDisposition::NoContributorDefaultUser {
++            fresh_review_required: false
++        })
++    );
++    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
++    Ok(())
++}
++
++#[tokio::test]
++async fn worker_failure_has_no_selected_config_and_does_not_rerun_contributors()
++-> anyhow::Result<()> {
++    for network_join in [false, true] {
++        let fixture = Fixture::new(None, /*gate*/ None, /*panic*/ true).await?;
++        let (action, ctx) = if network_join {
++            (
++                ApprovalAction::NetworkAccess {
++                    id: "network-worker".into(),
++                    turn_id: fixture.step.turn.sub_id.clone(),
++                    environment_id: codex_exec_server::LOCAL_ENVIRONMENT_ID.into(),
++                    target: "https://offline.invalid".into(),
++                    host: "offline.invalid".into(),
++                    protocol: NetworkApprovalProtocol::Https,
++                    port: 443,
++                    trigger: None,
++                    hook_command: "offline-command".into(),
++                    hook_run_id: "network-worker".into(),
++                    command: vec!["offline-command".into()],
++                    cwd: fixture
++                        .step
++                        .environments
++                        .primary()
++                        .expect("local environment")
++                        .cwd()
++                        .to_abs_path()?,
++                },
++                fixture.context(/*cancellation_token*/ None),
++            )
++        } else {
++            (
++                fixture.action(),
++                fixture.context(Some(CancellationToken::new())),
++            )
++        };
++        let result = tokio::time::timeout(
++            Duration::from_secs(5),
++            fixture
++                .session
++                .request_guardian_approval_with_routing(action, &ctx),
++        )
++        .await?;
++        assert_eq!(
++            result.disposition(),
++            &ReviewDisposition::Decision(ReviewDecision::denied(
++                "automatic approval review could not complete"
++            ))
++        );
++        assert!(result.used_config().is_none());
++        assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn cancelled_review_retains_actual_snapshot_without_default_user_route() -> anyhow::Result<()>
++{
++    let entered = Arc::new(Notify::new());
++    let release = Arc::new(Notify::new());
++    let fixture = Fixture::new(
++        None,
++        Some((Arc::clone(&entered), Arc::clone(&release))),
++        /*panic*/ false,
++    )
++    .await?;
++    let _release_on_drop = ReleaseOnDrop(Arc::clone(&release));
++    let config = fixture.session.get_config().await;
++    let cancellation = CancellationToken::new();
++    let ctx = fixture.context(Some(cancellation.clone()));
++    let review = fixture.typed(&ctx);
++    tokio::pin!(review);
++    tokio::time::timeout(Duration::from_secs(5), async { tokio::select! { _ = entered.notified() => {}, _ = &mut review => panic!("review ended before gate") } }).await?;
++    cancellation.cancel();
++    let (_, history_reset) = fixture.session.history_reset().await;
++    history_reset.cancel();
++    release.notify_one();
++    let result = tokio::time::timeout(Duration::from_secs(5), review).await?;
++    assert_eq!(
++        result.disposition(),
++        &ReviewDisposition::Decision(ReviewDecision::Abort)
++    );
++    assert!(Arc::ptr_eq(
++        result.used_config().expect("actual snapshot"),
++        &config
++    ));
++    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
++    Ok(())
++}
++
++#[tokio::test]
++async fn original_fresh_review_reason_survives_typed_projection() -> anyhow::Result<()> {
++    let fixture = Fixture::new(None, /*gate*/ None, /*panic*/ false).await?;
++    let mut action = fixture.action();
++    if let ApprovalAction::ExecCommand {
++        sandbox_permissions,
++        ..
++    } = &mut action
++    {
++        *sandbox_permissions = SandboxPermissions::RequireEscalated;
++    }
++    let result = fixture
++        .session
++        .request_guardian_approval_with_routing(
++            action,
++            &fixture.context(/*cancellation_token*/ None),
++        )
++        .await;
++    assert_eq!(
++        result.disposition(),
++        &ReviewDisposition::UserPrompt(UserPromptDisposition::NoContributorDefaultUser {
++            fresh_review_required: true
++        })
++    );
++    assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
++    Ok(())
++}
++
++#[tokio::test]
++async fn no_permission_request_handler_has_zero_matching_count() -> anyhow::Result<()> {
++    let fixture = Fixture::new(None, /*gate*/ None, /*panic*/ false).await?;
++    let ctx = fixture.context(/*cancellation_token*/ None);
++    let typed = run_permission_request_hooks_with_metadata(
++        &fixture.session,
++        &ctx.review_context,
++        "none",
++        fixture.action().permission_request_payload(),
++    )
++    .await;
++    assert_eq!(typed.matching_handler_count(), 0);
++    assert_eq!(typed.into_decision(), None);
++    assert_eq!(
++        crate::hook_runtime::run_permission_request_hooks(
++            &fixture.session,
++            &ctx.review_context,
++            "legacy-none",
++            fixture.action().permission_request_payload()
++        )
++        .await,
++        None
++    );
++    assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
++    Ok(())
++}
++
++#[tokio::test]
++async fn matching_trusted_handlers_keep_count_when_declining_failing_or_async() -> anyhow::Result<()>
++{
++    for (output, asynchronous) in [
++        ("printf '{}'", false),
++        ("exit 7", false),
++        ("printf '{}'", true),
++    ] {
++        let fixture = Fixture::new(
++            Some(ApprovalDecision::Reviewed(ReviewDecision::Approved)),
++            /*gate*/ None,
++            /*panic*/ false,
++        )
++        .await?;
++        let counter = tempfile::tempdir()?;
++        let hits = counter.path().join("hits");
++        let quoted = hits.to_string_lossy().replace('\'', "'\\''");
++        let _home = fixture.trusted_hooks(vec![(
++            format!("cat >/dev/null; printf 'hit\\n' >> '{quoted}'; {output}"),
++            asynchronous,
++        )])?;
++        let ctx = fixture.context(/*cancellation_token*/ None);
++        let typed = run_permission_request_hooks_with_metadata(
++            &fixture.session,
++            &ctx.review_context,
++            "typed",
++            fixture.action().permission_request_payload(),
++        )
++        .await;
++        assert_eq!(typed.matching_handler_count(), 1);
++        assert_eq!(typed.into_decision(), None);
++        if asynchronous {
++            tokio::time::timeout(
++                Duration::from_secs(5),
++                fixture.session.async_hook_results.recv(),
++            )
++            .await??;
++        }
++        assert_eq!(std::fs::read_to_string(&hits)?, "hit\n");
++        let legacy = crate::hook_runtime::run_permission_request_hooks(
++            &fixture.session,
++            &ctx.review_context,
++            "legacy",
++            fixture.action().permission_request_payload(),
++        )
++        .await;
++        assert_eq!(legacy, None);
++        if asynchronous {
++            tokio::time::timeout(
++                Duration::from_secs(5),
++                fixture.session.async_hook_results.recv(),
++            )
++            .await??;
++        }
++        assert_eq!(std::fs::read_to_string(&hits)?, "hit\nhit\n");
++        assert_eq!(
++            fixture
++                .session
++                .request_approval(fixture.action(), ctx)
++                .await
++                .map_err(|err| anyhow::anyhow!("approval: {err:?}"))?,
++            ReviewDecision::Approved
++        );
++        if asynchronous {
++            tokio::time::timeout(
++                Duration::from_secs(5),
++                fixture.session.async_hook_results.recv(),
++            )
++            .await??;
++        }
++        assert_eq!(std::fs::read_to_string(&hits)?, "hit\nhit\nhit\n");
++        assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn trusted_hook_allow_deny_precedence_bypasses_contributors_once() -> anyhow::Result<()> {
++    for deny in [false, true] {
++        let fixture = Fixture::new(
++            Some(ApprovalDecision::AskUser),
++            /*gate*/ None,
++            /*panic*/ false,
++        )
++        .await?;
++        let counter = tempfile::tempdir()?;
++        let hits = counter.path().join("hits");
++        let quoted = hits.to_string_lossy().replace('\'', "'\\''");
++        let command = |behavior: &str| {
++            format!(
++                "cat >/dev/null; printf 'hit\\n' >> '{quoted}'; printf '%s\\n' '{{\"hookSpecificOutput\":{{\"hookEventName\":\"PermissionRequest\",\"decision\":{{\"behavior\":\"{behavior}\",\"message\":\"trusted denied\"}}}}}}'"
++            )
++        };
++        let mut commands = vec![(command("allow"), false)];
++        if deny {
++            commands.push((command("deny"), false));
++        }
++        let _home = fixture.trusted_hooks(commands)?;
++        let typed = run_permission_request_hooks_with_metadata(
++            &fixture.session,
++            &GuardianReviewContext::from(&fixture.step),
++            "typed-verdict",
++            fixture.action().permission_request_payload(),
++        )
++        .await;
++        assert_eq!(typed.matching_handler_count(), if deny { 2 } else { 1 });
++        assert_eq!(
++            typed.into_decision(),
++            Some(if deny {
++                PermissionRequestDecision::Deny {
++                    message: "trusted denied".into(),
++                }
++            } else {
++                PermissionRequestDecision::Allow
++            })
++        );
++        let result = fixture
++            .session
++            .request_approval(
++                fixture.action(),
++                fixture.context(/*cancellation_token*/ None),
++            )
++            .await;
++        if deny {
++            assert!(
++                matches!(result, Err(ToolError::Rejected(message)) if message == "trusted denied")
++            );
++        } else {
++            assert_eq!(
++                result.map_err(|err| anyhow::anyhow!("approval: {err:?}"))?,
++                ReviewDecision::Approved
++            );
++        }
++        assert_eq!(
++            std::fs::read_to_string(&hits)?.lines().count(),
++            if deny { 4 } else { 2 }
++        );
++        assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
++    }
++    Ok(())
++}

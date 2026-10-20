@@ -1,0 +1,316 @@
+diff --git a/codex-rs/linux-sandbox/src/bwrap.rs b/codex-rs/linux-sandbox/src/bwrap.rs
+index 319b6af..324c4ca 100644
+--- a/codex-rs/linux-sandbox/src/bwrap.rs
++++ b/codex-rs/linux-sandbox/src/bwrap.rs
+@@ -42,6 +42,9 @@ use globset::GlobBuilder;
+ use globset::GlobSet;
+ use globset::GlobSetBuilder;
+ 
++#[path = "bwrap_literal_glob.rs"]
++mod literal_glob;
++
+ /// Linux "platform defaults" that keep common system binaries and dynamic
+ /// libraries readable when a split filesystem policy requests `:minimal`.
+ ///
+@@ -899,7 +902,23 @@ fn expand_unreadable_globs_with_ripgrep(
+     // metacharacter. That keeps scans narrow, avoids searching from `/`, and
+     // lets one `rg --files` call handle all patterns under the same root.
+     let mut patterns_by_search_root: BTreeMap<AbsolutePathBuf, Vec<String>> = BTreeMap::new();
++    let mut expanded_paths = BTreeSet::new();
+     for pattern in patterns {
++        if !pattern
++            .chars()
++            .any(|ch| matches!(ch, '*' | '?' | '[' | ']'))
++        {
++            if let Some(path) = literal_glob::expand(pattern, cwd)? {
++                expanded_paths.insert(path);
++                if expanded_paths.len() > MAX_UNREADABLE_GLOB_MATCHES {
++                    return Err(CodexErr::Fatal(format!(
++                        "unreadable glob expansion for {} matched more than {MAX_UNREADABLE_GLOB_MATCHES} paths",
++                        cwd.display()
++                    )));
++                }
++            }
++            continue;
++        }
+         let Some((search_root, glob)) = split_pattern_for_ripgrep(pattern, cwd) else {
+             return Err(CodexErr::Fatal(format!(
+                 "unreadable glob `{pattern}` cannot be safely expanded; use a pattern with a non-root directory prefix"
+@@ -916,7 +935,6 @@ fn expand_unreadable_globs_with_ripgrep(
+     // Record both the logical match and any canonical symlink target. The bwrap
+     // overlay needs the resolved target to prevent a readable symlink path from
+     // bypassing an unreadable glob match.
+-    let mut expanded_paths = BTreeSet::new();
+     for (search_root, globs) in patterns_by_search_root {
+         for path in ripgrep_files(search_root.as_path(), &globs, max_depth)? {
+             if let Some(target) = canonical_target_if_symlinked_path(path.as_path()) {
+@@ -1505,6 +1523,10 @@ fn find_first_non_existent_component(target_path: &Path) -> Option<PathBuf> {
+     None
+ }
+ 
++#[cfg(test)]
++#[path = "bwrap_literal_glob_tests.rs"]
++mod literal_glob_tests;
++
+ #[cfg(test)]
+ #[path = "bwrap_wslg_tests.rs"]
+ mod wslg_tests;
+diff --git a/codex-rs/linux-sandbox/src/bwrap_literal_glob.rs b/codex-rs/linux-sandbox/src/bwrap_literal_glob.rs
+new file mode 100644
+index 0000000..ebfb164
+--- /dev/null
++++ b/codex-rs/linux-sandbox/src/bwrap_literal_glob.rs
+@@ -0,0 +1,62 @@
++//! Conservative singleton expansion for the Linux launch-time glob overlay.
++
++use codex_protocol::error::CodexErr;
++use codex_protocol::error::Result;
++use codex_utils_absolute_path::AbsolutePathBuf;
++use std::fs;
++use std::io;
++use std::path::Path;
++use std::path::PathBuf;
++
++/// Retains a current regular-file match without following any path aliases.
++/// A clean missing component has no current match; this does not reserve its name.
++pub(super) fn expand(pattern: &str, cwd: &Path) -> Result<Option<AbsolutePathBuf>> {
++    if pattern
++        .chars()
++        .any(|ch| matches!(ch, '*' | '?' | '[' | ']' | '{' | '}' | '\\'))
++    {
++        return Err(CodexErr::Fatal(format!(
++            "unreadable literal glob `{pattern}` contains unsupported pattern syntax"
++        )));
++    }
++
++    let path = AbsolutePathBuf::resolve_path_against_base(pattern, cwd);
++    if path.as_path().to_str().is_none() {
++        return Err(CodexErr::Fatal(
++            "unreadable literal glob resolves to a non-UTF-8 path".to_string(),
++        ));
++    }
++
++    let mut current = PathBuf::new();
++    let mut components = path.as_path().components().peekable();
++    while let Some(component) = components.next() {
++        current.push(component.as_os_str());
++        let metadata = match fs::symlink_metadata(&current) {
++            Ok(metadata) => metadata,
++            // Every preceding component was verified as an existing, non-alias
++            // directory. Other errors must not become an empty glob expansion.
++            Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
++            Err(err) => return Err(err.into()),
++        };
++        if metadata.file_type().is_symlink() {
++            return Err(CodexErr::Fatal(format!(
++                "unreadable literal glob `{pattern}` crosses symlink {}",
++                current.display()
++            )));
++        }
++        if components.peek().is_some() {
++            if !metadata.is_dir() {
++                return Err(CodexErr::Fatal(format!(
++                    "unreadable literal glob `{pattern}` crosses non-directory {}",
++                    current.display()
++                )));
++            }
++        } else if !metadata.is_file() {
++            return Err(CodexErr::Fatal(format!(
++                "unreadable literal glob `{pattern}` does not name a regular file"
++            )));
++        }
++    }
++
++    Ok(Some(path))
++}
+diff --git a/codex-rs/linux-sandbox/src/bwrap_literal_glob_tests.rs b/codex-rs/linux-sandbox/src/bwrap_literal_glob_tests.rs
+new file mode 100644
+index 0000000..f5d1529
+--- /dev/null
++++ b/codex-rs/linux-sandbox/src/bwrap_literal_glob_tests.rs
+@@ -0,0 +1,185 @@
++use super::MAX_UNREADABLE_GLOB_MATCHES;
++use super::expand_unreadable_globs_with_ripgrep;
++use codex_utils_absolute_path::AbsolutePathBuf;
++use pretty_assertions::assert_eq;
++use std::collections::BTreeSet;
++use std::ffi::OsString;
++use std::fs;
++use std::os::unix::ffi::OsStringExt;
++use std::os::unix::fs::symlink;
++use std::os::unix::net::UnixListener;
++use std::path::Path;
++use std::path::PathBuf;
++
++fn fixture_root() -> (tempfile::TempDir, PathBuf) {
++    let temp = tempfile::tempdir().expect("temp dir");
++    let root = temp.path().canonicalize().expect("canonical temp root");
++    (temp, root)
++}
++
++fn expand(patterns: &[String], cwd: &Path, depth: Option<usize>) -> Vec<AbsolutePathBuf> {
++    expand_unreadable_globs_with_ripgrep(patterns, cwd, depth).expect("expand patterns")
++}
++
++#[test]
++fn literal_regular_files_resolve_against_policy_cwd_and_deduplicate() {
++    let (_temp, root) = fixture_root();
++    let file = root.join("secret.env");
++    fs::write(&file, "secret").expect("write secret");
++    let patterns = vec![file.display().to_string(), "secret.env".to_string()];
++    let expected = vec![AbsolutePathBuf::from_absolute_path(&file).expect("absolute file")];
++
++    assert_eq!(expand(&patterns, &root, None), expected);
++    assert_eq!(expand(&patterns, &root, Some(1)), expected);
++    assert_eq!(expand(&patterns, &root, Some(2)), expected);
++}
++
++#[test]
++fn missing_literal_leaf_and_parent_have_no_current_match() {
++    let (_temp, root) = fixture_root();
++    let patterns = vec!["missing.env".to_string(), "missing/secret.env".to_string()];
++
++    assert_eq!(expand(&patterns, &root, None), Vec::new());
++}
++
++#[test]
++fn zero_depth_and_empty_patterns_preserve_the_existing_early_return() {
++    let (_temp, root) = fixture_root();
++    let patterns = vec![root.display().to_string(), "bad\\escape".to_string()];
++
++    assert_eq!(expand(&patterns, &root, Some(0)), Vec::new());
++    assert_eq!(expand(&[], &root, None), Vec::new());
++}
++
++#[test]
++fn literal_directories_and_non_directory_prefixes_are_refused() {
++    let (_temp, root) = fixture_root();
++    let file = root.join("file");
++    fs::write(&file, "secret").expect("write file");
++
++    for pattern in [root.display().to_string(), "file/child.env".to_string()] {
++        assert!(expand_unreadable_globs_with_ripgrep(&[pattern], &root, None).is_err());
++    }
++}
++
++#[test]
++fn literal_special_files_are_refused() {
++    let (_temp, root) = fixture_root();
++    let socket_path = root.join("socket");
++    let _listener = UnixListener::bind(&socket_path).expect("bind local socket");
++
++    assert!(expand_unreadable_globs_with_ripgrep(&["socket".to_string()], &root, None).is_err());
++}
++
++#[test]
++fn literal_leaf_intermediate_and_dangling_symlinks_are_refused() {
++    let (_temp, root) = fixture_root();
++    let file = root.join("secret.env");
++    fs::write(&file, "secret").expect("write secret");
++    symlink(&file, root.join("leaf.env")).expect("file alias");
++    symlink(&root, root.join("directory")).expect("directory alias");
++    symlink(root.join("absent"), root.join("dangling")).expect("dangling alias");
++    symlink("loop", root.join("loop")).expect("symlink loop");
++
++    for pattern in [
++        "leaf.env",
++        "directory/secret.env",
++        "directory/missing.env",
++        "dangling",
++        "dangling/secret.env",
++        "loop/secret.env",
++    ] {
++        assert!(
++            expand_unreadable_globs_with_ripgrep(&[pattern.to_string()], &root, None).is_err(),
++            "literal alias must refuse: {pattern}"
++        );
++    }
++}
++
++#[test]
++fn literal_braces_backslashes_and_invalid_path_bytes_are_refused() {
++    let (_temp, root) = fixture_root();
++    for pattern in ["{a,b}.env", "file\\name.env", "invalid\0path"] {
++        assert!(expand_unreadable_globs_with_ripgrep(&[pattern.to_string()], &root, None).is_err());
++    }
++    let non_utf8 = root.join(OsString::from_vec(b"non-utf8-\xff".to_vec()));
++    fs::create_dir(&non_utf8).expect("non UTF-8 directory");
++    fs::write(non_utf8.join("secret.env"), "secret").expect("write secret");
++    assert!(
++        expand_unreadable_globs_with_ripgrep(&["secret.env".to_string()], &non_utf8, None).is_err()
++    );
++}
++
++#[test]
++fn mixed_literal_and_wildcard_matches_share_the_deduplicated_limit() {
++    let (_temp, root) = fixture_root();
++    let mut patterns = Vec::new();
++    for index in 0..=MAX_UNREADABLE_GLOB_MATCHES {
++        let file = root.join(format!("secret-{index}.env"));
++        fs::write(&file, "secret").expect("write secret");
++        patterns.push(file.display().to_string());
++    }
++    let mut at_limit = patterns[..MAX_UNREADABLE_GLOB_MATCHES].to_vec();
++    at_limit.push(at_limit[0].clone());
++    assert_eq!(
++        expand(&at_limit, &root, None).len(),
++        MAX_UNREADABLE_GLOB_MATCHES
++    );
++    assert!(expand_unreadable_globs_with_ripgrep(&patterns, &root, None).is_err());
++    at_limit.push(format!("{}/*.env", root.display()));
++    assert!(expand_unreadable_globs_with_ripgrep(&at_limit, &root, None).is_err());
++
++    let real = root.join("real");
++    fs::create_dir(&real).expect("real directory");
++    let target = real.join("alias.env");
++    fs::write(&target, "secret").expect("write alias target");
++    let alias = root.join("alias");
++    symlink(&real, &alias).expect("wildcard directory alias");
++    let wildcard = format!("{}/*.env", alias.display());
++    let mut with_alias = patterns[..MAX_UNREADABLE_GLOB_MATCHES - 2].to_vec();
++    with_alias.push(wildcard);
++    let matches = expand(&with_alias, &root, None);
++    assert_eq!(matches.len(), MAX_UNREADABLE_GLOB_MATCHES);
++    for path in [target, alias.join("alias.env")] {
++        assert!(matches.contains(&AbsolutePathBuf::from_absolute_path(path).expect("absolute")));
++    }
++    with_alias.push(patterns[MAX_UNREADABLE_GLOB_MATCHES - 2].clone());
++    assert!(expand_unreadable_globs_with_ripgrep(&with_alias, &root, None).is_err());
++}
++
++#[test]
++fn wildcard_depth_no_match_root_refusal_and_unclosed_class_behavior_are_preserved() {
++    let (_temp, root) = fixture_root();
++    let nested = root.join("nested");
++    fs::create_dir(&nested).expect("nested directory");
++    let shallow = root.join("secret.env");
++    let deep = nested.join("secret.env");
++    let bracket = root.join("[.env");
++    for file in [&shallow, &deep, &bracket] {
++        fs::write(file, "secret").expect("write secret");
++    }
++    let wildcard = vec![format!("{}/**/*.env", root.display())];
++    let expected = BTreeSet::from([
++        AbsolutePathBuf::from_absolute_path(shallow).expect("absolute"),
++        AbsolutePathBuf::from_absolute_path(bracket.clone()).expect("absolute"),
++    ]);
++    assert_eq!(
++        expand(&wildcard, &root, Some(1))
++            .into_iter()
++            .collect::<BTreeSet<_>>(),
++        expected
++    );
++    assert_eq!(
++        expand(&[format!("{}/absent/*.env", root.display())], &root, None),
++        Vec::new()
++    );
++    assert_eq!(
++        expand(&[format!("{}/*.missing", root.display())], &root, None),
++        Vec::new()
++    );
++    assert!(expand_unreadable_globs_with_ripgrep(&["/**/*.env".to_string()], &root, None).is_err());
++    assert_eq!(
++        expand(&[format!("{}/[*.env", root.display())], &root, None),
++        vec![AbsolutePathBuf::from_absolute_path(bracket).expect("absolute")]
++    );
++}
