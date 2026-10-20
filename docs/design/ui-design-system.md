@@ -1658,6 +1658,19 @@ filter. Recovery, direct navigation state and item Back retain cross-profile All
 outcomes while the filtered fallback keeps its own profile preference. Refresh
 rechecks both cache-backed collection owners; identical URLs share one HTTP read.
 
+Home work pins start a fresh explicit item trail and retain their Home URL and
+opaque route state. Back pops parent items first, including while the child record
+is loading or unavailable, then restores that validated Home context. Direct item
+opens keep the collection fallback; ordinary session pins keep their conversation
+route. Files, saved outputs and source-chat returns carry the same navigation state.
+
+Task review uses the existing TaskNode controls and raw evidence fields. A named
+inline-size container wraps titles, summaries and actions in narrow panes; evidence
+preserves literal text with shared mono/type/spacing tokens and wraps long paths.
+Controls and optional session links retain the shared 44px minimum. The focused
+fixture checks the original 379-byte report, pending/done states, keyboard actions
+and narrow/enlarged layouts; it is separate from actual application acceptance.
+
 Mounted conversation rows in the collection and the focused item's Overview/Work
 child trees share the canonical record owner's refresh generation. This prop is
 required through the detail workspace, tree and row so omitted callers fail typing.

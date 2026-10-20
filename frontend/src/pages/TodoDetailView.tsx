@@ -17,7 +17,11 @@ import { apiFetch } from '../lib/api-fetch';
 import { shareTelosArtifact } from '../lib/share-file';
 import { HomePinButton } from '../components/HomePinButton';
 import { recordTitle } from '../lib/record-title';
-import { parseItemHistory, readTelosItemHistory } from '../lib/telos-item-navigation';
+import {
+  parseItemHistory,
+  readTelosItemHistory,
+  readTelosHomeReturn,
+} from '../lib/telos-item-navigation';
 
 function urgencyLabel(urgency: number): string {
   if (urgency >= 0.8) return 'high';
@@ -133,6 +137,11 @@ export function TodoDetailView() {
             records={canonical.records}
             onBack={() => {
               const history = itemHistory();
+              const homeReturn = !history.length ? readTelosHomeReturn(location.state) : null;
+              if (homeReturn) {
+                navigate(homeReturn.path, { state: homeReturn.state });
+                return;
+              }
               navigate(
                 history.length
                   ? `/todos/${encodeURIComponent(history[history.length - 1])}`
@@ -207,6 +216,18 @@ export function TodoDetailView() {
   }
 
   function handleBack() {
+    const history = itemHistory();
+    if (history.length) {
+      navigate(`/todos/${encodeURIComponent(history[history.length - 1])}`, {
+        state: { ...location.state, telosHistory: history.slice(0, -1) },
+      });
+      return;
+    }
+    const homeReturn = readTelosHomeReturn(location.state);
+    if (homeReturn) {
+      navigate(homeReturn.path, { state: homeReturn.state });
+      return;
+    }
     const state = location.state as { activeProfile?: string; scrollTop?: number } | null;
     navigate('/todos', {
       state: { activeProfile: state?.activeProfile, scrollTop: state?.scrollTop },
