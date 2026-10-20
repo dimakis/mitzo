@@ -19,6 +19,11 @@
       "types": "./dist/database-backup.d.ts",
       "import": "./dist/database-backup.js",
       "default": "./dist/database-backup.js"
+    },
+    "./collaboration-forward-custody": {
+      "types": "./dist/collaboration-forward-custody.d.ts",
+      "import": "./dist/collaboration-forward-custody.js",
+      "default": "./dist/collaboration-forward-custody.js"
     }
   },
   "files": [

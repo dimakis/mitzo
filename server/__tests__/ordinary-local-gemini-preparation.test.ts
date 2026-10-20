@@ -14,9 +14,10 @@ vi.mock('../agent-library-runtime.js', async (original) => ({
   ...(await original<object>()),
   getAgentLibrary: () => services.library,
 }));
-vi.mock('../connections-runtime.js', () => ({
-  getConnectionsRuntime: () => ({ openAIEnrollmentAuthority: services.manager }),
-}));
+vi.mock('../connections-runtime.js', () => {
+  const runtime = { openAIEnrollmentAuthority: services.manager };
+  return { getConnectionsRuntime: () => runtime };
+});
 vi.mock('../auth.js', async (original) => ({
   ...(await original<object>()),
   hasPersistentRevocationAuthority: () => true,

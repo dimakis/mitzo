@@ -1,5 +1,6 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { startKnowledgePrewarming } from './knowledge-prewarming.js';
 import { startWarmPoolHost } from './openshell-warm-pool-host.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import {
@@ -276,6 +277,10 @@ setConnectionRegistry(connRegistry);
 // Lifecycle construction happens only after the authoritative session, event,
 // task and queue readers exist. It is still inert unless OpenShell is enabled.
 const configuredOpenShellRuntime = openShellRuntimeConfig(process.env);
+const knowledgePrewarming = startKnowledgePrewarming(configuredOpenShellRuntime?.knowledgeStore, {
+  onError: () =>
+    log.warn('Knowledge conversion prewarming unavailable; commands retain fresh admission'),
+});
 const warmPoolHost = startWarmPoolHost(configuredOpenShellRuntime, {
   root: codexPrivateDirectory(),
   enrolled: process.env.MITZO_OPENSHELL_WARM_POOL_ENABLED === '1',
@@ -1461,6 +1466,7 @@ async function shutdown(signal: string) {
   server.close();
   await terminalPlanAdviserHost?.close();
   lifecycleAbort.abort();
+  await knowledgePrewarming?.close();
   if (lifecycleTimer) clearInterval(lifecycleTimer);
   try {
     await warmPoolHost?.close();

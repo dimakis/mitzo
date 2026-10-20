@@ -335,3 +335,22 @@ it('bounds a failed publication body stream and preserves caller cancellation', 
     expect(s.adapt).not.toHaveBeenCalled();
   }
 });
+
+it('prewarms the published snapshot without replacing command-time freshness reconciliation', async () => {
+  const s = await setup();
+  await s.bridge.prewarm(new AbortController().signal);
+  expect(s.fetcher).toHaveBeenCalledWith(
+    'http://127.0.0.1:8643/api/publications/notes',
+    expect.objectContaining({ method: 'GET' }),
+  );
+  expect(s.adapt).toHaveBeenCalledOnce();
+  s.fetcher.mockResolvedValue(new Response('{}', { status: 503 }));
+  await expect(s.bridge.reconcile(new AbortController().signal)).rejects.toThrow(
+    'Fresh knowledge publication unavailable',
+  );
+  expect(s.fetcher).toHaveBeenLastCalledWith(
+    'http://127.0.0.1:8643/api/publications/notes/reconcile',
+    expect.objectContaining({ method: 'POST' }),
+  );
+  expect(s.adapt).toHaveBeenCalledOnce();
+});

@@ -11,6 +11,7 @@ vi.mock('../account-profiles.js', () => ({
     resolve: () => mocks.binding,
     validateModelSelection: mocks.validate,
     apiProfile: () => ({ credentialRef: { kind: 'test' } }),
+    apiRoutingProfile: () => ({ credentialRef: { kind: 'test' } }),
     isEnrolledOpenAIAccount: () => false,
   }),
 }));
