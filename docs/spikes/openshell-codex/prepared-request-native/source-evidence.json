@@ -284,10 +284,22 @@
     {
       "file": "native-resolved-code-mode-registry.patch",
       "sha256": "c2df00cad6dacf6c59b636b9ab9770d8a747fa1155ed4c3cbf01c6a7d8aedaf6"
+    },
+    {
+      "file": "native-disabled-notes-goals-plan.patch",
+      "sha256": "b17af851bb494fba61d6411232cc9464eac9688893ed952cb4c5becbef39735b"
+    },
+    {
+      "file": "native-pending-request-effects.patch",
+      "sha256": "f03c4a64379f57a969e22922cf5a6c2dd1173016d6481c7ad5b27610d625cd6e"
+    },
+    {
+      "file": "native-pending-effects-release-continuation-fixtures.patch",
+      "sha256": "7662c7227acbfd318b78c5cb20911e2f57932928fc5f4a5ef05372f7a0bfe673"
     }
   ],
-  "sourceTree": "9ce8eecf782809ae5d33f63715000e8396ab2e55",
-  "localSourceCommit": "d615a63d687555242ede9cb3874d2699f99520c3",
+  "sourceTree": "9e17d7d58b5a2e264520c9b923567c8789a1c123",
+  "localSourceCommit": "311b9ae9c07874d9ff5964e95629e057f337dd9d",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -363,7 +375,10 @@
     "d94560ee6252824e060d32a5e1ec740f28846ace",
     "a2dcefaafe3732a4255f681429abf04d645bcfa5",
     "6860f60f27dcd3af7d12116f67abff2b342cf011",
-    "d615a63d687555242ede9cb3874d2699f99520c3"
+    "d615a63d687555242ede9cb3874d2699f99520c3",
+    "a156fb9b0368681a3c5635d71aade56410c83ea3",
+    "9a68030f69bc95951822cfefc09053f3292aed14",
+    "311b9ae9c07874d9ff5964e95629e057f337dd9d"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -373,7 +388,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "54-patch source: registration-owned extension tool capture and renewal; legacy state-bound contributors refuse without callbacks. Complete Core/MCP/request/account preparation and ordinary prepared dispatch remain incomplete.",
+    "scope": "73-patch source: ordinary config-only disabled history-notes/goal tool absence and private StateRuntime pending effect gate. Complete native authority proof/guarded CAS/request preparation and application admission remain incomplete.",
     "localFocused": {
       "status": "source_and_scoped_format_only",
       "rustTestsExecuted": false,
@@ -382,7 +397,7 @@
       "allOrderedChecksumsReconstructExactTree": true
     },
     "ci": {
-      "status": "pending_54_patch_extension_inventory",
+      "status": "pending_73_patch_native_effect_gate",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -390,7 +405,13 @@
         "codex-state",
         "codex-http-client",
         "codex-guardian-reviewer",
-        "codex-extension-api"
+        "codex-extension-api",
+        "codex-mcp-extension",
+        "codex-login",
+        "codex-memories-extension",
+        "codex-web-search-extension",
+        "codex-history-notes-extension",
+        "codex-goal-extension"
       ],
       "linuxAdditionalScope": ["codex-linux-sandbox"],
       "platforms": ["ubuntu-24.04", "macos-26"],
@@ -687,6 +708,32 @@
       "wholePreparationReady": false,
       "actualPrepareCountConsumeRPCInstalled": false,
       "applicationReady": false
+    },
+    "pendingEffectGate": {
+      "sourceOnly": true,
+      "nativeExecution": false,
+      "noProductionCaller": true,
+      "storage": "Existing StateRuntime prepared_requests, migration0062; no new ledger",
+      "states": ["ordinary", "pending", "released", "refused_before_effects"],
+      "proofStillRequired": [
+        "Original canonical monotonic owner revisions/ABA across native commitment",
+        "Exact private one-use retrospective response binding",
+        "Actual bounded native CAS inside native credential/source guards",
+        "Production prepare/count/consume/ordinary first-command admission"
+      ],
+      "fixturesAuthored": [
+        "disabled_history_notes_capture_tracks_ordinary_configuration",
+        "disabled_goal_capture_tracks_ordinary_configuration",
+        "pending_claim_cannot_acknowledge_and_refusal_survives_restart",
+        "release_and_cancellation_have_one_durable_winner",
+        "pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain",
+        "forced_release_preserves_executable_handoff_and_restart_uncertainty",
+        "continuation_requires_released_predecessor_and_original_acceptance"
+      ],
+      "ordinaryLegacyUncertaintyPreserved": true,
+      "noReceiptsOrContinuationWhilePendingOrRefused": true,
+      "goalIntegrationTarget": "goal_extension_backend (Cargo auto-discovered integration test; lib test=false does not exclude it)",
+      "independentFixtureCorrections": "C identified missing forced successful release and sampling coverage in72;73 adds both without changing production code or weakening assertions"
     }
   },
   "runtimeQualified": false,
@@ -2388,6 +2435,14 @@
       "publishedPr": 1060,
       "nativeCi": 39345244430,
       "qualification": "pending at next candidate construction; cannot qualify new composed tree"
+    },
+    {
+      "sourceTree": "9ce8eecf782809ae5d33f63715000e8396ab2e55",
+      "localSourceCommit": "d615a63d687555242ede9cb3874d2699f99520c3",
+      "patchCount": 70,
+      "publishedPr": 1061,
+      "nativeCi": 39348949832,
+      "qualification": "Native execution pending when next candidate constructed; no qualification transferred to new tree"
     }
   ]
 }

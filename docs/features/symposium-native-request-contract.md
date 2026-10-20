@@ -299,7 +299,40 @@ The implementation must define the authority linearization point across host and
 native processes: a private one-use host permit bound to the same operation and
 current authority epoch, with revocation ordered against consumption. A caller's
 epoch string, an old successful callback or a time-to-live alone cannot satisfy
-this fence. If the channel cannot prove that ordering, consumption refuses.
+this fence. If the channel cannot prove that ordering, no execution right is released.
+
+A permitted implementation may choose the irreversible native private claim's
+compare-and-swap, C, as its authorization linearization point. It must withhold
+every executable handoff until a later canonical proof, R, establishes that all
+original captured monotonic owner revisions remained unchanged through R. This
+includes source/access/settings/account/route/permission lifetimes and
+revoke-and-restore ABA. A predicate that merely reports current permission cannot
+prove validity at C. Bind R privately and once to the original command,
+preparation, sampling request, frozen bytes, counter witness, native claim and
+runtime custody. Without that proof, the claim cannot authorize effects.
+
+The existing StateRuntime ledger can retain `committed` with an additional
+`pending` effect state. A pending claim is not the existing executable
+`PreparedRequestAttempt`: no queue, Session, provider send, admission/context
+acknowledgement, provider receipt or sampling continuation may escape it. Exactly
+one durable effect-gate transition may release its move-only handoff after R,
+or permanently refuse it before effects. Denial, Stop, cancellation and timeout
+must win that gate before reporting a proven terminal refusal; a delayed allow
+cannot reopen it. Refusal leaves consumption and commitment intact, records a
+`refused_before_effects` tombstone and does not report that consumption failed.
+Restart/read cannot reconstruct a lost pending or executable capability.
+
+Once an executable handoff has escaped, or a crash/response loss lacks a durable
+refusal proof, retain consumed uncertainty. Missing receipts and historical
+committed rows never prove zero dispatch. Do not retrofit those rows into pending
+claims. An explicitly chosen ordinary recovery remains necessary for a later
+attempt; no automatic replay or replacement is allowed. Native credential and
+other local owner guards must cover the actual bounded native CAS, not a future
+returned by a synchronous guard. No synchronous auth lock may cross the host RPC.
+
+The native pending-gate storage primitive alone does not implement R, canonical
+revision custody, the guarded native CAS, or production admission. Those remain
+required before this protocol qualifies any request or account/runtime.
 
 Commit a durable compare-and-swap from `measured` to `consumed` for the exact
 ordinary command before effects. Bind its operation to the existing ordinary

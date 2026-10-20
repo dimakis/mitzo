@@ -1,0 +1,225 @@
+From 311b9ae9c07874d9ff5964e95629e057f337dd9d Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 02:04:55 +0100
+Subject: [PATCH] test(symposium): require successful release and fenced
+ continuations
+
+---
+ .../runtime/prepared_request_effects_tests.rs | 170 ++++++++++++++++++
+ .../prepared_request_sampling_tests.rs        |   6 +-
+ 2 files changed, 173 insertions(+), 3 deletions(-)
+
+diff --git a/codex-rs/state/src/runtime/prepared_request_effects_tests.rs b/codex-rs/state/src/runtime/prepared_request_effects_tests.rs
+index ae2fd27..5c8a1ab 100644
+--- a/codex-rs/state/src/runtime/prepared_request_effects_tests.rs
++++ b/codex-rs/state/src/runtime/prepared_request_effects_tests.rs
+@@ -1,5 +1,175 @@
++use super::sampling::acknowledge_sample;
++use super::sampling::measure_sample;
++use super::sampling::sampling_request;
+ use super::*;
+ 
++#[tokio::test]
++async fn forced_release_preserves_executable_handoff_and_restart_uncertainty() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let prepared = measure_sample(
++        &runtime,
++        "release-first",
++        &sampling_request("root", /*predecessor*/ None),
++    )
++    .await;
++    let consumption = runtime
++        .consume_prepared_request(&prepared.preparation_id, &prepared.request, "witness")
++        .await
++        .unwrap();
++    let pending = runtime
++        .commit_pending_prepared_request_attempt(consumption)
++        .await
++        .unwrap();
++    let mut expected = pending.record().clone();
++    expected.effect_state = PreparedRequestEffectState::Released;
++    let attempt = runtime
++        .release_prepared_request_effects(pending)
++        .await
++        .expect("release must succeed before cancellation");
++    assert_eq!(attempt.record(), &expected);
++    assert_eq!(
++        runtime
++            .close_prepared_request(&prepared.preparation_id, &prepared.request)
++            .await
++            .unwrap(),
++        PreparedRequestClosure::AttemptAlreadyCommitted
++    );
++    let turn = PreparedTurnReceipt {
++        thread_id: "thread".into(),
++        turn_id: "turn".into(),
++    };
++    acknowledge_sample(&runtime, &prepared, &turn, "accepted-response").await;
++    let retained = runtime
++        .read_prepared_request("release-first")
++        .await
++        .unwrap()
++        .unwrap();
++    expected.exact_turn = Some(turn);
++    expected.provider_receipt = Some(PreparedProviderReceipt {
++        request_identity: prepared.request.request_identity.clone(),
++        provider_response_id: "accepted-response".into(),
++    });
++    assert_eq!(retained, expected);
++    drop(attempt);
++    runtime.close().await;
++    let reopened = open(&home).await;
++    assert_eq!(
++        reopened
++            .read_prepared_request("release-first")
++            .await
++            .unwrap(),
++        Some(retained)
++    );
++    assert_eq!(
++        reopened
++            .close_prepared_request(&prepared.preparation_id, &prepared.request)
++            .await
++            .unwrap(),
++        PreparedRequestClosure::AttemptAlreadyCommitted
++    );
++    assert!(
++        reopened
++            .consume_prepared_request(&prepared.preparation_id, &prepared.request, "witness")
++            .await
++            .is_err()
++    );
++}
++
++#[tokio::test]
++async fn continuation_requires_released_predecessor_and_original_acceptance() {
++    for refuse in [false, true] {
++        let home = unique_temp_dir();
++        let runtime = open(&home).await;
++        let root = measure_sample(
++            &runtime,
++            "root",
++            &sampling_request("root", /*predecessor*/ None),
++        )
++        .await;
++        let consumption = runtime
++            .consume_prepared_request(&root.preparation_id, &root.request, "witness")
++            .await
++            .unwrap();
++        let pending = runtime
++            .commit_pending_prepared_request_attempt(consumption)
++            .await
++            .unwrap();
++        let mut next_request = sampling_request("continuation", Some(&root.preparation_id));
++        next_request.request_identity = "b".repeat(/*n*/ 64);
++        next_request.binding.history_revision = "history-with-tool-result".into();
++        next_request.encoded_body =
++            br#"{"model":"test-model","input":"tool result","max_output_tokens":10}"#.to_vec();
++        let next = measure_sample(&runtime, "next", &next_request).await;
++        assert!(
++            runtime
++                .consume_prepared_request(&next.preparation_id, &next_request, "witness")
++                .await
++                .is_err()
++        );
++        assert!(sqlx::query("UPDATE prepared_requests SET consumed = 1, consumption_nonce = ? WHERE preparation_id = ?").bind(uuid::Uuid::now_v7().to_string()).bind(&next.preparation_id).execute(runtime.pool.as_ref()).await.is_err());
++        assert_eq!(
++            runtime.read_prepared_request("next").await.unwrap(),
++            Some(next.clone())
++        );
++        if refuse {
++            assert_eq!(
++                runtime
++                    .close_prepared_request(&root.preparation_id, &root.request)
++                    .await
++                    .unwrap(),
++                PreparedRequestClosure::RefusedBeforeEffects
++            );
++            assert!(
++                runtime
++                    .release_prepared_request_effects(pending)
++                    .await
++                    .is_err()
++            );
++            assert!(
++                runtime
++                    .consume_prepared_request(&next.preparation_id, &next_request, "witness")
++                    .await
++                    .is_err()
++            );
++            assert!(sqlx::query("UPDATE prepared_requests SET consumed = 1, consumption_nonce = ? WHERE preparation_id = ?").bind(uuid::Uuid::now_v7().to_string()).bind(&next.preparation_id).execute(runtime.pool.as_ref()).await.is_err());
++            assert_eq!(
++                runtime.read_prepared_request("next").await.unwrap(),
++                Some(next)
++            );
++        } else {
++            let _attempt = runtime
++                .release_prepared_request_effects(pending)
++                .await
++                .unwrap();
++            let turn = PreparedTurnReceipt {
++                thread_id: "thread".into(),
++                turn_id: "turn".into(),
++            };
++            acknowledge_sample(&runtime, &root, &turn, "root-response").await;
++            let next_consumption = runtime
++                .consume_prepared_request(&next.preparation_id, &next_request, "witness")
++                .await
++                .expect("released accepted predecessor permits continuation");
++            let _next_attempt = runtime
++                .commit_prepared_request_attempt(next_consumption)
++                .await
++                .unwrap();
++            acknowledge_sample(&runtime, &next, &turn, "next-response").await;
++            let retained = runtime
++                .read_prepared_request("next")
++                .await
++                .unwrap()
++                .unwrap();
++            assert_eq!(retained.exact_turn, Some(turn));
++            assert_eq!(
++                retained.reply_origin_preparation_id(),
++                Some(root.preparation_id.as_str())
++            );
++        }
++    }
++}
++
+ #[tokio::test]
+ async fn pending_claim_cannot_acknowledge_and_refusal_survives_restart() {
+     let home = unique_temp_dir();
+diff --git a/codex-rs/state/src/runtime/prepared_request_sampling_tests.rs b/codex-rs/state/src/runtime/prepared_request_sampling_tests.rs
+index 208d98a..3cd8bce 100644
+--- a/codex-rs/state/src/runtime/prepared_request_sampling_tests.rs
++++ b/codex-rs/state/src/runtime/prepared_request_sampling_tests.rs
+@@ -1,7 +1,7 @@
+ use super::*;
+ use pretty_assertions::assert_eq;
+ 
+-fn sampling_request(sampling_id: &str, predecessor: Option<&str>) -> NewPreparedRequest {
++pub(super) fn sampling_request(sampling_id: &str, predecessor: Option<&str>) -> NewPreparedRequest {
+     let mut request = request();
+     request.binding.sampling = Some(PreparedRequestSampling {
+         sampling_id: sampling_id.into(),
+@@ -10,7 +10,7 @@ fn sampling_request(sampling_id: &str, predecessor: Option<&str>) -> NewPrepared
+     request
+ }
+ 
+-async fn measure_sample(
++pub(super) async fn measure_sample(
+     runtime: &StateRuntime,
+     operation: &str,
+     request: &NewPreparedRequest,
+@@ -40,7 +40,7 @@ async fn commit_sample(runtime: &StateRuntime, prepared: &PreparedRequestRecord)
+         .unwrap();
+ }
+ 
+-async fn acknowledge_sample(
++pub(super) async fn acknowledge_sample(
+     runtime: &StateRuntime,
+     prepared: &PreparedRequestRecord,
+     turn: &PreparedTurnReceipt,
+-- 
+2.54.0 (Apple Git-157)
+

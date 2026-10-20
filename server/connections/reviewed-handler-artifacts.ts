@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.347-symposium-native-public-capture';
+  'v1.0.348-symposium-pending-effects';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-pending-effects-release-continuation-fixtures.patch':
+    '7662c7227acbfd318b78c5cb20911e2f57932928fc5f4a5ef05372f7a0bfe673',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-disabled-notes-goals-plan.patch':
+    'b17af851bb494fba61d6411232cc9464eac9688893ed952cb4c5becbef39735b',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-pending-request-effects.patch':
+    'f03c4a64379f57a969e22922cf5a6c2dd1173016d6481c7ad5b27610d625cd6e',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-public-observation-policy.patch':
     '8f5233d49f70121af359b927e07d5512a19a2c61fc63830fadf266c0c32e1d6e',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-public-thread-source-policy.patch':

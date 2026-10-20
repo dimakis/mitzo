@@ -1,0 +1,734 @@
+From 9a68030f69bc95951822cfefc09053f3292aed14 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 02:01:20 +0100
+Subject: [PATCH] feat(symposium): persist pending request effect gate
+
+---
+ .../0062_prepared_request_effects.sql         |  58 ++++
+ codex-rs/state/src/lib.rs                     |   2 +
+ codex-rs/state/src/runtime.rs                 |   2 +
+ .../src/runtime/prepared_request_attempts.rs  |  57 +++-
+ .../prepared_request_attempts_tests.rs        |   6 +
+ .../src/runtime/prepared_request_effects.rs   | 109 ++++++++
+ .../runtime/prepared_request_effects_tests.rs | 258 ++++++++++++++++++
+ .../src/runtime/prepared_request_sampling.rs  |   5 +
+ .../state/src/runtime/prepared_requests.rs    |  20 ++
+ .../src/runtime/prepared_requests_tests.rs    |   3 +
+ 10 files changed, 510 insertions(+), 10 deletions(-)
+ create mode 100644 codex-rs/state/migrations/0062_prepared_request_effects.sql
+ create mode 100644 codex-rs/state/src/runtime/prepared_request_effects.rs
+ create mode 100644 codex-rs/state/src/runtime/prepared_request_effects_tests.rs
+
+diff --git a/codex-rs/state/migrations/0062_prepared_request_effects.sql b/codex-rs/state/migrations/0062_prepared_request_effects.sql
+new file mode 100644
+index 0000000..487abf2
+--- /dev/null
++++ b/codex-rs/state/migrations/0062_prepared_request_effects.sql
+@@ -0,0 +1,58 @@
++-- Existing committed/legacy rows retain uncertainty. Only a new commitment may
++-- explicitly withhold its handoff; never infer zero effects from absent receipts.
++ALTER TABLE prepared_requests ADD COLUMN effect_state TEXT NOT NULL DEFAULT 'ordinary'
++CHECK (effect_state IN ('ordinary', 'pending', 'released', 'refused_before_effects')
++    AND (effect_state = 'ordinary' OR (consumed = 1 AND attempt_state = 'committed')));
++
++CREATE TRIGGER prepared_requests_initial_effect_state
++BEFORE INSERT ON prepared_requests WHEN NEW.effect_state != 'ordinary'
++BEGIN
++    SELECT RAISE(ABORT, 'prepared effects must start in ordinary state');
++END;
++
++CREATE TRIGGER prepared_requests_effect_transition
++BEFORE UPDATE OF effect_state ON prepared_requests
++WHEN NEW.effect_state != OLD.effect_state AND NOT (
++    (OLD.effect_state = 'ordinary' AND NEW.effect_state = 'pending'
++        AND OLD.attempt_state = 'open' AND NEW.attempt_state = 'committed'
++        AND OLD.consumed = 1 AND NEW.consumed = 1 AND NEW.consumption_nonce IS NOT NULL)
++    OR (OLD.effect_state = 'pending' AND NEW.effect_state IN ('released', 'refused_before_effects')
++        AND OLD.attempt_state = 'committed' AND NEW.attempt_state = 'committed')
++)
++BEGIN
++    SELECT RAISE(ABORT, 'prepared effect decision is irreversible');
++END;
++
++CREATE TRIGGER prepared_requests_pending_without_receipts
++BEFORE UPDATE OF effect_state ON prepared_requests
++WHEN NEW.effect_state IN ('pending', 'refused_before_effects')
++    AND (NEW.native_thread_id IS NOT NULL OR NEW.native_turn_id IS NOT NULL
++        OR NEW.native_turn_owner_preparation_id IS NOT NULL OR NEW.provider_response_id IS NOT NULL)
++BEGIN
++    SELECT RAISE(ABORT, 'pending or refused effects cannot retain acceptance');
++END;
++
++CREATE TRIGGER prepared_requests_receipts_require_effect_release
++BEFORE UPDATE OF native_thread_id, native_turn_id, native_turn_owner_preparation_id, provider_response_id ON prepared_requests
++WHEN NEW.effect_state IN ('pending', 'refused_before_effects')
++BEGIN
++    SELECT RAISE(ABORT, 'pending or refused effects cannot acknowledge');
++END;
++
++CREATE TRIGGER prepared_requests_sampling_requires_effect_release
++BEFORE UPDATE OF consumed ON prepared_requests
++WHEN OLD.consumed = 0 AND NEW.consumed = 1
++    AND EXISTS (
++        SELECT 1 FROM prepared_requests previous
++        WHERE previous.preparation_id = json_extract(NEW.binding_json, '$.sampling.previous_preparation_id')
++            AND previous.effect_state IN ('pending', 'refused_before_effects')
++    )
++BEGIN
++    SELECT RAISE(ABORT, 'pending or refused effects cannot authorize continuation');
++END;
++
++CREATE TRIGGER prepared_requests_retain_effect_claim
++BEFORE DELETE ON prepared_requests WHEN OLD.effect_state != 'ordinary'
++BEGIN
++    SELECT RAISE(ABORT, 'prepared effect claim must be retained');
++END;
+diff --git a/codex-rs/state/src/lib.rs b/codex-rs/state/src/lib.rs
+index 2668ef9..49d5011 100644
+--- a/codex-rs/state/src/lib.rs
++++ b/codex-rs/state/src/lib.rs
+@@ -82,12 +82,14 @@ pub use runtime::GoalStore;
+ pub use runtime::GoalUpdate;
+ pub use runtime::MemoryStore;
+ pub use runtime::NewPreparedRequest;
++pub use runtime::PendingPreparedRequestAttempt;
+ pub use runtime::PreparedProviderReceipt;
+ pub use runtime::PreparedRequestAttempt;
+ pub use runtime::PreparedRequestAttemptState;
+ pub use runtime::PreparedRequestBinding;
+ pub use runtime::PreparedRequestClosure;
+ pub use runtime::PreparedRequestConsumption;
++pub use runtime::PreparedRequestEffectState;
+ pub use runtime::PreparedRequestMeasurement;
+ pub use runtime::PreparedRequestRecord;
+ pub use runtime::PreparedRequestSampling;
+diff --git a/codex-rs/state/src/runtime.rs b/codex-rs/state/src/runtime.rs
+index 3184739..e7bbf1e 100644
+--- a/codex-rs/state/src/runtime.rs
++++ b/codex-rs/state/src/runtime.rs
+@@ -69,12 +69,14 @@ pub use goals::GoalStore;
+ pub use goals::GoalUpdate;
+ pub use memories::MemoryStore;
+ pub use prepared_requests::NewPreparedRequest;
++pub use prepared_requests::PendingPreparedRequestAttempt;
+ pub use prepared_requests::PreparedProviderReceipt;
+ pub use prepared_requests::PreparedRequestAttempt;
+ pub use prepared_requests::PreparedRequestAttemptState;
+ pub use prepared_requests::PreparedRequestBinding;
+ pub use prepared_requests::PreparedRequestClosure;
+ pub use prepared_requests::PreparedRequestConsumption;
++pub use prepared_requests::PreparedRequestEffectState;
+ pub use prepared_requests::PreparedRequestMeasurement;
+ pub use prepared_requests::PreparedRequestRecord;
+ pub use prepared_requests::PreparedRequestSampling;
+diff --git a/codex-rs/state/src/runtime/prepared_request_attempts.rs b/codex-rs/state/src/runtime/prepared_request_attempts.rs
+index ca11f77..0b8c7d4 100644
+--- a/codex-rs/state/src/runtime/prepared_request_attempts.rs
++++ b/codex-rs/state/src/runtime/prepared_request_attempts.rs
+@@ -1,6 +1,7 @@
+ //! One live handoff after durable consumption; reads never reconstruct send rights.
+ 
+ use super::NewPreparedRequest;
++use super::PreparedRequestEffectState;
+ use super::PreparedRequestRecord;
+ use super::StateRuntime;
+ use super::record_from_row;
+@@ -26,6 +27,8 @@ pub enum PreparedRequestClosure {
+     ClosedWithoutAttempt,
+     AttemptAlreadyCommitted,
+     PriorAttemptUncertain,
++    /// Consumption and commitment remain durable; the pending send right is destroyed.
++    RefusedBeforeEffects,
+ }
+ 
+ /// Created only by the winning consumption CAS. Dropping this loses the live right.
+@@ -46,7 +49,7 @@ impl PreparedRequestConsumption {
+ /// A single live transport handoff. No read, retry, or restart can recreate it.
+ /// The marker precedes transport, so a dropped token or crash remains uncertain.
+ pub struct PreparedRequestAttempt {
+-    record: PreparedRequestRecord,
++    pub(super) record: PreparedRequestRecord,
+ }
+ 
+ impl PreparedRequestAttempt {
+@@ -62,6 +65,28 @@ impl StateRuntime {
+         &self,
+         consumption: PreparedRequestConsumption,
+     ) -> anyhow::Result<PreparedRequestAttempt> {
++        let (record, _) = self
++            .commit_prepared_request_attempt_record(
++                consumption,
++                PreparedRequestEffectState::Ordinary,
++            )
++            .await?;
++        Ok(PreparedRequestAttempt { record })
++    }
++
++    pub(super) async fn commit_prepared_request_attempt_record(
++        &self,
++        consumption: PreparedRequestConsumption,
++        effect_state: PreparedRequestEffectState,
++    ) -> anyhow::Result<(PreparedRequestRecord, String)> {
++        let stored_effect_state = match effect_state {
++            PreparedRequestEffectState::Ordinary => "ordinary",
++            PreparedRequestEffectState::Pending => "pending",
++            PreparedRequestEffectState::Released
++            | PreparedRequestEffectState::RefusedBeforeEffects => {
++                anyhow::bail!("invalid initial prepared effect state")
++            }
++        };
+         let PreparedRequestConsumption {
+             record: expected,
+             nonce,
+@@ -94,15 +119,16 @@ impl StateRuntime {
+                 == Some(nonce.as_str()),
+             "prepared live consumption claim conflicts"
+         );
+-        let result = sqlx::query("UPDATE prepared_requests SET attempt_state = 'committed' WHERE preparation_id = ? AND consumed = 1 AND attempt_state = 'open' AND consumption_nonce = ?")
+-            .bind(&expected.preparation_id).bind(nonce).execute(&mut *transaction).await?;
++        let result = sqlx::query("UPDATE prepared_requests SET attempt_state = 'committed', effect_state = ? WHERE preparation_id = ? AND consumed = 1 AND attempt_state = 'open' AND consumption_nonce = ?")
++            .bind(stored_effect_state).bind(&expected.preparation_id).bind(&nonce).execute(&mut *transaction).await?;
+         anyhow::ensure!(
+             result.rows_affected() == 1,
+             "prepared first-attempt commitment lost"
+         );
+         transaction.commit().await?;
+         record.attempt_state = PreparedRequestAttemptState::Committed;
+-        Ok(PreparedRequestAttempt { record })
++        record.effect_state = effect_state;
++        Ok((record, nonce))
+     }
+ 
+     /// Durably fence every delayed sender for this exact preparation. A prior
+@@ -125,20 +151,31 @@ impl StateRuntime {
+             record.request == *request,
+             "prepared closure inputs conflict"
+         );
+-        let outcome = match record.attempt_state {
+-            PreparedRequestAttemptState::Open => {
++        let outcome = match (record.attempt_state, record.effect_state) {
++            (PreparedRequestAttemptState::Open, _) => {
+                 let result = sqlx::query("UPDATE prepared_requests SET attempt_state = 'closed_without_attempt' WHERE preparation_id = ? AND attempt_state = 'open'")
+                     .bind(preparation_id).execute(&mut *transaction).await?;
+                 anyhow::ensure!(result.rows_affected() == 1, "prepared closure lost");
+                 PreparedRequestClosure::ClosedWithoutAttempt
+             }
+-            PreparedRequestAttemptState::ClosedWithoutAttempt => {
++            (PreparedRequestAttemptState::ClosedWithoutAttempt, _) => {
+                 PreparedRequestClosure::ClosedWithoutAttempt
+             }
+-            PreparedRequestAttemptState::Committed => {
+-                PreparedRequestClosure::AttemptAlreadyCommitted
++            (PreparedRequestAttemptState::Committed, PreparedRequestEffectState::Pending) => {
++                let result = sqlx::query("UPDATE prepared_requests SET effect_state = 'refused_before_effects' WHERE preparation_id = ? AND effect_state = 'pending'")
++                    .bind(preparation_id).execute(&mut *transaction).await?;
++                anyhow::ensure!(result.rows_affected() == 1, "prepared pending refusal lost");
++                PreparedRequestClosure::RefusedBeforeEffects
+             }
+-            PreparedRequestAttemptState::LegacyConsumedUncertain => {
++            (
++                PreparedRequestAttemptState::Committed,
++                PreparedRequestEffectState::RefusedBeforeEffects,
++            ) => PreparedRequestClosure::RefusedBeforeEffects,
++            (
++                PreparedRequestAttemptState::Committed,
++                PreparedRequestEffectState::Ordinary | PreparedRequestEffectState::Released,
++            ) => PreparedRequestClosure::AttemptAlreadyCommitted,
++            (PreparedRequestAttemptState::LegacyConsumedUncertain, _) => {
+                 PreparedRequestClosure::PriorAttemptUncertain
+             }
+         };
+diff --git a/codex-rs/state/src/runtime/prepared_request_attempts_tests.rs b/codex-rs/state/src/runtime/prepared_request_attempts_tests.rs
+index 4339a3c..83e8c78 100644
+--- a/codex-rs/state/src/runtime/prepared_request_attempts_tests.rs
++++ b/codex-rs/state/src/runtime/prepared_request_attempts_tests.rs
+@@ -248,6 +248,9 @@ async fn prepared_request_attempt_commit_and_close_have_one_durable_winner() {
+                 assert_eq!(record.attempt_state, PreparedRequestAttemptState::Committed);
+             }
+             PreparedRequestClosure::PriorAttemptUncertain => panic!("new record cannot be legacy"),
++            PreparedRequestClosure::RefusedBeforeEffects => {
++                panic!("ordinary attempt has no pending gate")
++            }
+         }
+     }
+     other.close().await;
+@@ -807,6 +810,9 @@ async fn prepared_request_attempt_cross_process_close_fences_live_commit() {
+                 PreparedRequestClosure::PriorAttemptUncertain => {
+                     panic!("new record cannot be legacy")
+                 }
++                PreparedRequestClosure::RefusedBeforeEffects => {
++                    panic!("ordinary attempt has no pending gate")
++                }
+             },
+         )
+         .unwrap();
+diff --git a/codex-rs/state/src/runtime/prepared_request_effects.rs b/codex-rs/state/src/runtime/prepared_request_effects.rs
+new file mode 100644
+index 0000000..dd7386f
+--- /dev/null
++++ b/codex-rs/state/src/runtime/prepared_request_effects.rs
+@@ -0,0 +1,109 @@
++//! Durable private pending claims, without an executable transport handoff.
++//!
++//! These transitions are not authority verification. The native owner must prove
++//! original canonical revisions across commitment before releasing effects. A
++//! missing proof must close the pending gate, never manufacture a send right.
++
++use super::PreparedRequestAttempt;
++use super::PreparedRequestConsumption;
++use super::PreparedRequestRecord;
++use super::StateRuntime;
++use super::record_from_row;
++use super::sampling::REQUEST_BY_PREPARATION_ID;
++use sqlx::Connection;
++use sqlx::Row;
++use sqlx::SqlitePool;
++use std::sync::Arc;
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum PreparedRequestEffectState {
++    /// Existing ordinary/legacy path; no retrospective zero-effects inference.
++    Ordinary,
++    Pending,
++    Released,
++    RefusedBeforeEffects,
++}
++
++/// Private one-use custody of a committed claim. This cannot enter transport.
++/// Reads and restart cannot reconstruct it. It is neither an authority proof nor
++/// admission acknowledgement, and must never be passed to queue/session owners.
++pub struct PendingPreparedRequestAttempt {
++    record: PreparedRequestRecord,
++    nonce: String,
++    owner_pool: Arc<SqlitePool>,
++}
++
++impl PendingPreparedRequestAttempt {
++    pub fn record(&self) -> &PreparedRequestRecord {
++        &self.record
++    }
++}
++
++impl StateRuntime {
++    /// Commit an irrevocable private pending claim, withholding the transport
++    /// handoff. The caller still owns canonical/native authority verification;
++    /// this method cannot establish its retrospective proof or guarded CAS.
++    pub async fn commit_pending_prepared_request_attempt(
++        &self,
++        consumption: PreparedRequestConsumption,
++    ) -> anyhow::Result<PendingPreparedRequestAttempt> {
++        let (record, nonce) = self
++            .commit_prepared_request_attempt_record(
++                consumption,
++                PreparedRequestEffectState::Pending,
++            )
++            .await?;
++        Ok(PendingPreparedRequestAttempt {
++            record,
++            nonce,
++            owner_pool: Arc::clone(&self.pool),
++        })
++    }
++
++    /// Release one pending handoff after the trusted native owner verifies the
++    /// exact private retrospective authority response. This API does not accept
++    /// a caller epoch, permission boolean or reusable authorization callback.
++    /// Cancellation/refusal winning first permanently excludes a delayed release.
++    /// After release, a lost handoff or crash remains consumed uncertainty.
++    pub async fn release_prepared_request_effects(
++        &self,
++        pending: PendingPreparedRequestAttempt,
++    ) -> anyhow::Result<PreparedRequestAttempt> {
++        let PendingPreparedRequestAttempt {
++            record: expected,
++            nonce,
++            owner_pool,
++        } = pending;
++        anyhow::ensure!(
++            Arc::ptr_eq(&self.pool, &owner_pool),
++            "prepared pending runtime custody conflicts"
++        );
++        let mut connection = self.prepared_request_connection().await?;
++        let mut transaction = connection.begin_with("BEGIN IMMEDIATE").await?;
++        let row = sqlx::query(REQUEST_BY_PREPARATION_ID)
++            .bind(&expected.preparation_id)
++            .fetch_one(&mut *transaction)
++            .await?;
++        let mut record = record_from_row(&row)?;
++        anyhow::ensure!(
++            record == expected,
++            "prepared pending claim changed or closed"
++        );
++        anyhow::ensure!(
++            record.effect_state == PreparedRequestEffectState::Pending,
++            "prepared effects are not pending"
++        );
++        anyhow::ensure!(
++            row.try_get::<Option<String>, _>("consumption_nonce")?
++                .as_deref()
++                == Some(nonce.as_str()),
++            "prepared pending claim conflicts"
++        );
++        let result = sqlx::query("UPDATE prepared_requests SET effect_state = 'released' WHERE preparation_id = ? AND consumed = 1 AND attempt_state = 'committed' AND effect_state = 'pending' AND consumption_nonce = ?")
++            .bind(&expected.preparation_id).bind(nonce).execute(&mut *transaction).await?;
++        anyhow::ensure!(result.rows_affected() == 1, "prepared effect release lost");
++        transaction.commit().await?;
++        record.effect_state = PreparedRequestEffectState::Released;
++        Ok(PreparedRequestAttempt { record })
++    }
++}
+diff --git a/codex-rs/state/src/runtime/prepared_request_effects_tests.rs b/codex-rs/state/src/runtime/prepared_request_effects_tests.rs
+new file mode 100644
+index 0000000..ae2fd27
+--- /dev/null
++++ b/codex-rs/state/src/runtime/prepared_request_effects_tests.rs
+@@ -0,0 +1,258 @@
++use super::*;
++
++#[tokio::test]
++async fn pending_claim_cannot_acknowledge_and_refusal_survives_restart() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let request = request();
++    let prepared = runtime.prepare_request("pending", &request).await.unwrap();
++    runtime
++        .measure_prepared_request(&prepared.preparation_id, &request, &measurement())
++        .await
++        .unwrap();
++    let consumption = runtime
++        .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++        .await
++        .unwrap();
++    let pending = runtime
++        .commit_pending_prepared_request_attempt(consumption)
++        .await
++        .unwrap();
++    let turn = PreparedTurnReceipt {
++        thread_id: "thread".into(),
++        turn_id: "turn".into(),
++    };
++    let provider = PreparedProviderReceipt {
++        request_identity: request.request_identity.clone(),
++        provider_response_id: "response".into(),
++    };
++    assert!(sqlx::query("UPDATE prepared_requests SET native_thread_id = 'thread', native_turn_id = 'turn' WHERE preparation_id = ?").bind(&prepared.preparation_id).execute(runtime.pool.as_ref()).await.is_err());
++    assert!(
++        runtime
++            .acknowledge_prepared_request(&prepared.preparation_id, &turn)
++            .await
++            .is_err()
++    );
++    assert!(
++        runtime
++            .record_prepared_provider_receipt(&prepared.preparation_id, &provider)
++            .await
++            .is_err()
++    );
++    assert_eq!(
++        runtime
++            .close_prepared_request(&prepared.preparation_id, &request)
++            .await
++            .unwrap(),
++        PreparedRequestClosure::RefusedBeforeEffects
++    );
++    assert!(
++        runtime
++            .release_prepared_request_effects(pending)
++            .await
++            .is_err()
++    );
++    assert!(
++        runtime
++            .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++            .await
++            .is_err()
++    );
++    let refused = runtime
++        .read_prepared_request("pending")
++        .await
++        .unwrap()
++        .unwrap();
++    assert!(refused.consumed);
++    assert_eq!(
++        refused.attempt_state,
++        PreparedRequestAttemptState::Committed
++    );
++    assert_eq!(
++        refused.effect_state,
++        PreparedRequestEffectState::RefusedBeforeEffects
++    );
++    assert_eq!(
++        (refused.exact_turn.clone(), refused.provider_receipt.clone()),
++        (None, None)
++    );
++    assert!(
++        sqlx::query(
++            "UPDATE prepared_requests SET effect_state = 'released' WHERE preparation_id = ?"
++        )
++        .bind(&prepared.preparation_id)
++        .execute(runtime.pool.as_ref())
++        .await
++        .is_err()
++    );
++    assert!(
++        sqlx::query("DELETE FROM prepared_requests WHERE preparation_id = ?")
++            .bind(&prepared.preparation_id)
++            .execute(runtime.pool.as_ref())
++            .await
++            .is_err()
++    );
++    runtime.close().await;
++    let reopened = open(&home).await;
++    assert_eq!(
++        reopened.read_prepared_request("pending").await.unwrap(),
++        Some(refused)
++    );
++    assert!(
++        reopened
++            .acknowledge_prepared_request(&prepared.preparation_id, &turn)
++            .await
++            .is_err()
++    );
++    assert!(
++        reopened
++            .record_prepared_provider_receipt(&prepared.preparation_id, &provider)
++            .await
++            .is_err()
++    );
++    assert_eq!(
++        reopened
++            .close_prepared_request(&prepared.preparation_id, &request)
++            .await
++            .unwrap(),
++        PreparedRequestClosure::RefusedBeforeEffects
++    );
++    assert!(sqlx::query("UPDATE prepared_requests SET provider_response_id = 'response' WHERE preparation_id = ?").bind(&prepared.preparation_id).execute(reopened.pool.as_ref()).await.is_err());
++}
++
++#[tokio::test]
++async fn release_and_cancellation_have_one_durable_winner() {
++    for iteration in 0..8 {
++        let home = unique_temp_dir();
++        let runtime = open(&home).await;
++        let request = request();
++        let operation = format!("race-{iteration}");
++        let prepared = runtime.prepare_request(&operation, &request).await.unwrap();
++        runtime
++            .measure_prepared_request(&prepared.preparation_id, &request, &measurement())
++            .await
++            .unwrap();
++        let consumption = runtime
++            .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++            .await
++            .unwrap();
++        let pending = runtime
++            .commit_pending_prepared_request_attempt(consumption)
++            .await
++            .unwrap();
++        let (release, close) = tokio::join!(
++            runtime.release_prepared_request_effects(pending),
++            runtime.close_prepared_request(&prepared.preparation_id, &request)
++        );
++        let current = runtime
++            .read_prepared_request(&operation)
++            .await
++            .unwrap()
++            .unwrap();
++        match close.unwrap() {
++            PreparedRequestClosure::RefusedBeforeEffects => {
++                assert!(release.is_err());
++                assert_eq!(
++                    current.effect_state,
++                    PreparedRequestEffectState::RefusedBeforeEffects
++                );
++            }
++            PreparedRequestClosure::AttemptAlreadyCommitted => {
++                let attempt = release.expect("release won");
++                assert_eq!(attempt.record(), &current);
++                assert_eq!(current.effect_state, PreparedRequestEffectState::Released);
++                runtime
++                    .acknowledge_prepared_request(
++                        &prepared.preparation_id,
++                        &PreparedTurnReceipt {
++                            thread_id: "thread".into(),
++                            turn_id: "turn".into(),
++                        },
++                    )
++                    .await
++                    .unwrap();
++                runtime
++                    .record_prepared_provider_receipt(
++                        &prepared.preparation_id,
++                        &PreparedProviderReceipt {
++                            request_identity: request.request_identity.clone(),
++                            provider_response_id: "response".into(),
++                        },
++                    )
++                    .await
++                    .unwrap();
++            }
++            other => panic!("unexpected pending closure {other:?}"),
++        }
++    }
++}
++
++#[tokio::test]
++async fn pending_custody_is_pool_local_and_ordinary_attempts_remain_uncertain() {
++    let home = unique_temp_dir();
++    let runtime = open(&home).await;
++    let request = request();
++    for (operation, pending_mode) in [("pending", true), ("ordinary", false)] {
++        let prepared = runtime.prepare_request(operation, &request).await.unwrap();
++        runtime
++            .measure_prepared_request(&prepared.preparation_id, &request, &measurement())
++            .await
++            .unwrap();
++        let consumption = runtime
++            .consume_prepared_request(&prepared.preparation_id, &request, "witness")
++            .await
++            .unwrap();
++        if pending_mode {
++            let pending = runtime
++                .commit_pending_prepared_request_attempt(consumption)
++                .await
++                .unwrap();
++            let foreign_pool = open(&home).await;
++            assert!(
++                foreign_pool
++                    .release_prepared_request_effects(pending)
++                    .await
++                    .is_err()
++            );
++            assert_eq!(
++                runtime
++                    .close_prepared_request(&prepared.preparation_id, &request)
++                    .await
++                    .unwrap(),
++                PreparedRequestClosure::RefusedBeforeEffects
++            );
++        } else {
++            drop(
++                runtime
++                    .commit_prepared_request_attempt(consumption)
++                    .await
++                    .unwrap(),
++            );
++            assert_eq!(
++                runtime
++                    .close_prepared_request(&prepared.preparation_id, &request)
++                    .await
++                    .unwrap(),
++                PreparedRequestClosure::AttemptAlreadyCommitted
++            );
++            assert_eq!(
++                runtime
++                    .read_prepared_request(operation)
++                    .await
++                    .unwrap()
++                    .unwrap()
++                    .effect_state,
++                PreparedRequestEffectState::Ordinary
++            );
++            assert!(
++                sqlx::query(
++                    "UPDATE prepared_requests SET effect_state = 'pending' WHERE preparation_id = ?"
++                )
++                .bind(&prepared.preparation_id)
++                .execute(runtime.pool.as_ref())
++                .await
++                .is_err()
++            );
++        }
++    }
++}
+diff --git a/codex-rs/state/src/runtime/prepared_request_sampling.rs b/codex-rs/state/src/runtime/prepared_request_sampling.rs
+index e58b210..c0285d4 100644
+--- a/codex-rs/state/src/runtime/prepared_request_sampling.rs
++++ b/codex-rs/state/src/runtime/prepared_request_sampling.rs
+@@ -1,5 +1,6 @@
+ use super::NewPreparedRequest;
+ use super::PreparedRequestAttemptState;
++use super::PreparedRequestEffectState;
+ use super::PreparedRequestRecord;
+ use super::PreparedRequestScope;
+ use super::PreparedTurnReceipt;
+@@ -107,6 +108,10 @@ pub(super) async fn validate_consumption(
+         anyhow::ensure!(
+             previous.consumed
+                 && previous.attempt_state == PreparedRequestAttemptState::Committed
++                && matches!(
++                    previous.effect_state,
++                    PreparedRequestEffectState::Ordinary | PreparedRequestEffectState::Released
++                )
+                 && previous.provider_receipt.is_some()
+                 && previous.exact_turn.is_some(),
+             "sampling predecessor has no committed acceptance and native acknowledgement"
+diff --git a/codex-rs/state/src/runtime/prepared_requests.rs b/codex-rs/state/src/runtime/prepared_requests.rs
+index fa12c63..c0eb911 100644
+--- a/codex-rs/state/src/runtime/prepared_requests.rs
++++ b/codex-rs/state/src/runtime/prepared_requests.rs
+@@ -29,6 +29,11 @@ pub use attempts::PreparedRequestAttemptState;
+ pub use attempts::PreparedRequestClosure;
+ pub use attempts::PreparedRequestConsumption;
+ 
++#[path = "prepared_request_effects.rs"]
++mod effects;
++pub use effects::PendingPreparedRequestAttempt;
++pub use effects::PreparedRequestEffectState;
++
+ #[path = "prepared_request_sampling.rs"]
+ mod sampling;
+ pub use sampling::PreparedRequestSampling;
+@@ -102,6 +107,7 @@ pub struct PreparedRequestRecord {
+     pub measurement: Option<PreparedRequestMeasurement>,
+     pub consumed: bool,
+     pub attempt_state: PreparedRequestAttemptState,
++    pub effect_state: PreparedRequestEffectState,
+     pub exact_turn: Option<PreparedTurnReceipt>,
+     pub provider_receipt: Option<PreparedProviderReceipt>,
+     native_turn_owner_preparation_id: Option<String>,
+@@ -281,6 +287,13 @@ impl StateRuntime {
+             .await?;
+         let record = record_from_row(&row)?;
+         anyhow::ensure!(record.consumed, "unconsumed request cannot have a receipt");
++        anyhow::ensure!(
++            matches!(
++                record.effect_state,
++                PreparedRequestEffectState::Ordinary | PreparedRequestEffectState::Released
++            ),
++            "pending or refused request cannot have a receipt"
++        );
+         match receipt {
+             Receipt::Turn(receipt) => {
+                 if let Some(existing) = &record.exact_turn {
+@@ -497,6 +510,13 @@ fn record_from_row(row: &SqliteRow) -> anyhow::Result<PreparedRequestRecord> {
+             "legacy_consumed_uncertain" => PreparedRequestAttemptState::LegacyConsumedUncertain,
+             _ => anyhow::bail!("invalid stored prepared attempt state"),
+         },
++        effect_state: match row.try_get::<String, _>("effect_state")?.as_str() {
++            "ordinary" => PreparedRequestEffectState::Ordinary,
++            "pending" => PreparedRequestEffectState::Pending,
++            "released" => PreparedRequestEffectState::Released,
++            "refused_before_effects" => PreparedRequestEffectState::RefusedBeforeEffects,
++            _ => anyhow::bail!("invalid stored prepared effect state"),
++        },
+         exact_turn,
+         provider_receipt,
+         native_turn_owner_preparation_id,
+diff --git a/codex-rs/state/src/runtime/prepared_requests_tests.rs b/codex-rs/state/src/runtime/prepared_requests_tests.rs
+index b6742db..d4a03ed 100644
+--- a/codex-rs/state/src/runtime/prepared_requests_tests.rs
++++ b/codex-rs/state/src/runtime/prepared_requests_tests.rs
+@@ -11,6 +11,9 @@ mod attempts;
+ #[path = "prepared_request_sampling_tests.rs"]
+ mod sampling;
+ 
++#[path = "prepared_request_effects_tests.rs"]
++mod effects;
++
+ async fn open(home: &Path) -> Arc<StateRuntime> {
+     StateRuntime::init(
+         crate::SqliteConfig::new_for_testing(home.abs()),
+-- 
+2.54.0 (Apple Git-157)
+

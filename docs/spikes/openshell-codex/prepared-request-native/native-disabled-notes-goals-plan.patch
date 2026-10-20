@@ -1,0 +1,269 @@
+From a156fb9b0368681a3c5635d71aade56410c83ea3 Mon Sep 17 00:00:00 2001
+From: dimakis <dimitri.saridakis@gmail.com>
+Date: Tue, 20 Oct 2026 01:57:35 +0100
+Subject: [PATCH] feat(symposium): prove disabled notes and goal tool absence
+
+---
+ codex-rs/ext/goal/src/extension.rs            | 16 +++-
+ .../ext/goal/tests/goal_extension_backend.rs  | 65 ++++++++++++++++
+ codex-rs/ext/history-notes/src/extension.rs   | 23 ++++--
+ .../tests/history_notes_extension.rs          | 78 +++++++++++++++++++
+ 4 files changed, 175 insertions(+), 7 deletions(-)
+
+diff --git a/codex-rs/ext/goal/src/extension.rs b/codex-rs/ext/goal/src/extension.rs
+index 1ec9ee6..c683a35 100644
+--- a/codex-rs/ext/goal/src/extension.rs
++++ b/codex-rs/ext/goal/src/extension.rs
+@@ -22,6 +22,7 @@ use codex_extension_api::ToolExecutor;
+ use codex_extension_api::ToolFinishInput;
+ use codex_extension_api::ToolLifecycleContributor;
+ use codex_extension_api::ToolLifecycleFuture;
++use codex_extension_api::ToolPreSessionSelection;
+ use codex_extension_api::TurnAbortInput;
+ use codex_extension_api::TurnErrorInput;
+ use codex_extension_api::TurnLifecycleContributor;
+@@ -584,6 +585,9 @@ where
+     }
+ }
+ 
++/// Installs the ordinary goal owners and their config-only absence plan.
++/// `goal_config` must project only the supplied configuration without effects or
++/// mutable external reads; preparation and ordinary lifecycle share that source.
+ pub fn install_with_backend<C>(
+     registry: &mut ExtensionRegistryBuilder<C>,
+     state_dbs: Arc<codex_state::StateRuntime>,
+@@ -609,7 +613,17 @@ pub fn install_with_backend<C>(
+     registry.turn_lifecycle_contributor(extension.clone());
+     registry.token_usage_contributor(extension.clone());
+     registry.tool_lifecycle_contributor(extension.clone());
+-    registry.tool_contributor(extension);
++    let goal_config = Arc::clone(&extension.goal_config);
++    registry.tool_contributor_with_pre_session_plan(
++        extension,
++        Arc::new(move |config| {
++            if goal_config(config).enabled {
++                ToolPreSessionSelection::Unresolved
++            } else {
++                ToolPreSessionSelection::NoTools
++            }
++        }),
++    );
+ }
+ 
+ fn goal_runtime_handle(thread_store: &ExtensionData) -> Option<Arc<GoalRuntimeHandle>> {
+diff --git a/codex-rs/ext/goal/tests/goal_extension_backend.rs b/codex-rs/ext/goal/tests/goal_extension_backend.rs
+index e0a952d..e204dd0 100644
+--- a/codex-rs/ext/goal/tests/goal_extension_backend.rs
++++ b/codex-rs/ext/goal/tests/goal_extension_backend.rs
+@@ -51,6 +51,71 @@ use pretty_assertions::assert_eq;
+ use serde_json::json;
+ use tempfile::TempDir;
+ 
++#[tokio::test]
++async fn disabled_goal_capture_tracks_ordinary_configuration() -> anyhow::Result<()> {
++    use codex_extension_api::PreSessionToolInventoryError;
++
++    let runtime = test_runtime().await?;
++    let thread_id = test_thread_id()?;
++    let mut builder = ExtensionRegistryBuilder::<bool>::new();
++    install_with_backend(
++        &mut builder,
++        runtime,
++        AnalyticsEventsClient::disabled(),
++        /*metrics_client*/ None,
++        Weak::new(),
++        Arc::new(GoalService::new()),
++        |enabled| GoalExtensionConfig {
++            enabled: *enabled,
++            max_goal_token_budget: None,
++        },
++    );
++    let registry = builder.build();
++    let capture = registry.capture_pre_session_tools_for_config(&false)?;
++    assert!(capture.definitions().is_empty());
++    let session_store = ExtensionData::new(thread_id.to_string());
++    let thread_store = ExtensionData::new(thread_id.to_string());
++    for contributor in registry.thread_lifecycle_contributors() {
++        contributor
++            .on_thread_start(ThreadStartInput {
++                config: &false,
++                session_source: &SessionSource::Cli,
++                persistent_thread_state_available: true,
++                environments: &[],
++                mcp_resource_client: None,
++                extension_metrics: None,
++                session_store: &session_store,
++                thread_store: &thread_store,
++            })
++            .await;
++    }
++    let tools = || {
++        registry
++            .tool_contributors()
++            .iter()
++            .flat_map(|contributor| contributor.tools(&session_store, &thread_store))
++            .map(|tool| tool.tool_name())
++            .collect::<Vec<_>>()
++    };
++    assert!(tools().is_empty());
++    assert_eq!(
++        registry.renew_pre_session_tools_for_config(&capture, &true),
++        Err(PreSessionToolInventoryError::StateBoundContributors {
++            registration_indexes: vec![0],
++        })
++    );
++    for contributor in registry.config_contributors() {
++        contributor.on_config_changed(&session_store, &thread_store, &false, &true);
++    }
++    assert_eq!(tools().len(), 3);
++    for contributor in registry.config_contributors() {
++        contributor.on_config_changed(&session_store, &thread_store, &true, &false);
++    }
++    assert!(tools().is_empty());
++    registry.renew_pre_session_tools_for_config(&capture, &false)?;
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn installed_goal_tools_create_goal_and_fill_empty_preview() -> anyhow::Result<()> {
+     let runtime = test_runtime().await?;
+diff --git a/codex-rs/ext/history-notes/src/extension.rs b/codex-rs/ext/history-notes/src/extension.rs
+index a5b259f..440d3e0 100644
+--- a/codex-rs/ext/history-notes/src/extension.rs
++++ b/codex-rs/ext/history-notes/src/extension.rs
+@@ -17,6 +17,7 @@ use codex_extension_api::ThreadStartInput;
+ use codex_extension_api::ToolCall;
+ use codex_extension_api::ToolContributor;
+ use codex_extension_api::ToolExecutor;
++use codex_extension_api::ToolPreSessionSelection;
+ use codex_login::AuthManager;
+ use codex_model_provider::create_model_provider;
+ use codex_protocol::AgentPath;
+@@ -42,13 +43,23 @@ struct HistoryNotesAgentIdentity {
+     agent_name: String,
+ }
+ 
++fn tool_selection(config: &Config) -> ToolPreSessionSelection {
++    if config
++        .token_budget
++        .as_ref()
++        .is_some_and(|token_budget| token_budget.use_history_notes_extension)
++        && config.model_provider.is_openai()
++    {
++        // Account-backed availability and thread identity remain unresolved.
++        ToolPreSessionSelection::Unresolved
++    } else {
++        ToolPreSessionSelection::NoTools
++    }
++}
++
+ impl HistoryNotesExtension {
+     fn update_config(&self, thread_store: &ExtensionData, config: &Config) {
+-        if config
+-            .token_budget
+-            .as_ref()
+-            .is_some_and(|token_budget| token_budget.use_history_notes_extension)
+-            && config.model_provider.is_openai()
++        if tool_selection(config) == ToolPreSessionSelection::Unresolved
+             && self.auth_manager.current_auth_uses_codex_backend()
+         {
+             thread_store.insert(HistoryNotesExtensionConfig {
+@@ -187,5 +198,5 @@ pub fn install(registry: &mut ExtensionRegistryBuilder<Config>, auth_manager: Ar
+     registry.thread_lifecycle_contributor(extension.clone());
+     registry.config_contributor(extension.clone());
+     registry.prompt_contributor(extension.clone());
+-    registry.tool_contributor(extension);
++    registry.tool_contributor_with_pre_session_plan(extension, Arc::new(tool_selection));
+ }
+diff --git a/codex-rs/ext/history-notes/tests/history_notes_extension.rs b/codex-rs/ext/history-notes/tests/history_notes_extension.rs
+index 219155a..151f461 100644
+--- a/codex-rs/ext/history-notes/tests/history_notes_extension.rs
++++ b/codex-rs/ext/history-notes/tests/history_notes_extension.rs
+@@ -47,6 +47,84 @@ use wiremock::matchers::path;
+ type TestResult = Result<(), Box<dyn std::error::Error>>;
+ const THREAD_HINT: &str = "Recent notes (up to 5, most-recent first):\n- /root/worker/notes/latest.md (2 lines, 14 UTF-8 bytes)";
+ 
++#[tokio::test]
++async fn disabled_history_notes_capture_tracks_ordinary_configuration() -> TestResult {
++    use codex_extension_api::PreSessionToolInventoryError;
++
++    let codex_home = TempDir::new()?;
++    let mut config = ConfigBuilder::default()
++        .loader_overrides(LoaderOverrides::without_managed_config_for_tests())
++        .codex_home(codex_home.path().to_path_buf())
++        .build()
++        .await?;
++    config.token_budget = Some(TokenBudgetConfig {
++        use_history_notes_extension: false,
++        ..TokenBudgetConfig::default()
++    });
++    let mut headers = HeaderMap::new();
++    headers.insert(
++        "x-openai-actor-authorization",
++        HeaderValue::from_static("synthetic-offline-actor"),
++    );
++    let auth_manager =
++        AuthManager::from_auth_for_testing(CodexAuth::Headers(AuthHeaders::new(headers)));
++    let mut builder = ExtensionRegistryBuilder::<Config>::new();
++    install(&mut builder, auth_manager);
++    let registry = builder.build();
++    // Capture precedes both thread stores and all lifecycle callbacks.
++    let capture = registry.capture_pre_session_tools_for_config(&config)?;
++    assert!(capture.definitions().is_empty());
++    let session_store = ExtensionData::new("session");
++    let thread_store = ExtensionData::new("thread");
++    for contributor in registry.thread_lifecycle_contributors() {
++        contributor
++            .on_thread_start(ThreadStartInput {
++                config: &config,
++                session_source: &SessionSource::Cli,
++                persistent_thread_state_available: true,
++                environments: &[],
++                mcp_resource_client: None,
++                extension_metrics: None,
++                session_store: &session_store,
++                thread_store: &thread_store,
++            })
++            .await;
++    }
++    assert!(exposed_tools(&registry, &session_store, &thread_store).is_empty());
++    let mut enabled = config.clone();
++    enabled
++        .token_budget
++        .as_mut()
++        .expect("token budget")
++        .use_history_notes_extension = true;
++    assert_eq!(
++        registry.renew_pre_session_tools_for_config(&capture, &enabled),
++        Err(PreSessionToolInventoryError::StateBoundContributors {
++            registration_indexes: vec![0],
++        })
++    );
++    for contributor in registry.config_contributors() {
++        contributor.on_config_changed(&session_store, &thread_store, &config, &enabled);
++    }
++    assert_eq!(
++        exposed_tools(&registry, &session_store, &thread_store).len(),
++        9
++    );
++    for contributor in registry.config_contributors() {
++        contributor.on_config_changed(&session_store, &thread_store, &enabled, &config);
++    }
++    assert!(exposed_tools(&registry, &session_store, &thread_store).is_empty());
++    registry.renew_pre_session_tools_for_config(&capture, &config)?;
++    // Selection renewal is not whole-request ABA/source authority.
++    assert!(
++        registry.context_contributors()[0]
++            .contribute_thread_context(&session_store, &thread_store)
++            .await
++            .is_empty()
++    );
++    Ok(())
++}
++
+ #[tokio::test]
+ async fn installed_extension_exposes_and_invokes_history_notes_tools() -> TestResult {
+     let server = MockServer::start().await;
+-- 
+2.54.0 (Apple Git-157)
+
