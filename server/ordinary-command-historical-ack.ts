@@ -67,14 +67,15 @@ function assertHistoricalAcknowledgement(
       meta.agentProfile
         ? {
             ...input.payload,
-            systemPrompt: ordinary
-              ? resolveTelosWorkSystemPrompt(
-                  events,
-                  sessionId,
-                  meta.accountBinding,
-                  buildAgentProfilePrompt(meta.agentProfile.definition),
-                )
-              : buildAgentProfilePrompt(meta.agentProfile.definition),
+            systemPrompt:
+              ordinary || (input.runOn === 'local' && input.runtime.harness === 'codex')
+                ? resolveTelosWorkSystemPrompt(
+                    events,
+                    sessionId,
+                    meta.accountBinding,
+                    buildAgentProfilePrompt(meta.agentProfile.definition),
+                  )
+                : buildAgentProfilePrompt(meta.agentProfile.definition),
           }
         : input.payload,
     )
@@ -139,12 +140,24 @@ function assertHistoricalAcknowledgement(
   } else if (first) {
     const workspace = getRepositoryWorkspaces(true).get(workspaceId);
     const frozen = workspace.ordinaryFirstReservation;
+    const prepared = events.getOrdinarySessionPreparationForConversation(sessionId);
+    if (
+      prepared &&
+      (prepared.sessionId !== sessionId ||
+        prepared.workspaceId !== workspaceId ||
+        prepared.firstCommandId !== input.clientMsgId ||
+        !isDeepStrictEqual(prepared.settings.binding, binding) ||
+        !isDeepStrictEqual(prepared.settings.selection, input.selection))
+    )
+      return reject('preparation');
+    const reservationFingerprint =
+      prepared?.preparationFingerprint ??
+      createHash('sha256').update(JSON.stringify(input)).digest('hex');
     if (
       events.getOrdinaryInitialCommandId(sessionId) !== input.clientMsgId ||
       (frozen &&
         (frozen.conversationId !== sessionId ||
-          frozen.commandFingerprint !==
-            createHash('sha256').update(JSON.stringify(input)).digest('hex'))) ||
+          frozen.commandFingerprint !== reservationFingerprint)) ||
       (workspace.ordinaryPreparation && !frozen)
     )
       return reject();
