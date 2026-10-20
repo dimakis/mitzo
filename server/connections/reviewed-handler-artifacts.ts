@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.399-owned-codex-targeted-interrupt';
+  'v1.0.400-owned-codex-targeted-interrupt';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -647,7 +647,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': '213de41fb41240c7d10302c1775991995ce7131b2b505bf6cc7dd7c9d1108f94',
   '../codex-conversation-store.ts':
-    '28309edb2049c85d0e18b8b21e44f35a18b2afce386782258ddf37e25c75475c',
+    '08510abc246e9105e82d654186672f2db7697466287782d6e14adfea2977f0d4',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':

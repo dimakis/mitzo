@@ -1300,3 +1300,31 @@ it('keeps the accepted turn immutable within its original command attempt', () =
     f.store.close();
   }
 });
+it('refuses ambiguous same-attempt native history before claiming or pausing', () => {
+  const f = acceptedTargetFixture(),
+    db = new Database(f.path);
+  try {
+    const { attempt, threadId, turnId, generation } = f.target;
+    const current = { attempt, threadId, turnId, generation };
+    const raw = JSON.stringify([
+      { ...current, threadId: 'old-thread', turnId: 'old-turn' },
+      current,
+    ]);
+    db.prepare('UPDATE codex_commands SET native_turns=? WHERE id=?').run(raw, 'command-a');
+    const before = f.store.read('target-chat', binding);
+    expect(f.store.nativeTurnTarget('target-chat', binding, 'command-a', 1)).toBeUndefined();
+    expect(
+      f.store.claimTargetedInterrupt('target-chat', binding, 'ambiguous-control', f.target),
+    ).toBeUndefined();
+    expect(
+      f.store.targetedInterruptReceipt('target-chat', binding, 'ambiguous-control'),
+    ).toBeUndefined();
+    expect(f.store.read('target-chat', binding)).toEqual(before);
+    expect(
+      db.prepare('SELECT native_turns FROM codex_commands WHERE id=?').get('command-a'),
+    ).toEqual({ native_turns: raw });
+  } finally {
+    db.close();
+    f.store.close();
+  }
+});

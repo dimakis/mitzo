@@ -1795,13 +1795,13 @@ export class CodexConversationStore {
       .get(id, commandId) as
       { status: string; attempt: number; native_turns: string | null } | undefined;
     if (!row || row.status !== 'running' || row.attempt !== attempt) return;
-    const targets = this.nativeTurns(row.native_turns).filter(
-      (t) =>
-        t.attempt === attempt &&
-        t.threadId === current.threadId &&
-        t.generation === current.threadGeneration,
-    );
+    const targets = this.nativeTurns(row.native_turns).filter((t) => t.attempt === attempt);
     if (targets.length !== 1) return;
+    if (
+      targets[0].threadId !== current.threadId ||
+      targets[0].generation !== current.threadGeneration
+    )
+      return;
     if (this.pendingThreadOwnership(id, b)) return;
     return this.nativeTarget(commandId, targets[0]);
   }
@@ -1853,7 +1853,10 @@ export class CodexConversationStore {
           .prepare('SELECT native_turns FROM codex_commands WHERE conversation_id=? AND id=?')
           .get(id, target.commandId) as { native_turns: string };
         const turns = this.nativeTurns(row.native_turns);
-        const accepted = turns.find((t) => t.attempt === target.attempt)!;
+        const accepted = turns.find((t) =>
+          isDeepStrictEqual(this.nativeTarget(target.commandId, t), target),
+        );
+        if (!accepted) return;
         if (accepted.interruptRequestId)
           throw Error('Native turn already has an interruption claim');
         accepted.interruptRequestId = requestId;

@@ -5728,3 +5728,19 @@ it('retains the original cancellation claim if an abort listener retires the act
     f.store.targetedInterruptReceipt('app', f.getBinding(), 'retired-during-abort'),
   ).toMatchObject({ target: { commandId: 'target-a' }, disposition: 'claimed' });
 });
+it('does not duplicate a targeted cancellation invoked during the actual acceptance observer', async () => {
+  const f = await setup();
+  let interrupted: ReturnType<typeof f.c.interruptIfCurrent> | undefined;
+  f.conversationOptions.onProviderAccepted = () => {
+    const target = f.c.captureInterruptTarget()!;
+    expect(target.commandId).toBe('observer-target');
+    interrupted = f.c.interruptIfCurrent('observer-control', target);
+  };
+  await f.c.send({ id: 'observer-target', prompt: 'First' });
+  expect(interrupted).toBeDefined();
+  expect(await interrupted).toMatchObject({ status: 'claimed', replayed: false });
+  expect(f.requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(1);
+  expect(f.store.targetedInterruptReceipt('app', f.getBinding(), 'observer-control')).toMatchObject(
+    { target: { commandId: 'observer-target' }, disposition: 'claimed' },
+  );
+});
