@@ -102,6 +102,38 @@ it.each(['wrong-kind', 'missing-filename', 'latest-title', 'latest-filename'] as
     expect(port.confirm).not.toHaveBeenCalled();
   },
 );
+
+it.each(['selected', 'conversation_so_far'] as const)(
+  'checks extra kind-aware artifact context according to the explicit %s mode',
+  async (context) => {
+    const port = owner();
+    const setup = { ...joiningSetupFixture(), context };
+    const response = retainedJoiningReviewFixture();
+    response.snapshot.mode = context;
+    port.review.mockResolvedValueOnce(response);
+    const { result } = renderHook(() => useConversationJoiningReview(port));
+    await act(() => result.current.prepare(setup));
+    expect(result.current.canConfirm).toBe(context === 'conversation_so_far');
+    expect(!!result.current.error).toBe(context === 'selected');
+    expect(port.confirm).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['snapshot', 'both'] as const)(
+  'refuses duplicate artifact identities in the selected %s even when counts match',
+  async (where) => {
+    const port = owner();
+    const setup = joiningSetupFixture();
+    const response = joiningReviewFixture();
+    response.snapshot.artifacts.push(structuredClone(response.snapshot.artifacts[0]));
+    if (where === 'both') setup.artifacts.push(structuredClone(setup.artifacts[0]));
+    port.review.mockResolvedValueOnce(response);
+    const { result } = renderHook(() => useConversationJoiningReview(port));
+    await act(() => result.current.prepare(setup));
+    expect(result.current.canConfirm).toBe(false);
+    expect(result.current.error).toBeTruthy();
+  },
+);
 it('opening a flow performs no read, allocation or confirmation', () => {
   const port = owner();
   const { result } = renderHook(() => useConversationJoiningReview(port));

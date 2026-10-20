@@ -26,7 +26,10 @@ import {
   AUTH_RESTORED_EVENT,
   currentVerifiedAuthSessionId,
 } from '../lib/api-fetch';
-import { sameConversationArtifact } from '../lib/conversation-joining-artifacts';
+import {
+  conversationArtifactKey,
+  sameConversationArtifact,
+} from '../lib/conversation-joining-artifacts';
 
 type State = {
   review: ConversationJoiningReviewResult | null;
@@ -90,6 +93,8 @@ function readReview(
 ): ConversationJoiningReviewResult {
   const review = CollaborationApplicationReviewResultSchema.parse(raw);
   const { snapshot, settings } = review;
+  const selectedArtifacts = setup.artifacts.map(conversationArtifactKey).sort();
+  const frozenArtifacts = snapshot.artifacts.map(conversationArtifactKey).sort();
   if (
     !Number.isSafeInteger(review.expectedMembershipRevision) ||
     review.expectedMembershipRevision < 0 ||
@@ -107,9 +112,13 @@ function readReview(
         [...snapshot.messages.map((m) => m.messageId)].sort(),
         [...setup.messageIds].sort(),
       )) ||
-    setup.artifacts.some(
-      (a) => !snapshot.artifacts.some((pin) => sameConversationArtifact(a, pin)),
-    ) ||
+    (setup.context === 'selected'
+      ? new Set(selectedArtifacts).size !== selectedArtifacts.length ||
+        new Set(frozenArtifacts).size !== frozenArtifacts.length ||
+        !equal(frozenArtifacts, selectedArtifacts)
+      : setup.artifacts.some(
+          (a) => !snapshot.artifacts.some((pin) => sameConversationArtifact(a, pin)),
+        )) ||
     snapshot.artifacts.some((pin) => {
       const labels = review.artifactLabels?.filter((label) => sameConversationArtifact(label, pin));
       return (
