@@ -7,7 +7,8 @@ import { TelosItemWorkspace } from '../TelosItemWorkspace';
 import { createTelosWorkFixtures } from '../../test-utils/telos-work-fixtures';
 import { apiFetch } from '../../lib/api-fetch';
 import { installDialogStub } from './dialog-stub';
-vi.mock('../../lib/api-fetch', () => ({
+vi.mock('../../lib/api-fetch', async (original) => ({
+  ...(await original<typeof import('../../lib/api-fetch')>()),
   apiFetch: vi.fn(),
   AUTH_LOST_EVENT: 'mitzo:auth-lost',
   AUTH_RESTORED_EVENT: 'mitzo:auth-restored',

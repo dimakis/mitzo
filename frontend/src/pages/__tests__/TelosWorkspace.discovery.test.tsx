@@ -8,7 +8,9 @@ import { TodoWorkspace } from '../TodoWorkspace';
 import { createTelosWorkFixtures } from '../../test-utils/telos-work-fixtures';
 import { markAuthLost } from '../../lib/api-fetch';
 
-vi.mock('../../lib/event-bus-singleton', () => ({ eventBus: { on: () => () => {} } }));
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: { on: () => () => {}, onConnectionChange: () => () => {} },
+}));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: Record<string, unknown>) => unknown) =>
     select({ newSession: vi.fn(), setPendingSession: vi.fn() }),

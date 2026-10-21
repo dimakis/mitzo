@@ -18,6 +18,7 @@ vi.mock('../../lib/event-bus-singleton', () => ({
       if (event === 'todo_update') updates.add(listener);
       return () => updates.delete(listener);
     },
+    onConnectionChange: () => () => {},
   },
 }));
 vi.mock('../../hooks/useTodoData', async (importOriginal) => ({
