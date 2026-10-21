@@ -7,8 +7,8 @@ import { UiIcon } from './UiIcon';
 import { Link } from 'react-router-dom';
 
 const HIDE_TAB_BAR = ['/login'];
-// Collection pages share a masthead. Conversations and item details keep their
-// focused navigation and keyboard layout.
+// Collection pages and Telos items share the safe-area masthead.
+// Conversations retain their focused navigation and keyboard layout.
 const COLLECTION_ROUTES = new Set([
   '/',
   '/sessions',
@@ -53,6 +53,7 @@ function MobileShellLayout({ children }: { children: React.ReactNode }) {
 
   const collection =
     COLLECTION_ROUTES.has(location.pathname) ||
+    location.pathname.startsWith('/todos/') ||
     location.pathname.startsWith('/briefings/') ||
     location.pathname.startsWith('/quotes/');
   if (!isDesktop && collection) {

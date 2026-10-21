@@ -175,6 +175,14 @@ export function TodoDetailView() {
       </div>
     );
 
+  if (primary.initializing && !item && !error)
+    return (
+      <div className="todo-detail-page telos-canonical-page">
+        <PageHeader title="Telos" onBack={handleBack} />
+        <p role="status">Loading...</p>
+      </div>
+    );
+
   if (!item) {
     if (error)
       return (

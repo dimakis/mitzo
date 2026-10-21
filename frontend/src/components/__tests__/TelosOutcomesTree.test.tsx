@@ -178,3 +178,63 @@ it('retains manual collapse when canonical ancestors temporarily disappear and r
     screen.getByRole('button', { name: 'Expand Retained parent' }).getAttribute('aria-expanded'),
   ).toBe('false');
 });
+
+it('lets active search paths collapse and expand without clearing query, including across refresh and remount', () => {
+  const root = { ...records[0], itemId: 'druid-root', parentId: null, summary: 'Druid' };
+  const child = {
+    ...records[0],
+    itemId: 'druid-child',
+    parentId: root.itemId,
+    summary: 'Druid leaf',
+  };
+  const props = { records: [root, child], onOpen: vi.fn(), refreshKey: 0 };
+  const view = render(<TelosOutcomesTree {...props} />);
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Druid leaf' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse Druid' }));
+  expect(screen.getByRole('button', { name: 'Expand Druid' }).getAttribute('aria-expanded')).toBe(
+    'false',
+  );
+  view.rerender(
+    <TelosOutcomesTree {...props} refreshKey={1} records={[{ ...root }, { ...child }]} />,
+  );
+  expect(screen.getByRole('button', { name: 'Expand Druid' })).toBeTruthy();
+  view.unmount();
+  render(<TelosOutcomesTree {...props} />);
+  expect(screen.getByRole('button', { name: 'Expand Druid' })).toBeTruthy();
+  expect((screen.getByRole('searchbox') as HTMLInputElement).value).toBe('Druid leaf');
+  fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+  expect(screen.getByRole('button', { name: child.summary })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+  expect(screen.getByRole('button', { name: 'Expand Druid' })).toBeTruthy();
+});
+
+it('renders a ready record alongside pending collection reads', () => {
+  const item = { ...records[0], parentId: null };
+  render(<TelosOutcomesTree records={[item]} onOpen={vi.fn()} refreshKey={0} loading />);
+  expect(screen.getByRole('status').textContent).toBe('Loading outcomes…');
+  expect(screen.getByRole('button', { name: item.summary })).toBeTruthy();
+});
+
+it('keeps category matches manually collapsible and resets collapse overrides only when context changes', () => {
+  const root = {
+    ...records[0],
+    itemId: 'category-root',
+    parentId: null,
+    summary: 'Category root',
+    categories: ['Job'],
+  };
+  const child = {
+    ...records[0],
+    itemId: 'category-child',
+    parentId: root.itemId,
+    summary: 'Category child',
+    categories: ['Job'],
+  };
+  render(<TelosOutcomesTree records={[root, child]} refreshKey={0} onOpen={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Job' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse Category root' }));
+  expect(screen.getByRole('button', { name: 'Expand Category root' })).toBeTruthy();
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: child.summary } });
+  expect(screen.getByRole('button', { name: 'Collapse Category root' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: child.summary })).toBeTruthy();
+});

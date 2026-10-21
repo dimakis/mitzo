@@ -2,7 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, renderHook, waitFor, act } from '@testing-library/react';
 import { createTelosWorkFixtures } from '../../test-utils/telos-work-fixtures';
-import { TelosWorkApiClient } from '@mitzo/client';
+import { TelosWorkApiClient, TelosWorkApiError } from '@mitzo/client';
 import { useTelosRecords } from '../useTelosRecords';
 const updates = vi.hoisted(() => new Set<() => void>());
 vi.mock('../../lib/event-bus-singleton', () => ({
@@ -209,3 +209,48 @@ for (const remount of [false, true])
     act(() => updates.forEach((listener) => listener()));
     await waitFor(() => expect(view.result.current.records[0]?.priority).toBe(2));
   });
+
+it('publishes ready records while another initial record is pending, keeping loading truthful', async () => {
+  const records = createTelosWorkFixtures().homeStudio.items;
+  let release!: (record: (typeof records)[number]) => void;
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation((id) =>
+    id === records[0].itemId
+      ? Promise.resolve(records[0])
+      : new Promise((resolve) => {
+          release = resolve;
+        }),
+  );
+  const { result } = renderHook(() => useTelosRecords([records[1].itemId, records[0].itemId]));
+  await waitFor(() => expect(result.current.records).toEqual([records[0]]));
+  expect(result.current.loading).toBe(true);
+  await act(async () => release(records[1]));
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.records).toEqual([records[1], records[0]]);
+});
+
+it('retains safe failure categories and item identity for HTTP, validation, identity and transport failures', async () => {
+  const record = createTelosWorkFixtures().homeStudio.items[0];
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(async (id) => {
+    if (id === 'http-failure')
+      throw new TelosWorkApiError(503, 'fixture_unavailable', 'Do not display raw payload');
+    if (id === 'invalid-record') {
+      const error = new Error('private schema payload');
+      error.name = 'ZodError';
+      throw error;
+    }
+    if (id === 'wrong-identity') return record;
+    throw Error('private transport diagnostics');
+  });
+  const { result } = renderHook(() =>
+    useTelosRecords(['http-failure', 'invalid-record', 'wrong-identity', 'transport-failure']),
+  );
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.failures).toEqual([
+    { itemId: 'http-failure', code: 'fixture_unavailable', status: 503 },
+    { itemId: 'invalid-record', code: 'invalid_record' },
+    { itemId: 'wrong-identity', code: 'record_identity_mismatch' },
+    { itemId: 'transport-failure', code: 'record_read_failed' },
+  ]);
+  expect(result.current.records).toEqual([]);
+  expect(JSON.stringify(result.current.failures)).not.toContain('private');
+});
