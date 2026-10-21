@@ -38,9 +38,9 @@ export class TelosItemStore {
   constructor(path: string) {
     this.#telosOwner = openTelosOwnedDatabase('canonical', path, { fileMustExist: true });
     this.db = this.#telosOwner.database;
-    this.db.pragma('busy_timeout = 5000');
-    this.db.pragma('foreign_keys = ON');
     try {
+      this.db.pragma('busy_timeout = 5000');
+      this.db.pragma('foreign_keys = ON');
       this.db
         .prepare(
           'SELECT id,summary,status,parent_id,intent,rationale,acceptance_criteria,updated_at,snoozed_until FROM items LIMIT 1',

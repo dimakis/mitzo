@@ -4,5 +4,8 @@
   "private": true,
   "main": "index.cjs",
   "types": "index.d.ts",
-  "gypfile": true
+  "gypfile": true,
+  "scripts": {
+    "install": "node-gyp rebuild --jobs=1"
+  }
 }

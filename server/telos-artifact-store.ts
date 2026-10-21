@@ -147,9 +147,9 @@ export class TelosArtifactStore {
       ? undefined
       : openTelosOwnedDatabase('canonical', path, { fileMustExist: true, readonly: readOnly });
     this.db = borrowedDatabase ?? this.#telosOwner!.database;
-    this.db.pragma('busy_timeout = 5000');
-    this.db.pragma('foreign_keys = ON');
     try {
+      this.db.pragma('busy_timeout = 5000');
+      this.db.pragma('foreign_keys = ON');
       this.db.prepare('SELECT id FROM items LIMIT 1').get();
       this.db.prepare('SELECT id FROM links LIMIT 1').get();
       if (readOnly) {

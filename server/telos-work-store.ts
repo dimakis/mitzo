@@ -195,9 +195,9 @@ export class TelosWorkStore {
     });
     this.db = this.#telosOwner.database;
     this.#openedCanonicalName = resolve(this.db.name);
-    this.db.pragma('busy_timeout = 5000');
-    this.db.pragma('foreign_keys = ON');
     try {
+      this.db.pragma('busy_timeout = 5000');
+      this.db.pragma('foreign_keys = ON');
       this.db.prepare('SELECT id,parent_id,updated_at FROM items LIMIT 1').get();
       if (readOnly) {
         this.db.prepare('SELECT data FROM telos_work_attempts LIMIT 0').all();
