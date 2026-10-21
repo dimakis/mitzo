@@ -533,6 +533,58 @@ print(json.dumps({"profiles": ["work"], "items": [item]}))
     expect(res.status).toBe(502);
     expect(res.body).toEqual({ error: 'Todo service unavailable' });
   });
+
+  it('GET /api/todos — reads committed lifecycle visibility while another canonical writer remains open', async () => {
+    const f = canonicalFixture();
+    f.work.executeLifecycle(
+      {
+        requestId: 'archive-before-list-writer',
+        itemId: 'studio',
+        expectedRevision: f.work.read('studio', f.actor).revision,
+        operation: 'archive',
+      },
+      f.actor,
+    );
+    const canonical = {
+      profiles: ['manual'],
+      items: [
+        {
+          id: 'studio',
+          summary: 'Home studio',
+          profile: 'manual',
+          urgency: 0.5,
+          status: 'active',
+          ageDays: 0,
+          sources: [],
+          contextHints: {},
+        },
+      ],
+    };
+    writeFileSync(TODO_SCRIPT, `print(${JSON.stringify(JSON.stringify(canonical))})\n`);
+    const writer = new Database(f.dbPath);
+    try {
+      writer.exec('BEGIN IMMEDIATE');
+      writer
+        .prepare(
+          "UPDATE telos_work_lifecycle SET data=json_set(data,'$.disposition','active') WHERE item_id='studio'",
+        )
+        .run();
+      const response = await request(app).get('/api/todos').set('Cookie', authCookie);
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(response.body.items).toEqual([]);
+      expect(writer.inTransaction).toBe(true);
+      expect(
+        writer
+          .prepare(
+            "SELECT json_extract(data,'$.disposition') AS disposition FROM telos_work_lifecycle WHERE item_id='studio'",
+          )
+          .get(),
+      ).toEqual({ disposition: 'active' });
+    } finally {
+      if (writer.inTransaction) writer.exec('ROLLBACK');
+      writer.close();
+    }
+  }, 15000);
 });
 
 describe('todo action success paths', () => {

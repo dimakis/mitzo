@@ -25,9 +25,9 @@ export function projectCanonicalTelosLifecycleList(input: {
   if (view !== 'active' && !operator)
     throw new TelosWorkError('unauthorized', 'Current interactive operator required');
   const ids = collectTelosCanonicalItemIds(input.canonical);
-  // Reuse the original canonical work owner, including its additive schema
-  // initialization. The first list may precede the first record/lifecycle read.
-  const work = new TelosWorkStore(input.databasePath, input.policy);
+  // Read committed initialized authority without contending with its writer.
+  // The first list still initializes genuinely missing additive schema.
+  const work = TelosWorkStore.openForLifecycleListRead(input.databasePath, input.policy);
   try {
     if (view === 'active')
       return projectTelosLifecycleTree(
