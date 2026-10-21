@@ -142,6 +142,27 @@ export class TelosWorkStore {
       return new TelosWorkStore(path, policy);
     }
   }
+  /** Collection reads also need the additive lifecycle layout. Initialize only
+   * genuinely missing tables; a malformed or busy reader never becomes a writer. */
+  static openForLifecycleListRead(path: string, policy: TelosWorkStorePolicy): TelosWorkStore {
+    const store = TelosWorkStore.openForRecordRead(path, policy);
+    try {
+      store.db.prepare('SELECT data FROM telos_work_lifecycle LIMIT 0').all();
+      store.db.prepare('SELECT receipt FROM telos_work_lifecycle_commands LIMIT 0').all();
+      store.db.prepare('SELECT data FROM telos_work_lifecycle_history LIMIT 0').all();
+      return store;
+    } catch (error) {
+      store.close();
+      if (
+        !(error instanceof Error) ||
+        !('code' in error) ||
+        error.code !== 'SQLITE_ERROR' ||
+        !/^no such table: telos_work_lifecycle(?:_commands|_history)?$/.test(error.message)
+      )
+        throw error;
+      return new TelosWorkStore(path, policy);
+    }
+  }
   constructor(
     path: string,
     private readonly policy: TelosWorkStorePolicy,

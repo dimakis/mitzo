@@ -3,6 +3,7 @@ import { TodoListResponse } from '../api-schemas.js';
 import { projectCanonicalTelosLifecycleList } from '../telos-lifecycle-list.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 import { revokeAuthSession } from '../auth.js';
+import Database from 'better-sqlite3';
 
 // This composition test exercises actual interactive revocation, not host token
 // authentication. Keep auth.ts's unrelated credential import entirely offline.
@@ -143,4 +144,66 @@ it('refuses unknown views instead of silently displaying active records', () => 
   const f = fixture();
   expect(() => f.project('everything', f.operator)).toThrow(/lifecycle view/i);
   expect(() => f.project(['active'], f.operator)).toThrow(/lifecycle view/i);
+});
+
+it.each(['active', 'archive', 'trash'])(
+  'reads committed %s visibility while an independent writer retains an uncommitted transition',
+  (view) => {
+    const f = fixture();
+    if (view === 'trash')
+      f.f.work.executeLifecycle(
+        {
+          requestId: 'trash-child',
+          itemId: 'child',
+          expectedRevision: f.f.work.read('child', f.f.actor).revision,
+          operation: 'trash',
+        },
+        f.f.actor,
+      );
+    else f.archive('child');
+    const expected = f.project(view, f.operator);
+    const writer = new Database(f.f.dbPath);
+    try {
+      writer.exec('BEGIN IMMEDIATE');
+      writer
+        .prepare(
+          "UPDATE telos_work_lifecycle SET data=json_set(data,'$.disposition','active') WHERE item_id='child'",
+        )
+        .run();
+      expect(f.project(view, f.operator)).toEqual(expected);
+      expect(writer.inTransaction).toBe(true);
+      expect(
+        writer
+          .prepare(
+            "SELECT json_extract(data,'$.disposition') AS disposition FROM telos_work_lifecycle WHERE item_id='child'",
+          )
+          .get(),
+      ).toEqual({ disposition: 'active' });
+    } finally {
+      if (writer.inTransaction) writer.exec('ROLLBACK');
+      writer.close();
+    }
+  },
+  15000,
+);
+
+it.each(['telos_work_lifecycle', 'telos_work_lifecycle_commands', 'telos_work_lifecycle_history'])(
+  'initializes an older collection layout missing %s',
+  (table) => {
+    const f = fixture();
+    f.f.db.exec(`DROP TABLE ${table}`);
+    expect(f.project()).toEqual(f.canonical);
+    expect(
+      f.f.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table),
+    ).toEqual({ name: table });
+  },
+);
+
+it('does not retry malformed lifecycle schema as a writer', () => {
+  const f = fixture();
+  f.f.db.exec('DROP TABLE telos_work_lifecycle');
+  f.f.db.exec('CREATE TABLE telos_work_lifecycle(item_id TEXT PRIMARY KEY, broken TEXT)');
+  const before = f.f.db.pragma('schema_version', { simple: true });
+  expect(() => f.project()).toThrow(/no such column: data/);
+  expect(f.f.db.pragma('schema_version', { simple: true })).toBe(before);
 });
