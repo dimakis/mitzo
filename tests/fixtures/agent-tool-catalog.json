@@ -209,6 +209,39 @@
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
+    "id": "mitzo:PrepareSecretRelay",
+    "version": 1,
+    "name": "PrepareSecretRelay",
+    "description": "Request one private password/token for exact reviewed API writes in this chat. Supply existing connection IDs/revisions, relative paths, write methods, and non-secret request templates. An explicitly enabled LAN device adapter instead accepts lanEndpoint: an exact numeric RFC1918 HTTP origin; the private page discloses cleartext transport. Research official service/device documentation before proposing paths or fields. JSON secret fields use RFC6901 pointers to null values; form fields must exist once with empty values. Returns a private Mitzo page; user enters the value there and approves the listed destinations. Never put credentials in tool input, chat or files. OpenShell stores the value; the agent receives no credential. Does not dispatch writes. Use GetConnectionGuide for details.",
+    "source": "Connections",
+    "required": false,
+    "behavior": "write",
+    "routes": ["local-api", "codex"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
+    "id": "mitzo:GetSecretRelay",
+    "version": 1,
+    "name": "GetSecretRelay",
+    "description": "Read this chat’s private secret request status and per-target dispatch receipts. Never returns values or Gateway references. Wait for the readiness notification; do not poll repeatedly.",
+    "source": "Connections",
+    "required": false,
+    "behavior": "read",
+    "routes": ["local-api", "codex"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
+    "id": "mitzo:ApplySecretRelay",
+    "version": 1,
+    "name": "ApplySecretRelay",
+    "description": "Apply a privately captured value to one exact destination reviewed on its setup page. Requires existing connection access. Supply only relayId and targetIndex; Mitzo privately fills approved fields. Returns HTTP status only, never response bodies. A confirmed receipt means an HTTP response, not verified application success. An unconfirmed write may have applied; never replay it or create another relay to retry without inspecting state.",
+    "source": "Connections",
+    "required": false,
+    "behavior": "write",
+    "routes": ["local-api", "codex"],
+    "requirement": "Existing session permissions, cancellation and runtime admission apply."
+  },
+  {
     "id": "mitzo:ListRepositories",
     "version": 1,
     "name": "ListRepositories",

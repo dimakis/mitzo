@@ -30,6 +30,7 @@ export async function sendLanRelayTarget(
   dispatched: () => void,
   assertRuntimeCurrent?: () => Promise<void>,
 ): Promise<{ status: number }> {
+  if (Buffer.byteLength(body) > 32768) throw new Error('Request too large');
   if (!('lanEndpoint' in target)) throw new Error('LAN target required');
   const origin = validateLanRelayEndpoint(target.lanEndpoint);
   // Reuse the connection parser's relative-path/traversal checks with a dummy HTTPS origin.

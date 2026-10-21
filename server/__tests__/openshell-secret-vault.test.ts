@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { OpenShellSecretVault } from '../openshell-secret-vault.js';
+import { OpenShellSecretVault, type SecretOperatorRpc } from '../openshell-secret-vault.js';
 
 const profile = {
   id: 'mitzo-secret-relay',
@@ -8,12 +8,13 @@ const profile = {
 };
 function fixture() {
   let provider: Record<string, unknown>;
-  const rpc = vi.fn(async (method: string, request: any) => {
+  const rpc = vi.fn<SecretOperatorRpc>(async (method, request) => {
+    const input = request as { provider: { metadata: Record<string, unknown> } };
     if (method === 'GetProviderProfile') return { profile };
     if (method === 'CreateProvider') {
       provider = {
-        ...request.provider,
-        metadata: { ...request.provider.metadata, id: 'gateway-id', resource_version: '1' },
+        ...input.provider,
+        metadata: { ...input.provider.metadata, id: 'gateway-id', resource_version: '1' },
         credentials: { MITZO_SECRET_VALUE: '[REDACTED]' },
       };
       return { provider };
@@ -65,7 +66,7 @@ describe('OpenShell private relay vault', () => {
     const { vault, rpc } = fixture();
     rpc.mockResolvedValueOnce({
       profile: { ...profile, endpoints: [Buffer.from('injection')] },
-    } as any);
+    });
     await expect(
       vault.save('11111111-1111-4111-8111-111111111111', 'fixture', AbortSignal.timeout(1000)),
     ).rejects.toThrow('Secret storage unavailable');
@@ -80,7 +81,7 @@ describe('OpenShell private relay vault', () => {
     );
     rpc
       .mockResolvedValueOnce({ profile })
-      .mockResolvedValueOnce({ provider: { metadata: { id: 'replacement' } } } as any);
+      .mockResolvedValueOnce({ provider: { metadata: { id: 'replacement' } } });
     await expect(vault.read(ref, AbortSignal.timeout(1000))).rejects.toThrow('Secret unavailable');
     rpc.mockRejectedValueOnce(new Error('fixture-only-password'));
     await expect(vault.read(ref, AbortSignal.timeout(1000))).rejects.toThrow(

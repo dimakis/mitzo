@@ -22,9 +22,6 @@ import {
 
 const id = z.string().min(1).max(128);
 export const credentialConnectionSchemas = {
-  PrepareSecretRelay: PrepareSecretRelaySchema,
-  GetSecretRelay: z.object({ relayId: id }).strict(),
-  ApplySecretRelay: z.object({ relayId: id, targetIndex: z.number().int().min(0).max(7) }).strict(),
   ListConnections: z.object({}).strict(),
   RequestConnectionAccess: z.object({ connectionId: id }).strict(),
   ConnectionRequest: ConnectionRequestSchema.extend({ connectionId: id }).strict(),
@@ -35,10 +32,13 @@ export const credentialConnectionSchemas = {
     .strict(),
   PrepareConnectionSetup: PrepareConnectionSetupSchema,
   GetConnectionSetup: z.object({ setupId: id }).strict(),
+  PrepareSecretRelay: PrepareSecretRelaySchema,
+  GetSecretRelay: z.object({ relayId: id }).strict(),
+  ApplySecretRelay: z.object({ relayId: id, targetIndex: z.number().int().min(0).max(7) }).strict(),
 };
 const descriptions = {
   PrepareSecretRelay:
-    'Request one private password/token for exact reviewed API writes in this chat. Supply existing connection IDs/revisions, relative paths, write methods, and non-secret request templates. JSON secret fields use RFC6901 pointers to null values; form fields must exist once with empty values. Returns a private Mitzo page; user enters the value there and approves the listed destinations. Never put credentials in tool input, chat or files. OpenShell stores the value; the agent receives no credential. Does not dispatch writes. Use GetConnectionGuide for details.',
+    'Request one private password/token for exact reviewed API writes in this chat. Supply existing connection IDs/revisions, relative paths, write methods, and non-secret request templates. An explicitly enabled LAN device adapter instead accepts lanEndpoint: an exact numeric RFC1918 HTTP origin; the private page discloses cleartext transport. Research official service/device documentation before proposing paths or fields. JSON secret fields use RFC6901 pointers to null values; form fields must exist once with empty values. Returns a private Mitzo page; user enters the value there and approves the listed destinations. Never put credentials in tool input, chat or files. OpenShell stores the value; the agent receives no credential. Does not dispatch writes. Use GetConnectionGuide for details.',
   GetSecretRelay:
     'Read this chat’s private secret request status and per-target dispatch receipts. Never returns values or Gateway references. Wait for the readiness notification; do not poll repeatedly.',
   ApplySecretRelay:
@@ -177,6 +177,8 @@ export function createCredentialConnectionTools(
               isError: true,
             };
           await assertRuntimeCurrent?.();
+          if (!stillAllowed(name, name === 'ApplySecretRelay' ? 'POST' : 'GET'))
+            return { content: 'Session unavailable', isError: true };
           let result;
           if (name === 'PrepareSecretRelay')
             result = { relay: service.relay.prepare(sessionId, parsed.data) };
