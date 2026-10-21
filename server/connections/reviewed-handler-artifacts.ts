@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.475-telos-ui-recovery';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.478-telos-progressive-refresh';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1212,7 +1213,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/telos-kind-label.ts':
     'a89a6bff28e8ac2fed83ac9bd19305185f6ee6d7a4f7efad196e3e5571a114b8',
   '../../frontend/src/hooks/useTelosRecords.ts':
-    '6f2c3a6636e65bbdc9bc3d0b81b9fa56281b2aed7b1347e7f4d03c6efd584322',
+    '2b9b891d4a1e8a5b31ed6f77c6c6d5d58c67fec871e0b17ff012caa2519fd451',
   '../../frontend/src/components/TelosWorkspace.css':
     'fb779f9c1bd2e14c758cdda4096a217da2dbcb6f7b5e78fd7278c58579302526',
   '../../frontend/src/components/TelosItemWorkspace.tsx':
