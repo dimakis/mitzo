@@ -65,7 +65,7 @@ describe('approved credential-free public website reads', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
   it.each([
-    { ...page, body: 'x'.repeat(2097153) },
+    { ...page, body: 'x'.repeat(8388609) },
     { ...page, headers: { 'content-type': 'application/octet-stream' } },
     { ...page, status: 403 },
   ])('does not relay oversized, binary or failed responses', async (response) => {
@@ -94,8 +94,8 @@ describe('approved credential-free public website reads', () => {
 
 it.each([
   [
-    { ...page, body: 'x'.repeat(2097153) },
-    'Approved read exceeded the 2 MB download safety limit.',
+    { ...page, body: 'x'.repeat(8388609) },
+    'Approved read exceeded the 8 MB download safety limit. Use a smaller source URL or web search.',
   ],
   [
     { ...page, headers: { 'content-type': 'application/octet-stream' } },

@@ -172,3 +172,55 @@ it.each(['public', 'approved'] as const)(
     expect(read).toHaveBeenCalledOnce();
   },
 );
+
+it.each(['public', 'approved'] as const)(
+  'extracts a small quote from script-heavy HTML above 2 MiB on the %s path',
+  async (path) => {
+    const body = `<html><head><script>${'x'.repeat(3 * 1024 * 1024)}</script></head><body><main><h1>IBM quote</h1><p>USD 100.00, fixture timestamp.</p><a href="/quote">Source</a></main></body></html>`;
+    const read = vi
+      .fn()
+      .mockResolvedValue({
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+        type: 'text/html',
+        body,
+      });
+    const output =
+      path === 'public'
+        ? await fetchPublicPage(target.url, new AbortController().signal, {
+            resolve: async () => target.addresses,
+            send: read,
+          })
+        : await fetchApprovedUrl(target.url, target, new AbortController().signal, {
+            resolve: async () => target,
+            read,
+          });
+    expect(output).toContain('USD 100.00, fixture timestamp.');
+    expect(output).toContain('https://example.com/quote');
+    expect(Buffer.byteLength(output)).toBeLessThan(1000);
+    expect(read).toHaveBeenCalledOnce();
+  },
+);
+
+it.each(['text/plain', 'application/json', 'text/html'])(
+  'rejects oversized readable %s with a recovery action instead of silently truncating it',
+  (type) => {
+    const text = 'x'.repeat(2 * 1024 * 1024 + 1);
+    const body = type === 'text/html' ? `<main>${text}</main>` : text;
+    expect(() => webPageContent(body, type, target.url)).toThrow(
+      /readable content.*smaller.*search/i,
+    );
+  },
+);
+
+it('accepts a compact CSV quote on the single-approval public fetch path', async () => {
+  const output = await fetchPublicPage(target.url, new AbortController().signal, {
+    resolve: async () => target.addresses,
+    send: async () => ({
+      status: 200,
+      headers: { 'content-type': 'text/csv; charset=utf-8' },
+      body: 'Symbol,Price\nIBM,100.00',
+    }),
+  });
+  expect(output).toContain('Symbol,Price\nIBM,100.00');
+});

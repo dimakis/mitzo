@@ -119,8 +119,8 @@ it.each([
     'The website refused the approved read (HTTP 403).',
   ],
   [
-    { status: 200, type: 'text/html', body: 'x'.repeat(2097153) },
-    'Approved read exceeded the 2 MB download safety limit.',
+    { status: 200, type: 'text/html', body: 'x'.repeat(8388609) },
+    'Approved read exceeded the 8 MB download safety limit. Use a smaller source URL or web search.',
   ],
   [
     { status: 200, type: 'application/octet-stream', body: 'binary' },
