@@ -2033,6 +2033,10 @@ GitHub connection, source preview or import step is shown. The existing workspac
 owner creates a linked worktree for the command and retains it for continuation.
 The editor displays the repository's name and keeps branch/commit details in the
 shared disclosure. This workspace behavior is independent of the account provider.
+Selecting a repository is optional for a new local chat: first send uses the
+configured default checkout and creates its isolated worktree. Clearing a local
+selection therefore says Use default repository. The composer validates this
+path before a repository is selected; OpenShell still requires its sandbox source.
 
 The all-intercept repository-preparation-recovery browser fixture renders the real
 responsive chat route, MobileShell/DesktopShell, settings, picker and composer. It
@@ -2044,6 +2048,10 @@ local-repository captures are retained by the existing Local first-command CI
 artifact upload. These are offline application renders, not live provider evidence.
 The existing-local captures additionally cover ChatGPT, OpenAI API, Claude Vertex
 and Gemini selections in the same real mobile/desktop routes and themes.
+The same fixture verifies first send without a selected repository for all four
+accounts and preserves the draft when the intercepted send loses its response.
+Inspected final captures: [local phone](assets/local-repository-mobile-dark.png)
+and [local desktop](assets/local-repository-desktop-light.png).
 
 ## Telos lifecycle actions
 

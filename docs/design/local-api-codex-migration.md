@@ -1,152 +1,114 @@
 # OpenAI API migration to embedded Codex
 
-Use the existing Codex App Server integration for new ordinary OpenAI conversations
-with either API billing or ChatGPT subscription authentication, on Local Mac or
-OpenShell. Agent guidance, account identity and execution environment retain their
-existing separate controls. The primary engine change is Local Mac plus OpenAI API;
-the existing OpenShell API route already uses Codex.
-
+New ordinary OpenAI conversations use the existing Codex App Server integration
+with either API billing or ChatGPT subscription authentication. Agent guidance,
+account identity and execution environment retain their separate controls.
 Dimitri approved this direction on 17 October 2026. Telos migration item
 `2c57d6a14b01eda3` belongs under runtime outcome `2f58567a6c487079`.
 
-## Source audit, 21 October 2026
+## Source status, 21 October 2026
 
-The migration is incomplete on accepted main `3f6c6aea`. This is a source audit,
-not an observation of the activated release or a measurement of account usage.
+[PR 1087](https://github.com/dimakis/mitzo/pull/1087) implements the local dispatch
+and workspace changes below against accepted main `3f6c6aea`. This describes source
+behavior and offline qualification; it does not establish production activation or
+measure which account the user uses most.
 
-| Ordinary conversation                               | Current implementation                                                  | Retirement consequence                                                                                              |
-| --------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| OpenAI API on OpenShell                             | Codex, through the existing ordinary OpenShell owners                   | Keep this route; it already uses the intended engine.                                                               |
-| ChatGPT subscription on OpenShell or the local host | Codex, with separate broker/host-login configuration                    | Preserve its account and login ownership.                                                                           |
-| OpenAI API on Local Mac                             | `NativeResponsesRunner`, through the ordinary local Responses owner     | New local API dispatch must move to Codex before disabling this creation path.                                      |
-| Retained local Responses conversation               | Original private Responses history, checkpoints and queue custody       | Preserve original-owner continuation and inspection until explicit retirement; these records are not Codex threads. |
-| Google Vertex/Gemini                                | Gemini adapter using the shared Responses runner/session infrastructure | Preserve or extract the Gemini dependency before removing shared code.                                              |
+| Conversation                                                            | Engine and ownership                                                                                                                 |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| New OpenAI API on Local Mac                                             | Codex is preferred when the configured local Codex route is available. The selected API account owns an isolated private login home. |
+| ChatGPT subscription on Local Mac                                       | Existing Codex engine and host-login custody.                                                                                        |
+| OpenAI API or ChatGPT on OpenShell                                      | Existing Codex engine with its separate sandbox and authentication owners.                                                           |
+| Retained local Responses conversation or explicit saved Responses route | Original Responses engine, account, history, checkpoints and queue.                                                                  |
+| Claude Vertex on Local Mac                                              | Existing Claude SDK engine with the shared local workspace owner.                                                                    |
+| Gemini on Local Mac                                                     | Existing Gemini adapter and shared Responses infrastructure with the same local workspace owner.                                     |
 
-The relevant source owners are `ordinary-session-runtime.ts`,
-`ordinary-local-codex-capabilities.ts`, `ordinary-local-codex-entry.ts`,
-`frozen-host-codex-bootstrap.ts`, `chat.ts`, `responses-chat-session.ts` and
-`native-responses-runner.ts`. `launchIsolatedApi()` provides the accepted private
-API authentication primitive, but the ordinary local bootstrap still requires
-`openai-codex` host-login custody. Source acceptance of that helper did not complete
-local API dispatch, restart or credential-renewal ownership. The recent Local API
-command-networking work improves the existing Responses route; it is not a Codex
-migration.
+The runtime picker derives Codex for new local OpenAI API selections. It does not
+rewrite a retained session or saved explicit Responses route. Existing enablement
+and target configuration gates remain in place; this PR does not activate a host.
 
-Local workspace parity is a separate requirement. The older host chat path uses
-`createSessionWorktrees()` for configured local repositories. The newer repository
-import path retains an independent Git checkout, and an ordinary workspace without
-a selected repository is a private directory. These are different workspace
-contracts. Local Codex must also support an existing repository on the Mac with
-the familiar isolated worktree/branch and original-workspace continuation. Choosing
-API or ChatGPT authentication must not require importing that local repository
-through GitHub or change its workspace ownership. Qualify this through the existing
-worktree and allocation owners; authentication support alone does not establish it.
+## Existing local repositories and worktrees
 
-The recommendation remains to use Codex for all **new OpenAI agent conversations**,
-retiring the duplicate OpenAI agent loop after the local dispatch and retained-history
-slices pass. First prove selected API billing, Library/tool/MCP/context behavior,
-images and model/thinking changes, queue/Stop, reconnect/restart and credential
-loss through the actual ordinary owners. Then stop new Responses conversation
-creation while retaining legacy history and recovery. Remove only the unused
-OpenAI loop after auditing retained callers and separating Gemini. Account/model
-discovery, key management and bounded direct API helpers have separate purposes
-and are not removed merely because agent orchestration moves to Codex.
+Every local account can send its first command without selecting or preparing a
+repository. The capability inventory advertises this only when a local base repo
+is configured. Admission resolves the server-owned `primary` repository, allocates
+through the existing workspace ledger and creates an isolated linked Git worktree.
+The Repository editor also lets the user select a different configured checkout.
+Neither route imports the local repository through GitHub or prepares a sandbox.
+OpenShell retains its sandbox repository preparation requirement.
 
-## Implementation boundaries
+New local worktrees fetch and pin the upstream main/default branch. A trusted
+agent-specified start point takes precedence. Existing worktrees return before
+fetching and retain their branch, commits and dirty files. Upstream failure blocks
+a new default worktree instead of silently starting from stale main or running in
+the shared source checkout. A repository without a remote uses its local default
+branch. Source checkouts and local main are never reset or pulled in place.
 
-Reuse the existing account store, credential owner, command admission, workspace
-reservation, Codex transport, conversation queue and Mitzo tool executor. Accounts
-retain their opaque IDs, provider and billing identity. New API conversations must
-not acquire a ChatGPT login or another API credential as a fallback. Concurrent
-accounts need separate private credential homes; sharing an engine implementation
-does not mean sharing mutable process authentication.
+This behavior lives in shared `worktree.ts` and the existing repository workspace
+owner, not a Vertex-only dispatch branch. Existing configured `runtimeSymlinks`
+remain opt-in. Local source and linked/common Git identities are pinned and
+revalidated through reservation, task claim and original-workspace continuation.
+Import checks for independent sandbox checkouts remain separate and strict.
 
-The approved picker remains Agent, Account, Model, Thinking and Run on, with
-software derived from the supported route. Work OpenAI must remain selectable
-throughout rollout. Preserve current activation holds until their compatibility
-conditions have been met; migration source acceptance does not activate a route.
+## Local API authentication and dispatch
 
-Old Responses conversations stay with their original history and engine. A future
-explicit context transfer can create an independent linked Codex conversation;
-Responses checkpoints cannot be relabeled as Codex threads. Preserve Gemini's
-shared runner and direct API helpers that do not implement an agent loop.
+`FrozenHostCodexBootstrapAuthority` now supports both OpenAI account types through
+the same native conversation owner. `FrozenHostCodexApiLogin` composes the existing
+API credential authority with a private, exclusive per-bootstrap home and retained
+custody in the existing conversation store. It pins the selected account, physical
+home, credential-file identity and key digest. The subscription path continues to
+use its existing host-login owner.
 
-## Test first delivery slices
+`launchIsolatedApi()` sends the selected key through private stdio login RPC with
+API mode forced and file credential storage. Keys do not enter arguments, the
+process environment, public bindings or diagnostics. API `account/read` proves
+authentication mode, not billing identity; the original credential owner remains
+authoritative before and after awaited operations. Resume reuses the retained home
+through `launchIsolatedApiResume()`, after custody checks. Missing, replaced or
+rotated credentials fail closed and retain history; transparent key renewal is
+not implemented by this slice.
 
-Each slice starts with failing offline regressions, implements the required
-behavior, and commits tests and implementation together in a small PR. CI and
-Centaur review cover the actual final head.
+API commands use the existing Library context, local admission, linked-worktree
+reservation, native conversation queue and tool transport. The actual composer
+entry/startup regression uses real authentication, SSE connection ownership,
+SQLite admission and native session startup with only provider RPC replaced. It
+proves that the command is consumed before the first provider turn and that an
+exact retry returns the same session without another bootstrap or turn.
 
-1. **API authentication**, milestone `5179befbe1f9a4c4`. Extend the existing
-   isolated Codex transport with private API login. Preserve executable pinning,
-   private-home ownership, account revocation and cancellation checks. Test
-   separate accounts, missing credentials and refusals without inference. The
-   initial bootstrap is dormant until ordinary owner integration.
-2. **Agent context and tools**, milestone `b57a4c179d1d9e68`. Preserve Library
-   profiles, compiled context, configured tool selection, MCP and approvals through
-   Codex. Replace the assumption that configured tools require the Responses loop
-   with actual supported route capabilities. Cover images and supported future
-   model/thinking changes. User image serialization is independent of MCP results:
-   non-text blocks returned by configured MCP tools currently become unavailable
-   placeholders, so user-image coverage does not establish multimodal tool-result
-   parity.
-3. **New local API dispatch**, milestone `04e660858b274b27`. Extend
-   `ordinary-session-runtime.ts`, account capability projection and existing local
-   admission/dispatch owners. Reuse existing credential authority and durable
-   command/workspace stores. Verify first send, exact retries, frozen queued
-   settings, Stop and original-owner continuation; no new registry or scheduler.
-4. **Retained history and rollout**, milestone `f72068073befbbaf`. Test new/old
-   session dispatch, reconnect and restart, credential loss and original-workspace
-   recovery. Preserve old Responses authority and complete separately authorized
-   live qualification before production activation.
-5. **Legacy OpenAI cleanup**, milestone `2cfd18b88ed4b32d`. After retained OpenAI
-   usage no longer requires it, remove unused OpenAI agent-loop branches. Audit
-   callers first and retain Gemini and bounded API helpers.
+## Responses retirement
 
-## Initial authentication slice
+Prefer Codex for new OpenAI agent conversations. Do not delete the shared Responses
+implementation yet: retained OpenAI sessions still require their original owner,
+and Gemini still uses its infrastructure. Responses checkpoints cannot be renamed
+as Codex threads. An explicit context transfer may later create a separate linked
+conversation. Account discovery, key management and bounded direct API helpers
+also remain useful independently of the agent loop.
 
-`CodexAppServerClient.launchIsolatedApi()` starts a new private Codex process with
-API authentication forced, file credential storage and the existing constrained
-tool configuration. The captured executable must belong to that private home.
-Existing authentication or configuration, including dangling symlinks, refuses
-bootstrap. The caller must hold the existing exclusive home and admission claim.
+Full retirement still requires retained-history and restart qualification,
+credential-renewal behavior, configured MCP multimodal-result coverage and a caller
+audit separating Gemini. Ordinary user-image serialization does not prove MCP
+image-result parity. Keep these rollout milestones open until their own acceptance
+criteria pass; source integration alone does not close every migration milestone.
 
-The caller supplies the original account binding, selected credential resolver and
-current-authority check. The binding is copied and frozen. After initialization,
-the selected key reaches `account/login/start` through private stdio RPC, followed
-by an API authentication-mode check. Keys do not enter process arguments, the
-process environment, public bindings or public error diagnostics. Codex persists
-its login inside the caller's private home. This creates a private credential copy
-whose later lifecycle remains the owning runtime's responsibility.
+## Verification and activation
 
-API `account/read` reports an authentication mode, not the identity of the billing
-credential. The existing credential owner must establish that identity before
-bootstrap and after awaited operations; API mode alone cannot establish it.
-The returned transport's public RPC allowlist cannot perform another login.
+Focused offline checks cover account routing, private API custody and reopen,
+native bootstrap, actual API composer startup and exact retries, existing dirty
+worktree continuation, fresh upstream bases and explicit refs. Browser checks use
+the real responsive chat, settings, picker, composer and application shells with
+all network requests intercepted. They cover all four local account types, phone
+WebKit/Chromium and desktop Chromium, dark/light themes and alternate fonts.
+These checks make no model calls.
 
-This slice does not wire new chat dispatch, establish durable API credential
-custody, implement refresh/cold resume, enable configured tools on Codex or enable
-a production switch. The following slices must compose those existing owners
-before a user can select the migrated route.
-
-## Verification and rollout
-
-Use one local test worker and a 1 GiB Node heap. Leave broad checks to hosted CI.
-Canonical staging and its pipeline remain stood down. A live test requires a
-separately selected authorized target; real model tests explicitly use a supported
-Luna model and announce the exact model and charged account. Production deployment
-and activation require a separate explicit user action.
-
-PR #970 repairs account compatibility and adviser credential recovery. It is not
-the migration. Evaluate its reusable account changes against the selected owners;
-adviser fixes can be accepted independently. Do not import the entire PR solely to
-enable API Codex.
+Use one local test worker and a 1 GiB Node heap. Broad frontend build/type and
+combined-result checks run in CI. Canonical staging remains stood down. Any live
+qualification requires a separately authorized target and an explicitly supported
+Luna model, announcing the exact charged account and model first. Production
+deployment and activation require a separate explicit user action.
 
 ## References
 
 - [App Server authentication](https://learn.chatgpt.com/docs/app-server#authentication-modes)
-- [Codex authentication configuration](https://learn.chatgpt.com/docs/auth)
 - [Existing runtime contract](session-runtime-selection.md)
 - [Retained Responses continuity](local-responses-continuity.md)
-- [Runtime and picker foundation PR 930](https://github.com/dimakis/mitzo/pull/930)
+- [Repository editor and UI evidence](ui-design-system.md#repository-settings-editor)
 - [Account compatibility repair PR 970](https://github.com/dimakis/mitzo/pull/970)
