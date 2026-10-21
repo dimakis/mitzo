@@ -1,0 +1,496 @@
+diff --git a/codex-rs/app-server/src/request_processors/turn_command_data.rs b/codex-rs/app-server/src/request_processors/turn_command_data.rs
+index e1ed7fc..64b03e2 100644
+--- a/codex-rs/app-server/src/request_processors/turn_command_data.rs
++++ b/codex-rs/app-server/src/request_processors/turn_command_data.rs
+@@ -7,18 +7,52 @@ pub(super) struct OriginalTurnCommandData {
+     params: TurnStartParams,
+ }
+ 
++/// Exact parsed non-route DATA, minted by the original exhaustive legacy split.
++/// No Clone/Serialize/default/fresh constructor or command authority is supplied.
++struct OriginalTurnCommandBody {
++    disabled_plugin_ids: Option<Vec<String>>,
++    client_user_message_id: Option<String>,
++    input: Vec<V2UserInput>,
++    turn_trigger: Option<String>,
++    tool_output: Option<Box<codex_app_server_protocol::TurnToolOutput>>,
++    responsesapi_client_metadata: Option<HashMap<String, String>>,
++    additional_context: Option<HashMap<String, AdditionalContextEntry>>,
++    environments: Option<Vec<TurnEnvironmentParams>>,
++    cwd: Option<PathBuf>,
++    runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
++    approval_policy: Option<codex_app_server_protocol::AskForApproval>,
++    approvals_reviewer: Option<codex_app_server_protocol::ApprovalsReviewer>,
++    sandbox_policy: Option<codex_app_server_protocol::SandboxPolicy>,
++    permissions: Option<String>,
++    model: Option<String>,
++    service_tier: Option<Option<String>>,
++    service_tier_for_turn: Option<String>,
++    effort: Option<ReasoningEffort>,
++    summary: Option<ReasoningSummary>,
++    personality: Option<Personality>,
++    output_schema: Option<serde_json::Value>,
++    collaboration_mode: Option<CollaborationMode>,
++    multi_agent_mode: Option<codex_protocol::config_types::MultiAgentMode>,
++    cyber_access_program: Option<codex_app_server_protocol::CyberAccessProgram>,
++}
++
+ pub(super) struct TurnCommandEnvironments {
+     pub(super) runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
+     pub(super) environments: Option<Vec<TurnEnvironmentParams>>,
+ }
+ 
+ pub(super) struct TurnCommandInputData {
++    legacy_route: String,
++    body: TurnBodyInputData,
++}
++
++struct TurnBodyInputData {
+     input: Vec<V2UserInput>,
+     tool_output: Option<Box<codex_app_server_protocol::TurnToolOutput>>,
+     client_user_message_id: Option<String>,
+     additional_context: Option<HashMap<String, AdditionalContextEntry>>,
+     settings: TurnCommandSettings,
+-    submission: TurnCommandSubmission,
++    submission: TurnBodySubmission,
+ }
+ 
+ pub(super) struct TurnCommandSettings {
+@@ -48,6 +82,15 @@ pub(super) struct TurnCommandSubmission {
+     responsesapi_client_metadata: Option<HashMap<String, String>>,
+ }
+ 
++struct TurnBodySubmission {
++    _ignored_multi_agent_mode: Option<codex_protocol::config_types::MultiAgentMode>,
++    turn_trigger: Option<String>,
++    output_schema: Option<serde_json::Value>,
++    service_tier_for_turn: Option<String>,
++    cyber_access_program: Option<codex_app_server_protocol::CyberAccessProgram>,
++    responsesapi_client_metadata: Option<HashMap<String, String>>,
++}
++
+ pub(super) struct ConvertedTurnCommand {
+     pub(super) additional_context: BTreeMap<String, CoreAdditionalContextEntry>,
+     pub(super) turn_has_input: bool,
+@@ -56,6 +99,14 @@ pub(super) struct ConvertedTurnCommand {
+     pub(super) submission: TurnCommandSubmission,
+ }
+ 
++struct ConvertedTurnBody {
++    additional_context: BTreeMap<String, CoreAdditionalContextEntry>,
++    turn_has_input: bool,
++    input: TurnInput,
++    settings: TurnCommandSettings,
++    submission: TurnBodySubmission,
++}
++
+ impl OriginalTurnCommandData {
+     pub(super) fn new(params: TurnStartParams) -> Self {
+         Self { params }
+@@ -104,9 +155,7 @@ impl OriginalTurnCommandData {
+                 })
+     }
+ 
+-    /// Called only after the ordinary client-info effect. Fields are moved
+-    /// exhaustively; no consumed field is represented as a fabricated default.
+-    pub(super) fn into_environment_stage(self) -> (TurnCommandEnvironments, TurnCommandInputData) {
++    fn into_body(self) -> (String, OriginalTurnCommandBody) {
+         let TurnStartParams {
+             thread_id,
+             disabled_plugin_ids,
+@@ -134,12 +183,80 @@ impl OriginalTurnCommandData {
+             multi_agent_mode,
+             cyber_access_program,
+         } = self.params;
++        (
++            thread_id,
++            OriginalTurnCommandBody {
++                disabled_plugin_ids,
++                client_user_message_id,
++                input,
++                turn_trigger,
++                tool_output,
++                responsesapi_client_metadata,
++                additional_context,
++                environments,
++                cwd,
++                runtime_workspace_roots,
++                approval_policy,
++                approvals_reviewer,
++                sandbox_policy,
++                permissions,
++                model,
++                service_tier,
++                service_tier_for_turn,
++                effort,
++                summary,
++                personality,
++                output_schema,
++                collaboration_mode,
++                multi_agent_mode,
++                cyber_access_program,
++            },
++        )
++    }
++
++    /// Called only after the ordinary client-info effect. The real legacy route
++    /// stays outside the shared exact body and is forwarded without substitution.
++    pub(super) fn into_environment_stage(self) -> (TurnCommandEnvironments, TurnCommandInputData) {
++        let (legacy_route, body) = self.into_body();
++        let (environments, body) = body.into_environment_stage();
++        (environments, TurnCommandInputData { legacy_route, body })
++    }
++}
++
++impl OriginalTurnCommandBody {
++    fn into_environment_stage(self) -> (TurnCommandEnvironments, TurnBodyInputData) {
++        let OriginalTurnCommandBody {
++            disabled_plugin_ids,
++            client_user_message_id,
++            input,
++            turn_trigger,
++            tool_output,
++            responsesapi_client_metadata,
++            additional_context,
++            environments,
++            cwd,
++            runtime_workspace_roots,
++            approval_policy,
++            approvals_reviewer,
++            sandbox_policy,
++            permissions,
++            model,
++            service_tier,
++            service_tier_for_turn,
++            effort,
++            summary,
++            personality,
++            output_schema,
++            collaboration_mode,
++            multi_agent_mode,
++            cyber_access_program,
++        } = self;
+         (
+             TurnCommandEnvironments {
+                 runtime_workspace_roots,
+                 environments,
+             },
+-            TurnCommandInputData {
++            TurnBodyInputData {
+                 input,
+                 tool_output,
+                 client_user_message_id,
+@@ -158,8 +275,7 @@ impl OriginalTurnCommandData {
+                     collaboration_mode,
+                     personality,
+                 },
+-                submission: TurnCommandSubmission {
+-                    _original_thread_id: thread_id,
++                submission: TurnBodySubmission {
+                     _ignored_multi_agent_mode: multi_agent_mode,
+                     turn_trigger,
+                     output_schema,
+@@ -173,9 +289,44 @@ impl OriginalTurnCommandData {
+ }
+ 
+ impl TurnCommandInputData {
++    pub(super) fn into_core_input(self) -> Result<ConvertedTurnCommand, JSONRPCErrorError> {
++        let ConvertedTurnBody {
++            additional_context,
++            turn_has_input,
++            input,
++            settings,
++            submission,
++        } = self.body.into_core_input()?;
++        let TurnBodySubmission {
++            _ignored_multi_agent_mode,
++            turn_trigger,
++            output_schema,
++            service_tier_for_turn,
++            cyber_access_program,
++            responsesapi_client_metadata,
++        } = submission;
++        Ok(ConvertedTurnCommand {
++            additional_context,
++            turn_has_input,
++            input,
++            settings,
++            submission: TurnCommandSubmission {
++                _original_thread_id: self.legacy_route,
++                _ignored_multi_agent_mode,
++                turn_trigger,
++                output_schema,
++                service_tier_for_turn,
++                cyber_access_program,
++                responsesapi_client_metadata,
++            },
++        })
++    }
++}
++
++impl TurnBodyInputData {
+     /// Ordinary context/input conversion stays after environment selection and
+     /// before cwd/permission/settings work. File paths/IDs are not materialized.
+-    pub(super) fn into_core_input(self) -> Result<ConvertedTurnCommand, JSONRPCErrorError> {
++    fn into_core_input(self) -> Result<ConvertedTurnBody, JSONRPCErrorError> {
+         let additional_context = map_additional_context(self.additional_context);
+         let turn_has_input = !self.input.is_empty();
+         let input = if let Some(tool_output) = self.tool_output {
+@@ -198,7 +349,7 @@ impl TurnCommandInputData {
+                 client_id: self.client_user_message_id,
+             }
+         };
+-        Ok(ConvertedTurnCommand {
++        Ok(ConvertedTurnBody {
+             additional_context,
+             turn_has_input,
+             input,
+@@ -209,8 +360,6 @@ impl TurnCommandInputData {
+ }
+ 
+ impl TurnCommandSubmission {
+-    /// Moves exactly these already-normalized DATA fields. Live owner-produced
+-    /// settings are supplied at their ordinary point; trace remains caller-owned.
+     pub(super) fn into_request(
+         self,
+         input: TurnInput,
+@@ -219,6 +368,35 @@ impl TurnCommandSubmission {
+     ) -> TurnInputRequest {
+         let Self {
+             _original_thread_id: _,
++            _ignored_multi_agent_mode,
++            turn_trigger,
++            output_schema,
++            service_tier_for_turn,
++            cyber_access_program,
++            responsesapi_client_metadata,
++        } = self;
++        TurnBodySubmission {
++            _ignored_multi_agent_mode,
++            turn_trigger,
++            output_schema,
++            service_tier_for_turn,
++            cyber_access_program,
++            responsesapi_client_metadata,
++        }
++        .into_request(input, thread_settings, additional_context)
++    }
++}
++
++impl TurnBodySubmission {
++    /// Moves exactly these already-normalized DATA fields. Live owner-produced
++    /// settings are supplied at their ordinary point; trace remains caller-owned.
++    fn into_request(
++        self,
++        input: TurnInput,
++        thread_settings: codex_protocol::protocol::ThreadSettingsOverrides,
++        additional_context: BTreeMap<String, CoreAdditionalContextEntry>,
++    ) -> TurnInputRequest {
++        let Self {
+             _ignored_multi_agent_mode: _,
+             turn_trigger,
+             output_schema,
+diff --git a/codex-rs/app-server/src/request_processors/turn_command_data_tests.rs b/codex-rs/app-server/src/request_processors/turn_command_data_tests.rs
+index 81ebfa7..894cd9b 100644
+--- a/codex-rs/app-server/src/request_processors/turn_command_data_tests.rs
++++ b/codex-rs/app-server/src/request_processors/turn_command_data_tests.rs
+@@ -390,3 +390,199 @@ fn original_command_preserves_function_output_content_without_rendering_or_mater
+         })
+     );
+ }
++
++// Whole raw-body inverse oracle only; not a production route/command constructor.
++fn body_roundtrip(params: TurnStartParams) -> TurnStartParams {
++    let (route, body) = OriginalTurnCommandData::new(params).into_body();
++    TurnStartParams {
++        thread_id: route,
++        disabled_plugin_ids: body.disabled_plugin_ids,
++        client_user_message_id: body.client_user_message_id,
++        input: body.input,
++        turn_trigger: body.turn_trigger,
++        tool_output: body.tool_output,
++        responsesapi_client_metadata: body.responsesapi_client_metadata,
++        additional_context: body.additional_context,
++        environments: body.environments,
++        cwd: body.cwd,
++        runtime_workspace_roots: body.runtime_workspace_roots,
++        approval_policy: body.approval_policy,
++        approvals_reviewer: body.approvals_reviewer,
++        sandbox_policy: body.sandbox_policy,
++        permissions: body.permissions,
++        model: body.model,
++        service_tier: body.service_tier,
++        service_tier_for_turn: body.service_tier_for_turn,
++        effort: body.effort,
++        summary: body.summary,
++        personality: body.personality,
++        output_schema: body.output_schema,
++        collaboration_mode: body.collaboration_mode,
++        multi_agent_mode: body.multi_agent_mode,
++        cyber_access_program: body.cyber_access_program,
++    }
++}
++
++fn complete_body_params(route: &str) -> TurnStartParams {
++    TurnStartParams {
++        thread_id: route.to_string(),
++        input: input_variants(),
++        client_user_message_id: Some("original-client-message".to_string()),
++        disabled_plugin_ids: Some(vec!["kept-plugin".to_string()]),
++        turn_trigger: Some("composer".to_string()),
++        additional_context: Some(HashMap::from([
++            (
++                "z-untrusted".to_string(),
++                AdditionalContextEntry {
++                    value: "untrusted\nbytes".to_string(),
++                    kind: AdditionalContextKind::Untrusted,
++                },
++            ),
++            (
++                "a-app".to_string(),
++                AdditionalContextEntry {
++                    value: "application bytes".to_string(),
++                    kind: AdditionalContextKind::Application,
++                },
++            ),
++        ])),
++        responsesapi_client_metadata: Some(HashMap::from([(
++            "client-key".to_string(),
++            "client-value".to_string(),
++        )])),
++        cwd: Some(PathBuf::from("not-resolved-here")),
++        environments: Some(vec![TurnEnvironmentParams {
++            environment_id: "original-owner".to_string(),
++            cwd: codex_utils_path_uri::LegacyAppPathString::from_string("/work"),
++            runtime_workspace_roots: Some(vec![
++                codex_utils_path_uri::LegacyAppPathString::from_string("/work"),
++            ]),
++        }]),
++        runtime_workspace_roots: Some(Vec::new()),
++        approval_policy: Some(codex_app_server_protocol::AskForApproval::OnRequest),
++        approvals_reviewer: Some(codex_app_server_protocol::ApprovalsReviewer::User),
++        sandbox_policy: Some(codex_app_server_protocol::SandboxPolicy::ReadOnly {
++            network_access: false,
++        }),
++        permissions: Some("original-profile-selector".to_string()),
++        model: Some("request-data-only-model".to_string()),
++        service_tier: Some(Some("persistent-tier".to_string())),
++        service_tier_for_turn: Some("turn-only-tier".to_string()),
++        effort: Some(ReasoningEffort::Low),
++        summary: Some(ReasoningSummary::Detailed),
++        personality: Some(Personality::None),
++        output_schema: Some(json!({"type":"object","properties":{"answer":{"type":"string"}}})),
++        collaboration_mode: Some(CollaborationMode {
++            mode: ModeKind::Plan,
++            settings: Settings {
++                model: "mode-model".to_string(),
++                reasoning_effort: Some(ReasoningEffort::Low),
++                developer_instructions: None,
++            },
++        }),
++        multi_agent_mode: Some(MultiAgentMode::Custom(
++            "ignored original option".to_string(),
++        )),
++        cyber_access_program: Some(codex_app_server_protocol::CyberAccessProgram::Standard),
++        ..Default::default()
++    }
++}
++
++#[test]
++fn route_independent_body_preserves_complete_raw_input_and_null_empty_matrix() {
++    for tier in [None, Some(None), Some(Some("priority".to_string()))] {
++        for environments in [
++            None,
++            Some(Vec::new()),
++            complete_body_params("legacy-selected").environments,
++        ] {
++            let mut expected = complete_body_params("legacy-selected");
++            expected.service_tier = tier.clone();
++            expected.environments = environments;
++            assert_eq!(body_roundtrip(expected.clone()), expected);
++        }
++    }
++    let absent: TurnStartParams =
++        serde_json::from_value(json!({"threadId":"legacy-parsed", "input":[]})).unwrap();
++    let null: TurnStartParams = serde_json::from_value(json!({"threadId":"legacy-parsed", "input":[], "serviceTier":null, "environments":[], "disabledPluginIds":[], "responsesapiClientMetadata":{}})).unwrap();
++    assert_eq!(body_roundtrip(absent.clone()), absent);
++    assert_eq!(body_roundtrip(null.clone()), null);
++}
++
++#[test]
++fn route_independent_body_and_original_legacy_wrapper_preserve_complete_request_data() {
++    for tool_reply in [false, true] {
++        let mut params = complete_body_params("actual-legacy-selector");
++        if tool_reply {
++            params.input.clear();
++            params.tool_output = Some(Box::new(codex_app_server_protocol::TurnToolOutput {
++                name: "exact-original-reply".to_string(),
++                namespace: Some("original-namespace".to_string()),
++                output: FunctionCallOutputBody::Text("reply\nbytes 🦀é".to_string()),
++            }));
++        }
++        let data = OriginalTurnCommandData::new(params.clone());
++        data.validate_tool_output().unwrap();
++        let (route, body) = data.into_body();
++        assert_eq!(route, params.thread_id);
++        let (body_env, body_input) = body.into_environment_stage();
++        let body = body_input.into_core_input().unwrap();
++        let (legacy_env, legacy_input) =
++            OriginalTurnCommandData::new(params.clone()).into_environment_stage();
++        assert_eq!(
++            (body_env.environments, body_env.runtime_workspace_roots),
++            (legacy_env.environments, legacy_env.runtime_workspace_roots)
++        );
++        let legacy = legacy_input.into_core_input().unwrap();
++        let owner_settings = codex_protocol::protocol::ThreadSettingsOverrides {
++            service_tier: Some(None),
++            ..Default::default()
++        };
++        let direct = body.submission.into_request(
++            body.input,
++            owner_settings.clone(),
++            body.additional_context,
++        );
++        let forwarded =
++            legacy
++                .submission
++                .into_request(legacy.input, owner_settings, legacy.additional_context);
++        // TurnInputRequest/TurnStartOptions do not derive PartialEq: exhaustive
++        // projection compares every field; actual caller-owned trace stays None.
++        let project = |request: TurnInputRequest| {
++            let TurnInputRequest {
++                input,
++                thread_settings,
++                start,
++                additional_context,
++                responsesapi_client_metadata,
++                trace,
++            } = request;
++            assert!(trace.is_none());
++            let TurnStartOptions {
++                turn_trigger,
++                final_output_json_schema,
++                service_tier,
++                parent_turn_id,
++                root_turn_id,
++                cyber_access_program,
++            } = start;
++            (
++                input,
++                thread_settings,
++                (
++                    turn_trigger,
++                    final_output_json_schema,
++                    service_tier,
++                    parent_turn_id,
++                    root_turn_id,
++                    cyber_access_program,
++                ),
++                additional_context,
++                responsesapi_client_metadata,
++            )
++        };
++        assert_eq!(project(direct), project(forwarded));
++        assert_eq!(body_roundtrip(params.clone()), params);
++    }
++}

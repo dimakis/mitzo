@@ -1,0 +1,1515 @@
+diff --git a/codex-rs/app-server/src/request_processors.rs b/codex-rs/app-server/src/request_processors.rs
+index dc94cd0..11b9fd5 100644
+--- a/codex-rs/app-server/src/request_processors.rs
++++ b/codex-rs/app-server/src/request_processors.rs
+@@ -594,6 +594,10 @@ pub(crate) use thread_processor::ThreadRequestProcessor;
+ pub(crate) use thread_processor::ThreadResumeTarget;
+ pub(crate) use thread_queue_processor::ThreadQueueRequestProcessor;
+ pub(crate) use turn_processor::TurnRequestProcessor;
++pub(crate) use turn_processor::turn_settings_data::{
++    SettingsSource, ThreadSettingsBuildParams, build_environment_override,
++    build_thread_settings_overrides,
++};
+ pub(crate) use windows_sandbox_processor::WindowsSandboxRequestProcessor;
+ 
+ use crate::error_code::internal_error;
+diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
+index edcf13e..cf43b3a 100644
+--- a/codex-rs/app-server/src/request_processors/turn_processor.rs
++++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
+@@ -1,5 +1,8 @@
+ #[path = "turn_command_data.rs"]
+ mod turn_command_data;
++#[path = "turn_settings_data.rs"]
++pub(super) mod turn_settings_data;
++use turn_settings_data::{SettingsSource, ThreadEnvironmentOverride, ThreadSettingsBuildParams};
+ 
+ use super::thread_input::ensure_direct_input_allowed;
+ use super::*;
+@@ -119,29 +122,6 @@ fn map_additional_context(
+         .collect()
+ }
+ 
+-#[derive(Default)]
+-struct ThreadEnvironmentOverride {
+-    environments: Option<TurnEnvironmentSelections>,
+-    // Only default-environment updates replace the task's separately persisted root selection.
+-    runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
+-}
+-
+-struct ThreadSettingsBuildParams {
+-    method: &'static str,
+-    disabled_plugin_ids: Option<Vec<String>>,
+-    environment_override: ThreadEnvironmentOverride,
+-    approval_policy: Option<codex_app_server_protocol::AskForApproval>,
+-    approvals_reviewer: Option<codex_app_server_protocol::ApprovalsReviewer>,
+-    sandbox_policy: Option<codex_app_server_protocol::SandboxPolicy>,
+-    permissions: Option<String>,
+-    model: Option<String>,
+-    service_tier: Option<Option<String>>,
+-    effort: Option<ReasoningEffort>,
+-    summary: Option<ReasoningSummary>,
+-    collaboration_mode: Option<CollaborationMode>,
+-    personality: Option<Personality>,
+-}
+-
+ impl TurnRequestProcessor {
+     #[allow(clippy::too_many_arguments)]
+     pub(crate) fn new(
+@@ -403,23 +383,6 @@ impl TurnRequestProcessor {
+             })
+     }
+ 
+-    fn normalize_collaboration_mode(
+-        &self,
+-        mut collaboration_mode: CollaborationMode,
+-    ) -> CollaborationMode {
+-        if collaboration_mode.settings.developer_instructions.is_none()
+-            && let Some(instructions) = builtin_collaboration_mode_presets()
+-                .into_iter()
+-                .find(|preset| preset.mode == Some(collaboration_mode.mode))
+-                .and_then(|preset| preset.developer_instructions.flatten())
+-                .filter(|instructions| !instructions.is_empty())
+-        {
+-            collaboration_mode.settings.developer_instructions = Some(instructions);
+-        }
+-
+-        collaboration_mode
+-    }
+-
+     fn review_request_from_target(
+         target: ApiReviewTarget,
+     ) -> Result<(ReviewRequest, String, String), JSONRPCErrorError> {
+@@ -673,199 +636,26 @@ impl TurnRequestProcessor {
+         workspace_roots: Option<Vec<AbsolutePathBuf>>,
+         environment_selections: Option<Vec<TurnEnvironmentSelection>>,
+     ) -> ThreadEnvironmentOverride {
+-        if cwd.is_none() && workspace_roots.is_none() && environment_selections.is_none() {
+-            return ThreadEnvironmentOverride::default();
+-        }
+-
+-        // Explicit environment selections own their roots and pass through unchanged. Top-level
+-        // `runtimeWorkspaceRoots` is only a compatibility input for default environments.
+-        if let Some(environment_selections) = environment_selections {
+-            let legacy_fallback_cwd = match cwd {
+-                Some(cwd) => cwd,
+-                None => match environment_selections
+-                    .iter()
+-                    .find(|selection| selection.environment_id == LOCAL_ENVIRONMENT_ID)
+-                    .and_then(|selection| selection.cwd.to_abs_path().ok())
+-                {
+-                    Some(cwd) => cwd,
+-                    None => thread.config_snapshot().await.cwd().clone(),
+-                },
+-            };
+-            return ThreadEnvironmentOverride {
+-                environments: Some(TurnEnvironmentSelections::new(
+-                    legacy_fallback_cwd,
+-                    environment_selections,
+-                )),
+-                ..Default::default()
+-            };
+-        }
+-
+-        // Default-environment updates retain the task's fallback roots, not its active roots.
+-        let snapshot = thread.thread_settings_snapshot().await;
+-        let current_cwd = snapshot.cwd;
+-        let legacy_fallback_cwd = cwd.unwrap_or_else(|| current_cwd.clone());
+-        let workspace_roots = match workspace_roots {
+-            Some(workspace_roots) => workspace_roots,
+-            None => path_utils::replace_path_and_deduplicate(
+-                snapshot.runtime_workspace_roots.unwrap_or_default(),
+-                current_cwd.as_path(),
+-                legacy_fallback_cwd.clone(),
+-            ),
+-        };
+-        let environment_selections = self
+-            .thread_manager
+-            .default_environment_selections(&legacy_fallback_cwd, &workspace_roots);
+-        ThreadEnvironmentOverride {
+-            environments: Some(TurnEnvironmentSelections::new(
+-                legacy_fallback_cwd,
+-                environment_selections,
+-            )),
+-            runtime_workspace_roots: Some(workspace_roots),
+-        }
++        turn_settings_data::build_environment_override(
++            &SettingsSource::Live(thread),
++            &self.thread_manager,
++            cwd,
++            workspace_roots,
++            environment_selections,
++        )
++        .await
+     }
+-
+     async fn build_thread_settings_overrides(
+         &self,
+         thread: &CodexThread,
+         params: ThreadSettingsBuildParams,
+     ) -> Result<codex_protocol::protocol::ThreadSettingsOverrides, JSONRPCErrorError> {
+-        let ThreadSettingsBuildParams {
+-            method,
+-            disabled_plugin_ids,
+-            environment_override:
+-                ThreadEnvironmentOverride {
+-                    environments,
+-                    runtime_workspace_roots,
+-                },
+-            approval_policy,
+-            approvals_reviewer,
+-            sandbox_policy,
+-            permissions,
+-            model,
+-            service_tier,
+-            effort,
+-            summary,
+-            collaboration_mode,
+-            personality,
+-        } = params;
+-
+-        if sandbox_policy.is_some() && permissions.is_some() {
+-            return Err(invalid_request(
+-                "`permissions` cannot be combined with `sandboxPolicy`",
+-            ));
+-        }
+-
+-        let collaboration_mode =
+-            collaboration_mode.map(|mode| self.normalize_collaboration_mode(mode));
+-        let has_environment_override = environments.is_some();
+-        // `thread/settings/update` only acknowledges that the update was queued.
+-        // Clients that send dependent partial updates should wait for
+-        // `thread/settings/updated` or combine the fields in one request.
+-        let snapshot = if permissions.is_some() {
+-            Some(thread.config_snapshot().await)
+-        } else {
+-            None
+-        };
+-
+-        let has_any_overrides = has_environment_override
+-            || disabled_plugin_ids.is_some()
+-            || approval_policy.is_some()
+-            || approvals_reviewer.is_some()
+-            || sandbox_policy.is_some()
+-            || permissions.is_some()
+-            || model.is_some()
+-            || service_tier.is_some()
+-            || effort.is_some()
+-            || summary.is_some()
+-            || collaboration_mode.is_some()
+-            || personality.is_some();
+-
+-        let approval_policy =
+-            approval_policy.map(codex_app_server_protocol::AskForApproval::to_core);
+-        let approvals_reviewer =
+-            approvals_reviewer.map(codex_app_server_protocol::ApprovalsReviewer::to_core);
+-        let sandbox_policy = sandbox_policy.map(|policy| policy.to_core());
+-        let (permission_profile, active_permission_profile, profile_workspace_roots) =
+-            if let Some(permissions) = permissions {
+-                let Some(snapshot) = snapshot.as_ref() else {
+-                    return Err(internal_error(format!(
+-                        "{method} permission selection missing thread snapshot"
+-                    )));
+-                };
+-                let thread_config = thread.config().await;
+-                let cwd = environments.as_ref().map_or_else(
+-                    || snapshot.cwd().clone(),
+-                    |environments| environments.legacy_fallback_cwd.clone(),
+-                );
+-                let config = self
+-                    .config_manager
+-                    .load_permission_config_for_thread(&thread_config, cwd, permissions)
+-                    .await
+-                    .map_err(|error| config_load_error(&error))?;
+-                // Startup config is allowed to fall back when requirements
+-                // disallow a configured profile. An explicit settings update
+-                // is different: reject it before accepting the request.
+-                if let Some(warning) = config.startup_warnings.iter().find(|warning| {
+-                    warning.contains("Configured value for `permission_profile` is disallowed")
+-                }) {
+-                    return Err(invalid_request(format!(
+-                        "invalid thread settings override: {warning}"
+-                    )));
+-                }
+-                (
+-                    Some(config.permissions.permission_profile().clone()),
+-                    config.permissions.active_permission_profile(),
+-                    Some(config.permissions.profile_workspace_roots().to_vec()),
+-                )
+-            } else {
+-                (None, None, None)
+-            };
+-        let effort = effort.map(Some);
+-
+-        if has_any_overrides {
+-            thread
+-                .preview_thread_settings_overrides(CodexThreadSettingsOverrides {
+-                    disabled_plugin_ids: disabled_plugin_ids.clone(),
+-                    environments: environments.clone(),
+-                    runtime_workspace_roots: runtime_workspace_roots.clone(),
+-                    approval_policy,
+-                    approvals_reviewer,
+-                    sandbox_policy: sandbox_policy.clone(),
+-                    permission_profile: permission_profile.clone(),
+-                    active_permission_profile: active_permission_profile.clone(),
+-                    profile_workspace_roots: profile_workspace_roots.clone(),
+-                    windows_sandbox_level: None,
+-                    model: model.clone(),
+-                    effort: effort.clone(),
+-                    summary,
+-                    service_tier: service_tier.clone(),
+-                    collaboration_mode: collaboration_mode.clone(),
+-                    personality,
+-                })
+-                .await
+-                .map_err(|err| {
+-                    invalid_request(format!("invalid thread settings override: {err}"))
+-                })?;
+-        }
+-
+-        Ok(codex_protocol::protocol::ThreadSettingsOverrides {
+-            disabled_plugin_ids,
+-            environments,
+-            runtime_workspace_roots,
+-            profile_workspace_roots,
+-            approval_policy,
+-            approvals_reviewer,
+-            sandbox_policy,
+-            permission_profile,
+-            active_permission_profile,
+-            windows_sandbox_level: None,
+-            model,
+-            effort,
+-            summary,
+-            service_tier,
+-            collaboration_mode,
+-            personality,
+-        })
++        turn_settings_data::build_thread_settings_overrides(
++            &mut SettingsSource::Live(thread),
++            &self.config_manager,
++            params,
++        )
++        .await
+     }
+ 
+     async fn thread_settings_update_inner(
+diff --git a/codex-rs/app-server/src/request_processors/turn_settings_data.rs b/codex-rs/app-server/src/request_processors/turn_settings_data.rs
+new file mode 100644
+index 0000000..6b63ac3
+--- /dev/null
++++ b/codex-rs/app-server/src/request_processors/turn_settings_data.rs
+@@ -0,0 +1,355 @@
++//! Original turn-settings normalization shared by live and retained selected
++//! sources. No command identity, environment lease or admission is inferred.
++use super::*;
++use crate::config_manager::ConfigManager;
++use codex_core::SelectedStartInputs;
++
++pub(crate) enum SettingsSource<'a> {
++    Live(&'a CodexThread),
++    Selected {
++        start: &'a mut SelectedStartInputs,
++        manager: &'a ThreadManager,
++    },
++}
++enum PermissionSourceData {
++    Live(codex_core::ThreadConfigSnapshot),
++    Selected(AbsolutePathBuf),
++}
++impl PermissionSourceData {
++    fn cwd(&self) -> &AbsolutePathBuf {
++        match self {
++            Self::Live(snapshot) => snapshot.cwd(),
++            Self::Selected(cwd) => cwd,
++        }
++    }
++}
++impl SettingsSource<'_> {
++    async fn permission_snapshot(&self) -> PermissionSourceData {
++        match self {
++            Self::Live(thread) => PermissionSourceData::Live(thread.config_snapshot().await),
++            Self::Selected { start, .. } => PermissionSourceData::Selected(
++                start
++                    .start_options()
++                    .expect("selected source checked before normalization")
++                    .config
++                    .cwd
++                    .clone(),
++            ),
++        }
++    }
++    async fn permission_config(&self) -> Arc<Config> {
++        match self {
++            Self::Live(thread) => thread.config().await,
++            Self::Selected { start, .. } => Arc::new(
++                start
++                    .start_options()
++                    .expect("selected source checked before normalization")
++                    .config
++                    .clone(),
++            ),
++        }
++    }
++    async fn environment_snapshot(&self) -> (AbsolutePathBuf, Option<Vec<AbsolutePathBuf>>) {
++        match self {
++            Self::Live(thread) => {
++                let snapshot = thread.thread_settings_snapshot().await;
++                (snapshot.cwd, snapshot.runtime_workspace_roots)
++            }
++            Self::Selected { start, .. } => {
++                let config = &start
++                    .start_options()
++                    .expect("selected source checked before normalization")
++                    .config;
++                (config.cwd.clone(), Some(config.workspace_roots.clone()))
++            }
++        }
++    }
++    async fn preview(
++        &mut self,
++        overrides: codex_protocol::protocol::ThreadSettingsOverrides,
++    ) -> Result<(), String> {
++        match self {
++            Self::Live(thread) => {
++                let codex_protocol::protocol::ThreadSettingsOverrides {
++                    disabled_plugin_ids,
++                    environments,
++                    runtime_workspace_roots,
++                    profile_workspace_roots,
++                    approval_policy,
++                    approvals_reviewer,
++                    sandbox_policy,
++                    permission_profile,
++                    active_permission_profile,
++                    windows_sandbox_level,
++                    model,
++                    effort,
++                    summary,
++                    service_tier,
++                    collaboration_mode,
++                    personality,
++                } = overrides;
++                thread
++                    .preview_thread_settings_overrides(CodexThreadSettingsOverrides {
++                        disabled_plugin_ids,
++                        environments,
++                        runtime_workspace_roots,
++                        profile_workspace_roots,
++                        approval_policy,
++                        approvals_reviewer,
++                        sandbox_policy,
++                        permission_profile,
++                        active_permission_profile,
++                        windows_sandbox_level,
++                        model,
++                        effort,
++                        summary,
++                        service_tier,
++                        collaboration_mode,
++                        personality,
++                    })
++                    .await
++                    .map(|_| ())
++                    .map_err(|error| error.to_string())
++            }
++            Self::Selected { start, manager } => manager
++                .retain_selected_start_settings(start, overrides)
++                .map_err(|error| error.to_string()),
++        }
++    }
++}
++
++#[derive(Default)]
++pub(crate) struct ThreadEnvironmentOverride {
++    pub(crate) environments: Option<TurnEnvironmentSelections>,
++    // Only default-environment updates replace the task's separately persisted root selection.
++    pub(crate) runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
++}
++
++pub(crate) struct ThreadSettingsBuildParams {
++    pub(crate) method: &'static str,
++    pub(crate) disabled_plugin_ids: Option<Vec<String>>,
++    pub(crate) environment_override: ThreadEnvironmentOverride,
++    pub(crate) approval_policy: Option<codex_app_server_protocol::AskForApproval>,
++    pub(crate) approvals_reviewer: Option<codex_app_server_protocol::ApprovalsReviewer>,
++    pub(crate) sandbox_policy: Option<codex_app_server_protocol::SandboxPolicy>,
++    pub(crate) permissions: Option<String>,
++    pub(crate) model: Option<String>,
++    pub(crate) service_tier: Option<Option<String>>,
++    pub(crate) effort: Option<ReasoningEffort>,
++    pub(crate) summary: Option<ReasoningSummary>,
++    pub(crate) collaboration_mode: Option<CollaborationMode>,
++    pub(crate) personality: Option<Personality>,
++}
++
++fn normalize_collaboration_mode(mut collaboration_mode: CollaborationMode) -> CollaborationMode {
++    if collaboration_mode.settings.developer_instructions.is_none()
++        && let Some(instructions) = builtin_collaboration_mode_presets()
++            .into_iter()
++            .find(|preset| preset.mode == Some(collaboration_mode.mode))
++            .and_then(|preset| preset.developer_instructions.flatten())
++            .filter(|instructions| !instructions.is_empty())
++    {
++        collaboration_mode.settings.developer_instructions = Some(instructions);
++    }
++
++    collaboration_mode
++}
++
++pub(crate) async fn build_environment_override(
++    source: &SettingsSource<'_>,
++    thread_manager: &ThreadManager,
++    cwd: Option<AbsolutePathBuf>,
++    workspace_roots: Option<Vec<AbsolutePathBuf>>,
++    environment_selections: Option<Vec<TurnEnvironmentSelection>>,
++) -> ThreadEnvironmentOverride {
++    if cwd.is_none() && workspace_roots.is_none() && environment_selections.is_none() {
++        return ThreadEnvironmentOverride::default();
++    }
++
++    // Explicit environment selections own their roots and pass through unchanged. Top-level
++    // `runtimeWorkspaceRoots` is only a compatibility input for default environments.
++    if let Some(environment_selections) = environment_selections {
++        let legacy_fallback_cwd = match cwd {
++            Some(cwd) => cwd,
++            None => match environment_selections
++                .iter()
++                .find(|selection| selection.environment_id == LOCAL_ENVIRONMENT_ID)
++                .and_then(|selection| selection.cwd.to_abs_path().ok())
++            {
++                Some(cwd) => cwd,
++                None => source.permission_snapshot().await.cwd().clone(),
++            },
++        };
++        return ThreadEnvironmentOverride {
++            environments: Some(TurnEnvironmentSelections::new(
++                legacy_fallback_cwd,
++                environment_selections,
++            )),
++            ..Default::default()
++        };
++    }
++
++    // Default-environment updates retain the task's fallback roots, not its active roots.
++    let (current_cwd, runtime_workspace_roots) = source.environment_snapshot().await;
++    let legacy_fallback_cwd = cwd.unwrap_or_else(|| current_cwd.clone());
++    let workspace_roots = match workspace_roots {
++        Some(workspace_roots) => workspace_roots,
++        None => path_utils::replace_path_and_deduplicate(
++            runtime_workspace_roots.unwrap_or_default(),
++            current_cwd.as_path(),
++            legacy_fallback_cwd.clone(),
++        ),
++    };
++    let environment_selections =
++        thread_manager.default_environment_selections(&legacy_fallback_cwd, &workspace_roots);
++    ThreadEnvironmentOverride {
++        environments: Some(TurnEnvironmentSelections::new(
++            legacy_fallback_cwd,
++            environment_selections,
++        )),
++        runtime_workspace_roots: Some(workspace_roots),
++    }
++}
++
++pub(crate) async fn build_thread_settings_overrides(
++    source: &mut SettingsSource<'_>,
++    config_manager: &ConfigManager,
++    params: ThreadSettingsBuildParams,
++) -> Result<codex_protocol::protocol::ThreadSettingsOverrides, JSONRPCErrorError> {
++    let ThreadSettingsBuildParams {
++        method,
++        disabled_plugin_ids,
++        environment_override:
++            ThreadEnvironmentOverride {
++                environments,
++                runtime_workspace_roots,
++            },
++        approval_policy,
++        approvals_reviewer,
++        sandbox_policy,
++        permissions,
++        model,
++        service_tier,
++        effort,
++        summary,
++        collaboration_mode,
++        personality,
++    } = params;
++
++    if sandbox_policy.is_some() && permissions.is_some() {
++        return Err(invalid_request(
++            "`permissions` cannot be combined with `sandboxPolicy`",
++        ));
++    }
++
++    let collaboration_mode = collaboration_mode.map(normalize_collaboration_mode);
++    let has_environment_override = environments.is_some();
++    // `thread/settings/update` only acknowledges that the update was queued.
++    // Clients that send dependent partial updates should wait for
++    // `thread/settings/updated` or combine the fields in one request.
++    let snapshot = if permissions.is_some() {
++        Some(source.permission_snapshot().await)
++    } else {
++        None
++    };
++
++    let has_any_overrides = has_environment_override
++        || disabled_plugin_ids.is_some()
++        || approval_policy.is_some()
++        || approvals_reviewer.is_some()
++        || sandbox_policy.is_some()
++        || permissions.is_some()
++        || model.is_some()
++        || service_tier.is_some()
++        || effort.is_some()
++        || summary.is_some()
++        || collaboration_mode.is_some()
++        || personality.is_some();
++
++    let approval_policy = approval_policy.map(codex_app_server_protocol::AskForApproval::to_core);
++    let approvals_reviewer =
++        approvals_reviewer.map(codex_app_server_protocol::ApprovalsReviewer::to_core);
++    let sandbox_policy = sandbox_policy.map(|policy| policy.to_core());
++    let (permission_profile, active_permission_profile, profile_workspace_roots) =
++        if let Some(permissions) = permissions {
++            let Some(snapshot) = snapshot.as_ref() else {
++                return Err(internal_error(format!(
++                    "{method} permission selection missing thread snapshot"
++                )));
++            };
++            let thread_config = source.permission_config().await;
++            let cwd = environments.as_ref().map_or_else(
++                || snapshot.cwd().clone(),
++                |environments| environments.legacy_fallback_cwd.clone(),
++            );
++            let config = config_manager
++                .load_permission_config_for_thread(&thread_config, cwd, permissions)
++                .await
++                .map_err(|error| config_load_error(&error))?;
++            // Startup config is allowed to fall back when requirements
++            // disallow a configured profile. An explicit settings update
++            // is different: reject it before accepting the request.
++            if let Some(warning) = config.startup_warnings.iter().find(|warning| {
++                warning.contains("Configured value for `permission_profile` is disallowed")
++            }) {
++                return Err(invalid_request(format!(
++                    "invalid thread settings override: {warning}"
++                )));
++            }
++            (
++                Some(config.permissions.permission_profile().clone()),
++                config.permissions.active_permission_profile(),
++                Some(config.permissions.profile_workspace_roots().to_vec()),
++            )
++        } else {
++            (None, None, None)
++        };
++    let effort = effort.map(Some);
++
++    if has_any_overrides {
++        source
++            .preview(codex_protocol::protocol::ThreadSettingsOverrides {
++                disabled_plugin_ids: disabled_plugin_ids.clone(),
++                environments: environments.clone(),
++                runtime_workspace_roots: runtime_workspace_roots.clone(),
++                approval_policy,
++                approvals_reviewer,
++                sandbox_policy: sandbox_policy.clone(),
++                permission_profile: permission_profile.clone(),
++                active_permission_profile: active_permission_profile.clone(),
++                profile_workspace_roots: profile_workspace_roots.clone(),
++                windows_sandbox_level: None,
++                model: model.clone(),
++                effort: effort.clone(),
++                summary,
++                service_tier: service_tier.clone(),
++                collaboration_mode: collaboration_mode.clone(),
++                personality,
++            })
++            .await
++            .map_err(|err| invalid_request(format!("invalid thread settings override: {err}")))?;
++    }
++
++    Ok(codex_protocol::protocol::ThreadSettingsOverrides {
++        disabled_plugin_ids,
++        environments,
++        runtime_workspace_roots,
++        profile_workspace_roots,
++        approval_policy,
++        approvals_reviewer,
++        sandbox_policy,
++        permission_profile,
++        active_permission_profile,
++        windows_sandbox_level: None,
++        model,
++        effort,
++        summary,
++        service_tier,
++        collaboration_mode,
++        personality,
++    })
++}
++
++#[cfg(test)]
++#[path = "turn_settings_data_tests.rs"]
++mod tests;
+diff --git a/codex-rs/app-server/src/request_processors/turn_settings_data_tests.rs b/codex-rs/app-server/src/request_processors/turn_settings_data_tests.rs
+new file mode 100644
+index 0000000..8a05271
+--- /dev/null
++++ b/codex-rs/app-server/src/request_processors/turn_settings_data_tests.rs
+@@ -0,0 +1,379 @@
++use super::*;
++use codex_arg0::Arg0DispatchPaths;
++use codex_config::{CloudConfigBundleLoader, LoaderOverrides};
++use codex_core::{CodexAppsToolsCache, StartThreadOptions, passthrough_image_store};
++use codex_exec_server::EnvironmentManager;
++use codex_home::CodexHomeUserInstructionsProvider;
++use codex_login::{AuthManager, CodexAuth};
++use codex_protocol::protocol::SessionSource;
++use codex_thread_store::InMemoryThreadStore;
++use pretty_assertions::assert_eq;
++
++fn params() -> ThreadSettingsBuildParams {
++    ThreadSettingsBuildParams {
++        method: "turn/start",
++        disabled_plugin_ids: None,
++        environment_override: ThreadEnvironmentOverride::default(),
++        approval_policy: None,
++        approvals_reviewer: None,
++        sandbox_policy: None,
++        permissions: None,
++        model: None,
++        service_tier: None,
++        effort: None,
++        summary: None,
++        collaboration_mode: None,
++        personality: None,
++    }
++}
++async fn config_source(home: &std::path::Path) -> ConfigManager {
++    std::fs::write(home.join("config.toml"), "model = 'gpt-6-luna'\n").unwrap();
++    manager(home)
++}
++fn manager(home: &std::path::Path) -> ConfigManager {
++    // Fixture filesystem sources replace host external effects; ordinary
++    // package/user/project/managed layers and default feature flags remain on.
++    ConfigManager::new(
++        home.to_path_buf(),
++        Vec::new(),
++        LoaderOverrides::with_managed_config_path_for_tests(home.join("managed.toml")),
++        /*strict_config*/ false,
++        CloudConfigBundleLoader::default(),
++        Arg0DispatchPaths::default(),
++        Arc::new(codex_config::NoopThreadConfigLoader),
++    )
++}
++
++fn fixture_thread_manager(
++    config: &Config,
++    store: Arc<InMemoryThreadStore>,
++) -> (
++    Arc<ThreadManager>,
++    Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++    Arc<AuthManager>,
++) {
++    thread_manager_with_models(config, store, |auth| {
++        Arc::new(
++            codex_models_manager::manager::OpenAiModelsManager::new_without_cache(
++                Arc::new(NoStartupEndpoint),
++                Some(Arc::clone(auth)),
++            ),
++        )
++    })
++}
++
++fn thread_manager_with_models(
++    config: &Config,
++    store: Arc<InMemoryThreadStore>,
++    make_models: impl FnOnce(&Arc<AuthManager>) -> codex_models_manager::manager::SharedModelsManager,
++) -> (
++    Arc<ThreadManager>,
++    Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++    Arc<AuthManager>,
++) {
++    let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("synthetic-offline"));
++    let models = make_models(&auth);
++    let environment = Arc::new(EnvironmentManager::default_for_tests());
++    let (outgoing_tx, _outgoing_rx) = tokio::sync::mpsc::channel(4);
++    let outgoing = Arc::new(crate::outgoing_message::OutgoingMessageSender::new(
++        outgoing_tx,
++        codex_analytics::AnalyticsEventsClient::disabled(),
++    ));
++    let thread_states = crate::thread_state::ThreadStateManager::new();
++    let attestation = crate::attestation::app_server_attestation_provider(
++        Arc::clone(&outgoing),
++        thread_states.clone(),
++    );
++    let sink = crate::extensions::app_server_extension_event_sink(outgoing, thread_states);
++    let mut installed = None;
++    let threads = Arc::new_cyclic(|owner| {
++        let composition = crate::extensions::installed_thread_extensions(
++            crate::extensions::ThreadExtensionDependencies {
++                event_sink: Arc::clone(&sink),
++                auth_manager: Arc::clone(&auth),
++                state_db: None,
++                analytics_events_client: codex_analytics::AnalyticsEventsClient::disabled(),
++                thread_manager: owner.clone(),
++                goal_service: Arc::new(codex_goal_extension::GoalService::new()),
++                environment_manager: Arc::clone(&environment),
++                executor_skill_provider: Arc::new(
++                    codex_skills_extension::ExecutorSkillProvider::new_with_restriction_product(
++                        Arc::clone(&environment),
++                        SessionSource::Exec.restriction_product(),
++                    ),
++                ),
++                git_attribution_base_url: config.chatgpt_base_url.clone(),
++                http_client_factory: config.http_client_factory(),
++                queue_service: None,
++                turn_start_admission: Some(Arc::new(
++                    crate::turn_admission::TurnAdmission::default(),
++                )),
++            },
++        );
++        let registry = composition.registry();
++        installed = Some(Arc::new(composition));
++        ThreadManager::new(
++            config,
++            Arc::clone(&auth),
++            Arc::clone(&models),
++            CodexAppsToolsCache::default(),
++            SessionSource::Exec,
++            Arc::clone(&environment),
++            registry,
++            Arc::new(CodexHomeUserInstructionsProvider::new(
++                config.codex_home.clone(),
++            )),
++            /*analytics_events_client*/ None,
++            passthrough_image_store(),
++            store,
++            /*agent_graph_store*/ None,
++            "offline-selected-start".to_string(),
++            Some(Arc::clone(&attestation)),
++            /*external_time_provider*/ None,
++        )
++    });
++    (threads, installed.unwrap(), auth)
++}
++
++#[derive(Debug)]
++struct NoStartupEndpoint;
++impl codex_models_manager::manager::ModelsEndpointClient for NoStartupEndpoint {
++    fn identity(&self) -> Option<String> {
++        Some("offline-installed-startup".to_string())
++    }
++    fn has_command_auth(&self) -> bool {
++        false
++    }
++    fn uses_codex_backend(&self) -> codex_models_manager::manager::ModelsEndpointFuture<'_, bool> {
++        Box::pin(std::future::ready(false))
++    }
++    fn list_models<'a>(
++        &'a self,
++        _version: &'a str,
++        _factory: codex_http_client::HttpClientFactory,
++    ) -> codex_models_manager::manager::ModelsEndpointFuture<
++        'a,
++        codex_protocol::error::Result<codex_models_manager::manager::ModelsEndpointResponse>,
++    > {
++        panic!("installed startup preparation must not invoke an endpoint")
++    }
++}
++
++#[tokio::test]
++async fn unchanged_normalization_needs_no_live_snapshot_or_startup_preview() {
++    let home = tempfile::tempdir().unwrap();
++    let configs = config_source(home.path()).await;
++    let source = configs
++        .load_selected_start_config(
++            None,
++            codex_core::config::ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, _installed, _auth) = fixture_thread_manager(source.config(), Arc::clone(&store));
++    let mut selected = threads
++        .prepare_selected_start(StartThreadOptions::new(source.config().clone()))
++        .await
++        .unwrap();
++    let mut adapter = SettingsSource::Selected {
++        start: &mut selected,
++        manager: &threads,
++    };
++    assert_eq!(
++        build_thread_settings_overrides(&mut adapter, &configs, params())
++            .await
++            .unwrap(),
++        codex_protocol::protocol::ThreadSettingsOverrides::default()
++    );
++    let mut conflicting = params();
++    conflicting.permissions = Some("missing-original-profile".to_string());
++    conflicting.sandbox_policy = Some(codex_app_server_protocol::SandboxPolicy::ReadOnly {
++        network_access: false,
++    });
++    assert_eq!(
++        build_thread_settings_overrides(&mut adapter, &configs, conflicting)
++            .await
++            .err(),
++        Some(invalid_request(
++            "`permissions` cannot be combined with `sandboxPolicy`"
++        ))
++    );
++    // A preview would require the deliberately uncaptured original startup packet.
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++}
++
++#[tokio::test]
++async fn original_explicit_empty_and_default_environment_paths_keep_distinct_roots() {
++    let home = tempfile::tempdir().unwrap();
++    let configs = config_source(home.path()).await;
++    let source = configs
++        .load_selected_start_config(
++            None,
++            codex_core::config::ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, _installed, _auth) = fixture_thread_manager(source.config(), Arc::clone(&store));
++    let cwd = source.config().cwd.clone();
++    let mut selected = threads
++        .prepare_selected_start(StartThreadOptions::new(source.config().clone()))
++        .await
++        .unwrap();
++    let adapter = SettingsSource::Selected {
++        start: &mut selected,
++        manager: &threads,
++    };
++    let absent = build_environment_override(&adapter, &threads, None, None, None).await;
++    assert_eq!(
++        (absent.environments, absent.runtime_workspace_roots),
++        (None, None)
++    );
++    let explicit =
++        build_environment_override(&adapter, &threads, None, None, Some(Vec::new())).await;
++    assert_eq!(
++        explicit.environments,
++        Some(TurnEnvironmentSelections::new(cwd.clone(), Vec::new()))
++    );
++    assert_eq!(explicit.runtime_workspace_roots, None);
++    let default = build_environment_override(
++        &adapter,
++        &threads,
++        Some(cwd.clone()),
++        Some(Vec::new()),
++        None,
++    )
++    .await;
++    assert_eq!(
++        default.environments,
++        Some(TurnEnvironmentSelections::new(
++            cwd.clone(),
++            threads.default_environment_selections(&cwd, &[])
++        ))
++    );
++    assert_eq!(default.runtime_workspace_roots, Some(Vec::new()));
++}
++
++#[tokio::test]
++async fn selected_settings_named_permission_failure_and_candidate_one_use_refuse_without_start() {
++    let home = tempfile::tempdir().unwrap();
++    let configs = config_source(home.path()).await;
++    let source = configs
++        .load_selected_start_config(
++            None,
++            codex_core::config::ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, installed, _auth) = fixture_thread_manager(source.config(), Arc::clone(&store));
++    let raw = source.config().clone();
++    assert!(raw.features.enabled(codex_features::Feature::Apps));
++    assert!(raw.features.enabled(codex_features::Feature::Plugins));
++    let mut selected = source
++        .capture_first_command(
++            &threads,
++            crate::config_manager::selected_start_config::OriginalFirstCommandStart::new(
++                StartThreadOptions::new(raw.clone()),
++                threads.reserve_thread_start(),
++                Arc::clone(&installed),
++            ),
++        )
++        .await
++        .unwrap();
++    selected.capture_startup(&threads).await.unwrap();
++    let mut request = params();
++    request.service_tier = Some(None);
++    request.disabled_plugin_ids = Some(Vec::new());
++    selected
++        .capture_settings(&threads, None, None, None, request)
++        .await
++        .unwrap();
++    assert!(selected.adopt_startup(&threads).await.is_err());
++    assert!(
++        selected
++            .capture_settings(&threads, None, None, None, params())
++            .await
++            .is_err()
++    );
++    let source = configs
++        .load_selected_start_config(
++            None,
++            codex_core::config::ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let mut selected = source
++        .capture_first_command(
++            &threads,
++            crate::config_manager::selected_start_config::OriginalFirstCommandStart::new(
++                StartThreadOptions::new(raw),
++                threads.reserve_thread_start(),
++                Arc::clone(&installed),
++            ),
++        )
++        .await
++        .unwrap();
++    selected.capture_startup(&threads).await.unwrap();
++    let mut request = params();
++    request.permissions = Some("missing-original-profile".to_string());
++    assert!(
++        selected
++            .capture_settings(&threads, None, None, None, request)
++            .await
++            .is_err()
++    );
++    assert!(selected.renew(&threads).await.is_err());
++    let source = configs
++        .load_selected_start_config(
++            None,
++            codex_core::config::ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let config = source.config().clone();
++    let mut selected = source
++        .capture_first_command(
++            &threads,
++            crate::config_manager::selected_start_config::OriginalFirstCommandStart::new(
++                StartThreadOptions::new(config.clone()),
++                threads.reserve_thread_start(),
++                Arc::clone(&installed),
++            ),
++        )
++        .await
++        .unwrap();
++    let (foreign, _installed, _auth) =
++        fixture_thread_manager(&config, Arc::new(InMemoryThreadStore::default()));
++    assert!(
++        selected
++            .capture_settings(&foreign, None, None, None, params())
++            .await
++            .is_err()
++    );
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++}
+diff --git a/codex-rs/app-server/src/selected_start_config.rs b/codex-rs/app-server/src/selected_start_config.rs
+index 2a49175..fd0964c 100644
+--- a/codex-rs/app-server/src/selected_start_config.rs
++++ b/codex-rs/app-server/src/selected_start_config.rs
+@@ -302,6 +302,50 @@ impl SelectedConfiguredStart<'_> {
+     pub(crate) fn start(&self) -> &SelectedStartInputs {
+         &self.start
+     }
++    /// Source-only settings candidate. Resolved DATA arguments do not identify
++    /// an intended command or authorize environment use/ordinary dispatch.
++    pub(crate) async fn capture_settings(
++        &mut self,
++        manager: &ThreadManager,
++        cwd: Option<codex_utils_absolute_path::AbsolutePathBuf>,
++        workspace_roots: Option<Vec<codex_utils_absolute_path::AbsolutePathBuf>>,
++        environments: Option<Vec<codex_protocol::protocol::TurnEnvironmentSelection>>,
++        mut params: crate::request_processors::ThreadSettingsBuildParams,
++    ) -> Result<(), codex_app_server_protocol::JSONRPCErrorError> {
++        use crate::request_processors::{
++            SettingsSource, build_environment_override, build_thread_settings_overrides,
++        };
++        self.renew(manager)
++            .await
++            .map_err(|error| crate::error_code::internal_error(error.to_string()))?;
++        let result = async {
++            let mut source = SettingsSource::Selected {
++                start: &mut self.start,
++                manager,
++            };
++            params.environment_override =
++                build_environment_override(&source, manager, cwd, workspace_roots, environments)
++                    .await;
++            let overrides =
++                build_thread_settings_overrides(&mut source, self.source.manager, params).await?;
++            // No override is intentionally not previewed. Retain the unchanged
++            // original baseline without running apply or manufacturing a turn.
++            if overrides == codex_protocol::protocol::ThreadSettingsOverrides::default() {
++                manager
++                    .retain_selected_start_settings_without_overrides(&mut self.start)
++                    .map_err(|error| crate::error_code::internal_error(error.to_string()))?;
++            }
++            self.renew(manager)
++                .await
++                .map_err(|error| crate::error_code::internal_error(error.to_string()))
++        }
++        .await;
++        if result.is_err() {
++            self.source.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
++
+     pub(crate) async fn capture_startup(&mut self, manager: &ThreadManager) -> io::Result<()> {
+         let result = async {
+             if self.installed.is_none() {
+diff --git a/codex-rs/core/src/session/configured_settings_data.rs b/codex-rs/core/src/session/configured_settings_data.rs
+index 126d667..54ac39a 100644
+--- a/codex-rs/core/src/session/configured_settings_data.rs
++++ b/codex-rs/core/src/session/configured_settings_data.rs
+@@ -2,6 +2,7 @@
+ //! provider, first-command apply, currentness or preparation grant is produced.
+ use super::*;
+ 
++#[derive(Clone)]
+ pub(super) struct OriginalConfiguredHistoryData {
+     dynamic_tools: Vec<DynamicToolSpec>,
+     disabled_plugin_ids: Vec<String>,
+@@ -140,6 +141,45 @@ impl OwnedConfiguredBaseline {
+         }
+         Ok(())
+     }
++    /// Distinct selected stage: the original permission helper is invoked here,
++    /// outside original synchronous source guards. Ordinary field order is unchanged.
++    pub(super) fn selected_settings_data(
++        &self,
++    ) -> std::io::Result<ConfiguredSettingsCandidateData> {
++        let history = self
++            .history
++            .as_ref()
++            .ok_or_else(|| std::io::Error::other("configured history already adopted"))?
++            .clone();
++        let tier = self
++            .service_tier
++            .as_ref()
++            .ok_or_else(|| std::io::Error::other("configured tier already adopted"))?
++            .clone();
++        let environments = self
++            .environments
++            .as_ref()
++            .ok_or_else(|| std::io::Error::other("configured environments already adopted"))?
++            .clone();
++        if self.warning.is_none() {
++            return Err(std::io::Error::other("configured warning already adopted"));
++        }
++        let parts = history.with_service_tier(&self.config, tier);
++        Ok(ConfiguredSettingsCandidateData {
++            step: parts.step.into_settings(),
++            permission: session_permission_profile_state_from_config(&self.config)
++                .map_err(std::io::Error::other)?,
++            windows: WindowsSandboxLevel::from_config(&self.config),
++            cwd: self.config.cwd.clone(),
++            roots: self.config.workspace_roots.clone(),
++            config: Arc::clone(&self.config),
++            environments,
++            name: None,
++            version: None,
++            plugins: parts.disabled_plugin_ids,
++            trusted: self.trusted_guardian_reviewer,
++        })
++    }
+     pub(super) fn take_history(&mut self) -> std::io::Result<OriginalConfiguredHistoryData> {
+         self.history
+             .take()
+@@ -321,3 +361,46 @@ impl<'a> ConfiguredPermissionEnvironmentData<'a> {
+ #[cfg(test)]
+ #[path = "configured_settings_data_tests.rs"]
+ mod tests;
++
++/// Owned providerless fields from the retained original baseline, not a Session
++/// configuration, environment lease, command identity or publication authority.
++#[derive(Clone, Debug, PartialEq)]
++pub(super) struct ConfiguredSettingsCandidateData {
++    pub(super) config: Arc<Config>,
++    pub(super) step: Arc<StepSettings>,
++    pub(super) permission: PermissionProfileState,
++    pub(super) windows: WindowsSandboxLevel,
++    pub(super) cwd: AbsolutePathBuf,
++    pub(super) roots: Vec<AbsolutePathBuf>,
++    pub(super) environments: Vec<TurnEnvironmentSelection>,
++    pub(super) name: Option<String>,
++    pub(super) version: Option<String>,
++    pub(super) plugins: Vec<String>,
++    pub(super) trusted: bool,
++}
++impl ConfiguredSettingsCandidateData {
++    pub(super) fn view(&self) -> super::configured_settings_update::ConfiguredSettingsView<'_> {
++        super::configured_settings_update::ConfiguredSettingsView {
++            step_settings: &self.step,
++            permission_profile_state: &self.permission,
++            legacy_fallback_cwd: &self.cwd,
++            original_config_do_not_use: &self.config,
++            trusted_guardian_reviewer: self.trusted,
++        }
++    }
++    pub(super) fn edit(&mut self) -> super::configured_settings_update::ConfiguredSettingsEdit<'_> {
++        super::configured_settings_update::ConfiguredSettingsEdit {
++            step_settings: &mut self.step,
++            permission_profile_state: &mut self.permission,
++            legacy_fallback_cwd: &mut self.cwd,
++            original_config_do_not_use: &mut self.config,
++            environments: &mut self.environments,
++            windows_sandbox_level: &mut self.windows,
++            runtime_workspace_roots: &mut self.roots,
++            app_server_client_name: &mut self.name,
++            app_server_client_version: &mut self.version,
++            disabled_plugin_ids: &mut self.plugins,
++            trusted_guardian_reviewer: self.trusted,
++        }
++    }
++}
+diff --git a/codex-rs/core/src/session/selected_settings_candidate.rs b/codex-rs/core/src/session/selected_settings_candidate.rs
+new file mode 100644
+index 0000000..f1c7ede
+--- /dev/null
++++ b/codex-rs/core/src/session/selected_settings_candidate.rs
+@@ -0,0 +1,61 @@
++//! Selected settings DATA uses the original retained baseline and original
++//! sparse mapper/update algorithm. No intended command/admission is established.
++use super::super::configured_settings_data::ConfiguredSettingsCandidateData;
++use super::*;
++use codex_protocol::protocol::ThreadSettingsOverrides;
++
++pub(crate) struct SelectedSettingsCandidate {
++    source: Arc<Config>,
++    overrides: ThreadSettingsOverrides,
++    data: ConfiguredSettingsCandidateData,
++}
++impl SelectedSettingsCandidate {
++    pub(crate) fn validate(&self, startup: &OriginalStartupSelection) -> io::Result<()> {
++        if !Arc::ptr_eq(&self.source, &startup.owner.effective) {
++            return Err(io::Error::other(
++                "selected settings effective owner changed",
++            ));
++        }
++        startup.stages.baseline.bind_effective(&self.source)
++    }
++}
++impl OriginalStartupSelection {
++    pub(crate) fn settings_candidate_without_overrides(
++        &self,
++    ) -> io::Result<SelectedSettingsCandidate> {
++        Ok(SelectedSettingsCandidate {
++            source: Arc::clone(&self.owner.effective),
++            overrides: ThreadSettingsOverrides::default(),
++            data: self.stages.baseline.selected_settings_data()?,
++        })
++    }
++    pub(crate) fn settings_candidate(
++        &self,
++        overrides: ThreadSettingsOverrides,
++    ) -> io::Result<SelectedSettingsCandidate> {
++        let current = self.stages.baseline.selected_settings_data()?;
++        let updates = super::super::thread_settings::prepare_update(overrides.clone());
++        super::super::configured_settings_update::check_environment_update(
++            &current.environments,
++            &updates,
++        )
++        .map_err(io::Error::other)?;
++        let mut next = current.clone();
++        super::super::configured_settings_update::apply_fields(
++            current.view(),
++            next.edit(),
++            &updates,
++            &current.environments,
++        )
++        .map_err(io::Error::other)?;
++        Ok(SelectedSettingsCandidate {
++            source: Arc::clone(&self.owner.effective),
++            overrides,
++            data: next,
++        })
++    }
++}
++
++#[cfg(test)]
++#[path = "selected_settings_candidate_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/selected_settings_candidate_tests.rs b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+new file mode 100644
+index 0000000..2b7ee04
+--- /dev/null
++++ b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+@@ -0,0 +1,92 @@
++use super::*;
++use pretty_assertions::assert_eq;
++
++#[tokio::test]
++async fn selected_candidate_uses_retained_baseline_and_sparse_tier_precedence() -> anyhow::Result<()>
++{
++    let (_home, mut options, auth, models, _endpoint) = super::super::tests::fixture().await?;
++    options.config.features.enable(Feature::GuardianApproval);
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let mut options = options;
++    options.config = startup.effective_config().clone();
++    let unchanged = startup.settings_candidate_without_overrides()?;
++    let cleared =
++        startup.settings_candidate(codex_protocol::protocol::ThreadSettingsOverrides {
++            service_tier: Some(None),
++            disabled_plugin_ids: Some(Vec::new()),
++            ..Default::default()
++        })?;
++    let mut expected = unchanged.data.clone();
++    let mut step = (*expected.step).clone();
++    step.service_tier =
++        Some(codex_protocol::config_types::SERVICE_TIER_DEFAULT_REQUEST_VALUE.to_string());
++    expected.step = Arc::new(step);
++    expected.plugins = Vec::new();
++    assert_eq!(cleared.data, expected);
++    startup.validate_baseline_options(&options, None)?;
++    assert!(Arc::ptr_eq(&unchanged.source, &startup.owner.effective));
++    assert!(Arc::ptr_eq(&cleared.source, &startup.owner.effective));
++    Ok(())
++}
++
++#[tokio::test]
++async fn selected_candidate_refuses_foreign_effective_owner_and_changed_baseline()
++-> anyhow::Result<()> {
++    let (_home, mut options, auth, models, _endpoint) = super::super::tests::fixture().await?;
++    options.config.features.enable(Feature::GuardianApproval);
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let candidate = startup.settings_candidate_without_overrides()?;
++    let mut foreign =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    assert!(candidate.validate(&foreign).is_err());
++    options.config = startup.effective_config().clone();
++    options.disabled_plugin_ids = Some(Vec::new());
++    assert!(startup.validate_baseline_options(&options, None).is_err());
++    foreign.stages.baseline.take_environments()?;
++    assert!(foreign.settings_candidate_without_overrides().is_err());
++    Ok(())
++}
++
++#[tokio::test]
++async fn selected_candidate_checks_proposed_permissions_before_step_constraints()
++-> anyhow::Result<()> {
++    let (_home, mut options, auth, models, _endpoint) = super::super::tests::fixture().await?;
++    options.config.features.enable(Feature::GuardianApproval);
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let baseline = startup.settings_candidate_without_overrides()?;
++    assert_eq!(
++        startup
++            .settings_candidate(codex_protocol::protocol::ThreadSettingsOverrides::default())?
++            .data,
++        baseline.data
++    );
++    let updates = codex_protocol::protocol::ThreadSettingsOverrides {
++        sandbox_policy: Some(SandboxPolicy::DangerFullAccess),
++        approvals_reviewer: Some(ApprovalsReviewer::AutoReview),
++        ..Default::default()
++    };
++    let error = startup
++        .settings_candidate(updates)
++        .err()
++        .expect("proposed full access violates original auto-review requirement");
++    assert_eq!(
++        error
++            .get_ref()
++            .and_then(|error| error.downcast_ref::<crate::config::ConstraintError>()),
++        Some(&crate::config::ConstraintError::AutoReviewRequired {
++            model: "gpt-6-luna".to_string()
++        })
++    );
++    assert_eq!(
++        startup.settings_candidate_without_overrides()?.data,
++        baseline.data
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/startup_selection.rs b/codex-rs/core/src/session/startup_selection.rs
+index 823ba50..02cef91 100644
+--- a/codex-rs/core/src/session/startup_selection.rs
++++ b/codex-rs/core/src/session/startup_selection.rs
+@@ -7,6 +7,10 @@ use codex_models_manager::model_limits::UnverifiedModelLimitCandidate;
+ use std::io;
+ 
+ /// Non-Clone/non-Serialize; created only by the selected ThreadManager phase.
++#[path = "selected_settings_candidate.rs"]
++mod selected_settings_candidate;
++pub(crate) use selected_settings_candidate::SelectedSettingsCandidate;
++
+ pub(crate) struct OriginalStartupSelection {
+     pub(super) owner: StartupSelectionOwner,
+     pub(super) stages: StartupSelectionStages,
+diff --git a/codex-rs/core/src/session/startup_selection_tests.rs b/codex-rs/core/src/session/startup_selection_tests.rs
+index bb93407..e27c4a2 100644
+--- a/codex-rs/core/src/session/startup_selection_tests.rs
++++ b/codex-rs/core/src/session/startup_selection_tests.rs
+@@ -8,7 +8,7 @@ use std::sync::Mutex;
+ use std::sync::atomic::{AtomicUsize, Ordering};
+ 
+ #[derive(Debug)]
+-struct OfflineCatalog {
++pub(super) struct OfflineCatalog {
+     rows: Mutex<Vec<ModelInfo>>,
+     reads: AtomicUsize,
+ }
+@@ -42,7 +42,7 @@ impl ModelsEndpointClient for OfflineCatalog {
+         })))
+     }
+ }
+-async fn fixture() -> anyhow::Result<(
++pub(super) async fn fixture() -> anyhow::Result<(
+     tempfile::TempDir,
+     crate::StartThreadOptions,
+     Arc<AuthManager>,
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index 8b3c05b..b25387e 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -10,6 +10,11 @@ use std::io;
+ mod allocation;
+ pub(super) use allocation::SelectedStartNativeAllocation;
+ 
++enum SelectedSettingsInput {
++    Overrides(codex_protocol::protocol::ThreadSettingsOverrides),
++    Unchanged,
++}
++
+ enum Inputs {
+     Options(StartThreadOptions),
+     Mcp(PreSessionMcpSources),
+@@ -22,6 +27,7 @@ pub struct SelectedStartInputs {
+     invalidated: AtomicBool,
+     policy: Arc<SelectedStartPolicy>,
+     allocation: Option<SelectedStartNativeAllocation>,
++    settings: Option<crate::session::startup_selection::SelectedSettingsCandidate>,
+ }
+ 
+ /// One-use ordinary adoption; not a dispatch/admission authorization.
+@@ -135,6 +141,7 @@ impl ThreadManager {
+             invalidated: AtomicBool::new(false),
+             policy,
+             allocation: Some(allocation),
++            settings: None,
+         })
+     }
+ 
+@@ -191,6 +198,56 @@ impl ThreadManager {
+         result
+     }
+ 
++    /// Retains selected settings DATA only. Intended-command and ordinary
++    /// settings adoption are separate and remain unavailable for this packet.
++    pub fn retain_selected_start_settings(
++        &self,
++        selected: &mut SelectedStartInputs,
++        overrides: codex_protocol::protocol::ThreadSettingsOverrides,
++    ) -> io::Result<()> {
++        self.capture_selected_settings(selected, SelectedSettingsInput::Overrides(overrides))
++    }
++    pub fn retain_selected_start_settings_without_overrides(
++        &self,
++        selected: &mut SelectedStartInputs,
++    ) -> io::Result<()> {
++        self.capture_selected_settings(selected, SelectedSettingsInput::Unchanged)
++    }
++    fn capture_selected_settings(
++        &self,
++        selected: &mut SelectedStartInputs,
++        input: SelectedSettingsInput,
++    ) -> io::Result<()> {
++        self.with_current_selected_start(selected, || ())?;
++        let result = (|| {
++            if selected.settings.is_some() {
++                return Err(io::Error::other("selected settings already retained"));
++            }
++            let startup = selected
++                .allocation
++                .as_ref()
++                .and_then(|allocation| allocation.inputs.startup())
++                .ok_or_else(|| io::Error::other("original startup selection missing"))?;
++            // These source guards have returned; no synchronous auth/policy lock
++            // is held over the permission helper or cwd compatibility projection.
++            let candidate = match input {
++                SelectedSettingsInput::Overrides(overrides) => {
++                    startup.settings_candidate(overrides)?
++                }
++                SelectedSettingsInput::Unchanged => {
++                    startup.settings_candidate_without_overrides()?
++                }
++            };
++            self.with_current_selected_start(selected, || ())?;
++            selected.settings = Some(candidate);
++            Ok(())
++        })();
++        if result.is_err() {
++            selected.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
++
+     pub fn capture_selected_start_startup_mcp(
+         &self,
+         selected: &mut SelectedStartInputs,
+@@ -469,6 +526,9 @@ impl ThreadManager {
+                 .and_then(|allocation| allocation.inputs.source_frame())
+                 .ok_or_else(|| io::Error::other("original source frame missing"))?;
+             startup.validate_baseline_options(options, frame.configured_fork(options)?)?;
++            if let Some(settings) = &selected.settings {
++                settings.validate(startup)?;
++            }
+             startup.validate_selection(
+                 &self.state.models_manager,
+                 &self.state.auth_manager,
+@@ -520,6 +580,11 @@ impl ThreadManager {
+         selected: &mut SelectedStartInputs,
+     ) -> io::Result<SelectedStartAdoption> {
+         self.with_current_selected_start(selected, || ())?;
++        if selected.settings.is_some() {
++            return Err(io::Error::other(
++                "selected settings require intended-command adoption",
++            ));
++        }
+         let credentials = selected
+             .allocation
+             .as_ref()

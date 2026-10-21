@@ -6,7 +6,74 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 115 patches
+## Current composed source: 119 patches
+
+The 119 ordered patches reconstruct native tree
+`c5d4d25bac5c95a7139bcf2e4bfa19051f8bcc52` (local source
+`bd59b7a06af3ec4291b3198cfe64af30f4a71e94`). All 115 public predecessor patches
+and all three closed local118 additions remain byte-exact. Local118 was frozen
+but never committed or published: the reviewed body change completed while
+Mac115 was still running, so this batch avoids an immediately superseded CI run.
+
+Patches116–118 retain the closed normalizer, original manager/publisher ownership
+and fixture borrow-order changes described below. Patch119 separates the exact24
+non-route parsed body fields from the genuine legacy route behind unchanged
+ordinary staged APIs. The exhaustive25-field move stays after original checks
+and client-info, the real ordinary caller is byte-exact, and shared conversion
+and final request building run once. No fake thread ID, fresh parser/constructor,
+export, selected pairing, adoption or new RPC/State/Ready is introduced.
+
+Two new body inverse/request-parity fixtures retain null/empty/order/user/reply
+DATA and all old whole-object/error oracles. Parity shares the algorithm and is
+not independent semantic evidence. All12 new fixtures remain UNCOMPILED_UNRUN.
+CI requires the original21 Core and13 AppServer names (retained11plus2body),
+with the4 Goal/API cases and original full22+Linuxsandbox/fmt/thread/retry/budget
+unchanged. Separate phase JUnit records do not qualify the full suite.
+
+Exact-source CI is required for119. Both public115 native jobs finished before
+this publication. Linux's independently qualified four Goal/API unit passes are
+separate from its Core/full-suite compilation failure. Mac also finished with
+Core/full-suite failure; bounded raw triage observes the same fixture E0505.
+Its named phase qualification is pending, so no Mac fixture counts are claimed
+here. The identical field-order repair is included in119, requiring fresh CI.
+No source-only repair or prior result establishes full factory/count/State/RPC/
+Ready/nativeJoin/final participant reply.
+
+## Previous unpublished composition: 118 patches
+
+The 118 ordered patches reconstruct native tree
+`65c4089cc0a4279723ebbd6f8754f41699a502ca` (local source
+`35c4641ce0aa9ab3a43d0999f71e4f0701c055c1`). All 115 earlier patch
+records and bytes remain exact. Fresh exact-source CI is required.
+
+Patch 116 shares the actual ordinary mutable-settings normalizer with selected
+DATA capture through the original Core prepare_update algorithm. Its source-bound
+candidate does not permit ordinary adoption while present. Patch 117 owns clones
+of the SAME original ConfigManager and runtime publisher; loader renewal, actual
+writer identity, pointer ABA, Busy and Poisoned fences remain. No new operation
+map, epoch, serializable authority or replacement manager is introduced.
+
+Patch 118 moves the identical config Arc field after the fixture's final borrowed
+parts use. It addresses the Core lib-test E0505 observed in public115 Linux early
+and full phases, without changing assertions, production or input data. This is
+a source repair, not compiler success. The115 Linux terminal failure and separate
+Goal/API phase remain retained; Mac115 is still running at this checkpoint.
+
+Ten additional fixtures are authored and source-reviewed, UNCOMPILED_UNRUN locally.
+CI requires exact21 early Core names (old18 plus3 selected-candidate), and exact11
+AppServer data-owner names (retained4 command DATA plus7 normalizer/owned-custody).
+The explicit4 Goal/API cases and original full22-package suite plus Linux sandbox
+and formatting remain, with one thread, zero retries and240-minute budget.
+Diagnostic failures do not suppress the full suite after successful helpers.
+Each early phase retains its own list/log/JUnit; its counts are not added to
+full-suite counts. No prior115 result qualifies new118 source.
+
+No local Rust compilation, tests, model call, installation or account selection.
+Actual parsed-command custody/ingress, candidate adoption into real Session,
+complete initial context/tools/final request, count/currentness/State/RPC/host
+factory, Ready and native joining/final participant reply remain open.
+
+## Previous composed source: 115 patches
 
 The 115 ordered patches reconstruct native tree
 `723845058a07b0eae1e7feaeb8ee4ede3d5b3128` (local source

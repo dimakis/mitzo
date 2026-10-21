@@ -1,0 +1,366 @@
+diff --git a/codex-rs/app-server/src/extensions/pre_session_context.rs b/codex-rs/app-server/src/extensions/pre_session_context.rs
+index b665153..a0988b9 100644
+--- a/codex-rs/app-server/src/extensions/pre_session_context.rs
++++ b/codex-rs/app-server/src/extensions/pre_session_context.rs
+@@ -156,8 +156,7 @@ mod tests;
+ /// tools and all original Skills observations separately; none is discarded.
+ pub(crate) struct ObservedAppServerInitialContext<'a> {
+     pub(crate) sources: &'a CapturedAppServerExtensionSources<'a>,
+-    pub(crate) selected:
+-        &'a crate::config_manager::selected_start_config::SelectedConfiguredStart<'a>,
++    pub(crate) selected: &'a crate::config_manager::selected_start_config::SelectedConfiguredStart,
+     pub(crate) builtin: codex_core::PreSessionBuiltinContextData,
+     pub(crate) extensions: Vec<ObservedExtensionInitialPartition<'a>>,
+ }
+@@ -190,7 +189,7 @@ impl<'a> CapturedAppServerExtensionSources<'a> {
+     /// renewal remains a separate original-owner operation, not a lease.
+     pub(crate) async fn observe_initial_context_partitions(
+         &'a self,
+-        selected: &'a crate::config_manager::selected_start_config::SelectedConfiguredStart<'a>,
++        selected: &'a crate::config_manager::selected_start_config::SelectedConfiguredStart,
+     ) -> Result<ObservedAppServerInitialContext<'a>, AppServerExtensionSourceError> {
+         if !selected
+             .start()
+diff --git a/codex-rs/app-server/src/runtime_feature_source.rs b/codex-rs/app-server/src/runtime_feature_source.rs
+index de75914..55595e2 100644
+--- a/codex-rs/app-server/src/runtime_feature_source.rs
++++ b/codex-rs/app-server/src/runtime_feature_source.rs
+@@ -12,10 +12,13 @@
+ use super::ConfigManager;
+ use std::collections::BTreeMap;
+ use std::sync::Arc;
++use std::sync::RwLock;
+ use std::sync::TryLockError;
+ 
+-pub(crate) struct RuntimeFeatureSourceObservation<'a> {
+-    manager: &'a ConfigManager,
++/// Owns the SAME original publisher and immutable publication; no loader,
++/// callback, new registry or authority partition is added.
++pub(crate) struct RuntimeFeatureSourceObservation {
++    publisher: Arc<RwLock<Arc<BTreeMap<String, bool>>>>,
+     publication: Arc<BTreeMap<String, bool>>,
+ }
+ 
+@@ -31,13 +34,13 @@ impl ConfigManager {
+     /// callback runs, and no lock survives into asynchronous source work.
+     pub(crate) fn observe_runtime_feature_source(
+         &self,
+-    ) -> Result<RuntimeFeatureSourceObservation<'_>, RuntimeFeatureSourceError> {
++    ) -> Result<RuntimeFeatureSourceObservation, RuntimeFeatureSourceError> {
+         let current = self
+             .runtime_feature_enablement
+             .try_read()
+             .map_err(lock_error)?;
+         Ok(RuntimeFeatureSourceObservation {
+-            manager: self,
++            publisher: Arc::clone(&self.runtime_feature_enablement),
+             publication: Arc::clone(&current),
+         })
+     }
+@@ -50,7 +53,7 @@ fn lock_error<T>(error: TryLockError<T>) -> RuntimeFeatureSourceError {
+     }
+ }
+ 
+-impl RuntimeFeatureSourceObservation<'_> {
++impl RuntimeFeatureSourceObservation {
+     pub(crate) fn features(&self) -> &BTreeMap<String, bool> {
+         &self.publication
+     }
+@@ -62,11 +65,7 @@ impl RuntimeFeatureSourceObservation<'_> {
+         &self,
+         associate: impl FnOnce() -> R,
+     ) -> Result<R, RuntimeFeatureSourceError> {
+-        let current = self
+-            .manager
+-            .runtime_feature_enablement
+-            .try_read()
+-            .map_err(lock_error)?;
++        let current = self.publisher.try_read().map_err(lock_error)?;
+         if !Arc::ptr_eq(&current, &self.publication) {
+             return Err(RuntimeFeatureSourceError::Changed);
+         }
+diff --git a/codex-rs/app-server/src/runtime_feature_source_tests.rs b/codex-rs/app-server/src/runtime_feature_source_tests.rs
+index 8308b0b..7ebd64b 100644
+--- a/codex-rs/app-server/src/runtime_feature_source_tests.rs
++++ b/codex-rs/app-server/src/runtime_feature_source_tests.rs
+@@ -114,3 +114,68 @@ fn a_busy_original_writer_refuses_before_the_action_without_blocking_or_reentry(
+     drop(writer);
+     assert_eq!(observed.with_current(|| 42), Ok(42));
+ }
++
++#[test]
++fn owned_runtime_observation_outlives_initiating_manager_and_tracks_shared_clone_aba() {
++    let home = tempfile::tempdir().unwrap();
++    let (observed, writer) = {
++        let initiating = ConfigManager::without_managed_config_for_tests(home.path().to_path_buf());
++        initiating
++            .extend_runtime_feature_enablement([("apps".to_string(), true)])
++            .unwrap();
++        (
++            initiating.observe_runtime_feature_source().unwrap(),
++            initiating.clone(),
++        )
++    };
++    assert!(Arc::ptr_eq(
++        &observed.publisher,
++        &writer.runtime_feature_enablement
++    ));
++    assert_eq!(
++        observed.with_current(|| observed.features().clone()),
++        Ok(BTreeMap::from([("apps".to_string(), true)]))
++    );
++    writer
++        .extend_runtime_feature_enablement([("apps".to_string(), false)])
++        .unwrap();
++    writer
++        .extend_runtime_feature_enablement([("apps".to_string(), true)])
++        .unwrap();
++    assert_eq!(
++        observed.features(),
++        &writer.current_runtime_feature_enablement()
++    );
++    let mut associated = false;
++    assert_eq!(
++        observed.with_current(|| associated = true),
++        Err(RuntimeFeatureSourceError::Changed)
++    );
++    assert!(!associated);
++}
++
++#[test]
++fn owned_poisoned_original_publisher_refuses_observation_and_association() {
++    let home = tempfile::tempdir().unwrap();
++    let manager = ConfigManager::without_managed_config_for_tests(home.path().to_path_buf());
++    let observed = manager.observe_runtime_feature_source().unwrap();
++    let publisher = Arc::clone(&manager.runtime_feature_enablement);
++    assert!(
++        std::thread::spawn(move || {
++            let _writer = publisher.write().unwrap();
++            panic!("poison original runtime publisher in deterministic fixture");
++        })
++        .join()
++        .is_err()
++    );
++    let mut associated = false;
++    assert_eq!(
++        observed.with_current(|| associated = true),
++        Err(RuntimeFeatureSourceError::Poisoned)
++    );
++    assert!(!associated);
++    assert_eq!(
++        manager.observe_runtime_feature_source().err(),
++        Some(RuntimeFeatureSourceError::Poisoned)
++    );
++}
+diff --git a/codex-rs/app-server/src/selected_start_config.rs b/codex-rs/app-server/src/selected_start_config.rs
+index fd0964c..5438239 100644
+--- a/codex-rs/app-server/src/selected_start_config.rs
++++ b/codex-rs/app-server/src/selected_start_config.rs
+@@ -71,17 +71,18 @@ enum TrustPersistence {
+ 
+ /// Minted only by this ConfigManager's actual ordinary loader. Not serializable,
+ /// cloneable or constructible from caller-provided Config/readiness data.
+-pub(crate) struct SelectedStartConfig<'a> {
+-    manager: &'a ConfigManager,
++/// Retains a clone of the original loader owner and its shared publications.
++pub(crate) struct SelectedStartConfig {
++    manager: ConfigManager,
+     invalidated: AtomicBool,
+-    runtime: RuntimeFeatureSourceObservation<'a>,
++    runtime: RuntimeFeatureSourceObservation,
+     config: Config,
+     request: Option<HashMap<String, serde_json::Value>>,
+     overrides: ConfigOverrides,
+ }
+ 
+-pub(crate) struct SelectedConfiguredStart<'a> {
+-    source: SelectedStartConfig<'a>,
++pub(crate) struct SelectedConfiguredStart {
++    source: SelectedStartConfig,
+     start: SelectedStartInputs,
+     installed:
+         Option<std::sync::Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>>,
+@@ -192,7 +193,7 @@ impl ConfigManager {
+         &self,
+         request: Option<HashMap<String, serde_json::Value>>,
+         overrides: ConfigOverrides,
+-    ) -> io::Result<SelectedStartConfig<'_>> {
++    ) -> io::Result<SelectedStartConfig> {
+         let runtime = self
+             .observe_runtime_feature_source()
+             .map_err(|_| io::Error::other("runtime feature publication unavailable"))?;
+@@ -209,7 +210,7 @@ impl ConfigManager {
+             )
+             .await?;
+         let selected = SelectedStartConfig {
+-            manager: self,
++            manager: self.clone(),
+             invalidated: AtomicBool::new(false),
+             runtime,
+             config,
+@@ -221,7 +222,7 @@ impl ConfigManager {
+     }
+ }
+ 
+-impl<'a> SelectedStartConfig<'a> {
++impl SelectedStartConfig {
+     pub(crate) fn config(&self) -> &Config {
+         &self.config
+     }
+@@ -255,7 +256,7 @@ impl<'a> SelectedStartConfig<'a> {
+         self,
+         manager: &ThreadManager,
+         command: OriginalFirstCommandStart,
+-    ) -> io::Result<SelectedConfiguredStart<'a>> {
++    ) -> io::Result<SelectedConfiguredStart> {
+         let (mut options, reservation, installed) = command.into_parts();
+         if options.config != self.config {
+             return Err(io::Error::other("selected first-command config changed"));
+@@ -276,7 +277,7 @@ impl<'a> SelectedStartConfig<'a> {
+         self,
+         manager: &ThreadManager,
+         mut options: StartThreadOptions,
+-    ) -> io::Result<SelectedConfiguredStart<'a>> {
++    ) -> io::Result<SelectedConfiguredStart> {
+         if options.config != self.config {
+             return Err(io::Error::other(
+                 "selected start configuration was replaced",
+@@ -298,7 +299,7 @@ impl<'a> SelectedStartConfig<'a> {
+     }
+ }
+ 
+-impl SelectedConfiguredStart<'_> {
++impl SelectedConfiguredStart {
+     pub(crate) fn start(&self) -> &SelectedStartInputs {
+         &self.start
+     }
+@@ -327,7 +328,7 @@ impl SelectedConfiguredStart<'_> {
+                 build_environment_override(&source, manager, cwd, workspace_roots, environments)
+                     .await;
+             let overrides =
+-                build_thread_settings_overrides(&mut source, self.source.manager, params).await?;
++                build_thread_settings_overrides(&mut source, &self.source.manager, params).await?;
+             // No override is intentionally not previewed. Retain the unchanged
+             // original baseline without running apply or manufacturing a turn.
+             if overrides == codex_protocol::protocol::ThreadSettingsOverrides::default() {
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index 6fc78d4..b9b69e5 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -399,3 +399,116 @@ async fn installed_first_command_startup_preserves_raw_owner_and_effective_input
+     );
+     assert!(!home.path().join(".sandbox_migration").exists());
+ }
++
++#[tokio::test]
++async fn owned_selected_source_outlives_initiating_manager_and_rejects_foreign_substitution() {
++    let home = tempfile::tempdir().unwrap();
++    let (source, writer) = {
++        let initiating = manager(home.path());
++        initiating
++            .extend_runtime_feature_enablement([("apps".to_string(), true)])
++            .unwrap();
++        let source = initiating
++            .load_selected_start_config(
++                None,
++                ConfigOverrides {
++                    cwd: Some(home.path().to_path_buf()),
++                    ..Default::default()
++                },
++            )
++            .await
++            .unwrap();
++        (source, initiating.clone())
++    };
++    assert!(Arc::ptr_eq(
++        &source.manager.runtime_feature_enablement,
++        &writer.runtime_feature_enablement
++    ));
++    assert!(Arc::ptr_eq(
++        &source.manager.cli_overrides,
++        &writer.cli_overrides
++    ));
++    assert!(Arc::ptr_eq(
++        &source.manager.cloud_config_bundle,
++        &writer.cloud_config_bundle
++    ));
++    assert!(Arc::ptr_eq(
++        &source.manager.network_policy_snapshot,
++        &writer.network_policy_snapshot
++    ));
++    let foreign = manager(home.path());
++    assert!(!Arc::ptr_eq(
++        &source.manager.runtime_feature_enablement,
++        &foreign.runtime_feature_enablement
++    ));
++    foreign
++        .extend_runtime_feature_enablement([("apps".to_string(), false)])
++        .unwrap();
++    source.renew().await.unwrap();
++    let config = source.config().clone();
++    assert!(config.features.enabled(Feature::Apps));
++    assert!(config.features.enabled(Feature::Plugins));
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, _installed, _auth) = thread_manager(&config, Arc::clone(&store));
++    let mut captured = source
++        .capture(&threads, StartThreadOptions::new(config))
++        .await
++        .unwrap();
++    drop(writer);
++    captured.renew(&threads).await.unwrap();
++    captured.with_current(&threads, || ()).unwrap();
++    let _adoption = captured.adopt(&threads).unwrap();
++    assert!(captured.adopt(&threads).is_err());
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++}
++
++#[tokio::test]
++async fn owned_selected_source_keeps_same_writer_clone_publication_and_refuses_aba() {
++    let home = tempfile::tempdir().unwrap();
++    let (source, writer) = {
++        let initiating = manager(home.path());
++        initiating
++            .extend_runtime_feature_enablement([("apps".to_string(), true)])
++            .unwrap();
++        let source = initiating
++            .load_selected_start_config(
++                None,
++                ConfigOverrides {
++                    cwd: Some(home.path().to_path_buf()),
++                    ..Default::default()
++                },
++            )
++            .await
++            .unwrap();
++        (source, initiating.clone())
++    };
++    let config = source.config().clone();
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, _installed, _auth) = thread_manager(&config, Arc::clone(&store));
++    let captured = source
++        .capture(&threads, StartThreadOptions::new(config))
++        .await
++        .unwrap();
++    writer
++        .extend_runtime_feature_enablement([("apps".to_string(), false)])
++        .unwrap();
++    writer
++        .extend_runtime_feature_enablement([("apps".to_string(), true)])
++        .unwrap();
++    assert_eq!(
++        captured.source.runtime.features(),
++        &writer.current_runtime_feature_enablement()
++    );
++    assert!(captured.renew(&threads).await.is_err());
++    let mut captured = captured;
++    assert!(captured.adopt(&threads).is_err());
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++}

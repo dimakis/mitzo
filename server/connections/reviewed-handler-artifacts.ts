@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.467-symposium-retained-settings-source';
+  'v1.0.470-symposium-exact-command-body';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1343,4 +1343,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b203d396aed782af897aec2052dc72d2cc2f77c08bfae0071bc0dfb72508f9f7',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-registry-fixture-arc-owners.patch':
     '1d89257e005fefe78cf9949b07699db65e7beffd00a32e5f23f5c188e025f84f',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-settings-normalization.patch':
+    '7dbd314d6ba2634ff08bd143d5419fad526a1a63624996d2e0f58e4b2fd4c609',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-config-owned-custody.patch':
+    'd886d3eb979496fa7b0b023655a000045e401cff95484cc39a0ba0805c95b9f7',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-providerless-fixture-borrow-order.patch':
+    '34b0e7eadcca952719343b3668f59d9eb213c8f259f1005707301164ca37125a',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-route-independent-command-body.patch':
+    '06dc296c6f15c57689f556d9563c4b785da64321787b0cdc9af8a8c966f42b04',
 });
