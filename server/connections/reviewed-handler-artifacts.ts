@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.485-telos-functional-lifecycle';
+  'v1.0.486-telos-deletion-writer-frame';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -343,11 +343,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8747b800cf069cad636dc5ae6e92a347e55b59c9f01fe64af84587e047af1567',
   '../telos-work-conversation.ts':
     '6abc340f3236812d9e9875e8a60944590575d991e95ccaf3f2b61aff323c5175',
-  '../telos-work-routes.ts': '03fb1d4509fafe6d6d6ef44625effc445e0a7820bb7fa1d158ef39ad88d9304e',
+  '../telos-work-routes.ts': 'a25e66f68a3484bada1cc5e5da936ca44f976e99ca1c63d03400c88d8e568fab',
   '../../packages/client/src/telos-work-api.ts':
     '4ac38f1d3482d187658f868abd088250cfa8364652eabdf9334b1035e8eccae9',
   '../telos-work-schema.ts': 'ab822eccef4a296d6ffb94045b1e21d20baabbd4a306c3677e1be9e3e46b995e',
-  '../telos-work-store.ts': '5b7136db33a016eb9397c08df276f67cc6f05fc02d503d6ef71606eccada34fa',
+  '../telos-work-store.ts': '25c1044120f3a6ca8bf1d78c9615d26c81f083fc0199d9d8f635b1606154d969',
   '../../packages/protocol/src/telos-work-api.ts':
     'dfed9673113e8f532a253b57ea1696508e339bbfdd83ab98fb2e791a69daf27f',
   '../tool-input-error.ts': '3fa8bc111278d03dd33014cadc8535069c49a12ce636cbbc33126b76190bd3dd',

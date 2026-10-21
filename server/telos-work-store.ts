@@ -17,6 +17,7 @@ import {
   type TelosOrdinaryWorkRoleSetupIntent,
 } from '@mitzo/protocol';
 import Database from 'better-sqlite3';
+import { isAbsolute, resolve } from 'node:path';
 import { TelosWorkControls } from './telos-work-controls.js';
 import { TelosWorkLifecycle } from './telos-work-lifecycle.js';
 import type { TelosWorkControlScope } from '@mitzo/protocol';
@@ -111,6 +112,8 @@ type TelosWorkStorePolicy = {
  */
 export class TelosWorkStore {
   private db: Database.Database;
+  #openedCanonicalName: string;
+  #deletionFrame: { itemId: string; invalidated: boolean } | undefined;
   /** Observe initialized canonical authority without acquiring a schema writer.
    * Used by running-turn guards, including inside another owner's commit fence.
    * SQLite enforces read-only access; missing schema remains unavailable.
@@ -145,6 +148,7 @@ export class TelosWorkStore {
     readOnly = false,
   ) {
     this.db = new Database(path, { fileMustExist: true, readonly: readOnly });
+    this.#openedCanonicalName = resolve(this.db.name);
     this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
     try {
@@ -231,7 +235,50 @@ export class TelosWorkStore {
     actor: TelosWorkActor,
     assertQuiescent?: (itemId: string) => void,
   ) {
-    return this.lifecycle().execute(raw, actor, assertQuiescent);
+    if (this.#deletionFrame) {
+      this.#deletionFrame.invalidated = true;
+      conflict('Original writable lifecycle deletion frame required');
+    }
+    // inTransaction alone is not evidence of an IMMEDIATE writer. Only a fresh
+    // entry into lifecycle.execute's own .immediate callback may create a frame.
+    const enteredInTransaction = this.db.open && this.db.inTransaction;
+    return this.lifecycle().execute(
+      raw,
+      actor,
+      assertQuiescent
+        ? (itemId) => {
+            if (enteredInTransaction || !this.db.open || this.db.readonly || !this.db.inTransaction)
+              conflict('Original writable lifecycle deletion frame required');
+            this.#deletionFrame = { itemId, invalidated: false };
+            try {
+              const result = assertQuiescent(itemId);
+              this.assertLifecycleDeletionWriter(itemId, this.#openedCanonicalName);
+              return result;
+            } finally {
+              this.#deletionFrame = undefined;
+            }
+          }
+        : undefined,
+    );
+  }
+  /** Denial-only check on the ORIGINAL request owner during its current callback.
+   * Name/frame agreement is not a certificate of external cohort completeness,
+   * file replacement history or runtime quiescence. No handle or permit escapes. */
+  assertLifecycleDeletionWriter(itemId: string, expectedCanonicalPath: string): void {
+    const frame = this.#deletionFrame;
+    if (
+      !this.db.open ||
+      this.db.readonly ||
+      !this.db.inTransaction ||
+      !frame ||
+      frame.invalidated ||
+      frame.itemId !== itemId ||
+      typeof expectedCanonicalPath !== 'string' ||
+      !isAbsolute(expectedCanonicalPath) ||
+      resolve(expectedCanonicalPath) !== this.#openedCanonicalName ||
+      resolve(this.db.name) !== this.#openedCanonicalName
+    )
+      conflict('Original writable lifecycle deletion frame required');
   }
   assertLifecycleActive(itemId: string) {
     this.lifecycle().assertActive(itemId);
