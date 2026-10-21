@@ -325,10 +325,18 @@ export function RepositoryChatPicker({
       });
       responseReceived = true;
       const data = await response.json();
-      if (!response.ok)
+      if (!response.ok) {
+        if (localId) {
+          // Local selection only reads/fetches the configured repository. A
+          // refused selection has created no worktree or command to recover.
+          setPendingPreparationId(null);
+          if (!draftScoped) consumeRepositoryDraft(storageKey, localId);
+          callback.current({ blocked: true });
+        }
         throw new Error(
           typeof data.error === 'string' ? data.error : 'Repository preparation failed',
         );
+      }
       const result = workspaceSchema.parse(data);
       if (controller.signal.aborted) return;
       if (
@@ -444,7 +452,8 @@ export function RepositoryChatPicker({
           },
         );
         if (controller.signal.aborted) return;
-        if (!response.ok) throw new Error('Discard unavailable');
+        if (!response.ok && !(localRepository && response.status === 404))
+          throw new Error('Discard unavailable');
       }
       if (controller.signal.aborted) return;
       if (id && !draftScoped) consumeRepositoryDraft(storageKey, id);

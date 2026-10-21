@@ -90,6 +90,99 @@ it('uses a repository already on the Mac without a GitHub preview or preparation
   expect(screen.queryByText('Prepare repository')).toBeNull();
   expect(screen.queryByText('Paste a GitHub URL')).toBeNull();
 });
+it('allows retry after an upstream failure instead of trapping a local selection behind a missing receipt', async () => {
+  const ordinaryRuntime = {
+    runOn: 'local' as const,
+    runtime: {
+      account: { accountId: 'account', provider: 'openai' as const, profileRevision: 'rev' },
+      harness: 'responses' as const,
+      targetId: 'mac',
+    },
+  };
+  api.fetch.mockImplementation(
+    async (_url: string, options?: RequestInit) =>
+      new Response(
+        JSON.stringify(
+          options?.method === 'POST'
+            ? { error: 'Upstream main is unavailable' }
+            : {
+                available: true,
+                location: 'local',
+                repositories: [
+                  {
+                    connectionId: 'local',
+                    repositoryId: 'primary',
+                    repository: 'local/primary',
+                    label: 'Mitzo',
+                  },
+                ],
+              },
+        ),
+        { status: options?.method === 'POST' ? 409 : 200 },
+      ),
+  );
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      ordinaryRuntime={ordinaryRuntime}
+      onChange={vi.fn()}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('Local repository'), 'local:local/primary');
+  await user.click(screen.getByRole('button', { name: 'Use repository' }));
+  await screen.findByText('Upstream main is unavailable');
+  expect(
+    (screen.getByRole('button', { name: 'Use repository' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+  expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBeNull();
+});
+it('can leave a lost local selection whose metadata was never created', async () => {
+  const ordinaryRuntime = {
+    runOn: 'local' as const,
+    runtime: {
+      account: { accountId: 'account', provider: 'openai' as const, profileRevision: 'rev' },
+      harness: 'responses' as const,
+      targetId: 'mac',
+    },
+  };
+  api.fetch.mockImplementation(async (url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') throw Error('Disconnected');
+    if (options?.method === 'DELETE') return new Response(null, { status: 404 });
+    return new Response(
+      JSON.stringify({
+        available: true,
+        location: 'local',
+        repositories: [
+          {
+            connectionId: 'local',
+            repositoryId: 'primary',
+            repository: 'local/primary',
+            label: 'Mitzo',
+          },
+        ],
+      }),
+    );
+  });
+  const onChange = vi.fn();
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      ordinaryRuntime={ordinaryRuntime}
+      onChange={onChange}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('Local repository'), 'local:local/primary');
+  await user.click(screen.getByRole('button', { name: 'Use repository' }));
+  await screen.findByText(/Refresh its status to continue/);
+  await user.click(screen.getByRole('button', { name: 'Continue without repository' }));
+  expect(onChange).toHaveBeenLastCalledWith(null);
+});
 it('does not consume another saved receipt when leaving an explicit claimed handoff', async () => {
   const otherId = 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212';
   sessionStorage.setItem('mitzo-repository-draft:account:model', otherId);
