@@ -1,0 +1,566 @@
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index 841bfa2..2a64cca 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -886,3 +886,78 @@ async fn installed_first_step_context_retains_command_model_and_rejects_baseline
+         );
+     }
+ }
++
++#[tokio::test]
++async fn installed_candidate_permission_projection_uses_private_pipeline_and_keeps_named_root_refusal()
++ {
++    for named in [false, true] {
++        let home = tempfile::tempdir().unwrap();
++        let configs = manager(home.path());
++        let source = configs
++            .load_selected_start_config(
++                None,
++                ConfigOverrides {
++                    cwd: Some(home.path().to_path_buf()),
++                    model: Some("gpt-6-luna".into()),
++                    ..Default::default()
++                },
++            )
++            .await
++            .unwrap();
++        let config = source.config().clone();
++        assert!(config.features.enabled(Feature::Apps));
++        assert!(config.features.enabled(Feature::Plugins));
++        let store = Arc::new(InMemoryThreadStore::default());
++        let (threads, installed, _) =
++            thread_manager_with_models(&config, Arc::clone(&store), |auth| {
++                Arc::new(
++                    codex_models_manager::manager::OpenAiModelsManager::new_without_cache(
++                        Arc::new(NoStartupEndpoint),
++                        Some(Arc::clone(auth)),
++                    ),
++                )
++            });
++        let original = OriginalFirstCommandStart::new(
++            StartThreadOptions::new(config),
++            threads.reserve_thread_start(),
++            installed,
++            crate::request_processors::AppServerClientInfo::capture(None, None),
++        );
++        let mut selected = source
++            .capture_first_command(&threads, original)
++            .await
++            .unwrap();
++        selected.capture_startup(&threads).await.unwrap();
++        selected.capture_startup_api_mcp(&threads).unwrap();
++        let value = if named {
++            serde_json::json!({"input":[],"permissions":"missing-permission-source"})
++        } else {
++            serde_json::json!({"input":[],"approvalPolicy":"never","sandboxPolicy":{"type":"dangerFullAccess"}})
++        };
++        let body = serde_json::from_value(value).unwrap();
++        let paired = selected
++            .capture_command(&threads, "permission-command".into(), body, None)
++            .await;
++        if named {
++            assert!(paired.is_err());
++            assert!(selected.renew(&threads).await.is_err());
++        } else {
++            paired.unwrap();
++            selected.capture_first_step_context(&threads).await.unwrap();
++            let partial = selected.first_step_context.as_ref().unwrap();
++            assert!(partial.unresolved_partitions().contains(
++                &codex_core::UnresolvedInitialContextPartition::FirstCommandPermissionSettings
++            ));
++            assert!(partial.unresolved_partitions().contains(
++                &codex_core::UnresolvedInitialContextPartition::PermissionsAndEnvironmentSnapshot
++            ));
++            selected.renew(&threads).await.unwrap();
++        }
++        assert!(selected.adopt_startup(&threads).await.is_err());
++        assert!(threads.list_thread_ids().await.is_empty());
++        assert_eq!(
++            store.calls().await,
++            codex_thread_store::InMemoryThreadStoreCalls::default()
++        );
++    }
++}
+diff --git a/codex-rs/core/src/environment_selection/initial_context.rs b/codex-rs/core/src/environment_selection/initial_context.rs
+index 5155204..c385113 100644
+--- a/codex-rs/core/src/environment_selection/initial_context.rs
++++ b/codex-rs/core/src/environment_selection/initial_context.rs
+@@ -107,24 +107,56 @@ impl<'a> SelectedStartEnvironmentContext<'a> {
+         }
+         Ok(())
+     }
++    fn materialize_profile(
++        profile: &PermissionProfile,
++        roots: &[codex_utils_path_uri::PathUri],
++    ) -> PermissionProfile {
++        profile
++            .clone()
++            .materialize_project_roots_with_path_uris(roots)
++    }
+     pub(crate) fn permission_profile(&self, config: &Config) -> PermissionProfile {
+         match self.entries.first() {
+-            Some(entry) => entry
+-                .profile
+-                .clone()
+-                .materialize_project_roots_with_path_uris(&entry.selection.workspace_roots),
+-            None => config
+-                .permissions
+-                .permission_profile()
+-                .clone()
+-                .materialize_project_roots_with_path_uris(&[]),
++            Some(entry) => {
++                Self::materialize_profile(&entry.profile, &entry.selection.workspace_roots)
++            }
++            None => Self::materialize_profile(config.permissions.permission_profile(), &[]),
++        }
++    }
++    /// Pure candidate-profile projection through these ORIGINAL captured local
++    /// FromThread selections. No owner configuration is overwritten or applied.
++    pub(crate) fn permission_inputs_for_thread(
++        &self,
++        selections: &[TurnEnvironmentSelection],
++        profile: &PermissionProfile,
++        fallback_cwd: &AbsolutePathBuf,
++    ) -> Result<(PermissionProfile, AbsolutePathBuf), InitialEnvironmentContextRefusal> {
++        if self
++            .entries
++            .iter()
++            .map(|entry| &entry.selection)
++            .ne(selections.iter())
++            || fallback_cwd != &self.sources.start_options().config.cwd
++        {
++            return Err(InitialEnvironmentContextRefusal::Selection);
+         }
++        let roots = self
++            .entries
++            .first()
++            .map_or(&[][..], |entry| entry.selection.workspace_roots.as_slice());
++        Ok((
++            Self::materialize_profile(profile, roots),
++            self.permission_cwd_from(fallback_cwd),
++        ))
+     }
+     pub(crate) fn permission_cwd(&self, config: &Config) -> AbsolutePathBuf {
++        self.permission_cwd_from(&config.cwd)
++    }
++    fn permission_cwd_from(&self, fallback_cwd: &AbsolutePathBuf) -> AbsolutePathBuf {
+         self.entries
+             .first()
+             .and_then(|entry| entry.selection.cwd.to_abs_path().ok())
+-            .unwrap_or_else(|| config.cwd.clone())
++            .unwrap_or_else(|| fallback_cwd.clone())
+     }
+ }
+ 
+diff --git a/codex-rs/core/src/environment_selection/initial_context_tests.rs b/codex-rs/core/src/environment_selection/initial_context_tests.rs
+index 7f02aa9..50b4e0a 100644
+--- a/codex-rs/core/src/environment_selection/initial_context_tests.rs
++++ b/codex-rs/core/src/environment_selection/initial_context_tests.rs
+@@ -109,3 +109,56 @@ async fn selected_owner_ready_configuration_is_not_silently_reinterpreted_as_thr
+     );
+     assert!(manager.list_thread_ids().await.is_empty());
+ }
++
++impl SelectedStartEnvironmentContext<'_> {
++    pub(crate) async fn permission_fixture() -> (tempfile::TempDir, Config, ThreadManager) {
++        fixture().await
++    }
++}
++
++#[tokio::test]
++async fn original_local_roots_materialize_proposed_profile_and_refuse_changed_selection_or_cwd() {
++    let (_home, config, manager) = fixture().await;
++    let mut selected = manager
++        .prepare_selected_start(StartThreadOptions::new(config.clone()))
++        .await
++        .unwrap();
++    manager
++        .capture_selected_start_api_mcp(
++            &mut selected,
++            manager
++                .auth_manager()
++                .capture_cached_api_key_credentials()
++                .unwrap(),
++        )
++        .unwrap();
++    let sources = selected.mcp_sources().unwrap();
++    let environment = SelectedStartEnvironmentContext::observe(sources).unwrap();
++    let selections = sources.start_options().environments.as_ref().unwrap();
++    let proposed = PermissionProfile::Disabled;
++    let (profile, cwd) = environment
++        .permission_inputs_for_thread(selections, &proposed, &config.cwd)
++        .unwrap();
++    assert_eq!(
++        profile,
++        proposed
++            .clone()
++            .materialize_project_roots_with_path_uris(&selections[0].workspace_roots)
++    );
++    assert_eq!(cwd, environment.permission_cwd(&config));
++    environment.renew_local_sources().unwrap();
++    let mut changed = selections.clone();
++    changed[0].environment_id.push_str("-changed");
++    assert!(
++        environment
++            .permission_inputs_for_thread(&changed, &proposed, &config.cwd)
++            .is_err()
++    );
++    let cwd = AbsolutePathBuf::from_absolute_path(config.cwd.as_path().join("changed")).unwrap();
++    assert!(
++        environment
++            .permission_inputs_for_thread(selections, &proposed, &cwd)
++            .is_err()
++    );
++    assert!(manager.list_thread_ids().await.is_empty());
++}
+diff --git a/codex-rs/core/src/session/configured_settings_data.rs b/codex-rs/core/src/session/configured_settings_data.rs
+index 54ac39a..cca8aeb 100644
+--- a/codex-rs/core/src/session/configured_settings_data.rs
++++ b/codex-rs/core/src/session/configured_settings_data.rs
+@@ -379,6 +379,40 @@ pub(super) struct ConfiguredSettingsCandidateData {
+     pub(super) trusted: bool,
+ }
+ impl ConfiguredSettingsCandidateData {
++    /// Read the SAME normalized candidate, without replaying mutable-settings
++    /// application or constructing any Session/provider/environment snapshot.
++    pub(super) fn permission_section_data(
++        &self,
++        model: &ModelInfo,
++        policy: &codex_execpolicy::Policy,
++        environment: &crate::environment_selection::initial_context::SelectedStartEnvironmentContext<'_>,
++    ) -> std::io::Result<super::initial_world_state_data::PermissionInitialContext> {
++        let (profile, cwd) = environment
++            .permission_inputs_for_thread(
++                &self.environments,
++                self.permission.permission_profile(),
++                &self.cwd,
++            )
++            .map_err(std::io::Error::other)?;
++        Ok(if self.config.include_permissions_instructions {
++            super::initial_world_state_data::PermissionInitialContext::Full(
++                super::initial_context_builtin::permission_section(
++                    &self.config,
++                    model,
++                    policy,
++                    &profile,
++                    self.step.approval_policy.value(),
++                    self.step.approvals_reviewer,
++                    cwd.as_path(),
++                    /*paths*/ None,
++                ),
++            )
++        } else {
++            super::initial_world_state_data::PermissionInitialContext::Compact(
++                crate::context::world_state::CompactPermissionsState::new(policy),
++            )
++        })
++    }
+     pub(super) fn view(&self) -> super::configured_settings_update::ConfiguredSettingsView<'_> {
+         super::configured_settings_update::ConfiguredSettingsView {
+             step_settings: &self.step,
+diff --git a/codex-rs/core/src/session/configured_settings_data_tests.rs b/codex-rs/core/src/session/configured_settings_data_tests.rs
+index 08cc724..bbac8e4 100644
+--- a/codex-rs/core/src/session/configured_settings_data_tests.rs
++++ b/codex-rs/core/src/session/configured_settings_data_tests.rs
+@@ -546,3 +546,90 @@ async fn retained_configured_baseline_refuses_changed_presence_order_history_sou
+     );
+     Ok(())
+ }
++
++#[tokio::test]
++async fn candidate_permission_section_uses_actual_proposed_profile_step_and_original_renderer()
++-> anyhow::Result<()> {
++    use crate::context::world_state::WorldStateSection;
++    use crate::environment_selection::initial_context::SelectedStartEnvironmentContext;
++    let (_home, config, manager) = SelectedStartEnvironmentContext::permission_fixture().await;
++    let mut selected = manager
++        .prepare_selected_start(crate::StartThreadOptions::new(config))
++        .await?;
++    manager.capture_selected_start_api_mcp(
++        &mut selected,
++        manager
++            .auth_manager()
++            .capture_cached_api_key_credentials()
++            .unwrap(),
++    )?;
++    let sources = selected.mcp_sources().unwrap();
++    let environment = SelectedStartEnvironmentContext::observe(sources)?;
++    let options = sources.start_options();
++    let config = Arc::new(options.config.clone());
++    let row = codex_models_manager::bundled_models_response()?
++        .models
++        .into_iter()
++        .find(|row| row.slug == "gpt-6-luna")
++        .unwrap();
++    let baseline = OwnedConfiguredBaseline::capture(
++        Arc::clone(&config),
++        &row.slug,
++        &row,
++        ConfiguredBaselineInputs::from_options(options, None),
++        options.session_source.as_ref().unwrap(),
++        false,
++    )?;
++    let current = baseline.selected_settings_data()?;
++    let mut next = current.clone();
++    let updates = super::super::thread_settings::prepare_update(
++        codex_protocol::protocol::ThreadSettingsOverrides {
++            approval_policy: Some(AskForApproval::Never),
++            sandbox_policy: Some(SandboxPolicy::DangerFullAccess),
++            ..Default::default()
++        },
++    );
++    super::super::configured_settings_update::check_environment_update(
++        &current.environments,
++        &updates,
++    )?;
++    super::super::configured_settings_update::apply_fields(
++        current.view(),
++        next.edit(),
++        &updates,
++        &current.environments,
++    )?;
++    assert_ne!(next.permission, current.permission);
++    assert_eq!(next.step.approval_policy.value(), AskForApproval::Never);
++    let policy = codex_execpolicy::Policy::empty();
++    let actual = next.permission_section_data(&row, &policy, &environment)?;
++    let expected_profile = next
++        .permission
++        .permission_profile()
++        .clone()
++        .materialize_project_roots_with_path_uris(&next.environments[0].workspace_roots);
++    let expected_cwd = next.environments[0].cwd.to_abs_path()?;
++    let expected = super::super::initial_context_builtin::permission_section(
++        &next.config,
++        &row,
++        &policy,
++        &expected_profile,
++        AskForApproval::Never,
++        next.step.approvals_reviewer,
++        expected_cwd.as_path(),
++        None,
++    );
++    let super::super::initial_world_state_data::PermissionInitialContext::Full(actual) = actual
++    else {
++        panic!("original default includes permission instructions")
++    };
++    assert_eq!(actual.snapshot(), expected.snapshot());
++    let super::super::initial_world_state_data::PermissionInitialContext::Full(before) =
++        current.permission_section_data(&row, &policy, &environment)?
++    else {
++        panic!("same default mode")
++    };
++    assert_ne!(actual.snapshot(), before.snapshot());
++    assert!(manager.list_thread_ids().await.is_empty());
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/selected_settings_candidate.rs b/codex-rs/core/src/session/selected_settings_candidate.rs
+index fa2e099..4c1a084 100644
+--- a/codex-rs/core/src/session/selected_settings_candidate.rs
++++ b/codex-rs/core/src/session/selected_settings_candidate.rs
+@@ -101,6 +101,20 @@ impl SelectedSettingsCandidate {
+         Ok(Some((&model.candidate, model.data.model_info(), content)))
+     }
+ 
++    pub(crate) fn render_first_step_permission(
++        &self,
++        startup: &OriginalStartupSelection,
++        environment: &crate::environment_selection::initial_context::SelectedStartEnvironmentContext<'_>,
++        policy: &codex_execpolicy::Policy,
++    ) -> io::Result<Option<super::super::initial_world_state_data::PermissionInitialContext>> {
++        let Some((_, model, _)) = self.first_step_context_inputs(startup)? else {
++            return Ok(None);
++        };
++        self.data
++            .permission_section_data(model, policy, environment)
++            .map(Some)
++    }
++
+     pub(crate) async fn capture_first_step_model(
+         &mut self,
+         startup: &OriginalStartupSelection,
+diff --git a/codex-rs/core/src/session/selected_settings_candidate_tests.rs b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+index 7501597..e799ad5 100644
+--- a/codex-rs/core/src/session/selected_settings_candidate_tests.rs
++++ b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+@@ -430,3 +430,75 @@ async fn first_step_context_uses_same_command_model_and_refuses_lossy_reply_or_r
+     assert!(candidate.first_step_context_inputs(&startup).is_err());
+     Ok(())
+ }
++
++#[tokio::test]
++async fn permission_context_refuses_foreign_changed_burned_and_keeps_unpaired_baseline()
++-> anyhow::Result<()> {
++    let (_home, options, auth, models, _) = super::super::tests::fixture().await?;
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let foreign =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let (_other_home, config, manager) = crate::environment_selection::initial_context::SelectedStartEnvironmentContext::permission_fixture().await;
++    let mut selected = manager
++        .prepare_selected_start(crate::StartThreadOptions::new(config))
++        .await?;
++    manager.capture_selected_start_api_mcp(
++        &mut selected,
++        manager
++            .auth_manager()
++            .capture_cached_api_key_credentials()
++            .unwrap(),
++    )?;
++    let environment =
++        crate::environment_selection::initial_context::SelectedStartEnvironmentContext::observe(
++            selected.mcp_sources().unwrap(),
++        )?;
++    let policy = codex_execpolicy::Policy::empty();
++    let mut candidate = startup.settings_candidate_without_overrides()?;
++    assert!(
++        candidate
++            .render_first_step_permission(&startup, &environment, &policy)?
++            .is_none()
++    );
++    candidate.pair_command(
++        "permissions".into(),
++        codex_protocol::turn_input::TurnInputRequest::user_input(Vec::new()),
++        None,
++        None,
++        None,
++    )?;
++    assert!(
++        candidate
++            .render_first_step_permission(&startup, &environment, &policy)
++            .is_err()
++    );
++    candidate.capture_first_step_model(&startup).await?;
++    assert!(
++        candidate
++            .render_first_step_permission(&foreign, &environment, &policy)
++            .is_err()
++    );
++    assert!(
++        candidate
++            .render_first_step_permission(&startup, &environment, &policy)
++            .is_err()
++    );
++    let step = Arc::clone(&candidate.data.step);
++    candidate.data.step = Arc::new((*step).clone());
++    assert!(
++        candidate
++            .render_first_step_permission(&startup, &environment, &policy)
++            .is_err()
++    );
++    candidate.data.step = step;
++    assert!(candidate.capture_first_step_model(&startup).await.is_err());
++    assert!(
++        candidate
++            .render_first_step_permission(&startup, &environment, &policy)
++            .is_err()
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+index 8023aa3..12c408f 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+@@ -49,8 +49,8 @@ pub struct PreSessionBuiltinContextData {
+     pub(crate) selected_environment: crate::context::world_state::InitialEnvironmentProjection,
+     unresolved: Vec<UnresolvedInitialContextPartition>,
+ }
+-/// Baseline selected-start data, deliberately NOT effective first-command
+-/// permissions. Only this source owner can unwrap after first-command capture.
++/// Source-owned baseline or paired first-command permission DATA. Actual
++/// environment application/currency and complete first-step context stay open.
+ #[allow(
+     dead_code,
+     reason = "Selected baseline is not effective first-command permission authority."
+@@ -166,23 +166,32 @@ impl ThreadManager {
+         let environment_source = crate::environment_selection::initial_context::SelectedStartEnvironmentContext::observe(sources)
+             .map_err(io::Error::other)?;
+         let policy = selected.initial_context_policy(model)?;
+-        let selected_permission = if config.include_permissions_instructions {
+-            crate::session::initial_world_state_data::PermissionInitialContext::Full(
+-                initial_context_builtin::permission_section(
+-                    config,
+-                    model,
+-                    policy.as_ref(),
+-                    &environment_source.permission_profile(config),
+-                    config.permissions.approval_policy.value(),
+-                    config.approvals_reviewer,
+-                    environment_source.permission_cwd(config).as_path(),
+-                    /*paths*/ None,
+-                ),
+-            )
+-        } else {
+-            crate::session::initial_world_state_data::PermissionInitialContext::Compact(
+-                crate::context::world_state::CompactPermissionsState::new(policy.as_ref()),
+-            )
++        let selected_permission = match self.selected_start_first_step_permission(
++            selected,
++            &environment_source,
++            policy.as_ref(),
++        )? {
++            Some(section) => section,
++            None => {
++                if config.include_permissions_instructions {
++                    crate::session::initial_world_state_data::PermissionInitialContext::Full(
++                        initial_context_builtin::permission_section(
++                            config,
++                            model,
++                            policy.as_ref(),
++                            &environment_source.permission_profile(config),
++                            config.permissions.approval_policy.value(),
++                            config.approvals_reviewer,
++                            environment_source.permission_cwd(config).as_path(),
++                            /*paths*/ None,
++                        ),
++                    )
++                } else {
++                    crate::session::initial_world_state_data::PermissionInitialContext::Compact(
++                        crate::context::world_state::CompactPermissionsState::new(policy.as_ref()),
++                    )
++                }
++            }
+         };
+         // Display DATA retains the real date/timezone. It is deliberately NOT
+         // installed as a complete EnvironmentsState until child-agent data is
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index a7436a2..8301b92 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -277,6 +277,36 @@ impl ThreadManager {
+         settings.first_step_context_inputs(startup)
+     }
+ 
++    pub(super) fn selected_start_first_step_permission(
++        &self,
++        selected: &SelectedStartInputs,
++        environment: &crate::environment_selection::initial_context::SelectedStartEnvironmentContext<'_>,
++        policy: &codex_execpolicy::Policy,
++    ) -> io::Result<Option<crate::session::initial_world_state_data::PermissionInitialContext>>
++    {
++        self.with_current_selected_start(selected, || ())?;
++        let Some(settings) = &selected.settings else {
++            return Ok(None);
++        };
++        let startup = selected
++            .allocation
++            .as_ref()
++            .and_then(|a| a.inputs.startup())
++            .ok_or_else(|| io::Error::other("original startup selection missing"))?;
++        if settings.first_step_context_inputs(startup)?.is_none() {
++            return Ok(None);
++        }
++        if !selected
++            .mcp_sources()
++            .is_some_and(|sources| std::ptr::eq(sources, environment.sources()))
++        {
++            return Err(io::Error::other(
++                "first-step permission environment owner changed",
++            ));
++        }
++        settings.render_first_step_permission(startup, environment, policy)
++    }
++
+     /// Selected input and model come from the same paired owner, never callers.
+     pub async fn observe_selected_start_skills<'a>(
+         &'a self,

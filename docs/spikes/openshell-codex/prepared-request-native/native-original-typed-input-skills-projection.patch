@@ -1,0 +1,506 @@
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index 2a64cca..3b7a851 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -818,8 +818,35 @@ async fn installed_first_step_context_retains_command_model_and_rejects_baseline
+             .await
+             .unwrap();
+         if reply {
++            {
++                let actual = threads
++                    .observe_selected_start_skills(selected.start())
++                    .await
++                    .unwrap();
++                assert!(actual.skills().user_input().is_empty());
++                let sources = selected.start().mcp_sources().unwrap();
++                let mut config = sources.start_options().config.to_models_manager_config();
++                config.personality = Some(codex_protocol::config_types::Personality::Friendly);
++                let expected = catalog
++                    .as_ref()
++                    .unwrap()
++                    .get_model_info("gpt-6-luna", &config)
++                    .await;
++                assert_eq!(actual.skills().model(), &expected);
++            }
++            selected.capture_first_step_context(&threads).await.unwrap();
++            let partial = selected.first_step_context.as_ref().unwrap();
++            threads
++                .validate_selected_builtin_context(selected.start(), partial)
++                .unwrap();
++            assert!(partial.unresolved_partitions().contains(
++                &codex_core::UnresolvedInitialContextPartition::PermissionsAndEnvironmentSnapshot
++            ));
++            assert!(partial.unresolved_partitions().contains(
++                &codex_core::UnresolvedInitialContextPartition::OriginalFreshHistoryAndAgentState
++            ));
++            selected.renew(&threads).await.unwrap();
+             assert!(selected.capture_first_step_context(&threads).await.is_err());
+-            assert!(selected.first_step_context.is_none());
+         } else {
+             let expected_instructions;
+             {
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 0c4b50d..263b3f9 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -275,6 +275,7 @@ pub(crate) mod turn;
+ pub(crate) mod turn_context;
+ mod turn_input;
+ mod turn_suspension;
++mod turn_user_input_data;
+ mod world_state;
+ use self::code_mode_warning::unsupported_code_mode_warning;
+ pub(crate) use self::environment::ThreadEnvironmentDefaults;
+diff --git a/codex-rs/core/src/session/selected_settings_candidate.rs b/codex-rs/core/src/session/selected_settings_candidate.rs
+index 4c1a084..47719ad 100644
+--- a/codex-rs/core/src/session/selected_settings_candidate.rs
++++ b/codex-rs/core/src/session/selected_settings_candidate.rs
+@@ -64,7 +64,7 @@ impl SelectedSettingsCandidate {
+         Option<(
+             &'a Arc<codex_models_manager::model_limits::UnverifiedModelLimitCandidate>,
+             &'a codex_protocol::openai_models::ModelInfo,
+-            &'a [codex_protocol::user_input::UserInput],
++            Vec<codex_protocol::user_input::UserInput>,
+         )>,
+     > {
+         self.validate(startup)?;
+@@ -91,14 +91,10 @@ impl SelectedSettingsCandidate {
+             .command
+             .as_ref()
+             .ok_or_else(|| io::Error::other("original intended command missing"))?;
+-        let codex_protocol::turn_input::TurnInput::UserInput { content, .. } =
+-            &command.request.input
+-        else {
+-            return Err(io::Error::other(
+-                "typed reply first-context partition unresolved",
+-            ));
+-        };
+-        Ok(Some((&model.candidate, model.data.model_info(), content)))
++        let input =
++            super::super::turn_user_input_data::first_step_user_input(&command.request.input)
++                .map_err(io::Error::other)?;
++        Ok(Some((&model.candidate, model.data.model_info(), input)))
+     }
+ 
+     pub(crate) fn render_first_step_permission(
+diff --git a/codex-rs/core/src/session/selected_settings_candidate_tests.rs b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+index e799ad5..c1b6c54 100644
+--- a/codex-rs/core/src/session/selected_settings_candidate_tests.rs
++++ b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+@@ -390,7 +390,7 @@ async fn first_step_context_uses_same_command_model_and_refuses_lossy_reply_or_r
+             .data
+             .model_info()
+     ));
+-    assert_eq!(retained_input, input.as_slice());
++    assert_eq!(retained_input.as_slice(), input.as_slice());
+     let original = candidate.command.as_ref().unwrap().request.input.clone();
+     let mut plugins = startup.settings_candidate(ThreadSettingsOverrides {
+         disabled_plugin_ids: Some(Vec::new()),
+@@ -502,3 +502,133 @@ async fn permission_context_refuses_foreign_changed_burned_and_keeps_unpaired_ba
+     );
+     Ok(())
+ }
++
++#[tokio::test]
++async fn standalone_skills_projection_retains_same_complete_box_and_original_model_owner()
++-> anyhow::Result<()> {
++    use codex_protocol::turn_input::{TurnInputRequest, TurnStartOptions};
++    fn project(request: TurnInputRequest) -> impl PartialEq + std::fmt::Debug {
++        let TurnInputRequest {
++            input,
++            thread_settings,
++            start,
++            additional_context,
++            responsesapi_client_metadata,
++            trace,
++        } = request;
++        let TurnStartOptions {
++            turn_trigger,
++            final_output_json_schema,
++            service_tier,
++            parent_turn_id,
++            root_turn_id,
++            cyber_access_program,
++        } = start;
++        (
++            input,
++            thread_settings,
++            (
++                turn_trigger,
++                final_output_json_schema,
++                service_tier,
++                parent_turn_id,
++                root_turn_id,
++                cyber_access_program,
++            ),
++            additional_context,
++            responsesapi_client_metadata,
++            trace,
++        )
++    }
++    let (_home, options, auth, models, _) = super::super::tests::fixture().await?;
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let foreign =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let mut candidate = startup.settings_candidate(ThreadSettingsOverrides {
++        personality: Some(codex_protocol::config_types::Personality::Friendly),
++        ..Default::default()
++    })?;
++    let input = serde_json::from_value(
++        serde_json::json!({"type":"function_call_output","call_id":null,"name":"original-tool","namespace":"original-ns","output":"reply\n🦀"}),
++    )?;
++    let request = TurnInputRequest::new(codex_protocol::turn_input::TurnInput::ResponseItem(input))
++        .on_start(TurnStartOptions {
++            turn_trigger: Some("original-composer".into()),
++            final_output_json_schema: Some(serde_json::json!({"type":"object"})),
++            service_tier: Some("priority".into()),
++            parent_turn_id: Some("retained-parent-data".into()),
++            root_turn_id: Some("retained-root-data".into()),
++            cyber_access_program: Some(
++                codex_protocol::turn_input::CyberAccessProgram::DaybreakBlue,
++            ),
++        })
++        .with_additional_context(std::collections::BTreeMap::from([(
++            "application".into(),
++            codex_protocol::protocol::AdditionalContextEntry {
++                value: "context\nbytes".into(),
++                kind: codex_protocol::protocol::AdditionalContextKind::Application,
++            },
++        )]))
++        .with_responses_metadata(Some(std::collections::HashMap::from([(
++            "opaque".into(),
++            String::new(),
++        )])))
++        .with_trace(Some(codex_protocol::protocol::W3cTraceContext {
++            traceparent: Some("00-00000000000000000000000000000001-0000000000000001-01".into()),
++            tracestate: Some("owner=original".into()),
++        }));
++    candidate.pair_command(
++        "standalone-data".into(),
++        request,
++        None,
++        Some(String::new()),
++        None,
++    )?;
++    let retained = candidate.command.as_ref().unwrap();
++    let address = std::ptr::from_ref(retained.request.as_ref());
++    let expected = project((*retained.request).clone());
++    assert!(candidate.first_step_context_inputs(&startup).is_err());
++    candidate.capture_first_step_model(&startup).await?;
++    let (row, model, user_input) = candidate.first_step_context_inputs(&startup)?.unwrap();
++    assert!(user_input.is_empty());
++    assert!(Arc::ptr_eq(
++        row,
++        &candidate.first_step_model.as_ref().unwrap().candidate
++    ));
++    assert!(std::ptr::eq(
++        model,
++        candidate
++            .first_step_model
++            .as_ref()
++            .unwrap()
++            .data
++            .model_info()
++    ));
++    assert!(candidate.first_step_context_inputs(&foreign).is_err());
++    assert_eq!(
++        std::ptr::from_ref(candidate.command.as_ref().unwrap().request.as_ref()),
++        address
++    );
++    assert_eq!(
++        project((*candidate.command.as_ref().unwrap().request).clone()),
++        expected
++    );
++    let step = Arc::clone(&candidate.data.step);
++    candidate.data.step = Arc::new((*step).clone());
++    assert!(candidate.first_step_context_inputs(&startup).is_err());
++    candidate.data.step = step;
++    assert!(candidate.capture_first_step_model(&startup).await.is_err());
++    assert!(candidate.first_step_context_inputs(&startup).is_err());
++    assert_eq!(
++        std::ptr::from_ref(candidate.command.as_ref().unwrap().request.as_ref()),
++        address
++    );
++    assert_eq!(
++        project((*candidate.command.as_ref().unwrap().request).clone()),
++        expected
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/turn.rs b/codex-rs/core/src/session/turn.rs
+index f44917d..2c07323 100644
+--- a/codex-rs/core/src/session/turn.rs
++++ b/codex-rs/core/src/session/turn.rs
+@@ -4,6 +4,7 @@ use std::marker::PhantomData;
+ use std::sync::Arc;
+ use std::sync::atomic::Ordering;
+ 
++use super::turn_user_input_data::turn_user_input;
+ use crate::client::ModelClientSession;
+ use crate::client_common::Prompt;
+ use crate::client_common::ResponseEvent;
+@@ -913,20 +914,6 @@ pub(crate) async fn run_hooks_and_record_inputs(
+     blocked_input && !accepted_user_input
+ }
+ 
+-fn turn_user_input(input: &[TurnInput]) -> Vec<UserInput> {
+-    input
+-        .iter()
+-        .filter_map(|item| match item {
+-            TurnInput::UserInput { content, .. } => Some(content.as_slice()),
+-            TurnInput::ResponseItem(_)
+-            | TurnInput::FunctionCallOutput(_)
+-            | TurnInput::InterAgentCommunication(_) => None,
+-        })
+-        .flatten()
+-        .cloned()
+-        .collect()
+-}
+-
+ async fn required_mcp_servers_for_input(
+     sess: &Arc<Session>,
+     turn_context: &TurnContext,
+diff --git a/codex-rs/core/src/session/turn_input.rs b/codex-rs/core/src/session/turn_input.rs
+index cb564a7..d85b1e5 100644
+--- a/codex-rs/core/src/session/turn_input.rs
++++ b/codex-rs/core/src/session/turn_input.rs
+@@ -316,19 +316,8 @@ async fn start_or_steer(
+         ..
+     } = request;
+     let origin = UserInputOrigin::from_turn_trigger(start.turn_trigger.as_deref());
+-    let has_explicit_input = match &input {
+-        SubmittedTurnInput::UserInput { content, .. } => !content.is_empty(),
+-        SubmittedTurnInput::ResponseItem(ResponseItem::FunctionCallOutput {
+-            call_id: None,
+-            ..
+-        }) => true,
+-        _ => {
+-            return Err(CodexErr::InvalidRequest(
+-                "only user input or standalone function-call outputs can start or steer a turn"
+-                    .to_string(),
+-            ));
+-        }
+-    };
++    let has_explicit_input =
++        super::turn_user_input_data::start_or_steer_has_explicit_input(&input)?;
+     let settings = PreparedTurnInputSettings::prepare(session, thread_settings, start).await?;
+     match session
+         .steer_input(
+diff --git a/codex-rs/core/src/session/turn_user_input_data.rs b/codex-rs/core/src/session/turn_user_input_data.rs
+new file mode 100644
+index 0000000..3f2ce37
+--- /dev/null
++++ b/codex-rs/core/src/session/turn_user_input_data.rs
+@@ -0,0 +1,54 @@
++//! Original ordinary typed-input classification and Skills UserInput DATA view.
++//! The view never rewrites retained command input or manufactures queue metadata.
++use super::TurnInput;
++use codex_protocol::error::{CodexErr, Result as CodexResult};
++use codex_protocol::models::ResponseItem;
++use codex_protocol::turn_input::TurnInput as SubmittedTurnInput;
++use codex_protocol::user_input::UserInput;
++
++fn clone_user_contents<'a>(contents: impl Iterator<Item = &'a [UserInput]>) -> Vec<UserInput> {
++    contents.flatten().cloned().collect()
++}
++
++pub(super) fn turn_user_input(input: &[TurnInput]) -> Vec<UserInput> {
++    clone_user_contents(input.iter().filter_map(|item| match item {
++        TurnInput::UserInput { content, .. } => Some(content.as_slice()),
++        TurnInput::ResponseItem(_)
++        | TurnInput::FunctionCallOutput(_)
++        | TurnInput::InterAgentCommunication(_) => None,
++    }))
++}
++
++pub(super) fn start_or_steer_has_explicit_input(input: &SubmittedTurnInput) -> CodexResult<bool> {
++    Ok(match input {
++        SubmittedTurnInput::UserInput { content, .. } => !content.is_empty(),
++        SubmittedTurnInput::ResponseItem(ResponseItem::FunctionCallOutput {
++            call_id: None,
++            ..
++        }) => true,
++        _ => {
++            return Err(CodexErr::InvalidRequest(
++                "only user input or standalone function-call outputs can start or steer a turn"
++                    .to_string(),
++            ));
++        }
++    })
++}
++
++/// Only the same input variants accepted by the original ordinary classifier.
++/// Standalone function output has no UserInput content; the complete typed
++/// request, including its output/additional context/metadata, remains separate.
++pub(super) fn first_step_user_input(input: &SubmittedTurnInput) -> CodexResult<Vec<UserInput>> {
++    start_or_steer_has_explicit_input(input)?;
++    let content = match input {
++        SubmittedTurnInput::UserInput { content, .. } => Some(content.as_slice()),
++        SubmittedTurnInput::ResponseItem(_) | SubmittedTurnInput::InterAgentCommunication(_) => {
++            None
++        }
++    };
++    Ok(clone_user_contents(content.into_iter()))
++}
++
++#[cfg(test)]
++#[path = "turn_user_input_data_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/turn_user_input_data_tests.rs b/codex-rs/core/src/session/turn_user_input_data_tests.rs
+new file mode 100644
+index 0000000..41ec5f6
+--- /dev/null
++++ b/codex-rs/core/src/session/turn_user_input_data_tests.rs
+@@ -0,0 +1,110 @@
++use super::*;
++use codex_history::ResponseItemEnvelope;
++use codex_protocol::AgentPath;
++use codex_protocol::models::{FunctionCallOutputBody, FunctionCallOutputPayload};
++use codex_protocol::protocol::InterAgentCommunication;
++use pretty_assertions::assert_eq;
++
++fn output(call_id: Option<String>) -> ResponseItem {
++    ResponseItem::FunctionCallOutput {
++        id: Some("retained-item".into()),
++        call_id,
++        name: Some("original-tool".into()),
++        namespace: Some("original-namespace".into()),
++        output: FunctionCallOutputPayload {
++            body: FunctionCallOutputBody::Text("reply\n🦀".into()),
++            success: Some(false),
++        },
++        internal_chat_message_metadata_passthrough: None,
++    }
++}
++fn mail() -> InterAgentCommunication {
++    InterAgentCommunication::new(
++        AgentPath::root(),
++        AgentPath::try_from("/root/worker").unwrap(),
++        Vec::new(),
++        "mail bytes".into(),
++        /*trigger_turn*/ false,
++    )
++}
++fn text(value: &str) -> UserInput {
++    UserInput::Text {
++        text: value.into(),
++        text_elements: Vec::new(),
++    }
++}
++
++#[test]
++fn original_internal_projection_keeps_order_and_ignores_all_non_user_partitions() {
++    let first = vec![
++        text("first"),
++        UserInput::Mention {
++            name: "source".into(),
++            path: "app://original".into(),
++        },
++    ];
++    let last = vec![text("last")];
++    let inputs = vec![
++        TurnInput::UserInput {
++            content: first.clone(),
++            client_id: Some("original-client".into()),
++            metadata: super::super::UserInputMetadata::default(),
++        },
++        TurnInput::FunctionCallOutput(ResponseItemEnvelope::new(output(None))),
++        TurnInput::ResponseItem(ResponseItemEnvelope::new(output(Some("reply-call".into())))),
++        TurnInput::InterAgentCommunication(mail()),
++        TurnInput::UserInput {
++            content: last.clone(),
++            client_id: None,
++            metadata: super::super::UserInputMetadata::default(),
++        },
++    ];
++    let original = inputs.clone();
++    assert_eq!(
++        turn_user_input(&inputs),
++        first.into_iter().chain(last).collect::<Vec<_>>()
++    );
++    assert_eq!(inputs, original);
++    let standalone = SubmittedTurnInput::ResponseItem(output(None));
++    assert!(start_or_steer_has_explicit_input(&standalone).unwrap());
++    assert!(first_step_user_input(&standalone).unwrap().is_empty());
++    let ordinary = SubmittedTurnInput::UserInput {
++        content: vec![text("same user")],
++        client_id: Some(String::new()),
++    };
++    assert_eq!(
++        first_step_user_input(&ordinary).unwrap(),
++        vec![text("same user")]
++    );
++    assert!(
++        !start_or_steer_has_explicit_input(&SubmittedTurnInput::UserInput {
++            content: Vec::new(),
++            client_id: None
++        })
++        .unwrap()
++    );
++}
++
++#[test]
++fn original_start_classification_rejects_reply_ids_other_items_and_mail_without_mutation() {
++    let other =
++        serde_json::from_value(serde_json::json!({"type":"message","role":"user","content":[]}))
++            .unwrap();
++    for input in [
++        SubmittedTurnInput::ResponseItem(output(Some("actual-reply".into()))),
++        SubmittedTurnInput::ResponseItem(other),
++        SubmittedTurnInput::InterAgentCommunication(mail()),
++    ] {
++        let original = input.clone();
++        let error = start_or_steer_has_explicit_input(&input).unwrap_err();
++        let CodexErr::InvalidRequest(message) = error else {
++            panic!("original invalid-request error")
++        };
++        assert_eq!(
++            message,
++            "only user input or standalone function-call outputs can start or steer a turn"
++        );
++        assert!(first_step_user_input(&input).is_err());
++        assert_eq!(input, original);
++    }
++}
+diff --git a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+index 12c408f..44ffd21 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+@@ -126,10 +126,10 @@ impl ThreadManager {
+             ));
+         }
+         let first_step = self.selected_start_first_step_context_inputs(selected)?;
+-        if let Some((model, row, input)) = first_step {
++        if let Some((model, row, ref input)) = first_step {
+             if !std::sync::Arc::ptr_eq(model, skills.model_candidate_arc())
+                 || skills.skills().model() != row
+-                || skills.skills().user_input() != input
++                || skills.skills().user_input() != input.as_slice()
+             {
+                 return Err(unavailable("builtin first-step observations changed"));
+             }
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index 8301b92..15045cf 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -262,7 +262,7 @@ impl ThreadManager {
+         Option<(
+             &'a Arc<codex_models_manager::model_limits::UnverifiedModelLimitCandidate>,
+             &'a codex_protocol::openai_models::ModelInfo,
+-            &'a [codex_protocol::user_input::UserInput],
++            Vec<codex_protocol::user_input::UserInput>,
+         )>,
+     > {
+         self.with_current_selected_start(selected, || ())?;
+@@ -323,7 +323,7 @@ impl ThreadManager {
+             .mcp_sources()
+             .ok_or_else(|| CodexErr::InvalidRequest("original API sources missing".into()))?;
+         let observed = self
+-            .observe_pre_session_skills_with_model(sources, input, Some((Arc::clone(model), row)))
++            .observe_pre_session_skills_with_model(sources, &input, Some((Arc::clone(model), row)))
+             .await?;
+         self.renew_selected_start(selected)
+             .await

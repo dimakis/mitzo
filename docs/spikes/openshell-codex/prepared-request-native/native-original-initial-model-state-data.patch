@@ -1,0 +1,758 @@
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index 605dddd..33ae22e 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -1084,3 +1084,100 @@ async fn installed_prompt_base_keeps_original_startup_provenance_with_changed_fi
+         );
+     }
+ }
++
++#[tokio::test]
++async fn installed_initial_model_data_consumes_actual_fresh_sources_without_claiming_complete_history()
++ {
++    let home = tempfile::tempdir().unwrap();
++    let configs = manager(home.path());
++    let source = configs
++        .load_selected_start_config(
++            None,
++            ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                model: Some("gpt-6-luna".into()),
++                personality: Some(codex_protocol::config_types::Personality::Pragmatic),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let config = source.config().clone();
++    assert!(config.features.enabled(Feature::Apps));
++    assert!(config.features.enabled(Feature::Plugins));
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, installed, _) = thread_manager_with_models(&config, Arc::clone(&store), |auth| {
++        Arc::new(
++            codex_models_manager::manager::OpenAiModelsManager::new_without_cache(
++                Arc::new(NoStartupEndpoint),
++                Some(Arc::clone(auth)),
++            ),
++        )
++    });
++    let original = OriginalFirstCommandStart::new(
++        StartThreadOptions::new(config),
++        threads.reserve_thread_start(),
++        installed,
++        crate::request_processors::AppServerClientInfo::capture(None, None),
++    );
++    let mut selected = source
++        .capture_first_command(&threads, original)
++        .await
++        .unwrap();
++    selected.capture_startup(&threads).await.unwrap();
++    selected.capture_startup_api_mcp(&threads).unwrap();
++    let body =
++        serde_json::from_value(serde_json::json!({"input":[],"personality":"friendly"})).unwrap();
++    selected
++        .capture_command(&threads, "model-state-data".into(), body, None)
++        .await
++        .unwrap();
++    selected.capture_first_step_context(&threads).await.unwrap();
++    let partial = selected.first_step_context.as_ref().unwrap();
++    threads
++        .validate_selected_builtin_context(selected.start(), partial)
++        .unwrap();
++    let sections: Vec<_> = partial.initial_section_data().collect();
++    assert_eq!(
++        sections.iter().map(|(id, _, _)| *id).collect::<Vec<_>>(),
++        vec![
++            "model",
++            "environments_instructions",
++            "apps_instructions",
++            "plugins_instructions",
++        ]
++    );
++    assert!(sections.iter().all(|(_, native, _)| *native));
++    assert_eq!(sections[0], ("model", true, 0));
++    assert_eq!(
++        sections.iter().filter(|(id, _, _)| *id == "model").count(),
++        1
++    );
++    assert!(
++        partial
++            .prompt_base_instructions()
++            .unwrap()
++            .provenance
++            .is_some()
++    );
++    assert!(partial.unresolved_partitions().contains(
++        &codex_core::UnresolvedInitialContextPartition::ModelAndBaseInstructionsSelection
++    ));
++    assert!(partial.unresolved_partitions().contains(
++        &codex_core::UnresolvedInitialContextPartition::OriginalFreshHistoryAndAgentState
++    ));
++    assert!(
++        partial
++            .unresolved_partitions()
++            .contains(&codex_core::UnresolvedInitialContextPartition::EnvironmentChildAgentState)
++    );
++    selected.renew(&threads).await.unwrap();
++    assert!(selected.capture_first_step_context(&threads).await.is_err());
++    assert!(selected.renew(&threads).await.is_err());
++    assert!(selected.adopt_startup(&threads).await.is_err());
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++}
+diff --git a/codex-rs/core/src/session/client_input_data.rs b/codex-rs/core/src/session/client_input_data.rs
+index af5798b..aa9f58c 100644
+--- a/codex-rs/core/src/session/client_input_data.rs
++++ b/codex-rs/core/src/session/client_input_data.rs
+@@ -204,6 +204,28 @@ impl OriginalClientInputData {
+         self.startup = Some(startup);
+         Ok(())
+     }
++    pub(crate) fn initial_model_previous_settings(
++        &self,
++    ) -> io::Result<Option<PreviousTurnSettings>> {
++        let startup = self
++            .startup
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original startup source missing"))?;
++        let frame = self
++            .source_frame
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original source frame missing"))?;
++        match &self.fresh_history {
++            OriginalFreshHistorySlot::Retained(id, data) if *id == self.thread_id => {
++                data.preview_previous_settings(startup.effective_config(), frame.client_source().0)
++            }
++            OriginalFreshHistorySlot::Ordinary
++            | OriginalFreshHistorySlot::Consumed
++            | OriginalFreshHistorySlot::Retained(_, _) => Err(io::Error::other(
++                "original fresh previous-settings capture missing or consumed",
++            )),
++        }
++    }
+     pub(super) fn take_fresh_history(
+         &mut self,
+         thread_id: ThreadId,
+diff --git a/codex-rs/core/src/session/fresh_history_data.rs b/codex-rs/core/src/session/fresh_history_data.rs
+index e8c6811..b547347 100644
+--- a/codex-rs/core/src/session/fresh_history_data.rs
++++ b/codex-rs/core/src/session/fresh_history_data.rs
+@@ -7,6 +7,10 @@ pub(in crate::session) struct OriginalFreshHistoryData {
+     source: SessionSource,
+     window_ids: Option<AutoCompactWindowIds>,
+     history: Option<ContextManager>,
++    initial_previous:
++        Option<Box<super::super::initial_model_state_data::InitialPreviousSettingsSeed>>,
++    fresh_reset:
++        Option<Box<super::super::initial_model_state_data::FreshHistoryPreviousSettingsReset>>,
+ }
+ impl OriginalFreshHistoryData {
+     pub(in crate::session) fn capture(
+@@ -28,6 +32,13 @@ impl OriginalFreshHistoryData {
+             source: source.clone(),
+             window_ids: Some(window_ids),
+             history: Some(history),
++            initial_previous: Some(
++                super::super::initial_model_state_data::InitialPreviousSettingsSeed::capture(),
++            ),
++            fresh_reset: Some(
++                super::super::initial_model_state_data::FreshHistoryPreviousSettingsReset::capture(
++                ),
++            ),
+         })
+     }
+     pub(in crate::session) fn validate(
+@@ -46,6 +57,66 @@ impl OriginalFreshHistoryData {
+         }
+         Ok(())
+     }
++    pub(in crate::session) fn preview_previous_settings(
++        &self,
++        config: &Config,
++        source: &SessionSource,
++    ) -> io::Result<Option<PreviousTurnSettings>> {
++        if config != self.config.as_ref()
++            || source != &self.source
++            || self.window_ids.is_none()
++            || self.history.is_none()
++            || self.initial_previous.is_none()
++        {
++            return Err(io::Error::other(
++                "original initial previous-settings source changed or moved",
++            ));
++        }
++        self.fresh_reset
++            .as_ref()
++            .map(|reset| reset.snapshot())
++            .ok_or_else(|| io::Error::other("original fresh reset source moved"))
++    }
++    pub(in crate::session) fn take_initial_previous(
++        &mut self,
++        config: &Arc<Config>,
++        source: &SessionSource,
++        history: &InitialHistory,
++    ) -> io::Result<Box<super::super::initial_model_state_data::InitialPreviousSettingsSeed>> {
++        let value = self.initial_previous.take();
++        if self.validate(config, source, history).is_err()
++            || self.window_ids.is_some()
++            || self.history.is_some()
++            || value.is_none()
++        {
++            self.fresh_reset = None;
++            return Err(io::Error::other(
++                "original initial previous-settings stage changed or consumed",
++            ));
++        }
++        Ok(value.expect("checked original stage"))
++    }
++    pub(in crate::session) fn take_fresh_reset(
++        &mut self,
++        config: &Arc<Config>,
++        source: &SessionSource,
++        history: &InitialHistory,
++    ) -> io::Result<Box<super::super::initial_model_state_data::FreshHistoryPreviousSettingsReset>>
++    {
++        let value = self.fresh_reset.take();
++        if self.validate(config, source, history).is_err()
++            || self.window_ids.is_some()
++            || self.history.is_some()
++            || self.initial_previous.is_some()
++            || value.is_none()
++        {
++            self.initial_previous = None;
++            return Err(io::Error::other(
++                "original fresh reset stage changed or consumed",
++            ));
++        }
++        Ok(value.expect("checked original reset"))
++    }
+     pub(in crate::session) fn take_window_ids(&mut self) -> io::Result<AutoCompactWindowIds> {
+         self.window_ids
+             .take()
+diff --git a/codex-rs/core/src/session/fresh_history_data_tests.rs b/codex-rs/core/src/session/fresh_history_data_tests.rs
+index bf4f092..deadd13 100644
+--- a/codex-rs/core/src/session/fresh_history_data_tests.rs
++++ b/codex-rs/core/src/session/fresh_history_data_tests.rs
+@@ -285,3 +285,81 @@ async fn wrong_stage_missing_values_and_non_new_capture_never_reconstruct_histor
+     );
+     Ok(())
+ }
++
++#[tokio::test]
++async fn actual_fresh_capsule_moves_distinct_constructor_and_post_event_reset_once()
++-> anyhow::Result<()> {
++    use crate::session::initial_model_state_data::{
++        constructor_previous_settings, fresh_history_previous_settings,
++    };
++    let (_home, manager, id, options, mut inputs, effective, source) = captured().await?;
++    let mut data = inputs
++        .take_fresh_history(id, &effective, &source, &options.initial_history)?
++        .unwrap();
++    let preview = data.preview_previous_settings(&effective, &source)?;
++    let initial_address = std::ptr::from_ref(data.initial_previous.as_ref().unwrap().as_ref());
++    let reset_address = std::ptr::from_ref(data.fresh_reset.as_ref().unwrap().as_ref());
++    assert_ne!(initial_address.cast::<()>(), reset_address.cast::<()>());
++    data.take_window_ids()?;
++    let _context = data.take_context(&effective, &source, &options.initial_history)?;
++    let initial = data.take_initial_previous(&effective, &source, &options.initial_history)?;
++    assert_eq!(std::ptr::from_ref(initial.as_ref()), initial_address);
++    assert_eq!(initial.into_value(), constructor_previous_settings());
++    let reset = data.take_fresh_reset(&effective, &source, &options.initial_history)?;
++    assert_eq!(std::ptr::from_ref(reset.as_ref()), reset_address);
++    assert_eq!(reset.into_value(), preview);
++    assert_eq!(preview, fresh_history_previous_settings());
++    assert!(
++        data.take_initial_previous(&effective, &source, &options.initial_history)
++            .is_err()
++    );
++    assert!(
++        data.take_fresh_reset(&effective, &source, &options.initial_history)
++            .is_err()
++    );
++    assert!(data.preview_previous_settings(&effective, &source).is_err());
++    assert!(manager.list_thread_ids().await.is_empty());
++    Ok(())
++}
++#[tokio::test]
++async fn original_fresh_previous_stages_refuse_foreign_config_source_history_or_wrong_order()
++-> anyhow::Result<()> {
++    for variant in 0..4 {
++        let (_home, manager, id, options, mut inputs, effective, source) = captured().await?;
++        let mut data = inputs
++            .take_fresh_history(id, &effective, &source, &options.initial_history)?
++            .unwrap();
++        if variant == 3 {
++            assert!(
++                data.take_fresh_reset(&effective, &source, &options.initial_history)
++                    .is_err()
++            );
++        } else {
++            data.take_window_ids()?;
++            let _context = data.take_context(&effective, &source, &options.initial_history)?;
++            let foreign = Arc::new((*effective).clone());
++            let changed_source = SessionSource::VSCode;
++            let history = InitialHistory::Forked(Vec::new());
++            let result = match variant {
++                0 => data.take_initial_previous(&foreign, &source, &options.initial_history),
++                1 => data.take_initial_previous(
++                    &effective,
++                    &changed_source,
++                    &options.initial_history,
++                ),
++                _ => data.take_initial_previous(&effective, &source, &history),
++            };
++            assert!(result.is_err());
++        }
++        assert!(
++            data.take_initial_previous(&effective, &source, &options.initial_history)
++                .is_err()
++        );
++        assert!(
++            data.take_fresh_reset(&effective, &source, &options.initial_history)
++                .is_err()
++        );
++        assert!(manager.list_thread_ids().await.is_empty());
++    }
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/initial_model_state_data.rs b/codex-rs/core/src/session/initial_model_state_data.rs
+new file mode 100644
+index 0000000..4fc7302
+--- /dev/null
++++ b/codex-rs/core/src/session/initial_model_state_data.rs
+@@ -0,0 +1,89 @@
++//! Original initial-state/reset DATA and original model-change precedence.
++//! Captured values are not mutable Session currentness, history or admission.
++use crate::session::PreviousTurnSettings;
++use codex_protocol::models::BaseInstructionsProvenance;
++
++// These bodies are the original distinct producer sites, not a New/empty-history
++// inference. Ordinary owners invoke them at their original field/write stages.
++pub(crate) fn constructor_previous_settings() -> Option<PreviousTurnSettings> {
++    None
++}
++pub(crate) fn fresh_history_previous_settings() -> Option<PreviousTurnSettings> {
++    None
++}
++
++pub(crate) struct InitialPreviousSettingsSeed {
++    value: Option<PreviousTurnSettings>,
++}
++pub(crate) struct FreshHistoryPreviousSettingsReset {
++    value: Option<PreviousTurnSettings>,
++}
++impl InitialPreviousSettingsSeed {
++    pub(in crate::session) fn capture() -> Box<Self> {
++        Box::new(Self {
++            value: constructor_previous_settings(),
++        })
++    }
++    pub(crate) fn into_value(self: Box<Self>) -> Option<PreviousTurnSettings> {
++        self.value
++    }
++}
++impl FreshHistoryPreviousSettingsReset {
++    pub(in crate::session) fn capture() -> Box<Self> {
++        Box::new(Self {
++            value: fresh_history_previous_settings(),
++        })
++    }
++    pub(in crate::session) fn snapshot(&self) -> Option<PreviousTurnSettings> {
++        self.value.clone()
++    }
++    pub(in crate::session) fn into_value(self: Box<Self>) -> Option<PreviousTurnSettings> {
++        self.value
++    }
++}
++pub(crate) enum InitialPreviousSettingsInput {
++    Ordinary,
++    Retained(Box<InitialPreviousSettingsSeed>),
++}
++impl InitialPreviousSettingsInput {
++    pub(crate) fn into_value(self) -> Option<PreviousTurnSettings> {
++        match self {
++            Self::Ordinary => constructor_previous_settings(),
++            Self::Retained(seed) => seed.into_value(),
++        }
++    }
++}
++pub(in crate::session) enum FreshPreviousSettingsInput {
++    Ordinary,
++    Retained(Box<FreshHistoryPreviousSettingsReset>),
++}
++impl FreshPreviousSettingsInput {
++    pub(in crate::session) fn into_value(self) -> Option<PreviousTurnSettings> {
++        match self {
++            Self::Ordinary => fresh_history_previous_settings(),
++            Self::Retained(reset) => reset.into_value(),
++        }
++    }
++}
++
++pub(crate) fn previous_model(
++    previous: Option<PreviousTurnSettings>,
++    provenance: &Option<BaseInstructionsProvenance>,
++    base_instructions: &str,
++    model_instructions: &str,
++) -> Option<String> {
++    previous.map(|previous| previous.model).or_else(|| {
++        provenance
++            .as_ref()
++            .and_then(|provenance| match provenance {
++                BaseInstructionsProvenance::Model { model } => Some(model),
++                BaseInstructionsProvenance::Custom => None,
++            })
++            .filter(|_| base_instructions != model_instructions)
++            .cloned()
++    })
++}
++
++#[cfg(test)]
++#[path = "initial_model_state_data_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/initial_model_state_data_tests.rs b/codex-rs/core/src/session/initial_model_state_data_tests.rs
+new file mode 100644
+index 0000000..d1dd580
+--- /dev/null
++++ b/codex-rs/core/src/session/initial_model_state_data_tests.rs
+@@ -0,0 +1,66 @@
++use super::*;
++use crate::context::world_state::{
++    ModelInstructionsState, PreviousSectionState, WorldStateSection,
++};
++use crate::context::{ContextualUserFragment, ModelSwitchInstructions};
++use pretty_assertions::assert_eq;
++
++#[test]
++fn original_previous_model_precedence_and_native_fragment_match_actual_model_data()
++-> anyhow::Result<()> {
++    let row = codex_models_manager::bundled_models_response()?
++        .models
++        .into_iter()
++        .find(|row| row.slug == "gpt-6-luna")
++        .unwrap();
++    let instructions = codex_prompts::render_model_instructions(&row);
++    let prior = PreviousTurnSettings {
++        model: "actual-prior-data".into(),
++        cyber_access_program: None,
++        comp_hash: Some("saved".into()),
++        realtime_active: Some(false),
++    };
++    let provenance = Some(BaseInstructionsProvenance::Model {
++        model: "original-startup-data".into(),
++    });
++    for (previous, provenance, base, expected) in [
++        (
++            Some(prior.clone()),
++            provenance.clone(),
++            instructions.clone(),
++            Some(prior.model.clone()),
++        ),
++        (
++            None,
++            provenance.clone(),
++            "different startup base".into(),
++            Some("original-startup-data".into()),
++        ),
++        (None, provenance.clone(), instructions.clone(), None),
++        (
++            None,
++            Some(BaseInstructionsProvenance::Custom),
++            "custom bytes".into(),
++            None,
++        ),
++        (None, None, "unknown inherited bytes".into(), None),
++    ] {
++        let actual = previous_model(previous, &provenance, &base, &instructions);
++        assert_eq!(actual, expected);
++        let section =
++            ModelInstructionsState::new(&row.slug, actual.as_deref(), instructions.clone());
++        assert_eq!(section.snapshot(), row.slug);
++        let rendered = section.render_diff(PreviousSectionState::Absent);
++        if expected.is_some() {
++            let fragment = rendered.expect("different original previous model");
++            assert_eq!(
++                fragment.render_fragment(),
++                ModelSwitchInstructions::new(instructions.clone()).render_fragment()
++            );
++            assert_eq!(fragment.markers(), ModelSwitchInstructions::type_markers());
++        } else {
++            assert!(rendered.is_none());
++        }
++    }
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 1d1f923..babd75d 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -264,6 +264,7 @@ pub(crate) use parent_approval::InitialExecApprovalIssuer;
+ pub(crate) use parent_approval::InterceptedApprovalSelection;
+ mod base_instructions_data;
+ mod first_step_model_data;
++pub(crate) mod initial_model_state_data;
+ pub(crate) mod startup_prewarm;
+ pub(crate) mod startup_selection;
+ mod step_activation;
+@@ -1559,7 +1560,20 @@ impl Session {
+         state.clear_connector_selection();
+     }
+ 
+-    async fn record_initial_history(&self, conversation_history: InitialHistory) {
++    fn record_initial_history(
++        &self,
++        conversation_history: InitialHistory,
++    ) -> impl std::future::Future<Output = ()> + Send + '_ {
++        self.record_initial_history_with_reset(
++            conversation_history,
++            initial_model_state_data::FreshPreviousSettingsInput::Ordinary,
++        )
++    }
++    async fn record_initial_history_with_reset(
++        &self,
++        conversation_history: InitialHistory,
++        reset: initial_model_state_data::FreshPreviousSettingsInput,
++    ) {
+         let (is_subagent, is_paginated_subagent) = {
+             let state = self.state.lock().await;
+             let session_configuration = &state.session_configuration;
+@@ -1583,8 +1597,7 @@ impl Session {
+             InitialHistory::New | InitialHistory::Cleared => {
+                 // Defer initial context insertion until the first real turn starts so
+                 // turn/start overrides can be merged before we write model-visible context.
+-                self.set_previous_turn_settings(/*previous_turn_settings*/ None)
+-                    .await;
++                self.set_previous_turn_settings(reset.into_value()).await;
+                 None
+             }
+             InitialHistory::Resumed(resumed_history) => {
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index 1f14d96..163827a 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -1323,7 +1323,7 @@ impl Session {
+                 );
+             }
+             session_configuration.thread_name = thread_name.clone();
+-            let mut state = SessionState::new_with_auto_compact_window_ids(
++            let mut state = SessionState::new_with_previous_settings(
+                 session_configuration.clone(),
+                 initial_auto_compact_window_ids,
+                 match &mut retained_fresh_history {
+@@ -1339,6 +1339,19 @@ impl Session {
+                         &config.features,
+                     ),
+                 },
++                match &mut retained_fresh_history {
++                    Some(data) => {
++                        super::initial_model_state_data::InitialPreviousSettingsInput::Retained(
++                            data.take_initial_previous(
++                                &config,
++                                &session_configuration.session_source,
++                                &initial_history,
++                            )
++                            .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?,
++                        )
++                    }
++                    None => super::initial_model_state_data::InitialPreviousSettingsInput::Ordinary,
++                },
+             );
+             state.base_instructions_provenance = base_instructions_provenance.clone();
+             state.active_disabled_plugin_ids = session_configuration.disabled_plugin_ids.clone();
+@@ -1763,7 +1776,27 @@ impl Session {
+             };
+ 
+             // record_initial_history can emit events. We record only after the SessionConfiguredEvent is emitted.
+-            Box::pin(sess.record_initial_history(initial_history)).await;
++            match &mut retained_fresh_history {
++                Some(data) => {
++                    let reset = data
++                        .take_fresh_reset(
++                            &config,
++                            &session_configuration.session_source,
++                            &initial_history,
++                        )
++                        .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++                    Box::pin(sess.record_initial_history_with_reset(
++                        initial_history,
++                        super::initial_model_state_data::FreshPreviousSettingsInput::Retained(
++                            reset,
++                        ),
++                    ))
++                    .await;
++                }
++                None => {
++                    Box::pin(sess.record_initial_history(initial_history)).await;
++                }
++            }
+             if restore_child_window {
+                 sess.state.lock().await.restore_auto_compact_window(
+                     /*window_number*/ 0,
+diff --git a/codex-rs/core/src/session/world_state.rs b/codex-rs/core/src/session/world_state.rs
+index 92c2540..5cc15c5 100644
+--- a/codex-rs/core/src/session/world_state.rs
++++ b/codex-rs/core/src/session/world_state.rs
+@@ -25,7 +25,6 @@ use codex_features::Feature;
+ use codex_file_system::FileSystemSandboxContext;
+ use codex_prompts::ResolvedModelMessages;
+ use codex_protocol::error::Result as CodexResult;
+-use codex_protocol::models::BaseInstructionsProvenance;
+ use codex_protocol::protocol::MultiAgentVersion;
+ 
+ const MAX_ENVIRONMENT_SUBAGENTS: usize = 8;
+@@ -106,20 +105,12 @@ impl Session {
+         let base_instructions = self.get_prompt_base_instructions().await.text;
+         let previous_model = {
+             let state = self.state.lock().await;
+-            state
+-                .previous_turn_settings()
+-                .map(|previous| previous.model)
+-                .or_else(|| {
+-                    state
+-                        .base_instructions_provenance
+-                        .as_ref()
+-                        .and_then(|provenance| match provenance {
+-                            BaseInstructionsProvenance::Model { model } => Some(model),
+-                            BaseInstructionsProvenance::Custom => None,
+-                        })
+-                        .filter(|_| base_instructions != model_instructions)
+-                        .cloned()
+-                })
++            super::initial_model_state_data::previous_model(
++                state.previous_turn_settings(),
++                &state.base_instructions_provenance,
++                &base_instructions,
++                &model_instructions,
++            )
+         };
+         let environment_subagents = self
+             .collect_original_environment_subagent_state(step_context)
+diff --git a/codex-rs/core/src/state/session.rs b/codex-rs/core/src/state/session.rs
+index 5f8d2d8..fb19e35 100644
+--- a/codex-rs/core/src/state/session.rs
++++ b/codex-rs/core/src/state/session.rs
+@@ -119,6 +119,19 @@ impl SessionState {
+         session_configuration: SessionConfiguration,
+         auto_compact_window_ids: AutoCompactWindowIds,
+         history: ContextManager,
++    ) -> Self {
++        Self::new_with_previous_settings(
++            session_configuration,
++            auto_compact_window_ids,
++            history,
++            crate::session::initial_model_state_data::InitialPreviousSettingsInput::Ordinary,
++        )
++    }
++    pub(crate) fn new_with_previous_settings(
++        session_configuration: SessionConfiguration,
++        auto_compact_window_ids: AutoCompactWindowIds,
++        history: ContextManager,
++        initial_previous: crate::session::initial_model_state_data::InitialPreviousSettingsInput,
+     ) -> Self {
+         Self {
+             active_disabled_plugin_ids: Vec::new(),
+@@ -131,7 +144,7 @@ impl SessionState {
+             server_reasoning_included: false,
+             mcp_dependency_prompted: HashSet::new(),
+             additional_context: AdditionalContextStore::default(),
+-            previous_turn_settings: None,
++            previous_turn_settings: initial_previous.into_value(),
+             last_started_turn_id: None,
+             auto_compact_window: AutoCompactWindow::new_with_ids(auto_compact_window_ids),
+             reasoning_effort_pin: ReasoningEffortPin::Unset,
+diff --git a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+index e3fa013..f41f77d 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+@@ -60,6 +60,21 @@ pub(crate) struct SelectedStartPermissionProjection {
+     section: crate::session::initial_world_state_data::PermissionInitialContext,
+ }
+ impl PreSessionBuiltinContextData {
++    /// Partial stored section DATA, including sections with no fragment.
++    /// Tuples are (original ID, native origin, rendered fragment count), in
++    /// retained order. This conveys no complete-context or source authority.
++    pub fn initial_section_data(&self) -> impl Iterator<Item = (&'static str, bool, usize)> + '_ {
++        self.sections.iter().map(|section| {
++            (
++                section.id,
++                matches!(
++                    &section.origin,
++                    crate::context::world_state::WorldStateSectionOrigin::Native
++                ),
++                section.fragments.len(),
++            )
++        })
++    }
+     pub fn prompt_base_instructions(&self) -> Option<&codex_protocol::models::BaseInstructions> {
+         self.prompt_base.as_ref()
+     }
+@@ -209,7 +224,7 @@ impl ThreadManager {
+                 clock.environment_date().to_string(),
+                 clock.timezone().to_string(),
+             );
+-        let sections = vec![
++        let mut sections = vec![
+             ResolvedInitialSection::native(environments),
+             ResolvedInitialSection::native(apps),
+             ResolvedInitialSection::native(plugins),
+@@ -244,9 +259,32 @@ impl ThreadManager {
+         if config.features.plugin_recommendations_enabled() {
+             unresolved.push(UnresolvedInitialContextPartition::PluginRecommendations);
+         }
++        let model_instructions = initial_context_builtin::model_instructions(config, model);
++        if first_step.is_some() {
++            let previous = self.selected_start_initial_previous_settings(selected)?;
++            let base = prompt_base
++                .as_ref()
++                .ok_or_else(|| unavailable("original prompt base missing"))?;
++            let previous_model = crate::session::initial_model_state_data::previous_model(
++                previous,
++                &base.provenance,
++                &base.text,
++                &model_instructions,
++            );
++            sections.insert(
++                0,
++                ResolvedInitialSection::native(
++                    crate::context::world_state::ModelInstructionsState::new(
++                        &model.slug,
++                        previous_model.as_deref(),
++                        model_instructions.clone(),
++                    ),
++                ),
++            );
++        }
+         let data = PreSessionBuiltinContextData {
+             model_candidate: std::sync::Arc::clone(skills.model_candidate_arc()),
+-            model_instructions: initial_context_builtin::model_instructions(config, model),
++            model_instructions,
+             prompt_base,
+             sections,
+             trailing_sections,
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index 0946c92..e791f92 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -277,6 +277,19 @@ impl ThreadManager {
+         settings.first_step_context_inputs(startup)
+     }
+ 
++    pub(super) fn selected_start_initial_previous_settings(
++        &self,
++        selected: &SelectedStartInputs,
++    ) -> io::Result<Option<crate::session::PreviousTurnSettings>> {
++        self.with_current_selected_start(selected, || ())?;
++        selected
++            .allocation
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original allocation missing"))?
++            .inputs
++            .initial_model_previous_settings()
++    }
++
+     pub(super) fn selected_start_base_instructions(
+         &self,
+         selected: &SelectedStartInputs,

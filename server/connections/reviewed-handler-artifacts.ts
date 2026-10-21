@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.471-symposium-telos-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.472-symposium-native-context';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1420,4 +1419,16 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'd23431be69e78ab01a84dc15d08087d423eb57cd20ef5facc6d4800d68042cc9',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-first-step-context-data.patch':
+    'd74bd2f0a29fd41252d08b5e80cbc068f59d6e353bbe70f5d3d09ef63d0e0309',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-first-step-permission-data.patch':
+    '8bfff1d5d64a7805f879d920891cc84620933447238491b4585c3b06331540d4',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-typed-input-skills-projection.patch':
+    '6b86c78d0217d6df50e8d0e6bedf05b104f6933a81126e74e44d27419ec52c49',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-startup-base-provenance.patch':
+    '8389fcc26ef8077e8a84f1a5ebe3f0bdfd4549c1bfb7f677933eb6942342a83d',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-initial-model-state-data.patch':
+    '146fe47b4a50f7c22253fc728ffaa0556825855a465b461db3d2ac0f0d152a98',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-test-fixture-compile-compatibility.patch':
+    '8e5b42b60522d41c94256be832786f3c35408f5abdc8d55dcfe0a359825d96e1',
 });

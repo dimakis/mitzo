@@ -6,7 +6,40 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 127 patches
+## Current composed source: 133 patches
+
+The 133 ordered patches reconstruct native tree `4a7c3f19a7db35b845da2aba8e55a5120a21f399`
+(local source `44ae9263c7cdebe750ff0f3371c6d545e7ebf6f7`). Every previous 127 patch record
+and byte and its complete source boundary remain exact. Accepted main `58bdfbe9c7faa6021b6f7ce8d94388e09be00623`
+is included through a normal merge; earlier EA5 acceptance cases retain their
+original source scope.
+
+Six source-reviewed cuts retain original first-step Skills/model/permission DATA,
+the original typed-input Skills projection, startup-owned base/provenance, and
+separate original constructor/fresh-history previous-settings values. The actual
+ordinary consumers retain their original evaluation, event and write order.
+A two-test-file compatibility repair addresses the four published127 compiler
+sites without changing production, assertions, budgets or discovery. All 18 new
+fixture functions are UNCOMPILED_UNRUN locally. The installed model-section
+fixture observes the genuine same-slug empty native section and retained order;
+different-model nonempty rendering has separate Core fixture coverage, without
+widening the supported model descriptor or claiming an installed positive.
+
+Published 127 independently passed the same 23 AppServer and 4 Goal/API unit names
+on each platform. Its 37 Core and 7 prior-stack targets never reached discovery
+or execution because Core lib-test compilation failed. Both full-suite attempts
+failed compilation101 before runtime and formatting was skipped. The 13 earlier
+unique 119 runtime failures remain unresolved and unmeasured. No previous result
+qualifies this successor.
+
+CI must discover and run exact 51 Core, 27 AppServer and the same 4 Goal/API names,
+the original 7 stack regressions, original 22-package full suite plus Linux sandbox,
+and formatting. One thread, zero retries and all original budgets remain.
+Full initial context/tools/request/count/currentness/State C-to-R/admission,
+registered RPC/factory/Ready/Join and final participant reply remain open.
+PRESENT adoption stays refused. No model call, installation or deployment.
+
+## Previous composed source: 127 patches
 
 The 127 ordered patches reconstruct native tree `539c34fa4bb824b81e0f4bc379d62478b2277112`
 (local source `01f39b8e6222fda4c0e08207d3a2750cb17d17d2`). Every previous119 patch record
