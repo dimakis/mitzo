@@ -1,3 +1,4 @@
+import { PrepareSecretRelaySchema } from './secret-relay.js';
 import { ConnectionRequestError } from './connection-request-error.js';
 import { WebSocketRequestSchema, ConnectionWebSocketError } from './credential-websocket.js';
 import { randomUUID } from 'node:crypto';
@@ -21,6 +22,9 @@ import {
 
 const id = z.string().min(1).max(128);
 export const credentialConnectionSchemas = {
+  PrepareSecretRelay: PrepareSecretRelaySchema,
+  GetSecretRelay: z.object({ relayId: id }).strict(),
+  ApplySecretRelay: z.object({ relayId: id, targetIndex: z.number().int().min(0).max(7) }).strict(),
   ListConnections: z.object({}).strict(),
   RequestConnectionAccess: z.object({ connectionId: id }).strict(),
   ConnectionRequest: ConnectionRequestSchema.extend({ connectionId: id }).strict(),
@@ -33,6 +37,13 @@ export const credentialConnectionSchemas = {
   GetConnectionSetup: z.object({ setupId: id }).strict(),
 };
 const descriptions = {
+  PrepareSecretRelay:
+    'Request one private password/token for exact reviewed API writes in this chat. Supply existing connection IDs/revisions, relative paths, write methods, and non-secret request templates. JSON secret fields use RFC6901 pointers to null values; form fields must exist once with empty values. Returns a private Mitzo page; user enters the value there and approves the listed destinations. Never put credentials in tool input, chat or files. OpenShell stores the value; the agent receives no credential. Does not dispatch writes. Use GetConnectionGuide for details.',
+  GetSecretRelay:
+    'Read this chat’s private secret request status and per-target dispatch receipts. Never returns values or Gateway references. Wait for the readiness notification; do not poll repeatedly.',
+  ApplySecretRelay:
+    'Apply a privately captured value to one exact destination reviewed on its setup page. Requires existing connection access. Supply only relayId and targetIndex; Mitzo privately fills approved fields. Returns HTTP status only, never response bodies. A confirmed receipt means an HTTP response, not verified application success. An unconfirmed write may have applied; never replay it or create another relay to retry without inspecting state.',
+
   ListConnections:
     'Discover configured service connections, their transport and access for this chat. Attached or approved connections can be used directly; request_session_access needs RequestConnectionAccess. Never returns credentials. If the needed service is missing, use GetConnectionGuide and PrepareConnectionSetup to help the user connect it within this task.',
   GetConnectionGuide:
@@ -139,7 +150,7 @@ export function createCredentialConnectionTools(
         if (
           !stillAllowed(
             name,
-            name === 'ConnectionWebSocket'
+            name === 'ConnectionWebSocket' || name === 'ApplySecretRelay'
               ? 'POST'
               : name === 'HomeAssistantDashboard'
                 ? input.operation === 'save'
@@ -159,6 +170,36 @@ export function createCredentialConnectionTools(
             input,
           );
         if (!parsed.success) return { content: 'Invalid connection tool input', isError: true };
+        if (['PrepareSecretRelay', 'GetSecretRelay', 'ApplySecretRelay'].includes(name)) {
+          if (!service.relay)
+            return {
+              content: 'OpenShell secret relay is not configured for this runtime',
+              isError: true,
+            };
+          await assertRuntimeCurrent?.();
+          let result;
+          if (name === 'PrepareSecretRelay')
+            result = { relay: service.relay.prepare(sessionId, parsed.data) };
+          else if (name === 'GetSecretRelay')
+            result = {
+              relay: service.relay.status(
+                sessionId,
+                credentialConnectionSchemas.GetSecretRelay.parse(input).relayId,
+              ),
+            };
+          else {
+            const args = credentialConnectionSchemas.ApplySecretRelay.parse(input);
+            result = await service.relay.apply(
+              sessionId,
+              args.relayId,
+              args.targetIndex,
+              signal,
+              () => stillAllowed(name, 'POST'),
+              assertRuntimeCurrent,
+            );
+          }
+          return { content: JSON.stringify(result), isError: false };
+        }
         if (name === 'ListConnections')
           return {
             content: JSON.stringify({ connections: service.catalog(sessionId) }),

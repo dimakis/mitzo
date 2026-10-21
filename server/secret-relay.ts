@@ -58,6 +58,7 @@ type Apply = (
   signal: AbortSignal,
   check: () => void,
   dispatched: () => void,
+  assertRuntimeCurrent?: () => Promise<void>,
 ) => Promise<{ status: number }>;
 /** Placeholders must already exist and be empty; never traverse prototypes or
  * create fields the user did not review. RFC6901 object/array paths only. */
@@ -242,6 +243,7 @@ export class SecretRelays {
     targetIndex: number,
     signal: AbortSignal,
     allowed: () => boolean,
+    assertRuntimeCurrent?: () => Promise<void>,
   ) {
     const relay = this.get(id);
     const target = relay.targets[targetIndex];
@@ -275,6 +277,8 @@ export class SecretRelays {
     };
     let dispatched = false;
     try {
+      await assertRuntimeCurrent?.();
+      check();
       const secret = await this.vault.read(relay.vaultRef!, combined);
       combined.throwIfAborted();
       check();
@@ -292,6 +296,7 @@ export class SecretRelays {
           receipt({ outcome: 'unconfirmed' });
           dispatched = true;
         },
+        assertRuntimeCurrent,
       );
       combined.throwIfAborted();
       check();

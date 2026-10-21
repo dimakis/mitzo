@@ -105,7 +105,8 @@ export function sessionCredentialTools(
       !(
         (name === 'ConnectionRequest' ||
           name === 'HomeAssistantDashboard' ||
-          name === 'ConnectionWebSocket') &&
+          name === 'ConnectionWebSocket' ||
+          name === 'ApplySecretRelay') &&
         effectivePermissionMode(session) === 'ask' &&
         method &&
         !['GET', 'HEAD'].includes(method)
@@ -176,7 +177,7 @@ export function sessionCredentialTools(
         );
       if (!parsed.success) return { content: 'Invalid connection tool input', isError: true };
       const method =
-        name === 'ConnectionWebSocket'
+        name === 'ConnectionWebSocket' || name === 'ApplySecretRelay'
           ? 'POST'
           : 'operation' in parsed.data
             ? parsed.data.operation === 'save'
