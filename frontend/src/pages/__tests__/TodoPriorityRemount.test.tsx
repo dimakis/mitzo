@@ -16,7 +16,9 @@ import type { TodoItem } from '../../types/todo';
 
 const viewport = vi.hoisted(() => ({ desktop: false }));
 vi.mock('../../hooks/useMediaQuery', () => ({ useIsDesktop: () => viewport.desktop }));
-vi.mock('../../lib/event-bus-singleton', () => ({ eventBus: { on: () => () => {} } }));
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: { on: () => () => {}, onConnectionChange: () => () => {} },
+}));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (selector: (value: object) => unknown) => selector({ setPendingSession: vi.fn() }),
 }));
