@@ -19,6 +19,77 @@ const preview = {
   featureBranch: 'mitzo/task',
   state: 'preview',
 };
+it('uses a repository already on the Mac without a GitHub preview or preparation step', async () => {
+  vi.spyOn(crypto, 'randomUUID').mockReturnValue(preview.id);
+  const runtime = {
+    runOn: 'local' as const,
+    runtime: {
+      account: { accountId: 'account', provider: 'openai' as const, profileRevision: 'rev' },
+      harness: 'responses' as const,
+      targetId: 'mac',
+    },
+  };
+  const bound = {
+    version: 2,
+    account: runtime.runtime.account,
+    harness: { implementation: 'responses' },
+    execution: { location: 'local', targetId: 'mac', targetRevision: 'host-1' },
+  };
+  const onChange = vi.fn();
+  api.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes('/catalog')
+            ? {
+                available: true,
+                location: 'local',
+                repositories: [
+                  {
+                    connectionId: 'local',
+                    repositoryId: 'primary',
+                    repository: 'local/primary',
+                    label: 'Mitzo',
+                  },
+                ],
+              }
+            : { ...preview, repository: 'local/primary', state: 'ready', ordinaryRuntime: bound },
+        ),
+      ),
+  );
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      draftScoped
+      ordinaryRuntime={runtime}
+      onChange={onChange}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('Local repository'), 'local:local/primary');
+  await user.click(screen.getByRole('button', { name: 'Use repository' }));
+  await screen.findByText(/worktree starts from latest upstream main/i);
+  expect(screen.getByText('Mitzo', { exact: true })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Refresh repository status' })).toBeTruthy();
+  expect(api.fetch.mock.calls[0][0]).toContain('runOn=local');
+  const posts = api.fetch.mock.calls.filter(([, options]) => options?.method === 'POST');
+  expect(posts).toHaveLength(1);
+  expect(posts[0][0]).toBe('/api/repository-workspaces/local');
+  expect(JSON.parse(posts[0][1].body)).toMatchObject({
+    repositoryId: 'primary',
+    ordinaryRuntime: runtime,
+    requestId: expect.any(String),
+  });
+  expect(onChange).toHaveBeenLastCalledWith({
+    repositoryWorkspaceId: preview.id,
+    blocked: false,
+    ordinaryRuntime: bound,
+  });
+  expect(screen.queryByText('Prepare repository')).toBeNull();
+  expect(screen.queryByText('Paste a GitHub URL')).toBeNull();
+});
 it('does not consume another saved receipt when leaving an explicit claimed handoff', async () => {
   const otherId = 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212';
   sessionStorage.setItem('mitzo-repository-draft:account:model', otherId);

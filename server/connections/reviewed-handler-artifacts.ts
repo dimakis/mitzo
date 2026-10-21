@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.500-shared-local-upstream-base';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.501-local-repository-picker';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -910,7 +909,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/types.ts':
     'c431dcf57377fc97ed38af3be33bee555cd4934bd9d250ee54ff285c9272f177',
   '../repository-workspace-runtime.ts':
-    '8ebd46290fe485befcdfce2478040b78ba0f15dbb186925d313ac1840c73e92d',
+    '8e8752b0ccf5f2aa4796674007c304ccedd1969270a6f8abea54224d7122b064',
   '../repository-workspace-router.ts':
     'c5e02bd499316a11c1893478da6d5c15330e457b53199122e18fbe42c9cd3384',
   '../trusted-native-operation.ts':
@@ -1073,7 +1072,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-repository-preparation-authority.ts':
     'cdc69081e652ecc0f8928282849cdaccf5528060d3cbb450779793eadd0065ea',
   '../../frontend/src/components/RepositoryChatPicker.tsx':
-    'eebba5b61b91f2a3c8a6c292defdb4df388780ebfd9f4e2c6fe25a9a62b328c4',
+    'a7d70471fc40b466644b06fdc7f7a230c7e4f3b74368efe56a80ad04a9a85869',
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':
     '21b62231f1f15b14e874be59d01bd23316f4b7ee516d514500d7599c7c653fde',
   '../../frontend/src/lib/repository-chat-preparation.ts':

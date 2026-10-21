@@ -69,6 +69,7 @@ function localRepositoryWorkspacesEnabled() {
 export function repositoryWorkspaceCatalog(binding: AccountBinding, runOn?: 'local' | 'openshell') {
   if (runOn === 'local')
     return {
+      location: 'local',
       available: localRepositoryWorkspacesEnabled(),
       repositories: localRepositoryWorkspacesEnabled()
         ? Object.entries(configuredLocalRepositories())

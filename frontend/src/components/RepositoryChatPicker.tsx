@@ -2,6 +2,7 @@ import { SessionRuntimeBindingV2Schema, type SessionRuntimeBindingV2 } from '@mi
 import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
+import { createBrowserId } from '../lib/browser-crypto';
 import './RepositoryChatPicker.css';
 import { UiIcon } from './UiIcon';
 import { useQuickSettings } from '../lib/quick-settings-context';
@@ -30,11 +31,13 @@ const workspaceSchema = z.object({
 type Workspace = z.infer<typeof workspaceSchema>;
 const catalogSchema = z.object({
   available: z.boolean(),
+  location: z.enum(['local', 'openshell']).optional(),
   repositories: z.array(
     z.object({
       connectionId: z.string(),
       label: z.string(),
       repository: z.string(),
+      repositoryId: z.string().optional(),
     }),
   ),
 });
@@ -109,9 +112,12 @@ export function RepositoryChatPicker({
   const restoration = useRef<AbortController | null>(null);
   const storageKey = repositoryDraftKey(accountId, model);
   const [restorationAttempt, setRestorationAttempt] = useState(0);
+  const restoredScope = useRef('');
   const runtimeIntent = useRef(ordinaryRuntime);
   runtimeIntent.current = ordinaryRuntime;
   const runtimeKey = JSON.stringify(ordinaryRuntime ?? null);
+  const runOn = ordinaryRuntime?.runOn;
+  const localRepository = catalog?.location === 'local';
   const previousRuntime = useRef(runtimeKey);
   useEffect(() => {
     if (previousRuntime.current === runtimeKey) return;
@@ -159,6 +165,18 @@ export function RepositoryChatPicker({
     ordinaryRuntime,
   ]);
   useEffect(() => {
+    const scope = JSON.stringify([
+      accountId,
+      model,
+      storageKey,
+      initialPreparationId,
+      draftScoped,
+      restorationAttempt,
+    ]);
+    // An existing receipt owns its source. Inventory arriving or a Run on
+    // change must not clear it or hide its recovery controls.
+    if (restoredScope.current === scope && workspace) return;
+    restoredScope.current = scope;
     const controller = new AbortController();
     restoration.current = controller;
     const saved =
@@ -173,6 +191,7 @@ export function RepositoryChatPicker({
     );
     if (saved) setOpened(true);
     const query = new URLSearchParams({ accountId, model });
+    if (runOn) query.set('runOn', runOn);
     void Promise.resolve(
       apiFetch(`/api/repository-workspaces/catalog?${query}`, { signal: controller.signal }),
     )
@@ -225,8 +244,14 @@ export function RepositoryChatPicker({
       controller.abort();
       operation.current?.abort();
     };
-  }, [accountId, model, storageKey, initialPreparationId, draftScoped, restorationAttempt]);
+  }, [accountId, model, storageKey, initialPreparationId, draftScoped, restorationAttempt, runOn]);
   const repositories = catalog?.available ? catalog.repositories : [];
+  const repositoryLabel =
+    workspace &&
+    (localRepository
+      ? (repositories.find((entry) => entry.repository === workspace.repository)?.label ??
+        workspace.repository)
+      : workspace.repository);
   const savedId =
     initialPreparationId || draftScoped ? null : savedRepositoryDraft(accountId, model);
   const pendingId = pendingPreparationId ?? savedId;
@@ -248,6 +273,7 @@ export function RepositoryChatPicker({
     setBusy(true);
     setError('');
     let responseReceived = false;
+    const localId = localRepository ? createBrowserId() : undefined;
     callback.current({
       blocked: true,
       ...(draftScoped && action === 'prepare' && workspace
@@ -255,6 +281,17 @@ export function RepositoryChatPicker({
         : {}),
     });
     try {
+      if (localId) {
+        if (!selection.repositoryId || !ordinaryRuntime || ordinaryRuntime.runOn !== 'local')
+          throw Error('Choose a local repository and account');
+        setPendingPreparationId(localId);
+        callback.current({ blocked: true, repositoryWorkspaceId: localId });
+        try {
+          if (!draftScoped) sessionStorage.setItem(storageKey, localId);
+        } catch {
+          /* Draft state retains the ID. */
+        }
+      }
       if (action === 'prepare' && workspace) {
         setPendingPreparationId(workspace.id);
         try {
@@ -263,8 +300,9 @@ export function RepositoryChatPicker({
           /* The current draft still retains its original operation ID. */
         }
       }
-      const endpoint =
-        action === 'preview'
+      const endpoint = localId
+        ? '/api/repository-workspaces/local'
+        : action === 'preview'
           ? '/api/repository-workspaces/preview'
           : `/api/repository-workspaces/${workspace!.id}/prepare`;
       const response = await apiFetch(endpoint, {
@@ -274,13 +312,15 @@ export function RepositoryChatPicker({
         body: JSON.stringify({
           accountId,
           model,
-          ...(action === 'preview'
-            ? {
-                connectionId: selection.connectionId,
-                repository: selected === 'url' ? url : selection.repository,
-                ...(ordinaryRuntime ? { ordinaryRuntime } : {}),
-              }
-            : {}),
+          ...(localId
+            ? { repositoryId: selection.repositoryId, ordinaryRuntime, requestId: localId }
+            : action === 'preview'
+              ? {
+                  connectionId: selection.connectionId,
+                  repository: selected === 'url' ? url : selection.repository,
+                  ...(ordinaryRuntime ? { ordinaryRuntime } : {}),
+                }
+              : {}),
         }),
       });
       responseReceived = true;
@@ -291,6 +331,13 @@ export function RepositoryChatPicker({
         );
       const result = workspaceSchema.parse(data);
       if (controller.signal.aborted) return;
+      if (
+        localId &&
+        (result.id !== localId ||
+          !ordinaryRuntime ||
+          !matchesRuntime(result.ordinaryRuntime, ordinaryRuntime))
+      )
+        throw Error('Local repository selection changed. Refresh its status before sending.');
       setWorkspace(result);
       if (result.state === 'ready') {
         try {
@@ -307,7 +354,7 @@ export function RepositoryChatPicker({
     } catch (failure) {
       if (!controller.signal.aborted)
         setError(
-          action === 'prepare' && !responseReceived
+          (localId || action === 'prepare') && !responseReceived
             ? 'Could not confirm repository preparation. Refresh its status to continue.'
             : failure instanceof Error
               ? failure.message
@@ -415,16 +462,19 @@ export function RepositoryChatPicker({
     }
   };
   if ((!catalog?.available || !repositories.length) && !opened && !retainedConversationId) {
-    const hint = catalog?.available ? (
-      <p className="repository-chat-hint">
-        Assign a GitHub connection with repository access to this AI account in{' '}
-        <a href="/connections">Connections</a>.
-      </p>
-    ) : (
-      <p className="repository-chat-hint">
-        {error || 'Repository choices are unavailable for this account.'}
-      </p>
-    );
+    const hint =
+      catalog?.available && localRepository ? (
+        <p className="repository-chat-hint">No local repositories are configured on this Mac.</p>
+      ) : catalog?.available ? (
+        <p className="repository-chat-hint">
+          Assign a GitHub connection with repository access to this AI account in{' '}
+          <a href="/connections">Connections</a>.
+        </p>
+      ) : (
+        <p className="repository-chat-hint">
+          {error || 'Repository choices are unavailable for this account.'}
+        </p>
+      );
     return quick && presentation === 'settings' ? (
       <QuickSettingsField page="repository" title="Repository" value="Unavailable">
         {hint}
@@ -467,7 +517,7 @@ export function RepositoryChatPicker({
           {(!inSettings || (workspace && (pendingId || workspace.state !== 'preview'))) && (
             <strong>
               {workspace && (workspace.state !== 'preview' || (inSettings && pendingId))
-                ? workspace.repository
+                ? repositoryLabel
                 : 'Repository for this chat'}
             </strong>
           )}
@@ -476,7 +526,7 @@ export function RepositoryChatPicker({
             !(inSettings && pendingId) && (
               <>
                 <label>
-                  GitHub repository
+                  {localRepository ? 'Local repository' : 'GitHub repository'}
                   <select
                     value={selected}
                     disabled={busy || !catalog?.available}
@@ -488,10 +538,10 @@ export function RepositoryChatPicker({
                         key={`${entry.connectionId}:${entry.repository}`}
                         value={`${entry.connectionId}:${entry.repository}`}
                       >
-                        {entry.repository} · {entry.label}
+                        {localRepository ? entry.label : `${entry.repository} · ${entry.label}`}
                       </option>
                     ))}
-                    <option value="url">Paste a GitHub URL</option>
+                    {!localRepository && <option value="url">Paste a GitHub URL</option>}
                   </select>
                 </label>
                 {selected === 'url' && (
@@ -519,10 +569,16 @@ export function RepositoryChatPicker({
                 <button
                   type="button"
                   className={actionClass}
-                  disabled={busy || !selection || unresolvedSaved || !!pendingId}
+                  disabled={
+                    busy ||
+                    !selection ||
+                    unresolvedSaved ||
+                    !!pendingId ||
+                    (localRepository && !selection?.repositoryId)
+                  }
                   onClick={() => void requestWorkspace('preview')}
                 >
-                  Preview repository
+                  {localRepository ? 'Use repository' : 'Preview repository'}
                 </button>
               </>
             )}
@@ -567,13 +623,21 @@ export function RepositoryChatPicker({
                     : workspace.state === 'claimed'
                       ? 'This preparation already belongs to a conversation. Open that conversation below, or continue without this repository.'
                       : workspace.state === 'ready'
-                        ? 'Ready for your first prompt. Dependency setup happens in the chat workspace.'
+                        ? localRepository && workspace.repository.startsWith('local/')
+                          ? 'Ready. The worktree starts from latest upstream main.'
+                          : 'Ready for your first prompt. Dependency setup happens in the chat workspace.'
                         : `Repository preparation is ${workspace.state}. Refresh its status before sending.`}
                 </p>
               )}
             </div>
           )}
-          {busy && <p role="status">Preparing repository…</p>}
+          {busy && (
+            <p role="status">
+              {localRepository
+                ? 'Checking local repository and fetching upstream main…'
+                : 'Preparing repository…'}
+            </p>
+          )}
           {error && <p role="alert">{error}</p>}
           {(initialPreparationId || pendingId || (workspace && workspace.state !== 'preview')) && (
             <button
@@ -587,7 +651,7 @@ export function RepositoryChatPicker({
                 else void refreshPreparation();
               }}
             >
-              Refresh preparation status
+              {localRepository ? 'Refresh repository status' : 'Refresh preparation status'}
             </button>
           )}
           <button
@@ -613,7 +677,7 @@ export function RepositoryChatPicker({
     <QuickSettingsField
       page="repository"
       title="Repository"
-      value={workspace?.repository ?? (unresolvedSaved ? 'Check preparation' : 'Add repository')}
+      value={repositoryLabel ?? (unresolvedSaved ? 'Check preparation' : 'Add repository')}
       add={!workspace && !unresolvedSaved}
       onOpen={() => {
         if (!opened) {

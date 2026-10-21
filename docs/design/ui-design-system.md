@@ -2027,6 +2027,13 @@ Checkout details disclosure. Pending preparation shows the original repository,
 its status and read-only refresh action without repeating source-selection or
 prepare controls. The main approved settings rows and ledger revision are retained.
 
+Local Mac offers the repositories already configured on the host through the same
+editor. Use repository fetches upstream main and selects the local checkout; no
+GitHub connection, source preview or import step is shown. The existing workspace
+owner creates a linked worktree for the command and retains it for continuation.
+The editor displays the repository's name and keeps branch/commit details in the
+shared disclosure. This workspace behavior is independent of the account provider.
+
 The all-intercept repository-preparation-recovery browser fixture renders the real
 responsive chat route, MobileShell/DesktopShell, settings, picker and composer. It
 covers 320px mobile WebKit/Chromium and 1280px desktop Chromium, dark Mint/System
@@ -2035,6 +2042,8 @@ runtime-change invalidation, lost-response recovery, keyboard focus, reachable
 44px actions and retained draft text. Its local-settings-default and
 local-repository captures are retained by the existing Local first-command CI
 artifact upload. These are offline application renders, not live provider evidence.
+The existing-local captures additionally cover ChatGPT, OpenAI API, Claude Vertex
+and Gemini selections in the same real mobile/desktop routes and themes.
 
 ## Telos lifecycle actions
 
