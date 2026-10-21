@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { lstatSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
-import { isDeepStrictEqual } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
 import { detectDefaultBranch } from './worktree.js';
 
 const unavailable = () => Error('Original local repository is unavailable');
@@ -44,13 +44,64 @@ export interface LocalRepositorySource {
   commonDirectory: string;
   commonRoot: { dev: number; ino: number };
 }
-export function captureLocalRepository(repositoryId: string, path: string) {
+export async function captureLocalRepository(
+  repositoryId: string,
+  path: string,
+  signal: AbortSignal,
+  startPoint?: string,
+) {
+  signal.throwIfAborted();
   const root = directory(path);
   if (git(path, 'rev-parse', '--show-toplevel') !== path) throw unavailable();
   const commonDirectory = git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir');
   const commonRoot = directory(commonDirectory);
-  const baseBranch = detectDefaultBranch(path);
-  const baseOid = git(path, 'rev-parse', '--verify', `${baseBranch}^{commit}`);
+  const baseBranch = startPoint ?? detectDefaultBranch(path);
+  let ref = baseBranch;
+  if (startPoint === undefined) {
+    const remotes = git(path, 'remote').split('\n');
+    const tracking = git(
+      path,
+      'for-each-ref',
+      '--format=%(upstream:remotename)',
+      `refs/heads/${baseBranch}`,
+    );
+    const remote =
+      tracking ||
+      (remotes.includes('origin')
+        ? 'origin'
+        : remotes.includes('upstream')
+          ? 'upstream'
+          : undefined);
+    if (remote) {
+      const environment = Object.fromEntries(
+        Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
+      );
+      await promisify(execFile)(
+        'git',
+        [
+          '-C',
+          path,
+          '-c',
+          'core.hooksPath=/dev/null',
+          'fetch',
+          '--no-tags',
+          '--no-write-fetch-head',
+          '--',
+          remote,
+          `+refs/heads/${baseBranch}:refs/remotes/${remote}/${baseBranch}`,
+        ],
+        {
+          env: { ...environment, GIT_TERMINAL_PROMPT: '0' },
+          signal,
+          timeout: 60000,
+          maxBuffer: 65536,
+        },
+      );
+      ref = `refs/remotes/${remote}/${baseBranch}`;
+    }
+  }
+  signal.throwIfAborted();
+  const baseOid = git(path, 'rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`);
   if (!/^[a-f0-9]{40}$/.test(baseOid)) throw unavailable();
   return {
     localSource: { repositoryId, path, root, commonDirectory, commonRoot },

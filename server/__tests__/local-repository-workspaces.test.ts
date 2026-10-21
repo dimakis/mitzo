@@ -158,3 +158,44 @@ it('refuses arbitrary paths, sandbox targets and a changed configured repository
     }),
   ).rejects.toThrow();
 });
+
+it('fetches latest upstream main instead of stale local main, while preserving an explicit agent ref', async () => {
+  const f = await fixture();
+  const upstream = join(f.root, 'upstream.git');
+  execFileSync('git', ['clone', '-q', '--bare', f.repo, upstream]);
+  f.git(f.repo, 'remote', 'add', 'origin', upstream);
+  f.git(f.repo, 'fetch', '-q', 'origin');
+  const previous = f.git(f.repo, 'rev-parse', 'main');
+  const publisher = join(f.root, 'publisher');
+  execFileSync('git', ['clone', '-q', upstream, publisher]);
+  f.git(publisher, 'config', 'user.name', 'Offline');
+  f.git(publisher, 'config', 'user.email', 'offline@example.invalid');
+  writeFileSync(join(publisher, 'new.txt'), 'latest main');
+  f.git(publisher, 'add', '.');
+  f.git(publisher, 'commit', '-qm', 'upstream advanced');
+  f.git(publisher, 'push', '-q', 'origin', 'main');
+  const latest = f.git(publisher, 'rev-parse', 'HEAD');
+  const selection = {
+    runOn: 'local' as const,
+    runtime: { account: f.runtime.account, harness: 'responses' as const, targetId: 'mac' },
+  };
+  const service = f.reopen();
+  const ready = await service.selectLocalRepository(
+    binding,
+    'primary',
+    selection,
+    AbortSignal.timeout(10000),
+  );
+  expect(ready.baseOid).toBe(latest);
+  expect(f.git(f.repo, 'rev-parse', 'main')).toBe(previous);
+  expect(f.git(f.repo, 'status', '--short')).toContain('uncommitted.txt');
+  const explicit = await service.selectLocalRepository(
+    binding,
+    'primary',
+    selection,
+    AbortSignal.timeout(10000),
+    undefined,
+    previous,
+  );
+  expect(explicit.baseOid).toBe(previous);
+});

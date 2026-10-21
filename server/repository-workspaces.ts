@@ -1033,6 +1033,7 @@ export class RepositoryWorkspaces {
     selection: OrdinaryRepositoryRuntimeSelection,
     signal: AbortSignal,
     requestId = randomUUID(),
+    startPoint?: string,
   ) {
     return this.runOperation(async () => {
       const id = z.uuid().parse(requestId);
@@ -1051,6 +1052,7 @@ export class RepositoryWorkspaces {
         repositoryId,
         path,
         selection,
+        startPoint: startPoint ?? null,
       });
       const retained = this.db.prepare('SELECT id FROM repository_workspaces WHERE id=?').get(id);
       if (retained) {
@@ -1062,7 +1064,7 @@ export class RepositoryWorkspaces {
         return publicRepositoryWorkspace(record);
       }
       signal.throwIfAborted();
-      const source = captureLocalRepository(repositoryId, path);
+      const source = await captureLocalRepository(repositoryId, path, signal, startPoint);
       const proof = OrdinaryRepositoryPreparationSchema.parse(
         await this.deps.ordinaryPreparation?.capture(binding, selection, signal),
       );
