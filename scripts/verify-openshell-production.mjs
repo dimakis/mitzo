@@ -121,11 +121,34 @@ function run(command, args) {
   }).trim();
 }
 
-export function verifyAccountBindings(accounts, providers) {
+export function verifyAccountBindings(accounts, providers, { hostCodexEnabled = false } = {}) {
   invariant(Array.isArray(accounts), 'account profiles must be an array');
   const providerByName = new Map(providers.map((provider) => [provider.name, provider]));
   for (const account of accounts) {
     if (account.provider !== 'openai' && account.provider !== 'openai-codex') continue;
+    // Host login and brokered OAuth are exclusive account-profile forms. A
+    // separately enabled host route has no gateway provider to validate here;
+    // its source-bound runtime and authenticated login remain admission checks.
+    if (
+      hostCodexEnabled === true &&
+      account.provider === 'openai-codex' &&
+      typeof account.credentialRef === 'string' &&
+      isAbsolute(account.credentialRef) &&
+      typeof account.email === 'string' &&
+      account.email.trim().length > 0 &&
+      typeof account.planType === 'string' &&
+      account.planType.trim().length > 0 &&
+      account.planType.trim().toLowerCase() !== 'api' &&
+      [
+        'nativeAuth',
+        'workspaceId',
+        'sandboxProvider',
+        'sandboxProviderType',
+        'sandboxProviderId',
+        'sandboxGrantId',
+      ].every((field) => account[field] === undefined)
+    )
+      continue;
     invariant(account.sandboxProvider, `account ${account.id} is missing sandboxProvider`);
     const provider = providerByName.get(account.sandboxProvider);
     invariant(provider, `account ${account.id} references a missing sandbox provider`);
@@ -739,7 +762,9 @@ export function main(argv = process.argv.slice(2), inheritedEnv = process.env) {
     }
   }
   const accounts = JSON.parse(readFileSync(accountsPath, 'utf8'));
-  verifyAccountBindings(accounts, providers);
+  verifyAccountBindings(accounts, providers, {
+    hostCodexEnabled: config.MITZO_ORDINARY_LOCAL_CODEX_ENABLED === '1',
+  });
   const apiProfiles = new Set(
     accounts
       .filter((account) => account.provider === 'openai')
