@@ -2393,6 +2393,10 @@ textarea:focus {
   background: var(--danger, var(--color-danger));
 }
 
+.tool-pill-dot--interrupted {
+  background: var(--text-dim);
+}
+
 .tool-pill-dot--pending {
   background: var(--text-dim);
   animation: pulse-dot var(--motion-duration-status) var(--motion-ease) infinite;
@@ -6211,6 +6215,8 @@ textarea:focus {
 /* ── Task Node ──────────────────────────────────────────── */
 
 .task-node {
+  container: task-node / inline-size;
+  min-width: 0;
   padding: var(--space-1) 0;
   transition: opacity var(--motion-duration-standard) var(--motion-ease);
 }
@@ -6408,6 +6414,64 @@ textarea:focus {
 
 .task-node-action--danger:hover {
   color: var(--danger);
+}
+
+.task-node-artifacts {
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--space-2);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.task-node-artifact {
+  min-width: 0;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.task-node-artifact + .task-node-artifact {
+  margin-top: var(--space-1);
+}
+
+.task-node-artifact-value {
+  font-family: var(--font-mono);
+}
+
+/* Use the existing reading-width boundary in narrow panes as well as phones. */
+@container task-node (max-width: 48rem) {
+  .task-node-row {
+    flex-wrap: wrap;
+  }
+
+  .task-node-title,
+  .task-node-summary {
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
+  }
+
+  .task-node-actions {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    opacity: 1;
+  }
+
+  .task-node-status,
+  .task-node-chevron,
+  .task-node-action,
+  .task-node-session-link {
+    min-width: var(--control-height);
+    min-height: var(--control-height);
+  }
+
+  .task-node-session-link {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: middle;
+  }
 }
 
 .task-node-children {

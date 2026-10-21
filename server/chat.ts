@@ -48,7 +48,11 @@ import {
 } from './ordinary-contributor-guidance.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
-import { SourceSnapshotsSchema, type SourceSnapshot } from '@mitzo/protocol';
+import {
+  interruptUnansweredToolBlocks,
+  SourceSnapshotsSchema,
+  type SourceSnapshot,
+} from '@mitzo/protocol';
 import {
   recordAcceptedReplaySession,
   replayError,
@@ -218,14 +222,20 @@ export function resolveOwnedTelosWorkCommandScope(sessionId: string, forNewComma
       hasAcceptedProviderTurn: (id: string, account: AccountBinding | undefined) =>
         account?.provider === 'openai-codex' &&
         getCodexConversationStore().hasAcceptedProviderTurn(id, account),
-      work: () =>
-        (work ??= new TelosWorkStore(
-          process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'),
-          {
-            ordinaryConversation: (id) =>
-              isAvailableTelosWorkConversation(eventStore.getSession(id)),
-          },
-        )),
+      work: () => {
+        if (work) return work;
+        const path =
+          process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db');
+        const policy = {
+          ordinaryConversation: (id: string) =>
+            isAvailableTelosWorkConversation(eventStore.getSession(id)),
+        };
+        // New-command admission can retain control-denial evidence. Running-turn
+        // scope checks only read authority and may run inside artifact COMMIT.
+        return (work = forNewCommand
+          ? new TelosWorkStore(path, policy)
+          : TelosWorkStore.openReadOnly(path, policy));
+      },
     };
     if (forNewCommand)
       assertTelosWorkCommandAdmission(
@@ -5326,6 +5336,7 @@ export interface RestoredMessage {
     toolResult?: string;
     toolResultImages?: Array<{ id: string; mediaType: string }>;
     toolError?: boolean;
+    toolInterrupted?: boolean;
     subagent?: RestoredSubagentState;
   }>;
 }
@@ -5751,6 +5762,10 @@ function replaySingleEventsToTranscript(
       }
       case 'session_end':
         finishTurn();
+        for (let index = 0; index < messages.length; index++) {
+          const blocks = interruptUnansweredToolBlocks(messages[index].blocks);
+          if (blocks !== messages[index].blocks) messages[index] = { ...messages[index], blocks };
+        }
         break;
     }
   }
@@ -6150,6 +6165,15 @@ export function replayEventsToMessages(
           messages.push(currentMsg);
         }
         currentMsg = null;
+        break;
+
+      case 'session_end':
+        if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
+        currentMsg = null;
+        for (let index = 0; index < messages.length; index++) {
+          const blocks = interruptUnansweredToolBlocks(messages[index].blocks);
+          if (blocks !== messages[index].blocks) messages[index] = { ...messages[index], blocks };
+        }
         break;
     }
   }

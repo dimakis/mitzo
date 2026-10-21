@@ -21,7 +21,11 @@ import type {
   SymposiumProvenance,
 } from '@mitzo/protocol';
 import { messageIdentity } from '../message-identity.js';
-import { splitContextPrompt, type ContextInjection } from '@mitzo/protocol';
+import {
+  interruptUnansweredToolBlocks,
+  splitContextPrompt,
+  type ContextInjection,
+} from '@mitzo/protocol';
 
 function sameInjections(left: ContextInjection[] | undefined, right: ContextInjection[]) {
   return (
@@ -260,6 +264,7 @@ function finishSubagent(
         toolResult: b.toolResult,
         toolResultImages: b.toolResultImages,
         toolError: b.toolError,
+        ...(b.toolInterrupted !== undefined ? { toolInterrupted: b.toolInterrupted } : {}),
       })),
   };
 }
@@ -278,6 +283,7 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
       toolResult: b.toolResult,
       toolResultImages: b.toolResultImages,
       toolError: b.toolError,
+      ...(b.toolInterrupted !== undefined ? { toolInterrupted: b.toolInterrupted } : {}),
       subagent: b.subagent ? finishSubagent(b.subagent) : undefined,
     };
   });
@@ -385,6 +391,25 @@ function sameProvenance(a: SymposiumProvenance, b: SymposiumProvenance): boolean
 
 function refuseAttributedEvent(state: MessagesState): MessagesState {
   return state.resyncRequired ? state : { ...state, resyncRequired: true };
+}
+
+function projectTerminalTools(
+  state: MessagesState,
+  provenance?: SymposiumProvenance,
+): MessagesState {
+  let changed = false;
+  const messages = state.messages.map((message) => {
+    if (
+      provenance &&
+      (!message.symposiumProvenance || !sameProvenance(message.symposiumProvenance, provenance))
+    )
+      return message;
+    const blocks = interruptUnansweredToolBlocks(message.blocks);
+    if (blocks === message.blocks) return message;
+    changed = true;
+    return { ...message, blocks };
+  });
+  return changed ? { ...state, messages } : state;
 }
 
 function reduceAttributed(state: MessagesState, action: MessagesAction): MessagesState {
@@ -579,8 +604,12 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       action.type === 'MESSAGE_SNAPSHOT' ||
       action.type === 'SESSION_END' ||
       action.type.startsWith('SUBAGENT_'))
-  )
-    return reduceAttributed(state, action);
+  ) {
+    const next = reduceAttributed(state, action);
+    return action.type === 'SESSION_END' && !next.resyncRequired
+      ? projectTerminalTools(next, action.symposiumProvenance)
+      : next;
+  }
   const next = reduceLegacyMessages(state, action);
   if (action.type === 'SESSION_END' && Object.keys(state.currentByMessage).length > 0) {
     let messages = next.messages;
@@ -594,7 +623,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       )
         messages = insertByStartedSeq(messages, finishCurrent(current));
     }
-    return { ...next, messages, currentByMessage: {} };
+    return projectTerminalTools({ ...next, messages, currentByMessage: {} });
   }
   if (action.type === 'RESTORE') {
     const finishedIds = new Set(
@@ -609,7 +638,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         );
     return { ...next, currentByMessage, resyncRequired: false };
   }
-  return next;
+  return action.type === 'SESSION_END' ? projectTerminalTools(next) : next;
 }
 
 function reduceLegacyMessages(state: MessagesState, action: MessagesAction): MessagesState {

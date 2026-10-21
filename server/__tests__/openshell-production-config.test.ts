@@ -444,7 +444,15 @@ describe('OpenShell production bundle validation', () => {
     const repoRoot = new URL('../..', import.meta.url).pathname;
 
     execFileSync('git', ['init', '--bare', remote]);
-    execFileSync('git', ['clone', '--no-local', repoRoot, source]);
+    execFileSync('git', ['--git-dir', remote, 'config', 'receive.shallowUpdate', 'true']);
+    execFileSync('git', ['clone', '--depth=1', '--no-local', repoRoot, source]);
+    execFileSync('git', [
+      '-C',
+      source,
+      'config',
+      'remote.origin.fetch',
+      '+refs/heads/*:refs/remotes/origin/*',
+    ]);
     execFileSync('git', ['-C', source, 'remote', 'set-url', 'origin', remote]);
     execFileSync('git', ['-C', source, 'config', 'user.email', 'test@example.com']);
     execFileSync('git', ['-C', source, 'config', 'user.name', 'Test']);
@@ -537,7 +545,15 @@ describe('OpenShell production bundle validation', () => {
     const repoRoot = new URL('../..', import.meta.url).pathname;
 
     execFileSync('git', ['init', '--bare', remote]);
-    execFileSync('git', ['clone', '--no-local', repoRoot, source]);
+    execFileSync('git', ['--git-dir', remote, 'config', 'receive.shallowUpdate', 'true']);
+    execFileSync('git', ['clone', '--depth=1', '--no-local', repoRoot, source]);
+    execFileSync('git', [
+      '-C',
+      source,
+      'config',
+      'remote.origin.fetch',
+      '+refs/heads/*:refs/remotes/origin/*',
+    ]);
     const stack = JSON.parse(
       readFileSync(join(source, 'infra/openshell/production-stack.lock.json'), 'utf8'),
     );

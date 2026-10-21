@@ -32,11 +32,16 @@ export function telosWorkerReceipt(block: ToolBlock, sessionId?: string) {
       receipt.leadPath !== `/chat/${encodeURIComponent(sessionId)}`
     )
       return null;
-    // Full JSON inputs retain an additional child fence. Summarized
-    // tool input is display text and cannot supply an invented child identity.
-    if (block.toolInput?.trim().startsWith('{')) {
-      const input: unknown = JSON.parse(block.toolInput);
-      if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
+    // Complete JSON can supply an additional child consistency check. Ordinary
+    // native input summaries may be truncated JSON; display text cannot revoke
+    // or replace the validated receipt's exact lead/worker/path identities.
+    let input: unknown;
+    try {
+      input = JSON.parse(block.toolInput ?? '');
+    } catch {
+      // The original tool input summary need not be complete JSON.
+    }
+    if (input && typeof input === 'object' && !Array.isArray(input)) {
       const expected = input as Record<string, unknown>;
       if (expected.childItemId !== undefined && expected.childItemId !== attempt.childItemId)
         return null;

@@ -1340,6 +1340,76 @@ it('keeps the latest command recovery failure terminal and visible', () => {
   );
 });
 
+it('keeps a newer tool pending after an older saved failure until its actual terminal event', () => {
+  const { store } = setup();
+  const sessionId = 'retained-error-tool-lifecycle';
+  channel.send.mockReturnValue(true);
+  channel.listener({ type: 'session_id', sessionId });
+  const commands = ['Older request', 'Newer request'].map((text, index) => {
+    store.getState().sendMessage(text, { onDelivery: () => {} });
+    const command = channel.send.mock.calls.filter(([body]) => body.type === 'send').at(-1)![0];
+    channel.listener({
+      type: 'user_message',
+      sessionId,
+      seq: index + 1,
+      messageId: command.clientMsgId,
+      text,
+    });
+    channel.listener({
+      type: '_send_accepted',
+      sessionId,
+      clientMsgId: command.clientMsgId,
+      retained: true,
+    });
+    return command;
+  });
+  channel.listener({ type: 'message_start', sessionId, seq: 3, messageId: 'newer-answer' });
+  channel.listener({
+    type: 'block_start',
+    sessionId,
+    seq: 4,
+    blockId: 'newer-tool',
+    blockType: 'tool_use',
+  });
+  channel.listener({
+    type: 'block_end',
+    sessionId,
+    seq: 5,
+    blockId: 'newer-tool',
+    blockType: 'tool_use',
+    toolId: 'pending-call',
+    toolName: 'TelosReadArtifact',
+    input: '{}',
+  });
+  const current = store.getState().messages.current;
+  expect(store.getState().messages.running).toBe(true);
+  expect(current?.blocks.get('newer-tool')).toMatchObject({ blockType: 'tool_use' });
+  channel.listener({
+    v: 2,
+    type: 'error',
+    sessionId,
+    seq: 6,
+    prevSessionSeq: 5,
+    clientMsgId: commands[0].clientMsgId,
+    retainedCommandFailure: true,
+    error: 'Message saved. Earlier recovery failed.',
+  });
+  expect(store.getState().messages.current).toEqual(current);
+  expect(store.getState().messages.running).toBe(true);
+  expect(store.getState().messages.current?.blocks.get('newer-tool')).not.toHaveProperty(
+    'toolInterrupted',
+  );
+  expect(store.getState().messages.current?.blocks.get('newer-tool')?.toolResult).toBeUndefined();
+  channel.listener({ type: 'session_end', sessionId, seq: 7, prevSessionSeq: 6 });
+  const finished = store
+    .getState()
+    .messages.messages.find((message) => message.messageId === 'newer-answer');
+  expect(finished?.blocks[0]).toMatchObject({ blockType: 'tool_use', toolInterrupted: true });
+  expect(finished?.blocks[0].toolResult).toBeUndefined();
+  expect(finished?.blocks[0].toolError).toBeUndefined();
+  expect(store.getState().messages.running).toBe(false);
+});
+
 it('keeps an older command failure after its existing output and before the newer input', () => {
   const { store } = setup();
   const sessionId = 'command-error-groups';

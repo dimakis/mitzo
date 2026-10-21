@@ -39,10 +39,10 @@ const receipt = {
 };
 afterEach(() => vi.unstubAllGlobals());
 
-it('retains held catalog route activation for the newly registered mutation', () => {
+it('activates the slice mutation only on the supported owned-local route', () => {
   expect(agentToolCatalog().find((tool) => tool.name === 'TelosStartSlice')).toMatchObject({
     behavior: 'write',
-    routes: [],
+    routes: ['codex-owned-local'],
   });
   expect(() =>
     assertAgentToolRoute(

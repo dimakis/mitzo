@@ -97,3 +97,56 @@ describe('existing canonical Telos creator transport', () => {
     await expect(createCanonicalTelosOutcome(options, input)).rejects.toThrow();
   });
 });
+
+it('renews native source authority at the actual creator dispatch and retains the known receipt', async () => {
+  let current = true;
+  const calls: string[] = [];
+  const receipt = { ok: true, created: true, item: { id: 'canonical-item', summary: 'Outcome' } };
+  const execute = vi.fn(async () => {
+    calls.push('execute');
+    current = false;
+    return { stdout: JSON.stringify(receipt) };
+  });
+  const options = {
+    script: 'configured/todo_api.py',
+    exists: () => true,
+    timeoutMs: 30000,
+    maxBufferBytes: 8388608,
+    execute,
+  };
+  const assertCurrentSync = () => {
+    calls.push('admit');
+    if (!current) throw Error('revoked');
+  };
+  expect(await createCanonicalTelosOutcome(options, input, assertCurrentSync)).toEqual({
+    itemId: 'canonical-item',
+    receipt,
+  });
+  expect(calls).toEqual(['admit', 'execute']);
+  await expect(createCanonicalTelosOutcome(options, input, assertCurrentSync)).rejects.toThrow(
+    'revoked',
+  );
+  expect(execute).toHaveBeenCalledTimes(1);
+});
+it('rejects async and value-returning authority before canonical external dispatch', async () => {
+  const execute = vi.fn();
+  const options = {
+    script: 'configured/todo_api.py',
+    exists: () => true,
+    timeoutMs: 30000,
+    maxBufferBytes: 8388608,
+    execute,
+  };
+  for (const assertion of [
+    async () => {},
+    async () => {
+      throw Error('revoked');
+    },
+    () => true,
+  ])
+    await expect(createCanonicalTelosOutcome(options, input, assertion)).rejects.toThrow(
+      /authority unavailable/,
+    );
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(execute).not.toHaveBeenCalled();
+});

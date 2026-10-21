@@ -327,8 +327,12 @@ export class TelosSourceCapture {
   async createReviewed(
     raw: unknown,
     actor: TelosWorkActor,
-    createOutcome: (body: TelosOutcomeCreation) => Promise<{ itemId: string }>,
+    createOutcome: (
+      body: TelosOutcomeCreation,
+      assertCurrentSync?: () => void,
+    ) => Promise<{ itemId: string }>,
     readPreparedPreview?: () => TelosSourcePreview,
+    assertOperationCurrent?: () => void,
   ): Promise<TelosWorkCommandReceipt> {
     const actorId = this.operator(actor);
     const input = TelosSourceCreateRequestSchema.parse(raw);
@@ -359,6 +363,7 @@ export class TelosSourceCapture {
       }
       if (preview.sha256 !== input.previewSha256) conflict();
       this.preparedPreview(() => preview, actor, input.selection, input.previewSha256, null);
+      this.assertOperationCurrent(assertOperationCurrent);
       record = this.options.work.prepareSourceCreation(
         input.requestId,
         inputHash,
@@ -367,16 +372,22 @@ export class TelosSourceCapture {
       );
     }
     const retained = { sha256: input.previewSha256, packet: record.packet };
-    const assertCurrentAuthority = () =>
+    const assertCurrentAuthority = () => {
+      this.assertOperationCurrent(assertOperationCurrent);
       this.preparedPreview(() => retained, actor, input.selection, input.previewSha256, null);
+      this.assertOperationCurrent(assertOperationCurrent);
+    };
     const creation = record.packet.creation;
     if (!creation) conflict();
     if (!record.itemId) {
       assertCurrentAuthority();
-      const result = await createOutcome({
-        ...creation.outcome,
-        idempotencyKey: record.idempotencyKey,
-      });
+      const result = await createOutcome(
+        {
+          ...creation.outcome,
+          idempotencyKey: record.idempotencyKey,
+        },
+        assertCurrentAuthority,
+      );
       record = this.options.work.recordSourceCreationItem(
         input.requestId,
         inputHash,
@@ -393,7 +404,7 @@ export class TelosSourceCapture {
     let artifact = this.options.artifacts.retryReceipt(sessionId, requestId, inputHash);
     if (!artifact) {
       assertCurrentAuthority();
-      artifact = this.options.artifacts.save({
+      const material = {
         itemId: record.itemId,
         filename: 'origin-' + input.previewSha256 + '.json',
         title: (
@@ -403,7 +414,10 @@ export class TelosSourceCapture {
         sessionId,
         requestId,
         requestInputHash: inputHash,
-      });
+      };
+      artifact = assertOperationCurrent
+        ? this.options.artifacts.saveGuarded(material, assertCurrentAuthority)
+        : this.options.artifacts.save(material);
     }
     const receipt = this.linkPacket(
       record.packet,
@@ -424,6 +438,7 @@ export class TelosSourceCapture {
     raw: unknown,
     actor: TelosWorkActor,
     readPreparedPreview?: () => TelosSourcePreview,
+    assertOperationCurrent?: () => void,
   ): Promise<TelosWorkCommandReceipt> {
     const actorId = this.operator(actor);
     const input = TelosSourceAdoptRequestSchema.parse(raw);
@@ -468,7 +483,7 @@ export class TelosSourceCapture {
         input.previewSha256,
         input.itemId,
       );
-      artifact = this.options.artifacts.save({
+      const material = {
         itemId: input.itemId,
         filename: 'origin-' + preview.sha256 + '.json',
         title: ('Original discussion · ' + (packet.sourceTitle ?? 'Reviewed exchange')).slice(
@@ -479,7 +494,21 @@ export class TelosSourceCapture {
         sessionId,
         requestId,
         requestInputHash: inputHash,
-      });
+      };
+      const assertCurrent = () => {
+        this.assertOperationCurrent(assertOperationCurrent);
+        this.preparedPreview(
+          () => preview,
+          actor,
+          input.selection,
+          input.previewSha256,
+          input.itemId,
+        );
+        this.assertOperationCurrent(assertOperationCurrent);
+      };
+      artifact = assertOperationCurrent
+        ? this.options.artifacts.saveGuarded(material, assertCurrent)
+        : this.options.artifacts.save(material);
     }
     if (
       packet.actorId !== actorId ||
@@ -487,15 +516,25 @@ export class TelosSourceCapture {
       packet.workRevision !== input.expectedRevision
     )
       conflict();
-    return this.linkPacket(packet, artifact, { ...input, scope: 'adopt' }, actor, () =>
+    return this.linkPacket(packet, artifact, { ...input, scope: 'adopt' }, actor, () => {
+      this.assertOperationCurrent(assertOperationCurrent);
       this.preparedPreview(
         () => ({ sha256: input.previewSha256, packet }),
         actor,
         input.selection,
         input.previewSha256,
         input.itemId,
-      ),
-    );
+      );
+      this.assertOperationCurrent(assertOperationCurrent);
+    });
+  }
+
+  private assertOperationCurrent(assertion?: () => void) {
+    const result: unknown = assertion?.();
+    if (result !== undefined) {
+      void Promise.resolve(result).catch(() => {});
+      throw new TelosWorkError('unauthorized', 'Synchronous source operation authority required');
+    }
   }
 
   private linkPacket(
