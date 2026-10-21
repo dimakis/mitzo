@@ -5,6 +5,9 @@ import {
   PROFILE_BUILDER_REVISION,
   profileBuilderDefinition,
   profileBuilderDefinitionForRevision,
+  DEFAULT_MITZO_PROFILE_ID,
+  DEFAULT_MITZO_PROFILE_REVISION,
+  defaultMitzoProfileDefinition,
   AgentProfileSelectionSchema,
   agentProfileLabel,
   type AgentLibraryVersion,
@@ -134,17 +137,27 @@ function LibraryChatAgentProfilePicker({
         const catalog = body as AgentLibraryCatalog;
         if (!Array.isArray(catalog.versions)) throw Error('Agent Library response is invalid');
         const available =
-          requested?.kind === 'builtin' && requested.profileId === PROFILE_BUILDER_ID
+          requested?.kind === 'builtin' && requested.profileId === DEFAULT_MITZO_PROFILE_ID
             ? [
                 ...catalog.versions,
                 {
                   kind: 'builtin' as const,
-                  profileId: PROFILE_BUILDER_ID,
-                  revision: PROFILE_BUILDER_REVISION,
-                  definition: profileBuilderDefinition,
+                  profileId: DEFAULT_MITZO_PROFILE_ID,
+                  revision: DEFAULT_MITZO_PROFILE_REVISION,
+                  definition: defaultMitzoProfileDefinition,
                 },
               ]
-            : catalog.versions;
+            : requested?.kind === 'builtin' && requested.profileId === PROFILE_BUILDER_ID
+              ? [
+                  ...catalog.versions,
+                  {
+                    kind: 'builtin' as const,
+                    profileId: PROFILE_BUILDER_ID,
+                    revision: PROFILE_BUILDER_REVISION,
+                    definition: profileBuilderDefinition,
+                  },
+                ]
+              : catalog.versions;
         if (
           requested?.kind === 'builtin' &&
           requested.profileId === PROFILE_BUILDER_ID &&
@@ -330,7 +343,13 @@ function ControlledAgentProfilePicker({
           onChange={(e) => {
             const selected = versions.find((v) => controlledProfileKey(v) === e.target.value);
             onChange(
-              selected ? { profileId: selected.profileId, revision: selected.revision } : null,
+              selected
+                ? {
+                    profileId: selected.profileId,
+                    revision: selected.revision,
+                    ...(selected.kind ? { kind: selected.kind } : {}),
+                  }
+                : null,
             );
             setSearchParams(
               (params) => {
@@ -339,6 +358,7 @@ function ControlledAgentProfilePicker({
                 if (selected) {
                   next.set('agentProfile', selected.profileId);
                   next.set('profileRevision', String(selected.revision));
+                  if (selected.kind) next.set('agentProfileKind', selected.kind);
                 } else {
                   next.delete('agentProfile');
                   next.delete('profileRevision');
@@ -349,7 +369,7 @@ function ControlledAgentProfilePicker({
             );
           }}
         >
-          <option value="">Choose published agent</option>
+          <option value="">Choose agent</option>
           {value && !versions.some((v) => controlledProfileKey(v) === value) && (
             <option value={value} disabled>
               Unavailable {selection && 'kind' in selection ? 'builtin agent' : 'agent'} · r

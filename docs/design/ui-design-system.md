@@ -40,6 +40,13 @@ The Connections inventory is the starting point: quiet surfaces, clear type, gro
 
 ## One theme source
 
+The existing Agent field includes the code-owned Default Mitzo choice even with
+an empty user Library. Built-in Agent Builder selections retain their namespace
+in the control and chat URL. This changes option identity and availability only;
+the approved chat-settings rows, shared controls, tokens, keyboard interaction
+and motion remain unchanged. Offline picker and prepared-chat regressions cover
+both built-ins on Host Mac API and subscription routes without model calls.
+
 `frontend/src/styles/tokens.css` owns every app palette literal and font stack. It loads before component styles in the production and fixture entry points. Components use semantic variables in CSS and React inline styles. The old `--accent`, `--ui-font`, `--text`, `--bg`, and `--workspace-*` names are aliases to that same source; never give them a second palette.
 
 - Actions and selection: `--color-accent`, with `--color-on-accent` for filled controls. Accent panels derive from the accent and background using `color-mix`.

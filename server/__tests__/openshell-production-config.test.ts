@@ -293,6 +293,66 @@ describe('OpenShell production bundle validation', () => {
     ).toThrow(/incomplete/);
   });
 
+  const hostLogin = {
+    id: 'host-personal',
+    provider: 'openai-codex',
+    credentialRef: '/private/mitzo/chatgpt-login',
+    email: 'operator@example.test',
+    planType: 'pro',
+  };
+
+  it('accepts a separately enabled host login alongside existing sandbox accounts', () => {
+    const provider = { name: 'personal-chatgpt', id: 'provider-1' };
+    const broker = {
+      id: 'sandbox-personal',
+      provider: 'openai-codex',
+      sandboxProvider: provider.name,
+      sandboxProviderType: 'openai-codex-oauth',
+      sandboxProviderId: provider.id,
+      sandboxGrantId: 'grant-1',
+    };
+    const api = { id: 'work', provider: 'openai', sandboxProvider: 'work-api' };
+    const providers = [provider, { name: 'work-api', id: 'provider-2' }];
+    expect(() =>
+      verifyAccountBindings([hostLogin, broker, api], providers, { hostCodexEnabled: true }),
+    ).not.toThrow();
+    expect(() => verifyAccountBindings([hostLogin], [])).toThrow(/sandboxProvider/);
+    expect(() => verifyAccountBindings([hostLogin], [], { hostCodexEnabled: false })).toThrow(
+      /sandboxProvider/,
+    );
+    expect(() =>
+      verifyAccountBindings([hostLogin, { ...broker, sandboxGrantId: undefined }], providers, {
+        hostCodexEnabled: true,
+      }),
+    ).toThrow(/incomplete/);
+    expect(() =>
+      verifyAccountBindings([hostLogin, { ...api, sandboxProvider: 'missing' }], providers, {
+        hostCodexEnabled: true,
+      }),
+    ).toThrow(/missing sandbox provider/);
+  });
+
+  it.each([
+    { credentialRef: 'relative/login' },
+    { credentialRef: undefined },
+    { email: '' },
+    { email: undefined },
+    { planType: ' API ' },
+    { planType: '' },
+    { workspaceId: 'workspace-1' },
+    { nativeAuth: 'sandbox-chatgpt' },
+    { sandboxProvider: 'partial-broker' },
+    { sandboxProviderType: 'openai-codex-oauth' },
+    { sandboxProviderId: 'provider-1' },
+    { sandboxGrantId: 'grant-1' },
+    { sandboxGrantId: null },
+    { provider: 'openai' },
+  ])('does not exempt unsupported or mixed host profiles: %j', (override) => {
+    expect(() =>
+      verifyAccountBindings([{ ...hostLogin, ...override }], [], { hostCodexEnabled: true }),
+    ).toThrow();
+  });
+
   it('keeps the OpenAI API-key profile on REST without a conflicting websocket endpoint', () => {
     const profile = readFileSync(
       new URL(
