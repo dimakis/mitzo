@@ -1,3 +1,9 @@
+import {
+  knownCreationTime,
+  sortTelosSiblings,
+  telosSortOptions,
+  type TelosOutcomeSort,
+} from '../lib/telos-outcome-sort';
 import { todoPriority } from '../lib/todo-utils';
 import { useMemo, useState, useRef } from 'react';
 import type { TelosWorkItem } from '@mitzo/protocol';
@@ -13,6 +19,7 @@ interface NavigationState {
   pins: string[];
   expanded: string[];
   collapsed: string[];
+  sort: TelosOutcomeSort;
   filter: string;
 }
 const defaults: NavigationState = {
@@ -21,6 +28,7 @@ const defaults: NavigationState = {
   pins: ['Job', 'Personal projects', 'Mitzo'],
   expanded: [],
   collapsed: [],
+  sort: 'default',
   filter: 'All outcomes',
 };
 function restore(key: string): NavigationState {
@@ -38,6 +46,7 @@ function restore(key: string): NavigationState {
     )
       return {
         ...value,
+        sort: telosSortOptions.some(([sort]) => sort === value.sort) ? value.sort : 'default',
         collapsed:
           Array.isArray(value.collapsed) &&
           value.collapsed.every((id: unknown) => typeof id === 'string')
@@ -128,8 +137,11 @@ export function TelosOutcomesTree({
   const ids = useMemo(() => new Set(records.map((r) => r.itemId)), [records]);
   const categories = [...new Set(records.flatMap((r) => r.categories))].sort();
   const children = (parent: string | null) =>
-    records.filter((r) =>
-      parent === null ? !r.parentId || !ids.has(r.parentId) : r.parentId === parent,
+    sortTelosSiblings(
+      records.filter((r) =>
+        parent === null ? !r.parentId || !ids.has(r.parentId) : r.parentId === parent,
+      ),
+      state.sort,
     );
   const needle = state.query.trim().toLocaleLowerCase();
   function matches(record: TelosWorkItem) {
@@ -202,6 +214,8 @@ export function TelosOutcomesTree({
                     </button>
                     <div className="telos-node-meta">
                       <span>{telosKindLabel(record.kind)}</span>
+                      {['newest', 'oldest'].includes(state.sort) &&
+                        knownCreationTime(record) === null && <span>Creation date unknown</span>}
                       {kids.length > 0 && (
                         <span>
                           {kids.length} {kids.length === 1 ? 'child' : 'children'}
@@ -330,6 +344,18 @@ export function TelosOutcomesTree({
             onChange={(e) => update({ query: e.target.value })}
           />
         </label>
+        <select
+          className="telos-sort"
+          aria-label="Sort outcomes"
+          value={state.sort}
+          onChange={(event) => update({ sort: event.target.value as TelosOutcomeSort })}
+        >
+          {telosSortOptions.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
         <button onClick={() => update({ expanded: records.map((r) => r.itemId), collapsed: [] })}>
           Expand all
         </button>

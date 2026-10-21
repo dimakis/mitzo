@@ -5,6 +5,8 @@ import { eventBus } from '../lib/event-bus-singleton';
 import { ListCache, SupersededListRequest } from '../lib/list-cache';
 import { setTodoPriority, subscribeTodoPriorityUpdates } from '../lib/todo-priority';
 import { todoPriority } from '../lib/todo-utils';
+import { subscribeTodoLifecycleUpdates } from '../lib/todo-lifecycle-events';
+import type { TelosCollectionView } from '../lib/telos-collection-view';
 
 const todoCache = new ListCache<TodoData>();
 // Same authentication lifetime as list snapshots. Keep only the latest known
@@ -41,6 +43,7 @@ function invalidateTodos(): void {
   todoCache.invalidate();
 }
 eventBus.on('todo_update', invalidateTodos);
+subscribeTodoLifecycleUpdates(() => todoCache.clear());
 
 export interface UseTodoDataResult {
   loading: boolean;
@@ -100,19 +103,36 @@ export function findInTree(items: TodoItem[], id: string): TodoItem | undefined 
   return undefined;
 }
 
-export function useTodoData(profile?: string, resolveItemId?: string): UseTodoDataResult {
-  const url = profile ? `/api/todos?${new URLSearchParams({ profile })}` : '/api/todos';
+export function useTodoData(
+  profile?: string,
+  resolveItemId?: string,
+  view: TelosCollectionView = 'active',
+): UseTodoDataResult {
+  const params = new URLSearchParams();
+  if (profile) params.set('profile', profile);
+  if (view !== 'active') params.set('view', view);
+  const query = params.toString();
+  const url = '/api/todos' + (query ? '?' + query : '');
   const [data, setData] = useState<TodoData | null>(() => todoCache.get(url) ?? null);
+  const [dataScope, setDataScope] = useState(url);
+  const visibleData = dataScope === url ? data : (todoCache.get(url) ?? null);
   const [loading, setLoading] = useState(() => !todoCache.get(url));
   const [refreshing, setRefreshing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const dataRef = useRef<TodoData | null>(null);
-  dataRef.current = data;
+  dataRef.current = visibleData;
   const urlRef = useRef(url);
   urlRef.current = url;
 
-  useEffect(() => todoCache.subscribe(url, () => setData(todoCache.get(url) ?? null)), [url]);
+  useEffect(
+    () =>
+      todoCache.subscribe(url, () => {
+        setData(todoCache.get(url) ?? null);
+        setDataScope(url);
+      }),
+    [url],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -120,6 +140,7 @@ export function useTodoData(profile?: string, resolveItemId?: string): UseTodoDa
     // A direct route to a new item must not join a read admitted before its save.
     // Keep retained rows, but resolve missing identities with a newly admitted read.
     if (resolveItemId && !findInTree(cached?.items ?? [], resolveItemId)) invalidateTodos();
+    setDataScope(url);
     setData(cached ?? null);
     setLoading(!cached);
     setRefreshing(true);
@@ -172,9 +193,14 @@ export function useTodoData(profile?: string, resolveItemId?: string): UseTodoDa
     const unsubscribe = eventBus.on('todo_update', () => {
       setRefreshKey((k) => k + 1);
     });
+    const lifecycle = subscribeTodoLifecycleUpdates(() => {
+      setLoading(true);
+      setRefreshKey((k) => k + 1);
+    });
     return () => {
       document.removeEventListener('visibilitychange', refreshOnResume);
       unsubscribe();
+      lifecycle();
     };
   }, []);
 
@@ -283,11 +309,11 @@ export function useTodoData(profile?: string, resolveItemId?: string): UseTodoDa
   );
 
   return {
-    loading,
-    refreshing,
-    error,
-    items: data?.items ?? [],
-    profiles: data?.profiles ?? [],
+    loading: dataScope === url ? loading : !visibleData,
+    refreshing: dataScope !== url || refreshing,
+    error: dataScope === url ? error : null,
+    items: visibleData?.items ?? [],
+    profiles: visibleData?.profiles ?? [],
     ack,
     snooze,
     done,

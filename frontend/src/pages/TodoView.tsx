@@ -1,3 +1,5 @@
+import { WorkspaceActionMenu } from '../components/WorkspaceActionMenu';
+import { parseTelosCollectionView, telosCollectionPath } from '../lib/telos-collection-view';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { newChatPathWithDraft } from '../lib/chat-drafts';
 import { TelosOutcomesTree } from '../components/TelosOutcomesTree';
@@ -263,13 +265,38 @@ function SectionHeader({
 export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
+  const collectionView = parseTelosCollectionView(new URLSearchParams(location.search).get('view'));
+  const collectionTitle =
+    collectionView === 'archive'
+      ? 'Archived outcomes'
+      : collectionView === 'trash'
+        ? 'Trash'
+        : 'Telos outcomes';
+  const collectionMenu = (
+    <WorkspaceActionMenu
+      label="Outcome views"
+      items={(['active', 'archive', 'trash'] as const).map((view) => ({
+        id: view,
+        label: view === 'active' ? 'Active' : view === 'archive' ? 'Archive' : 'Trash',
+        checked: view === collectionView,
+        onSelect: () =>
+          navigate(telosCollectionPath(view), {
+            state: { ...location.state, telosCollectionView: view, scrollTop: 0 },
+          }),
+      }))}
+    />
+  );
   const restoredProfile = (location.state as { activeProfile?: string } | null)?.activeProfile;
   const [activeProfile, setActiveProfile] = useState<string | undefined>(restoredProfile);
   // Canonical discovery covers every profile; the legacy selection remains a
   // fallback preference, including when restored through item navigation.
-  const discovery = useTodoData();
+  const discoveryArgs: [] | [undefined, undefined, typeof collectionView] =
+    collectionView === 'active' ? [] : [undefined, undefined, collectionView];
+  const filteredArgs: [] | [undefined, typeof collectionView] =
+    collectionView === 'active' ? [] : [undefined, collectionView];
+  const discovery = useTodoData(...discoveryArgs);
   const { loading, error, items, profiles, ack, done, create, createOutcome, refresh } =
-    useTodoData(activeProfile);
+    useTodoData(activeProfile, ...filteredArgs);
   const [creating, setCreating] = useState<{ parentId?: string } | null>(null);
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<TodoSort>('priority');
@@ -411,7 +438,14 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
 
   function handleTap(item: TodoItem) {
     navigate(`/todos/${item.id}`, {
-      state: { item, activeProfile, scrollTop: saveScrollPosition(), telosHistory: [] },
+      state: {
+        ...location.state,
+        item,
+        activeProfile,
+        scrollTop: saveScrollPosition(),
+        telosHistory: [],
+        ...(collectionView === 'active' ? {} : { telosCollectionView: collectionView }),
+      },
     });
   }
 
@@ -428,10 +462,11 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
       <div className="todo-page telos-canonical-page">
         <div className="todo-collection-heading">
           <WorkspacePageHeading
-            title="Telos outcomes"
+            title={collectionTitle}
             description="Your outcomes, their child work and the coordinators connecting them."
             actions={
               <div className="todo-collection-actions">
+                {collectionMenu}
                 <button className="todo-add-btn" onClick={startPlanning}>
                   New item
                 </button>
@@ -509,7 +544,13 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
                 }
               }
               navigate(`/todos/${encodeURIComponent(id)}`, {
-                state: { activeProfile, scrollTop: saveScrollPosition(), telosHistory: [] },
+                state: {
+                  ...location.state,
+                  activeProfile,
+                  scrollTop: saveScrollPosition(),
+                  telosHistory: [],
+                  ...(collectionView === 'active' ? {} : { telosCollectionView: collectionView }),
+                },
               });
             }}
           />
@@ -521,10 +562,11 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     <div className="todo-page telos-legacy-page">
       <div className="todo-collection-heading">
         <WorkspacePageHeading
-          title="Work"
+          title={collectionView === 'active' ? 'Work' : collectionTitle}
           description="Choose an outcome and take the next step."
           actions={
             <div className="todo-collection-actions">
+              {collectionMenu}
               <button
                 className="todo-add-btn"
                 onClick={() => setCreating({ parentId: undefined })}

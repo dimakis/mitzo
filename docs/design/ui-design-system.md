@@ -1678,6 +1678,15 @@ large text, keyboard activation and reduced motion. Inspected captures show
 [desktop activity](assets/research-activity-desktop-light.png). These isolated
 renders use intercepted traffic and no backend, credentials or model calls.
 
+Operator-origin pause receipts use the existing control card, stage labels and
+recorded evidence. They explicitly say “Requested by operator”; null coordinator
+conversation and priority identities do not become placeholder names or record
+requests. These cards retain actual requested/acknowledged/applied/released stages
+and publication revalidation warnings. Their root-wide Resume action belongs to
+the lifecycle controls; an individual card does not expose the coordinator-only
+“Release held leads” action for an operator pause. Existing coordinator cards keep
+their priority, conversation and release behavior.
+
 ## Telos outcomes and item workspace (S7)
 
 The approved r1 Telos tree remains pinned by artifact identity and SHA-256 in
@@ -2007,3 +2016,14 @@ Pending chat-type qualification renders only pure progress/error feedback beside
 the disabled input; it does not mount the ordinary queue or send owner early.
 Outline warnings use the semantic warning foreground on a transparent background;
 filled controls retain their existing paired foreground contrast checks.
+
+## Telos lifecycle actions
+
+The [Telos lifecycle workspace controls](telos-lifecycle-ui.md) reuse the quiet
+shared action menu, `HomeDialog`, semantic danger controls and existing motion.
+The item row follows the retained heading; the tree's native sort selector uses
+shared type, surface, radius and control-height tokens. Original order, hierarchy,
+priority, unknown dates, navigation context and owner-reported pause stages remain
+explicit. Destructive reviews close when authentication changes; uncertain requests
+retain their original verified login/server scope. Source-level fixture evidence
+and pending matching-source App/browser qualification are recorded separately.
