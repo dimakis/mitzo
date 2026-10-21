@@ -13,6 +13,16 @@ import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { getChatDraft } from '../../lib/chat-drafts';
 import '@testing-library/jest-dom/vitest';
 import userEvent from '@testing-library/user-event';
+import {
+  DEFAULT_MITZO_PROFILE_ID,
+  DEFAULT_MITZO_PROFILE_REVISION,
+  defaultMitzoProfileDefinition,
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+  profileBuilderDefinition,
+  type AgentLibraryVersion,
+} from '@mitzo/protocol';
+import { sha256Hex } from '../../lib/browser-crypto';
 // Route wiring tests exercise the existing controls directly. The real sheet
 // navigation, retained editors and summary layout are covered by QuickChatSettings
 // unit tests and the all-intercept local-first/multi-runtime browser suites.
@@ -219,8 +229,18 @@ function setup(
   continuation = false,
   suppliedFixture?: import('../../lib/explicit-local-chat').ExplicitLocalInventory,
   ordinary?: 'prepared' | 'conversation' | 'invalid',
+  builtin?: AgentLibraryVersion,
+  apiHost = false,
 ) {
-  const fixture = suppliedFixture ?? localInventoryFixture();
+  const fixture: import('../../lib/explicit-local-chat').ExplicitLocalInventory =
+    suppliedFixture ?? localInventoryFixture();
+  if (apiHost) {
+    const account = { ...fixture.accounts[0].account, provider: 'openai' as const };
+    fixture.accounts[0] = { ...fixture.accounts[0], account, label: 'Work OpenAI API' };
+    fixture.targets[0] = { ...fixture.targets[0], harness: 'responses' };
+    fixture.routes[0] = { ...fixture.routes[0], account, harness: 'responses' };
+  }
+  if (builtin) (fixture.agentProfiles as AgentLibraryVersion[]).push(builtin);
   const draft = createChatDraft();
   draft.text = 'hello';
   if (suppliedFixture) {
@@ -339,6 +359,59 @@ for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  for (const apiHost of [false, true])
+    it.each([
+      [DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION, defaultMitzoProfileDefinition],
+      [PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION, profileBuilderDefinition],
+    ] as const)(
+      `${name}: builtin %s enables Send on the prepared Host Mac ${apiHost ? 'API' : 'subscription'} route`,
+      async (profileId, revision, definition) => {
+        const builtin = {
+          kind: 'builtin' as const,
+          profileId,
+          revision,
+          definition,
+          contentHash: sha256Hex(JSON.stringify(definition)),
+        };
+        const { localSend, legacySend } = setup(
+          Screen,
+          false,
+          false,
+          false,
+          false,
+          false,
+          undefined,
+          undefined,
+          builtin,
+          apiHost,
+        );
+        const trigger = screen.getByRole('button', { name: /^Workspace controls/ });
+        if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+        fireEvent.click(await screen.findByRole('button', { name: 'Local Mac' }));
+        fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+          target: { value: 'personal' },
+        });
+        fireEvent.change(screen.getByRole('combobox', { name: 'Thinking level' }), {
+          target: { value: 'low' },
+        });
+        fireEvent.change(screen.getByRole('combobox', { name: 'Agent' }), {
+          target: { value: JSON.stringify(['builtin', profileId, revision]) },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+        fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
+        await waitFor(() =>
+          expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled(),
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+        expect(localSend).toHaveBeenCalledOnce();
+        expect(localSend.mock.calls[0][0]).toMatchObject({
+          runOn: 'local',
+          selection: { agent: { kind: 'builtin', profileId, revision } },
+        });
+        expect(legacySend).not.toHaveBeenCalled();
+      },
+    );
   it(`${name}: sends the ordinary prepared first command and refreshes into continuation without a repository`, async () => {
     const { store, ordinarySend, localSend, legacySend, setOrdinaryConversation } = setup(
       Screen,

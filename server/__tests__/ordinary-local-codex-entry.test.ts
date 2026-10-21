@@ -17,6 +17,8 @@ import { contextDigest } from '../agent-context-compiler.js';
 import {
   LocalCodexFirstCommandSchema,
   PROFILE_BUILDER_ID,
+  DEFAULT_MITZO_PROFILE_ID,
+  DEFAULT_MITZO_PROFILE_REVISION,
   PROFILE_BUILDER_REVISION,
 } from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -572,6 +574,11 @@ it('projects configuration-only eligible account tuples and published profiles w
     authority: 'configuration-only',
     defaultLocation: 'openshell',
     agentProfiles: [
+      expect.objectContaining({
+        kind: 'builtin',
+        profileId: DEFAULT_MITZO_PROFILE_ID,
+        revision: DEFAULT_MITZO_PROFILE_REVISION,
+      }),
       expect.objectContaining({
         kind: 'builtin',
         profileId: PROFILE_BUILDER_ID,

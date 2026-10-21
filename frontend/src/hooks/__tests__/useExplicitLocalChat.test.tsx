@@ -8,11 +8,51 @@ import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { prepareLocalContinuationCommand } from '../../lib/explicit-local-chat';
 import { sha256Hex } from '../../lib/browser-crypto';
 import { setDefaultAccountModel } from '../../lib/account-preference';
+import {
+  DEFAULT_MITZO_PROFILE_ID,
+  DEFAULT_MITZO_PROFILE_REVISION,
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+} from '@mitzo/protocol';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
   cleanup();
   localStorage.clear();
 });
+
+it('starts fresh chat intent with code-owned Default Mitzo and preserves an explicit Builder link', () => {
+  vi.mocked(apiFetch).mockResolvedValue(Response.json(localInventoryFixture()));
+  const normal = renderHook(() => useExplicitLocalChat('fresh-default', undefined, null, false));
+  expect(normal.result.current.intent.agentProfile).toEqual({
+    kind: 'builtin',
+    profileId: DEFAULT_MITZO_PROFILE_ID,
+    revision: DEFAULT_MITZO_PROFILE_REVISION,
+  });
+  const search = new URLSearchParams({
+    agentProfile: PROFILE_BUILDER_ID,
+    profileRevision: String(PROFILE_BUILDER_REVISION),
+    agentProfileKind: 'builtin',
+  }).toString();
+  const builder = renderHook(() =>
+    useExplicitLocalChat('fresh-builder', undefined, null, false, search),
+  );
+  expect(builder.result.current.intent.agentProfile).toEqual({
+    kind: 'builtin',
+    profileId: PROFILE_BUILDER_ID,
+    revision: PROFILE_BUILDER_REVISION,
+  });
+});
+
+it.each([null, { profileId: 'removed-agent', revision: 9 }])(
+  'preserves a retained explicit agent selection without substituting Default Mitzo: %j',
+  (agentProfile) => {
+    const saved = { ...createChatRuntimeSelection(), agentProfile };
+    const { result } = renderHook(() =>
+      useExplicitLocalChat('retained-profile', saved, null, false),
+    );
+    expect(result.current.intent.agentProfile).toEqual(agentProfile);
+  },
+);
 
 it.each(['valid', 'wrong-workspace', 'wrong-conversation', 'private-path', 'oversized', 'missing'])(
   'retains only bounded repository presentation for the exact metadata workspace: %s',

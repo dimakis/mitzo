@@ -341,6 +341,7 @@ export * from './ordinary-local-admission.js';
 export * from './local-codex-first-command.js';
 
 export * from './profile-builder.js';
+export * from './default-mitzo-profile.js';
 
 export * from './ordinary-openshell-admission.js';
 
