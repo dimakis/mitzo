@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.473-sqlite-perf';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.474-sqlite-perf';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1253,7 +1253,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-publication-credentials.ts':
     'e1c578eec9297cf567c6ef31ac3443ad8a36a3fb40ccda2149ac18d18362346d',
   '../openshell-artifact-reader.ts':
-    '19ed3c99eb86a7792671fed8ea0d9707e0fafe5ccc64e2e5ccfc924484b40661',
+    '8fca47739ca0c207647dc825ee468aa86da4379b2004905669b7dd42f100ea13',
   '../native-telos-artifact-operations.ts':
     'ca72cbd2123701e0d7821a06f7363cc609fc4500ecdd726aac4572f50abecf36',
   '../github-main-merge-selection.ts':
