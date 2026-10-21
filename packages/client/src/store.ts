@@ -792,11 +792,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             // Rebuild live completed turns from the captured suffix so their
             // order and blocks are applied once after the durable prefix.
             const replayedIds = new Set(
-              liveActions.flatMap((action) =>
-                'messageId' in action && typeof action.messageId === 'string'
-                  ? [messageIdentity(action.messageId, action.symposiumProvenance)]
-                  : [],
-              ),
+              liveActions.flatMap((action) => {
+                if ('messageId' in action && typeof action.messageId === 'string')
+                  return [messageIdentity(action.messageId, action.symposiumProvenance)];
+                if (
+                  (action.type === 'ERROR' || action.type === 'CONTROL_REJECTED') &&
+                  action.retainedFailureSeq !== undefined
+                )
+                  return [messageIdentity(`runtime-error-${action.retainedFailureSeq}`)];
+                return [];
+              }),
             );
             const withoutStaleCurrent = {
               ...restored,
@@ -1723,6 +1728,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   };
 
   function wsListener(msg: Record<string, unknown>): boolean {
+    let retainedFailureSeq: number | undefined;
     if (msg.type === '_control_error') {
       // HTTP controls are not provider failures. Keep streamed content and
       // running state intact, and expose actionable failures through the banner.
@@ -1989,6 +1995,34 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (!options.sseConfig) settleDelivery(msg.clientMsgId, 'failed');
       // Release its preview without applying the error to an unrelated running chat.
       if (offscreen) return true;
+      const messages = store.getState().messages.messages;
+      const commandIndex = messages.findIndex(
+        (message) => message.role === 'user' && message.messageId === msg.clientMsgId,
+      );
+      if (
+        selectedEventSession &&
+        commandIndex >= 0 &&
+        msg.v === 2 &&
+        msg.retainedCommandFailure === true &&
+        typeof msg.error === 'string' &&
+        msg.error.startsWith('Message saved. ') &&
+        typeof msg.seq === 'number' &&
+        Number.isSafeInteger(msg.seq) &&
+        msg.seq > 0
+      )
+        retainedFailureSeq = msg.seq;
+      if (
+        selectedEventSession &&
+        commandIndex >= 0 &&
+        messages.slice(commandIndex + 1).some((message) => message.role === 'user')
+      ) {
+        // A retained command may fail recovery after a later command starts.
+        // Render its failure through the existing non-terminal refusal action;
+        // keep the sequenced event on the normal applied-delivery path.
+        const preparation = preparationObservations.get(msg.clientMsgId);
+        if (preparation?.sessionId === eventSessionId) preparation.ended = true;
+        msg = { ...msg, type: 'session_control_rejected', control: 'send' };
+      }
     }
     // The native WebSocket path confirms delivery through the persisted echo.
     // A pre-assignment startup error is a definitive rejection on that path.
@@ -2152,7 +2186,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     for (const incomingAction of result.messagesActions) {
-      const action = normalizePermissionAction(incomingAction);
+      const action = normalizePermissionAction(
+        retainedFailureSeq !== undefined &&
+          (incomingAction.type === 'ERROR' || incomingAction.type === 'CONTROL_REJECTED')
+          ? { ...incomingAction, retainedFailureSeq }
+          : incomingAction,
+      );
       const opening = openingHistory;
       if (
         opening !== undefined &&

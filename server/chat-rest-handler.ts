@@ -260,7 +260,11 @@ export function createChatRestRouter(
               data.type === 'native_command_result' && !command.sessionId
                 ? data
                 : { ...data, sessionId: data.sessionId ?? sessionId };
-            if (data.type === 'error' && !options.preserveReceiptErrors) {
+            if (
+              data.type === 'error' &&
+              !options.preserveReceiptErrors &&
+              (typeof data.clientMsgId !== 'string' || data.clientMsgId === command.clientMsgId)
+            ) {
               ctx.eventStore.failSendCommand(command.clientMsgId, String(data.error));
             }
             // Query-loop events already carry their durable sequence. Early
@@ -300,6 +304,7 @@ export function createChatRestRouter(
             // REST inserts the global receipt before dispatch; WS inserts it in
             // handleSendV2 so the same check can fence cross-transport retries.
             receiptAdmitted: options.receiptAdmitted ?? true,
+            onRetained: options.onRetained,
           });
           if (outcome === 'native') return options.preserveReceiptSession ? undefined : false;
         } finally {

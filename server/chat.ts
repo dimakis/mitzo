@@ -53,7 +53,11 @@ import {
   SourceSnapshotsSchema,
   type SourceSnapshot,
 } from '@mitzo/protocol';
-import { recordAcceptedReplaySession, replayError } from './public-replay-error.js';
+import {
+  recordAcceptedReplaySession,
+  replayError,
+  type AcceptedReplaySessions,
+} from './public-replay-error.js';
 import {
   getOrdinaryWorkspaces,
   getRepositoryWorkspaces,
@@ -3939,7 +3943,9 @@ function validateNativeModelSelection(
   );
 }
 
-/** Push a follow-up message into a running session. */
+/** Push a follow-up message into a running session.
+ * UI routes supply onRetained to opt into retention acknowledgment even if
+ * later admission fails. Programmatic callers receive false for that refusal. */
 export async function sendToChat(
   clientId: string,
   prompt: string,
@@ -3951,6 +3957,7 @@ export async function sendToChat(
   signal?: AbortSignal,
   userIntent?: string,
   sourceSnapshots?: SourceSnapshot[],
+  onRetained?: () => void,
 ): Promise<boolean> {
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
@@ -4153,7 +4160,44 @@ export async function sendToChat(
       }
     };
     if (codex) {
+      let promptRetained = false;
+      const savedSessionId = session.sessionId;
+      const reportSavedError = (error: string): void => {
+        if (!savedSessionId) {
+          send(session.transport, { type: 'error', sessionId: savedSessionId, error });
+          return;
+        }
+        const event = {
+          v: 2,
+          type: 'error',
+          sessionId: savedSessionId,
+          clientMsgId: messageId,
+          retainedCommandFailure: true,
+          error,
+        };
+        // An attached owner keeps its existing stream transport. The current
+        // POST wrapper may never observe this event, so persist its exact
+        // failure here; wrappers recognize seq and do not append it again.
+        if (eventStore.getSendCommand(messageId)?.sessionId === savedSessionId)
+          eventStore.failSendCommand(messageId, error);
+        const seq = eventStore.append(savedSessionId, 'error', event);
+        const durable = {
+          ...event,
+          seq,
+          prevSessionSeq: eventStore.getSessionPredecessorSeq(savedSessionId, seq),
+        };
+        send(session.transport, durable);
+        broadcastToObservers(session.observers, durable);
+      };
       try {
+        // The ordinary HTTP receipt confirms saved intent, not provider
+        // admission. Keep idle health checks and recovery after this exact
+        // durable echo; their existing private queue/dispatch fences still run.
+        if (session.sessionId) {
+          acknowledge();
+          promptRetained = true;
+          onRetained?.();
+        }
         const selection = await codex.admitExplicitSend(
           {
             id: messageId,
@@ -4166,16 +4210,27 @@ export async function sendToChat(
           signal,
         );
         selectionReasoningEffort = selection.reasoningEffort;
-        acknowledge();
+        if (!promptRetained) acknowledge();
         commitSelection();
-        void codex.resumeAfterExplicitSend().catch((error: unknown) =>
-          send(session.transport, {
-            type: 'error',
-            sessionId: session.sessionId,
-            error: `Message saved. ${publicCodexRuntimeError(error instanceof Error ? error : new Error('Reconnect failed'))}`,
-          }),
-        );
+        void codex
+          .resumeAfterExplicitSend()
+          .catch((error: unknown) =>
+            reportSavedError(
+              `Message saved. ${publicCodexRuntimeError(error instanceof Error ? error : new Error('Reconnect failed'))}`,
+            ),
+          );
       } catch {
+        if (promptRetained) {
+          reportSavedError(
+            signal?.aborted
+              ? 'Message saved. Codex queue preparation was cancelled. Check the conversation before sending a new message.'
+              : 'Message saved. Codex queue admission could not finish. Check the connection before sending a new message.',
+          );
+          // UI routes explicitly opt into retention acknowledgment and already
+          // received the exact saved failure. Programmatic dispatch still needs
+          // false so its task owner can mark a refused admission as blocked.
+          return !!onRetained;
+        }
         if (signal?.aborted) return false;
         send(session.transport, {
           type: 'error',
@@ -5394,6 +5449,51 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
   };
 }
 
+function nextReplayUser(
+  messages: RestoredMessage[],
+  commandId: string | undefined,
+  provenance?: SymposiumProvenance,
+): number {
+  if (!commandId) return -1;
+  const sameSource = (message: RestoredMessage) =>
+    isDeepStrictEqual(message.symposiumProvenance, provenance);
+  const owner = messages.findIndex(
+    (message) => message.role === 'user' && message.messageId === commandId && sameSource(message),
+  );
+  if (owner < 0) return -1;
+  return messages.findIndex(
+    (message, index) => index > owner && message.role === 'user' && sameSource(message),
+  );
+}
+
+/** Group only already-authorized synthetic feedback; this does not disclose any new event. */
+function groupRetainedReplayErrors(
+  messages: RestoredMessage[],
+  events: import('./event-store.js').StoredEvent[],
+): void {
+  for (const event of events) {
+    if (
+      event.type !== 'error' ||
+      event.payload.retainedCommandFailure !== true ||
+      typeof event.payload.clientMsgId !== 'string'
+    )
+      continue;
+    const errorIndex = messages.findIndex(
+      (message) =>
+        message.role === 'assistant' &&
+        message.messageId === `runtime-error-${event.seq}` &&
+        message.startedSeq === event.seq &&
+        message.blocks[0]?.blockId === `runtime-error-text-${event.seq}` &&
+        isDeepStrictEqual(message.symposiumProvenance, event.symposiumProvenance),
+    );
+    const next = nextReplayUser(messages, event.payload.clientMsgId, event.symposiumProvenance);
+    if (next >= 0 && errorIndex > next) {
+      const [error] = messages.splice(errorIndex, 1);
+      messages.splice(next, 0, error);
+    }
+  }
+}
+
 /** Reconstruct the typed live turn from the same immutable event prefix as history. */
 function replaySingleEventsToTranscript(
   events: import('./event-store.js').StoredEvent[],
@@ -5573,7 +5673,7 @@ function replaySingleEventsToTranscript(
     turn = null;
   };
 
-  const acceptedSessions = new Set<string>();
+  const acceptedSessions: AcceptedReplaySessions = new Map();
   for (const event of events) {
     recordAcceptedReplaySession(event, acceptedSessions);
     const payload = event.payload;
@@ -5640,7 +5740,9 @@ function replaySingleEventsToTranscript(
       case 'error': {
         const failure = replayError(event, acceptedSessions);
         if (failure) {
-          finishTurn();
+          const nextUser = nextReplayUser(messages, failure.clientMsgId);
+          // A late failure for A must not terminate the typed current turn B.
+          if (nextUser < 0 || (turn && turn.index < nextUser)) finishTurn();
           messages.push({
             messageId: `${failure.prefix}-${event.seq}`,
             role: 'assistant',
@@ -5668,6 +5770,7 @@ function replaySingleEventsToTranscript(
     }
   }
   if (turn) messages.splice(turn.index, 1);
+  groupRetainedReplayErrors(messages, events);
   return {
     messages,
     current: turn
@@ -5796,6 +5899,7 @@ export function replayEventsToTranscript(
     currents.push({ ...stream.current, symposiumProvenance: provenance });
   }
   messages.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
+  groupRetainedReplayErrors(messages, events);
   currents.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
   const ids = new Set<string>();
   for (const message of [...messages, ...currents]) {
@@ -5841,15 +5945,17 @@ export function replayEventsToMessages(
     const partials = [restored.current, ...restored.currents]
       .filter((current): current is RestoredCurrentMessage => current !== null)
       .map((current): RestoredMessage => ({ ...current, role: 'assistant' }));
-    return [...restored.messages, ...partials].sort(
+    const messages = [...restored.messages, ...partials].sort(
       (a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1),
     );
+    groupRetainedReplayErrors(messages, events);
+    return messages;
   }
   const messages: RestoredMessage[] = [];
   let currentMsg: RestoredMessage | null = null;
   const blockContent = new Map<string, string>();
   const toolResults = new Map<string, { result: string; isError: boolean }>();
-  const acceptedSessions = new Set<string>();
+  const acceptedSessions: AcceptedReplaySessions = new Map();
   const scopedBlocks = new Map<
     string,
     {
@@ -6023,7 +6129,8 @@ export function replayEventsToMessages(
       case 'error': {
         const failure = replayError(evt, acceptedSessions);
         if (failure) {
-          if (failure.prefix === 'runtime-error' && currentMsg) {
+          const olderCommand = nextReplayUser(messages, failure.clientMsgId) >= 0;
+          if (!olderCommand && failure.prefix === 'runtime-error' && currentMsg) {
             // Preserve incomplete blocks without changing legacy completed-block metadata.
             currentMsg.blocks = [
               ...[...scopedBlocks.values()].map(
@@ -6032,8 +6139,10 @@ export function replayEventsToMessages(
               ...currentMsg.blocks.filter((block) => !scopedBlocks.has(block.blockId)),
             ];
           }
-          if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
-          currentMsg = null;
+          if (!olderCommand) {
+            if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
+            currentMsg = null;
+          }
           messages.push({
             messageId: `${failure.prefix}-${evt.seq}`,
             role: 'assistant',
@@ -6074,6 +6183,7 @@ export function replayEventsToMessages(
     messages.push(currentMsg);
   }
 
+  groupRetainedReplayErrors(messages, events);
   return messages;
 }
 

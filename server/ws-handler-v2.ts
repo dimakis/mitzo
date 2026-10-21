@@ -10,7 +10,6 @@ import {
   assertOrdinaryContributorControlAllowed,
   SessionControlRejected,
 } from './ordinary-contributor-execution.js';
-import type { SourceSnapshot } from '@mitzo/protocol';
 import {
   claimChatCommand,
   reasoningSessionId,
@@ -697,6 +696,8 @@ export function handleSendV2(
     identityClaimed?: boolean;
     viewSelection?: ViewSelection;
     dispatchWaitMs?: number;
+    /** Exact HTTP retention waiter; only a durable ordinary prompt may settle it. */
+    onRetained?: () => void;
   },
 ): Promise<'native' | void> {
   const selection = delivery?.viewSelection ?? captureViewSelection(connectionId, ctx);
@@ -1135,9 +1136,8 @@ export function handleSendV2(
                     msg.accountId ? msg.reasoningEffort : undefined,
                     undefined,
                     userIntent,
-                    ...(msg.sourceSnapshots?.length
-                      ? ([msg.sourceSnapshots] as const)
-                      : ([] as const)),
+                    msg.sourceSnapshots,
+                    delivery?.onRetained ?? (() => {}),
                   )
                 : await sendToChat(
                     activeClientId,
@@ -1147,9 +1147,10 @@ export function handleSendV2(
                     msg.clientMsgId,
                     msg.accountId ? msg.model : undefined,
                     msg.accountId ? msg.reasoningEffort : undefined,
-                    ...((msg.sourceSnapshots?.length
-                      ? [undefined, undefined, msg.sourceSnapshots]
-                      : []) as [undefined?, undefined?, SourceSnapshot[]?]),
+                    undefined,
+                    undefined,
+                    msg.sourceSnapshots,
+                    delivery?.onRetained ?? (() => {}),
                   );
             if (!accepted) throw new Error('Session is not accepting input. Please retry.');
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');

@@ -191,8 +191,8 @@ type MessagesCoreAction =
   // Reattach snapshot
   | { type: 'MESSAGE_SNAPSHOT'; messageId: string; startedSeq?: number; blocks: FinishedBlock[] }
   // Session / UI lifecycle
-  | { type: 'ERROR'; error: string }
-  | { type: 'CONTROL_REJECTED'; error: string; clientMsgId?: string }
+  | { type: 'ERROR'; error: string; retainedFailureSeq?: number }
+  | { type: 'CONTROL_REJECTED'; error: string; clientMsgId?: string; retainedFailureSeq?: number }
   | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean; wtId?: string }
   | {
       type: 'USER_SEND';
@@ -863,26 +863,53 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       return { ...state, permission: null, permissionQueue: [] };
 
     case 'CONTROL_REJECTED':
-    case 'ERROR':
+    case 'ERROR': {
+      const retainedSeq =
+        typeof action.retainedFailureSeq === 'number' &&
+        Number.isSafeInteger(action.retainedFailureSeq) &&
+        action.retainedFailureSeq > 0
+          ? action.retainedFailureSeq
+          : undefined;
+      let insertion = state.messages.length;
+      if (action.type === 'CONTROL_REJECTED' && action.clientMsgId) {
+        const owner = state.messages.findIndex(
+          (message) => message.role === 'user' && message.messageId === action.clientMsgId,
+        );
+        const next = state.messages.findIndex(
+          (message, index) => index > owner && message.role === 'user',
+        );
+        // Keep a delayed failure with its exact command group. Appending it
+        // after a newer input would look like that newer command's response.
+        if (owner >= 0 && next >= 0) insertion = next;
+      }
       return {
         ...state,
         messages: [
-          ...state.messages,
+          ...state.messages.slice(0, insertion),
           {
-            messageId: `err-${Date.now()}`,
+            // Match the host transcript projection so a valid-cursor merge
+            // recognizes the live failure instead of appending a second copy.
+            messageId:
+              retainedSeq === undefined ? `err-${Date.now()}` : `runtime-error-${retainedSeq}`,
             role: 'assistant',
             timestamp: Date.now(),
+            ...(retainedSeq === undefined ? {} : { startedSeq: retainedSeq }),
             blocks: [
               {
-                blockId: `err-${Date.now()}`,
+                blockId:
+                  retainedSeq === undefined
+                    ? `err-${Date.now()}`
+                    : `runtime-error-text-${retainedSeq}`,
                 blockType: 'text',
                 content: `**Error:** ${action.error}`,
               },
             ],
           },
+          ...state.messages.slice(insertion),
         ],
         ...(action.type === 'ERROR' ? { running: false, current: null } : {}),
       };
+    }
 
     case 'SESSION_INFO':
       return {
