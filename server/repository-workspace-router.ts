@@ -99,12 +99,10 @@ export function createRepositoryWorkspaceRouter(deps: {
       controller.signal.throwIfAborted();
       return res.json(result);
     } catch {
-      return res
-        .status(409)
-        .json({
-          error:
-            'Could not use this local repository. Check access to its upstream main branch and try again.',
-        });
+      return res.status(409).json({
+        error:
+          'Could not use this local repository. Check access to its upstream main branch and try again.',
+      });
     } finally {
       clearTimeout(timer);
       req.off('aborted', abort);

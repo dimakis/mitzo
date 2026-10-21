@@ -13,13 +13,13 @@ afterEach(() => {
   owners.splice(0).forEach((owner) => owner.close());
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
 });
-const binding: AccountBinding = {
+const binding = {
   accountId: 'work',
   accountLabel: 'Work',
-  provider: 'openai',
+  provider: 'openai' as const,
   model: 'offline-model',
   profileRevision: 'routing-1',
-};
+} satisfies AccountBinding;
 async function fixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'local-repo-')));
   roots.push(root);

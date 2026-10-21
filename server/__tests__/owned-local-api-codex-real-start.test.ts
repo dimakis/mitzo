@@ -113,11 +113,11 @@ it('starts local API Codex from the composer without selecting or importing a re
     auth.id,
   );
   claimTransportConnection(connectionId, auth.id);
-  let clientId: string | undefined;
+  const active: { clientId?: string } = {};
   cleanups.push(async () => {
     streams.remove(connectionId);
     releaseTransportConnection(connectionId, auth.id);
-    if (clientId) chat.registry.abort(clientId);
+    if (active.clientId) chat.registry.abort(active.clientId);
     native.getCodexConversationStore().close();
     chat.eventStore.close();
   });
@@ -173,7 +173,7 @@ it('starts local API Codex from the composer without selecting or importing a re
   const result = await send();
   expect(result.status, JSON.stringify(result.body)).toBe(202);
   const sessionId = result.body.sessionId;
-  clientId = `${connectionId}:${sessionId}`;
+  active.clientId = `${connectionId}:${sessionId}`;
   expect(result.body.dispatched).toBe(true);
   await vi.waitFor(() => expect(providerCalls).toBe(1));
   expect(launch).toHaveBeenCalledOnce();

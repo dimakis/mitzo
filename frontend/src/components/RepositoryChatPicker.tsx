@@ -113,6 +113,8 @@ export function RepositoryChatPicker({
   const storageKey = repositoryDraftKey(accountId, model);
   const [restorationAttempt, setRestorationAttempt] = useState(0);
   const restoredScope = useRef('');
+  const restoredWorkspace = useRef(workspace);
+  restoredWorkspace.current = workspace;
   const runtimeIntent = useRef(ordinaryRuntime);
   runtimeIntent.current = ordinaryRuntime;
   const runtimeKey = JSON.stringify(ordinaryRuntime ?? null);
@@ -175,7 +177,7 @@ export function RepositoryChatPicker({
     ]);
     // An existing receipt owns its source. Inventory arriving or a Run on
     // change must not clear it or hide its recovery controls.
-    if (restoredScope.current === scope && workspace) return;
+    if (restoredScope.current === scope && restoredWorkspace.current) return;
     restoredScope.current = scope;
     const controller = new AbortController();
     restoration.current = controller;

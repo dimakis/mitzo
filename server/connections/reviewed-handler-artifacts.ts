@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.513-repository-recovery-order';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.514-local-merge-validation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -723,7 +722,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '176fb4f138c13bac8c79dc9dc25acc472217e7b60d4d0fce7941ead6956263c9',
+  '../chat.ts': '33cb9d163fb4d2a6aa18676a35907987f7e25e91d1a091cd9a7c09341a62eef5',
   '../../packages/harness/src/session-registry.ts':
     'a356f9fe321fa35e13aea28ec8480dfa63766e96a0f8a861dcd2cba533e5c118',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -914,7 +913,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../repository-workspace-runtime.ts':
     '8e8752b0ccf5f2aa4796674007c304ccedd1969270a6f8abea54224d7122b064',
   '../repository-workspace-router.ts':
-    'c5e02bd499316a11c1893478da6d5c15330e457b53199122e18fbe42c9cd3384',
+    'a6a97f75b2816d01838dd41d3c9a9cc8b420da8e523b20611cdcebc868365228',
   '../trusted-native-operation.ts':
     '81d1ea0c643053fb6a6f0b740b3767dc0cb2d7f4a1ee6739073923776ba5f918',
   '../repository-chat-startup.ts':
@@ -1075,7 +1074,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-repository-preparation-authority.ts':
     'cdc69081e652ecc0f8928282849cdaccf5528060d3cbb450779793eadd0065ea',
   '../../frontend/src/components/RepositoryChatPicker.tsx':
-    'cd16ec7cf3ca39c34752cdc676dd005539c99e5192c55e15203fa24c6a2841a9',
+    '49b0f37b4d7994968d69661ab13f26cb7f7ac2f69d8b8e958dfce94dc626bd56',
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':
     '21b62231f1f15b14e874be59d01bd23316f4b7ee516d514500d7599c7c653fde',
   '../../frontend/src/lib/repository-chat-preparation.ts':

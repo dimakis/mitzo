@@ -963,7 +963,7 @@ export function createSessionWorktrees(
       type: 'error',
       error: `Worktree creation failed: ${message}`,
     });
-    throw new Error(`Worktree creation failed: ${message}`);
+    throw new Error(`Worktree creation failed: ${message}`, { cause: err });
   }
 
   return {
