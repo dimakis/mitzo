@@ -92,6 +92,12 @@ interface Owners<K extends LocalWorkspaceKind = 'repository'> {
   nativeStore?: CodexConversationStore;
   /** Only native transport creation is replaceable for offline qualification. */
   launch?: (privateHome: string, executable: FrozenHostCodexExecutable) => FrozenHostCodexClient;
+  launchApi?: (
+    privateHome: string,
+    executable: FrozenHostCodexExecutable,
+    binding: import('@mitzo/protocol').AccountBinding,
+    retained: boolean,
+  ) => Promise<FrozenHostCodexClient>;
   /** Existing chat/conversation owner opens/enqueues the exact first command
    * while the receipt is uncertain. Retain its prepared event-loop handle here;
    * pump that handle only after admit returns dispatched:true (consumed), so
@@ -193,7 +199,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           : !isDeepStrictEqual(binding, this.#reservation.binding)
       )
         throw unavailable();
-      const profile = profiles.codexProfile(binding);
+      const profile = profiles.localCodexProfile(binding);
       if (profile.workspaceId !== undefined) throw unavailable();
       const descriptor = this.#workspaceOwner.get();
       const custody = resume
@@ -332,6 +338,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         baseEnv: this.owners.env,
         lifecycle: bridge.lifecycle,
         launch: this.owners.launch,
+        launchApi: this.owners.launchApi,
       });
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
         enabled: this.owners.enabled,

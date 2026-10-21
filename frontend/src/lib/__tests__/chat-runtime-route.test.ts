@@ -6,6 +6,46 @@ import {
   runtimeModelAccounts,
   selectedRuntimeRoute,
 } from '../chat-runtime-route';
+it('chooses local Codex for a fresh API chat while retaining the Responses target of saved history', () => {
+  const data = multiRuntimeInventoryFixture();
+  const api = data.accounts.find((entry) => entry.account.accountId === 'api')!;
+  data.targets.push({
+    targetId: 'api-codex',
+    targetRevision: 'native-r1',
+    location: 'local',
+    harness: 'codex',
+    label: 'Local Codex',
+  });
+  data.routes.push({
+    account: api.account,
+    targetId: 'api-codex',
+    harness: 'codex',
+    modes: ['agent'],
+    models: [{ id: 'native-model', label: 'Native model' }],
+  });
+  const fresh = {
+    ...createChatRuntimeSelection(),
+    account: { accountId: 'api', model: 'native-model' },
+    accountReference: api.account,
+    execution: { location: 'local' as const, targetId: null },
+  };
+  expect(resolveRuntimeTarget(fresh, data)).toBe('api-codex');
+  expect(
+    selectedRuntimeRoute(
+      { ...fresh, execution: { location: 'local', targetId: 'responses' } },
+      data,
+    )?.harness,
+  ).toBe('responses');
+  const anotherAccount = { ...fresh, account: { accountId: 'personal', model: 'luna-fixture' } };
+  expect(
+    runtimeModelAccounts(anotherAccount, data)
+      .find((entry) => entry.id === 'api')
+      ?.models.map((model) => model.id),
+  ).toEqual(['native-model']);
+  data.targets.push({ ...data.targets.at(-1)!, targetId: 'ambiguous-native' });
+  data.routes.push({ ...data.routes.at(-1)!, targetId: 'ambiguous-native' });
+  expect(resolveRuntimeTarget(fresh, data)).toBeNull();
+});
 it('rejects mismatched target harness and ambiguous account routes rather than choosing first', () => {
   const data = multiRuntimeInventoryFixture();
   const intent = {

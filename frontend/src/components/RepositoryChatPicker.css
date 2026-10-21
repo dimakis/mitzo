@@ -56,3 +56,40 @@
   font-size: 0.8rem;
   color: var(--text-secondary);
 }
+
+/* The settings sheet owns its surface, padding and scrolling. */
+.repository-chat-picker--settings {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+}
+.repository-chat-picker--settings label {
+  gap: var(--space-2);
+}
+.repository-chat-picker--settings :is(select, input) {
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border-color: var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+}
+.repository-chat-picker--settings button {
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+}
+.repository-chat-picker--settings p {
+  font-size: var(--text-sm);
+  color: var(--color-muted);
+}
+.repository-chat-picker--settings [role='alert'] {
+  color: var(--color-danger);
+}
+.repository-chat-picker--settings .repository-chat-preview {
+  gap: var(--space-2);
+}

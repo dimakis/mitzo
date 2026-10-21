@@ -299,7 +299,7 @@ describe('bounded configuration-only capability snapshot', () => {
       code: 'invalid_request',
     });
   });
-  it('excludes brokered/native/API profiles and refuses custodian host routes', () => {
+  it('includes API metadata, excludes brokered/native profiles and refuses custodian host routes', () => {
     const broker = {
       ...host,
       id: 'broker',
@@ -335,7 +335,7 @@ describe('bounded configuration-only capability snapshot', () => {
       new OrdinaryLocalCodexTarget(targetConfig),
       'custodian',
     );
-    expect(c.inventory().accounts.map((a) => a.account.accountId)).toEqual(['host']);
+    expect(c.inventory().accounts.map((a) => a.account.accountId)).toEqual(['host', 'api']);
     expect(c.inventory().routes).toEqual([]);
     expect(c.inventory().locations[1]).toMatchObject({
       status: 'unavailable',

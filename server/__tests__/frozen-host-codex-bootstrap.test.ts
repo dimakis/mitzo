@@ -9,6 +9,11 @@ import { FrozenHostCodexBootstrapAuthority } from '../frozen-host-codex-bootstra
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 const roots: string[] = [];
 const deployment = vi.hoisted(() => ({ controller: false }));
+const apiKeys = vi.hoisted(() => ({
+  assertReady: vi.fn(async () => {}),
+  resolveKey: vi.fn(async () => 'synthetic-api-key'),
+}));
+vi.mock('../openai-account-key-authority.js', () => ({ openAIAccountKeyAuthority: () => apiKeys }));
 vi.mock('../symposium-custodian-mode.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../symposium-custodian-mode.js')>()),
   get custodianControllerMode() {
@@ -184,6 +189,86 @@ it('claims SQLite uncertainty before custody/launch and supplies the same verifi
     expect(f.rpc.close).not.toHaveBeenCalled();
     f.authority.currentLease()?.close();
   } finally {
+    f.store.close();
+  }
+});
+it('bootstraps an API billing account through Codex and retains its API home without borrowing a subscription login', async () => {
+  const f = fixture();
+  const profiles = new AccountProfiles(
+    [
+      {
+        id: 'work',
+        label: 'Work API',
+        provider: 'openai',
+        credentialRef: { provider: 'keychain', service: 'offline-test', account: 'work' },
+        models: [{ id: 'fixture-model', label: 'Fixture', reasoningEfforts: ['low'] }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  const binding = profiles.resolve('work', 'fixture-model');
+  const expected = {
+    ...f.expected,
+    binding: {
+      ...f.expected.binding,
+      account: {
+        accountId: binding.accountId,
+        provider: binding.provider as 'openai',
+        profileRevision: binding.profileRevision,
+      },
+    },
+  };
+  const request = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method, params) =>
+    method === 'account/read'
+      ? ({ account: { type: 'apiKey' }, requiresOpenaiAuth: true } as never)
+      : request(method, params),
+  );
+  const claim = vi.fn(() => {
+    f.store.admitOrdinaryLocalCommand(
+      {
+        sessionId: 'api-session',
+        accountBinding: binding,
+        repositoryWorkspaceId: 'workspace',
+        cwd: expected.workspace.cwd,
+      },
+      expected.binding,
+      {
+        clientMsgId: 'api-command',
+        requestFingerprint: 'api-fingerprint',
+        selection: expected.selection,
+        payload: { text: 'offline' },
+      },
+    );
+    return f.store.claimOrdinaryLocalCommandDispatch('api-command');
+  });
+  const launchApi = vi.fn(async (home: string) => {
+    expect(f.store.getOrdinaryLocalCommandAdmission('api-command')?.state).toBe('uncertain');
+    writeFileSync(
+      join(home, 'auth.json'),
+      JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
+      { mode: 0o600, flag: 'wx' },
+    );
+    return f.rpc;
+  });
+  const owner = new FrozenHostCodexBootstrapAuthority({
+    ...f.options,
+    loadProfiles: () => profiles,
+    launchApi,
+  });
+  try {
+    await owner.withBootstrap(expected, claim, async (lease) => {
+      expect(lease.binding).toEqual(binding);
+      expect(lease.profile.planType).toBe('api');
+      expect(lease.custodySnapshot!().login).toMatchObject({ kind: 'api-key', binding });
+      await lease.assertCurrent();
+      lease.assertCurrentSync();
+    });
+    expect(launchApi).toHaveBeenCalledTimes(1);
+    expect(f.launch).not.toHaveBeenCalled();
+    expect(apiKeys.resolveKey).toHaveBeenCalledWith('work', expect.any(AbortSignal));
+  } finally {
+    owner.currentLease()?.close();
     f.store.close();
   }
 });

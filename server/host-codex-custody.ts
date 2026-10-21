@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { isAbsolute } from 'node:path';
+import { AccountBindingSchema } from '@mitzo/protocol';
 const Path = z.string().min(1).max(4096).refine(isAbsolute);
 const Hash = z.string().regex(/^[a-f0-9]{64}$/);
 const Identity = z.strictObject({
@@ -15,6 +16,18 @@ export const HostCodexLoginCustodySchema = z.strictObject({
   homeRoot: Identity,
   homeAuth: AuthIdentity,
 });
+export const HostCodexApiLoginCustodySchema = z.strictObject({
+  kind: z.literal('api-key'),
+  privateHome: Path,
+  binding: AccountBindingSchema.refine((binding) => binding.provider === 'openai'),
+  credentialDigest: Hash,
+  homeRoot: Identity,
+  homeAuth: AuthIdentity,
+});
+export const HostCodexAuthenticationCustodySchema = z.union([
+  HostCodexLoginCustodySchema,
+  HostCodexApiLoginCustodySchema,
+]);
 const Integer = z.string().regex(/^\d{1,30}$/);
 const Metadata = z.strictObject({
   dev: Integer,
@@ -46,9 +59,11 @@ export const HostCodexCustodySchema = z.strictObject({
   bootstrapId: Hash,
   agentProfileSha256: Hash.optional(),
   agentContextSha256: Hash.optional(),
-  login: HostCodexLoginCustodySchema,
+  login: HostCodexAuthenticationCustodySchema,
   executable: HostCodexExecutableCustodySchema,
 });
 export type HostCodexLoginCustody = z.infer<typeof HostCodexLoginCustodySchema>;
+export type HostCodexApiLoginCustody = z.infer<typeof HostCodexApiLoginCustodySchema>;
+export type HostCodexAuthenticationCustody = z.infer<typeof HostCodexAuthenticationCustodySchema>;
 export type HostCodexExecutableCustody = z.infer<typeof HostCodexExecutableCustodySchema>;
 export type HostCodexCustody = z.infer<typeof HostCodexCustodySchema>;
