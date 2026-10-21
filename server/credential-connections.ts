@@ -1,4 +1,4 @@
-import type { StoredSecretRelay, SecretRelays } from './secret-relay.js';
+import type { StoredSecretRelay, SecretRelays, RelayTarget } from './secret-relay.js';
 import { ConnectionRequestError, connectionRequestError } from './connection-request-error.js';
 import { CredentialConnectionSetups, type ConnectionSetup } from './credential-setup.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -703,7 +703,44 @@ export class CredentialConnections {
     stillAllowed: () => boolean = () => true,
     assertRuntimeCurrent?: () => Promise<void>,
   ) {
+    return this.requestInternal(session, id, input, signal, stillAllowed, assertRuntimeCurrent);
+  }
+  /** Host-only final-hop injection. No model-facing API accepts body values. */
+  async applyRelayTarget(
+    session: string,
+    target: RelayTarget,
+    body: string,
+    encoding: 'json' | 'form',
+    signal: AbortSignal,
+    check: () => void,
+    dispatched: () => void,
+    assertRuntimeCurrent?: () => Promise<void>,
+  ): Promise<{ status: number }> {
+    const result = await this.requestInternal(
+      session,
+      target.connectionId,
+      { path: target.path, method: target.method, body },
+      signal,
+      () => {
+        check();
+        return true;
+      },
+      assertRuntimeCurrent,
+      { revision: target.revision, encoding, dispatched },
+    );
+    return { status: result.status };
+  }
+  private async requestInternal(
+    session: string,
+    id: string,
+    input: unknown,
+    signal: AbortSignal,
+    stillAllowed: () => boolean,
+    assertRuntimeCurrent?: () => Promise<void>,
+    relay?: { revision: number; encoding: 'json' | 'form'; dispatched: () => void },
+  ) {
     const c = this.connection(id);
+    if (relay && c.revision !== relay.revision) throw new Error('Destination changed');
     const request = ConnectionRequestSchema.parse(input);
     const url = requestTarget(c, request.path);
     if (
@@ -735,6 +772,10 @@ export class CredentialConnections {
       await assertRuntimeCurrent?.();
       check();
       const headers = credentialHeaders(c.auth, secret);
+      if (relay)
+        headers['content-type'] =
+          relay.encoding === 'json' ? 'application/json' : 'application/x-www-form-urlencoded';
+      relay?.dispatched();
       const response = await this.send(
         {
           url,
@@ -748,6 +789,7 @@ export class CredentialConnections {
       );
       combined.throwIfAborted();
       check();
+      if (relay) return { status: response.status, body: '' };
       if (response.status === 401) throw new ConnectionRequestError('authentication_failed');
       if (response.status === 403) throw new ConnectionRequestError('access_denied');
       if (response.status === 429 || response.status >= 500)
