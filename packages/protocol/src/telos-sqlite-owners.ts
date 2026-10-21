@@ -19,6 +19,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   openLease,
+  assertLeaseAdmission,
   closeLease,
   lockLease,
   leaseIdentity,
@@ -181,6 +182,7 @@ class Family {
   lease: NativeFileLease | undefined;
   refs = 0;
   invalid = false;
+  disposed = false;
   birthRecord: Anchor | undefined;
   exclusive = false;
   readonly mains: Partial<Record<Role, Anchor>> = {};
@@ -188,6 +190,9 @@ class Family {
   readonly sidecarSets: Partial<Record<Role, Array<Anchor | { path: string }>>> = {};
   constructor(readonly files: TelosDatabaseFiles) {
     this.root = directory(files);
+    // Main-thread confinement makes the synchronous check/capture/open sequence
+    // non-interleaving. No metadata alias FD is opened before native admission.
+    assertLeaseAdmission();
     try {
       if (exists(join(this.root, 'invalid'))) deny();
       const dir = capture(this.root, true);
@@ -245,25 +250,35 @@ class Family {
   }
   invalidate() {
     this.invalid = true;
+    if (this.disposed) return;
     // Invalidate the RETAINED record, including after its directory was renamed.
     // A restored old pathname cannot revive this history on cold reopening.
     if (this.birthRecord) {
       try {
-        writeSync(this.birthRecord.fd, Buffer.from('!'), 0, 1, 0);
-        fsyncSync(this.birthRecord.fd);
+        if (same(this.birthRecord.id, identity(fstatSync(this.birthRecord.fd, { bigint: true })))) {
+          writeSync(this.birthRecord.fd, Buffer.from('!'), 0, 1, 0);
+          fsyncSync(this.birthRecord.fd);
+        }
       } catch {
         /* this lifetime remains denied */
       }
     }
-    try {
-      create(join(this.root, 'invalid'), 'Observed retained-owner loss\n');
-    } catch {
-      /* already invalid or unavailable */
+    const directoryAnchor = this.anchors.find((anchor) => anchor.path === this.root);
+    if (directoryAnchor) {
+      try {
+        // A retained birth fd can invalidate its original record after rename.
+        // A path marker requires the ORIGINAL retained directory still at that path.
+        check(directoryAnchor);
+        create(join(this.root, 'invalid'), 'Observed retained-owner loss\n');
+      } catch {
+        /* original directory unavailable, or already invalid */
+      }
     }
   }
   assert() {
     try {
-      if (this.invalid || !this.lease || exists(join(this.root, 'invalid'))) deny();
+      if (this.disposed || this.invalid || !this.lease || exists(join(this.root, 'invalid')))
+        deny();
       for (const anchor of this.anchors) check(anchor);
       const lock = lstatSync(join(this.root, 'exclusion'), { bigint: true });
       privateFile(lock);
@@ -274,13 +289,31 @@ class Family {
     }
   }
   dispose() {
-    for (const anchor of this.anchors.splice(0)) closeSync(anchor.fd);
-    if (this.lease) {
-      const lease = this.lease;
-      this.lease = undefined;
-      closeLease(lease);
-    }
+    if (this.disposed) return;
+    // Retire every cached write/close capability BEFORE any descriptor can be
+    // released and reused. A later stale owner/fence is inert for this family.
+    this.disposed = true;
+    this.birthRecord = undefined;
+    const anchors = this.anchors.splice(0);
+    const lease = this.lease;
+    this.lease = undefined;
     if (activeFamily === this) activeFamily = undefined;
+    let failed = false;
+    for (const anchor of anchors) {
+      try {
+        closeSync(anchor.fd);
+      } catch {
+        failed = true;
+      }
+    }
+    if (lease) {
+      try {
+        closeLease(lease);
+      } catch {
+        failed = true;
+      }
+    }
+    if (failed) throw new Error('Retained Telos descriptor cleanup failed');
   }
 }
 function retain(files: TelosDatabaseFiles): Family | undefined {
@@ -403,7 +436,7 @@ export function openTelosOwnedDatabase(
     },
     assertCurrent,
     invalidate() {
-      family?.invalidate();
+      if (!closed) family?.invalidate();
     },
     acquireDeletionExclusion() {
       assertCurrent();
@@ -414,6 +447,7 @@ export function openTelosOwnedDatabase(
       return () => {
         if (released) return;
         released = true;
+        if (family!.disposed) return;
         family!.exclusive = false;
         try {
           lockLease(family!.lease!, 0);

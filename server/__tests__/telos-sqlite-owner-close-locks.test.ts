@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, linkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -182,5 +182,72 @@ it('cannot leave an untracked worker writer alive after the last managed family 
     expect(result).toEqual({ denied: 'MITZO_OWNER_UNSUPPORTED' });
   } finally {
     await worker.terminate();
+  }
+});
+
+it('rejects malformed hardlinked metadata before validation cleanup can release an active SQLite WAL writer', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'telos-metadata-alias-locks-'));
+  roots.push(root);
+  const files = {
+    canonical: join(root, 'canonical.db'),
+    events: join(root, 'events.db'),
+    tasks: join(root, 'tasks.db'),
+  };
+  createFreshTelosDatabaseFiles(files);
+  const first = openTelosOwnedDatabase('canonical', files.canonical, {}, files);
+  owners.push(first);
+  first.database.pragma('journal_mode=WAL');
+  first.database.exec('CREATE TABLE evidence(value TEXT)');
+  first.seal();
+  first.database.exec('BEGIN IMMEDIATE');
+  const otherRoot = mkdtempSync(join(tmpdir(), 'telos-malformed-metadata-'));
+  roots.push(otherRoot);
+  const other = {
+    canonical: join(otherRoot, 'canonical.db'),
+    events: join(otherRoot, 'events.db'),
+    tasks: join(otherRoot, 'tasks.db'),
+  };
+  createFreshTelosDatabaseFiles(other);
+  const key = join(otherRoot, '.telos-file-owners/key');
+  rmSync(key);
+  linkSync(files.canonical + '-shm', key);
+  const worker = new Worker(
+    `
+    const {parentPort,workerData}=require('node:worker_threads');require(workerData.tsx).register();const {openTelosOwnedDatabase}=require(workerData.ownerModule);
+    try{const owner=openTelosOwnedDatabase('canonical',workerData.files.canonical,{timeout:0},workerData.files);owner.close();parentPort.postMessage('unexpected-admission');}catch(error){parentPort.postMessage({denied:String(error.code||error.message)});}
+  `,
+    {
+      eval: true,
+      resourceLimits: { maxOldGenerationSizeMb: 64 },
+      workerData: {
+        tsx: require.resolve('tsx/cjs/api'),
+        ownerModule: new URL('../../packages/protocol/src/telos-sqlite-owners.ts', import.meta.url)
+          .pathname,
+        files: other,
+      },
+    },
+  );
+  try {
+    const result = await new Promise<unknown>((resolve, reject) => {
+      worker.once('message', resolve);
+      worker.once('error', reject);
+    });
+    const probe = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `const Database=require(process.argv[1]);const db=new Database(process.argv[2],{timeout:0});try{db.exec("INSERT INTO evidence VALUES ('metadata alias writer')");}catch(e){process.stdout.write(String(e.code));process.exitCode=23;}finally{db.close();}`,
+        sqlite,
+        files.canonical,
+      ],
+      { encoding: 'utf8', timeout: 5000, env: process.env },
+    );
+    expect(probe.status).toBe(23);
+    expect(probe.stdout).toBe('SQLITE_BUSY');
+    expect(result).toEqual({ denied: 'MITZO_OWNER_UNSUPPORTED' });
+  } finally {
+    await worker.terminate();
+    first.database.exec('ROLLBACK');
+    rmSync(key);
   }
 });

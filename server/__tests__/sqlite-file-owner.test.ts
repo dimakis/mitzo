@@ -7,6 +7,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
 import {
   openLease,
+  assertLeaseAdmission,
   closeLease,
   lockLease,
   leaseIdentity,
@@ -207,4 +208,13 @@ it('denies worker-environment lease authority before touching the process single
   const handle = lease(path);
   lockLease(handle, 0);
   expect(probe(path, 1).status).toBe(23);
+});
+
+it('checks native lease admission without opening an auxiliary descriptor', () => {
+  const { path } = fixture();
+  expect(() => assertLeaseAdmission()).not.toThrow();
+  const handle = lease(path);
+  expect(() => assertLeaseAdmission()).toThrow('already open');
+  close(handle);
+  expect(() => assertLeaseAdmission()).not.toThrow();
 });

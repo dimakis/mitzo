@@ -7,6 +7,7 @@ function binding() {
   return (native ??= require(filename));
 }
 
+exports.assertLeaseAdmission = () => binding().assertLeaseAdmission();
 exports.openLease = (filename) => binding().openLease(filename);
 exports.lockLease = (handle, mode) => binding().lockLease(handle, mode);
 exports.closeLease = (handle) => binding().closeLease(handle);

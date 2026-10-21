@@ -28,13 +28,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/sqlite-file-owner/binding.gyp':
     '59f4b012a0f38af834d10942cb629ee62a33aff9cbf408de585146c6c582a709',
   '../../packages/sqlite-file-owner/index.d.ts':
-    'ce6ba5d291b6f9d3c9badff46782ff434dcf203053e8da3047ae0530a35345d9',
+    '6c420dfbf270ec361fab00f495d3c404c3832771ee77afdd4cb53303c92381b0',
   '../../packages/sqlite-file-owner/index.cjs':
-    'dfe0c470b2c5f6e83a84e5c7002f05d0af58c93581c6ac0aee176eeac7a5d16a',
+    '5a39f9a0896a3bcda6f56ece277979c0967b0f1520c19da4aad6b8c89a2797f4',
   '../../packages/sqlite-file-owner/file_owner.c':
-    '14d688e58beb5581469db0ea87db2c4e2ea50123211565f76e0acbc5d477d04f',
+    '98266cf78269e7d89cef660bb9b58f2c5273ecb4361cc85dadf4a6224fa568e3',
   '../../packages/protocol/src/telos-sqlite-owners.ts':
-    'f32ac66f39c4814cf2d9507b4b2c58636fb2ced2e07f4cada8369721b1cbde67',
+    '7c469d8fe4cf5ce64864da712affa5b032c7fd25fedc6424e6642cf810d4e06c',
   '../../frontend/src/components/TelosItemLifecycle.tsx':
     '74cbe49b6b9e66b73de2f7b7492bc23de40f6e31f03b0068bdb5858e79f8e10e',
   '../../frontend/src/components/WorkspaceActionMenu.tsx':

@@ -30,8 +30,13 @@ same narrow opening helper, which captures a descriptor before opening SQLite
 and binds that capture to the actual opened connection. The binding checks both
 the retained physical identity and SQLite's own current-file observation. The
 helper never accepts an already-open connection or a caller's identity assertion.
-An observed loss/replacement invalidates the retained history and cannot be
-cleared by restoring the filename or restarting App. A closed owner never
+For a live retained family or a known retained owner directory, an observed
+loss/replacement invalidates the retained history and cannot be cleared by
+restoring the filename or restarting App. A cold assembly with an entirely
+absent owner directory is unknown and unqualified; it has no authenticated
+prior-history witness. This contract supplies no sticky revocation across that
+entire-directory cold gap. A later restored original authenticated directory
+can qualify only when every original physical member and current owner agrees. A closed owner never
 regains authority; a subsequent assembly needs valid retained file history and
 new captures from the actual constructors.
 
@@ -57,7 +62,8 @@ process, a failed conversion or an unsupported platform denies deletion.
 The existing actual owners acquire their captures at construction and invalidate
 them on close. Their SQLite objects are never swapped after capture. All actual canonical
 connection owners (Work, Item, Artifact and SourceApproval), EventStore and
-TaskStore share the same fixed-family descriptor lifetime. Auxiliary descriptors
+TaskStore share the same fixed-family descriptor lifetime. Cached descriptor write/close capabilities are retired before disposal, so a
+stale owner cannot use a descriptor number reused for an unrelated file. Auxiliary descriptors
 close only after the final managed SQLite connection for that role closes.
 Unsupported environments and failed retained-family admission reject before
 opening SQLite; they cannot leave an untracked connection behind. WAL is the

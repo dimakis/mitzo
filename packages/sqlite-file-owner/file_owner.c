@@ -95,6 +95,20 @@ static FileLease *lease_argument(napi_env env, napi_value value) {
   return lease;
 }
 
+/* No descriptor is opened here. Reject another environment/family before JS
+ * examines metadata: even a malformed metadata alias may be a live DB/SHM fd. */
+static napi_value assert_lease_admission(napi_env env, napi_callback_info info) {
+  (void)info;
+  if (!process_main_thread())
+    return fail(env, "MITZO_OWNER_UNSUPPORTED", "Owner leases require the process main thread");
+  if (active_lease != NULL)
+    return fail(env, "MITZO_OWNER_BUSY", "A retained owner lease is already open");
+  napi_value result;
+  if (napi_get_undefined(env, &result) != napi_ok)
+    return fail(env, "MITZO_OWNER_UNAVAILABLE", "Owner admission check failed");
+  return result;
+}
+
 static napi_value open_lease(napi_env env, napi_callback_info info) {
   if (!process_main_thread())
     return fail(env, "MITZO_OWNER_UNSUPPORTED", "Owner leases require the process main thread");
@@ -251,6 +265,7 @@ static napi_value initialize(napi_env env, napi_value exports) {
   if (!process_main_thread())
     return fail(env, "MITZO_OWNER_UNSUPPORTED", "Owner leases require the process main thread");
   napi_property_descriptor methods[] = {
+      {"assertLeaseAdmission", NULL, assert_lease_admission, NULL, NULL, NULL, napi_default, NULL},
       {"openLease", NULL, open_lease, NULL, NULL, NULL, napi_default, NULL},
       {"lockLease", NULL, lock_lease, NULL, NULL, NULL, napi_default, NULL},
       {"closeLease", NULL, close_lease, NULL, NULL, NULL, napi_default, NULL},

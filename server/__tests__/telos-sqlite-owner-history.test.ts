@@ -9,6 +9,11 @@ import {
   rmSync,
   symlinkSync,
   existsSync,
+  openSync,
+  closeSync,
+  fstatSync,
+  readdirSync,
+  statSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -218,4 +223,68 @@ it('refuses orphaned SQLite super-journal names before any main creation', () =>
   expect(() => createFreshTelosDatabaseFiles(files)).toThrow();
   for (const file of Object.values(files)) expect(existsSync(file)).toBe(false);
   expect(readFileSync(journal, 'utf8')).toBe('retained super journal');
+});
+
+it.each(['invalidate', 'stale exclusion release'] as const)(
+  'never writes through a reused descriptor after %s on a disposed owner',
+  (action) => {
+    const files = fixture();
+    createFreshTelosDatabaseFiles(files);
+    const owner = open(files);
+    const birth = statSync(join(roots[0], '.telos-file-owners/birth.json'), { bigint: true });
+    const descriptor = readdirSync('/dev/fd')
+      .map(Number)
+      .find((fd) => {
+        try {
+          const info = fstatSync(fd, { bigint: true });
+          return info.dev === birth.dev && info.ino === birth.ino;
+        } catch {
+          return false;
+        }
+      });
+    if (descriptor === undefined) throw new Error('Actual retained birth descriptor not found');
+    const release = owner.acquireDeletionExclusion();
+    owner.close();
+    const innocent = join(roots[0], 'unrelated-retained-file');
+    writeFileSync(innocent, 'UNRELATED DATA MUST REMAIN', { flag: 'wx' });
+    const descriptors: number[] = [];
+    try {
+      let reused = false;
+      for (let i = 0; i < 256; i++) {
+        const fd = openSync(innocent, 'r+');
+        descriptors.push(fd);
+        if (fd === descriptor) {
+          reused = true;
+          break;
+        }
+        if (fd > descriptor) break;
+      }
+      expect(reused).toBe(true);
+      try {
+        if (action === 'invalidate') owner.invalidate();
+        else release();
+      } catch {
+        /* inspect actual corruption regardless of prior cleanup error */
+      }
+      expect(readFileSync(innocent, 'utf8')).toBe('UNRELATED DATA MUST REMAIN');
+    } finally {
+      for (const fd of descriptors) closeSync(fd);
+    }
+  },
+);
+
+it('treats a cold entirely absent owner directory as unknown without claiming sticky prior-history revocation', () => {
+  const files = fixture();
+  createFreshTelosDatabaseFiles(files);
+  const prior = open(files);
+  prior.close();
+  const directory = join(roots[0], '.telos-file-owners');
+  renameSync(directory, directory + '.saved');
+  const unknown = open(files);
+  expect(() => unknown.assertCurrent()).toThrow();
+  unknown.close();
+  renameSync(directory + '.saved', directory);
+  const current = open(files);
+  expect(() => current.assertCurrent()).not.toThrow();
+  expect(() => prior.assertCurrent()).toThrow();
 });

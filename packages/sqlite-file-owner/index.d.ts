@@ -4,6 +4,8 @@ declare const retainedLease: unique symbol;
 export interface NativeFileLease {
   readonly [retainedLease]: true;
 }
+/** Denial only; checks the actual main-thread/singleton boundary without opening any FD. */
+export function assertLeaseAdmission(): void;
 export function openLease(filename: string): NativeFileLease;
 /** Shared=0, exclusive=1, unlock=2; never blocks. */
 export function lockLease(handle: NativeFileLease, mode: 0 | 1 | 2): void;
