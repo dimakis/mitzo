@@ -33,7 +33,7 @@ function fixture() {
   };
   const manager = {
     checkDependencies: vi.fn(() => ({ errors: [], warnings: [] })),
-    initialize: vi.fn(async () => {}),
+    initialize: vi.fn<typeof SandboxManager.initialize>().mockResolvedValue(undefined),
     wrapWithSandbox: vi
       .fn<typeof SandboxManager.wrapWithSandbox>()
       .mockResolvedValue('wrapped command'),
@@ -48,6 +48,31 @@ function fixture() {
   });
   return { payload, manager, spawn };
 }
+
+it('enables proxy egress only for an explicitly approved network command', async () => {
+  const { payload, manager, spawn } = fixture();
+  payload.networkAccess = 'approved-command';
+  expect(await runSandboxedWorker(payload, { manager, spawn: spawn as never })).toBe(0);
+  const approve = manager.initialize.mock.calls[0][1];
+  expect(approve).toBeTypeOf('function');
+  expect(await approve!({ host: 'registry.npmjs.org', port: 443 })).toBe(true);
+  expect(manager.initialize.mock.calls[0][0].network.allowedDomains).toEqual([]);
+  expect(manager.reset).toHaveBeenCalledOnce();
+});
+
+it('keeps networking denied by default and rejects an invalid network authorization', async () => {
+  const { payload, manager, spawn } = fixture();
+  expect(await runSandboxedWorker(payload, { manager, spawn: spawn as never })).toBe(0);
+  expect(manager.initialize.mock.calls[0][1]).toBeUndefined();
+  manager.initialize.mockClear();
+  spawn.mockClear();
+  payload.networkAccess = 'allow' as never;
+  await expect(runSandboxedWorker(payload, { manager, spawn: spawn as never })).rejects.toThrow(
+    /network authorization/,
+  );
+  expect(manager.initialize).not.toHaveBeenCalled();
+  expect(spawn).not.toHaveBeenCalled();
+});
 
 it('rejects replacement during SRT initialization before constructing the sandbox', async () => {
   const { payload, manager, spawn } = fixture();
