@@ -63,6 +63,7 @@ export function useTelosRecords(ids: string[], refreshKey: string | number = 0) 
     const unavailable: string[] = [];
     const failures: RecordsResult['failures'] = [];
     const retainedAtStart = latest.current?.key === key ? latest.current : undefined;
+    const retainUntilSettled = retainedAtStart?.settled === true;
     if (retainedAtStart) setResult({ ...retainedAtStart, loading: true });
     function publish(loading: boolean) {
       if (controller.signal.aborted) return;
@@ -116,8 +117,9 @@ export function useTelosRecords(ids: string[], refreshKey: string | number = 0) 
           }
         }
         // Initial discovery can display each ready item without waiting for a
-        // slow sibling. Refreshes retain the mounted workspace until settled.
-        if (!retainedAtStart) publish(true);
+        // slow sibling, including after an interrupted initial read. Only a
+        // previously settled snapshot is retained until its refresh settles.
+        if (!retainUntilSettled) publish(true);
       }
     }
     void Promise.all(Array.from({ length: Math.min(4, queue.length) }, read)).then(() => {

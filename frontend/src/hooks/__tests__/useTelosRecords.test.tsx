@@ -254,3 +254,105 @@ it('retains safe failure categories and item identity for HTTP, validation, iden
   expect(result.current.records).toEqual([]);
   expect(JSON.stringify(result.current.failures)).not.toContain('private');
 });
+
+for (const trigger of ['manual', 'todo_update', 'visible resume', 'refresh key'] as const)
+  it(`continues initial progressive discovery after ${trigger} interrupts a partial snapshot`, async () => {
+    const template = createTelosWorkFixtures().homeStudio.items[0];
+    const records = ['A', 'B', 'C'].map((id) => ({
+      ...template,
+      itemId: `interrupted-${trigger}-${id}`,
+      summary: id,
+    }));
+    type Record = (typeof records)[number];
+    const admitted: { id: string; signal: AbortSignal; resolve: (record: Record) => void }[] = [];
+    const read = vi
+      .spyOn(TelosWorkApiClient.prototype, 'readRecord')
+      .mockImplementation(
+        (id, signal) => new Promise((resolve) => admitted.push({ id, signal: signal!, resolve })),
+      );
+    const view = renderHook(
+      ({ refreshKey }) =>
+        useTelosRecords(
+          records.map((record) => record.itemId),
+          refreshKey,
+        ),
+      {
+        initialProps: { refreshKey: 0 },
+      },
+    );
+    expect(read).toHaveBeenCalledTimes(3);
+    await act(async () => admitted[0].resolve(records[0]));
+    expect(view.result.current.records).toEqual([records[0]]);
+    expect(view.result.current.loading).toBe(true);
+    expect(view.result.current.initializing).toBe(true);
+    act(() => {
+      if (trigger === 'manual') view.result.current.refresh();
+      else if (trigger === 'todo_update') updates.forEach((listener) => listener());
+      else if (trigger === 'visible resume') {
+        vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+        document.dispatchEvent(new Event('visibilitychange'));
+      } else view.rerender({ refreshKey: 1 });
+    });
+    expect(read).toHaveBeenCalledTimes(6);
+    expect(admitted.slice(0, 3).every((request) => request.signal.aborted)).toBe(true);
+    // The replacement B remains held. Ready A and C must still publish now.
+    await act(async () => {
+      admitted[3].resolve(records[0]);
+      admitted[5].resolve(records[2]);
+    });
+    expect(view.result.current.records).toEqual([records[0], records[2]]);
+    expect(view.result.current.loading).toBe(true);
+    expect(view.result.current.initializing).toBe(true);
+    // Ignored-abort transport responses from the interrupted run have no authority.
+    await act(async () => {
+      admitted[1].resolve({ ...records[1], summary: 'Stale B' });
+      admitted[2].resolve({ ...records[2], summary: 'Stale C' });
+    });
+    expect(view.result.current.records).toEqual([records[0], records[2]]);
+    expect(view.result.current.loading).toBe(true);
+    await act(async () => admitted[4].resolve(records[1]));
+    expect(view.result.current.records).toEqual(records);
+    expect(view.result.current.loading).toBe(false);
+    expect(view.result.current.initializing).toBe(false);
+    expect(view.result.current.failures).toEqual([]);
+    expect(view.result.current.unavailable).toEqual([]);
+  });
+
+it('retains the fully settled snapshot through interrupted refreshes until the current replacement settles', async () => {
+  const template = createTelosWorkFixtures().homeStudio.items[0];
+  const records = ['A', 'B'].map((id) => ({
+    ...template,
+    itemId: `settled-retention-${id}`,
+    summary: id,
+  }));
+  type Record = (typeof records)[number];
+  const admitted: { resolve: (record: Record) => void; signal: AbortSignal }[] = [];
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation(
+    (_id, signal) => new Promise((resolve) => admitted.push({ resolve, signal: signal! })),
+  );
+  const view = renderHook(() => useTelosRecords(records.map((record) => record.itemId)));
+  await act(async () =>
+    admitted.slice(0, 2).forEach((request, index) => request.resolve(records[index])),
+  );
+  expect(view.result.current.records).toEqual(records);
+  expect(view.result.current.initializing).toBe(false);
+  act(() => view.result.current.refresh());
+  await act(async () => admitted[2].resolve({ ...records[0], summary: 'Interrupted A' }));
+  expect(view.result.current.records).toEqual(records);
+  expect(view.result.current.loading).toBe(true);
+  expect(view.result.current.initializing).toBe(false);
+  act(() => updates.forEach((listener) => listener()));
+  expect(admitted[3].signal.aborted).toBe(true);
+  const revised = records.map((record) => ({ ...record, summary: `Current ${record.summary}` }));
+  await act(async () => {
+    admitted[4].resolve(revised[0]);
+    admitted[3].resolve({ ...records[1], summary: 'Stale B' });
+  });
+  expect(view.result.current.records).toEqual(records);
+  expect(view.result.current.loading).toBe(true);
+  expect(view.result.current.initializing).toBe(false);
+  await act(async () => admitted[5].resolve(revised[1]));
+  expect(view.result.current.records).toEqual(revised);
+  expect(view.result.current.loading).toBe(false);
+  expect(view.result.current.initializing).toBe(false);
+});
