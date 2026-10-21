@@ -1,3 +1,4 @@
+import type { SecretRelay } from './secret-relay.js';
 import type { ConnectionSetup } from './credential-setup.js';
 import { WebSocketConfigSchema } from './credential-websocket.js';
 import express from 'express';
@@ -29,6 +30,8 @@ const revision = z.object({ revision: z.number().int().positive() }).strict();
 export function createCredentialConnectionsRouter(
   service: CredentialConnections,
   options: {
+    onRelayReady?: (relay: SecretRelay) => Promise<boolean>;
+    canCompleteRelay?: (relay: SecretRelay) => boolean;
     onReady?: (setup: ConnectionSetup) => Promise<boolean>;
     canComplete?: (setup: ConnectionSetup) => boolean;
   } = {},
@@ -44,6 +47,14 @@ export function createCredentialConnectionsRouter(
   router.get('/', (_req, res) =>
     res.json({ connections: service.catalog(), storage: 'apple-keychain' }),
   );
+  router.get('/relays/:id', (req, res) => {
+    try {
+      if (!service.relay) throw new Error();
+      return res.json({ relay: service.relay.browserStatus(req.params.id) });
+    } catch {
+      return res.status(404).json({ error: 'Secret request unavailable' });
+    }
+  });
   router.get('/setups/:id', (req, res) => {
     try {
       return res.json({ setup: service.setups.browserStatus(req.params.id) });
@@ -62,6 +73,53 @@ export function createCredentialConnectionsRouter(
   router.use(express.json({ limit: '24kb' }));
   router.use((req, res, next) => {
     if (requireRecentConnectionAuthorization(res, req.header('x-csrf-token') ?? '')) next();
+  });
+  router.post('/relays/:id/complete', async (req, res) => {
+    const body = revision.extend({ secret }).strict().safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: 'Invalid secret request' });
+    try {
+      if (!service.relay) throw new Error();
+      const csrf = req.header('x-csrf-token') ?? '';
+      const expiresAt = recentAuthorizationExpiry(res, csrf) ?? 0;
+      const draft = service.relay.browserStatus(req.params.id);
+      const allowed = () => expiresAt > Date.now() && (options.canCompleteRelay?.(draft) ?? false);
+      if (!allowed())
+        return res
+          .status(409)
+          .json({ error: 'Return to the originating chat before completing this request.' });
+      let relay = await service.relay.complete(
+        draft.id,
+        body.data.revision,
+        body.data.secret,
+        AbortSignal.timeout(30000),
+        allowed,
+      );
+      if (options.onRelayReady) {
+        try {
+          if (await options.onRelayReady(relay)) service.relay.markDelivered(relay.id);
+        } catch {
+          /* durable outbox retains readiness */
+        }
+        relay = service.relay.browserStatus(relay.id);
+      }
+      return res.json({ relay });
+    } catch {
+      return res
+        .status(422)
+        .json({
+          error: 'Secret save could not be confirmed. Check request status before continuing.',
+        });
+    }
+  });
+  router.post('/relays/:id/cancel', (req, res) => {
+    const body = revision.safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: 'Invalid secret request' });
+    try {
+      if (!service.relay) throw new Error();
+      return res.json({ relay: service.relay.cancel(req.params.id, body.data.revision) });
+    } catch {
+      return res.status(409).json({ error: 'Secret request changed; refresh its status.' });
+    }
   });
   router.post('/setups/:id/complete', async (req, res) => {
     const body = revision.extend({ secret }).strict().safeParse(req.body);
