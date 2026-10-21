@@ -15,11 +15,11 @@ import {
 
 const roots: string[] = [];
 const DAY = 86_400_000;
-function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
+function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped', managed = true) {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-lifecycle-service-'));
   roots.push(root);
   const store = new OpenShellLifecycleStore(join(root, 'lifecycle.db'));
-  store.upsert({
+  const record: OpenShellLifecycleRecord = {
     conversationId: 'c',
     workspace: 'default',
     gateway: 'openshell',
@@ -48,7 +48,8 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
       runtimeScope: 'sandbox',
       route: { kind: 'api', provider: 'provider', model: 'm' },
     },
-  });
+  };
+  if (managed) store.upsert(record);
   const sandbox = {
     id: 'p',
     resourceVersion: phase === 'stopped' ? 'stopped-v' : 'ready-v',
@@ -60,7 +61,7 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
   };
   const adapters = {
     inspect: vi.fn(async () => (absent ? undefined : sandbox)),
-    protect: vi.fn(async () => ({ blockers: [] })),
+    protect: vi.fn<LifecycleAdapters['protect']>(async () => ({ blockers: [] })),
     checkpoint: vi.fn(async () => ({
       path: '/private/checkpoint',
       digest: 'd',
@@ -81,6 +82,7 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
       undefined | ((record: OpenShellLifecycleRecord, action: 'stopped' | 'deleted') => void),
   };
   return {
+    record,
     store,
     sandbox,
     removeSandbox,
@@ -93,6 +95,181 @@ function setup(phase: OpenShellLifecycleRecord['phase'] = 'stopped') {
   };
 }
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+
+it('reviews a legacy sandbox without enrolling it, then checkpoints and releases only on confirmation', async () => {
+  const { service, store, adapters, record } = setup('retained', false);
+  const read = vi.fn(() => structuredClone(record));
+  const preview = await service.previewLegacyDeletion(read, AbortSignal.timeout(1000));
+  expect(preview.action).toBe('stop_and_delete');
+  expect(store.list()).toEqual([]);
+  await service.reconcile(AbortSignal.timeout(1000));
+  expect(adapters.checkpoint).not.toHaveBeenCalled();
+  expect(adapters.stop).not.toHaveBeenCalled();
+  await expect(service.confirm(preview.token, AbortSignal.timeout(1000), 'other')).rejects.toThrow(
+    'another conversation',
+  );
+  await expect(service.confirm(preview.token, AbortSignal.timeout(1000), 'c')).resolves.toBe(
+    'deleted',
+  );
+  expect(adapters.checkpoint).toHaveBeenCalledOnce();
+  expect(adapters.verifyCheckpoint).toHaveBeenCalled();
+  expect(adapters.stop).toHaveBeenCalledOnce();
+  expect(adapters.delete).toHaveBeenCalledOnce();
+  expect(store.get('c')?.phase).toBe('deleted');
+  await expect(service.confirm(preview.token, AbortSignal.timeout(1000), 'c')).rejects.toThrow(
+    /used/,
+  );
+});
+
+it.each(['binding', 'ownership', 'managed', 'active', 'replaced', 'stopped', 'missing'])(
+  'retains a legacy sandbox when %s evidence changes after review',
+  async (change) => {
+    const { service, store, record, adapters, sandbox } = setup('retained', false);
+    let next = structuredClone(record);
+    const preview = await service.previewLegacyDeletion(() => next, AbortSignal.timeout(1000));
+    if (change === 'binding')
+      next = { ...next, identity: { ...next.identity!, threadId: 'other' } };
+    if (change === 'ownership') next = { ...next, physicalSandboxId: 'other' };
+    if (change === 'managed') store.upsert(record);
+    if (change === 'active') adapters.protect.mockResolvedValue({ blockers: ['active_session'] });
+    if (change === 'replaced') sandbox.id = 'replacement';
+    if (change === 'stopped') sandbox.phase = 'Stopped';
+    if (change === 'missing') adapters.inspect.mockResolvedValue(undefined);
+    await expect(service.confirm(preview.token, AbortSignal.timeout(1000), 'c')).rejects.toThrow();
+    expect(adapters.checkpoint).not.toHaveBeenCalled();
+    expect(adapters.stop).not.toHaveBeenCalled();
+    expect(adapters.delete).not.toHaveBeenCalled();
+    if (change !== 'managed') expect(store.list()).toEqual([]);
+  },
+);
+
+it('keeps failed legacy checkpoint work fenced and never stops or deletes it', async () => {
+  const { service, store, record, adapters } = setup('retained', false);
+  const preview = await service.previewLegacyDeletion(() => record, AbortSignal.timeout(1000));
+  adapters.verifyCheckpoint.mockResolvedValue(false);
+  await expect(service.confirm(preview.token, AbortSignal.timeout(1000), 'c')).rejects.toThrow(
+    /checkpoint/,
+  );
+  expect(store.get('c')?.phase).toBe('failed');
+  expect(adapters.stop).not.toHaveBeenCalled();
+  expect(adapters.delete).not.toHaveBeenCalled();
+});
+
+it.each(['throw', 'blocked', 'outcome'])(
+  'fences legacy ownership after a post-stop %s failure, including fresh retries',
+  async (failure) => {
+    const { service, store, record, adapters, sandbox } = setup('retained', false);
+    let next = structuredClone(record);
+    const preview = await service.previewLegacyDeletion(() => next, AbortSignal.timeout(1000));
+    adapters.protect.mockImplementation(async () => {
+      if (sandbox.phase === 'Stopped') {
+        if (failure === 'throw') throw Error('Post-stop review unavailable');
+        if (failure === 'blocked') return { blockers: ['active_session'] };
+      }
+      return { blockers: [] };
+    });
+    if (failure === 'outcome')
+      adapters.onOutcome = () => {
+        throw Error('Outcome unavailable');
+      };
+    await expect(service.confirm(preview.token, AbortSignal.timeout(1000), 'c')).rejects.toThrow();
+    expect(store.get('c')).toMatchObject({
+      phase: 'failed',
+      checkpoint: expect.any(Object),
+      legacyDeletionPending: true,
+    });
+    next = { ...next, physicalSandboxId: 'another-owner' };
+    adapters.protect.mockResolvedValue({ blockers: [] });
+    const retry = await service.preview('c', AbortSignal.timeout(1000), 'delete');
+    expect(retry.action).toBe('none');
+    await expect(service.confirm(retry.token, AbortSignal.timeout(1000), 'c')).rejects.toThrow();
+    expect(adapters.delete).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['retained', 'stopped'] as const)(
+  'preserves legacy deletion qualification across a restart in %s state',
+  async (phase) => {
+    const { service, store, record, adapters } = setup(phase, false);
+    store.upsert({ ...record, legacyDeletionPending: true });
+    // A later writer which predates the new field cannot silently clear it.
+    store.upsert({ ...record, generation: 2 });
+    expect(store.get('c')?.legacyDeletionPending).toBe(true);
+    const root = mkdtempSync(join(tmpdir(), 'legacy-crash-'));
+    roots.push(root);
+    const path = join(root, 'restart.db');
+    const copy = new OpenShellLifecycleStore(path);
+    copy.upsert(store.get('c')!);
+    copy.close();
+    const restarted = new OpenShellLifecycleStore(path);
+    const resumed = new OpenShellLifecycleService(
+      restarted,
+      openShellLifecyclePolicy({ MITZO_OPENSHELL_LIFECYCLE_ENABLED: '1' }),
+      adapters,
+    );
+    const retry = await resumed.preview('c', AbortSignal.timeout(1000), 'delete');
+    expect(retry.action).toBe('none');
+    expect(retry.blockers).toContain('ambiguous_ownership');
+    await resumed.reconcile(AbortSignal.timeout(1000));
+    expect(adapters.checkpoint).not.toHaveBeenCalled();
+    expect(adapters.stop).not.toHaveBeenCalled();
+    expect(adapters.delete).not.toHaveBeenCalled();
+    restarted.close();
+    expect((await service.preview('c', AbortSignal.timeout(1000), 'delete')).action).toBe('none');
+  },
+);
+
+it.each(['during-protection', 'during-checkpoint', 'after-stop'])(
+  'rechecks legacy ownership %s before destructive work',
+  async (stage) => {
+    const { service, store, record, adapters } = setup('retained', false);
+    let next = structuredClone(record);
+    const change = () => {
+      next = { ...next, physicalSandboxId: 'replacement' };
+    };
+    const preview = await service.previewLegacyDeletion(() => next, AbortSignal.timeout(1000));
+    if (stage === 'during-protection')
+      adapters.protect.mockImplementationOnce(async () => {
+        change();
+        return { blockers: [] };
+      });
+    if (stage === 'during-checkpoint')
+      adapters.verifyCheckpoint.mockImplementationOnce(async () => {
+        change();
+        return true;
+      });
+    if (stage === 'after-stop') {
+      const stop = adapters.stop.getMockImplementation()!;
+      adapters.stop.mockImplementationOnce(async (...args) => {
+        await stop(...args);
+        change();
+      });
+    }
+    await expect(service.confirm(preview.token, AbortSignal.timeout(1000), 'c')).rejects.toThrow(
+      /ownership changed/,
+    );
+    expect(adapters.delete).not.toHaveBeenCalled();
+    if (stage === 'during-protection') expect(store.list()).toEqual([]);
+    if (stage === 'during-checkpoint') expect(adapters.stop).not.toHaveBeenCalled();
+    if (stage === 'after-stop') expect(store.get('c')?.phase).toBe('failed');
+  },
+);
+
+it('expires legacy consent and keeps stopped, uncheckpointed sandboxes unmanaged', async () => {
+  const { service, record, store, adapters, sandbox } = setup('retained', false);
+  const preview = await service.previewLegacyDeletion(() => record, AbortSignal.timeout(1000));
+  adapters.now = () => preview.expiresAt + 1;
+  await expect(service.confirm(preview.token, AbortSignal.timeout(1000), 'c')).rejects.toThrow(
+    /expired/,
+  );
+  sandbox.phase = 'Stopped';
+  const stopped = await service.previewLegacyDeletion(() => record, AbortSignal.timeout(1000));
+  expect(stopped.action).toBe('none');
+  expect(stopped.blockers).toContain('checkpoint_unavailable');
+  expect(store.list()).toEqual([]);
+  expect(adapters.stop).not.toHaveBeenCalled();
+  expect(adapters.delete).not.toHaveBeenCalled();
+});
 
 it('blocks an unavailable protection provider instead of treating it as no protections', async () => {
   const { service, adapters } = setup();
