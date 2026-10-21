@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.463-symposium-original-turn-command-data';
+  'v1.0.467-symposium-retained-settings-source';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1335,4 +1335,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '77d70742d8bcb7a5e7d93113e70a7ed25ccccb8a50707a77c9688112bd2269db',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-original-turn-command-data.patch':
     'a62db9c54a14615d36402c2b2b6fa88cf72788de2a00d6b520755951844d873b',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-configured-settings-data.patch':
+    'f2ee2b89921c5cc7a85982847cb3ab9b41c39b44370d6f5f1ced03262190f573',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-retained-configured-baseline.patch':
+    'cb53fbb73ef67fbf16f897559e48fbc2d6f6093717df20c19fad253cd3c8e886',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-providerless-settings-update.patch':
+    'b203d396aed782af897aec2052dc72d2cc2f77c08bfae0071bc0dfb72508f9f7',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-registry-fixture-arc-owners.patch':
+    '1d89257e005fefe78cf9949b07699db65e7beffd00a32e5f23f5c188e025f84f',
 });

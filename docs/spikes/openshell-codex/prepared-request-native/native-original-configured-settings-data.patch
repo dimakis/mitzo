@@ -1,0 +1,664 @@
+diff --git a/codex-rs/core/src/session/configured_settings_data.rs b/codex-rs/core/src/session/configured_settings_data.rs
+new file mode 100644
+index 0000000..61eb652
+--- /dev/null
++++ b/codex-rs/core/src/session/configured_settings_data.rs
+@@ -0,0 +1,173 @@
++//! Original baseline DATA in ordinary startup evaluation stages. No Session,
++//! provider, first-command apply, currentness or preparation grant is produced.
++use super::*;
++
++pub(super) struct OriginalConfiguredHistoryData {
++    dynamic_tools: Vec<DynamicToolSpec>,
++    disabled_plugin_ids: Vec<String>,
++    collaboration_mode: CollaborationMode,
++}
++
++pub(super) struct ConfiguredSettingsParts<'a> {
++    pub(super) dynamic_tools: Vec<DynamicToolSpec>,
++    pub(super) disabled_plugin_ids: Vec<String>,
++    pub(super) step: ConfiguredStepData<'a>,
++}
++
++/// Config is borrowed until the ordinary step_settings field is evaluated,
++/// after the original provider field. No Config values are eagerly projected.
++pub(super) struct ConfiguredStepData<'a> {
++    config: &'a Config,
++    collaboration_mode: CollaborationMode,
++    service_tier: Option<String>,
++}
++
++impl OriginalConfiguredHistoryData {
++    pub(super) fn capture(
++        config: &Config,
++        model: &str,
++        conversation_history: &InitialHistory,
++        dynamic_tools: Vec<DynamicToolSpec>,
++        disabled_plugin_ids: Option<Vec<String>>,
++        forked_from_thread_id: Option<ThreadId>,
++    ) -> Self {
++        // Dynamic tools are defined at thread start and persisted in rollout session metadata.
++        let dynamic_tools = if dynamic_tools.is_empty() {
++            conversation_history.get_dynamic_tools().unwrap_or_default()
++        } else {
++            dynamic_tools
++        };
++        let disabled_plugin_ids = disabled_plugin_ids.unwrap_or_else(|| {
++            let settings_owner = match conversation_history {
++                InitialHistory::Resumed(resumed) => Some(resumed.conversation_id),
++                InitialHistory::Forked(_) => forked_from_thread_id,
++                InitialHistory::New | InitialHistory::Cleared => None,
++            };
++            settings_owner
++                .and_then(|thread_id| {
++                    codex_history::latest_disabled_plugin_ids(
++                        conversation_history.get_rollout_items(),
++                        thread_id,
++                    )
++                })
++                .map(<[String]>::to_vec)
++                .unwrap_or_default()
++        });
++        // TODO (aibrahim): Consolidate config.model and config.model_reasoning_effort into config.collaboration_mode
++        // to avoid extracting these fields separately and constructing CollaborationMode here.
++        let persisted_collaboration_mode = match conversation_history {
++            InitialHistory::Resumed(resumed) => resumed
++                .history
++                .iter()
++                .rev()
++                .find_map(|item| match item {
++                    RolloutItem::EventMsg(EventMsg::ThreadSettingsApplied(event))
++                        if event.thread_id == Some(resumed.conversation_id) =>
++                    {
++                        Some(&event.thread_settings.collaboration_mode)
++                    }
++                    _ => None,
++                })
++                .or_else(|| {
++                    resumed
++                        .history
++                        .iter()
++                        .rev()
++                        .find_map(|item| match item {
++                            RolloutItem::TurnContext(context) => {
++                                Some(context.collaboration_mode.as_ref())
++                            }
++                            _ => None,
++                        })
++                        .flatten()
++                }),
++            InitialHistory::New | InitialHistory::Cleared | InitialHistory::Forked(_) => None,
++        };
++        let collaboration_mode = CollaborationMode {
++            mode: ModeKind::Default,
++            settings: Settings {
++                model: model.to_string(),
++                reasoning_effort: config.model_reasoning_effort.clone(),
++                developer_instructions: None,
++            },
++        };
++        let collaboration_mode = persisted_collaboration_mode.map_or(collaboration_mode, |saved| {
++            saved.with_updates(
++                Some(model.to_string()),
++                Some(config.model_reasoning_effort.clone()),
++                /*developer_instructions*/ None,
++            )
++        });
++        Self {
++            dynamic_tools,
++            disabled_plugin_ids,
++            collaboration_mode,
++        }
++    }
++
++    /// Called at the ORIGINAL service-tier expression, after warning selection.
++    pub(super) fn resolve_service_tier<'a>(
++        self,
++        config: &'a Config,
++        fast_mode_enabled: bool,
++        model_info: &ModelInfo,
++    ) -> ConfiguredSettingsParts<'a> {
++        let service_tier =
++            get_service_tier(config.service_tier.clone(), fast_mode_enabled, model_info);
++        ConfiguredSettingsParts {
++            dynamic_tools: self.dynamic_tools,
++            disabled_plugin_ids: self.disabled_plugin_ids,
++            step: ConfiguredStepData {
++                config,
++                collaboration_mode: self.collaboration_mode,
++                service_tier,
++            },
++        }
++    }
++}
++
++impl ConfiguredStepData<'_> {
++    pub(super) fn into_settings(self) -> Arc<StepSettings> {
++        let config = self.config;
++        let collaboration_mode = self.collaboration_mode;
++        let service_tier = self.service_tier;
++        Arc::new(StepSettings {
++            collaboration_mode,
++            reasoning_summary: config.model_reasoning_summary,
++            service_tier,
++            personality: config.personality,
++            approval_policy: config.permissions.approval_policy.clone(),
++            approvals_reviewer: config.approvals_reviewer,
++        })
++    }
++}
++
++/// Borrowed original inputs only. Each projection is evaluated at its existing
++/// field position; this view is neither a materialized readiness snapshot nor
++/// a lease. All other SessionConfiguration fields retain their original source.
++pub(super) struct ConfiguredPermissionEnvironmentData<'a> {
++    config: &'a Config,
++    selections: &'a [codex_protocol::protocol::TurnEnvironmentSelection],
++}
++impl<'a> ConfiguredPermissionEnvironmentData<'a> {
++    pub(super) fn new(
++        config: &'a Config,
++        selections: &'a [codex_protocol::protocol::TurnEnvironmentSelection],
++    ) -> Self {
++        Self { config, selections }
++    }
++    pub(super) fn environment_selections(
++        &self,
++    ) -> Vec<codex_protocol::protocol::TurnEnvironmentSelection> {
++        self.selections.to_vec()
++    }
++    pub(super) fn permission_profile_state(&self) -> CodexResult<PermissionProfileState> {
++        // Keep the original FALLIBLE owner helper at the later permission field,
++        // never at baseline creation or before provider/step/environment fields.
++        session_permission_profile_state_from_config(self.config)
++    }
++}
++
++#[cfg(test)]
++#[path = "configured_settings_data_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/configured_settings_data_tests.rs b/codex-rs/core/src/session/configured_settings_data_tests.rs
+new file mode 100644
+index 0000000..b401a25
+--- /dev/null
++++ b/codex-rs/core/src/session/configured_settings_data_tests.rs
+@@ -0,0 +1,346 @@
++use super::*;
++use codex_history::ResumedHistory;
++use codex_protocol::dynamic_tools::DynamicToolFunctionSpec;
++use codex_protocol::openai_models::ReasoningEffort;
++use codex_protocol::protocol::SessionMeta;
++use codex_protocol::protocol::SessionMetaLine;
++use codex_protocol::protocol::ThreadSettingsAppliedEvent;
++use codex_protocol::protocol::ThreadSettingsSnapshot;
++use codex_protocol::protocol::TurnContextItem;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++
++async fn config_and_original_row() -> anyhow::Result<(tempfile::TempDir, Config, ModelInfo)> {
++    let home = tempfile::tempdir()?;
++    std::fs::write(home.path().join("config.toml"), "model = 'gpt-6-luna'\n")?;
++    let config = crate::config::ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .loader_overrides(
++            codex_config::LoaderOverrides::with_managed_config_path_for_tests(
++                home.path().join("managed.toml"),
++            ),
++        )
++        .fallback_cwd(Some(home.path().to_path_buf()))
++        .build()
++        .await?;
++    // Actual immutable bundled row, not fabricated model/capacity authority.
++    let row = codex_models_manager::bundled_models_response()?
++        .models
++        .into_iter()
++        .find(|row| row.slug == "gpt-6-luna")
++        .expect("original Luna row");
++    Ok((home, config, row))
++}
++
++fn tool(name: &str) -> DynamicToolSpec {
++    DynamicToolSpec::Function(DynamicToolFunctionSpec {
++        name: name.to_string(),
++        description: "original history DATA".to_string(),
++        input_schema: json!({"type":"object","properties":{}}),
++        defer_loading: false,
++    })
++}
++
++fn settings_item(
++    config: &Config,
++    owner: ThreadId,
++    mode: CollaborationMode,
++    plugins: Vec<String>,
++) -> anyhow::Result<RolloutItem> {
++    let snapshot: ThreadSettingsSnapshot = serde_json::from_value(json!({
++        "model": mode.model(), "model_provider_id": config.model_provider_id,
++        "approval_policy": config.permissions.approval_policy.value(), "approvals_reviewer": config.approvals_reviewer,
++        "permission_profile": config.permissions.permission_profile(), "cwd": config.cwd,
++        "collaboration_mode": mode, "disabled_plugin_ids": plugins,
++    }))?;
++    Ok(RolloutItem::EventMsg(EventMsg::ThreadSettingsApplied(
++        ThreadSettingsAppliedEvent {
++            thread_id: Some(owner),
++            thread_settings: snapshot,
++        },
++    )))
++}
++
++fn history_items(config: &Config, owner: ThreadId) -> anyhow::Result<Vec<RolloutItem>> {
++    let saved = CollaborationMode {
++        mode: ModeKind::Plan,
++        settings: Settings {
++            model: "historical-selector".to_string(),
++            reasoning_effort: Some(ReasoningEffort::Low),
++            developer_instructions: Some("saved instructions".to_string()),
++        },
++    };
++    let mut context: TurnContextItem = serde_json::from_value(json!({
++        "cwd": config.cwd, "approval_policy":"never", "sandbox_policy":{"type":"danger-full-access"}, "model":"historic-context", "summary":"auto",
++    }))?;
++    context.collaboration_mode = Some(CollaborationMode {
++        mode: ModeKind::Default,
++        settings: Settings {
++            model: "fallback-selector".to_string(),
++            reasoning_effort: None,
++            developer_instructions: Some("fallback instructions".to_string()),
++        },
++    });
++    Ok(vec![
++        RolloutItem::SessionMeta(SessionMetaLine {
++            meta: SessionMeta {
++                id: owner,
++                session_id: owner.into(),
++                dynamic_tools: Some(vec![tool("first-history-tool")]),
++                ..SessionMeta::default()
++            },
++            git: None,
++        }),
++        RolloutItem::SessionMeta(SessionMetaLine {
++            meta: SessionMeta {
++                dynamic_tools: Some(vec![tool("later-history-tool")]),
++                ..SessionMeta::default()
++            },
++            git: None,
++        }),
++        settings_item(
++            config,
++            owner,
++            saved.clone(),
++            vec!["kept-plugin".to_string()],
++        )?,
++        RolloutItem::TurnContext(context),
++        settings_item(
++            config,
++            ThreadId::new(),
++            saved,
++            vec!["foreign-plugin".to_string()],
++        )?,
++    ])
++}
++
++#[tokio::test]
++async fn configured_baseline_preserves_actual_history_owner_and_explicit_empty_precedence()
++-> anyhow::Result<()> {
++    let (_home, config, row) = config_and_original_row().await?;
++    let owner = ThreadId::new();
++    let items = history_items(&config, owner)?;
++    let resumed = InitialHistory::Resumed(ResumedHistory {
++        conversation_id: owner,
++        history: Arc::new(items.clone()),
++        rollout_path: None,
++    });
++    let ConfiguredSettingsParts {
++        dynamic_tools,
++        disabled_plugin_ids,
++        step,
++    } = OriginalConfiguredHistoryData::capture(
++        &config,
++        &row.slug,
++        &resumed,
++        Vec::new(),
++        /*disabled_plugin_ids*/ None,
++        /*forked_from_thread_id*/ None,
++    )
++    .resolve_service_tier(&config, /*fast_mode_enabled*/ false, &row);
++    assert_eq!(
++        (dynamic_tools, disabled_plugin_ids),
++        (
++            vec![tool("first-history-tool")],
++            vec!["kept-plugin".to_string()]
++        )
++    );
++    let actual = step.into_settings();
++    let expected = StepSettings {
++        collaboration_mode: CollaborationMode {
++            mode: ModeKind::Plan,
++            settings: Settings {
++                model: row.slug.clone(),
++                reasoning_effort: config.model_reasoning_effort.clone(),
++                developer_instructions: Some("saved instructions".to_string()),
++            },
++        },
++        reasoning_summary: config.model_reasoning_summary,
++        service_tier: None,
++        personality: config.personality,
++        approval_policy: config.permissions.approval_policy.clone(),
++        approvals_reviewer: config.approvals_reviewer,
++    };
++    assert_eq!(actual.as_ref(), &expected);
++    let ConfiguredSettingsParts {
++        dynamic_tools,
++        disabled_plugin_ids,
++        ..
++    } = OriginalConfiguredHistoryData::capture(
++        &config,
++        &row.slug,
++        &resumed,
++        vec![tool("supplied-tool")],
++        Some(Vec::new()),
++        /*forked_from_thread_id*/ None,
++    )
++    .resolve_service_tier(&config, /*fast_mode_enabled*/ false, &row);
++    assert_eq!(
++        (dynamic_tools, disabled_plugin_ids),
++        (vec![tool("supplied-tool")], Vec::<String>::new())
++    );
++    let forked = InitialHistory::Forked(items);
++    let ConfiguredSettingsParts {
++        disabled_plugin_ids,
++        step,
++        ..
++    } = OriginalConfiguredHistoryData::capture(
++        &config,
++        &row.slug,
++        &forked,
++        Vec::new(),
++        /*disabled_plugin_ids*/ None,
++        Some(owner),
++    )
++    .resolve_service_tier(&config, /*fast_mode_enabled*/ false, &row);
++    assert_eq!(disabled_plugin_ids, vec!["kept-plugin".to_string()]);
++    assert_eq!(
++        step.into_settings().collaboration_mode,
++        CollaborationMode {
++            mode: ModeKind::Default,
++            settings: Settings {
++                model: row.slug.clone(),
++                reasoning_effort: config.model_reasoning_effort.clone(),
++                developer_instructions: None,
++            }
++        }
++    );
++    Ok(())
++}
++
++#[tokio::test]
++async fn configured_baseline_uses_real_context_fallback_but_never_foreign_settings_owner()
++-> anyhow::Result<()> {
++    let (_home, config, row) = config_and_original_row().await?;
++    let owner = ThreadId::new();
++    let mut items = history_items(&config, owner)?;
++    items.retain(|item| !matches!(item, RolloutItem::EventMsg(EventMsg::ThreadSettingsApplied(event)) if event.thread_id == Some(owner)));
++    let resumed = InitialHistory::Resumed(ResumedHistory {
++        conversation_id: owner,
++        history: Arc::new(items),
++        rollout_path: None,
++    });
++    let ConfiguredSettingsParts { step, .. } = OriginalConfiguredHistoryData::capture(
++        &config,
++        &row.slug,
++        &resumed,
++        Vec::new(),
++        /*disabled_plugin_ids*/ None,
++        /*forked_from_thread_id*/ None,
++    )
++    .resolve_service_tier(&config, /*fast_mode_enabled*/ false, &row);
++    assert_eq!(
++        step.into_settings()
++            .collaboration_mode
++            .settings
++            .developer_instructions
++            .as_deref(),
++        Some("fallback instructions")
++    );
++    for history in [InitialHistory::New, InitialHistory::Cleared] {
++        let ConfiguredSettingsParts {
++            dynamic_tools,
++            disabled_plugin_ids,
++            step,
++        } = OriginalConfiguredHistoryData::capture(
++            &config,
++            &row.slug,
++            &history,
++            Vec::new(),
++            /*disabled_plugin_ids*/ None,
++            /*forked_from_thread_id*/ None,
++        )
++        .resolve_service_tier(&config, /*fast_mode_enabled*/ false, &row);
++        assert_eq!(
++            (dynamic_tools, disabled_plugin_ids),
++            (Vec::<DynamicToolSpec>::new(), Vec::<String>::new())
++        );
++        assert_eq!(
++            step.into_settings().collaboration_mode.mode,
++            ModeKind::Default
++        );
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn configured_step_preserves_original_luna_tier_filter_and_full_settings_data()
++-> anyhow::Result<()> {
++    let (_home, mut config, row) = config_and_original_row().await?;
++    assert!(row.service_tiers.iter().any(|tier| tier.id == "priority"));
++    for fast_mode_enabled in [false, true] {
++        for requested in [
++            None,
++            Some("flex"),
++            Some("priority"),
++            Some("default"),
++            Some("unadvertised-fixture-tier"),
++        ] {
++            config.service_tier = requested.map(str::to_string);
++            let ConfiguredSettingsParts { step, .. } = OriginalConfiguredHistoryData::capture(
++                &config,
++                &row.slug,
++                &InitialHistory::New,
++                Vec::new(),
++                /*disabled_plugin_ids*/ None,
++                /*forked_from_thread_id*/ None,
++            )
++            .resolve_service_tier(&config, fast_mode_enabled, &row);
++            let expected_tier = match requested {
++                Some("flex") => Some("flex".to_string()),
++                Some("priority") if fast_mode_enabled => Some("priority".to_string()),
++                Some("default") if fast_mode_enabled => Some("default".to_string()),
++                _ => None,
++            };
++            assert_eq!(
++                step.into_settings().as_ref(),
++                &StepSettings {
++                    collaboration_mode: CollaborationMode {
++                        mode: ModeKind::Default,
++                        settings: Settings {
++                            model: row.slug.clone(),
++                            reasoning_effort: config.model_reasoning_effort.clone(),
++                            developer_instructions: None
++                        }
++                    },
++                    reasoning_summary: config.model_reasoning_summary,
++                    service_tier: expected_tier,
++                    personality: config.personality,
++                    approval_policy: config.permissions.approval_policy.clone(),
++                    approvals_reviewer: config.approvals_reviewer,
++                }
++            );
++        }
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn configured_permission_environment_stages_keep_original_values_and_unresolved_states()
++-> anyhow::Result<()> {
++    let (_home, config, _row) = config_and_original_row().await?;
++    let selections = vec![codex_protocol::protocol::TurnEnvironmentSelection {
++        environment_id: "original-selected-owner".to_string(),
++        cwd: config.cwd.clone().into(),
++        workspace_roots: vec![config.cwd.clone().into()],
++        config: codex_protocol::protocol::EnvironmentConfigState::Pending,
++    }];
++    let source = ConfiguredPermissionEnvironmentData::new(&config, &selections);
++    assert_eq!(source.environment_selections(), selections);
++    assert_eq!(
++        source.permission_profile_state()?,
++        config.permissions.permission_profile_state().clone()
++    );
++    let empty = ConfiguredPermissionEnvironmentData::new(&config, &[]);
++    assert_eq!(
++        empty.environment_selections(),
++        Vec::<codex_protocol::protocol::TurnEnvironmentSelection>::new()
++    );
++    assert_eq!(
++        empty.permission_profile_state()?,
++        config.permissions.permission_profile_state().clone()
++    );
++    // These are copied DATA only: no Ready, permission, connection or factory
++    // success is inferred from either Pending or explicitly empty selections.
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 5da53e6..8d74bcf 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -222,6 +222,7 @@ use codex_protocol::exec_output::StreamOutput;
+ 
+ pub(crate) mod client_input_data;
+ mod code_mode_warning;
++mod configured_settings_data;
+ pub(crate) mod context_window;
+ mod daemon_recovery;
+ mod environment;
+@@ -801,99 +802,41 @@ impl Session {
+         }
+         drop(startup_catalog);
+ 
+-        // Dynamic tools are defined at thread start and persisted in rollout session metadata.
+-        let dynamic_tools = if dynamic_tools.is_empty() {
+-            conversation_history.get_dynamic_tools().unwrap_or_default()
+-        } else {
+-            dynamic_tools
+-        };
+-        let disabled_plugin_ids = disabled_plugin_ids.unwrap_or_else(|| {
+-            let settings_owner = match &conversation_history {
+-                InitialHistory::Resumed(resumed) => Some(resumed.conversation_id),
+-                InitialHistory::Forked(_) => forked_from_thread_id,
+-                InitialHistory::New | InitialHistory::Cleared => None,
+-            };
+-            settings_owner
+-                .and_then(|thread_id| {
+-                    codex_history::latest_disabled_plugin_ids(
+-                        conversation_history.get_rollout_items(),
+-                        thread_id,
+-                    )
+-                })
+-                .map(<[String]>::to_vec)
+-                .unwrap_or_default()
+-        });
+-        // TODO (aibrahim): Consolidate config.model and config.model_reasoning_effort into config.collaboration_mode
+-        // to avoid extracting these fields separately and constructing CollaborationMode here.
+-        let persisted_collaboration_mode = match &conversation_history {
+-            InitialHistory::Resumed(resumed) => resumed
+-                .history
+-                .iter()
+-                .rev()
+-                .find_map(|item| match item {
+-                    RolloutItem::EventMsg(EventMsg::ThreadSettingsApplied(event))
+-                        if event.thread_id == Some(resumed.conversation_id) =>
+-                    {
+-                        Some(&event.thread_settings.collaboration_mode)
+-                    }
+-                    _ => None,
+-                })
+-                .or_else(|| {
+-                    resumed
+-                        .history
+-                        .iter()
+-                        .rev()
+-                        .find_map(|item| match item {
+-                            RolloutItem::TurnContext(context) => {
+-                                Some(context.collaboration_mode.as_ref())
+-                            }
+-                            _ => None,
+-                        })
+-                        .flatten()
+-                }),
+-            InitialHistory::New | InitialHistory::Cleared | InitialHistory::Forked(_) => None,
+-        };
+-        let collaboration_mode = CollaborationMode {
+-            mode: ModeKind::Default,
+-            settings: Settings {
+-                model: model.clone(),
+-                reasoning_effort: config.model_reasoning_effort.clone(),
+-                developer_instructions: None,
+-            },
+-        };
+-        let collaboration_mode = persisted_collaboration_mode.map_or(collaboration_mode, |saved| {
+-            saved.with_updates(
+-                Some(model.clone()),
+-                Some(config.model_reasoning_effort.clone()),
+-                /*developer_instructions*/ None,
+-            )
+-        });
++        let history_settings = configured_settings_data::OriginalConfiguredHistoryData::capture(
++            &config,
++            &model,
++            &conversation_history,
++            dynamic_tools,
++            disabled_plugin_ids,
++            forked_from_thread_id,
++        );
+         let fast_mode_enabled = config.features.enabled(Feature::FastMode);
+         let initial_service_tier_warning = unsupported_service_tier_warning(
+             config.service_tier.as_deref(),
+             fast_mode_enabled,
+             &model_info,
+         );
+-        let service_tier =
+-            get_service_tier(config.service_tier.clone(), fast_mode_enabled, &model_info);
++        let configured_settings_data::ConfiguredSettingsParts {
++            dynamic_tools,
++            disabled_plugin_ids,
++            step,
++        } = history_settings.resolve_service_tier(&config, fast_mode_enabled, &model_info);
++        let permission_environment =
++            configured_settings_data::ConfiguredPermissionEnvironmentData::new(
++                &config,
++                &environment_selections,
++            );
+         let session_configuration = SessionConfiguration {
+             provider: create_model_provider(
+                 config.model_provider.clone(),
+                 Some(Arc::clone(&auth_manager)),
+             ),
+-            step_settings: Arc::new(StepSettings {
+-                collaboration_mode,
+-                reasoning_summary: config.model_reasoning_summary,
+-                service_tier,
+-                personality: config.personality,
+-                approval_policy: config.permissions.approval_policy.clone(),
+-                approvals_reviewer: config.approvals_reviewer,
+-            }),
+-            environments: environment_selections.clone(),
++            step_settings: step.into_settings(),
++            environments: permission_environment.environment_selections(),
+             model_info_overrides: config.to_models_manager_config().into(),
+             developer_instructions: config.developer_instructions.clone(),
+             base_instructions,
+-            permission_profile_state: session_permission_profile_state_from_config(&config)?,
++            permission_profile_state: permission_environment.permission_profile_state()?,
+             allow_login_shell: config.permissions.allow_login_shell,
+             shell_environment_policy: config.permissions.shell_environment_policy.clone(),
+             windows_sandbox_level: WindowsSandboxLevel::from_config(&config),

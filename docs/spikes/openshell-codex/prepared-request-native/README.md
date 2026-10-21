@@ -6,7 +6,44 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 111 patches
+## Current composed source: 115 patches
+
+The 115 ordered patches reconstruct native tree
+`723845058a07b0eae1e7feaeb8ee4ede3d5b3128` (local source
+`44f612aa97a17daf50c81ee5c18a06751a04c326`). All 111 earlier patch
+records and bytes remain unchanged. Fresh exact-source CI is required.
+
+Patches 112–114 share the original configured-settings projection, retained
+selected baseline and mutable-settings algorithm through their existing owners.
+The ordinary provider-first order, later fallible permission/environment field,
+30-field construction and publication tail remain. Mutable-settings updates retain
+the original CWD compatibility filesystem branch and final StepSettings.apply
+position; providerless does not imply pure or I/O-free. Ten new Core fixtures
+cover baseline precedence and owner mismatch, retained stage consumption and
+settings/permission/environment constraints. All are UNCOMPILED/UNRUN locally.
+
+Patch 115 wraps four test-only registry constructions in their required Arc
+owners, preserving all original assertions and production code. These correct
+four E0308 errors observed in public 111 Linux CI. That terminal run failed
+Core and Goal library-test compilation, including the full-suite phase. Mac 111
+also terminated with compilation failures at the same four source locations;
+its independently retained logs remain separate evidence.
+No old native test result qualifies this new source.
+
+The early Core step now requires exactly 18 nonignored cases: the original eight
+and all ten new configured-settings cases. The four explicit Goal/API fixtures,
+original complete 22-package suite plus Linux sandbox, formatting, one test
+thread, zero retries and 240-minute budget remain. Added diagnostic failures
+still fail the job and do not suppress the full suite after successful helpers.
+
+The host lockfile separately updates only Vite's version, resolved URL and
+integrity to the official 6.4.4 patch. No dependency is installed locally.
+No local Rust compilation, real model call, installation or account selection
+occurred. Full command normalization/capture, complete initial context/final tools,
+request/count/State/currentness, RPC/host adoption, Ready and joining/reply remain
+open. Source distribution does not install or qualify a runtime.
+
+## Previous composed source: 111 patches
 
 The 111 ordered patches reconstruct native tree
 `880a0c07338ce70d7cd839759b53a75b824c18f3` (local source

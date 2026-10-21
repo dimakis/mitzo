@@ -1,0 +1,921 @@
+diff --git a/codex-rs/core/src/session/configured_settings_data.rs b/codex-rs/core/src/session/configured_settings_data.rs
+index 61eb652..126d667 100644
+--- a/codex-rs/core/src/session/configured_settings_data.rs
++++ b/codex-rs/core/src/session/configured_settings_data.rs
+@@ -22,6 +22,148 @@ pub(super) struct ConfiguredStepData<'a> {
+     service_tier: Option<String>,
+ }
+ 
++/// Borrowed ORIGINAL inputs at the selected or ordinary boundary, never a
++/// manufactured history/environment snapshot or permission grant.
++pub(super) struct ConfiguredBaselineInputs<'a> {
++    pub(super) history: &'a InitialHistory,
++    pub(super) dynamic_tools: &'a [DynamicToolSpec],
++    pub(super) disabled_plugin_ids: &'a Option<Vec<String>>,
++    pub(super) environments: Option<&'a [codex_protocol::protocol::TurnEnvironmentSelection]>,
++    pub(super) forked_from_thread_id: Option<ThreadId>,
++}
++impl<'a> ConfiguredBaselineInputs<'a> {
++    pub(super) fn from_options(
++        options: &'a crate::StartThreadOptions,
++        forked_from_thread_id: Option<ThreadId>,
++    ) -> Self {
++        Self {
++            history: &options.initial_history,
++            dynamic_tools: &options.dynamic_tools,
++            disabled_plugin_ids: &options.disabled_plugin_ids,
++            environments: options.environments.as_deref(),
++            forked_from_thread_id,
++        }
++    }
++}
++
++/// One owned, non-Clone/non-Serialize baseline retained by the original startup
++/// packet. Stages never borrow their own Config and never load permissions.
++pub(super) struct OwnedConfiguredBaseline {
++    config: Arc<Config>,
++    source: SessionSource,
++    trusted_guardian_reviewer: bool,
++    dynamic_input: Vec<DynamicToolSpec>,
++    plugins_input: Option<Vec<String>>,
++    forked_from_thread_id: Option<ThreadId>,
++    history: Option<OriginalConfiguredHistoryData>,
++    warning: Option<Option<String>>,
++    service_tier: Option<Option<String>>,
++    environments: Option<Vec<codex_protocol::protocol::TurnEnvironmentSelection>>,
++}
++impl OwnedConfiguredBaseline {
++    pub(super) fn capture(
++        config: Arc<Config>,
++        model: &str,
++        row: &ModelInfo,
++        inputs: ConfiguredBaselineInputs<'_>,
++        source: &SessionSource,
++        trusted_guardian_reviewer: bool,
++    ) -> std::io::Result<Self> {
++        if !matches!(inputs.history, InitialHistory::New) {
++            return Err(std::io::Error::other(
++                "configured baseline requires original fresh history",
++            ));
++        }
++        let environments = inputs
++            .environments
++            .ok_or_else(|| std::io::Error::other("original selected environments missing"))?
++            .to_vec();
++        let history = OriginalConfiguredHistoryData::capture(
++            &config,
++            model,
++            inputs.history,
++            inputs.dynamic_tools.to_vec(),
++            inputs.disabled_plugin_ids.clone(),
++            inputs.forked_from_thread_id,
++        );
++        let fast_mode_enabled = config.features.enabled(Feature::FastMode);
++        let warning = unsupported_service_tier_warning(
++            config.service_tier.as_deref(),
++            fast_mode_enabled,
++            row,
++        );
++        let service_tier = get_service_tier(config.service_tier.clone(), fast_mode_enabled, row);
++        Ok(Self {
++            config,
++            source: source.clone(),
++            trusted_guardian_reviewer,
++            dynamic_input: inputs.dynamic_tools.to_vec(),
++            plugins_input: inputs.disabled_plugin_ids.clone(),
++            forked_from_thread_id: inputs.forked_from_thread_id,
++            history: Some(history),
++            warning: Some(warning),
++            service_tier: Some(service_tier),
++            environments: Some(environments),
++        })
++    }
++    pub(super) fn validate(
++        &self,
++        config: &Config,
++        source: &SessionSource,
++        trusted_guardian_reviewer: bool,
++        inputs: ConfiguredBaselineInputs<'_>,
++    ) -> std::io::Result<()> {
++        if *config != *self.config
++            || *source != self.source
++            || trusted_guardian_reviewer != self.trusted_guardian_reviewer
++            || !matches!(inputs.history, InitialHistory::New)
++            || inputs.dynamic_tools != self.dynamic_input.as_slice()
++            || *inputs.disabled_plugin_ids != self.plugins_input
++            || inputs.forked_from_thread_id != self.forked_from_thread_id
++            || self.environments.is_none()
++            || inputs.environments != self.environments.as_deref()
++            || self.history.is_none()
++            || self.warning.is_none()
++            || self.service_tier.is_none()
++        {
++            return Err(std::io::Error::other(
++                "configured baseline changed or already adopted",
++            ));
++        }
++        Ok(())
++    }
++    pub(super) fn bind_effective(&self, config: &Arc<Config>) -> std::io::Result<()> {
++        if !Arc::ptr_eq(config, &self.config) {
++            return Err(std::io::Error::other(
++                "configured baseline effective owner changed",
++            ));
++        }
++        Ok(())
++    }
++    pub(super) fn take_history(&mut self) -> std::io::Result<OriginalConfiguredHistoryData> {
++        self.history
++            .take()
++            .ok_or_else(|| std::io::Error::other("configured history already adopted"))
++    }
++    pub(super) fn take_warning(&mut self) -> std::io::Result<Option<String>> {
++        self.warning
++            .take()
++            .ok_or_else(|| std::io::Error::other("configured warning already adopted"))
++    }
++    pub(super) fn take_service_tier(&mut self) -> std::io::Result<Option<String>> {
++        self.service_tier
++            .take()
++            .ok_or_else(|| std::io::Error::other("configured tier already adopted"))
++    }
++    pub(super) fn take_environments(
++        &mut self,
++    ) -> std::io::Result<Vec<codex_protocol::protocol::TurnEnvironmentSelection>> {
++        self.environments
++            .take()
++            .ok_or_else(|| std::io::Error::other("configured environments already adopted"))
++    }
++}
++
+ impl OriginalConfiguredHistoryData {
+     pub(super) fn capture(
+         config: &Config,
+@@ -114,6 +256,14 @@ impl OriginalConfiguredHistoryData {
+     ) -> ConfiguredSettingsParts<'a> {
+         let service_tier =
+             get_service_tier(config.service_tier.clone(), fast_mode_enabled, model_info);
++        self.with_service_tier(config, service_tier)
++    }
++
++    pub(super) fn with_service_tier(
++        self,
++        config: &Config,
++        service_tier: Option<String>,
++    ) -> ConfiguredSettingsParts<'_> {
+         ConfiguredSettingsParts {
+             dynamic_tools: self.dynamic_tools,
+             disabled_plugin_ids: self.disabled_plugin_ids,
+diff --git a/codex-rs/core/src/session/configured_settings_data_tests.rs b/codex-rs/core/src/session/configured_settings_data_tests.rs
+index b401a25..08cc724 100644
+--- a/codex-rs/core/src/session/configured_settings_data_tests.rs
++++ b/codex-rs/core/src/session/configured_settings_data_tests.rs
+@@ -344,3 +344,205 @@ async fn configured_permission_environment_stages_keep_original_values_and_unres
+     // success is inferred from either Pending or explicitly empty selections.
+     Ok(())
+ }
++
++#[tokio::test]
++async fn retained_configured_baseline_keeps_owned_data_and_burns_each_stage() -> anyhow::Result<()>
++{
++    let (_home, mut config, row) = config_and_original_row().await?;
++    config.service_tier = Some("priority".to_string());
++    let config = Arc::new(config);
++    let mut options = crate::StartThreadOptions::new(config.as_ref().clone());
++    options.dynamic_tools = vec![tool("retained-original-tool")];
++    options.disabled_plugin_ids = Some(vec!["selected-plugin".to_string()]);
++    options.environments = Some(vec![codex_protocol::protocol::TurnEnvironmentSelection {
++        environment_id: "retained-selected-environment".to_string(),
++        cwd: config.cwd.clone().into(),
++        workspace_roots: vec![config.cwd.clone().into()],
++        config: codex_protocol::protocol::EnvironmentConfigState::Pending,
++    }]);
++    let mut second_environment = options.environments.as_ref().unwrap()[0].clone();
++    second_environment.environment_id = "retained-second-environment".to_string();
++    options
++        .environments
++        .as_mut()
++        .unwrap()
++        .push(second_environment);
++    let inputs =
++        ConfiguredBaselineInputs::from_options(&options, /*forked_from_thread_id*/ None);
++    let mut baseline = OwnedConfiguredBaseline::capture(
++        Arc::clone(&config),
++        &row.slug,
++        &row,
++        inputs,
++        &SessionSource::Exec,
++        /*trusted_guardian_reviewer*/ false,
++    )?;
++    baseline.validate(
++        &config,
++        &SessionSource::Exec,
++        /*trusted_guardian_reviewer*/ false,
++        ConfiguredBaselineInputs::from_options(&options, /*forked_from_thread_id*/ None),
++    )?;
++    options.environments.as_mut().unwrap().swap(0, 1);
++    assert!(
++        baseline
++            .validate(
++                &config,
++                &SessionSource::Exec,
++                /*trusted_guardian_reviewer*/ false,
++                ConfiguredBaselineInputs::from_options(
++                    &options, /*forked_from_thread_id*/ None
++                )
++            )
++            .is_err()
++    );
++    options.environments.as_mut().unwrap().swap(0, 1);
++    baseline.bind_effective(&config)?;
++    assert!(
++        baseline
++            .bind_effective(&Arc::new(config.as_ref().clone()))
++            .is_err()
++    );
++    let original = OriginalConfiguredHistoryData::capture(
++        &config,
++        &row.slug,
++        &options.initial_history,
++        options.dynamic_tools.clone(),
++        options.disabled_plugin_ids.clone(),
++        /*forked_from_thread_id*/ None,
++    )
++    .resolve_service_tier(&config, config.features.enabled(Feature::FastMode), &row);
++    let history = baseline.take_history()?;
++    assert!(
++        baseline
++            .validate(
++                &config,
++                &SessionSource::Exec,
++                /*trusted_guardian_reviewer*/ false,
++                ConfiguredBaselineInputs::from_options(
++                    &options, /*forked_from_thread_id*/ None
++                )
++            )
++            .is_err()
++    );
++    let warning = baseline.take_warning()?;
++    let retained = history.with_service_tier(&config, baseline.take_service_tier()?);
++    assert_eq!(
++        (&retained.dynamic_tools, &retained.disabled_plugin_ids),
++        (&original.dynamic_tools, &original.disabled_plugin_ids)
++    );
++    assert_eq!(retained.step.into_settings(), original.step.into_settings());
++    assert_eq!(
++        warning,
++        unsupported_service_tier_warning(
++            config.service_tier.as_deref(),
++            config.features.enabled(Feature::FastMode),
++            &row
++        )
++    );
++    assert_eq!(
++        baseline.take_environments()?,
++        options.environments.clone().unwrap()
++    );
++    assert!(baseline.take_history().is_err());
++    assert!(baseline.take_service_tier().is_err());
++    assert!(baseline.take_warning().is_err());
++    assert!(baseline.take_environments().is_err());
++    Ok(())
++}
++
++#[tokio::test]
++async fn retained_configured_baseline_refuses_changed_presence_order_history_source_and_fork()
++-> anyhow::Result<()> {
++    let (_home, config, row) = config_and_original_row().await?;
++    let config = Arc::new(config);
++    let mut options = crate::StartThreadOptions::new(config.as_ref().clone());
++    options.dynamic_tools = vec![tool("first"), tool("second")];
++    options.disabled_plugin_ids = Some(vec!["first".to_string(), "second".to_string()]);
++    options.environments = Some(Vec::new());
++    let baseline = OwnedConfiguredBaseline::capture(
++        Arc::clone(&config),
++        &row.slug,
++        &row,
++        ConfiguredBaselineInputs::from_options(&options, /*forked_from_thread_id*/ None),
++        &SessionSource::Exec,
++        /*trusted_guardian_reviewer*/ false,
++    )?;
++    let validate = |options: &crate::StartThreadOptions| {
++        baseline.validate(
++            &config,
++            &SessionSource::Exec,
++            /*trusted_guardian_reviewer*/ false,
++            ConfiguredBaselineInputs::from_options(options, /*forked_from_thread_id*/ None),
++        )
++    };
++    options.environments = None;
++    assert!(validate(&options).is_err());
++    options.environments = Some(Vec::new());
++    options.dynamic_tools.swap(0, 1);
++    assert!(validate(&options).is_err());
++    options.dynamic_tools.swap(0, 1);
++    options.disabled_plugin_ids.as_mut().unwrap().swap(0, 1);
++    assert!(validate(&options).is_err());
++    options.disabled_plugin_ids.as_mut().unwrap().swap(0, 1);
++    options.initial_history = InitialHistory::Cleared;
++    assert!(validate(&options).is_err());
++    options.initial_history = InitialHistory::New;
++    assert!(
++        baseline
++            .validate(
++                &config,
++                &SessionSource::Cli,
++                /*trusted_guardian_reviewer*/ false,
++                ConfiguredBaselineInputs::from_options(
++                    &options, /*forked_from_thread_id*/ None
++                )
++            )
++            .is_err()
++    );
++    assert!(
++        baseline
++            .validate(
++                &config,
++                &SessionSource::Exec,
++                /*trusted_guardian_reviewer*/ true,
++                ConfiguredBaselineInputs::from_options(
++                    &options, /*forked_from_thread_id*/ None
++                )
++            )
++            .is_err()
++    );
++    assert!(
++        baseline
++            .validate(
++                &config,
++                &SessionSource::Exec,
++                /*trusted_guardian_reviewer*/ false,
++                ConfiguredBaselineInputs::from_options(&options, Some(ThreadId::new()))
++            )
++            .is_err()
++    );
++    options.disabled_plugin_ids = Some(Vec::new());
++    let empty = OwnedConfiguredBaseline::capture(
++        Arc::clone(&config),
++        &row.slug,
++        &row,
++        ConfiguredBaselineInputs::from_options(&options, /*forked_from_thread_id*/ None),
++        &SessionSource::Exec,
++        /*trusted_guardian_reviewer*/ false,
++    )?;
++    options.disabled_plugin_ids = None;
++    assert!(
++        empty
++            .validate(
++                &config,
++                &SessionSource::Exec,
++                /*trusted_guardian_reviewer*/ false,
++                ConfiguredBaselineInputs::from_options(
++                    &options, /*forked_from_thread_id*/ None
++                )
++            )
++            .is_err()
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 8d74bcf..0ff6e8c 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -616,7 +616,13 @@ impl Session {
+                         &models_manager,
+                         &auth_manager,
+                         &config,
+-                        &conversation_history,
++                        configured_settings_data::ConfiguredBaselineInputs {
++                            history: &conversation_history,
++                            dynamic_tools: &dynamic_tools,
++                            disabled_plugin_ids: &disabled_plugin_ids,
++                            environments: Some(&environment_selections),
++                            forked_from_thread_id,
++                        },
+                         &session_source,
+                     )
+                     .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
+@@ -777,6 +783,12 @@ impl Session {
+                 .validate_config(&config)
+                 .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
+         }
++        if let Some(stages) = &startup_stages {
++            stages
++                .baseline
++                .bind_effective(&config)
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        }
+         let configured_config = Arc::clone(&config);
+         let multi_agent_version = config.multi_agent_version_override().or_else(|| {
+             resolve_multi_agent_version(&conversation_history, inherited_multi_agent_version)
+@@ -802,25 +814,49 @@ impl Session {
+         }
+         drop(startup_catalog);
+ 
+-        let history_settings = configured_settings_data::OriginalConfiguredHistoryData::capture(
+-            &config,
+-            &model,
+-            &conversation_history,
+-            dynamic_tools,
+-            disabled_plugin_ids,
+-            forked_from_thread_id,
+-        );
++        let history_settings = if let Some(stages) = &mut startup_stages {
++            stages
++                .baseline
++                .take_history()
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?
++        } else {
++            configured_settings_data::OriginalConfiguredHistoryData::capture(
++                &config,
++                &model,
++                &conversation_history,
++                dynamic_tools,
++                disabled_plugin_ids,
++                forked_from_thread_id,
++            )
++        };
+         let fast_mode_enabled = config.features.enabled(Feature::FastMode);
+-        let initial_service_tier_warning = unsupported_service_tier_warning(
+-            config.service_tier.as_deref(),
+-            fast_mode_enabled,
+-            &model_info,
+-        );
++        let initial_service_tier_warning = if let Some(stages) = &mut startup_stages {
++            stages
++                .baseline
++                .take_warning()
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?
++        } else {
++            unsupported_service_tier_warning(
++                config.service_tier.as_deref(),
++                fast_mode_enabled,
++                &model_info,
++            )
++        };
+         let configured_settings_data::ConfiguredSettingsParts {
+             dynamic_tools,
+             disabled_plugin_ids,
+             step,
+-        } = history_settings.resolve_service_tier(&config, fast_mode_enabled, &model_info);
++        } = if let Some(stages) = &mut startup_stages {
++            history_settings.with_service_tier(
++                &config,
++                stages
++                    .baseline
++                    .take_service_tier()
++                    .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?,
++            )
++        } else {
++            history_settings.resolve_service_tier(&config, fast_mode_enabled, &model_info)
++        };
+         let permission_environment =
+             configured_settings_data::ConfiguredPermissionEnvironmentData::new(
+                 &config,
+@@ -832,7 +868,14 @@ impl Session {
+                 Some(Arc::clone(&auth_manager)),
+             ),
+             step_settings: step.into_settings(),
+-            environments: permission_environment.environment_selections(),
++            environments: if let Some(stages) = &mut startup_stages {
++                stages
++                    .baseline
++                    .take_environments()
++                    .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?
++            } else {
++                permission_environment.environment_selections()
++            },
+             model_info_overrides: config.to_models_manager_config().into(),
+             developer_instructions: config.developer_instructions.clone(),
+             base_instructions,
+diff --git a/codex-rs/core/src/session/startup_selection.rs b/codex-rs/core/src/session/startup_selection.rs
+index 51e4b3f..823ba50 100644
+--- a/codex-rs/core/src/session/startup_selection.rs
++++ b/codex-rs/core/src/session/startup_selection.rs
+@@ -26,11 +26,13 @@ pub(super) struct StartupSelectionStages {
+     effective: Option<Arc<Config>>,
+     base: Option<String>,
+     trusted: bool,
++    pub(super) baseline: configured_settings_data::OwnedConfiguredBaseline,
+ }
+ impl OriginalStartupSelection {
+     pub(crate) async fn capture(
+         options: &crate::StartThreadOptions,
+         source: &SessionSource,
++        forked_from_thread_id: Option<ThreadId>,
+         auth: &Arc<AuthManager>,
+         models: &SharedModelsManager,
+     ) -> io::Result<Self> {
+@@ -90,6 +92,17 @@ impl OriginalStartupSelection {
+             resolve_base_instructions(&effective, &options.initial_history, candidate.model_info());
+         auth.with_current_api_key_credentials(&credentials, |_, _| ())
+             .ok_or_else(|| io::Error::other("original credentials changed"))?;
++        let baseline = configured_settings_data::OwnedConfiguredBaseline::capture(
++            Arc::clone(&effective),
++            &model,
++            candidate.model_info(),
++            configured_settings_data::ConfiguredBaselineInputs::from_options(
++                options,
++                forked_from_thread_id,
++            ),
++            source,
++            trusted,
++        )?;
+         drop(pin);
+         Ok(Self {
+             owner: StartupSelectionOwner {
+@@ -107,6 +120,7 @@ impl OriginalStartupSelection {
+                 effective: Some(effective),
+                 base: Some(base),
+                 trusted,
++                baseline,
+             },
+         })
+     }
+@@ -126,6 +140,21 @@ impl OriginalStartupSelection {
+     ) -> io::Result<()> {
+         self.owner.validate(models, auth, config)
+     }
++    pub(crate) fn validate_baseline_options(
++        &self,
++        options: &crate::StartThreadOptions,
++        forked_from_thread_id: Option<ThreadId>,
++    ) -> io::Result<()> {
++        self.stages.baseline.validate(
++            &options.config,
++            &self.owner.source,
++            self.stages.trusted,
++            configured_settings_data::ConfiguredBaselineInputs::from_options(
++                options,
++                forked_from_thread_id,
++            ),
++        )
++    }
+     pub(crate) fn raw_config(&self) -> &Config {
+         &self.owner.raw
+     }
+@@ -151,15 +180,18 @@ impl OriginalStartupSelection {
+         models: &SharedModelsManager,
+         auth: &Arc<AuthManager>,
+         config: &Config,
+-        history: &InitialHistory,
++        inputs: configured_settings_data::ConfiguredBaselineInputs<'_>,
+         source: &SessionSource,
+     ) -> io::Result<(StartupSelectionOwner, StartupSelectionStages, Config)> {
+         self.owner.validate(models, auth, config)?;
+-        if !matches!(history, InitialHistory::New) || *source != self.owner.source {
++        if !matches!(inputs.history, InitialHistory::New) || *source != self.owner.source {
+             return Err(io::Error::other(
+                 "ordinary startup changed original startup inputs",
+             ));
+         }
++        self.stages
++            .baseline
++            .validate(config, source, self.stages.trusted, inputs)?;
+         let raw = self.owner.raw.clone();
+         Ok((self.owner, self.stages, raw))
+     }
+diff --git a/codex-rs/core/src/session/startup_selection_tests.rs b/codex-rs/core/src/session/startup_selection_tests.rs
+index c28908c..bb93407 100644
+--- a/codex-rs/core/src/session/startup_selection_tests.rs
++++ b/codex-rs/core/src/session/startup_selection_tests.rs
+@@ -91,21 +91,28 @@ async fn fixture() -> anyhow::Result<(
+     models
+         .raw_model_catalog(RefreshStrategy::Online, config.http_client_factory())
+         .await;
+-    Ok((
+-        home,
+-        crate::StartThreadOptions::new(config),
+-        auth,
+-        models,
+-        endpoint,
+-    ))
++    let mut options = crate::StartThreadOptions::new(config);
++    options.environments = Some(vec![codex_protocol::protocol::TurnEnvironmentSelection {
++        environment_id: "startup-source-data".to_string(),
++        cwd: options.config.cwd.clone().into(),
++        workspace_roots: vec![options.config.cwd.clone().into()],
++        config: codex_protocol::protocol::EnvironmentConfigState::Pending,
++    }]);
++    Ok((home, options, auth, models, endpoint))
+ }
+ 
+ #[tokio::test]
+ async fn original_startup_stages_match_ordinary_transforms_and_adopt_each_stage_once()
+ -> anyhow::Result<()> {
+     let (_home, options, auth, models, endpoint) = fixture().await?;
+-    let startup =
+-        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models).await?;
++    let startup = OriginalStartupSelection::capture(
++        &options,
++        &SessionSource::Exec,
++        /*forked_from_thread_id*/ None,
++        &auth,
++        &models,
++    )
++    .await?;
+     let raw = options.config.clone();
+     let mut review = Arc::new(raw.clone());
+     let trusted = apply_review(
+@@ -174,7 +181,9 @@ async fn original_startup_stages_match_ordinary_transforms_and_adopt_each_stage_
+         &models,
+         &auth,
+         &effective,
+-        &options.initial_history,
++        configured_settings_data::ConfiguredBaselineInputs::from_options(
++            &options, /*forked_from_thread_id*/ None,
++        ),
+         &SessionSource::Exec,
+     )?;
+     let _pin = owner.pin().await?;
+@@ -205,9 +214,15 @@ async fn startup_refuses_unknown_ambiguous_fallback_and_changed_catalog_publicat
+     ] {
+         options.config.model = model.map(str::to_string);
+         assert!(
+-            OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models)
+-                .await
+-                .is_err()
++            OriginalStartupSelection::capture(
++                &options,
++                &SessionSource::Exec,
++                /*forked_from_thread_id*/ None,
++                &auth,
++                &models
++            )
++            .await
++            .is_err()
+         );
+     }
+     options.config.model = Some("gpt-6-luna".to_string());
+@@ -220,9 +235,15 @@ async fn startup_refuses_unknown_ambiguous_fallback_and_changed_catalog_publicat
+         )
+         .await;
+     assert!(
+-        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models)
+-            .await
+-            .is_err()
++        OriginalStartupSelection::capture(
++            &options,
++            &SessionSource::Exec,
++            /*forked_from_thread_id*/ None,
++            &auth,
++            &models
++        )
++        .await
++        .is_err()
+     );
+     let mut fallback = row.clone();
+     fallback.used_fallback_model_metadata = true;
+@@ -234,9 +255,15 @@ async fn startup_refuses_unknown_ambiguous_fallback_and_changed_catalog_publicat
+         )
+         .await;
+     assert!(
+-        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models)
+-            .await
+-            .is_err()
++        OriginalStartupSelection::capture(
++            &options,
++            &SessionSource::Exec,
++            /*forked_from_thread_id*/ None,
++            &auth,
++            &models
++        )
++        .await
++        .is_err()
+     );
+     *endpoint.rows.lock().unwrap() = vec![row];
+     models
+@@ -245,8 +272,14 @@ async fn startup_refuses_unknown_ambiguous_fallback_and_changed_catalog_publicat
+             options.config.http_client_factory(),
+         )
+         .await;
+-    let startup =
+-        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models).await?;
++    let startup = OriginalStartupSelection::capture(
++        &options,
++        &SessionSource::Exec,
++        /*forked_from_thread_id*/ None,
++        &auth,
++        &models,
++    )
++    .await?;
+     let effective = startup.effective_config().clone();
+     // Publishing equal data still advances the ORIGINAL catalog publication.
+     models
+@@ -264,8 +297,14 @@ async fn startup_refuses_foreign_credential_catalog_owners_and_changed_effective
+ -> anyhow::Result<()> {
+     let (_home, options, auth, models, _endpoint) = fixture().await?;
+     let (_other_home, _other_options, foreign_auth, foreign_models, _) = fixture().await?;
+-    let startup =
+-        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models).await?;
++    let startup = OriginalStartupSelection::capture(
++        &options,
++        &SessionSource::Exec,
++        /*forked_from_thread_id*/ None,
++        &auth,
++        &models,
++    )
++    .await?;
+     let mut effective = startup.effective_config().clone();
+     assert!(
+         startup
+@@ -288,23 +327,138 @@ async fn startup_refuses_foreign_credential_catalog_owners_and_changed_effective
+                 &models,
+                 &auth,
+                 &unchanged,
+-                &InitialHistory::Cleared,
++                configured_settings_data::ConfiguredBaselineInputs {
++                    history: &InitialHistory::Cleared,
++                    ..configured_settings_data::ConfiguredBaselineInputs::from_options(
++                        &options, /*forked_from_thread_id*/ None
++                    )
++                },
+                 &SessionSource::Exec
+             )
+             .is_err()
+     );
+-    let startup =
+-        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models).await?;
++    let startup = OriginalStartupSelection::capture(
++        &options,
++        &SessionSource::Exec,
++        /*forked_from_thread_id*/ None,
++        &auth,
++        &models,
++    )
++    .await?;
+     assert!(
+         startup
+             .into_session(
+                 &models,
+                 &auth,
+                 &options.config,
+-                &options.initial_history,
++                configured_settings_data::ConfiguredBaselineInputs::from_options(
++                    &options, /*forked_from_thread_id*/ None
++                ),
+                 &SessionSource::Exec
+             )
+             .is_err()
+     );
+     Ok(())
+ }
++
++#[tokio::test]
++async fn original_startup_retains_effective_baseline_and_rejects_changed_selected_inputs()
++-> anyhow::Result<()> {
++    let (_home, mut options, auth, models, endpoint) = fixture().await?;
++    options.disabled_plugin_ids = Some(vec!["original-selected-plugin".to_string()]);
++    let startup = OriginalStartupSelection::capture(
++        &options,
++        &SessionSource::Exec,
++        /*forked_from_thread_id*/ None,
++        &auth,
++        &models,
++    )
++    .await?;
++    let mut selected = crate::StartThreadOptions::new(startup.effective_config().clone());
++    selected.disabled_plugin_ids = options.disabled_plugin_ids.clone();
++    selected.environments = options.environments.clone();
++    startup.validate_baseline_options(&selected, /*forked_from_thread_id*/ None)?;
++    selected.disabled_plugin_ids = None;
++    assert!(
++        startup
++            .validate_baseline_options(&selected, /*forked_from_thread_id*/ None)
++            .is_err()
++    );
++    selected.disabled_plugin_ids = options.disabled_plugin_ids.clone();
++    selected.environments = None;
++    assert!(
++        startup
++            .validate_baseline_options(&selected, /*forked_from_thread_id*/ None)
++            .is_err()
++    );
++    selected.environments = options.environments.clone();
++    let effective = Arc::clone(&startup.owner.effective);
++    let (owner, mut stages, _) = startup.into_session(
++        &models,
++        &auth,
++        &selected.config,
++        configured_settings_data::ConfiguredBaselineInputs::from_options(
++            &selected, /*forked_from_thread_id*/ None,
++        ),
++        &SessionSource::Exec,
++    )?;
++    assert!(Arc::ptr_eq(&effective, &stages.take_effective()?));
++    stages.baseline.bind_effective(&effective)?;
++    let row = owner.model_info();
++    let expected = configured_settings_data::OriginalConfiguredHistoryData::capture(
++        &effective,
++        &row.slug,
++        &options.initial_history,
++        options.dynamic_tools.clone(),
++        options.disabled_plugin_ids.clone(),
++        /*forked_from_thread_id*/ None,
++    )
++    .resolve_service_tier(
++        &effective,
++        effective.features.enabled(Feature::FastMode),
++        row,
++    );
++    let actual = stages
++        .baseline
++        .take_history()?
++        .with_service_tier(&effective, stages.baseline.take_service_tier()?);
++    assert_eq!(
++        (
++            actual.dynamic_tools,
++            actual.disabled_plugin_ids,
++            actual.step.into_settings()
++        ),
++        (
++            expected.dynamic_tools,
++            expected.disabled_plugin_ids,
++            expected.step.into_settings()
++        )
++    );
++    assert!(stages.baseline.take_history().is_err());
++    assert!(stages.baseline.take_service_tier().is_err());
++    let startup = OriginalStartupSelection::capture(
++        &options,
++        &SessionSource::Exec,
++        /*forked_from_thread_id*/ None,
++        &auth,
++        &models,
++    )
++    .await?;
++    selected.config = startup.effective_config().clone();
++    selected.disabled_plugin_ids = None;
++    assert!(
++        startup
++            .into_session(
++                &models,
++                &auth,
++                &selected.config,
++                configured_settings_data::ConfiguredBaselineInputs::from_options(
++                    &selected, /*forked_from_thread_id*/ None
++                ),
++                &SessionSource::Exec
++            )
++            .is_err()
++    );
++    assert_eq!(endpoint.reads.load(Ordering::SeqCst), 1);
++    Ok(())
++}
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index 36c2089..8b3c05b 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -157,15 +157,16 @@ impl ThreadManager {
+             if allocation.inputs.startup().is_some() {
+                 return Err(io::Error::other("startup already captured"));
+             }
+-            let source = allocation
++            let frame = allocation
+                 .inputs
+                 .source_frame()
+-                .ok_or_else(|| io::Error::other("original source frame missing"))?
+-                .client_source()
+-                .0;
++                .ok_or_else(|| io::Error::other("original source frame missing"))?;
++            let source = frame.client_source().0;
++            let forked_from_thread_id = frame.configured_fork(options)?;
+             let startup = crate::session::startup_selection::OriginalStartupSelection::capture(
+                 options,
+                 source,
++                forked_from_thread_id,
+                 &self.state.auth_manager,
+                 &self.state.models_manager,
+             )
+@@ -461,6 +462,13 @@ impl ThreadManager {
+             .as_ref()
+             .and_then(|allocation| allocation.inputs.startup())
+         {
++            let options = selected.start_options()?;
++            let frame = selected
++                .allocation
++                .as_ref()
++                .and_then(|allocation| allocation.inputs.source_frame())
++                .ok_or_else(|| io::Error::other("original source frame missing"))?;
++            startup.validate_baseline_options(options, frame.configured_fork(options)?)?;
+             startup.validate_selection(
+                 &self.state.models_manager,
+                 &self.state.auth_manager,
+diff --git a/codex-rs/core/src/thread_manager/selected_start_frame.rs b/codex-rs/core/src/thread_manager/selected_start_frame.rs
+index 7142503..9a70283 100644
+--- a/codex-rs/core/src/thread_manager/selected_start_frame.rs
++++ b/codex-rs/core/src/thread_manager/selected_start_frame.rs
+@@ -123,6 +123,13 @@ impl CapturedSelectedStartFrame {
+         }
+         Ok(())
+     }
++    pub(crate) fn configured_fork(
++        &self,
++        options: &StartThreadOptions,
++    ) -> io::Result<Option<ThreadId>> {
++        self.validate_options(options)?;
++        Ok(self.raw_fork)
++    }
+     pub(crate) fn client_source(&self) -> (&SessionSource, &str, Option<ThreadId>, Option<String>) {
+         (
+             &self.session_source,

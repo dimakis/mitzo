@@ -1,0 +1,48 @@
+diff --git a/codex-rs/core/src/session/client_input_data_tests.rs b/codex-rs/core/src/session/client_input_data_tests.rs
+index 487b703..6bb66bc 100644
+--- a/codex-rs/core/src/session/client_input_data_tests.rs
++++ b/codex-rs/core/src/session/client_input_data_tests.rs
+@@ -146,7 +146,7 @@ async fn retained_tool_carrier_burns_foreign_allocation_and_repeated_install_or_
+     );
+     let mut carrier = make();
+     carrier.retain_extension_tools(Arc::clone(&registry), config, source, capture()?)?;
+-    let foreign = codex_extension_api::ExtensionRegistryBuilder::<Config>::new().build();
++    let foreign = Arc::new(codex_extension_api::ExtensionRegistryBuilder::<Config>::new().build());
+     assert!(
+         carrier
+             .take_extension_tools(session.thread_id(), &foreign, config, source)
+diff --git a/codex-rs/core/src/tools/spec_plan_tests.rs b/codex-rs/core/src/tools/spec_plan_tests.rs
+index 3a4a20c..1af7a96 100644
+--- a/codex-rs/core/src/tools/spec_plan_tests.rs
++++ b/codex-rs/core/src/tools/spec_plan_tests.rs
+@@ -3703,7 +3703,7 @@ async fn retained_actual_registry_iterator_associates_before_router_and_preserve
+             )
+         }),
+     );
+-    session.services.extensions = builder.build();
++    session.services.extensions = Arc::new(builder.build());
+     let mcp = Arc::new(codex_mcp::McpBinding::empty(mcp_config_for_test(
+         &turn.config,
+     )));
+@@ -3812,7 +3812,7 @@ async fn retained_router_metadata_mismatch_burns_before_adapter_and_cannot_fall_
+             }
+         }),
+     );
+-    session.services.extensions = builder.build();
++    session.services.extensions = Arc::new(builder.build());
+     // The original test Config is retained; no production eligibility/default is changed.
+     let changed_config = OriginalClientInputData::extension_tool_carry_fixture(
+         &session,
+diff --git a/codex-rs/ext/goal/src/tool_selection_tests.rs b/codex-rs/ext/goal/src/tool_selection_tests.rs
+index e95f07a..d85cc16 100644
+--- a/codex-rs/ext/goal/src/tool_selection_tests.rs
++++ b/codex-rs/ext/goal/src/tool_selection_tests.rs
+@@ -29,7 +29,7 @@ async fn fixture() -> anyhow::Result<(
+             max_goal_token_budget: Some(123),
+         },
+     );
+-    Ok((home, builder.build(), service))
++    Ok((home, Arc::new(builder.build()), service))
+ }
+ 
+ async fn ordinary_oracle(
