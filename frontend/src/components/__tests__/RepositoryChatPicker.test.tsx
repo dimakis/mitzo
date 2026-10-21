@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RepositoryChatPicker } from '../RepositoryChatPicker';
 const api = vi.hoisted(() => ({ fetch: vi.fn() }));
@@ -12,7 +12,7 @@ afterEach(() => {
   sessionStorage.clear();
 });
 const preview = {
-  id: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+  id: '8ca30b0d-3e65-4eeb-8244-f6277350818f' as const,
   repository: 'example/repo',
   baseBranch: 'main',
   baseOid: 'a'.repeat(40),
@@ -786,6 +786,50 @@ it('invalidates an unprepared preview when the selected execution runtime change
   expect(requests).toHaveLength(2);
   expect(JSON.parse(requests[1][1].body).ordinaryRuntime).toEqual(runtimeChoice('local'));
 });
+it.each(['preparing', 'error'])(
+  'a newer refresh wins over a late initial restoration: %s',
+  async (lateState) => {
+    let completeRestoration!: (response: Response) => void;
+    let reads = 0;
+    api.fetch.mockImplementation(async (url: string) => {
+      if (url.includes('/catalog')) return Response.json({ available: true, repositories: [] });
+      if (++reads === 1)
+        return new Promise<Response>((resolve) => {
+          completeRestoration = resolve;
+        });
+      return Response.json({ ...preview, state: 'ready' });
+    });
+    const onChange = vi.fn();
+    render(
+      <RepositoryChatPicker
+        accountId="account"
+        model="model"
+        draftScoped
+        initialPreparationId={preview.id}
+        onChange={onChange}
+      />,
+    );
+    await userEvent
+      .setup()
+      .click(await screen.findByRole('button', { name: 'Refresh preparation status' }));
+    await screen.findByText(/Ready for your first prompt/);
+    await act(async () => {
+      completeRestoration(
+        lateState === 'error'
+          ? new Response(null, { status: 500 })
+          : Response.json({ ...preview, state: 'preparing' }),
+      );
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText(/Ready for your first prompt/)).toBeTruthy();
+    expect(onChange).toHaveBeenLastCalledWith({
+      repositoryWorkspaceId: preview.id,
+      blocked: false,
+    });
+    expect(reads).toBe(2);
+  },
+);
+
 it('recovers the same preparation after its response was lost without preparing twice', async () => {
   mockRepositoryFlow(true);
   const onChange = vi.fn();

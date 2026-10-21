@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.512-default-identity-fallback';
+  'v1.0.513-repository-recovery-order';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1075,7 +1075,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-repository-preparation-authority.ts':
     'cdc69081e652ecc0f8928282849cdaccf5528060d3cbb450779793eadd0065ea',
   '../../frontend/src/components/RepositoryChatPicker.tsx':
-    '9563ac5f724f8625c750127ea366bc3cd7891fbe241c9aaf4e82c899a9fa8984',
+    'cd16ec7cf3ca39c34752cdc676dd005539c99e5192c55e15203fa24c6a2841a9',
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':
     '21b62231f1f15b14e874be59d01bd23316f4b7ee516d514500d7599c7c653fde',
   '../../frontend/src/lib/repository-chat-preparation.ts':

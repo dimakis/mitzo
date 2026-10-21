@@ -376,6 +376,7 @@ export function RepositoryChatPicker({
     const id = pendingId ?? workspace?.id;
     if (!id || busy) return;
     const controller = new AbortController();
+    restoration.current?.abort();
     operation.current?.abort();
     operation.current = controller;
     setBusy(true);
