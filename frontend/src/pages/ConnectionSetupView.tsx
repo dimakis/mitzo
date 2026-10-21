@@ -300,6 +300,12 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
                 {relay.targets.map((target, index) => (
                   <section key={index} aria-label={`Destination ${index + 1}`}>
                     <h2>{target.label}</h2>
+                    {target.lanEndpoint && (
+                      <p role="note">
+                        This device uses unencrypted HTTP on your local network. Saving permits
+                        Mitzo to send the value to this exact address.
+                      </p>
+                    )}
                     <dl className="connection-setup-summary">
                       <div>
                         <dt>Service address</dt>

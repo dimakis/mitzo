@@ -9,8 +9,9 @@ export interface SecretRelay {
   delivery?: 'pending' | 'delivered';
   error?: string;
   targets: Array<{
-    connectionId: string;
-    revision: number;
+    connectionId?: string;
+    revision?: number;
+    lanEndpoint?: string;
     endpoint: string;
     label: string;
     path: string;

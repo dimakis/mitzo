@@ -722,6 +722,7 @@ export class CredentialConnections {
     dispatched: () => void,
     assertRuntimeCurrent?: () => Promise<void>,
   ): Promise<{ status: number }> {
+    if (!('connectionId' in target)) throw new Error('Connection target required');
     const result = await this.requestInternal(
       session,
       target.connectionId,

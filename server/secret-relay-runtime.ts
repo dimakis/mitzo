@@ -1,3 +1,4 @@
+import { sendLanRelayTarget } from './secret-relay-lan.js';
 import { homedir } from 'node:os';
 import { z } from 'zod';
 import type { CredentialConnections, CredentialConnectionStore } from './credential-connections.js';
@@ -41,6 +42,19 @@ export function attachSecretRelay(
     store,
     vault,
     (id) => service.connection(id),
-    (...args) => service.applyRelayTarget(...args),
+    (session, target, body, encoding, signal, check, dispatched, assertCurrent) =>
+      'lanEndpoint' in target
+        ? sendLanRelayTarget(target, body, encoding, signal, check, dispatched, assertCurrent)
+        : service.applyRelayTarget(
+            session,
+            target,
+            body,
+            encoding,
+            signal,
+            check,
+            dispatched,
+            assertCurrent,
+          ),
+    env.MITZO_SECRET_RELAY_LAN_HTTP_ENABLED === '1',
   );
 }

@@ -1,3 +1,4 @@
+import { validateLanRelayEndpoint } from './secret-relay-lan.js';
 import { redactCredentialResponse } from './credential-redaction.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -9,10 +10,8 @@ const field = z
   .min(1)
   .max(256)
   .refine((s) => !s.split('/').some((k) => ['__proto__', 'constructor', 'prototype'].includes(k)));
-const TargetSchema = z
+const WriteSchema = z
   .object({
-    connectionId: z.string().min(1).max(128),
-    revision: z.number().int().positive(),
     path: z.string().min(1).max(4096),
     method: z.enum(['POST', 'PUT', 'PATCH']),
     encoding: z.enum(['json', 'form']),
@@ -20,6 +19,25 @@ const TargetSchema = z
     fields: z.array(field).min(1).max(16),
   })
   .strict();
+const TargetSchema = z.union([
+  WriteSchema.extend({
+    connectionId: z.string().min(1).max(128),
+    revision: z.number().int().positive(),
+  }).strict(),
+  WriteSchema.extend({
+    lanEndpoint: z
+      .string()
+      .max(256)
+      .refine((value) => {
+        try {
+          validateLanRelayEndpoint(value);
+          return true;
+        } catch {
+          return false;
+        }
+      }),
+  }).strict(),
+]);
 export const PrepareSecretRelaySchema = z
   .object({
     label: z.string().trim().min(1).max(100),
@@ -109,8 +127,16 @@ export class SecretRelays {
     private vault: SecretVault,
     private connection: (id: string) => Destination,
     private send: Apply,
+    private allowLan = false,
   ) {}
   private checkedTarget(target: RelayTarget) {
+    if ('lanEndpoint' in target) {
+      if (!this.allowLan) throw new Error('LAN relay adapter is disabled');
+      const endpoint = validateLanRelayEndpoint(target.lanEndpoint);
+      requestTarget({ endpoint: 'https://relay.invalid', paths: ['/'] }, target.path);
+      injectRelayValue(target, '');
+      return { endpoint, label: new URL(endpoint).hostname };
+    }
     const c = this.connection(target.connectionId);
     requestTarget(c, target.path);
     if (
@@ -166,7 +192,8 @@ export class SecretRelays {
     return relay;
   }
   browserStatus(id: string): SecretRelay {
-    const { vaultRef: _ref, ...safe } = this.get(id);
+    const safe = { ...this.get(id) };
+    delete safe.vaultRef;
     return safe;
   }
   status(session: string, id: string) {
@@ -193,7 +220,7 @@ export class SecretRelays {
     relay.targets.forEach((t) => this.checkedTarget(t));
     const controller = new AbortController();
     this.active.set(id, controller);
-    const combined = AbortSignal.any([signal, controller.signal]);
+    const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30000)]);
     relay.status = 'verifying';
     relay.revision++;
     this.store.putRelay(relay);
@@ -234,7 +261,10 @@ export class SecretRelays {
       .listRelays()
       .filter(
         (r) =>
-          r.targets.some((t) => t.connectionId === connectionId || t.endpoint === endpoint) &&
+          r.targets.some(
+            (t) =>
+              ('connectionId' in t && t.connectionId === connectionId) || t.endpoint === endpoint,
+          ) &&
           (r.vaultRef || ['verifying', 'unconfirmed'].includes(r.status)),
       );
     try {
@@ -289,7 +319,7 @@ export class SecretRelays {
     if (this.active.has(key)) throw new Error('Secret write in progress');
     const controller = new AbortController();
     this.active.set(key, controller);
-    const combined = AbortSignal.any([signal, controller.signal]);
+    const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30000)]);
     const receipt = (outcome: RelayOutcome) => {
       const current = this.get(id);
       current.outcomes[targetIndex] = outcome;

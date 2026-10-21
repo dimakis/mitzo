@@ -151,3 +151,32 @@ it('redacts later reads of the destination using persisted references', async ()
   expect(result).not.toContain('private-fixture');
   expect(JSON.parse(result).ok).toBe(true);
 });
+
+it('allows exact local device form writes only with the separate LAN adapter enabled', async () => {
+  const f = fixture();
+  const input = {
+    label: 'MQTT',
+    targets: [
+      {
+        lanEndpoint: 'http://192.168.1.115',
+        path: '/settings',
+        method: 'POST',
+        encoding: 'form',
+        body: 'mqtt_password=',
+        fields: ['mqtt_password'],
+      },
+    ],
+  };
+  expect(() => f.service.prepare('chat', input)).toThrow();
+  const enabled = new SecretRelays(
+    f.store,
+    f.vault,
+    () => {
+      throw new Error('No API auth needed');
+    },
+    f.apply,
+    true,
+  );
+  const draft = enabled.prepare('chat', input);
+  expect(draft.targets[0].endpoint).toBe('http://192.168.1.115');
+});
