@@ -40,7 +40,10 @@ import {
 } from './request-web-access.js';
 import { createWebAccessTool } from './web-access-tool.js';
 import { searchOpenAI, searchGemini } from './web-search-adapters.js';
-import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
+import {
+  HOST_TOOL_INSTRUCTIONS,
+  SESSION_PERMISSION_INSTRUCTIONS,
+} from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -179,6 +182,15 @@ interface Options {
 }
 /** API execution uses the shared interaction policy and a private continuation store. */
 export async function openResponsesChat(options: Options) {
+  // Only an explicit ordinary API owner can opt in. Legacy API and Gemini
+  // sessions retain their existing command network policy.
+  const networkAccess =
+    options.commandAuthority &&
+    options.binding.provider === 'openai' &&
+    !options.gemini &&
+    process.env.MITZO_ORDINARY_LOCAL_RESPONSES_NETWORK_ENABLED === '1'
+      ? ('approved-command' as const)
+      : undefined;
   const agentProfile =
     options.agentProfile ?? options.eventStore?.getSession(options.conversationId)?.agentProfile;
   assertAgentToolRoute(agentProfile?.definition, 'local-api');
@@ -400,18 +412,18 @@ export async function openResponsesChat(options: Options) {
   let interrupted = false;
   let activeTurnFinalized: Promise<void> | undefined;
   let completeActiveTurn: (() => void) | undefined;
-  const systemPrompt =
-    options.systemPrompt +
-    CONNECTION_TOOL_INSTRUCTIONS +
-    API_CONNECTION_INSTRUCTIONS +
-    HOST_TOOL_INSTRUCTIONS +
-    WEB_ACCESS_INSTRUCTIONS +
-    GITHUB_PUBLISHING_INSTRUCTIONS +
-    (startup.context ? `\n\n${startup.context}` : '');
   const definitions = structuredClone(
     filterAgentTools(options.session, [
       ...connectionTools.definitions,
-      ...nativeToolDefinitions,
+      ...nativeToolDefinitions.map((tool) =>
+        tool.name === 'Bash' && networkAccess
+          ? {
+              ...tool,
+              description:
+                'Run a command on the local host in the session Git workspace. Network access follows Mitzo command approvals, including an explicit session grant. Credentials remain outside Bash; authenticated services use the configured connection tools. Writes outside session roots remain restricted.',
+            }
+          : tool,
+      ),
       ...mcp.definitions,
       ...(apiTools?.definitions ?? []),
       ...(customTools?.definitions ?? []),
@@ -419,6 +431,30 @@ export async function openResponsesChat(options: Options) {
       githubPublishingDefinition,
     ]),
   );
+  const workspaceRoots = options.session.worktreePaths.size
+    ? [...options.session.worktreePaths.values()].map((entry) => entry.path)
+    : [options.session.cwd!];
+  const runtimeInstructions = `
+Execution location: Local host${process.platform === 'darwin' ? ' (this Mac)' : ''}
+Operating system: ${process.platform}${process.platform === 'darwin' ? ' (macOS)' : ''}
+Architecture: ${process.arch}
+Working directory: ${JSON.stringify(options.session.cwd)}
+Writable workspace roots: ${JSON.stringify(workspaceRoots)}
+Use this host OS and the selected checkout/worktree for commands and file paths. Do not assume OpenShell container paths or provision a sandbox for this conversation.
+Bash networking: ${networkAccess ? 'follows Mitzo command approvals; Agent supports Allow for this session. Local test servers are permitted under that command approval' : 'unavailable'}.
+Bash uses an isolated temporary HOME and temporary directory. Connection credentials remain private to Mitzo. Network approval does not authorize credential discovery or replace service connection approvals.
+The selected account supplies model inference; Local host describes where the tools execute.
+`;
+  const systemPrompt =
+    options.systemPrompt +
+    CONNECTION_TOOL_INSTRUCTIONS +
+    API_CONNECTION_INSTRUCTIONS +
+    SESSION_PERMISSION_INSTRUCTIONS +
+    HOST_TOOL_INSTRUCTIONS +
+    runtimeInstructions +
+    WEB_ACCESS_INSTRUCTIONS +
+    GITHUB_PUBLISHING_INSTRUCTIONS +
+    (startup.context ? `\n\n${startup.context}` : '');
   if (agentProfile?.definition.tools !== undefined) {
     try {
       privateStorage.bindAgentTools(
@@ -532,6 +568,7 @@ export async function openResponsesChat(options: Options) {
           }
           const result = await createNativeToolExecutor(owner.clientId, options.registry, {
             env: options.env,
+            networkAccess,
             forcePrompt,
             assertRuntimeCurrentAsync: options.commandAuthority
               ? () => options.commandAuthority!.assertEffect(publishingTurnId)

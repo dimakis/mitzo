@@ -16,6 +16,8 @@ export interface SandboxedCommandOptions {
   /** Optional deny-by-default read scope for development runners. Host-owned paths only. */
   readableRoots?: string[];
   env: Record<string, string>;
+  /** General proxy egress, only after the caller's network-aware command approval. */
+  networkAccess?: 'approved-command';
   signal: AbortSignal;
   timeoutMs?: number;
   maxOutputBytes?: number;
@@ -98,6 +100,8 @@ export async function executeSandboxedCommand(
   options: SandboxedCommandOptions,
 ): Promise<{ content: string; isError: boolean }> {
   options.signal.throwIfAborted();
+  if (options.networkAccess !== undefined && options.networkAccess !== 'approved-command')
+    throw new Error('Invalid command network authorization');
   if (!['darwin', 'linux'].includes(process.platform))
     throw new Error('OS sandbox is unavailable on this platform');
   // Copy caller-owned collections: later mutations cannot silently change grants.
@@ -164,6 +168,7 @@ export async function executeSandboxedCommand(
     const payload: SandboxWorkerPayload = {
       cwd: options.cwd,
       command: options.command,
+      ...(options.networkAccess ? { networkAccess: options.networkAccess } : {}),
       authority: authority.serialize(),
       config: {
         filesystem: {
@@ -190,7 +195,7 @@ export async function executeSandboxedCommand(
             '169.254.169.254',
             'metadata.google.internal',
           ],
-          allowLocalBinding: false,
+          allowLocalBinding: options.networkAccess === 'approved-command',
           allowAllUnixSockets: false,
         },
         enableWeakerNestedSandbox: false,
