@@ -106,7 +106,7 @@ export class OpenShellOperatorTransport {
   }
   private async unary(
     connection: Connection,
-    definition: MethodDefinition<object, unknown>,
+    definition: MethodDefinition<object, object>,
     request: object,
     signal: AbortSignal,
   ): Promise<unknown> {
@@ -157,7 +157,7 @@ export class OpenShellOperatorTransport {
       client.close();
     }
   }
-  request(definition: MethodDefinition<object, unknown>, request: object, signal: AbortSignal) {
+  request(definition: MethodDefinition<object, object>, request: object, signal: AbortSignal) {
     return this.unary(this.connection(), definition, request, signal);
   }
 }

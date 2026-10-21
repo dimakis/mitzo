@@ -2,9 +2,13 @@ import { fromJSON, type ServiceDefinition } from '@grpc/proto-loader';
 // Explicit opt-in wire contract: workspace selectors + operator GetProviderCredentials.
 // Source: NVIDIA/OpenShell proto/{openshell,datamodel}.proto, retrieved 2026-10-21.
 // This is NOT compatible with Mitzo's historical 0.0.116 provider-update contract.
-const f = (type: string, id: number, rule?: string) => ({ type, id, ...(rule ? { rule } : {}) });
-const map = (type: string, id: number) => ({ type, id, keyType: 'string' });
-const protocol = {
+const f = (type: string, id: number, rule?: 'repeated') => ({
+  type,
+  id,
+  ...(rule ? { rule } : {}),
+});
+const map = (type: string, id: number) => ({ type, id, keyType: 'string' as const });
+const protocol: Parameters<typeof fromJSON>[0] = {
   nested: {
     openshell: {
       nested: {
@@ -83,18 +87,22 @@ const protocol = {
             OpenShell: {
               methods: {
                 GetProvider: {
+                  comment: 'Inspect a pinned provider.',
                   requestType: 'GetProviderRequest',
                   responseType: 'ProviderResponse',
                 },
                 CreateProvider: {
+                  comment: 'Create one private relay provider.',
                   requestType: 'CreateProviderRequest',
                   responseType: 'ProviderResponse',
                 },
                 GetProviderCredentials: {
+                  comment: 'Export one runtime credential to the trusted operator.',
                   requestType: 'GetProviderCredentialsRequest',
                   responseType: 'GetProviderCredentialsResponse',
                 },
                 GetProviderProfile: {
+                  comment: 'Verify the non-injecting vault profile.',
                   requestType: 'GetProviderProfileRequest',
                   responseType: 'ProviderProfileResponse',
                 },
