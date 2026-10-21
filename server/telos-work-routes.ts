@@ -52,13 +52,16 @@ export function createTelosWorkRouter(options: {
     res.setHeader('Cache-Control', 'private, no-store');
     next();
   });
-  const run = (res: Response, action: (store: TelosWorkStore) => unknown) => {
+  const run = (res: Response, action: (store: TelosWorkStore) => unknown, readRecord = false) => {
     let store: TelosWorkStore | undefined;
     try {
-      store = new TelosWorkStore(options.dbPath(), {
+      const policy = {
         ordinaryConversation: options.ordinaryConversation,
         sourceConversation: options.sourceConversation,
-      });
+      };
+      store = readRecord
+        ? TelosWorkStore.openForRecordRead(options.dbPath(), policy)
+        : new TelosWorkStore(options.dbPath(), policy);
       res.json(action(store));
     } catch (error) {
       const known = error instanceof TelosWorkError;
@@ -186,7 +189,7 @@ export function createTelosWorkRouter(options: {
       res.status(400).json({ code: 'invalid', error: 'Invalid work item ID' });
       return;
     }
-    run(res, (store) => store.readRecord(id.data, authority));
+    run(res, (store) => store.readRecord(id.data, authority), true);
   });
   router.post('/api/telos/work/commands', options.operatorAuth, (req, res) => {
     const authority = actor(res);

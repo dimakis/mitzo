@@ -117,6 +117,27 @@ export class TelosWorkStore {
   static openReadOnly(path: string, policy: TelosWorkStorePolicy): TelosWorkStore {
     return new TelosWorkStore(path, policy, true);
   }
+  /** Record reads use committed initialized data without acquiring a schema
+   * writer. A missing extension layout still takes the original initializer;
+   * busy, invalid or otherwise unavailable stores never retry as a writer. */
+  static openForRecordRead(path: string, policy: TelosWorkStorePolicy): TelosWorkStore {
+    let store: TelosWorkStore | undefined;
+    try {
+      store = TelosWorkStore.openReadOnly(path, policy);
+      store.db.prepare('SELECT kind FROM telos_work_kinds LIMIT 0').all();
+      return store;
+    } catch (error) {
+      store?.close();
+      if (
+        !(error instanceof Error) ||
+        !('code' in error) ||
+        error.code !== 'SQLITE_ERROR' ||
+        !/^no such table: telos_work_(attempts|delegation_requests|kinds)$/.test(error.message)
+      )
+        throw error;
+      return new TelosWorkStore(path, policy);
+    }
+  }
   constructor(
     path: string,
     private readonly policy: TelosWorkStorePolicy,
