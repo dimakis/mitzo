@@ -24,7 +24,10 @@ const conflict = (message: string): never => {
 };
 
 /** Pure presentation projection of the ORIGINAL TodoListResponse parser output.
- * The caller supplies current same-database work.listLifecycle(view, operator).
+ * For default active, the already-authenticated caller supplies same-database
+ * work.lifecycleVisibilityForCanonicalList(originalParsedIds); no operator is
+ * fabricated for existing internal-token readers. Archive/Trash require current
+ * interactive authority and use work.listLifecycle(view, realOperator).
  * Missing lifecycle identities are omitted, never assumed active. Promotion is
  * presentation only: original parentId, briefs, sources, priority and age stay.
  * No DB write, reparent, status change, sorting, owner creation or file access.

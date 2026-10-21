@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { TodoListResponse } from '../api-schemas.js';
 import { projectTelosLifecycleTree } from '../telos-lifecycle-tree.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
+import { TelosWorkStore } from '../telos-work-store.js';
 
 const closes: Array<() => void> = [];
 afterEach(() =>
@@ -125,4 +126,55 @@ it('omits rows missing from current lifecycle authority, rejects duplicate ident
   expect(() => projectTelosLifecycleTree(f.canonical, [...rows, rows[0]])).toThrow(/duplicate/i);
   const duplicate = { ...f.canonical, items: [...f.canonical.items, ...f.canonical.items] };
   expect(() => projectTelosLifecycleTree(duplicate, rows)).toThrow(/duplicate/i);
+});
+
+it('projects an already-authenticated canonical list through read-only visibility without fabricating an operator or revealing history', () => {
+  const f = fixture();
+  f.mutate('child', 'trash');
+  const reader = TelosWorkStore.openReadOnly(f.f.dbPath, {
+    ordinaryConversation: () => {
+      throw new Error('Visibility cannot consult conversation authority');
+    },
+  });
+  closes.push(() => reader.close());
+  const visibility = reader.lifecycleVisibilityForCanonicalList([
+    'studio',
+    'child',
+    'grandchild',
+    'sibling',
+    'disappeared',
+  ]);
+  expect(visibility).toEqual([
+    { itemId: 'studio', effectiveDisposition: 'active' },
+    { itemId: 'child', effectiveDisposition: 'trashed' },
+    { itemId: 'grandchild', effectiveDisposition: 'trashed' },
+    { itemId: 'sibling', effectiveDisposition: 'active' },
+  ]);
+  expect(
+    visibility.every((row) => Object.keys(row).sort().join(',') === 'effectiveDisposition,itemId'),
+  ).toBe(true);
+  const projected = projectTelosLifecycleTree(f.canonical, visibility) as {
+    items: Array<{ children: Array<{ id: string }> }>;
+  };
+  expect(projected.items[0].children.map((row) => row.id)).toEqual(['sibling']);
+  // Full lifecycle/history and mutations retain their original operator gate.
+  expect(() => reader.listLifecycle('trash', { kind: 'conversation', id: 'planning' })).toThrow(
+    /operator/i,
+  );
+});
+
+it('bounds canonical-list visibility to the supplied identities and refuses duplicate or oversized selections', () => {
+  const f = fixture();
+  expect(f.f.work.lifecycleVisibilityForCanonicalList([])).toEqual([]);
+  expect(f.f.work.lifecycleVisibilityForCanonicalList(['child'])).toEqual([
+    { itemId: 'child', effectiveDisposition: 'active' },
+  ]);
+  expect(() => f.f.work.lifecycleVisibilityForCanonicalList(['child', 'child'])).toThrow(
+    /duplicate/i,
+  );
+  expect(() =>
+    f.f.work.lifecycleVisibilityForCanonicalList(
+      Array.from({ length: 5001 }, (_, i) => `item-${i}`),
+    ),
+  ).toThrow();
 });

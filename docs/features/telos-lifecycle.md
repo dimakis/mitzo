@@ -83,9 +83,18 @@ lifecycle audit and request receipts remain, and deleted IDs cannot be reused.
 ## Existing list composition
 
 Core owns the shared application route change. Its existing successful
-`TodoListResponse` parser output and same-database
-`work.listLifecycle(view, realOperator)` feed the pure
+`TodoListResponse` parser output feeds the pure
 `projectTelosLifecycleTree(canonical, lifecycle, view = 'active')` helper.
+For the default active view, the already-authenticated canonical list uses
+`work.lifecycleVisibilityForCanonicalList(originalParsedItemIds)`. This bounded,
+read-only host seam returns only `itemId` and `effectiveDisposition` for requested
+existing IDs. It grants no authority, queries no history/control/assignment tables,
+and has no public HTTP or native-tool route. It works with the initialized
+read-only store and never fabricates an operator for existing internal-token
+readers. Missing/deleted identities are omitted. Archive and Trash list views
+require a current interactive operator and use the existing same-database
+`work.listLifecycle(view, realOperator)`; full lifecycle/history and mutations
+retain their operator gates.
 The helper filters by effective visibility and promotes matching archive/trash
 presentation roots while preserving their canonical `parentId`. It retains
 priority, age and source fields, recomputes visible child counts, and never sorts

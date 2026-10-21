@@ -200,6 +200,11 @@ export class TelosWorkStore {
   listLifecycle(view: unknown, actor: TelosWorkActor) {
     return this.lifecycle().list(view, actor);
   }
+  /** Internal read projection for the original, already-authenticated canonical
+   * list only. It supplies visibility labels, never lifecycle/operator authority. */
+  lifecycleVisibilityForCanonicalList(itemIds: readonly string[]) {
+    return this.lifecycle().visibilityForCanonicalList(itemIds);
+  }
   executeLifecycle(
     raw: unknown,
     actor: TelosWorkActor,

@@ -62,6 +62,20 @@ it('derives interactive lifecycle authority, applies canonical revision and reta
   const f = await fixture();
   expect((await f.read()).status).toBe(200);
   const input = f.input();
+  expect(
+    (
+      await request(f.server)
+        .get('/api/telos/work/lifecycle?view=trash')
+        .set('x-internal-token', 'internal')
+    ).status,
+  ).toBe(403);
+  expect(
+    (
+      await request(f.server)
+        .get('/api/telos/work/items/studio/lifecycle')
+        .set('x-internal-token', 'internal')
+    ).status,
+  ).toBe(403);
   const response = await f.post(input);
   expect(response.status).toBe(200);
   expect(response.body.lifecycle.disposition).toBe('trashed');

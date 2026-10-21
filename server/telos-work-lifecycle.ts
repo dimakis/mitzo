@@ -5,6 +5,7 @@ import {
   TelosWorkLifecycleListSchema,
   TelosWorkLifecycleReceiptSchema,
   TelosWorkLifecycleViewSchema,
+  TelosWorkIdSchema,
   type TelosWorkLifecycleView,
   type TelosWorkLifecycleReceipt,
   type TelosWorkView,
@@ -128,6 +129,23 @@ export class TelosWorkLifecycle {
         .filter((r) => this.disposition(r.id).effectiveDisposition === disposition)
         .map((r) => this.read(r.id, actor));
     })();
+  }
+  /** Read-only host seam for an already-authenticated canonical list. Select
+   * only IDs from its original parsed payload; no actor is inferred or granted.
+   * This does not expose history, controls, revisions or a new HTTP/tool route. */
+  visibilityForCanonicalList(
+    raw: unknown,
+  ): Array<Pick<TelosWorkLifecycleView, 'itemId' | 'effectiveDisposition'>> {
+    const ids = TelosWorkIdSchema.array().max(5000).parse(raw);
+    if (new Set(ids).size !== ids.length) conflict('Duplicate canonical list identity');
+    return this.db.transaction(() =>
+      ids.flatMap((itemId) => {
+        // The canonical read can race a separately confirmed permanent deletion.
+        // Omit disappeared identities rather than inventing active visibility.
+        if (!this.db.prepare('SELECT 1 FROM items WHERE id=?').get(itemId)) return [];
+        return [{ itemId, effectiveDisposition: this.disposition(itemId).effectiveDisposition }];
+      }),
+    )();
   }
   execute(
     raw: unknown,
