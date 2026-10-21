@@ -1137,7 +1137,7 @@ export function handleSendV2(
                     undefined,
                     userIntent,
                     msg.sourceSnapshots,
-                    delivery?.onRetained,
+                    delivery?.onRetained ?? (() => {}),
                   )
                 : await sendToChat(
                     activeClientId,
@@ -1150,7 +1150,7 @@ export function handleSendV2(
                     undefined,
                     undefined,
                     msg.sourceSnapshots,
-                    delivery?.onRetained,
+                    delivery?.onRetained ?? (() => {}),
                   );
             if (!accepted) throw new Error('Session is not accepting input. Please retry.');
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');

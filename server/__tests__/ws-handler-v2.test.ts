@@ -2110,7 +2110,7 @@ describe('handleSendV2 skill policy', () => {
       undefined,
       '/test-skill',
       undefined,
-      undefined,
+      expect.any(Function),
     );
   });
 
@@ -2592,7 +2592,7 @@ describe('handleSendV2 routing', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
+      expect.any(Function),
     );
     expect(ctx.connRegistry.get('c1')!.watchedSessions.has('sess-1')).toBe(true);
     expect(ctx.connRegistry.get('c1')!.activeSession).toBe('sess-1');
@@ -3760,7 +3760,7 @@ describe('handleSendV2 connection ownership', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
+      expect.any(Function),
     );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
@@ -4058,7 +4058,7 @@ describe('handleSendV2 state-based routing', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
+      expect.any(Function),
     );
 
     (isActive as ReturnType<typeof vi.fn>).mockReturnValue(false);
@@ -5104,7 +5104,7 @@ describe('handleSendV2 rekey after detached reattach', () => {
       undefined,
       undefined,
       undefined,
-      undefined,
+      expect.any(Function),
     );
     expect(transport.sent).not.toContainEqual(
       expect.objectContaining({ code: 'active_elsewhere' }),

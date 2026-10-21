@@ -58,3 +58,30 @@ The client follow-up passes 249 client/design checks with one skipped case,
 including preparation, active output, delayed receipts and prior output grouping;
 its package type checking, lint and formatting pass. These suites overlap with
 the earlier continuity checks and are not additive unique-test counts.
+
+## Restored failures and programmatic dispatch
+
+The safe retained-command error writer marks its own saved feedback explicitly.
+History and reconnect recognize that marker only after the exact command's valid
+same-session user echo in the same immutable provenance partition, with the
+versioned public error envelope and saved-message prefix. Unmarked startup
+diagnostics, unknown commands, foreign sessions, later echoes and different native
+provenance remain excluded. Recognized feedback stays with its original command
+after restoration, preserving a newer active reply and its current blocks.
+Telos source selection uses that same classification and refuses a complete prefix
+that would omit public error feedback.
+
+The HTTP and WebSocket routes explicitly opt into retention acknowledgment.
+Programmatic callers still receive `false` when native queue admission fails,
+allowing the task orchestrator to block an undelivered pinned task and release its
+active task context. The UI routes keep their single exact saved-error event.
+
+Regressions reproduced missing retained errors in history/reconnect and a pinned
+task remaining active without a native enqueue. The focused follow-up passes 430
+tests across six files, including the real HTTP/WebSocket handlers, real task
+orchestrator, history/reconnect grouping, native provenance and source privacy
+checks. Server production type checking and targeted lint pass. No runtime,
+deployment or live model target was used.
+An additional 157 checks pass across five distinct continuity files for durable
+send identity, guarded runtime exclusion, the REST wrapper and delayed terminal
+acknowledgments: 587 focused follow-up checks in total.

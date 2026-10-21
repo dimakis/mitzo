@@ -1,4 +1,8 @@
-import { recordAcceptedReplaySession, replayError } from './public-replay-error.js';
+import {
+  recordAcceptedReplaySession,
+  replayError,
+  type AcceptedReplaySessions,
+} from './public-replay-error.js';
 import { telosMaterialDestinations } from './telos-source-materials.js';
 import { TelosWorkError } from './telos-work-store.js';
 import { createHash } from 'node:crypto';
@@ -90,7 +94,7 @@ export function createTelosConversationSource(options: {
         const nativeCompleted = new Set<string>();
         // Normal replay authorizes runtime feedback independently for ordinary
         // history and each complete immutable native provenance snapshot.
-        const acceptedReplaySessions = new Map<string, Set<string>>();
+        const acceptedReplaySessions = new Map<string, AcceptedReplaySessions>();
         let ordinaryActive: string | undefined;
         let firstOrdinaryMessage: number | undefined;
         let initialPromptSequence: number | undefined;
@@ -240,7 +244,7 @@ export function createTelosConversationSource(options: {
                 : JSON.stringify(SymposiumProvenanceSchema.parse(event.symposiumProvenance));
             let accepted = acceptedReplaySessions.get(replayPartition);
             if (!accepted) {
-              accepted = new Set();
+              accepted = new Map();
               acceptedReplaySessions.set(replayPartition, accepted);
             }
             recordAcceptedReplaySession(event, accepted);

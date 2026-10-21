@@ -49,7 +49,11 @@ import {
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { SourceSnapshotsSchema, type SourceSnapshot } from '@mitzo/protocol';
-import { recordAcceptedReplaySession, replayError } from './public-replay-error.js';
+import {
+  recordAcceptedReplaySession,
+  replayError,
+  type AcceptedReplaySessions,
+} from './public-replay-error.js';
 import {
   getOrdinaryWorkspaces,
   getRepositoryWorkspaces,
@@ -3929,7 +3933,9 @@ function validateNativeModelSelection(
   );
 }
 
-/** Push a follow-up message into a running session. */
+/** Push a follow-up message into a running session.
+ * UI routes supply onRetained to opt into retention acknowledgment even if
+ * later admission fails. Programmatic callers receive false for that refusal. */
 export async function sendToChat(
   clientId: string,
   prompt: string,
@@ -4156,6 +4162,7 @@ export async function sendToChat(
           type: 'error',
           sessionId: savedSessionId,
           clientMsgId: messageId,
+          retainedCommandFailure: true,
           error,
         };
         // An attached owner keeps its existing stream transport. The current
@@ -4209,9 +4216,10 @@ export async function sendToChat(
               ? 'Message saved. Codex queue preparation was cancelled. Check the conversation before sending a new message.'
               : 'Message saved. Codex queue admission could not finish. Check the connection before sending a new message.',
           );
-          // Retention already succeeded. Returning false would emit a second
-          // routing error and overwrite this durable command-specific failure.
-          return true;
+          // UI routes explicitly opt into retention acknowledgment and already
+          // received the exact saved failure. Programmatic dispatch still needs
+          // false so its task owner can mark a refused admission as blocked.
+          return !!onRetained;
         }
         if (signal?.aborted) return false;
         send(session.transport, {
@@ -5430,6 +5438,51 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
   };
 }
 
+function nextReplayUser(
+  messages: RestoredMessage[],
+  commandId: string | undefined,
+  provenance?: SymposiumProvenance,
+): number {
+  if (!commandId) return -1;
+  const sameSource = (message: RestoredMessage) =>
+    isDeepStrictEqual(message.symposiumProvenance, provenance);
+  const owner = messages.findIndex(
+    (message) => message.role === 'user' && message.messageId === commandId && sameSource(message),
+  );
+  if (owner < 0) return -1;
+  return messages.findIndex(
+    (message, index) => index > owner && message.role === 'user' && sameSource(message),
+  );
+}
+
+/** Group only already-authorized synthetic feedback; this does not disclose any new event. */
+function groupRetainedReplayErrors(
+  messages: RestoredMessage[],
+  events: import('./event-store.js').StoredEvent[],
+): void {
+  for (const event of events) {
+    if (
+      event.type !== 'error' ||
+      event.payload.retainedCommandFailure !== true ||
+      typeof event.payload.clientMsgId !== 'string'
+    )
+      continue;
+    const errorIndex = messages.findIndex(
+      (message) =>
+        message.role === 'assistant' &&
+        message.messageId === `runtime-error-${event.seq}` &&
+        message.startedSeq === event.seq &&
+        message.blocks[0]?.blockId === `runtime-error-text-${event.seq}` &&
+        isDeepStrictEqual(message.symposiumProvenance, event.symposiumProvenance),
+    );
+    const next = nextReplayUser(messages, event.payload.clientMsgId, event.symposiumProvenance);
+    if (next >= 0 && errorIndex > next) {
+      const [error] = messages.splice(errorIndex, 1);
+      messages.splice(next, 0, error);
+    }
+  }
+}
+
 /** Reconstruct the typed live turn from the same immutable event prefix as history. */
 function replaySingleEventsToTranscript(
   events: import('./event-store.js').StoredEvent[],
@@ -5609,7 +5662,7 @@ function replaySingleEventsToTranscript(
     turn = null;
   };
 
-  const acceptedSessions = new Set<string>();
+  const acceptedSessions: AcceptedReplaySessions = new Map();
   for (const event of events) {
     recordAcceptedReplaySession(event, acceptedSessions);
     const payload = event.payload;
@@ -5676,7 +5729,9 @@ function replaySingleEventsToTranscript(
       case 'error': {
         const failure = replayError(event, acceptedSessions);
         if (failure) {
-          finishTurn();
+          const nextUser = nextReplayUser(messages, failure.clientMsgId);
+          // A late failure for A must not terminate the typed current turn B.
+          if (nextUser < 0 || (turn && turn.index < nextUser)) finishTurn();
           messages.push({
             messageId: `${failure.prefix}-${event.seq}`,
             role: 'assistant',
@@ -5700,6 +5755,7 @@ function replaySingleEventsToTranscript(
     }
   }
   if (turn) messages.splice(turn.index, 1);
+  groupRetainedReplayErrors(messages, events);
   return {
     messages,
     current: turn
@@ -5828,6 +5884,7 @@ export function replayEventsToTranscript(
     currents.push({ ...stream.current, symposiumProvenance: provenance });
   }
   messages.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
+  groupRetainedReplayErrors(messages, events);
   currents.sort((a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1));
   const ids = new Set<string>();
   for (const message of [...messages, ...currents]) {
@@ -5873,15 +5930,17 @@ export function replayEventsToMessages(
     const partials = [restored.current, ...restored.currents]
       .filter((current): current is RestoredCurrentMessage => current !== null)
       .map((current): RestoredMessage => ({ ...current, role: 'assistant' }));
-    return [...restored.messages, ...partials].sort(
+    const messages = [...restored.messages, ...partials].sort(
       (a, b) => (a.startedSeq ?? -1) - (b.startedSeq ?? -1),
     );
+    groupRetainedReplayErrors(messages, events);
+    return messages;
   }
   const messages: RestoredMessage[] = [];
   let currentMsg: RestoredMessage | null = null;
   const blockContent = new Map<string, string>();
   const toolResults = new Map<string, { result: string; isError: boolean }>();
-  const acceptedSessions = new Set<string>();
+  const acceptedSessions: AcceptedReplaySessions = new Map();
   const scopedBlocks = new Map<
     string,
     {
@@ -6055,7 +6114,8 @@ export function replayEventsToMessages(
       case 'error': {
         const failure = replayError(evt, acceptedSessions);
         if (failure) {
-          if (failure.prefix === 'runtime-error' && currentMsg) {
+          const olderCommand = nextReplayUser(messages, failure.clientMsgId) >= 0;
+          if (!olderCommand && failure.prefix === 'runtime-error' && currentMsg) {
             // Preserve incomplete blocks without changing legacy completed-block metadata.
             currentMsg.blocks = [
               ...[...scopedBlocks.values()].map(
@@ -6064,8 +6124,10 @@ export function replayEventsToMessages(
               ...currentMsg.blocks.filter((block) => !scopedBlocks.has(block.blockId)),
             ];
           }
-          if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
-          currentMsg = null;
+          if (!olderCommand) {
+            if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
+            currentMsg = null;
+          }
           messages.push({
             messageId: `${failure.prefix}-${evt.seq}`,
             role: 'assistant',
@@ -6097,6 +6159,7 @@ export function replayEventsToMessages(
     messages.push(currentMsg);
   }
 
+  groupRetainedReplayErrors(messages, events);
   return messages;
 }
 

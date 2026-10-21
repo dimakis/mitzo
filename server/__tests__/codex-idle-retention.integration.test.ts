@@ -7,6 +7,7 @@ import express from 'express';
 import request from 'supertest';
 import { ConnectionRegistry } from '@mitzo/harness';
 import { NativeCommandRegistry } from '../native-commands.js';
+import { TaskStore } from '../task-store.js';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 import { SseTransport } from '../sse-transport.js';
 import {
@@ -179,6 +180,17 @@ it.each(['ready', 'failed', 'recovery-failed'] as const)(
             clientMsgId: command.clientMsgId,
           }),
         );
+        const through = errors[0].seq;
+        for (const restored of [
+          await chat.getMessages(id, through),
+          chat.getReconnectTranscript(id, through).messages,
+        ]) {
+          expect(restored.at(-1)?.blocks).toContainEqual(
+            expect.objectContaining({
+              content: `**Error:** ${String(errors[0].payload.error)}`,
+            }),
+          );
+        }
         const failedRetry = await post();
         expect(failedRetry.status).toBe(422);
         expect(failedRetry.body.error).toMatch(/^Message saved\./);
@@ -202,3 +214,104 @@ it.each(['ready', 'failed', 'recovery-failed'] as const)(
     }
   },
 );
+
+it('blocks a pinned task when the real legacy Codex queue admission fails after retention', async () => {
+  const { TaskOrchestrator } = await import('../task-orchestrator.js');
+  const id = 'pinned-failed-admission';
+  runtime.admitExplicitSend.mockReset().mockRejectedValueOnce(Error('private transport failure'));
+  runtime.resumeAfterExplicitSend.mockClear();
+  const transport = { send: vi.fn(), isOpen: () => true };
+  chat.eventStore.upsertSession({ sessionId: id, cwd: root, mode: 'agent' });
+  chat.registry.register(id, {
+    transport,
+    abortController: new AbortController(),
+    sessionAllowList: new Set(),
+    sessionId: id,
+    cwd: root,
+    mode: 'agent',
+  });
+  chat.registry.get(id)!.inputQueue = { push: vi.fn(), close: vi.fn() };
+  const tasks = new TaskStore(join(root, 'pinned-tasks.db'));
+  const clearTaskContext = vi.fn();
+  const orchestrator = new TaskOrchestrator({
+    store: tasks,
+    getClientId: () => id,
+    setTaskContext: vi.fn(),
+    clearTaskContext,
+    broadcastStatus: vi.fn(),
+    broadcastTasks: vi.fn(),
+  });
+  const goal = tasks.create({ title: 'Offline pinned goal' });
+  const task = tasks.create({ title: 'Retained task', parentId: goal.id, sessionPolicy: 'reuse' });
+  try {
+    orchestrator.start(goal.id);
+    await vi.waitFor(() => expect(tasks.get(task.id)?.status).toBe('blocked'));
+    expect(tasks.get(task.id)?.annotations).toContain(
+      'dispatch_error: session did not accept the task',
+    );
+    expect(orchestrator.getStatus().activeTaskId).toBeNull();
+    expect(clearTaskContext).toHaveBeenCalled();
+    expect(runtime.admitExplicitSend).toHaveBeenCalledOnce();
+    expect(runtime.resumeAfterExplicitSend).not.toHaveBeenCalled();
+    expect(
+      chat.eventStore.getSessionEvents(id).filter((event) => event.type === 'user_message'),
+    ).toHaveLength(1);
+  } finally {
+    orchestrator.stop();
+    tasks.close();
+    chat.registry.abort(id);
+  }
+});
+
+it('keeps one exact saved failure on the native WebSocket route without a generic routing error', async () => {
+  const { handleSendV2 } = await import('../ws-handler-v2.js');
+  const id = 'ws-failed-admission';
+  const connectionId = 'ws-owner';
+  runtime.admitExplicitSend.mockReset().mockRejectedValueOnce(Error('private transport failure'));
+  runtime.resumeAfterExplicitSend.mockClear();
+  const transport = { send: vi.fn(), isOpen: () => true };
+  const connections = new ConnectionRegistry();
+  connections.register(connectionId, transport);
+  chat.eventStore.upsertSession({ sessionId: id, cwd: root, mode: 'agent' });
+  chat.eventStore.setSessionState(id, 'ACTIVE');
+  chat.registry.register(id, {
+    transport,
+    abortController: new AbortController(),
+    sessionAllowList: new Set(),
+    sessionId: id,
+    cwd: root,
+    mode: 'agent',
+    ownerConnectionId: connectionId,
+  });
+  chat.registry.get(id)!.inputQueue = { push: vi.fn(), close: vi.fn() };
+  const command = {
+    type: 'send' as const,
+    sessionId: id,
+    prompt: 'Saved WebSocket request',
+    clientMsgId: 'ws-failed-command',
+  };
+  try {
+    await handleSendV2(connectionId, transport, command, {
+      connRegistry: connections,
+      sessionRegistry: chat.registry,
+      eventStore: chat.eventStore,
+      nativeCommands: new NativeCommandRegistry(),
+    });
+    const errors = transport.send.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.type === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      sessionId: id,
+      clientMsgId: command.clientMsgId,
+      error: expect.stringMatching(/^Message saved\./),
+    });
+    expect(
+      chat.eventStore.getSessionEvents(id).filter((event) => event.type === 'error'),
+    ).toHaveLength(1);
+    expect(runtime.resumeAfterExplicitSend).not.toHaveBeenCalled();
+  } finally {
+    chat.registry.abort(id);
+    connections.dispose();
+  }
+});
