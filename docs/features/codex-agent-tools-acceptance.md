@@ -20,6 +20,22 @@ project command hooks, and excluded web access cannot enable native search.
 Existing native skill ceilings remain subject to Codex's explicit refusal;
 this change does not claim mediation of native skill readers.
 
+## Delegated task and native artifact composition
+
+An owned local worker can explicitly select `mitzo:TaskStatus`,
+`mitzo:TaskArtifact`, `mitzo:TaskComplete` and `mitzo:TaskBlock`, each at version1,
+alongside `mitzo:TelosReadArtifact`, `mitzo:TelosSaveArtifact` and workspace tools.
+The original host-created task server must match that worker's current client,
+session and delegated task. Missing or changed scope refuses; selection does not
+supply task identity, credentials, approval or acceptance authority.
+
+Only the selected task operations are exposed from that server. Other configured
+MCP sources still require their original discovery receipts, and an explicitly
+empty selection still launches none. The two selected sources retain their own
+permission, execution and cancellation owners. The editor and Tool library show
+supported local Codex routes using their existing controls; runtime admission
+continues to enforce each tool's exact route and current scope.
+
 ## Requirements and evidence
 
 | Requirement                                  | Implementation and offline evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                            |

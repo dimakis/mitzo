@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
-import { getPendingTelosSourceReview, resolveReviewedTelosSourcePermission } from '@mitzo/harness';
+import {
+  getPendingTelosSourceReview,
+  resolveReviewedTelosSourcePermission,
+  capturePendingTelosSourceReviewCurrent,
+} from '@mitzo/harness';
 import {
   TelosOutcomeProposalSchema,
   TelosSourcePermissionPreviewRequestSchema,
@@ -43,7 +47,10 @@ export class TelosSourceApproval {
       store: TelosSourceApprovalStore;
       /** Current interactive authority supplied only by the authenticated host. */
       assertAuthorized?(): void;
-      createOutcome(input: TelosOutcomeCreation): Promise<{ itemId: string; receipt?: unknown }>;
+      createOutcome(
+        input: TelosOutcomeCreation,
+        assertCurrentSync?: () => void,
+      ): Promise<{ itemId: string; receipt?: unknown }>;
     },
   ) {
     this.capture = new TelosSourceCapture({
@@ -59,14 +66,54 @@ export class TelosSourceApproval {
       throw new TelosWorkError('unauthorized', 'Interactive operator authority required');
     return 'operator:' + actor.id;
   }
-  private pending(permId: string, sessionId: string) {
+  private pending(permId: string, sessionId: string, actor: TelosWorkActor) {
     const proof = getPendingTelosSourceReview(permId, sessionId);
     if (!proof)
       throw new TelosWorkError(
         'conflict',
         'Source approval expired or conversation permissions changed',
       );
+    this.pendingCurrent(proof, actor)();
     return proof;
+  }
+  private pendingCurrent(
+    proof: Parameters<typeof capturePendingTelosSourceReviewCurrent>[0],
+    actor: TelosWorkActor,
+    requireNative = false,
+  ) {
+    const fence =
+      actor.kind === 'operator'
+        ? capturePendingTelosSourceReviewCurrent(proof, actor.id)
+        : undefined;
+    return Object.freeze(
+      Object.assign(
+        () => {
+          this.operator(actor);
+          if (!fence || (requireNative && !fence.requiresLiveNativeCall))
+            throw new TelosWorkError(
+              'unauthorized',
+              'Original reviewed source invocation is unavailable',
+            );
+          let result: unknown;
+          try {
+            result = fence();
+          } catch {
+            throw new TelosWorkError(
+              'conflict',
+              'Original reviewed source invocation expired or changed; review again',
+            );
+          }
+          if (result !== undefined) {
+            void Promise.resolve(result).catch(() => {});
+            throw new TelosWorkError(
+              'unauthorized',
+              'Synchronous source invocation authority required',
+            );
+          }
+        },
+        { requiresLiveNativeCall: fence?.requiresLiveNativeCall === true },
+      ),
+    );
   }
   private resume(record: RetainedTelosSourceApproval) {
     const pending = getPendingTelosSourceReview(record.proof.permId, record.proof.sessionId);
@@ -128,7 +175,8 @@ export class TelosSourceApproval {
         },
       });
     }
-    const proof = this.pending(permId, sessionId),
+    const proof = this.pending(permId, sessionId, actor),
+      assertReviewCurrent = this.pendingCurrent(proof, actor),
       operation = this.operation(proof, actor);
     if (!Number.isSafeInteger(afterSequence) || afterSequence < 0)
       throw new TelosWorkError('invalid', 'Invalid source cursor');
@@ -159,8 +207,9 @@ export class TelosSourceApproval {
         joiningBrief: '',
       };
       const opened = await source.openConversation(selection, true);
+      assertReviewCurrent();
       this.operator(actor);
-      if (!isDeepStrictEqual(this.pending(permId, sessionId), proof))
+      if (!isDeepStrictEqual(this.pending(permId, sessionId, actor), proof))
         throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
       const message = opened.publicMessages.find((message) => message.messageId === messageId);
       if (!message) continue;
@@ -170,11 +219,12 @@ export class TelosSourceApproval {
         unavailableReason: opened.unavailable[messageId] ?? null,
       });
     }
-    if (!isDeepStrictEqual(this.pending(permId, sessionId), proof))
+    if (!isDeepStrictEqual(this.pending(permId, sessionId, actor), proof))
       throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
     const materialPage = this.discoverMaterials(sessionId);
-    if (!isDeepStrictEqual(this.pending(permId, sessionId), proof))
+    if (!isDeepStrictEqual(this.pending(permId, sessionId, actor), proof))
       throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
+    assertReviewCurrent();
     this.operator(actor);
     return TelosSourcePermissionReviewSchema.parse({
       permId,
@@ -239,7 +289,7 @@ export class TelosSourceApproval {
         hasMore: false,
       });
     }
-    const proof = this.pending(permId, input.sessionId);
+    const proof = this.pending(permId, input.sessionId, actor);
     const operation = this.operation(proof, actor);
     if (
       proof.toolUseId !== input.toolUseId ||
@@ -247,7 +297,7 @@ export class TelosSourceApproval {
     )
       throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
     const page = this.discoverMaterials(input.sessionId, input.after);
-    if (!isDeepStrictEqual(this.pending(permId, input.sessionId), proof))
+    if (!isDeepStrictEqual(this.pending(permId, input.sessionId, actor), proof))
       throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
     this.operator(actor);
     return TelosSourceMaterialPageSchema.parse({
@@ -264,7 +314,8 @@ export class TelosSourceApproval {
     actor: TelosWorkActor,
   ) {
     this.operator(actor);
-    const proof = this.pending(permId, input.sessionId),
+    const proof = this.pending(permId, input.sessionId, actor),
+      assertCurrent = this.pendingCurrent(proof, actor),
       operation = this.operation(proof, actor);
     if (sourceApprovalHash(operation) !== input.proposalSha256)
       throw new TelosWorkError('conflict', 'Pending proposal or target item changed; review again');
@@ -287,9 +338,10 @@ export class TelosSourceApproval {
     this.operator(actor);
     if (operation.kind === 'adopt' && preview.packet.workRevision !== operation.expectedRevision)
       throw new TelosWorkError('conflict', 'Target item changed; review again');
-    if (!isDeepStrictEqual(this.pending(permId, input.sessionId), proof))
+    if (!isDeepStrictEqual(this.pending(permId, input.sessionId, actor), proof))
       throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
-    return { proof, operation, requestId, selection, preview };
+    assertCurrent();
+    return { proof, operation, requestId, selection, preview, assertCurrent };
   }
   async preview(permId: string, raw: unknown, actor: TelosWorkActor) {
     const input = TelosSourcePermissionPreviewRequestSchema.parse(raw),
@@ -311,7 +363,8 @@ export class TelosSourceApproval {
       };
     }
     const compiled = await this.compile(permId, input, actor);
-    if (!isDeepStrictEqual(this.pending(permId, input.sessionId), compiled.proof))
+    compiled.assertCurrent();
+    if (!isDeepStrictEqual(this.pending(permId, input.sessionId, actor), compiled.proof))
       throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
     return {
       permId,
@@ -325,12 +378,15 @@ export class TelosSourceApproval {
     const actorId = this.operator(actor),
       input = TelosSourcePermissionApproveRequestSchema.parse(raw);
     let record = this.options.store.find(permId, input.sessionId, actorId, input);
+    let assertMutationCurrent: (() => void) | undefined;
     if (!record) {
       const compiled = await this.compile(permId, input, actor);
       if (compiled.preview.sha256 !== input.previewSha256)
         throw new TelosWorkError('conflict', 'Reviewed source changed; review again');
-      if (!isDeepStrictEqual(this.pending(permId, input.sessionId), compiled.proof))
+      if (!isDeepStrictEqual(this.pending(permId, input.sessionId, actor), compiled.proof))
         throw new TelosWorkError('conflict', 'Pending source approval changed; review again');
+      compiled.assertCurrent();
+      assertMutationCurrent = compiled.assertCurrent;
       this.operator(actor);
       record = this.options.store.prepare(
         compiled.proof,
@@ -338,6 +394,7 @@ export class TelosSourceApproval {
         input,
         compiled.operation,
         compiled.preview,
+        compiled.assertCurrent.requiresLiveNativeCall ? true : undefined,
       );
     }
     if (record.receipt) {
@@ -346,6 +403,12 @@ export class TelosSourceApproval {
     }
     const approvalId = record.id;
     const originalProof = record.proof;
+    assertMutationCurrent ??= record.requiresLiveNativeCall
+      ? this.pendingCurrent(originalProof, actor, true)
+      : () => {
+          this.operator(actor);
+        };
+    const assertFreshWrite = assertMutationCurrent;
     try {
       const operation = record.operation,
         requestId = sourceApprovalHash([permId, record.proof.toolUseId, input.requestId]);
@@ -361,6 +424,7 @@ export class TelosSourceApproval {
         joiningBrief: '',
       };
       const readPreparedPreview = () => {
+        assertFreshWrite();
         const retained = this.options.store.find(permId, input.sessionId, actorId, input);
         if (
           !retained ||
@@ -369,6 +433,7 @@ export class TelosSourceApproval {
           !isDeepStrictEqual(retained.proof, originalProof)
         )
           throw new TelosWorkError('conflict', 'Original reviewed source approval changed');
+        assertFreshWrite();
         return retained.preview;
       };
       const receipt =
@@ -381,12 +446,14 @@ export class TelosSourceApproval {
                 previewSha256: input.previewSha256,
               },
               actor,
-              async (body) => {
-                const created = await this.options.createOutcome(body);
+              async (body, assertCurrentSync) => {
+                assertFreshWrite();
+                const created = await this.options.createOutcome(body, assertCurrentSync);
                 this.options.store.observeCanonical(approvalId, created.itemId, created.receipt);
                 return created;
               },
               readPreparedPreview,
+              assertFreshWrite,
             )
           : await this.capture.adopt(
               {
@@ -398,6 +465,7 @@ export class TelosSourceApproval {
               },
               actor,
               readPreparedPreview,
+              assertFreshWrite,
             );
       this.operator(actor);
       const source = receipt.work.sources.find(

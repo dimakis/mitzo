@@ -1,3 +1,5 @@
+import { taskMcpToolCatalog } from './task-mcp-selection.js';
+import { githubMainPublicationTool } from './telos-main-publication.js';
 import { agentTaskToolDefinitions } from './session-agent-task-tools.js';
 import { agentCommunicationDefinitions } from './agent-communication-tools.js';
 import type { AgentToolCatalogEntry } from '@mitzo/protocol';
@@ -52,6 +54,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
     {
       source: 'Telos',
       definitions: [
+        githubMainPublicationTool,
         telosCreateOutcomeDefinition,
         telosAdoptSourceDefinition,
         ...telosItemDefinitions,
@@ -61,7 +64,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
       ],
     },
   ];
-  return groups.flatMap(({ source, definitions }) =>
+  const builtin = groups.flatMap(({ source, definitions }) =>
     definitions.map((tool) => ({
       id: `mitzo:${tool.name}`,
       version: 1,
@@ -81,7 +84,17 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
         source === 'Agent communication'
           ? ['codex-owned-local']
           : source === 'Telos'
-            ? []
+            ? [
+                githubMainPublicationTool.name,
+                'TelosStartSlice',
+                'TelosWorkControl',
+                'TelosCreateOutcome',
+                'TelosAdoptSource',
+                'TelosSaveArtifact',
+                'TelosReadArtifact',
+              ].includes(tool.name)
+              ? ['codex-owned-local']
+              : []
             : source === 'Agent Library'
               ? ['local-api', 'codex-owned-local']
               : source === 'GitHub publishing'
@@ -92,26 +105,40 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                     ? ['local-api', 'codex']
                     : ['local-api'],
       requirement:
-        source === 'Telos'
-          ? 'Explicit profile selection is not supported on this native OpenShell route.'
-          : [
-                'ConnectionRequest',
-                'ConnectionWebSocket',
-                'HomeAssistantDashboard',
-                'RequestConnectionAccess',
-              ].includes(tool.name)
-            ? 'Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access.'
-            : source === 'Repositories'
-              ? 'Requires an authorized repository connection for the selected account.'
-              : source === 'GitHub publishing' || tool.name === 'GitHubRead'
-                ? 'Requires existing GitHub access and the usual action approval.'
-                : tool.name === 'Bash'
-                  ? 'Requires an available OS sandbox and existing workspace permissions; no network or credentials.'
-                  : source === 'Web'
-                    ? 'Requires supported provider web search and current approval.'
-                    : source === 'Knowledge'
-                      ? 'Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge.'
-                      : 'Existing session permissions, cancellation and runtime admission apply.',
+        tool.name === githubMainPublicationTool.name
+          ? 'Requires a current Telos lead or worker role, an explicitly selected native tool, separately configured account-bound merge capability and one-use operator approval.'
+          : tool.name === 'TelosWorkControl'
+            ? 'Requires explicit native tool selection, a current retained lead or worker role and original request-only tool approval. The existing coordinator and scope checks still control every operation; selection grants no role or hold authority.'
+            : tool.name === 'TelosStartSlice'
+              ? 'Requires explicit native tool selection, this conversation’s current retained lead role and original tool approval. Allocates only the exact reviewed child; selection grants no lead role or model execution.'
+              : [
+                    'TelosCreateOutcome',
+                    'TelosAdoptSource',
+                    'TelosSaveArtifact',
+                    'TelosReadArtifact',
+                  ].includes(tool.name)
+                ? 'Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store.'
+                : source === 'Telos'
+                  ? 'Explicit profile selection is not supported on this native OpenShell route.'
+                  : [
+                        'ConnectionRequest',
+                        'ConnectionWebSocket',
+                        'HomeAssistantDashboard',
+                        'RequestConnectionAccess',
+                      ].includes(tool.name)
+                    ? 'Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access.'
+                    : source === 'Repositories'
+                      ? 'Requires an authorized repository connection for the selected account.'
+                      : source === 'GitHub publishing' || tool.name === 'GitHubRead'
+                        ? 'Requires existing GitHub access and the usual action approval.'
+                        : tool.name === 'Bash'
+                          ? 'Requires an available OS sandbox and existing workspace permissions; no network or credentials.'
+                          : source === 'Web'
+                            ? 'Requires supported provider web search and current approval.'
+                            : source === 'Knowledge'
+                              ? 'Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge.'
+                              : 'Existing session permissions, cancellation and runtime admission apply.',
     })),
   );
+  return [...taskMcpToolCatalog(), ...builtin];
 }

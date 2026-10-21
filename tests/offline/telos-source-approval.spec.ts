@@ -1,3 +1,4 @@
+import { navigateWithServiceHealth } from '../support/service-health-navigation';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 import { resolve } from 'node:path';
@@ -307,7 +308,7 @@ for (const theme of ['dark', 'light'] as const)
           });
         });
 
-        await page.goto('/chat/planning');
+        await navigateWithServiceHealth(page, () => page.goto('/chat/planning'));
         const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
         await input.fill('Keep this ordinary chat draft.');
         const request = async (
@@ -694,7 +695,7 @@ for (const theme of ['dark', 'light'] as const)
         expect(await page.evaluate(() => Date.now())).toBeGreaterThan(originalDeadline);
         recoveryReadUnavailable = true;
         const previewCountBeforeRecovery = previews.length;
-        await page.reload();
+        await navigateWithServiceHealth(page, () => page.reload());
         const recoveryCard = page.getByRole('region', { name: 'Save recovery', exact: true });
         await expect(recoveryCard.getByRole('alert')).toContainText(
           'The original save is still unconfirmed',

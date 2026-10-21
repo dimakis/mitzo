@@ -99,6 +99,13 @@ async function offline(
       return route.abort();
     }
     const method = route.request().method();
+    if (url.pathname === '/api/telos/work/links') {
+      expect(route.request().method()).toBe('POST');
+      const body = route.request().postDataJSON();
+      expect([sessionId]).toContain(body.conversationId);
+      expect(body).toEqual({ namespace: 'mitzo', conversationId: body.conversationId });
+      return route.fulfill({ json: [] });
+    }
     if (method === 'POST' && /^\/api\/chat\/(?:interrupt|stop|close|archive)$/.test(url.pathname))
       controls.push(url.pathname);
     const binding = {

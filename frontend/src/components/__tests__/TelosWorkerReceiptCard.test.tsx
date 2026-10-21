@@ -136,3 +136,47 @@ it('keeps native and actual Telos MCP receipts visible in the grouped transcript
     result.unmount();
   }
 });
+
+it.each(['TelosStartSlice', 'mcp__telos__TelosStartSlice'])(
+  'keeps a canonical %s receipt visible when the ordinary display input is truncated',
+  (toolName) => {
+    const input = JSON.stringify({
+      requestId: 'request',
+      childItemId: 'child',
+      mode: 'start',
+      sourceSnapshotIds: ['s'.repeat(64)],
+      artifactRefs: [{ artifactId: 'material', revision: 1, sha256: 'a'.repeat(64) }],
+    }).slice(0, 200);
+    expect(() => JSON.parse(input)).toThrow();
+    render(
+      <MemoryRouter>
+        <ChatArea
+          sessionId="lead"
+          messages={[
+            {
+              messageId: toolName,
+              role: 'assistant',
+              blocks: [
+                { ...block(), toolName, toolInput: input },
+                {
+                  blockId: 'ordinary-read',
+                  blockType: 'tool_use',
+                  content: '',
+                  toolName: 'Read',
+                  toolResult: 'ordinary result',
+                },
+              ],
+            },
+          ]}
+          current={null}
+          running={false}
+          permission={null}
+          onPermissionRespond={() => {}}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('link', { name: /Plan recording setup/ }).getAttribute('href')).toBe(
+      '/chat/worker',
+    );
+  },
+);

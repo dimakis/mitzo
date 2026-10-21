@@ -135,6 +135,39 @@ for (const theme of ['dark', 'light'])
     await page.getByRole('button', { name: 'Add Read', exact: true }).click();
     await search.fill('GetConnectionGuide');
     await page.getByRole('button', { name: 'Add GetConnectionGuide', exact: true }).click();
+    await search.fill('TaskStatus');
+    await expect(
+      page.getByText(/Selection grants no task access or completion authority/),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Add TaskStatus', exact: true }).click();
+    await search.press('Escape');
+    const removeTask = page.getByRole('button', { name: 'Remove TaskStatus', exact: true });
+    await expect(removeTask).toBeVisible();
+    if (isMobile) expect((await removeTask.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await removeTask.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: info.outputPath(`task-tool-selection-${theme}.png`),
+      animations: 'disabled',
+    });
+    await removeTask.click();
+    for (const name of ['TelosStartSlice', 'TelosWorkControl']) {
+      await page.getByRole('button', { name: 'Add tools', exact: true }).click();
+      await search.fill(name);
+      const add = page.getByRole('button', { name: `Add ${name}`, exact: true });
+      await expect(add).toBeEnabled();
+      await add.click();
+      await search.press('Escape');
+      const removeNative = page.getByRole('button', { name: `Remove ${name}`, exact: true });
+      await expect(removeNative).toBeVisible();
+      if (isMobile) expect((await removeNative.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await removeNative.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: info.outputPath(`native-${name}-${theme}.png`),
+        animations: 'disabled',
+      });
+      await removeNative.click();
+    }
+    await page.getByRole('button', { name: 'Add tools', exact: true }).click();
     await search.fill('ConnectionRequest');
     await expect(page.getByText(/No active service connection/)).toBeVisible();
     await search.press('Escape');

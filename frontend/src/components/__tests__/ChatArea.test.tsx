@@ -36,12 +36,19 @@ vi.mock('../PermissionBanner', () => ({
     permId,
     sessionId,
     reviewKind,
+    allowSessionGrant,
   }: {
     permId: string;
     sessionId?: string;
     reviewKind?: string;
+    allowSessionGrant?: boolean;
   }) => (
-    <div data-testid="permission-banner" data-session-id={sessionId} data-review-kind={reviewKind}>
+    <div
+      data-testid="permission-banner"
+      data-session-id={sessionId}
+      data-review-kind={reviewKind}
+      data-session-grant={allowSessionGrant === undefined ? 'missing' : String(allowSessionGrant)}
+    >
       {permId}
     </div>
   ),
@@ -615,3 +622,28 @@ it('keeps additional delivery cards inside the transcript scroll container', () 
     screen.getByRole('region', { name: 'Delivery history' }).closest('.chat-messages'),
   ).toBeTruthy();
 });
+
+it.each([undefined, true, false])(
+  'forwards session-grant metadata %s without inferring it from request scope',
+  (allowSessionGrant) => {
+    const permission = {
+      permId: 'once-policy',
+      toolName: 'MergeReviewedPullRequest',
+      toolInput: '{}',
+      approvalScope: 'request' as const,
+      ...(allowSessionGrant === undefined ? {} : { allowSessionGrant }),
+    };
+    render(
+      <ChatArea
+        messages={[]}
+        current={null}
+        running={true}
+        permission={permission}
+        onPermissionRespond={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('permission-banner').dataset.sessionGrant).toBe(
+      allowSessionGrant === undefined ? 'missing' : String(allowSessionGrant),
+    );
+  },
+);

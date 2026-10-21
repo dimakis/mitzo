@@ -2393,6 +2393,10 @@ textarea:focus {
   background: var(--danger, var(--color-danger));
 }
 
+.tool-pill-dot--interrupted {
+  background: var(--text-dim);
+}
+
 .tool-pill-dot--pending {
   background: var(--text-dim);
   animation: pulse-dot var(--motion-duration-status) var(--motion-ease) infinite;

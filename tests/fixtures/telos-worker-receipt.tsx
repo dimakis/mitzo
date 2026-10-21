@@ -43,7 +43,18 @@ const block: FinishedBlock = {
   blockType: 'tool_use',
   content: '',
   toolName: 'TelosStartSlice',
-  toolInput: JSON.stringify({ childItemId: 'child', requestId: 'request' }),
+  toolInput:
+    new URLSearchParams(window.location.search).get('input') === 'truncated'
+      ? JSON.stringify({
+          childItemId: 'child',
+          requestId: 'request',
+          source: {
+            conversationId: 'lead',
+            messageId: 'original-source-message-for-the-reviewed-worker-slice',
+          },
+          materialRevision: 'reviewed-material-revision-for-the-independent-workspace',
+        }).slice(0, 200)
+      : JSON.stringify({ childItemId: 'child', requestId: 'request' }),
   toolResult: JSON.stringify(receipt),
 };
 function Conversation() {

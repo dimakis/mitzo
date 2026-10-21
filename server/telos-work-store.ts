@@ -56,6 +56,8 @@ import {
   type TelosWorkDelegationReceipt,
 } from '@mitzo/protocol';
 import { initializeTelosWorkSchema } from './telos-work-schema.js';
+import { TelosMainPublicationRecords } from './telos-main-publication-records.js';
+import type { MainPublicationPins } from './telos-main-publication-contract.js';
 import { projectTelosWorkRecord } from './telos-work-record.js';
 
 /** Authority is supplied by host middleware, never accepted in command JSON.
@@ -97,25 +99,40 @@ function invalid(message: string): never {
   throw new TelosWorkError('invalid', message);
 }
 
+type TelosWorkStorePolicy = {
+  ordinaryConversation(id: string): boolean;
+  sourceConversation?(id: string): boolean;
+};
+
 /** Extends the canonical Telos database, not session allocation or composition.
  * parent_id stays on items. No event/session/task store write occurs here.
  * Command results and allocation intents commit in the same SQLite transaction.
  */
 export class TelosWorkStore {
   private db: Database.Database;
+  /** Observe initialized canonical authority without acquiring a schema writer.
+   * Used by running-turn guards, including inside another owner's commit fence.
+   * SQLite enforces read-only access; missing schema remains unavailable.
+   */
+  static openReadOnly(path: string, policy: TelosWorkStorePolicy): TelosWorkStore {
+    return new TelosWorkStore(path, policy, true);
+  }
   constructor(
     path: string,
-    private readonly policy: {
-      ordinaryConversation(id: string): boolean;
-      sourceConversation?(id: string): boolean;
-    },
+    private readonly policy: TelosWorkStorePolicy,
+    readOnly = false,
   ) {
-    this.db = new Database(path, { fileMustExist: true });
+    this.db = new Database(path, { fileMustExist: true, readonly: readOnly });
     this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
     try {
       this.db.prepare('SELECT id,parent_id,updated_at FROM items LIMIT 1').get();
-      initializeTelosWorkSchema(this.db);
+      if (readOnly) {
+        this.db.prepare('SELECT data FROM telos_work_attempts LIMIT 0').all();
+        this.db.prepare('SELECT intent FROM telos_work_delegation_requests LIMIT 0').all();
+      } else {
+        initializeTelosWorkSchema(this.db);
+      }
     } catch (error) {
       this.db.close();
       throw error;
@@ -123,6 +140,48 @@ export class TelosWorkStore {
   }
   close() {
     if (this.db.open) this.db.close();
+  }
+  mainPublicationsForHost() {
+    return new TelosMainPublicationRecords(
+      this.db,
+      (id) => this.snapshot(id),
+      this.policy.ordinaryConversation,
+    );
+  }
+  recordMainPublicationDenialForHost(pins: MainPublicationPins, assertCurrent: () => void): void {
+    // The exact control snapshot, covered uncertainty and applied-denial write
+    // share the same SQLite writer fence, including across other real owners.
+    this.db
+      .transaction(() => {
+        assertCurrent();
+        const records = this.mainPublicationsForHost();
+        records.assertWorkCurrent(pins);
+        const controls = this.controlInbox(pins.input.itemId, {
+          kind: 'conversation',
+          id: pins.authority.conversationId,
+        });
+        const affected = controls.filter(
+          (c) => c.scope === 'publication' && c.stage !== 'released',
+        );
+        const covered = affected.flatMap((c) =>
+          c.targets.flatMap((t) => [t.itemId, ...t.workers.map((w) => w.itemId)]),
+        );
+        if (!records.hasUncertainForItems(covered)) {
+          try {
+            this.enforceControlAction(
+              pins.input.itemId,
+              'publication',
+              pins.authority.conversationId,
+              pins.input.mainHead,
+            );
+          } catch (error) {
+            // The expected hold denial follows its durable evidence write. Catch it
+            // inside the writer transaction so that genuine denial evidence commits.
+            if (!(error instanceof TelosWorkError) || error.code !== 'unauthorized') throw error;
+          }
+        }
+      })
+      .immediate();
   }
   private controls() {
     return new TelosWorkControls(

@@ -618,6 +618,37 @@ test('ordinary task result keeps chat native, reviews in Library and returns to 
   await expect(editor.getByRole('textbox', { name: 'Task name', exact: true })).toHaveValue(
     'Reviewed morning task',
   );
+  expect(fixture.task.saves).toEqual([]);
+  expect(fixture.commands).toHaveLength(1);
+  expect(fixture.unexpected).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('ordinary task save recovers its exact receipt across reload and restores the Builder draft', async ({
+  page,
+  isMobile,
+}, info) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const fixture = await offline(page, isMobile ? 'dark' : 'light', false, true, 'create');
+  await page.goto('/agent-library');
+  await expect(page.getByRole('heading', { name: 'Bob', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Refine with Agent Builder', exact: true }).click();
+  const source = await reviewSource(page, 'Bob');
+  await prepareFirstCommand(page, 'Propose a paused task using this exact profile.');
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  const originalChat = page.url();
+  const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await composer.fill('Keep discussing the reviewed task.');
+  const builderSettings = await openSettings(page);
+  await chooseSetting(page, 'Thinking', 'low');
+  await builderSettings.getByRole('button', { name: 'Done', exact: true }).click();
+  const editor = await openTaskReview(page, 0);
+  await expect(editor.getByRole('textbox', { name: 'Task name', exact: true })).toHaveValue(
+    'Morning review',
+  );
+  await editor
+    .getByRole('textbox', { name: 'Task name', exact: true })
+    .fill('Reviewed morning task');
   await page.getByRole('button', { name: 'Save task', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('Offline task owner unavailable');
   const originalSave = fixture.task.saves[0];
@@ -646,6 +677,7 @@ test('ordinary task result keeps chat native, reviews in Library and returns to 
     path: info.outputPath('ordinary-builder-task-return.png'),
     animations: 'disabled',
   });
+  expect(await reviewSource(page, 'Bob')).toEqual(source);
   expect(fixture.commands).toHaveLength(1);
   expect(fixture.unexpected).toEqual([]);
   expect(fixture.errors).toEqual([]);

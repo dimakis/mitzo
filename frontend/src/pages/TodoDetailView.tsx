@@ -21,6 +21,8 @@ import {
   parseItemHistory,
   readTelosItemHistory,
   readTelosHomeReturn,
+  appendTelosItemHistory,
+  popTelosItemHistory,
 } from '../lib/telos-item-navigation';
 
 function urgencyLabel(urgency: number): string {
@@ -146,7 +148,11 @@ export function TodoDetailView() {
                 history.length
                   ? `/todos/${encodeURIComponent(history[history.length - 1])}`
                   : '/todos',
-                { state: { ...location.state, telosHistory: history.slice(0, -1) } },
+                {
+                  state: history.length
+                    ? popTelosItemHistory(location.state, history)
+                    : { ...location.state, telosHistory: [] },
+                },
               );
             }}
             onOpen={(itemId, view) => {
@@ -159,9 +165,8 @@ export function TodoDetailView() {
               }
               navigate(`/todos/${encodeURIComponent(itemId)}`, {
                 state: {
-                  ...location.state,
+                  ...appendTelosItemHistory(location.state, itemHistory(), record.itemId, item),
                   item: undefined,
-                  telosHistory: [...itemHistory(), record.itemId],
                 },
               });
             }}
@@ -219,7 +224,7 @@ export function TodoDetailView() {
     const history = itemHistory();
     if (history.length) {
       navigate(`/todos/${encodeURIComponent(history[history.length - 1])}`, {
-        state: { ...location.state, telosHistory: history.slice(0, -1) },
+        state: popTelosItemHistory(location.state, history),
       });
       return;
     }
@@ -388,9 +393,13 @@ export function TodoDetailView() {
                 onClick={() => {
                   navigate(`/todos/${encodeURIComponent(child.id)}`, {
                     state: {
-                      ...location.state,
+                      ...appendTelosItemHistory(
+                        location.state,
+                        itemHistory(),
+                        currentItem.id,
+                        currentItem,
+                      ),
                       item: child,
-                      telosHistory: [...itemHistory(), currentItem.id],
                     },
                   });
                 }}

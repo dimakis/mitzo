@@ -10,6 +10,11 @@ import {
 import { ownedRuntimeFixture } from './fixtures/owned-local-codex-runtime.js';
 import { login, authenticateToken, setAuthRevocationStore, revokeAuthSession } from '../auth.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { retainAgentContextAuthority } from '../agent-context-authority.js';
+import {
+  captureNativeHostToolContext,
+  type NativeHostToolContext,
+} from '../native-host-tool-context.js';
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { EventStore } from '../event-store.js';
@@ -38,7 +43,13 @@ afterEach(async () => {
 // Actual signed login/revocation, physical host/login custody, repository owner,
 // command admission, permission handler, native tool callback/FIFO/ACK and SQLite.
 // Only external native process/RPC effects use the existing synthetic fixture.
-async function fixture() {
+async function fixture(
+  options: {
+    observe?: (scope: NativeHostToolContext) => void | Promise<void>;
+    assertExtra?: () => unknown;
+    cloneCall?: boolean;
+  } = {},
+) {
   const f = await ownedRuntimeFixture(cleanups, {
     tools: [{ id: 'mitzo:AgentCommunication', version: 1 }],
   });
@@ -110,6 +121,14 @@ async function fixture() {
       dispatch: async (dispatch) => {
         initial = dispatch;
         session.cwd = dispatch.workspace.directory;
+        if (options.observe || options.assertExtra)
+          session.accountBinding = structuredClone(dispatch.lease.binding);
+        const contextAuthority =
+          options.observe || options.assertExtra
+            ? retainAgentContextAuthority(auth, session.abortController)
+            : undefined;
+        if (contextAuthority) cleanups.push(() => contextAuthority.release());
+        const runtimeId = randomUUID();
         dispatch.admission.assertOptions({
           conversationId: sessionId,
           messageId: dispatch.commandId,
@@ -178,10 +197,51 @@ async function fixture() {
               threadId,
               turnId,
             ),
-          executeTool: async (_name, input, signal, call) => ({
-            content: JSON.stringify(await tools.execute(input, signal, call)),
-            isError: false,
-          }),
+          executeTool: async (name, input, signal, call) => {
+            if (!options.observe && !options.assertExtra)
+              return {
+                content: JSON.stringify(await tools.execute(input, signal, call)),
+                isError: false,
+              };
+            const meta = f.events.getSession(sessionId)!;
+            const scope = captureNativeHostToolContext({
+              events: f.events,
+              native,
+              registry,
+              session,
+              conversationId: sessionId,
+              binding: dispatch.lease.binding,
+              runtime: conversation,
+              runtimeId,
+              currentRuntime: () => conversation,
+              admission: dispatch.admission,
+              assertAgentContextAuthorization: () => {
+                contextAuthority!.assertCurrent();
+                return options.assertExtra?.();
+              },
+              profile: dispatch.expected.agentProfile,
+              agentContext: dispatch.expected.agentContext,
+              workspace: {
+                kind: meta.ordinaryWorkspaceId ? 'ordinary' : 'repository',
+                id: dispatch.workspace.id,
+                directory: dispatch.workspace.directory!,
+              },
+              toolName: name,
+              input,
+              call: options.cloneCall ? Object.freeze(structuredClone(call)) : call,
+              signal,
+            });
+            try {
+              await options.observe?.(scope);
+              await scope.assertCurrent();
+              return {
+                content: JSON.stringify(await tools.execute(input, scope.signal, call)),
+                isError: false,
+              };
+            } finally {
+              scope.dispose();
+            }
+          },
         });
         cleanups.push(() => conversation.close());
         await conversation.initialize();
@@ -281,6 +341,7 @@ async function fixture() {
     auth,
     a,
     b,
+    registry,
     permissions,
     setPermissionAction(fn: typeof permissionAction) {
       permissionAction = fn;
@@ -382,12 +443,17 @@ it('wakes an idle native queue once while leaving paused recovery and later canc
   expect(f.b.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
 }, 20000);
 
-it('retains an unavailable cold-recipient receipt without allocation or wake and denies forged native sender identity', async () => {
+it('retains an unavailable approved receipt when its recipient disappears after reservation, without wake or forged identity', async () => {
   const f = await fixture();
   await expect(f.a.call({ operation: 'inbox' }, { threadId: 'forged-thread' })).rejects.toThrow(
     /identity/,
   );
-  delete f.b.session.ordinaryRuntimeOwner;
+  const reserve = f.f.events.agentCommunication.reserve.bind(f.f.events.agentCommunication);
+  vi.spyOn(f.f.events.agentCommunication, 'reserve').mockImplementation((...args) => {
+    const retained = reserve(...args);
+    delete f.b.session.ordinaryRuntimeOwner;
+    return retained;
+  });
   const input = {
     operation: 'send',
     requestId: randomUUID(),
@@ -500,3 +566,164 @@ it('reports uncertain native dispatch failure without treating it as queued or r
   expect((await f.a.call(input)).value.status).toBe('uncertain');
   expect(f.native.commands(f.b.sessionId, f.b.initial.lease.binding)).toHaveLength(2);
 }, 20000);
+
+it.each(['user-closing', 'aborted', 'missing-owner', 'unsupported', 'foreign-login'] as const)(
+  'does not advertise or prompt a fresh message to a known %s recipient and retains queued history',
+  async (failure) => {
+    const f = await fixture();
+    const original = await f.a.call({
+      operation: 'send',
+      requestId: randomUUID(),
+      recipientConversationId: f.b.sessionId,
+      text: 'Original queued message',
+    });
+    expect(original.value.status).toBe('queued');
+    const permissions = f.permissions.length;
+    const commands = f.native.commands(f.b.sessionId, f.b.initial.lease.binding);
+    if (failure === 'user-closing') f.registry.markUserClose(f.b.clientId);
+    if (failure === 'aborted') f.b.session.abortController.abort();
+    if (failure === 'missing-owner') delete f.b.session.ordinaryRuntimeOwner;
+    if (failure === 'unsupported')
+      f.b.session.ordinaryRuntimeOwner = {
+        ...f.b.session.ordinaryRuntimeOwner!,
+        admitAgentMessage: undefined,
+      };
+    if (failure === 'foreign-login')
+      f.b.session.ordinaryRuntimeOwner = {
+        ...f.b.session.ordinaryRuntimeOwner!,
+        authSessionId: 'different-login',
+      };
+    const list = await f.a.call({ operation: 'list' });
+    expect
+      .soft(
+        list.value.chats.find(
+          (row: { conversationId: string }) => row.conversationId === f.b.sessionId,
+        )?.availability,
+      )
+      .toBe('unavailable');
+    const requestId = randomUUID();
+    const result = await f.a.call({
+      operation: 'send',
+      requestId,
+      recipientConversationId: f.b.sessionId,
+      text: 'Do not prompt or reserve this new message',
+    });
+    expect.soft(result.response.success).toBe(false);
+    expect.soft(f.permissions).toHaveLength(permissions);
+    expect.soft(() => f.f.events.agentCommunication.byRequest(f.a.sessionId, requestId)).toThrow();
+    const retained = await f.a.call({ operation: 'read', messageId: original.value.messageId });
+    expect(retained.value).toMatchObject({ messageId: original.value.messageId, status: 'queued' });
+    expect(f.native.commands(f.b.sessionId, f.b.initial.lease.binding)).toEqual(commands);
+    expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  },
+  20000,
+);
+
+it('rechecks known recipient closure after asynchronous approval before reserving a new message', async () => {
+  const f = await fixture();
+  f.setPermissionAction((event) => {
+    f.registry.markUserClose(f.b.clientId);
+    resolvePending(event.permId as string, 'once', undefined, event.sessionId as string);
+  });
+  const requestId = randomUUID();
+  const result = await f.a.call({
+    operation: 'send',
+    requestId,
+    recipientConversationId: f.b.sessionId,
+    text: 'Do not reserve after closure during approval',
+  });
+  expect(result.response.success).toBe(false);
+  expect(f.permissions).toHaveLength(1);
+  expect(() => f.f.events.agentCommunication.byRequest(f.a.sessionId, requestId)).toThrow();
+  expect(f.native.commands(f.b.sessionId, f.b.initial.lease.binding)).toHaveLength(1);
+  expect(f.b.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+}, 20000);
+
+it('captures and disposes genuine signed host scope inside the existing native callback without another turn or capacity grant', async () => {
+  let captured!: NativeHostToolContext;
+  const f = await fixture({
+    observe: async (scope) => {
+      captured = scope;
+      expect(Object.isFrozen(scope)).toBe(true);
+      expect(Object.isFrozen(scope.accountBinding)).toBe(true);
+      expect(Object.isFrozen(scope.profile)).toBe(true);
+      scope.assertCurrentSync();
+      await scope.assertCurrent();
+    },
+  });
+  const priorAck = f.native.hasAcceptedProviderTurn(f.a.sessionId, f.a.initial.lease.binding);
+  const priorCommands = f.native.commands(f.a.sessionId, f.a.initial.lease.binding);
+  const result = await f.a.call({ operation: 'list' });
+  expect(result.response.success).toBe(true);
+  expect(captured.conversationId).toBe(f.a.sessionId);
+  expect(captured.clientId).toBe(f.a.clientId);
+  expect(captured.session).toBe(f.a.session);
+  expect(captured.operatorId).toBe(f.auth.id);
+  expect(captured.profile).toEqual(f.f.agentProfile);
+  expect(captured.workspace.directory).toBe(f.a.session.cwd);
+  expect(captured.signal.aborted).toBe(true);
+  expect(() => captured.assertCurrentSync()).toThrow();
+  expect(f.native.hasAcceptedProviderTurn(f.a.sessionId, f.a.initial.lease.binding)).toBe(priorAck);
+  expect(f.native.commands(f.a.sessionId, f.a.initial.lease.binding)).toEqual(priorCommands);
+  expect(f.permissions).toHaveLength(0);
+  expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+}, 20000);
+
+it.each(['logout', 'closing', 'root-changed'] as const)(
+  'refuses %s signed host scope after its actual asynchronous native wait',
+  async (failure) => {
+    let captured!: NativeHostToolContext;
+    let entered!: () => void, release!: () => void;
+    const executing = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const f = await fixture({
+      observe: async (scope) => {
+        captured = scope;
+        entered();
+        await held;
+      },
+    });
+    const result = f.a.call({ operation: 'list' });
+    await executing;
+    captured.assertCurrentSync();
+    if (failure === 'logout') revokeAuthSession(f.auth);
+    if (failure === 'closing') f.registry.markUserClose(f.a.clientId);
+    if (failure === 'root-changed') f.a.session.cwd = join(f.f.root, 'different-root');
+    expect(() => captured.assertCurrentSync()).toThrow();
+    release();
+    expect((await result).response.success).toBe(false);
+    expect(f.permissions).toHaveLength(0);
+    expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  },
+  20000,
+);
+
+it.each(['async-resolve', 'async-reject', 'value', 'cloned-labels'] as const)(
+  'refuses and drains a %s context assertion instead of accepting a void annotation',
+  async (failure) => {
+    const observe = vi.fn();
+    const f = await fixture({
+      observe,
+      cloneCall: failure === 'cloned-labels',
+      assertExtra:
+        failure === 'cloned-labels'
+          ? undefined
+          : () =>
+              failure === 'value'
+                ? true
+                : failure === 'async-reject'
+                  ? Promise.reject(Error('Synthetic async authority failure'))
+                  : Promise.resolve(),
+    });
+    const result = await f.a.call({ operation: 'list' });
+    expect(result.response.success).toBe(false);
+    expect(observe).not.toHaveBeenCalled();
+    expect(f.permissions).toHaveLength(0);
+    expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  },
+  20000,
+);

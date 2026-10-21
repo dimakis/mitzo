@@ -38,6 +38,7 @@ export {
   getPendingCountBySession,
   getPendingRequestsBySession,
   getPendingTelosSourceReview,
+  capturePendingTelosSourceReviewCurrent,
   resolveReviewedTelosSourcePermission,
   dismissReviewedTelosSourcePermission,
 } from './permissions.js';
