@@ -27,9 +27,9 @@ const initial = (): State => ({
 });
 const digest = (input: unknown) => createHash('sha256').update(JSON.stringify(input)).digest('hex');
 const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
-const conflict = (message: string): never => {
+function conflict(message: string): never {
   throw new TelosWorkError('conflict', message);
-};
+}
 
 /** Additive metadata in the canonical owner, not a second outcome or scheduler.
  * Archive/trash preserve rows and relationships. Current output can reconcile;

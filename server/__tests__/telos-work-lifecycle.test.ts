@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { TelosWorkStore } from '../telos-work-store.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
+import { TelosWorkControlViewSchema } from '@mitzo/protocol';
 
 const closes: Array<() => void> = [];
 afterEach(() =>
@@ -422,4 +423,21 @@ it('refuses unknown extension references and asynchronous quiescence claims befo
     .run('reference', 'telos://items/empty');
   expect(() => f.work.executeLifecycle(input, f.actor, () => {})).toThrow(/reference/i);
   expect(f.work.readLifecycle('empty', f.actor).disposition).toBe('trashed');
+});
+
+it('requires explicit operator-pause origin for null coordinator/priority identities', () => {
+  const f = fixture();
+  const pause = f.lifecycle('studio', 'pause').lifecycle!.pause.controls[0];
+  expect(TelosWorkControlViewSchema.safeParse(pause).success).toBe(true);
+  expect(TelosWorkControlViewSchema.safeParse({ ...pause, origin: undefined }).success).toBe(false);
+  expect(
+    TelosWorkControlViewSchema.safeParse({
+      ...pause,
+      coordinatorConversationId: 'manufactured-lead',
+    }).success,
+  ).toBe(false);
+  expect(
+    TelosWorkControlViewSchema.safeParse({ ...pause, priorityItemId: 'manufactured-priority' })
+      .success,
+  ).toBe(false);
 });

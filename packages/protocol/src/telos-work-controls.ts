@@ -35,28 +35,36 @@ const worker = z.strictObject({
   assignmentRevision: z.number().int().nonnegative().safe(),
   stage: z.enum(['requested', 'acknowledged', 'applied']),
 });
-export const TelosWorkControlViewSchema = z.strictObject({
-  version: z.literal(1),
-  controlId: id,
-  coordinatorItemId: id,
-  coordinatorConversationId: id.nullable(),
-  priorityItemId: id.nullable(),
-  // Absence on older coordinator receipts retains their original meaning.
-  origin: z.literal('operator_pause').optional(),
-  scope: TelosWorkControlScopeSchema,
-  stage: z.enum(['requested', 'acknowledged', 'applied', 'released']),
-  publicationRevalidation: z.enum(['not_applicable', 'required']),
-  targets: z.array(
-    z.strictObject({
-      itemId: id,
-      leadConversationId: id.nullable(),
-      assignmentRevision: z.number().int().nonnegative().safe(),
-      stage: z.enum(['requested', 'acknowledged', 'applied']),
-      workers: z.array(worker),
-    }),
-  ),
-  history: z.array(evidence),
-});
+export const TelosWorkControlViewSchema = z
+  .strictObject({
+    version: z.literal(1),
+    controlId: id,
+    coordinatorItemId: id,
+    coordinatorConversationId: id.nullable(),
+    priorityItemId: id.nullable(),
+    // Absence on older coordinator receipts retains their original meaning.
+    origin: z.literal('operator_pause').optional(),
+    scope: TelosWorkControlScopeSchema,
+    stage: z.enum(['requested', 'acknowledged', 'applied', 'released']),
+    publicationRevalidation: z.enum(['not_applicable', 'required']),
+    targets: z.array(
+      z.strictObject({
+        itemId: id,
+        leadConversationId: id.nullable(),
+        assignmentRevision: z.number().int().nonnegative().safe(),
+        stage: z.enum(['requested', 'acknowledged', 'applied']),
+        workers: z.array(worker),
+      }),
+    ),
+    history: z.array(evidence),
+  })
+  .refine(
+    (value) =>
+      value.origin === 'operator_pause'
+        ? value.coordinatorConversationId === null && value.priorityItemId === null
+        : value.coordinatorConversationId !== null && value.priorityItemId !== null,
+    'Operator pause has no coordinator or priority identity; coordinator controls require both',
+  );
 export type TelosWorkControlScope = z.infer<typeof TelosWorkControlScopeSchema>;
 export type TelosWorkControlView = z.infer<typeof TelosWorkControlViewSchema>;
 
