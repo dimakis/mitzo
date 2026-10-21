@@ -2007,3 +2007,22 @@ Pending chat-type qualification renders only pure progress/error feedback beside
 the disabled input; it does not mount the ordinary queue or send owner early.
 Outline warnings use the semantic warning foreground on a transparent background;
 filled controls retain their existing paired foreground contrast checks.
+
+## Repository settings editor
+
+The ordinary Repository editor uses the current Chat settings sheet's surface,
+padding and scrolling owner. Its settings variant removes the nested repository
+card and duplicate heading, uses the shared secondary controls and semantic
+type/spacing/radius tokens, and puts branch/commit metadata in the existing native
+Checkout details disclosure. Pending preparation shows the original repository,
+its status and read-only refresh action without repeating source-selection or
+prepare controls. The main approved settings rows and ledger revision are retained.
+
+The all-intercept repository-preparation-recovery browser fixture renders the real
+responsive chat route, MobileShell/DesktopShell, settings, picker and composer. It
+covers 320px mobile WebKit/Chromium and 1280px desktop Chromium, dark Mint/System
+and light Teal/Georgia, fresh defaults without repeated account confirmation,
+runtime-change invalidation, lost-response recovery, keyboard focus, reachable
+44px actions and retained draft text. Its local-settings-default and
+local-repository captures are retained by the existing Local first-command CI
+artifact upload. These are offline application renders, not live provider evidence.

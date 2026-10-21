@@ -167,6 +167,11 @@ for (const theme of ['dark', 'light']) {
     await expect(page.getByText(/account identity is unconfirmed/)).toHaveCount(0);
     await page.screenshot({ path: info.outputPath(`local-settings-default-${theme}.png`) });
     await openChatSetting(page, 'repository');
+    await expect(page.getByRole('region', { name: 'Repository for new chat' })).toHaveCSS(
+      'border-top-width',
+      '0px',
+    );
+    await expect(page.getByText('Repository for this chat', { exact: true })).toHaveCount(0);
     await page.getByLabel('GitHub repository').selectOption('github:example/repo');
     await page.getByRole('button', { name: 'Preview repository', exact: true }).click();
     await expect(
@@ -182,14 +187,23 @@ for (const theme of ['dark', 'light']) {
     );
     await page.getByLabel('GitHub repository').selectOption('github:example/repo');
     await page.getByRole('button', { name: 'Preview repository', exact: true }).click();
+    await page.screenshot({ path: info.outputPath(`local-repository-preview-${theme}.png`) });
     await page.getByRole('button', { name: 'Prepare repository', exact: true }).click();
-    await expect(page.getByRole('alert')).toBeVisible();
-    await expect(
-      page.getByRole('button', { name: 'Prepare repository', exact: true }),
-    ).toBeDisabled();
+    await expect(page.getByRole('alert')).toContainText('Refresh its status to continue.');
+    await expect(page.getByRole('button', { name: 'Prepare repository', exact: true })).toHaveCount(
+      0,
+    );
     const refresh = page.getByRole('button', { name: 'Refresh preparation status' });
     await expect(refresh).toBeVisible();
     expect((await refresh.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await expect(page.getByRole('alert')).toBeInViewport();
+    await expect(refresh).toBeInViewport();
+    await expect(
+      page
+        .getByRole('region', { name: 'Repository for new chat' })
+        .getByText('example/repo', { exact: true }),
+    ).toBeVisible();
+    await expect(page.locator('.conversation-composer > p')).toHaveCount(0);
     await page.screenshot({
       path: info.outputPath(`local-repository-lost-${theme}.png`),
       fullPage: true,

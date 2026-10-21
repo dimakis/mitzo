@@ -9,6 +9,39 @@ the existing OpenShell API route already uses Codex.
 Dimitri approved this direction on 17 October 2026. Telos migration item
 `2c57d6a14b01eda3` belongs under runtime outcome `2f58567a6c487079`.
 
+## Source audit, 21 October 2026
+
+The migration is incomplete on accepted main `afc86b36`. This is a source audit,
+not an observation of the activated release or a measurement of account usage.
+
+| Ordinary conversation                               | Current implementation                                                  | Retirement consequence                                                                                              |
+| --------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| OpenAI API on OpenShell                             | Codex, through the existing ordinary OpenShell owners                   | Keep this route; it already uses the intended engine.                                                               |
+| ChatGPT subscription on OpenShell or the local host | Codex, with separate broker/host-login configuration                    | Preserve its account and login ownership.                                                                           |
+| OpenAI API on Local Mac                             | `NativeResponsesRunner`, through the ordinary local Responses owner     | New local API dispatch must move to Codex before disabling this creation path.                                      |
+| Retained local Responses conversation               | Original private Responses history, checkpoints and queue custody       | Preserve original-owner continuation and inspection until explicit retirement; these records are not Codex threads. |
+| Google Vertex/Gemini                                | Gemini adapter using the shared Responses runner/session infrastructure | Preserve or extract the Gemini dependency before removing shared code.                                              |
+
+The relevant source owners are `ordinary-session-runtime.ts`,
+`ordinary-local-codex-capabilities.ts`, `ordinary-local-codex-entry.ts`,
+`frozen-host-codex-bootstrap.ts`, `chat.ts`, `responses-chat-session.ts` and
+`native-responses-runner.ts`. `launchIsolatedApi()` provides the accepted private
+API authentication primitive, but the ordinary local bootstrap still requires
+`openai-codex` host-login custody. Source acceptance of that helper did not complete
+local API dispatch, restart or credential-renewal ownership. The recent Local API
+command-networking work improves the existing Responses route; it is not a Codex
+migration.
+
+The recommendation remains to use Codex for all **new OpenAI agent conversations**,
+retiring the duplicate OpenAI agent loop after the local dispatch and retained-history
+slices pass. First prove selected API billing, Library/tool/MCP/context behavior,
+images and model/thinking changes, queue/Stop, reconnect/restart and credential
+loss through the actual ordinary owners. Then stop new Responses conversation
+creation while retaining legacy history and recovery. Remove only the unused
+OpenAI loop after auditing retained callers and separating Gemini. Account/model
+discovery, key management and bounded direct API helpers have separate purposes
+and are not removed merely because agent orchestration moves to Codex.
+
 ## Implementation boundaries
 
 Reuse the existing account store, credential owner, command admission, workspace

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import './RepositoryChatPicker.css';
+import { UiIcon } from './UiIcon';
 import { useQuickSettings } from '../lib/quick-settings-context';
 import { QuickSettingsField } from './QuickChatSettings';
 import {
@@ -45,6 +46,7 @@ export function RepositoryChatPicker({
   initialPreparationId,
   draftScoped = false,
   ordinaryRuntime,
+  preparationNote,
   presentation = 'default',
 }: {
   presentation?: 'default' | 'settings';
@@ -54,6 +56,7 @@ export function RepositoryChatPicker({
   initialPreparationId?: string;
   /** Ordinary saved drafts never borrow another draft’s per-account preparation. */
   draftScoped?: boolean;
+  preparationNote?: string;
   ordinaryRuntime?: {
     runOn: 'local' | 'openshell';
     runtime: {
@@ -64,6 +67,8 @@ export function RepositoryChatPicker({
   };
 }) {
   const quick = useQuickSettings();
+  const inSettings = !!quick && presentation === 'settings';
+  const actionClass = inSettings ? 'home-secondary' : undefined;
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [opened, setOpened] = useState(
     () => !!(initialPreparationId ?? (draftScoped ? null : savedRepositoryDraft(accountId, model))),
@@ -201,6 +206,7 @@ export function RepositoryChatPicker({
     operation.current = controller;
     setBusy(true);
     setError('');
+    let responseReceived = false;
     callback.current({
       blocked: true,
       ...(draftScoped && action === 'prepare' && workspace
@@ -236,6 +242,7 @@ export function RepositoryChatPicker({
             : {}),
         }),
       });
+      responseReceived = true;
       const data = await response.json();
       if (!response.ok)
         throw new Error(
@@ -258,7 +265,13 @@ export function RepositoryChatPicker({
       }
     } catch (failure) {
       if (!controller.signal.aborted)
-        setError(failure instanceof Error ? failure.message : 'Repository preparation unavailable');
+        setError(
+          action === 'prepare' && !responseReceived
+            ? 'Could not confirm repository preparation. Refresh its status to continue.'
+            : failure instanceof Error
+              ? failure.message
+              : 'Repository preparation unavailable',
+        );
     } finally {
       if (!controller.signal.aborted) setBusy(false);
     }
@@ -390,13 +403,27 @@ export function RepositoryChatPicker({
       hint
     ) : null;
   }
+  const checkoutDetails = workspace && (
+    <>
+      <span>
+        {workspace.baseBranch} · <code>{workspace.baseOid.slice(0, 12)}</code>
+      </span>
+      <span>
+        New branch: <code>{workspace.featureBranch}</code>
+      </span>
+    </>
+  );
   const editor = (
-    <section className="repository-chat-picker" aria-label="Repository for new chat">
+    <section
+      className={`repository-chat-picker${inSettings ? ' repository-chat-picker--settings' : ''}`}
+      aria-label="Repository for new chat"
+    >
       {!opened ? (
         catalog?.available &&
         repositories.length > 0 && (
           <button
             type="button"
+            className={actionClass}
             onClick={() => {
               setOpened(true);
               callback.current({ blocked: true });
@@ -407,80 +434,96 @@ export function RepositoryChatPicker({
         )
       ) : (
         <>
-          <strong>
-            {workspace && workspace.state !== 'preview'
-              ? workspace.repository
-              : 'Repository for this chat'}
-          </strong>
-          {!initialPreparationId && (!workspace || workspace.state === 'preview') && (
-            <>
-              <label>
-                GitHub repository
-                <select
-                  value={selected}
-                  disabled={busy || !catalog?.available}
-                  onChange={(event) => changeSource(event.target.value)}
-                >
-                  <option value="">Select repository</option>
-                  {repositories.map((entry) => (
-                    <option
-                      key={`${entry.connectionId}:${entry.repository}`}
-                      value={`${entry.connectionId}:${entry.repository}`}
-                    >
-                      {entry.repository} · {entry.label}
-                    </option>
-                  ))}
-                  <option value="url">Paste a GitHub URL</option>
-                </select>
-              </label>
-              {selected === 'url' && (
-                <label>
-                  Repository URL
-                  <input
-                    type="url"
-                    value={url}
-                    disabled={busy}
-                    onChange={(event) => {
-                      setUrl(event.target.value);
-                      setWorkspace(null);
-                      callback.current({ blocked: true });
-                    }}
-                    placeholder="https://github.com/owner/repository"
-                  />
-                </label>
-              )}
-              {selected === 'url' && url && !selection && (
-                <p>
-                  Add this repository to the GitHub connection’s allowed repositories in{' '}
-                  <a href="/connections">Connections</a>.
-                </p>
-              )}
-              <button
-                type="button"
-                disabled={busy || !selection || unresolvedSaved || !!pendingId}
-                onClick={() => void requestWorkspace('preview')}
-              >
-                Preview repository
-              </button>
-            </>
+          {(!inSettings || (workspace && (pendingId || workspace.state !== 'preview'))) && (
+            <strong>
+              {workspace && (workspace.state !== 'preview' || (inSettings && pendingId))
+                ? workspace.repository
+                : 'Repository for this chat'}
+            </strong>
           )}
+          {!initialPreparationId &&
+            (!workspace || workspace.state === 'preview') &&
+            !(inSettings && pendingId) && (
+              <>
+                <label>
+                  GitHub repository
+                  <select
+                    value={selected}
+                    disabled={busy || !catalog?.available}
+                    onChange={(event) => changeSource(event.target.value)}
+                  >
+                    <option value="">Select repository</option>
+                    {repositories.map((entry) => (
+                      <option
+                        key={`${entry.connectionId}:${entry.repository}`}
+                        value={`${entry.connectionId}:${entry.repository}`}
+                      >
+                        {entry.repository} · {entry.label}
+                      </option>
+                    ))}
+                    <option value="url">Paste a GitHub URL</option>
+                  </select>
+                </label>
+                {selected === 'url' && (
+                  <label>
+                    Repository URL
+                    <input
+                      type="url"
+                      value={url}
+                      disabled={busy}
+                      onChange={(event) => {
+                        setUrl(event.target.value);
+                        setWorkspace(null);
+                        callback.current({ blocked: true });
+                      }}
+                      placeholder="https://github.com/owner/repository"
+                    />
+                  </label>
+                )}
+                {selected === 'url' && url && !selection && (
+                  <p>
+                    Add this repository to the GitHub connection’s allowed repositories in{' '}
+                    <a href="/connections">Connections</a>.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  className={actionClass}
+                  disabled={busy || !selection || unresolvedSaved || !!pendingId}
+                  onClick={() => void requestWorkspace('preview')}
+                >
+                  Preview repository
+                </button>
+              </>
+            )}
           {workspace && (
             <div className="repository-chat-preview">
-              <span>
-                {workspace.baseBranch} · <code>{workspace.baseOid.slice(0, 12)}</code>
-              </span>
-              <span>
-                New branch: <code>{workspace.featureBranch}</code>
-              </span>
-              {workspace.state === 'preview' && !initialPreparationId ? (
+              {inSettings ? (
+                <details className="chat-settings-advanced">
+                  <summary>
+                    <span>Checkout details</span>
+                    <UiIcon name="down" size={16} />
+                  </summary>
+                  <div className="repository-chat-preview">
+                    {checkoutDetails}
+                    {preparationNote && <p>{preparationNote}</p>}
+                  </div>
+                </details>
+              ) : (
+                checkoutDetails
+              )}
+              {workspace.state === 'preview' &&
+              !initialPreparationId &&
+              !(inSettings && pendingId) ? (
                 <>
                   <p>
-                    Repository contents will be shared with the selected AI account when you send
-                    your first prompt. Preparation downloads the source into an independent
-                    workspace.
+                    {inSettings
+                      ? 'Prepare an independent checkout. Its contents are shared with the selected AI account when you send your first prompt.'
+                      : 'Repository contents will be shared with the selected AI account when you send your first prompt. Preparation downloads the source into an independent workspace.'}
                   </p>
                   <button
                     type="button"
+                    className={actionClass}
                     disabled={busy || !!pendingId}
                     onClick={() => void requestWorkspace('prepare')}
                   >
@@ -489,11 +532,13 @@ export function RepositoryChatPicker({
                 </>
               ) : (
                 <p role="status">
-                  {workspace.state === 'claimed'
-                    ? 'This preparation already belongs to a conversation. Open that conversation below, or continue without this repository.'
-                    : workspace.state === 'ready'
-                      ? 'Ready for your first prompt. Dependency setup happens in the chat workspace.'
-                      : `Repository preparation is ${workspace.state}. Refresh its status before sending.`}
+                  {workspace.state === 'preview' && pendingId
+                    ? 'Check the original preparation before continuing.'
+                    : workspace.state === 'claimed'
+                      ? 'This preparation already belongs to a conversation. Open that conversation below, or continue without this repository.'
+                      : workspace.state === 'ready'
+                        ? 'Ready for your first prompt. Dependency setup happens in the chat workspace.'
+                        : `Repository preparation is ${workspace.state}. Refresh its status before sending.`}
                 </p>
               )}
             </div>
@@ -503,6 +548,7 @@ export function RepositoryChatPicker({
           {(initialPreparationId || pendingId || (workspace && workspace.state !== 'preview')) && (
             <button
               type="button"
+              className={actionClass}
               disabled={busy}
               ref={refreshButton}
               onClick={(event) => {
@@ -514,7 +560,12 @@ export function RepositoryChatPicker({
               Refresh preparation status
             </button>
           )}
-          <button type="button" disabled={busy} onClick={() => void cancel()}>
+          <button
+            type="button"
+            className={actionClass}
+            disabled={busy}
+            onClick={() => void cancel()}
+          >
             Continue without repository
           </button>
         </>

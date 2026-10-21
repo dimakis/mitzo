@@ -1080,6 +1080,13 @@ export function DesktopChatView() {
         accountId={repositoryAccountSelection.accountId}
         model={repositoryAccountSelection.model}
         draftScoped={draftEnabled}
+        preparationNote={
+          draftEnabled && repositorySelection?.repositoryWorkspaceId
+            ? preparedModelEditable
+              ? 'The prepared checkout keeps its account and environment. Model and thinking apply to the first message.'
+              : 'Remove the repository preparation to change account or model.'
+            : undefined
+        }
         ordinaryRuntime={
           explicitNew &&
           localRuntime.intent.accountReference &&
@@ -1538,13 +1545,6 @@ export function DesktopChatView() {
                   <RepositoryChatDraftNotice handoff={repositoryHandoff} />
                   {missingDraftReason && <div role="alert">{missingDraftReason}</div>}
                   {repositoryAccountReason && <div role="alert">{repositoryAccountReason}</div>}
-                  {draftEnabled && repositorySelection?.repositoryWorkspaceId && (
-                    <p role="status">
-                      {preparedModelEditable
-                        ? 'The prepared checkout keeps its account and environment. Model and thinking apply to the first message.'
-                        : 'Remove the repository preparation to change account or model.'}
-                    </p>
-                  )}
                   {newChatDraft.settingsError && (
                     <div role="alert">Draft settings could not be saved on this device.</div>
                   )}
