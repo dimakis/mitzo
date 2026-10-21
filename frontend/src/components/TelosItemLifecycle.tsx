@@ -127,6 +127,28 @@ export function TelosItemLifecycle({
         : 'Archive';
   const changed =
     !!confirmation && !confirmation.retry && !!value && value.revision !== confirmation.revision;
+  const hostRefusal =
+    state.pending?.command.operation === 'delete_permanently' &&
+    state.refusal?.status === 409 &&
+    state.refusal.code === 'conflict' &&
+    state.refusal.message === 'Verified host quiescence required for permanent deletion';
+  const errorNotice = hostRefusal ? (
+    <div role="alert">
+      <p>
+        Permanent deletion is unavailable because this server cannot verify that it is safe. This
+        request did not delete the item.
+      </p>
+      <details>
+        <summary>Request details</summary>
+        <p>
+          HTTP {state.refusal!.status} · {state.refusal!.code}
+        </p>
+        <p>{state.refusal!.message}</p>
+      </details>
+    </div>
+  ) : (
+    <p role="alert">{state.error}</p>
+  );
   return (
     <section className="telos-item-lifecycle" aria-label="Item lifecycle">
       <div className="telos-lifecycle-row">
@@ -191,22 +213,30 @@ export function TelosItemLifecycle({
       )}
       {value && <p>Other holds may still apply.</p>}
       {state.notice && <p role="status">{state.notice}</p>}
-      {state.error && !confirmation && (state.pending || state.recoveryBlocked) && (
-        <p role="alert">{state.error}</p>
-      )}
+      {state.error && !confirmation && (state.pending || state.recoveryBlocked) && errorNotice}
       {state.pending && (
         <div className="telos-lifecycle-recovery">
           <p>
             {state.pending.status === 'sending'
               ? 'Recording the lifecycle request…'
-              : state.pending.status === 'refused'
-                ? 'Request refused. Review current state before another request.'
-                : state.pending.status === 'recorded'
-                  ? 'Request recorded. Retained retry data remains.'
-                  : 'The original request is retained for an explicit retry.'}
+              : state.pending.status === 'review'
+                ? 'Review current state before retrying this retained request.'
+                : state.pending.status === 'refused'
+                  ? 'Request refused. Review current state before another request.'
+                  : state.pending.status === 'recorded'
+                    ? 'Request recorded. Retained retry data remains.'
+                    : 'The original request is retained for an explicit retry.'}
           </p>
-          {state.pending.status === 'refused' ? (
-            <button className="home-secondary" disabled={state.busy} onClick={state.reviewRefused}>
+          {state.pending.status === 'refused' || state.pending.status === 'review' ? (
+            <button
+              className="home-secondary"
+              disabled={
+                state.busy || (state.pending.status === 'review' && !state.canReviewRetained)
+              }
+              onClick={
+                state.pending.status === 'refused' ? state.reviewRefused : state.reviewRetained
+              }
+            >
               Review current state
             </button>
           ) : (
@@ -297,7 +327,7 @@ export function TelosItemLifecycle({
               This item changed. Close and review its current state before confirming.
             </p>
           )}
-          {state.error && <p role="alert">{state.error}</p>}
+          {state.error && errorNotice}
           <footer>
             <button
               className="home-secondary"

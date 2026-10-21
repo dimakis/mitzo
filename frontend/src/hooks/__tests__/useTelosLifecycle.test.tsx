@@ -108,6 +108,8 @@ it('retains uncertain delivery across remount and explicitly retries the identic
   await waitFor(() => expect(second.result.current.current).toBe(true));
   expect(write).toHaveBeenCalledTimes(1);
   expect(second.result.current.pending?.command).toEqual(original);
+  expect(second.result.current.pending?.status).toBe('review');
+  act(() => second.result.current.reviewRetained());
   write.mockResolvedValue({
     requestId: original.requestId,
     itemId: 'selected',
@@ -296,6 +298,8 @@ it('retains uncertain delivery in the original verified login and server scope w
     auth.base = '';
     window.dispatchEvent(new Event('mitzo:auth-restored'));
   });
+  await waitFor(() => expect(view.result.current.canReviewRetained).toBe(true));
+  act(() => view.result.current.reviewRetained());
   await waitFor(() => expect(view.result.current.pending?.status).toBe('uncertain'));
   expect(view.result.current.pending?.command).toEqual(original);
   expect(view.result.current.busy).toBe(false);
@@ -313,3 +317,78 @@ it('does not read or mutate lifecycle without the existing verified interactive 
   expect(write).not.toHaveBeenCalled();
   expect(view.result.current.error).toContain('Verified interactive login');
 });
+for (const status of [400, 401, 403, 404, 409, 422])
+  it(`requires explicit current-state review after a known ${status} refusal is reopened from the command-only journal`, async () => {
+    const read = vi.spyOn(TelosWorkApiClient.prototype, 'readLifecycle').mockResolvedValue(initial);
+    const write = vi
+      .spyOn(TelosWorkApiClient.prototype, 'executeLifecycle')
+      .mockRejectedValue(new TelosWorkApiError(status, 'conflict', 'Request refused'));
+    const first = renderHook(() => useTelosLifecycle('selected', 0));
+    await waitFor(() => expect(first.result.current.current).toBe(true));
+    await act(async () => {
+      await first.result.current.send('trash');
+    });
+    const original = structuredClone(write.mock.calls[0][0]);
+    expect(first.result.current.pending?.status).toBe('refused');
+    first.unmount();
+    const held = deferred<TelosWorkLifecycleView>();
+    read.mockReturnValue(held.promise);
+    const reopened = renderHook(() => useTelosLifecycle('selected', 0));
+    await waitFor(() => expect(reopened.result.current.pending?.status).toBe('review'));
+    await act(async () => {
+      await reopened.result.current.retry();
+    });
+    expect(write).toHaveBeenCalledTimes(1);
+    act(() => reopened.result.current.reviewRetained());
+    expect(reopened.result.current.pending?.status).toBe('review');
+    await act(async () => held.resolve({ ...initial, revision: 'b'.repeat(64) }));
+    await waitFor(() => expect(reopened.result.current.canReviewRetained).toBe(true));
+    act(() => reopened.result.current.reviewRetained());
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(reopened.result.current.pending?.status).toBe('uncertain');
+    expect(reopened.result.current.pending?.command).toEqual(original);
+    await act(async () => {
+      await reopened.result.current.retry();
+    });
+    expect(write.mock.calls[1][0]).toEqual(original);
+    expect(reopened.result.current.pending?.status).toBe('refused');
+  });
+for (const unavailable of [false, true])
+  it(`retains an old genuinely uncertain command for exact explicit retry after cold review${unavailable ? ' even when its current read is404' : ''}`, async () => {
+    const command = {
+      requestId: 'old-uncertain-delivery',
+      itemId: 'selected',
+      expectedRevision: initial.revision,
+      operation: 'archive',
+    } as const;
+    const storageKey =
+      'telos.lifecycle.pending.' +
+      encodeURIComponent(JSON.stringify(['', 'fixture-operator'])) +
+      '.selected';
+    sessionStorage.setItem(storageKey, JSON.stringify(command));
+    const read = vi.spyOn(TelosWorkApiClient.prototype, 'readLifecycle');
+    if (unavailable)
+      read.mockRejectedValue(new TelosWorkApiError(404, 'not_found', 'Item unavailable'));
+    else read.mockResolvedValue({ ...initial, revision: 'b'.repeat(64) });
+    const write = vi.spyOn(TelosWorkApiClient.prototype, 'executeLifecycle').mockResolvedValue({
+      requestId: command.requestId,
+      itemId: command.itemId,
+      operation: command.operation,
+      lifecycle: initial,
+    });
+    const view = renderHook(() => useTelosLifecycle('selected', 0));
+    await waitFor(() => expect(view.result.current.canReviewRetained).toBe(true));
+    expect(view.result.current.pending?.status).toBe('review');
+    await act(async () => {
+      await view.result.current.retry();
+    });
+    expect(write).not.toHaveBeenCalled();
+    act(() => view.result.current.reviewRetained());
+    expect(JSON.parse(sessionStorage.getItem(storageKey)!)).toEqual(command);
+    expect(write).not.toHaveBeenCalled();
+    await act(async () => {
+      await view.result.current.retry();
+    });
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(write.mock.calls[0][0]).toEqual(command);
+  });

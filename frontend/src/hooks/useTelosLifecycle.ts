@@ -22,7 +22,7 @@ const api = new TelosWorkApiClient(apiFetch);
 type Pending = {
   scope: string;
   command: TelosWorkLifecycleCommand;
-  status: 'sending' | 'uncertain' | 'refused' | 'recorded';
+  status: 'sending' | 'uncertain' | 'refused' | 'recorded' | 'review';
 };
 type Operation = TelosWorkLifecycleCommand['operation'];
 type Confirmation = { itemId: string; phrase: 'DELETE PERMANENTLY' };
@@ -41,7 +41,9 @@ function restore(id: string, scope: string): Pending | null {
     (command.operation === 'delete_permanently' && command.confirmation.itemId !== id)
   )
     throw Error('Retained lifecycle request identity changed');
-  return { scope, command, status: 'uncertain' };
+  // The command-only journal cannot distinguish a lost response from a known
+  // refusal in a previous mount. Require review before offering an exact retry.
+  return { scope, command, status: 'review' };
 }
 /** Route recovery admission only: reuse the exact scoped journal parser. This
  * neither supplies an item DTO nor submits/changes a retained command. */
@@ -72,6 +74,9 @@ export function useTelosLifecycle(
   }>({ itemId, scope: authScope, lifecycle: null, current: false, error: '' });
   const [pending, setPending] = useState<Pending | null>(null);
   const [error, setError] = useState('');
+  const [refusal, setRefusal] = useState<{ status: number; code: string; message: string } | null>(
+    null,
+  );
   const [recoveryBlocked, setRecoveryBlocked] = useState(false);
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -81,11 +86,14 @@ export function useTelosLifecycle(
   const mutation = useRef<AbortController | null>(null);
   const read = useRef<AbortController | null>(null);
   const readReady = useRef(false);
+  const readSettled = useRef(false);
   useEffect(() => {
     setBusy(false);
     setError('');
+    setRefusal(null);
     setRecoveryBlocked(false);
     readReady.current = false;
+    readSettled.current = false;
     setNotice('');
     setDeletedId(null);
     try {
@@ -106,10 +114,12 @@ export function useTelosLifecycle(
   useEffect(() => {
     const changeIdentity = (restored: boolean) => {
       readReady.current = false;
+      readSettled.current = false;
       read.current?.abort();
       mutation.current?.abort();
       mutation.current = null;
       setBusy(false);
+      setRefusal(null);
       setSnapshot({
         itemId: route.current,
         scope: null,
@@ -132,6 +142,7 @@ export function useTelosLifecycle(
   useEffect(() => {
     const invalidate = () => {
       readReady.current = false;
+      readSettled.current = false;
       setSnapshot((old) => ({ ...old, current: false }));
       read.current?.abort();
       setSerial((value) => value + 1);
@@ -156,6 +167,7 @@ export function useTelosLifecycle(
     if (!authScope || verifiedScope() !== authScope || deletedId === itemId) return;
     const controller = new AbortController();
     readReady.current = false;
+    readSettled.current = false;
     read.current?.abort();
     read.current = controller;
     setSnapshot((old) => ({
@@ -173,15 +185,22 @@ export function useTelosLifecycle(
         if (value.itemId !== itemId)
           throw Error('Lifecycle identity differs from the selected item');
         readReady.current = true;
+        readSettled.current = true;
         setSnapshot({ itemId, scope: authScope, lifecycle: value, current: true, error: '' });
       })
       .catch((cause) => {
-        if (!controller.signal.aborted && route.current === itemId && verifiedScope() === authScope)
+        if (
+          !controller.signal.aborted &&
+          route.current === itemId &&
+          verifiedScope() === authScope
+        ) {
+          readSettled.current = true;
           setSnapshot((old) => ({
             ...old,
             current: false,
             error: cause instanceof Error ? cause.message : 'Lifecycle unavailable',
           }));
+        }
       });
     return () => controller.abort();
   }, [itemId, refreshKey, serial, deletedId, authScope]);
@@ -203,9 +222,11 @@ export function useTelosLifecycle(
     const controller = new AbortController();
     mutation.current = controller;
     readReady.current = false;
+    readSettled.current = false;
     read.current?.abort();
     setBusy(true);
     setError('');
+    setRefusal(null);
     setNotice('');
     setPending({ scope: authScope, command, status: 'sending' });
     setSnapshot((old) => ({ ...old, current: false }));
@@ -245,6 +266,11 @@ export function useTelosLifecycle(
       const refused =
         cause instanceof TelosWorkApiError && [400, 401, 403, 404, 409, 422].includes(cause.status);
       setPending({ scope: authScope, command, status: refused ? 'refused' : 'uncertain' });
+      setRefusal(
+        refused && cause instanceof TelosWorkApiError
+          ? { status: cause.status, code: cause.code, message: cause.message }
+          : null,
+      );
       setError(
         refused
           ? cause.message
@@ -265,6 +291,13 @@ export function useTelosLifecycle(
     lifecycle,
     current,
     recoveryBlocked,
+    canReviewRetained:
+      activePending?.status === 'review' &&
+      sameScope &&
+      snapshot.itemId === itemId &&
+      readSettled.current &&
+      !read.current?.signal.aborted &&
+      !busy,
     busy,
     pending: activePending,
     deleted: deletedId === itemId,
@@ -272,8 +305,10 @@ export function useTelosLifecycle(
       ? 'Verified interactive login required to review item controls.'
       : error || (snapshot.itemId === itemId ? snapshot.error : ''),
     notice,
+    refusal: sameScope && activePending?.status === 'refused' ? refusal : null,
     refresh: () => {
       readReady.current = false;
+      readSettled.current = false;
       setSnapshot((old) => ({ ...old, current: false }));
       read.current?.abort();
       setSerial((value) => value + 1);
@@ -302,7 +337,10 @@ export function useTelosLifecycle(
       return submit(parsed.data);
     },
     retry: async () =>
-      activePending && activePending.status !== 'sending' && activePending.status !== 'refused'
+      activePending &&
+      activePending.status !== 'sending' &&
+      activePending.status !== 'refused' &&
+      activePending.status !== 'review'
         ? submit(activePending.command)
         : false,
     reviewRecovery: () => {
@@ -312,12 +350,33 @@ export function useTelosLifecycle(
         sessionStorage.removeItem(key(itemId, authScope));
         setRecoveryBlocked(false);
         setError('');
+        setRefusal(null);
         readReady.current = false;
+        readSettled.current = false;
         setSnapshot((old) => ({ ...old, current: false }));
         setSerial((value) => value + 1);
       } catch {
         setError('Retained lifecycle request could not be cleared.');
       }
+    },
+    reviewRetained: () => {
+      if (
+        !authScope ||
+        verifiedScope() !== authScope ||
+        route.current !== itemId ||
+        activePending?.status !== 'review' ||
+        !sameScope ||
+        snapshot.itemId !== itemId ||
+        !readSettled.current ||
+        read.current?.signal.aborted ||
+        busy
+      )
+        return;
+      // Reviewing unknown delivery retains the original command. Only a later
+      // explicit retry can recover its receipt; review itself never sends it.
+      setPending({ ...activePending, status: 'uncertain' });
+      setError('');
+      setRefusal(null);
     },
     reviewRefused: () => {
       if (!authScope || verifiedScope() !== authScope || activePending?.status !== 'refused')
@@ -326,7 +385,9 @@ export function useTelosLifecycle(
         sessionStorage.removeItem(key(itemId, authScope));
         setPending(null);
         setError('');
+        setRefusal(null);
         readReady.current = false;
+        readSettled.current = false;
         setSnapshot((old) => ({ ...old, current: false }));
         read.current?.abort();
         setSerial((value) => value + 1);
