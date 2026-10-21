@@ -1,0 +1,677 @@
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 59e220a8a2e025823849aa5a1463ed40d5d8ae02..2ff1562de7062d54b8674dc9d75fab3ad3b81791 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -194,6 +194,7 @@ use tracing::instrument;
+ use tracing::warn;
+ use uuid::Uuid;
+ 
++#[cfg(test)]
+ use crate::client::ModelClient;
+ use crate::codex_thread::CodexThreadSettingsOverrides;
+ use crate::codex_thread::ThreadConfigSnapshot;
+@@ -231,6 +232,8 @@ pub(crate) mod initial_context_builtin;
+ pub(crate) mod initial_context_render;
+ pub(crate) mod initial_world_state_data;
+ mod inject;
++mod model_client_construction;
++pub(crate) mod native_allocation;
+ mod reasoning_effort;
+ mod submission;
+ pub(crate) use reasoning_effort::RequestEffortUsage;
+diff --git a/codex-rs/core/src/session/model_client_construction.rs b/codex-rs/core/src/session/model_client_construction.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..3980f266d020638b6bc56acf214eebd67584140a
+--- /dev/null
++++ b/codex-rs/core/src/session/model_client_construction.rs
+@@ -0,0 +1,106 @@
++//! Required original Session ModelClient construction inputs, not authority.
++//! Ordinary startup supplies these AFTER original lifecycle/metadata/history
++//! acquisition. None are inferred from a fresh label or substituted with empty
++//! ExtensionData. Provider construction is NOT universally pre-session pure:
++//! configured gateway OAuth can eagerly create shared auth/HTTP state.
++//! No selected-start client constructor is available until those owners supply
++//! genuine inputs; identity allocation alone cannot satisfy this boundary.
++use super::session::Session;
++use super::session::SessionConfiguration;
++use crate::attestation::AttestationProvider;
++use crate::client::ModelClient;
++use crate::config::Config;
++use crate::state::ExecutedToolCalls;
++use async_channel::Sender;
++use codex_extension_api::ExtensionRegistry;
++use codex_features::Feature;
++use codex_history::InitialHistory;
++use codex_login::AuthManager;
++use codex_login::auth::AgentIdentityAuthPolicy;
++use codex_model_provider::WorkspaceRoutingContext;
++use codex_protocol::ThreadId;
++use codex_protocol::protocol::Event;
++use std::sync::Arc;
++
++/// Required data from original owners. Visible only to the Session composition
++/// owner, not a caller-provided pre-session success/absence interface. The same
++/// workspace routing Arc, history recorder and thread metadata must be retained
++/// by any future source-owned pre-session allocation/adoption implementation.
++pub(super) struct OriginalSessionModelClientInputs<'a> {
++    pub(super) config: &'a Config,
++    pub(super) session_configuration: &'a SessionConfiguration,
++    pub(super) auth_manager: &'a Arc<AuthManager>,
++    pub(super) thread_id: ThreadId,
++    pub(super) initial_history: &'a InitialHistory,
++    pub(super) reasoning_effort_override_enabled: bool,
++    pub(super) attestation_provider: Option<Arc<dyn AttestationProvider>>,
++    pub(super) workspace_routing: &'a Arc<WorkspaceRoutingContext>,
++    pub(super) extensions: &'a ExtensionRegistry<Config>,
++    pub(super) executed_tool_calls: &'a ExecutedToolCalls,
++    pub(super) fork_cache_key: Option<String>,
++    pub(super) tx_event: &'a Sender<Event>,
++    pub(super) codex_responses_headers: Option<Arc<crate::CodexResponsesHeaders>>,
++}
++impl OriginalSessionModelClientInputs<'_> {
++    pub(super) fn construct(self) -> ModelClient {
++        let Self {
++            config,
++            session_configuration,
++            auth_manager,
++            thread_id,
++            initial_history,
++            reasoning_effort_override_enabled,
++            attestation_provider,
++            workspace_routing,
++            extensions,
++            executed_tool_calls,
++            fork_cache_key,
++            tx_event,
++            codex_responses_headers,
++        } = self;
++        ModelClient::new(
++            Some(Arc::clone(auth_manager)),
++            if config.features.enabled(Feature::UseAgentIdentity) {
++                AgentIdentityAuthPolicy::ChatGptAuth
++            } else {
++                AgentIdentityAuthPolicy::JwtOnly
++            },
++            thread_id,
++            session_configuration.provider.info().clone(),
++            session_configuration.session_source.clone(),
++            session_configuration.originator.clone(),
++            config.model_verbosity,
++            config.features.enabled(Feature::ContentItemKinds),
++            reasoning_effort_override_enabled,
++            config.features.enabled(Feature::EnableRequestCompression),
++            config.features.enabled(Feature::RuntimeMetrics),
++            Session::build_model_client_beta_features_header(config),
++            /*concurrent_reasoning_summaries_enabled*/
++            config
++                .features
++                .enabled(Feature::ConcurrentReasoningSummaries),
++            attestation_provider,
++            config.http_client_factory(),
++            workspace_routing.as_ref().clone(),
++            extensions.model_request_contributors().to_vec(),
++        )
++        .with_executed_tool_calls(executed_tool_calls.clone())
++        .with_restored_history(matches!(
++            initial_history,
++            InitialHistory::Resumed(_) | InitialHistory::Forked(_)
++        ))
++        .with_session_context(
++            crate::guardian::prompt_cache_key_override_for_review_session(
++                &session_configuration.session_source,
++                session_configuration.parent_thread_id,
++            )
++            .or(fork_cache_key),
++            tx_event.clone(),
++            codex_responses_headers,
++        )
++    }
++}
++
++#[cfg(test)]
++#[path = "model_client_construction_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/model_client_construction_tests.rs b/codex-rs/core/src/session/model_client_construction_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..cc6d2e652f7e4785f1aa539f6b44deeb6e40183b
+--- /dev/null
++++ b/codex-rs/core/src/session/model_client_construction_tests.rs
+@@ -0,0 +1,85 @@
++use super::*;
++use crate::client_common::Prompt;
++use crate::responses_metadata::CodexResponsesRequestKind;
++use pretty_assertions::assert_eq;
++
++#[tokio::test]
++async fn original_session_owner_inputs_preserve_client_auth_and_offline_request_projection()
++-> anyhow::Result<()> {
++    // The existing ordinary Session/Step fixture is ONLY a comparison oracle.
++    // No Session or metadata is manufactured by the preparation path. The
++    // actual fixture provider must be the ordinary non-gateway OpenAI provider;
++    // this fixture never calls auth, transport, stream, count or a model.
++    let (session, turn) = crate::session::tests::make_session_and_context().await;
++    let session = Arc::new(session);
++    let step = session
++        .capture_step_context(Arc::new(turn), &tokio_util::sync::CancellationToken::new())
++        .await?;
++    let config = session.get_config().await;
++    let original_start = crate::StartThreadOptions::new(config.as_ref().clone());
++    let metadata = session
++        .responses_metadata(&step, CodexResponsesRequestKind::Turn)
++        .await;
++    let prompt = Prompt {
++        base_instructions: session.get_prompt_base_instructions().await,
++        ..Default::default()
++    };
++    let state = session.state.lock().await;
++    let configuration = &state.session_configuration;
++    assert!(configuration.provider.info().is_openai());
++    assert!(configuration.provider.info().gateway_oauth.is_none());
++    assert!(configuration.provider.info().aws.is_none());
++    assert!(configuration.provider.info().auth.is_none());
++    let routing = session
++        .services
++        .thread_extension_data
++        .get_or_init(|| config.workspace_routing_context());
++    let title_request = config.ephemeral
++        && matches!(configuration.thread_source.as_ref(),
++        Some(codex_protocol::protocol::ThreadSource::Feature(feature)) if feature == "thread_title");
++    let projected = OriginalSessionModelClientInputs {
++        config: &config,
++        session_configuration: configuration,
++        auth_manager: &session.services.auth_manager,
++        thread_id: session.thread_id(),
++        initial_history: &original_start.initial_history,
++        reasoning_effort_override_enabled: config
++            .features
++            .enabled(Feature::ReasoningEffortOverride)
++            && !title_request,
++        attestation_provider: session.services.attestation_provider.clone(),
++        workspace_routing: &routing,
++        extensions: session.services.extensions.as_ref(),
++        executed_tool_calls: &session.services.executed_tool_calls,
++        fork_cache_key: None,
++        tx_event: &session.tx_event,
++        codex_responses_headers: session
++            .services
++            .thread_extension_data
++            .get::<crate::CodexResponsesHeaders>(),
++    }
++    .construct();
++    drop(state);
++    assert!(Arc::ptr_eq(
++        &projected.auth_manager().unwrap(),
++        &session.services.auth_manager
++    ));
++    let request = |client: &ModelClient| {
++        client.build_responses_request(
++            &prompt,
++            &step.settings.model_info,
++            /*effort*/ None,
++            codex_protocol::config_types::ReasoningSummary::Auto,
++            /*service_tier*/ None,
++            &metadata,
++            /*include_internal*/ false,
++        )
++    };
++    // Whole request values (including native IDs, source/cache framing and
++    // metadata), not HashMap serialization order across independent clients.
++    assert_eq!(
++        serde_json::to_value(request(&projected)?)?,
++        serde_json::to_value(request(&session.services.model_client)?)?
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/native_allocation.rs b/codex-rs/core/src/session/native_allocation.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..fadd3d0f69cade2603ac103c3a4c12b30b3b9aa6
+--- /dev/null
++++ b/codex-rs/core/src/session/native_allocation.rs
+@@ -0,0 +1,27 @@
++//! ORIGINAL native identity selection. No Session/controller binding, thread
++//! registration, history mutation, transport, lifecycle or provider setup occurs.
++use crate::agent::control::AgentControlInit;
++use codex_history::InitialHistory;
++use codex_protocol::ThreadId;
++
++pub(crate) fn original_thread_id(
++    initial_history: &InitialHistory,
++    reserved_thread_id: Option<ThreadId>,
++    agent_control: &AgentControlInit,
++) -> anyhow::Result<ThreadId> {
++    Ok(match (initial_history, reserved_thread_id) {
++        (
++            InitialHistory::New | InitialHistory::Cleared | InitialHistory::Forked(_),
++            Some(thread_id),
++        ) => thread_id,
++        (InitialHistory::New | InitialHistory::Cleared | InitialHistory::Forked(_), None) => {
++            agent_control.runtime().generate_thread_id()
++        }
++        (InitialHistory::Resumed(resumed_history), None) => resumed_history.conversation_id,
++        (InitialHistory::Resumed(_), Some(_)) => {
++            return Err(anyhow::anyhow!(
++                "reserved thread ID cannot be used when resuming a thread"
++            ));
++        }
++    })
++}
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index ff28e57c2fa342622f0c9861d0bf0857f6c3e696..77e245569e5a3172c5951a553de06d67d142d349 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -27,7 +27,6 @@ use codex_attachment_store::AttachmentStore;
+ use codex_extension_api::ExtensionDataInit;
+ use codex_http_client::ClientRouteClass;
+ use codex_http_client::RouteAwareClientPool;
+-use codex_login::auth::AgentIdentityAuthPolicy;
+ use codex_model_provider::SharedModelProvider;
+ use codex_prompts::render_model_instructions;
+ use codex_protocol::SessionId;
+@@ -850,21 +849,11 @@ impl Session {
+         let multi_agent_version = multi_agent_version.map(OnceLock::from).unwrap_or_default();
+         let initial_multi_agent_version = multi_agent_version.get().copied();
+ 
+-        let thread_id = match (&initial_history, reserved_thread_id) {
+-            (
+-                InitialHistory::New | InitialHistory::Cleared | InitialHistory::Forked(_),
+-                Some(thread_id),
+-            ) => thread_id,
+-            (InitialHistory::New | InitialHistory::Cleared | InitialHistory::Forked(_), None) => {
+-                agent_control.runtime().generate_thread_id()
+-            }
+-            (InitialHistory::Resumed(resumed_history), None) => resumed_history.conversation_id,
+-            (InitialHistory::Resumed(_), Some(_)) => {
+-                return Err(anyhow::anyhow!(
+-                    "reserved thread ID cannot be used when resuming a thread"
+-                ));
+-            }
+-        };
++        let thread_id = super::native_allocation::original_thread_id(
++            &initial_history,
++            reserved_thread_id,
++            &agent_control,
++        )?;
+         let isolation = thread_extension_init
+             .get::<codex_extension_api::SessionIsolation>()
+             .map(|policy| *policy)
+@@ -1702,45 +1691,22 @@ impl Session {
+                 thread_store: Arc::clone(&thread_store),
+                 attestation_provider: attestation_provider.clone(),
+                 time_provider,
+-                model_client: ModelClient::new(
+-                    Some(Arc::clone(&auth_manager)),
+-                    if config.features.enabled(Feature::UseAgentIdentity) {
+-                        AgentIdentityAuthPolicy::ChatGptAuth
+-                    } else {
+-                        AgentIdentityAuthPolicy::JwtOnly
+-                    },
++                model_client: super::model_client_construction::OriginalSessionModelClientInputs {
++                    config: config.as_ref(),
++                    session_configuration: &session_configuration,
++                    auth_manager: &auth_manager,
+                     thread_id,
+-                    session_configuration.provider.info().clone(),
+-                    session_configuration.session_source.clone(),
+-                    session_configuration.originator.clone(),
+-                    config.model_verbosity,
+-                    config.features.enabled(Feature::ContentItemKinds),
++                    initial_history: &initial_history,
+                     reasoning_effort_override_enabled,
+-                    config.features.enabled(Feature::EnableRequestCompression),
+-                    config.features.enabled(Feature::RuntimeMetrics),
+-                    Self::build_model_client_beta_features_header(config.as_ref()),
+-                    /*concurrent_reasoning_summaries_enabled*/ config
+-                        .features
+-                        .enabled(Feature::ConcurrentReasoningSummaries),
+                     attestation_provider,
+-                    config.http_client_factory(),
+-                    workspace_routing.as_ref().clone(),
+-                    extensions.model_request_contributors().to_vec(),
+-                )
+-                .with_executed_tool_calls(executed_tool_calls.clone())
+-                .with_restored_history(matches!(
+-                    &initial_history,
+-                    InitialHistory::Resumed(_) | InitialHistory::Forked(_)
+-                ))
+-                .with_session_context(
+-                    crate::guardian::prompt_cache_key_override_for_review_session(
+-                        &session_configuration.session_source,
+-                        session_configuration.parent_thread_id,
+-                    )
+-                    .or(fork_cache_key),
+-                    tx_event.clone(),
++                    workspace_routing: &workspace_routing,
++                    extensions: extensions.as_ref(),
++                    executed_tool_calls: &executed_tool_calls,
++                    fork_cache_key,
++                    tx_event: &tx_event,
+                     codex_responses_headers,
+-                ),
++                }
++                .construct(),
+                 executed_tool_calls: executed_tool_calls.clone(),
+                 code_mode_service: crate::tools::code_mode::CodeModeService::new(
+                     thread_id,
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index c879d58f17d7c18dc7a0026c3ebb3c2c9a712678..62a61b7e0ff0ed634c2fce03e7e0acc8214bd311 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -1154,6 +1154,7 @@ impl ThreadManager {
+             forked_from_thread_id,
+             startup,
+             /*inherited_exec_policy*/ None,
++            /*inherited_agent_control*/ None,
+         )
+         .await
+     }
+@@ -1164,6 +1165,7 @@ impl ThreadManager {
+         forked_from_thread_id: Option<ThreadId>,
+         startup: Option<Arc<crate::session::startup::SessionStartup>>,
+         inherited_exec_policy: Option<Arc<crate::exec_policy::ExecPolicyManager>>,
++        inherited_agent_control: Option<LocalAgentControl>,
+     ) -> CodexResult<NewThread> {
+         let (resumed_session_source, resumed_thread_source) = options
+             .initial_history
+@@ -1194,7 +1196,8 @@ impl ThreadManager {
+             request.forked_from_thread_id = request.options.initial_history.forked_from_id();
+             request
+         } else {
+-            let agent_control = self.agent_control_for_config(&options.config);
++            let agent_control = inherited_agent_control
++                .unwrap_or_else(|| self.agent_control_for_config(&options.config));
+             let mut request = ThreadSpawnRequest::new(
+                 options,
+                 Arc::clone(&self.state.auth_manager),
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index 15cdc12af468f06dabb9f791ed79f7880047c039..a2edb00a11977d70d7716e6730a42be70fce4869 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -1,11 +1,15 @@
+-//! One-use selected ordinary start custody. No Session, identity reservation,
+-//! count, State record or Ready is created. Configuration authority remains with
++//! One-use selected ordinary start custody retains a private native identity.
++//! No Session, ModelClient, count, State record or Ready is created. Configuration authority remains with
+ //! the original app-server loader; external source renewal is not an atomic lease.
+ use super::*;
+ use crate::PreSessionMcpSources;
+ use crate::exec_policy::SelectedStartPolicy;
+ use std::io;
+ 
++#[path = "selected_start_allocation.rs"]
++mod allocation;
++use allocation::SelectedStartNativeAllocation;
++
+ enum Inputs {
+     Options(StartThreadOptions),
+     Mcp(PreSessionMcpSources),
+@@ -17,6 +21,7 @@ pub struct SelectedStartInputs {
+     inputs: Option<Inputs>,
+     invalidated: AtomicBool,
+     policy: Arc<SelectedStartPolicy>,
++    allocation: Option<SelectedStartNativeAllocation>,
+ }
+ 
+ /// One-use ordinary adoption; not a dispatch/admission authorization.
+@@ -24,6 +29,7 @@ pub struct SelectedStartAdoption {
+     owner: Arc<ThreadManagerState>,
+     options: StartThreadOptions,
+     policy: Arc<SelectedStartPolicy>,
++    allocation: SelectedStartNativeAllocation,
+ }
+ 
+ impl SelectedStartInputs {
+@@ -85,11 +91,13 @@ impl ThreadManager {
+             ));
+         }
+         let policy = Arc::new(SelectedStartPolicy::load(&options.config).await?);
++        let allocation = SelectedStartNativeAllocation::allocate(self, &options)?;
+         Ok(SelectedStartInputs {
+             owner: Arc::clone(&self.state),
+             inputs: Some(Inputs::Options(options)),
+             invalidated: AtomicBool::new(false),
+             policy,
++            allocation: Some(allocation),
+         })
+     }
+ 
+@@ -135,6 +143,7 @@ impl ThreadManager {
+     ) -> io::Result<R> {
+         if !Arc::ptr_eq(&self.state, &selected.owner)
+             || selected.inputs.is_none()
++            || selected.allocation.is_none()
+             || selected.invalidated.load(Ordering::Acquire)
+         {
+             return Err(io::Error::other(
+@@ -161,18 +170,29 @@ impl ThreadManager {
+                 .inputs
+                 .take()
+                 .ok_or_else(|| io::Error::other("selected start already consumed"))?;
+-            let options = match inputs {
++            let mut options = match inputs {
+                 Inputs::Options(options) => options,
+                 Inputs::Mcp(sources) => sources.into_start_options(),
+             };
++            let allocation = selected
++                .allocation
++                .take()
++                .ok_or_else(|| io::Error::other("selected native allocation already consumed"))?;
++            // MCP source capture kept original fresh options without a public
++            // reserved ID. Only one-use ordinary adoption attaches this SAME ID.
++            options.reserved_thread_id = Some(allocation.thread_id());
+             Ok(SelectedStartAdoption {
+                 owner: Arc::clone(&self.state),
+                 options,
+                 policy: Arc::clone(&policy),
++                allocation,
+             })
+         })?
+     }
+ 
++    /// Ordinary identity/controller adoption only. No prepared ModelClient has
++    /// been constructed: original lifecycle/metadata/history inputs remain open.
++    /// This API does not dispatch a captured/count-witnessed request.
+     pub async fn start_selected_start(
+         &self,
+         adoption: SelectedStartAdoption,
+@@ -196,6 +216,7 @@ impl ThreadManager {
+             /*forked_from_thread_id*/ None,
+             /*startup*/ None,
+             Some(Arc::clone(&adoption.policy.manager)),
++            Some(adoption.allocation.into_control()),
+         ))
+         .await
+     }
+diff --git a/codex-rs/core/src/thread_manager/selected_start_allocation.rs b/codex-rs/core/src/thread_manager/selected_start_allocation.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..abf637b06b663688ef6b0430a7a167fcdae3a950
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/selected_start_allocation.rs
+@@ -0,0 +1,37 @@
++//! Private allocation retained by selected-start custody. Identity is allocated
++//! by the SAME original controller/runtime policy ordinary Session startup uses.
++//! This is NOT a ModelClient allocation, source lease, thread, count or permit.
++use super::*;
++use crate::session::native_allocation::original_thread_id;
++
++pub(super) struct SelectedStartNativeAllocation {
++    thread_id: ThreadId,
++    control: LocalAgentControl,
++}
++impl SelectedStartNativeAllocation {
++    pub(super) fn allocate(
++        manager: &ThreadManager,
++        options: &StartThreadOptions,
++    ) -> io::Result<Self> {
++        // prepare_selected_start has already required genuine fresh options and
++        // loaded the strict original policy. No new controller factory is run.
++        let control = manager.agent_control_for_config(&options.config);
++        let thread_id = original_thread_id(
++            &options.initial_history,
++            options.reserved_thread_id,
++            &AgentControlInit::Local(control.clone()),
++        )
++        .map_err(io::Error::other)?;
++        Ok(Self { thread_id, control })
++    }
++    pub(super) fn thread_id(&self) -> ThreadId {
++        self.thread_id
++    }
++    pub(super) fn into_control(self) -> LocalAgentControl {
++        self.control
++    }
++}
++
++#[cfg(test)]
++#[path = "selected_start_allocation_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs b/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..90887ea33592162f0ca76633774f75df8cfd7caf
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs
+@@ -0,0 +1,124 @@
++use super::*;
++use crate::config::ConfigBuilder;
++use codex_config::LoaderOverrides;
++use codex_exec_server::EnvironmentManager;
++use pretty_assertions::assert_eq;
++use std::sync::atomic::AtomicUsize;
++
++async fn fixture() -> (tempfile::TempDir, Config, ThreadManager) {
++    let home = tempfile::tempdir().unwrap();
++    let config = ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .loader_overrides(LoaderOverrides::with_managed_config_path_for_tests(
++            home.path().join("managed.toml"),
++        ))
++        .fallback_cwd(Some(home.path().to_path_buf()))
++        .build()
++        .await
++        .unwrap();
++    let manager = ThreadManager::with_models_provider_and_home_for_tests(
++        CodexAuth::from_api_key("synthetic-native-allocation"),
++        config.model_provider.clone(),
++        home.path().to_path_buf(),
++        Arc::new(EnvironmentManager::default_for_tests()),
++    );
++    (home, config, manager)
++}
++
++#[tokio::test]
++async fn same_original_allocation_and_controller_are_adopted_once_without_starting() {
++    let (_home, config, manager) = fixture().await;
++    let allocations = Arc::new(AtomicUsize::new(0));
++    let controller_calls = Arc::new(AtomicUsize::new(0));
++    let ids = Arc::clone(&allocations);
++    let calls = Arc::clone(&controller_calls);
++    let manager = manager
++        .with_thread_id_generator(move || {
++            ThreadId::from_u128(
++                /*value*/
++                0x018f_0000_0000_7000_8000_0000_0000_0000
++                    + ids.fetch_add(1, Ordering::SeqCst) as u128,
++            )
++        })
++        .with_agent_control_factory(move |_| {
++            calls.fetch_add(1, Ordering::SeqCst);
++            async {
++                Err(CodexErr::InvalidRequest(
++                    "controller factory must not run during allocation".to_string(),
++                ))
++            }
++        });
++    let mut events = manager.state.thread_created_tx.subscribe();
++    let mut selected = manager
++        .prepare_selected_start(StartThreadOptions::new(config))
++        .await
++        .unwrap();
++    let original_id = selected.allocation.as_ref().unwrap().thread_id();
++    assert!(
++        selected
++            .start_options()
++            .unwrap()
++            .reserved_thread_id
++            .is_none()
++    );
++    assert_eq!(allocations.load(Ordering::SeqCst), 1);
++    let adoption = manager.adopt_selected_start(&mut selected).unwrap();
++    assert_eq!(adoption.options.reserved_thread_id, Some(original_id));
++    let control = adoption.allocation.into_control();
++    // Exercise the very original resolver ordinary Session uses at adoption,
++    // with the consumed SAME controller and original selected options.
++    assert_eq!(
++        original_thread_id(
++            &adoption.options.initial_history,
++            adoption.options.reserved_thread_id,
++            &AgentControlInit::Local(control)
++        )
++        .unwrap(),
++        original_id
++    );
++    assert_eq!(allocations.load(Ordering::SeqCst), 1);
++    assert_eq!(controller_calls.load(Ordering::SeqCst), 0);
++    assert!(manager.adopt_selected_start(&mut selected).is_err());
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(matches!(
++        events.try_recv(),
++        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
++    ));
++}
++
++#[tokio::test]
++async fn foreign_owner_and_strict_policy_failure_never_reallocate_or_transfer_identity() {
++    let (home, config, manager) = fixture().await;
++    let (_other_home, _other_config, foreign) = fixture().await;
++    let allocations = Arc::new(AtomicUsize::new(0));
++    let ids = Arc::clone(&allocations);
++    let manager = manager.with_thread_id_generator(move || {
++        ids.fetch_add(1, Ordering::SeqCst);
++        ThreadId::new()
++    });
++    let mut selected = manager
++        .prepare_selected_start(StartThreadOptions::new(config.clone()))
++        .await
++        .unwrap();
++    let original_id = selected.allocation.as_ref().unwrap().thread_id();
++    assert!(foreign.adopt_selected_start(&mut selected).is_err());
++    let adoption = manager.adopt_selected_start(&mut selected).unwrap();
++    assert_eq!(adoption.options.reserved_thread_id, Some(original_id));
++    assert_eq!(allocations.load(Ordering::SeqCst), 1);
++    std::fs::create_dir_all(home.path().join("rules")).unwrap();
++    let invalid = "prefix_rule(not valid";
++    std::fs::write(home.path().join("rules/default.rules"), invalid).unwrap();
++    assert!(
++        manager
++            .prepare_selected_start(StartThreadOptions::new(config))
++            .await
++            .is_err()
++    );
++    assert_eq!(allocations.load(Ordering::SeqCst), 1);
++    assert_eq!(
++        std::fs::read_to_string(home.path().join("rules/default.rules")).unwrap(),
++        invalid
++    );
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(foreign.list_thread_ids().await.is_empty());
++}
+diff --git a/codex-rs/core/src/thread_manager/selected_start_tests.rs b/codex-rs/core/src/thread_manager/selected_start_tests.rs
+index dbf3cea36fbbcd2b6369fd31c937e9671b2215b5..b888a8d34d298a36bdf62ec5aa82c20406311dfc 100644
+--- a/codex-rs/core/src/thread_manager/selected_start_tests.rs
++++ b/codex-rs/core/src/thread_manager/selected_start_tests.rs
+@@ -33,6 +33,7 @@ async fn selected_start_restores_actual_options_and_same_strict_policy_once_with
+     let mut created = manager.state.thread_created_tx.subscribe();
+     let mut selected = manager.prepare_selected_start(options).await.unwrap();
+     assert_eq!(&selected.start_options().unwrap().config, &config);
++    let allocated_id = selected.allocation.as_ref().unwrap().thread_id();
+     let policy = Arc::clone(&selected.policy.manager);
+     let publication = Arc::clone(selected.policy());
+     manager.renew_selected_start(&selected).await.unwrap();
+@@ -49,7 +50,7 @@ async fn selected_start_restores_actual_options_and_same_strict_policy_once_with
+         Some(vec!["retained-selection".to_string()])
+     );
+     assert!(adopted.options.environments.is_some());
+-    assert!(adopted.options.reserved_thread_id.is_none());
++    assert_eq!(adopted.options.reserved_thread_id, Some(allocated_id));
+     assert!(manager.adopt_selected_start(&mut selected).is_err());
+     assert!(manager.state.threads.read().await.is_empty());
+     assert!(matches!(

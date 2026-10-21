@@ -32,6 +32,8 @@ export interface ConversationPresentationOptions {
   authScope?: string;
   /** Supply the existing owner's currentVerifiedAuthSessionId; never a second auth registry. */
   getVerifiedAuthScope?(): string | undefined;
+  /** Existing application route/client/action fence; not a second auth owner. */
+  isCurrent?(): boolean;
   draftId?: string;
   names?: Readonly<Record<string, string>>;
 }
@@ -60,10 +62,11 @@ const message = (cause: unknown) =>
  * It never calls send, queues work, allocates sessions or infers execution readiness.
  */
 export function useConversationPresentation(options: ConversationPresentationOptions) {
-  const { collaborationId, api, authScope, getVerifiedAuthScope, draftId, names } = options;
+  const { collaborationId, api, authScope, getVerifiedAuthScope, isCurrent, draftId, names } =
+    options;
   const owner = useMemo(
-    () => ({ collaborationId, api, authScope, getVerifiedAuthScope, draftId }),
-    [collaborationId, api, authScope, getVerifiedAuthScope, draftId],
+    () => ({ collaborationId, api, authScope, getVerifiedAuthScope, isCurrent, draftId }),
+    [collaborationId, api, authScope, getVerifiedAuthScope, isCurrent, draftId],
   );
   const currentOwner = useRef(owner);
   currentOwner.current = owner;
@@ -100,12 +103,13 @@ export function useConversationPresentation(options: ConversationPresentationOpt
         !!authScope &&
         !!collaborationId &&
         SessionCollaborationIdSchema.safeParse(collaborationId).success &&
-        getVerifiedAuthScope?.() === authScope
+        getVerifiedAuthScope?.() === authScope &&
+        (isCurrent?.() ?? true)
       );
     } catch {
       return false;
     }
-  }, [owner, authScope, collaborationId, getVerifiedAuthScope]);
+  }, [owner, authScope, collaborationId, getVerifiedAuthScope, isCurrent]);
   const publish = useCallback(
     (patch: Partial<ViewState>) => {
       if (!mounted.current || currentOwner.current !== owner) return;
@@ -423,6 +427,7 @@ export function useConversationPresentation(options: ConversationPresentationOpt
         ? 'A selected agent is unavailable. Choose who replies before sending.'
         : null;
   return {
+    isCurrent: valid,
     projection,
     draft: visible.draft,
     loading: visible.loading,

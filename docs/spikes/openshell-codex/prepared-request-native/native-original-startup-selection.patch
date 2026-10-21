@@ -1,0 +1,1454 @@
+diff --git a/codex-rs/app-server/src/selected_start_config.rs b/codex-rs/app-server/src/selected_start_config.rs
+index 8ebbb29..39cee7f 100644
+--- a/codex-rs/app-server/src/selected_start_config.rs
++++ b/codex-rs/app-server/src/selected_start_config.rs
+@@ -302,6 +302,28 @@ impl SelectedConfiguredStart<'_> {
+     pub(crate) fn start(&self) -> &SelectedStartInputs {
+         &self.start
+     }
++    pub(crate) async fn capture_startup(&mut self, manager: &ThreadManager) -> io::Result<()> {
++        let result = async {
++            if self.installed.is_none() {
++                return Err(io::Error::other(
++                    "original first-command composition missing",
++                ));
++            }
++            self.renew(manager).await?;
++            manager
++                .capture_selected_start_startup(&mut self.start)
++                .await?;
++            self.renew(manager).await
++        }
++        .await;
++        if result.is_err() {
++            self.source.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
++    pub(crate) fn capture_startup_api_mcp(&mut self, manager: &ThreadManager) -> io::Result<()> {
++        manager.capture_selected_start_startup_mcp(&mut self.start)
++    }
+     pub(crate) fn capture_api_mcp(
+         &mut self,
+         manager: &ThreadManager,
+@@ -352,6 +374,27 @@ impl SelectedConfiguredStart<'_> {
+         self.source.renew().await
+     }
+ 
++    pub(crate) async fn adopt_startup(
++        &mut self,
++        manager: &ThreadManager,
++    ) -> io::Result<codex_core::SelectedStartAdoption> {
++        self.renew(manager).await?;
++        self.source
++            .runtime
++            .with_current(|| ())
++            .map_err(|_| io::Error::other("runtime feature publication changed"))?;
++        let adoption = manager
++            .adopt_selected_start_startup(&mut self.start)
++            .await?;
++        // Recheck the actual loader and its publisher after native DATA movement.
++        // Failure drops irreversible custody, with no Session or provider effect.
++        self.source.renew().await?;
++        self.source
++            .runtime
++            .with_current(|| ())
++            .map_err(|_| io::Error::other("runtime feature publication changed"))?;
++        Ok(adoption)
++    }
+     pub(crate) fn adopt(
+         &mut self,
+         manager: &ThreadManager,
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index 8b8fffd..5dc74b2 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -37,8 +37,26 @@ fn thread_manager(
+     Arc<ThreadManager>,
+     Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
+     Arc<AuthManager>,
++) {
++    thread_manager_with_models(config, store, |auth| {
++        Arc::new(StaticModelsManager::new(
++            Some(Arc::clone(auth)),
++            ModelsResponse { models: Vec::new() },
++        ))
++    })
++}
++
++fn thread_manager_with_models(
++    config: &Config,
++    store: Arc<InMemoryThreadStore>,
++    make_models: impl FnOnce(&Arc<AuthManager>) -> codex_models_manager::manager::SharedModelsManager,
++) -> (
++    Arc<ThreadManager>,
++    Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++    Arc<AuthManager>,
+ ) {
+     let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("synthetic-offline"));
++    let models = make_models(&auth);
+     let environment = Arc::new(EnvironmentManager::default_for_tests());
+     let (outgoing_tx, _outgoing_rx) = tokio::sync::mpsc::channel(4);
+     let outgoing = Arc::new(crate::outgoing_message::OutgoingMessageSender::new(
+@@ -81,10 +99,7 @@ fn thread_manager(
+         ThreadManager::new(
+             config,
+             Arc::clone(&auth),
+-            Arc::new(StaticModelsManager::new(
+-                Some(Arc::clone(&auth)),
+-                ModelsResponse { models: Vec::new() },
+-            )),
++            Arc::clone(&models),
+             CodexAppsToolsCache::default(),
+             SessionSource::Exec,
+             Arc::clone(&environment),
+@@ -283,3 +298,112 @@ async fn original_publisher_change_after_client_construction_prevents_adoption()
+         codex_thread_store::InMemoryThreadStoreCalls::default()
+     );
+ }
++
++#[derive(Debug)]
++struct NoStartupEndpoint;
++impl codex_models_manager::manager::ModelsEndpointClient for NoStartupEndpoint {
++    fn identity(&self) -> Option<String> {
++        Some("offline-installed-startup".to_string())
++    }
++    fn has_command_auth(&self) -> bool {
++        false
++    }
++    fn uses_codex_backend(&self) -> codex_models_manager::manager::ModelsEndpointFuture<'_, bool> {
++        Box::pin(std::future::ready(false))
++    }
++    fn list_models<'a>(
++        &'a self,
++        _version: &'a str,
++        _factory: codex_http_client::HttpClientFactory,
++    ) -> codex_models_manager::manager::ModelsEndpointFuture<
++        'a,
++        codex_protocol::error::Result<codex_models_manager::manager::ModelsEndpointResponse>,
++    > {
++        panic!("installed startup preparation must not invoke an endpoint")
++    }
++}
++
++#[tokio::test]
++async fn installed_first_command_startup_preserves_raw_owner_and_effective_inputs_without_start() {
++    let home = tempfile::tempdir().unwrap();
++    std::fs::write(
++        home.path().join("config.toml"),
++        "model = 'gpt-6-luna'\nsandbox_mode = 'danger-full-access'\n",
++    )
++    .unwrap();
++    std::fs::write(
++        home.path().join("requirements.toml"),
++        "[auto_review]\nrequired_on_models = ['gpt-6-luna']\n",
++    )
++    .unwrap();
++    let configs = manager(home.path());
++    let source = configs
++        .load_selected_start_config(
++            None,
++            ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let raw = source.config().clone();
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, installed, auth) = thread_manager_with_models(&raw, Arc::clone(&store), |auth| {
++        Arc::new(
++            codex_models_manager::manager::OpenAiModelsManager::new_without_cache(
++                Arc::new(NoStartupEndpoint),
++                Some(Arc::clone(auth)),
++            ),
++        )
++    });
++    assert!(raw.features.enabled(Feature::Apps));
++    assert!(raw.features.enabled(Feature::Plugins));
++    let command = OriginalFirstCommandStart::new(
++        StartThreadOptions::new(raw.clone()),
++        threads.reserve_thread_start(),
++        installed,
++    );
++    let mut selected = source
++        .capture_first_command(&threads, command)
++        .await
++        .unwrap();
++    selected.capture_startup(&threads).await.unwrap();
++    let effective = selected.start().start_options().unwrap().config.clone();
++    // The real raw loader is renewed against raw values, never derived values.
++    assert_eq!(selected.source.config(), &raw);
++    assert_ne!(effective, raw);
++    selected.renew(&threads).await.unwrap();
++    assert!(selected.adopt(&threads).is_err());
++    selected.capture_startup_api_mcp(&threads).unwrap();
++    assert_eq!(
++        &selected
++            .start()
++            .mcp_sources()
++            .unwrap()
++            .start_options()
++            .config,
++        &effective
++    );
++    selected.construct_client(&threads).await.unwrap();
++    assert!(Arc::ptr_eq(
++        &auth,
++        &threads
++            .selected_start_client(selected.start())
++            .unwrap()
++            .auth_manager()
++            .unwrap()
++    ));
++    let adoption = selected.adopt_startup(&threads).await.unwrap();
++    assert!(Arc::ptr_eq(
++        &auth,
++        &adoption.client().unwrap().auth_manager().unwrap()
++    ));
++    assert!(selected.adopt_startup(&threads).await.is_err());
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++    assert!(!home.path().join(".sandbox_migration").exists());
++}
+diff --git a/codex-rs/core/src/session/client_input_data.rs b/codex-rs/core/src/session/client_input_data.rs
+index 7f09da1..121cf4f 100644
+--- a/codex-rs/core/src/session/client_input_data.rs
++++ b/codex-rs/core/src/session/client_input_data.rs
+@@ -38,6 +38,7 @@ enum OriginalClientSlot {
+ 
+ pub(crate) struct OriginalClientInputData {
+     client: OriginalClientSlot,
++    startup: Option<super::startup_selection::OriginalStartupSelection>,
+     thread_id: ThreadId,
+     init: ExtensionDataInit,
+     routing_config: (String, AbsolutePathBuf, codex_config::ConfigLayerStack),
+@@ -71,6 +72,7 @@ impl OriginalClientInputData {
+             .expect("original routing was inserted");
+         Self {
+             client: OriginalClientSlot::NotConstructed,
++            startup: None,
+             thread_id,
+             init: init.clone(),
+             routing_config: (
+@@ -87,6 +89,36 @@ impl OriginalClientInputData {
+             session_frame: None,
+         }
+     }
++    pub(crate) fn startup(&self) -> Option<&super::startup_selection::OriginalStartupSelection> {
++        self.startup.as_ref()
++    }
++    pub(crate) fn install_startup(
++        &mut self,
++        startup: super::startup_selection::OriginalStartupSelection,
++    ) -> io::Result<()> {
++        if self.startup.is_some() || !matches!(self.client, OriginalClientSlot::NotConstructed) {
++            return Err(io::Error::other(
++                "startup selection already captured or client constructed",
++            ));
++        }
++        // The existing controller consumed raw rollout_budget; the original
++        // routing/recorder allocators consumed exactly the projection below.
++        // Neither is reallocated from effective startup values.
++        if startup.raw_config().rollout_budget != startup.effective_config().rollout_budget {
++            return Err(io::Error::other(
++                "startup changed original controller inputs",
++            ));
++        }
++        self.validate_config(startup.raw_config())?;
++        self.validate_config(startup.effective_config())?;
++        self.startup = Some(startup);
++        Ok(())
++    }
++    pub(super) fn take_startup(
++        &mut self,
++    ) -> Option<super::startup_selection::OriginalStartupSelection> {
++        self.startup.take()
++    }
+     pub(crate) fn prepare_client(
+         &mut self,
+         options: &crate::StartThreadOptions,
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 3e90e1e..5da53e6 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -258,6 +258,7 @@ pub(crate) mod session;
+ pub(crate) use parent_approval::InitialExecApprovalIssuer;
+ pub(crate) use parent_approval::InterceptedApprovalSelection;
+ pub(crate) mod startup_prewarm;
++pub(crate) mod startup_selection;
+ mod step_activation;
+ pub(crate) mod step_context;
+ pub(crate) mod step_settings;
+@@ -604,6 +605,24 @@ impl Session {
+             client_input_data::SessionChannels::allocate()
+         };
+ 
++        let (startup_owner, mut startup_stages, config) = match inherited_client_inputs
++            .as_mut()
++            .and_then(|inputs| inputs.take_startup())
++        {
++            Some(startup) => {
++                let (owner, stages, raw) = startup
++                    .into_session(
++                        &models_manager,
++                        &auth_manager,
++                        &config,
++                        &conversation_history,
++                        &session_source,
++                    )
++                    .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++                (Some(owner), Some(stages), raw)
++            }
++            None => (None, None, config),
++        };
+         let isolation = thread_extension_init
+             .get::<codex_extension_api::SessionIsolation>()
+             .map(|policy| *policy)
+@@ -655,68 +674,59 @@ impl Session {
+         };
+ 
+         let mut config = Arc::new(config);
+-        let refresh_strategy = if session_source.is_non_root_agent() {
+-            codex_models_manager::manager::RefreshStrategy::Offline
++        let startup_catalog = if let Some(owner) = &startup_owner {
++            Some(
++                owner
++                    .pin()
++                    .await
++                    .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?,
++            )
+         } else {
+-            codex_models_manager::manager::RefreshStrategy::OnlineIfUncached
++            None
+         };
+-        if config.model.is_none()
+-            || !matches!(
+-                refresh_strategy,
++        let (model, trusted_guardian_reviewer) = if let Some(stages) = &mut startup_stages {
++            let (model, reviewed, trusted) = stages
++                .take_review()
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++            config = reviewed;
++            (model, trusted)
++        } else {
++            let refresh_strategy = if session_source.is_non_root_agent() {
+                 codex_models_manager::manager::RefreshStrategy::Offline
+-            )
+-        {
+-            let _ = models_manager
+-                .list_models(refresh_strategy, config.http_client_factory())
++            } else {
++                codex_models_manager::manager::RefreshStrategy::OnlineIfUncached
++            };
++            if config.model.is_none()
++                || !matches!(
++                    refresh_strategy,
++                    codex_models_manager::manager::RefreshStrategy::Offline
++                )
++            {
++                let _ = models_manager
++                    .list_models(refresh_strategy, config.http_client_factory())
++                    .await;
++            }
++            let model = models_manager
++                .get_default_model(
++                    &config.model,
++                    allow_provider_model_fallback,
++                    refresh_strategy,
++                    config.http_client_factory(),
++                )
+                 .await;
+-        }
+-        let model = models_manager
+-            .get_default_model(
+-                &config.model,
+-                allow_provider_model_fallback,
+-                refresh_strategy,
+-                config.http_client_factory(),
+-            )
+-            .await;
+-        if model.trim().is_empty() {
+-            return Err(CodexErr::InvalidRequest(
+-                "No models are available. Set `model` explicitly or check your model catalog configuration.".to_string(),
+-            ));
+-        }
+-        let trusted_guardian_reviewer = crate::guardian::is_basic_session_source(&session_source)
+-            && !matches!(conversation_history, InitialHistory::Resumed(_));
+-        if config
+-            .config_layer_stack
+-            .requirements()
+-            .auto_review_required_for_model(&model)
+-            && !trusted_guardian_reviewer
+-        {
+-            let config = Arc::make_mut(&mut config);
+-            if matches!(
+-                config.legacy_sandbox_policy(),
+-                SandboxPolicy::DangerFullAccess
+-            ) {
+-                let permission_profile = PermissionProfile::workspace_write();
+-                config
+-                    .permissions
+-                    .set_permission_profile(permission_profile.clone())
+-                    .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
+-                if let Some(network) = config.permissions.network.as_ref() {
+-                    config.permissions.network = Some(
+-                        network
+-                            .recompute_for_permission_profile(&permission_profile)
+-                            .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?,
+-                    );
+-                }
++            if model.trim().is_empty() {
++                return Err(CodexErr::InvalidRequest(
++                    "No models are available. Set `model` explicitly or check your model catalog configuration.".to_string(),
++                ));
+             }
+-            config
+-                .config_layer_stack
+-                .requirements()
+-                .approvals_reviewer
+-                .can_set(&ApprovalsReviewer::AutoReview)
+-                .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
+-            config.approvals_reviewer = ApprovalsReviewer::AutoReview;
+-        }
++            let trusted = startup_selection::apply_review(
++                &mut config,
++                &model,
++                &conversation_history,
++                &session_source,
++            )?;
++            (model, trusted)
++        };
+         if allow_provider_model_fallback
+             && let Some(requested_model) = config.model.as_ref()
+             && model != *requested_model
+@@ -733,25 +743,33 @@ impl Session {
+         // 1. config.base_instructions override
+         // 2. conversation history => session_meta.base_instructions
+         // 3. rendered instructions_template for current model
+-        let model_info = models_manager
+-            .get_model_info(model.as_str(), &config.to_models_manager_config())
+-            .await;
+-        let auth = auth_manager.auth_cached();
+-        // Forked subagents keep their parent's activation with the copied history.
+-        // Fresh children restore configured preferences before applying startup defaults.
+-        let inherits_token_budget = matches!(&conversation_history, InitialHistory::Forked(_))
+-            && config.token_budget_startup_config.is_some();
+-        if !inherits_token_budget {
+-            Arc::make_mut(&mut config)
+-                .prepare_token_budget_for_startup()
+-                .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
+-            // Resolve activation for this runtime, including when resuming saved history.
+-            token_budget::apply_experimental_context(
+-                Arc::make_mut(&mut config),
++        let model_info = if let Some(owner) = &startup_owner {
++            owner.model_info().clone()
++        } else {
++            models_manager
++                .get_model_info(model.as_str(), &config.to_models_manager_config())
++                .await
++        };
++        let auth = if let Some(owner) = &startup_owner {
++            Some(
++                owner
++                    .current_auth()
++                    .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?,
++            )
++        } else {
++            auth_manager.auth_cached()
++        };
++        if let Some(stages) = &mut startup_stages {
++            config = stages
++                .take_effective()
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        } else {
++            startup_selection::apply_token_budget(
++                &mut config,
++                &conversation_history,
+                 auth.as_ref(),
+                 &model_info,
+             )?;
+-            token_budget::apply_model_defaults(Arc::make_mut(&mut config), &model_info);
+         }
+         if let Some(inputs) = &inherited_client_inputs {
+             inputs
+@@ -765,11 +783,23 @@ impl Session {
+         let history_mode = conversation_history.get_history_mode(
+             requested_history_mode.unwrap_or_else(|| thread_store.default_history_mode()),
+         );
+-        let base_instructions = config
+-            .base_instructions
+-            .clone()
+-            .or_else(|| conversation_history.get_base_instructions().map(|s| s.text))
+-            .unwrap_or_else(|| render_model_instructions(&model_info));
++        let base_instructions = if let Some(stages) = &mut startup_stages {
++            stages
++                .take_base()
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?
++        } else {
++            startup_selection::resolve_base_instructions(
++                &config,
++                &conversation_history,
++                &model_info,
++            )
++        };
++        if let Some(owner) = &startup_owner {
++            owner
++                .current_auth()
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        }
++        drop(startup_catalog);
+ 
+         // Dynamic tools are defined at thread start and persisted in rollout session metadata.
+         let dynamic_tools = if dynamic_tools.is_empty() {
+diff --git a/codex-rs/core/src/session/startup_selection.rs b/codex-rs/core/src/session/startup_selection.rs
+new file mode 100644
+index 0000000..51e4b3f
+--- /dev/null
++++ b/codex-rs/core/src/session/startup_selection.rs
+@@ -0,0 +1,297 @@
++//! Original startup DATA stages and exact catalog/credential observations.
++//! Raw loader Config remains distinct from reviewed/effective Config. This
++//! packet neither captures a request nor grants account eligibility or Ready.
++use super::*;
++use codex_models_manager::model_limits::ModelLimitsCatalogGuard;
++use codex_models_manager::model_limits::UnverifiedModelLimitCandidate;
++use std::io;
++
++/// Non-Clone/non-Serialize; created only by the selected ThreadManager phase.
++pub(crate) struct OriginalStartupSelection {
++    pub(super) owner: StartupSelectionOwner,
++    pub(super) stages: StartupSelectionStages,
++}
++pub(super) struct StartupSelectionOwner {
++    models: SharedModelsManager,
++    auth: Arc<AuthManager>,
++    pub(crate) credentials: Arc<codex_login::auth::CapturedApiKeyCredentials>,
++    candidate: Arc<UnverifiedModelLimitCandidate>,
++    raw: Config,
++    effective: Arc<Config>,
++    source: SessionSource,
++}
++pub(super) struct StartupSelectionStages {
++    model: String,
++    reviewed: Option<Arc<Config>>,
++    effective: Option<Arc<Config>>,
++    base: Option<String>,
++    trusted: bool,
++}
++impl OriginalStartupSelection {
++    pub(crate) async fn capture(
++        options: &crate::StartThreadOptions,
++        source: &SessionSource,
++        auth: &Arc<AuthManager>,
++        models: &SharedModelsManager,
++    ) -> io::Result<Self> {
++        if !matches!(options.initial_history, InitialHistory::New) {
++            return Err(io::Error::other(
++                "startup selection requires original fresh history",
++            ));
++        }
++        let raw = options.config.clone();
++        let model = raw
++            .model
++            .clone()
++            .filter(|id| !id.trim().is_empty())
++            .ok_or_else(|| io::Error::other("startup selection requires an explicit model"))?;
++        crate::client::ModelClient::validate_public_api_client_inputs(source, &raw.model_provider)
++            .map_err(io::Error::other)?;
++        let credentials = Arc::new(
++            auth.capture_cached_api_key_credentials()
++                .ok_or_else(|| io::Error::other("original cached API credentials unavailable"))?,
++        );
++        // Release all synchronous auth locks before any catalog await or Config work.
++        auth.with_current_api_key_credentials(&credentials, |_, _| ())
++            .ok_or_else(|| io::Error::other("original credentials changed"))?;
++        let mut reviewed = Arc::new(raw.clone());
++        let trusted = apply_review(&mut reviewed, &model, &options.initial_history, source)
++            .map_err(io::Error::other)?;
++        let candidate = models
++            .capture_model_limit_candidate(&model, &reviewed.to_models_manager_config())
++            .await
++            .ok_or_else(|| io::Error::other("exact original model candidate unavailable"))?;
++        // Unknown managers refuse above, before invoking an ordinary metadata
++        // method. The original manager's getter observes only its retained catalog.
++        let actual_row = models
++            .get_model_info(&model, &reviewed.to_models_manager_config())
++            .await;
++        let pin = models
++            .pin_model_limit_candidate(&candidate)
++            .await
++            .ok_or_else(|| io::Error::other("original model publication changed"))?;
++        if candidate.model_info() != &actual_row {
++            return Err(io::Error::other(
++                "exact candidate differs from ordinary model selection",
++            ));
++        }
++        let cached_auth = auth
++            .with_current_api_key_credentials(&credentials, |auth, _| auth.clone())
++            .ok_or_else(|| io::Error::other("original credentials changed"))?;
++        let mut effective = Arc::clone(&reviewed);
++        apply_token_budget(
++            &mut effective,
++            &options.initial_history,
++            Some(&cached_auth),
++            candidate.model_info(),
++        )
++        .map_err(io::Error::other)?;
++        let base =
++            resolve_base_instructions(&effective, &options.initial_history, candidate.model_info());
++        auth.with_current_api_key_credentials(&credentials, |_, _| ())
++            .ok_or_else(|| io::Error::other("original credentials changed"))?;
++        drop(pin);
++        Ok(Self {
++            owner: StartupSelectionOwner {
++                models: Arc::clone(models),
++                auth: Arc::clone(auth),
++                credentials,
++                candidate: Arc::new(candidate),
++                raw,
++                effective: Arc::clone(&effective),
++                source: source.clone(),
++            },
++            stages: StartupSelectionStages {
++                model,
++                reviewed: Some(reviewed),
++                effective: Some(effective),
++                base: Some(base),
++                trusted,
++            },
++        })
++    }
++    pub(crate) fn catalog_observation(
++        &self,
++    ) -> (SharedModelsManager, Arc<UnverifiedModelLimitCandidate>) {
++        (
++            Arc::clone(&self.owner.models),
++            Arc::clone(&self.owner.candidate),
++        )
++    }
++    pub(crate) fn validate_selection(
++        &self,
++        models: &SharedModelsManager,
++        auth: &Arc<AuthManager>,
++        config: &Config,
++    ) -> io::Result<()> {
++        self.owner.validate(models, auth, config)
++    }
++    pub(crate) fn raw_config(&self) -> &Config {
++        &self.owner.raw
++    }
++    pub(crate) fn effective_config(&self) -> &Config {
++        &self.owner.effective
++    }
++    pub(crate) fn credentials(&self) -> Arc<codex_login::auth::CapturedApiKeyCredentials> {
++        Arc::clone(&self.owner.credentials)
++    }
++    pub(crate) async fn renew(
++        &self,
++        models: &SharedModelsManager,
++        auth: &Arc<AuthManager>,
++        config: &Config,
++    ) -> io::Result<()> {
++        self.owner.validate(models, auth, config)?;
++        let _pin = self.owner.pin().await?;
++        self.owner.current_auth()?;
++        Ok(())
++    }
++    pub(super) fn into_session(
++        self,
++        models: &SharedModelsManager,
++        auth: &Arc<AuthManager>,
++        config: &Config,
++        history: &InitialHistory,
++        source: &SessionSource,
++    ) -> io::Result<(StartupSelectionOwner, StartupSelectionStages, Config)> {
++        self.owner.validate(models, auth, config)?;
++        if !matches!(history, InitialHistory::New) || *source != self.owner.source {
++            return Err(io::Error::other(
++                "ordinary startup changed original startup inputs",
++            ));
++        }
++        let raw = self.owner.raw.clone();
++        Ok((self.owner, self.stages, raw))
++    }
++}
++impl StartupSelectionOwner {
++    fn validate(
++        &self,
++        models: &SharedModelsManager,
++        auth: &Arc<AuthManager>,
++        config: &Config,
++    ) -> io::Result<()> {
++        if !Arc::ptr_eq(models, &self.models)
++            || !Arc::ptr_eq(auth, &self.auth)
++            || *config != *self.effective
++        {
++            return Err(io::Error::other(
++                "original startup owner or effective Config changed",
++            ));
++        }
++        self.current_auth().map(|_| ())
++    }
++    pub(super) async fn pin(&self) -> io::Result<ModelLimitsCatalogGuard<'_>> {
++        self.models
++            .pin_model_limit_candidate(&self.candidate)
++            .await
++            .ok_or_else(|| io::Error::other("original model publication changed"))
++    }
++    pub(super) fn model_info(&self) -> &ModelInfo {
++        self.candidate.model_info()
++    }
++    pub(super) fn current_auth(&self) -> io::Result<CodexAuth> {
++        self.auth
++            .with_current_api_key_credentials(&self.credentials, |auth, _| auth.clone())
++            .ok_or_else(|| io::Error::other("original credentials changed"))
++    }
++}
++impl StartupSelectionStages {
++    pub(super) fn take_review(&mut self) -> io::Result<(String, Arc<Config>, bool)> {
++        let reviewed = self
++            .reviewed
++            .take()
++            .ok_or_else(|| io::Error::other("startup review already adopted"))?;
++        Ok((std::mem::take(&mut self.model), reviewed, self.trusted))
++    }
++    pub(super) fn take_effective(&mut self) -> io::Result<Arc<Config>> {
++        self.effective
++            .take()
++            .ok_or_else(|| io::Error::other("startup activation already adopted"))
++    }
++    pub(super) fn take_base(&mut self) -> io::Result<String> {
++        self.base
++            .take()
++            .ok_or_else(|| io::Error::other("startup base instructions already adopted"))
++    }
++}
++
++// These are the original ordinary data transforms, shared at their original
++// pre-row / post-row / base-instructions evaluation positions.
++pub(super) fn apply_review(
++    config: &mut Arc<Config>,
++    model: &str,
++    conversation_history: &InitialHistory,
++    session_source: &SessionSource,
++) -> CodexResult<bool> {
++    let trusted_guardian_reviewer = crate::guardian::is_basic_session_source(&session_source)
++        && !matches!(conversation_history, InitialHistory::Resumed(_));
++    if config
++        .config_layer_stack
++        .requirements()
++        .auto_review_required_for_model(&model)
++        && !trusted_guardian_reviewer
++    {
++        let config = Arc::make_mut(config);
++        if matches!(
++            config.legacy_sandbox_policy(),
++            SandboxPolicy::DangerFullAccess
++        ) {
++            let permission_profile = PermissionProfile::workspace_write();
++            config
++                .permissions
++                .set_permission_profile(permission_profile.clone())
++                .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
++            if let Some(network) = config.permissions.network.as_ref() {
++                config.permissions.network = Some(
++                    network
++                        .recompute_for_permission_profile(&permission_profile)
++                        .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?,
++                );
++            }
++        }
++        config
++            .config_layer_stack
++            .requirements()
++            .approvals_reviewer
++            .can_set(&ApprovalsReviewer::AutoReview)
++            .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
++        config.approvals_reviewer = ApprovalsReviewer::AutoReview;
++    }
++    Ok(trusted_guardian_reviewer)
++}
++pub(super) fn apply_token_budget(
++    config: &mut Arc<Config>,
++    conversation_history: &InitialHistory,
++    auth: Option<&CodexAuth>,
++    model_info: &ModelInfo,
++) -> CodexResult<()> {
++    // Forked subagents keep their parent's activation with the copied history.
++    // Fresh children restore configured preferences before applying startup defaults.
++    let inherits_token_budget = matches!(conversation_history, InitialHistory::Forked(_))
++        && config.token_budget_startup_config.is_some();
++    if !inherits_token_budget {
++        Arc::make_mut(config)
++            .prepare_token_budget_for_startup()
++            .map_err(|err| CodexErr::InvalidRequest(err.to_string()))?;
++        // Resolve activation for this runtime, including when resuming saved history.
++        token_budget::apply_experimental_context(Arc::make_mut(config), auth, model_info)?;
++        token_budget::apply_model_defaults(Arc::make_mut(config), model_info);
++    }
++    Ok(())
++}
++pub(super) fn resolve_base_instructions(
++    config: &Config,
++    conversation_history: &InitialHistory,
++    model_info: &ModelInfo,
++) -> String {
++    config
++        .base_instructions
++        .clone()
++        .or_else(|| conversation_history.get_base_instructions().map(|s| s.text))
++        .unwrap_or_else(|| render_model_instructions(model_info))
++}
++
++#[cfg(test)]
++#[path = "startup_selection_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/startup_selection_tests.rs b/codex-rs/core/src/session/startup_selection_tests.rs
+new file mode 100644
+index 0000000..c28908c
+--- /dev/null
++++ b/codex-rs/core/src/session/startup_selection_tests.rs
+@@ -0,0 +1,310 @@
++use super::*;
++use codex_models_manager::manager::{
++    ModelsEndpointClient, ModelsEndpointFuture, ModelsEndpointResponse, OpenAiModelsManager,
++    RefreshStrategy,
++};
++use pretty_assertions::assert_eq;
++use std::sync::Mutex;
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++#[derive(Debug)]
++struct OfflineCatalog {
++    rows: Mutex<Vec<ModelInfo>>,
++    reads: AtomicUsize,
++}
++impl ModelsEndpointClient for OfflineCatalog {
++    fn identity(&self) -> Option<String> {
++        Some("synthetic-startup-source".to_string())
++    }
++    fn has_command_auth(&self) -> bool {
++        false
++    }
++    fn uses_codex_backend(&self) -> ModelsEndpointFuture<'_, bool> {
++        Box::pin(std::future::ready(false))
++    }
++    fn supports_api_key_models(&self) -> bool {
++        true
++    }
++    fn has_provider_api_key(&self) -> bool {
++        true
++    }
++    fn list_models<'a>(
++        &'a self,
++        _version: &'a str,
++        _factory: codex_http_client::HttpClientFactory,
++    ) -> ModelsEndpointFuture<'a, CodexResult<ModelsEndpointResponse>> {
++        self.reads.fetch_add(1, Ordering::SeqCst);
++        let models = self.rows.lock().unwrap().clone();
++        Box::pin(std::future::ready(Ok(ModelsEndpointResponse {
++            models,
++            etag: None,
++            identity: self.identity().unwrap(),
++        })))
++    }
++}
++async fn fixture() -> anyhow::Result<(
++    tempfile::TempDir,
++    crate::StartThreadOptions,
++    Arc<AuthManager>,
++    SharedModelsManager,
++    Arc<OfflineCatalog>,
++)> {
++    let home = tempfile::tempdir()?;
++    std::fs::write(
++        home.path().join("config.toml"),
++        "model = 'gpt-6-luna'\nsandbox_mode = 'danger-full-access'\n",
++    )?;
++    std::fs::write(
++        home.path().join("requirements.toml"),
++        "[auto_review]\nrequired_on_models = ['gpt-6-luna']\n",
++    )?;
++    let config = crate::config::ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .loader_overrides(
++            codex_config::LoaderOverrides::with_managed_config_path_for_tests(
++                home.path().join("managed.toml"),
++            ),
++        )
++        .fallback_cwd(Some(home.path().to_path_buf()))
++        .build()
++        .await?;
++    let auth = AuthManager::from_auth_for_testing_with_home(
++        CodexAuth::from_api_key("synthetic-startup-source"),
++        home.path().to_path_buf(),
++    );
++    // The exact shipped Luna row is published through the REAL catalog owner;
++    // only its external endpoint is deterministic offline data, never HTTP.
++    let row = codex_models_manager::bundled_models_response()?
++        .models
++        .into_iter()
++        .find(|row| row.slug == "gpt-6-luna")
++        .unwrap();
++    let endpoint = Arc::new(OfflineCatalog {
++        rows: Mutex::new(vec![row]),
++        reads: AtomicUsize::new(0),
++    });
++    let models: SharedModelsManager = Arc::new(
++        OpenAiModelsManager::new_without_cache(endpoint.clone(), Some(Arc::clone(&auth)))
++            .with_provider_catalog(),
++    );
++    models.set_api_key_model_discovery_enabled(true);
++    models
++        .raw_model_catalog(RefreshStrategy::Online, config.http_client_factory())
++        .await;
++    Ok((
++        home,
++        crate::StartThreadOptions::new(config),
++        auth,
++        models,
++        endpoint,
++    ))
++}
++
++#[tokio::test]
++async fn original_startup_stages_match_ordinary_transforms_and_adopt_each_stage_once()
++-> anyhow::Result<()> {
++    let (_home, options, auth, models, endpoint) = fixture().await?;
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models).await?;
++    let raw = options.config.clone();
++    let mut review = Arc::new(raw.clone());
++    let trusted = apply_review(
++        &mut review,
++        "gpt-6-luna",
++        &options.initial_history,
++        &SessionSource::Exec,
++    )?;
++    let row = models
++        .get_model_info("gpt-6-luna", &review.to_models_manager_config())
++        .await;
++    let mut effective = Arc::clone(&review);
++    apply_token_budget(
++        &mut effective,
++        &options.initial_history,
++        auth.auth_cached().as_ref(),
++        &row,
++    )?;
++    let base = resolve_base_instructions(&effective, &options.initial_history, &row);
++    assert_eq!(startup.owner.candidate.model_info(), &row);
++    assert_eq!(startup.effective_config(), effective.as_ref());
++    assert_eq!(startup.raw_config(), &raw);
++    assert_ne!(raw.permissions, effective.permissions);
++    assert_eq!(effective.approvals_reviewer, ApprovalsReviewer::AutoReview);
++    // Actual allocation consumed this controller/routing/recorder projection.
++    assert_eq!(
++        (
++            &raw.rollout_budget,
++            &raw.chatgpt_base_url,
++            &raw.cwd,
++            &raw.config_layer_stack,
++            crate::state::ExecutedToolCalls::is_enabled(&raw.features)
++        ),
++        (
++            &effective.rollout_budget,
++            &effective.chatgpt_base_url,
++            &effective.cwd,
++            &effective.config_layer_stack,
++            crate::state::ExecutedToolCalls::is_enabled(&effective.features)
++        ),
++    );
++    let constructor_projection = |config: &Config| {
++        (
++            config.model_provider.clone(),
++            config.model_verbosity,
++            config.ephemeral,
++            [
++                Feature::UseAgentIdentity,
++                Feature::ContentItemKinds,
++                Feature::ReasoningEffortOverride,
++                Feature::EnableRequestCompression,
++                Feature::RuntimeMetrics,
++                Feature::ConcurrentReasoningSummaries,
++            ]
++            .map(|feature| config.features.enabled(feature)),
++            Session::build_model_client_beta_features_header(config),
++            config.http_client_factory(),
++        )
++    };
++    assert!(Session::build_model_client_beta_features_header(&raw).is_some());
++    assert_eq!(
++        constructor_projection(&raw),
++        constructor_projection(&effective)
++    );
++    let (owner, mut stages, adopted_raw) = startup.into_session(
++        &models,
++        &auth,
++        &effective,
++        &options.initial_history,
++        &SessionSource::Exec,
++    )?;
++    let _pin = owner.pin().await?;
++    assert_eq!(adopted_raw, raw);
++    assert_eq!(
++        stages.take_review()?,
++        ("gpt-6-luna".to_string(), review, trusted)
++    );
++    assert!(stages.take_review().is_err());
++    assert_eq!(stages.take_effective()?, effective);
++    assert!(stages.take_effective().is_err());
++    assert_eq!(stages.take_base()?, base);
++    assert!(stages.take_base().is_err());
++    assert_eq!(endpoint.reads.load(Ordering::SeqCst), 1);
++    Ok(())
++}
++
++#[tokio::test]
++async fn startup_refuses_unknown_ambiguous_fallback_and_changed_catalog_publication()
++-> anyhow::Result<()> {
++    let (_home, mut options, auth, models, endpoint) = fixture().await?;
++    for model in [
++        None,
++        Some("unknown"),
++        Some("namespace/gpt-6-luna"),
++        Some("gpt-6-luna-preview"),
++        Some("gpt-6-luna "),
++    ] {
++        options.config.model = model.map(str::to_string);
++        assert!(
++            OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models)
++                .await
++                .is_err()
++        );
++    }
++    options.config.model = Some("gpt-6-luna".to_string());
++    let row = endpoint.rows.lock().unwrap()[0].clone();
++    *endpoint.rows.lock().unwrap() = vec![row.clone(), row.clone()];
++    models
++        .raw_model_catalog(
++            RefreshStrategy::Online,
++            options.config.http_client_factory(),
++        )
++        .await;
++    assert!(
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models)
++            .await
++            .is_err()
++    );
++    let mut fallback = row.clone();
++    fallback.used_fallback_model_metadata = true;
++    *endpoint.rows.lock().unwrap() = vec![fallback];
++    models
++        .raw_model_catalog(
++            RefreshStrategy::Online,
++            options.config.http_client_factory(),
++        )
++        .await;
++    assert!(
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models)
++            .await
++            .is_err()
++    );
++    *endpoint.rows.lock().unwrap() = vec![row];
++    models
++        .raw_model_catalog(
++            RefreshStrategy::Online,
++            options.config.http_client_factory(),
++        )
++        .await;
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models).await?;
++    let effective = startup.effective_config().clone();
++    // Publishing equal data still advances the ORIGINAL catalog publication.
++    models
++        .raw_model_catalog(
++            RefreshStrategy::Online,
++            options.config.http_client_factory(),
++        )
++        .await;
++    assert!(startup.renew(&models, &auth, &effective).await.is_err());
++    Ok(())
++}
++
++#[tokio::test]
++async fn startup_refuses_foreign_credential_catalog_owners_and_changed_effective_config()
++-> anyhow::Result<()> {
++    let (_home, options, auth, models, _endpoint) = fixture().await?;
++    let (_other_home, _other_options, foreign_auth, foreign_models, _) = fixture().await?;
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models).await?;
++    let mut effective = startup.effective_config().clone();
++    assert!(
++        startup
++            .renew(&foreign_models, &auth, &effective)
++            .await
++            .is_err()
++    );
++    assert!(
++        startup
++            .renew(&models, &foreign_auth, &effective)
++            .await
++            .is_err()
++    );
++    effective.model = Some("changed".to_string());
++    assert!(startup.renew(&models, &auth, &effective).await.is_err());
++    let unchanged = startup.effective_config().clone();
++    assert!(
++        startup
++            .into_session(
++                &models,
++                &auth,
++                &unchanged,
++                &InitialHistory::Cleared,
++                &SessionSource::Exec
++            )
++            .is_err()
++    );
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, &auth, &models).await?;
++    assert!(
++        startup
++            .into_session(
++                &models,
++                &auth,
++                &options.config,
++                &options.initial_history,
++                &SessionSource::Exec
++            )
++            .is_err()
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/thread_manager/pre_session_inputs.rs b/codex-rs/core/src/thread_manager/pre_session_inputs.rs
+index 65320a5..e92d2aa 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_inputs.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_inputs.rs
+@@ -28,9 +28,19 @@ impl ThreadManager {
+         &self,
+         options: StartThreadOptions,
+         credentials: codex_login::auth::CapturedApiKeyCredentials,
++    ) -> Result<PreSessionMcpSources, PreSessionMcpError> {
++        self.capture_pre_session_api_key_mcp_sources_with_credentials(
++            options,
++            std::sync::Arc::new(credentials),
++        )
++    }
++
++    pub(super) fn capture_pre_session_api_key_mcp_sources_with_credentials(
++        &self,
++        options: StartThreadOptions,
++        credentials: std::sync::Arc<codex_login::auth::CapturedApiKeyCredentials>,
+     ) -> Result<PreSessionMcpSources, PreSessionMcpError> {
+         let options = self.resolve_pre_session_start_options(options)?;
+-        let credentials = std::sync::Arc::new(credentials);
+         let auth = self
+             .state
+             .auth_manager
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index e8480cb..b237f41 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -49,6 +49,14 @@ impl SelectedStartInputs {
+             )),
+         }
+     }
++    fn policy_config(&self) -> io::Result<&Config> {
++        Ok(self
++            .allocation
++            .as_ref()
++            .and_then(|allocation| allocation.inputs.startup())
++            .map(|startup| startup.raw_config())
++            .unwrap_or(&self.start_options()?.config))
++    }
+     pub fn mcp_sources(&self) -> Option<&PreSessionMcpSources> {
+         match self.inputs.as_ref() {
+             Some(Inputs::Mcp(sources)) => Some(sources),
+@@ -130,6 +138,81 @@ impl ThreadManager {
+         })
+     }
+ 
++    /// Explicit startup DATA phase. Raw selection-only capture stays available;
++    /// this phase must precede dependent effective-Config MCP/context/client work.
++    pub async fn capture_selected_start_startup(
++        &self,
++        selected: &mut SelectedStartInputs,
++    ) -> io::Result<()> {
++        self.with_current_selected_start(selected, || ())?;
++        let result = async {
++            if !matches!(selected.inputs, Some(Inputs::Options(_))) {
++                return Err(io::Error::other("startup must precede MCP capture"));
++            }
++            let options = selected.start_options()?;
++            let allocation = selected
++                .allocation
++                .as_ref()
++                .ok_or_else(|| io::Error::other("original allocation missing"))?;
++            if allocation.inputs.startup().is_some() {
++                return Err(io::Error::other("startup already captured"));
++            }
++            let source = allocation
++                .inputs
++                .source_frame()
++                .ok_or_else(|| io::Error::other("original source frame missing"))?
++                .client_source()
++                .0;
++            let startup = crate::session::startup_selection::OriginalStartupSelection::capture(
++                options,
++                source,
++                &self.state.auth_manager,
++                &self.state.models_manager,
++            )
++            .await?;
++            let effective = startup.effective_config().clone();
++            selected
++                .allocation
++                .as_mut()
++                .ok_or_else(|| io::Error::other("original allocation missing"))?
++                .inputs
++                .install_startup(startup)?;
++            let Some(Inputs::Options(options)) = selected.inputs.as_mut() else {
++                return Err(io::Error::other("original options unavailable"));
++            };
++            options.config = effective;
++            self.renew_selected_start(selected).await
++        }
++        .await;
++        if result.is_err() {
++            selected.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
++
++    pub fn capture_selected_start_startup_mcp(
++        &self,
++        selected: &mut SelectedStartInputs,
++    ) -> io::Result<()> {
++        self.with_current_selected_start(selected, || ())?;
++        let credentials = selected
++            .allocation
++            .as_ref()
++            .and_then(|allocation| allocation.inputs.startup())
++            .ok_or_else(|| io::Error::other("original startup selection missing"))?
++            .credentials();
++        let Some(Inputs::Options(options)) = selected.inputs.take() else {
++            return Err(io::Error::other(
++                "selected start is not awaiting MCP capture",
++            ));
++        };
++        let sources = self
++            .capture_pre_session_api_key_mcp_sources_with_credentials(options, credentials)
++            .map_err(io::Error::other)?;
++        selected.inputs = Some(Inputs::Mcp(sources));
++        self.with_current_selected_start(selected, || ())
++    }
++
+     /// Existing genuine API MCP capture retains the SAME private start options.
+     /// Failure burns this custody rather than returning partially changed inputs.
+     pub fn capture_selected_start_api_mcp(
+@@ -138,6 +221,16 @@ impl ThreadManager {
+         credentials: codex_login::auth::CapturedApiKeyCredentials,
+     ) -> io::Result<()> {
+         self.with_current_selected_start(selected, || ())?;
++        if selected
++            .allocation
++            .as_ref()
++            .and_then(|allocation| allocation.inputs.startup())
++            .is_some()
++        {
++            return Err(io::Error::other(
++                "use retained startup credentials for MCP capture",
++            ));
++        }
+         let Some(Inputs::Options(options)) = selected.inputs.take() else {
+             return Err(io::Error::other(
+                 "selected start is not awaiting MCP capture",
+@@ -220,14 +313,27 @@ impl ThreadManager {
+ 
+     pub async fn renew_selected_start(&self, selected: &SelectedStartInputs) -> io::Result<()> {
+         self.with_current_selected_start(selected, || ())?;
+-        if let Err(error) = selected
+-            .policy
+-            .renew(&selected.start_options()?.config)
+-            .await
+-        {
++        if let Err(error) = selected.policy.renew(selected.policy_config()?).await {
+             selected.invalidated.store(true, Ordering::Release);
+             return Err(error);
+         }
++        if let Some(startup) = selected
++            .allocation
++            .as_ref()
++            .and_then(|allocation| allocation.inputs.startup())
++        {
++            if let Err(error) = startup
++                .renew(
++                    &self.state.models_manager,
++                    &self.state.auth_manager,
++                    &selected.start_options()?.config,
++                )
++                .await
++            {
++                selected.invalidated.store(true, Ordering::Release);
++                return Err(error);
++            }
++        }
+         self.with_current_selected_start(selected, || ())
+     }
+ 
+@@ -254,6 +360,17 @@ impl ThreadManager {
+             self.validate_pre_session_mcp_sources(sources)
+                 .map_err(io::Error::other)?;
+         }
++        if let Some(startup) = selected
++            .allocation
++            .as_ref()
++            .and_then(|allocation| allocation.inputs.startup())
++        {
++            startup.validate_selection(
++                &self.state.models_manager,
++                &self.state.auth_manager,
++                &selected.start_options()?.config,
++            )?;
++        }
+         selected.policy.with_current(associate)
+     }
+ 
+@@ -262,32 +379,83 @@ impl ThreadManager {
+     pub fn adopt_selected_start(
+         &self,
+         selected: &mut SelectedStartInputs,
++    ) -> io::Result<SelectedStartAdoption> {
++        if selected
++            .allocation
++            .as_ref()
++            .and_then(|allocation| allocation.inputs.startup())
++            .is_some()
++        {
++            return Err(io::Error::other(
++                "startup selection requires pinned adoption",
++            ));
++        }
++        self.adopt_selected_start_inner(selected)
++    }
++
++    pub async fn adopt_selected_start_startup(
++        &self,
++        selected: &mut SelectedStartInputs,
++    ) -> io::Result<SelectedStartAdoption> {
++        self.renew_selected_start(selected).await?;
++        let (models, candidate) = selected
++            .allocation
++            .as_ref()
++            .and_then(|allocation| allocation.inputs.startup())
++            .ok_or_else(|| io::Error::other("original startup selection missing"))?
++            .catalog_observation();
++        let _pin = models
++            .pin_model_limit_candidate(&candidate)
++            .await
++            .ok_or_else(|| io::Error::other("original model publication changed"))?;
++        self.adopt_selected_start_inner(selected)
++    }
++
++    fn adopt_selected_start_inner(
++        &self,
++        selected: &mut SelectedStartInputs,
+     ) -> io::Result<SelectedStartAdoption> {
+         self.with_current_selected_start(selected, || ())?;
++        let credentials = selected
++            .allocation
++            .as_ref()
++            .and_then(|allocation| allocation.inputs.startup())
++            .map(|startup| startup.credentials());
+         let policy = Arc::clone(&selected.policy);
+-        policy.with_current(|| {
+-            let inputs = selected
+-                .inputs
+-                .take()
+-                .ok_or_else(|| io::Error::other("selected start already consumed"))?;
+-            let mut options = match inputs {
+-                Inputs::Options(options) => options,
+-                Inputs::Mcp(sources) => sources.into_start_options(),
+-            };
+-            let allocation = selected
+-                .allocation
+-                .take()
+-                .ok_or_else(|| io::Error::other("selected native allocation already consumed"))?;
+-            // MCP source capture kept original fresh options without a public
+-            // reserved ID. Only one-use ordinary adoption attaches this SAME ID.
+-            options.reserved_thread_id = Some(allocation.thread_id());
+-            Ok(SelectedStartAdoption {
+-                owner: Arc::clone(&self.state),
+-                options,
+-                policy: Arc::clone(&policy),
+-                allocation,
+-            })
+-        })?
++        let mut consume = || {
++            policy.with_current(|| {
++                let inputs = selected
++                    .inputs
++                    .take()
++                    .ok_or_else(|| io::Error::other("selected start already consumed"))?;
++                let mut options = match inputs {
++                    Inputs::Options(options) => options,
++                    Inputs::Mcp(sources) => sources.into_start_options(),
++                };
++                let allocation = selected.allocation.take().ok_or_else(|| {
++                    io::Error::other("selected native allocation already consumed")
++                })?;
++                // MCP source capture kept original fresh options without a public
++                // reserved ID. Only one-use ordinary adoption attaches this SAME ID.
++                options.reserved_thread_id = Some(allocation.thread_id());
++                Ok(SelectedStartAdoption {
++                    owner: Arc::clone(&self.state),
++                    options,
++                    policy: Arc::clone(&policy),
++                    allocation,
++                })
++            })?
++        };
++        // The real credential guard is acquired only after catalog awaiting and
++        // source checks; the move closure performs no auth reentry or await.
++        match credentials {
++            Some(credentials) => self
++                .state
++                .auth_manager
++                .with_current_api_key_credentials(&credentials, |_, _| consume())
++                .ok_or_else(|| io::Error::other("original credentials changed"))?,
++            None => consume(),
++        }
+     }
+ 
+     /// Ordinary identity/controller/client DATA adoption. Actual lifecycle still
+@@ -302,9 +470,25 @@ impl ThreadManager {
+                 "foreign selected start adoption".to_string(),
+             ));
+         }
++        if let Some(startup) = adoption.allocation.inputs.startup() {
++            startup
++                .renew(
++                    &self.state.models_manager,
++                    &self.state.auth_manager,
++                    &adoption.options.config,
++                )
++                .await
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        }
++        let policy_config = adoption
++            .allocation
++            .inputs
++            .startup()
++            .map(|startup| startup.raw_config())
++            .unwrap_or(&adoption.options.config);
+         adoption
+             .policy
+-            .renew(&adoption.options.config)
++            .renew(policy_config)
+             .await
+             .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
+         adoption

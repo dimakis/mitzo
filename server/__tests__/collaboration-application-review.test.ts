@@ -2,6 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { hostname } from 'node:os';
+import { enrolledResponsesOwnerFixture } from './fixtures/enrolled-responses-owner.js';
+import { getConnectionsRuntime, setConnectionsRuntime } from '../connections-runtime.js';
+import { ordinaryLocalResponsesContractRevision } from '../ordinary-local-responses-capabilities.js';
 import Database from 'better-sqlite3';
 import { afterEach, expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
@@ -57,6 +61,133 @@ it('derives actual settings and compiles visible source without allocating or di
     }),
   ).toThrow('capacity_refused');
 });
+
+it('reviews the actual unused preview before source allocation and cannot confirm it', async () => {
+  const f = await fixture({ prepare: false });
+  const allocate = vi.spyOn(f.workspaces, 'prepare');
+  const original = f.workspaces.get(f.input.target.repositoryWorkspaceId);
+  const result = await f.review();
+  expect(result.snapshot.capacity.status).toBe('unverified');
+  expect(result.snapshot.messages[0].blocks[0].content).toBe('Visible source');
+  expect(result.settings.binding).toEqual(original.ordinaryPreparation!.runtimeBinding);
+  expect(f.workspaces.get(original.id)).toEqual(original);
+  expect(original.state).toBe('preview');
+  expect(original.ordinaryPreparation!.sourceIdentity).toBeUndefined();
+  expect(allocate).not.toHaveBeenCalled();
+  expect(f.store.listSessions()).toHaveLength(1);
+  expect(() =>
+    f.store.collaborationConversation.prepareJoin(f.group, {
+      requestId: randomUUID(),
+      expectedMembershipRevision: 1,
+      name: 'Reviewer',
+      settings: result.settings,
+      snapshot: { snapshotId: result.snapshot.snapshotId, sha256: result.snapshot.sha256 },
+    }),
+  ).toThrow('capacity_refused');
+});
+
+it('keeps genuine enrolled Responses preview metadata unverified without relabeling it native', async () => {
+  const f = await fixture({ prepare: false });
+  const definition = getAgentLibrary().version(
+    'user',
+    f.input.target.agent.profileId,
+    1,
+  )!.definition;
+  const originalRuntime = getConnectionsRuntime();
+  const enrolled = await enrolledResponsesOwnerFixture(cleanups);
+  setConnectionsRuntime(enrolled.runtime);
+  getAgentLibrary().saveDraft('user', {
+    profileId: f.input.target.agent.profileId,
+    expectedVersion: 0,
+    expectedRevision: 0,
+    idempotencyKey: 'enrolled-review-draft',
+    definition,
+  });
+  getAgentLibrary().publish('user', {
+    profileId: f.input.target.agent.profileId,
+    expectedVersion: 1,
+    idempotencyKey: 'enrolled-review-publish',
+  });
+  cleanups.push(() => setConnectionsRuntime(originalRuntime));
+  const targetPath = join(enrolled.root, 'responses-target.json');
+  await writeFile(
+    targetPath,
+    JSON.stringify({
+      version: 1,
+      targetId: 'offline-responses',
+      label: 'Offline Responses',
+      hostId: hostname(),
+      runtimeContractRevision: ordinaryLocalResponsesContractRevision(),
+    }),
+    { mode: 0o600 },
+  );
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED', '1');
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE', targetPath);
+  const { ordinaryRepositoryRuntimeInventory } = await import('../ordinary-local-codex-entry.js');
+  const account = ordinaryRepositoryRuntimeInventory('local', 'responses').result.accounts.find(
+    (entry) => entry.account.accountId === enrolled.binding.accountId,
+  )!.account;
+  const preview = await f.workspaces.preview(
+    enrolled.binding,
+    'external-github-account',
+    'example/repo',
+    f.controller.signal,
+    {
+      runOn: 'local',
+      runtime: {
+        account,
+        harness: 'responses',
+        targetId: 'offline-responses',
+      },
+    },
+  );
+  f.input.target.accountId = enrolled.binding.accountId;
+  f.input.target.model = enrolled.binding.model!;
+  f.input.target.reasoningEffort = 'low';
+  f.input.target.repositoryWorkspaceId = preview.id;
+  const requests = enrolled.calls.requests.length;
+  const allocate = vi.spyOn(f.workspaces, 'prepare');
+  const result = await f.review();
+  expect(result.settings.binding.harness.implementation).toBe('responses');
+  expect(result.settings.binding.account).toMatchObject({ provider: 'openai' });
+  expect(result.snapshot.capacity.status).toBe('unverified');
+  expect(f.workspaces.get(preview.id).state).toBe('preview');
+  expect(f.workspaces.get(preview.id).ordinaryPreparation!.sourceIdentity).toBeUndefined();
+  expect(allocate).not.toHaveBeenCalled();
+  expect(enrolled.calls.requests).toHaveLength(requests);
+  expect(f.store.listSessions()).toHaveLength(1);
+});
+
+it.each(['credential', 'connection', 'allocation'] as const)(
+  'refuses changed %s custody before a preview review is saved',
+  async (change) => {
+    const f = await fixture({ prepare: false });
+    if (change === 'credential')
+      await writeFile(
+        join(f.loginRoot, 'auth.json'),
+        JSON.stringify({ tokens: { access_token: 'replaced-offline' } }),
+        { mode: 0o600 },
+      );
+    else if (change === 'connection')
+      f.access.mockResolvedValue({ revision: 2, allowedBaseBranches: ['main'] });
+    else {
+      const qualify = f.workspaces.qualifiedStatus.bind(f.workspaces);
+      vi.spyOn(f.workspaces, 'qualifiedStatus').mockImplementation(async (...args) => {
+        const result = await qualify(...args);
+        await f.workspaces.prepare(
+          f.input.target.repositoryWorkspaceId,
+          f.binding,
+          f.controller.signal,
+        );
+        return result;
+      });
+    }
+    await expect(f.review()).rejects.toMatchObject({ code: 'execution_unavailable' });
+    expect(
+      f.store.collaborationConversation.getReviewCompilation(f.group, f.input.selection.requestId),
+    ).toBeNull();
+  },
+);
 
 it('recovers an exact completed review before resolving changed mutable account settings', async () => {
   const f = await fixture();

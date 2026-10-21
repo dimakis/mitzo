@@ -1,0 +1,2418 @@
+diff --git a/codex-rs/core-plugins/src/lib.rs b/codex-rs/core-plugins/src/lib.rs
+index 513a020e53344cdd32b5b40f4a30cea8d24139b7..6c4fe839c4e5f387a31a828422f4ceb91b854358 100644
+--- a/codex-rs/core-plugins/src/lib.rs
++++ b/codex-rs/core-plugins/src/lib.rs
+@@ -80,6 +80,9 @@ pub use manager::ConfiguredMarketplace;
+ pub use manager::ConfiguredMarketplaceListOutcome;
+ pub use manager::ConfiguredMarketplacePlugin;
+ pub use manager::EffectivePluginsChange;
++pub use manager::EmptyPluginSourcesError;
++pub use manager::EmptyPluginSourcesObservation;
++pub use manager::InstalledPluginSourceSelection;
+ pub use manager::PluginDetail;
+ pub use manager::PluginDetailsUnavailableReason;
+ pub use manager::PluginInstallError;
+diff --git a/codex-rs/core-plugins/src/manager.rs b/codex-rs/core-plugins/src/manager.rs
+index e5614b9f55bc9cd4083bf9f077d7559b5eb42171..161728f10ea6eecdff345bb8dcaba897bb53f3fc 100644
+--- a/codex-rs/core-plugins/src/manager.rs
++++ b/codex-rs/core-plugins/src/manager.rs
+@@ -9,6 +9,11 @@ pub use remote_mutations::RemotePluginUninstallOutcome;
+ mod marketplace_context;
+ pub use marketplace_context::PluginMarketplaceContext;
+ pub use marketplace_context::PluginMarketplaceScope;
++#[path = "pre_session_empty_sources.rs"]
++mod pre_session_empty_sources;
++pub use pre_session_empty_sources::EmptyPluginSourcesError;
++pub use pre_session_empty_sources::EmptyPluginSourcesObservation;
++pub use pre_session_empty_sources::InstalledPluginSourceSelection;
+ 
+ use super::LoadedPlugin;
+ use super::PluginLoadOutcome;
+@@ -266,6 +271,9 @@ impl RemoteInstalledPluginsAuthIdentity {
+ 
+ #[derive(Default)]
+ struct RemoteInstalledPluginsCache {
++    // Original installed-source publication, replaced under THIS cache's
++    // existing writer lock. Refresh can replace rows without advancing generation.
++    source_publication: Arc<()>,
+     generation: u64,
+     auth_identity: Option<RemoteInstalledPluginsAuthIdentity>,
+     reconciliation_generation: Option<u64>,
+@@ -580,6 +588,8 @@ struct LoadedPluginsCacheEntry {
+ #[derive(Default)]
+ struct LoadedPluginsCache {
+     generation: u64,
++    // Original membership/content publication, independent of invalidation generation.
++    source_publication: Arc<()>,
+     // Most recently used first.
+     entries: VecDeque<Arc<LoadedPluginsCacheEntry>>,
+ }
+@@ -622,6 +632,7 @@ impl LoadedPluginsCache {
+             .position(|current| Arc::ptr_eq(current, &entry))?;
+         let current = cache.entries.remove(index)?;
+         if stale {
++            cache.source_publication = Arc::new(());
+             return None;
+         }
+         cache.entries.push_front(current);
+@@ -971,6 +982,7 @@ impl PluginsManager {
+         };
+         cache.generation = cache.generation.wrapping_add(1);
+         cache.entries.clear();
++        cache.source_publication = Arc::new(());
+         drop(cache);
+         loaded_cache_metrics::record_event("clear");
+     }
+@@ -1036,6 +1048,7 @@ impl PluginsManager {
+         if cache.generation != generation {
+             return;
+         }
++        cache.source_publication = Arc::new(());
+         cache.entries.retain(|entry| entry.key != key);
+         cache.entries.push_front(Arc::new(LoadedPluginsCacheEntry {
+             key,
+@@ -1351,6 +1364,7 @@ impl PluginsManager {
+             Err(err) => err.into_inner(),
+         };
+         let cache_changed = if cache.auth_identity.as_ref() != Some(&auth_identity) {
++            cache.source_publication = Arc::new(());
+             cache.generation = cache.generation.wrapping_add(1);
+             cache.auth_identity = Some(auth_identity);
+             cache.reconciliation_generation = None;
+@@ -1379,6 +1393,7 @@ impl PluginsManager {
+         }
+         cache.generation = cache.generation.wrapping_add(1);
+         cache.reconciliation_generation = Some(cache.generation);
++        cache.source_publication = Arc::new(());
+         Some(cache.generation)
+     }
+ 
+@@ -1393,6 +1408,7 @@ impl PluginsManager {
+         cache.reconciliation_generation = None;
+         cache.generation = cache.generation.wrapping_add(1);
+         cache.needs_effective_plugins_refresh = true;
++        cache.source_publication = Arc::new(());
+         drop(cache);
+         self.clear_loaded_plugins_cache();
+     }
+@@ -1444,10 +1460,12 @@ impl PluginsManager {
+         }
+         if cache.auth_identity.is_none() {
+             cache.auth_identity = Some(auth_identity);
++            cache.source_publication = Arc::new(());
+         }
+         if is_reconcile {
+             cache.reconciliation_generation = None;
+             cache.generation = cache.generation.wrapping_add(1);
++            cache.source_publication = Arc::new(());
+         }
+         let needs_effective_plugins_refresh =
+             is_reconcile && std::mem::take(&mut cache.needs_effective_plugins_refresh);
+@@ -1462,6 +1480,7 @@ impl PluginsManager {
+             !crate::remote_metadata::installed_plugin_metadata_eq(previous, &plugins)
+         });
+         cache.plugins = Some(plugins);
++        cache.source_publication = Arc::new(());
+         drop(cache);
+         let changed = needs_effective_plugins_refresh || metadata_changed;
+         if changed {
+@@ -1491,6 +1510,7 @@ impl PluginsManager {
+             Err(err) => err.into_inner(),
+         };
+         cache.generation = cache.generation.wrapping_add(1);
++        cache.source_publication = Arc::new(());
+         cache.auth_identity = None;
+         cache.reconciliation_generation = None;
+         cache.needs_effective_plugins_refresh = false;
+@@ -1511,6 +1531,7 @@ impl PluginsManager {
+             return None;
+         }
+         cache.generation = cache.generation.wrapping_add(1);
++        cache.source_publication = Arc::new(());
+         cache.auth_identity = None;
+         cache.reconciliation_generation = None;
+         cache.needs_effective_plugins_refresh = false;
+diff --git a/codex-rs/core-plugins/src/pre_session_empty_sources.rs b/codex-rs/core-plugins/src/pre_session_empty_sources.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..82fea6a41c44d20fee18e1aea95c9a4358a14487
+--- /dev/null
++++ b/codex-rs/core-plugins/src/pre_session_empty_sources.rs
+@@ -0,0 +1,578 @@
++//! Passive empty host-plugin source selection from the actual original owner.
++//! No loader/cache publication, filesystem read, provider callback or fetch runs.
++
++use std::sync::Arc;
++
++use codex_login::auth::CapturedApiKeyCredentials;
++
++use super::LoadedPluginsCacheEntry;
++use super::PluginLoadCacheKey;
++use super::PluginLoadOutcome;
++use super::PluginsConfigInput;
++use super::PluginsManager;
++use super::RemoteInstalledPluginsAuthIdentity;
++use crate::remote::RemotePluginCatalogError;
++use crate::remote::ensure_chatgpt_auth;
++
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum InstalledPluginSourceSelection {
++    /// Original API route cannot use the backend installed producer, and the
++    /// actual manager selects no matching installed publication. NOT a claim
++    /// that an unpublished/failed backend provider returned an empty inventory.
++    ApiDomainWithoutSelectedInstalledRows,
++    PublishedEmptyInstalledRows,
++}
++
++#[derive(Debug, Eq, PartialEq, thiserror::Error)]
++pub enum EmptyPluginSourcesError {
++    #[error("original cached API-key credentials are unavailable or changed")]
++    UnresolvedCredentials,
++    #[error("configured plugin sources require qualified materialization")]
++    ConfiguredSources,
++    #[error("retained installed or loaded plugin sources require qualified materialization")]
++    RetainedSources,
++    #[error("original plugin source publication changed")]
++    SourceChanged,
++}
++
++/// Original source/input custody only. No external Config/permission/selection
++/// or filesystem lease; no full request, count, State or admission authority.
++pub struct EmptyPluginSourcesObservation {
++    owner: Arc<PluginsManager>,
++    credentials: Arc<CapturedApiKeyCredentials>,
++    config: PluginsConfigInput,
++    cache_key: PluginLoadCacheKey,
++    loaded_generation: u64,
++    loaded_publication: Arc<()>,
++    loaded_entry: Option<Arc<LoadedPluginsCacheEntry>>,
++    installed_publication: Arc<()>,
++    installed_selection: InstalledPluginSourceSelection,
++    outcome: PluginLoadOutcome,
++}
++
++impl PluginsManager {
++    /// Observe the actual API route and complete empty applicable input set.
++    /// Enabled default flags remain enabled. Matching installed rows or any
++    /// nonempty loaded entry are refused, including API-eligible local MCP.
++    /// Backend/unavailable/external auth cannot use the API-domain exception.
++    pub fn observe_empty_api_key_sources(
++        self: &Arc<Self>,
++        config: &PluginsConfigInput,
++        credentials: Arc<CapturedApiKeyCredentials>,
++    ) -> Result<EmptyPluginSourcesObservation, EmptyPluginSourcesError> {
++        let auth = self
++            .auth_manager
++            .with_current_api_key_credentials(&credentials, |auth, _| auth.clone())
++            .ok_or(EmptyPluginSourcesError::UnresolvedCredentials)?;
++        if !matches!(
++            ensure_chatgpt_auth(Some(&auth)),
++            Err(RemotePluginCatalogError::UnsupportedAuthMode)
++        ) {
++            return Err(EmptyPluginSourcesError::UnresolvedCredentials);
++        }
++        // Bounded first support: actual effective stack has no configured
++        // plugin/marketplace selection at all. No malformed value, policy parse
++        // fallback, failed capability read or ignored configured row proves empty.
++        let effective = config.config_layer_stack.effective_config();
++        if !config.plugins_enabled
++            || effective.get("plugins").is_some()
++            || effective.get("marketplaces").is_some()
++        {
++            return Err(EmptyPluginSourcesError::ConfiguredSources);
++        }
++        let auth_identity = RemoteInstalledPluginsAuthIdentity::from_auth(Some(&auth));
++        let cache_key = PluginLoadCacheKey::from_config(
++            config,
++            self.codex_home.as_path(),
++            config.remote_plugin_enabled && auth.api_auth_mode().uses_codex_backend(),
++            auth_identity.clone(),
++        );
++        let (
++            installed_selection,
++            installed_publication,
++            loaded_generation,
++            loaded_publication,
++            loaded_entry,
++        ) = {
++            let installed = self
++                .remote_installed_plugins_cache
++                .read()
++                .map_err(|_| EmptyPluginSourcesError::SourceChanged)?;
++            if installed.reconciliation_generation.is_some()
++                || installed.needs_effective_plugins_refresh
++            {
++                return Err(EmptyPluginSourcesError::RetainedSources);
++            }
++            let selection = if installed.auth_identity.as_ref() == Some(&auth_identity) {
++                match installed.plugins.as_ref() {
++                    Some(rows) if !rows.is_empty() => {
++                        return Err(EmptyPluginSourcesError::RetainedSources);
++                    }
++                    Some(_) => InstalledPluginSourceSelection::PublishedEmptyInstalledRows,
++                    None => InstalledPluginSourceSelection::ApiDomainWithoutSelectedInstalledRows,
++                }
++            } else {
++                InstalledPluginSourceSelection::ApiDomainWithoutSelectedInstalledRows
++            };
++            let loaded = self
++                .loaded_plugins_cache
++                .lock()
++                .map_err(|_| EmptyPluginSourcesError::SourceChanged)?;
++            let entry = loaded
++                .entries
++                .iter()
++                .find(|entry| entry.key == cache_key)
++                .cloned();
++            if entry
++                .as_ref()
++                .is_some_and(|entry| !entry.plugins.is_empty())
++            {
++                return Err(EmptyPluginSourcesError::RetainedSources);
++            }
++            (
++                selection,
++                Arc::clone(&installed.source_publication),
++                loaded.generation,
++                Arc::clone(&loaded.source_publication),
++                entry,
++            )
++        };
++        // Auth is rechecked AFTER dropping plugin locks. Original ordinary
++        // readers acquire installed state before auth; do not invert that order.
++        self.auth_manager
++            .with_current_api_key_credentials(&credentials, |_, _| ())
++            .ok_or(EmptyPluginSourcesError::UnresolvedCredentials)?;
++        let outcome = self.resolve_loaded_plugins_for_auth(Vec::new(), Some(auth.api_auth_mode()));
++        Ok(EmptyPluginSourcesObservation {
++            owner: Arc::clone(self),
++            credentials,
++            config: config.clone(),
++            cache_key,
++            loaded_generation,
++            loaded_publication,
++            loaded_entry,
++            installed_publication,
++            installed_selection,
++            outcome,
++        })
++    }
++}
++
++impl EmptyPluginSourcesObservation {
++    pub fn installed_selection(&self) -> InstalledPluginSourceSelection {
++        self.installed_selection
++    }
++
++    pub fn loaded_plugins(&self) -> &PluginLoadOutcome {
++        &self.outcome
++    }
++
++    pub fn captured_config(&self) -> &PluginsConfigInput {
++        &self.config
++    }
++
++    /// Compare frozen ordinary input data, not current upstream settings.
++    pub fn matches_config(&self, config: &PluginsConfigInput) -> bool {
++        self.config.config_layer_stack == config.config_layer_stack
++            && self.config.model_provider_id == config.model_provider_id
++            && self.config.plugins_enabled == config.plugins_enabled
++            && self.config.remote_plugin_enabled == config.remote_plugin_enabled
++            && self.config.chatgpt_base_url == config.chatgpt_base_url
++            && self.config.product_sku == config.product_sku
++    }
++
++    pub fn belongs_to(&self, owner: &Arc<PluginsManager>) -> bool {
++        Arc::ptr_eq(&self.owner, owner)
++    }
++
++    /// Identity of the same retained original opaque credential observation.
++    pub fn uses_credentials(&self, credentials: &CapturedApiKeyCredentials) -> bool {
++        std::ptr::eq(self.credentials.as_ref(), credentials)
++    }
++
++    /// Hold the original installed/loaded publishers, THEN original auth,
++    /// through one bounded SYNCHRONOUS native action. This lock order follows
++    /// existing installed readers; do not call under another AuthManager guard
++    /// or reenter these owners. Returning an async action loses all fences.
++    /// Other required owners and the actual State commit remain the factory's job.
++    pub fn with_current_api_key_sources<R>(
++        &self,
++        action: impl FnOnce() -> R,
++    ) -> Result<R, EmptyPluginSourcesError> {
++        let installed = self
++            .owner
++            .remote_installed_plugins_cache
++            .read()
++            .map_err(|_| EmptyPluginSourcesError::SourceChanged)?;
++        if !Arc::ptr_eq(&installed.source_publication, &self.installed_publication) {
++            return Err(EmptyPluginSourcesError::SourceChanged);
++        }
++        let loaded = self
++            .owner
++            .loaded_plugins_cache
++            .lock()
++            .map_err(|_| EmptyPluginSourcesError::SourceChanged)?;
++        let current = loaded
++            .entries
++            .iter()
++            .find(|entry| entry.key == self.cache_key);
++        let same_entry = match (&self.loaded_entry, current) {
++            (None, None) => true,
++            (Some(original), Some(current)) => Arc::ptr_eq(original, current),
++            _ => false,
++        };
++        if loaded.generation != self.loaded_generation
++            || !Arc::ptr_eq(&loaded.source_publication, &self.loaded_publication)
++            || !same_entry
++        {
++            return Err(EmptyPluginSourcesError::SourceChanged);
++        }
++        let result = self
++            .owner
++            .auth_manager
++            .with_current_api_key_credentials(&self.credentials, |_, _| action())
++            .ok_or(EmptyPluginSourcesError::UnresolvedCredentials);
++        drop(loaded);
++        drop(installed);
++        result
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use codex_login::AuthManager;
++    use codex_login::CodexAuth;
++    use pretty_assertions::assert_eq;
++
++    async fn setup() -> (
++        tempfile::TempDir,
++        Arc<PluginsManager>,
++        PluginsConfigInput,
++        Arc<CapturedApiKeyCredentials>,
++    ) {
++        let home = tempfile::tempdir().unwrap();
++        let auth =
++            AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-no-model-call"));
++        let credentials = Arc::new(auth.capture_cached_api_key_credentials().unwrap());
++        let owner = Arc::new(crate::test_support::test_plugins_manager_with_auth_manager(
++            home.path().to_path_buf(),
++            None,
++            auth,
++        ));
++        let config = crate::test_support::load_plugins_config(home.path(), home.path()).await;
++        assert!(config.plugins_enabled);
++        assert!(config.remote_plugin_enabled);
++        (home, owner, config, credentials)
++    }
++
++    #[tokio::test]
++    async fn original_api_owner_classifies_inapplicable_domain_without_loading_or_publishing() {
++        let (_home, owner, config, credentials) = setup().await;
++        let before = Arc::clone(
++            &owner
++                .remote_installed_plugins_cache
++                .read()
++                .unwrap()
++                .source_publication,
++        );
++        let observed = owner
++            .observe_empty_api_key_sources(&config, credentials)
++            .unwrap();
++        assert_eq!(
++            observed.installed_selection(),
++            InstalledPluginSourceSelection::ApiDomainWithoutSelectedInstalledRows
++        );
++        assert!(observed.loaded_plugins().plugins().is_empty());
++        assert!(observed.loaded_plugins().capability_summaries().is_empty());
++        assert!(observed.matches_config(&config));
++        assert!(observed.belongs_to(&owner));
++        assert!(Arc::ptr_eq(
++            &before,
++            &owner
++                .remote_installed_plugins_cache
++                .read()
++                .unwrap()
++                .source_publication
++        ));
++        assert!(
++            owner
++                .remote_installed_plugins_cache
++                .read()
++                .unwrap()
++                .plugins
++                .is_none()
++        );
++        assert!(
++            owner
++                .loaded_plugins_cache
++                .lock()
++                .unwrap()
++                .entries
++                .is_empty()
++        );
++        assert_eq!(
++            observed.with_current_api_key_sources(|| {
++                assert!(owner.remote_installed_plugins_cache.try_write().is_err());
++                assert!(owner.loaded_plugins_cache.try_lock().is_err());
++                47
++            }),
++            Ok(47)
++        );
++        assert!(owner.remote_installed_plugins_cache.try_write().is_ok());
++        assert!(owner.loaded_plugins_cache.try_lock().is_ok());
++    }
++
++    fn installed_local_row() -> crate::remote::RemoteInstalledPlugin {
++        crate::remote::RemoteInstalledPlugin {
++            marketplace_name: "nonglobal-test".into(),
++            id: "plugins~Plugin_local".into(),
++            version: None,
++            name: "local".into(),
++            canonical_app_id: None,
++            installed_at: None,
++            enabled: true,
++            install_policy: codex_app_server_protocol::PluginInstallPolicy::Available,
++            install_policy_source: None,
++            must_show_installation_interstitial: None,
++            auth_policy: codex_app_server_protocol::PluginAuthPolicy::OnUse,
++            availability: codex_app_server_protocol::PluginAvailability::Available,
++            disabled_reason: None,
++            eligible_plan_types: None,
++            interface: None,
++            keywords: Vec::new(),
++        }
++    }
++
++    #[tokio::test]
++    async fn actual_installed_writer_preserves_rows_and_invalidates_generation_stable_aba() {
++        let (_home, owner, config, credentials) = setup().await;
++        let missing = owner
++            .observe_empty_api_key_sources(&config, Arc::clone(&credentials))
++            .unwrap();
++        owner.write_remote_installed_plugins_cache(Vec::new());
++        assert_eq!(
++            missing.with_current_api_key_sources(|| ()),
++            Err(EmptyPluginSourcesError::SourceChanged)
++        );
++        let empty = owner
++            .observe_empty_api_key_sources(&config, Arc::clone(&credentials))
++            .unwrap();
++        assert_eq!(
++            empty.installed_selection(),
++            InstalledPluginSourceSelection::PublishedEmptyInstalledRows
++        );
++        let generation = owner
++            .remote_installed_plugins_cache
++            .read()
++            .unwrap()
++            .generation;
++        owner.write_remote_installed_plugins_cache(vec![installed_local_row()]);
++        assert!(matches!(
++            owner.observe_empty_api_key_sources(&config, Arc::clone(&credentials)),
++            Err(EmptyPluginSourcesError::RetainedSources)
++        ));
++        owner.write_remote_installed_plugins_cache(Vec::new());
++        assert_eq!(
++            owner
++                .remote_installed_plugins_cache
++                .read()
++                .unwrap()
++                .generation,
++            generation
++        );
++        assert_eq!(
++            empty.with_current_api_key_sources(|| panic!("installed ABA cannot admit")),
++            Err::<(), _>(EmptyPluginSourcesError::SourceChanged)
++        );
++        let current = owner
++            .observe_empty_api_key_sources(&config, Arc::clone(&credentials))
++            .unwrap();
++        let auth = owner.auth_manager.auth_cached();
++        let reconcile = owner
++            .begin_remote_installed_plugins_reconcile(auth.as_ref())
++            .unwrap();
++        assert_eq!(
++            current.with_current_api_key_sources(|| ()),
++            Err(EmptyPluginSourcesError::SourceChanged)
++        );
++        assert!(matches!(
++            owner.observe_empty_api_key_sources(&config, Arc::clone(&credentials)),
++            Err(EmptyPluginSourcesError::RetainedSources)
++        ));
++        owner.abandon_remote_installed_plugins_reconcile(reconcile);
++        assert!(matches!(
++            owner.observe_empty_api_key_sources(&config, credentials),
++            Err(EmptyPluginSourcesError::RetainedSources)
++        ));
++    }
++
++    #[tokio::test]
++    async fn original_loaded_entry_replacement_and_clear_refuse_even_when_generation_does_not_change()
++     {
++        let (home, owner, config, credentials) = setup().await;
++        let absent = owner
++            .observe_empty_api_key_sources(&config, Arc::clone(&credentials))
++            .unwrap();
++        let generation = owner.loaded_plugins_cache_generation();
++        owner.cache_loaded_plugins_if_current(
++            generation,
++            absent.cache_key.clone(),
++            Vec::new(),
++            crate::skill_snapshots::new_plugin_skill_snapshots(),
++        );
++        assert_eq!(
++            absent.with_current_api_key_sources(|| ()),
++            Err(EmptyPluginSourcesError::SourceChanged)
++        );
++        let retained = owner
++            .observe_empty_api_key_sources(&config, Arc::clone(&credentials))
++            .unwrap();
++        owner.cache_loaded_plugins_if_current(
++            generation,
++            retained.cache_key.clone(),
++            Vec::new(),
++            crate::skill_snapshots::new_plugin_skill_snapshots(),
++        );
++        assert_eq!(owner.loaded_plugins_cache_generation(), generation);
++        assert_eq!(
++            retained.with_current_api_key_sources(|| ()),
++            Err(EmptyPluginSourcesError::SourceChanged)
++        );
++        // An original retained loaded entry wins before installed-source lookup.
++        // Even zero MCP definitions must not erase its other prompt partitions.
++        owner.cache_loaded_plugins_if_current(
++            generation,
++            retained.cache_key.clone(),
++            vec![crate::LoadedPlugin {
++                config_name: "local@nonglobal-test".into(),
++                remote_plugin_id: None,
++                manifest_name: Some("local".into()),
++                plugin_namespace: None,
++                manifest_description: None,
++                root: codex_utils_absolute_path::AbsolutePathBuf::from_absolute_path(home.path())
++                    .unwrap(),
++                enabled: true,
++                skill_roots: Vec::new(),
++                skill_discovery_mode: codex_utils_plugins::SkillDiscoveryMode::Recursive,
++                disabled_skill_paths: std::collections::HashSet::new(),
++                has_enabled_skills: false,
++                mcp_servers: std::collections::HashMap::new(),
++                apps: Vec::new(),
++                hook_sources: Vec::new(),
++                hook_load_warnings: Vec::new(),
++                error: None,
++            }],
++            crate::skill_snapshots::new_plugin_skill_snapshots(),
++        );
++        assert!(matches!(
++            owner.observe_empty_api_key_sources(&config, Arc::clone(&credentials)),
++            Err(EmptyPluginSourcesError::RetainedSources)
++        ));
++        owner.clear_loaded_plugins_cache();
++        let retained = owner
++            .observe_empty_api_key_sources(&config, Arc::clone(&credentials))
++            .unwrap();
++        owner.clear_loaded_plugins_cache();
++        assert_eq!(
++            retained.with_current_api_key_sources(|| ()),
++            Err(EmptyPluginSourcesError::SourceChanged)
++        );
++        assert!(
++            owner
++                .observe_empty_api_key_sources(&config, credentials)
++                .is_ok()
++        );
++    }
++
++    #[tokio::test]
++    async fn actual_cache_publication_detects_absent_insert_capacity_evict_absent_aba() {
++        let (_home, owner, config, credentials) = setup().await;
++        let absent = owner
++            .observe_empty_api_key_sources(&config, Arc::clone(&credentials))
++            .unwrap();
++        let generation = owner.loaded_plugins_cache_generation();
++        owner.cache_loaded_plugins_if_current(
++            generation,
++            absent.cache_key.clone(),
++            Vec::new(),
++            crate::skill_snapshots::new_plugin_skill_snapshots(),
++        );
++        for index in 0..super::super::LOADED_PLUGINS_CACHE_CAPACITY {
++            let mut key = absent.cache_key.clone();
++            key.configured_plugins.insert(
++                format!("other-{index}@offline"),
++                codex_config::types::PluginConfig {
++                    enabled: true,
++                    mcp_servers: std::collections::HashMap::new(),
++                },
++            );
++            owner.cache_loaded_plugins_if_current(
++                generation,
++                key,
++                Vec::new(),
++                crate::skill_snapshots::new_plugin_skill_snapshots(),
++            );
++        }
++        assert_eq!(owner.loaded_plugins_cache_generation(), generation);
++        assert!(
++            owner
++                .loaded_plugins_cache
++                .lock()
++                .unwrap()
++                .entries
++                .iter()
++                .all(|entry| entry.key != absent.cache_key)
++        );
++        assert_eq!(
++            absent.with_current_api_key_sources(|| panic!("capacity ABA cannot admit")),
++            Err::<(), _>(EmptyPluginSourcesError::SourceChanged)
++        );
++        assert!(
++            owner
++                .observe_empty_api_key_sources(&config, credentials)
++                .is_ok()
++        );
++    }
++
++    #[tokio::test]
++    async fn invalid_config_foreign_credentials_and_external_auth_never_prove_empty() {
++        let (home, owner, config, credentials) = setup().await;
++        let foreign =
++            AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-no-model-call"));
++        assert!(matches!(
++            owner.observe_empty_api_key_sources(
++                &config,
++                Arc::new(foreign.capture_cached_api_key_credentials().unwrap())
++            ),
++            Err(EmptyPluginSourcesError::UnresolvedCredentials)
++        ));
++        let backend =
++            AuthManager::from_auth_for_testing(CodexAuth::create_dummy_chatgpt_auth_for_testing());
++        assert!(backend.capture_cached_api_key_credentials().is_none());
++        crate::test_support::write_file(&home.path().join("config.toml"), "plugins = 'invalid'\n");
++        let malformed = crate::test_support::load_plugins_config(home.path(), home.path()).await;
++        assert!(matches!(
++            owner.observe_empty_api_key_sources(&malformed, Arc::clone(&credentials)),
++            Err(EmptyPluginSourcesError::ConfiguredSources)
++        ));
++        // This deliberately retains OLD immutable input data; it is not a
++        // current-config-file lease. The final factory still needs that owner.
++        let observed = owner
++            .observe_empty_api_key_sources(&config, Arc::clone(&credentials))
++            .unwrap();
++        crate::test_support::set_test_auth(
++            &owner.auth_manager,
++            Some(CodexAuth::from_api_key("offline-other-selection")),
++        )
++        .await;
++        assert_eq!(
++            observed.with_current_api_key_sources(|| ()),
++            Err(EmptyPluginSourcesError::UnresolvedCredentials)
++        );
++        assert!(matches!(
++            owner.observe_empty_api_key_sources(&config, credentials),
++            Err(EmptyPluginSourcesError::UnresolvedCredentials)
++        ));
++    }
++}
+diff --git a/codex-rs/core-plugins/src/remote.rs b/codex-rs/core-plugins/src/remote.rs
+index ef2d91ef1fa9d712f147565c18370065d86a2d8c..09928ed7272eac823717183db93d4437e163ec2d 100644
+--- a/codex-rs/core-plugins/src/remote.rs
++++ b/codex-rs/core-plugins/src/remote.rs
+@@ -2344,7 +2344,9 @@ fn remote_plugin_skill_detail_url(
+     Ok(url.to_string())
+ }
+ 
+-fn ensure_chatgpt_auth(auth: Option<&CodexAuth>) -> Result<&CodexAuth, RemotePluginCatalogError> {
++pub(crate) fn ensure_chatgpt_auth(
++    auth: Option<&CodexAuth>,
++) -> Result<&CodexAuth, RemotePluginCatalogError> {
+     let Some(auth) = auth else {
+         return Err(RemotePluginCatalogError::AuthRequired);
+     };
+diff --git a/codex-rs/core/src/mcp.rs b/codex-rs/core/src/mcp.rs
+index aba5ee8a7ac4c287df3c3990dc5c01b8c736d846..38c4db3b5a15f832295dc20884ed505276e2bbef 100644
+--- a/codex-rs/core/src/mcp.rs
++++ b/codex-rs/core/src/mcp.rs
+@@ -104,6 +104,59 @@ enum OrderedMcpOverlay {
+     },
+ }
+ 
++// Shared original catalog projection. No plugin load, source callback, auth
++// lookup, discovery or runtime construction occurs in this data-only step.
++fn materialize_mcp_catalog(
++    mut mcp_config: McpConfig,
++    isolated: bool,
++    originator: Option<&str>,
++    environment_scope: McpEnvironmentScope<'_>,
++    overlays: Vec<OrderedMcpOverlay>,
++) -> McpConfig {
++    let mut catalog = mcp_config.mcp_server_catalog.to_builder();
++    // Isolated sessions do not inherit the implicit Apps connection.
++    if mcp_config.apps_enabled && !isolated {
++        catalog.register(McpServerRegistration::from_compatibility(
++            CODEX_APPS_MCP_SERVER_NAME.to_string(),
++            LEGACY_CODEX_APPS_REGISTRATION_ID,
++            codex_apps_mcp_server_config(
++                &mcp_config.chatgpt_base_url,
++                mcp_config.apps_mcp_product_sku.as_deref(),
++                originator,
++            ),
++        ));
++    } else {
++        catalog.remove_compatibility(
++            CODEX_APPS_MCP_SERVER_NAME.to_string(),
++            LEGACY_CODEX_APPS_REGISTRATION_ID,
++        );
++    }
++
++    for overlay in overlays {
++        match overlay {
++            OrderedMcpOverlay::Set(registration) => catalog.register(*registration),
++            OrderedMcpOverlay::Remove {
++                contributor_id,
++                contribution_order,
++                name,
++            } => catalog.remove_extension(name, contributor_id, contribution_order),
++        }
++    }
++    let catalog = catalog.build_with_environment_authority(|environment_id| {
++        environment_scope.authority_for(environment_id)
++    });
++    for conflict in catalog.conflicts() {
++        tracing::warn!(
++            server = conflict.name,
++            outcome = ?conflict.outcome,
++            contenders = ?conflict.contenders,
++            "conflicting MCP server actions; using resolved catalog outcome"
++        );
++    }
++    mcp_config.mcp_server_catalog = catalog;
++    mcp_config
++}
++
+ #[derive(Clone)]
+ pub struct McpManager {
+     pre_session_source_identity: Arc<()>,
+@@ -352,55 +405,19 @@ impl McpManager {
+         let loaded_plugins = loaded_plugins.without_plugins(disabled_plugin_ids);
+         let plugins_available =
+             !selected_plugins.is_empty() || !loaded_plugins.capability_summaries().is_empty();
+-        let mut mcp_config = config
++        let mcp_config = config
+             .to_mcp_config_with_loaded_plugins(&loaded_plugins, selected_plugin_registrations);
+-        let mut catalog = mcp_config.mcp_server_catalog.to_builder();
+-        // Isolated sessions do not inherit the implicit Apps connection.
+-        if mcp_config.apps_enabled
+-            && context
++        let mut mcp_config = materialize_mcp_catalog(
++            mcp_config,
++            context
+                 .thread_init()
+                 .and_then(codex_extension_api::ExtensionDataInit::get::<SessionIsolation>)
+                 .as_deref()
+-                != Some(&SessionIsolation::Isolated)
+-        {
+-            catalog.register(McpServerRegistration::from_compatibility(
+-                CODEX_APPS_MCP_SERVER_NAME.to_string(),
+-                LEGACY_CODEX_APPS_REGISTRATION_ID,
+-                codex_apps_mcp_server_config(
+-                    &mcp_config.chatgpt_base_url,
+-                    mcp_config.apps_mcp_product_sku.as_deref(),
+-                    originator,
+-                ),
+-            ));
+-        } else {
+-            catalog.remove_compatibility(
+-                CODEX_APPS_MCP_SERVER_NAME.to_string(),
+-                LEGACY_CODEX_APPS_REGISTRATION_ID,
+-            );
+-        }
+-
+-        for overlay in overlays {
+-            match overlay {
+-                OrderedMcpOverlay::Set(registration) => catalog.register(*registration),
+-                OrderedMcpOverlay::Remove {
+-                    contributor_id,
+-                    contribution_order,
+-                    name,
+-                } => catalog.remove_extension(name, contributor_id, contribution_order),
+-            }
+-        }
+-        let catalog = catalog.build_with_environment_authority(|environment_id| {
+-            environment_scope.authority_for(environment_id)
+-        });
+-        for conflict in catalog.conflicts() {
+-            tracing::warn!(
+-                server = conflict.name,
+-                outcome = ?conflict.outcome,
+-                contenders = ?conflict.contenders,
+-                "conflicting MCP server actions; using resolved catalog outcome"
+-            );
+-        }
+-        mcp_config.mcp_server_catalog = catalog;
++                == Some(&SessionIsolation::Isolated),
++            originator,
++            environment_scope,
++            overlays,
++        );
+         mcp_config.connector_snapshot = connector_snapshot;
+         McpRuntimeProjection {
+             config: mcp_config,
+diff --git a/codex-rs/core/src/mcp/pre_session.rs b/codex-rs/core/src/mcp/pre_session.rs
+index 4beb60f14534a74c394cfc97897c8849d31fd49b..5cb2d32fa72f1a5a93c3027c664ac914166c8eb7 100644
+--- a/codex-rs/core/src/mcp/pre_session.rs
++++ b/codex-rs/core/src/mcp/pre_session.rs
+@@ -1,6 +1,7 @@
+ use std::collections::HashSet;
+ use std::sync::Arc;
+ 
++use codex_core_plugins::EmptyPluginSourcesObservation;
+ use codex_core_plugins::PluginLoadOutcome;
+ use codex_exec_server::Environment;
+ use codex_exec_server::EnvironmentManager;
+@@ -8,12 +9,17 @@ use codex_extension_api::McpPreSessionContext;
+ use codex_extension_api::McpPreSessionOverlay;
+ use codex_features::Feature;
+ use codex_history::InitialHistory;
++use codex_login::CodexAuth;
++use codex_login::auth::CapturedApiKeyCredentials;
+ use codex_mcp::McpBinding;
+ use codex_protocol::capabilities::SelectedCapabilityRoot;
+ use codex_protocol::protocol::EnvironmentConfigState;
+ use codex_protocol::protocol::TurnEnvironmentSelection;
+ 
++use super::McpEnvironmentScope;
+ use super::McpManager;
++use super::OrderedMcpOverlay;
++use super::materialize_mcp_catalog;
+ use crate::environment_selection::default_thread_environment_selections;
+ use crate::thread_manager::StartThreadOptions;
+ 
+@@ -31,6 +37,8 @@ pub struct PreSessionMcpSources {
+     environments: Vec<(String, Arc<Environment>)>,
+     selection_origin: SelectionOrigin,
+     binding: Arc<McpBinding>,
++    pub(crate) api_key_credentials: Option<Arc<CapturedApiKeyCredentials>>,
++    plugin_sources: Option<EmptyPluginSourcesObservation>,
+ }
+ 
+ enum SelectionOrigin {
+@@ -62,6 +70,17 @@ impl PreSessionMcpSources {
+         &self.binding
+     }
+ 
++    /// The same opaque original credentials used for this source projection.
++    /// Final count/admission must retain and guard these, not recapture auth.
++    pub fn api_key_credentials(&self) -> Option<&CapturedApiKeyCredentials> {
++        self.api_key_credentials.as_deref()
++    }
++
++    /// Original enabled-plugin source owner, when selected by API capture.
++    pub fn plugin_sources(&self) -> Option<&EmptyPluginSourcesObservation> {
++        self.plugin_sources.as_ref()
++    }
++
+     pub(crate) fn into_start_options(self) -> StartThreadOptions {
+         self.options
+     }
+@@ -83,13 +102,25 @@ pub enum PreSessionMcpError {
+     UnresolvedContributors(Vec<usize>),
+     #[error("captured MCP source owner or selected environment changed")]
+     SourceOwnerChanged,
++    #[error("original cached API-key credentials are unavailable or changed")]
++    UnresolvedApiKeyCredentials,
+ }
+ 
+ impl McpManager {
+     pub(crate) fn capture_pre_session_fresh_sources(
++        &self,
++        options: StartThreadOptions,
++        environment_manager: Arc<EnvironmentManager>,
++    ) -> Result<PreSessionMcpSources, PreSessionMcpError> {
++        self.capture_pre_session_sources_with_auth(options, environment_manager, None, None)
++    }
++
++    pub(crate) fn capture_pre_session_sources_with_auth(
+         &self,
+         mut options: StartThreadOptions,
+         environment_manager: Arc<EnvironmentManager>,
++        auth: Option<&CodexAuth>,
++        plugin_sources: Option<EmptyPluginSourcesObservation>,
+     ) -> Result<PreSessionMcpSources, PreSessionMcpError> {
+         if !matches!(&options.initial_history, InitialHistory::New)
+             || options.inherited_environments.is_some()
+@@ -99,12 +130,26 @@ impl McpManager {
+             return Err(PreSessionMcpError::RequiresFreshInputs);
+         }
+         let config = &options.config;
+-        if config.features.enabled(Feature::Apps)
+-            || config.features.enabled(Feature::Plugins)
++        if (config.features.enabled(Feature::Apps) && !matches!(auth, Some(CodexAuth::ApiKey(_))))
+             || !config.mcp_servers.get().is_empty()
+         {
+             return Err(PreSessionMcpError::ConfiguredSources);
+         }
++        if config.features.enabled(Feature::Plugins) {
++            let Some(plugins) = plugin_sources.as_ref() else {
++                return Err(PreSessionMcpError::ConfiguredSources);
++            };
++            if !plugins.belongs_to(&self.plugins_manager)
++                || !plugins.matches_config(&config.plugins_config_input())
++            {
++                return Err(PreSessionMcpError::SourceOwnerChanged);
++            }
++            plugins
++                .with_current_api_key_sources(|| ())
++                .map_err(|_| PreSessionMcpError::SourceOwnerChanged)?;
++        } else if plugin_sources.is_some() {
++            return Err(PreSessionMcpError::ConfiguredSources);
++        }
+         let thread_roots = options
+             .thread_extension_init
+             .get::<Vec<SelectedCapabilityRoot>>();
+@@ -172,29 +217,66 @@ impl McpManager {
+                     .unwrap_or_default(),
+             ))
+             .map_err(PreSessionMcpError::UnresolvedContributors)?;
++        let mut catalog_overlays = Vec::new();
++        let mut contribution_order = 0;
+         for (index, overlay) in overlays.into_iter().enumerate() {
+             match overlay {
+-                McpPreSessionOverlay::NoContributions
+-                | McpPreSessionOverlay::RemoveServer { .. } => {}
++                McpPreSessionOverlay::NoContributions => {}
++                McpPreSessionOverlay::RemoveServer { name } => {
++                    catalog_overlays.push(OrderedMcpOverlay::Remove {
++                        contributor_id: self.extensions.mcp_server_contributors()[index].id(),
++                        contribution_order,
++                        name,
++                    });
++                    contribution_order += 1;
++                }
++                McpPreSessionOverlay::HostedApps { config } => {
++                    if !matches!(auth, Some(CodexAuth::ApiKey(_))) {
++                        return Err(PreSessionMcpError::UnresolvedContributors(vec![index]));
++                    }
++                    catalog_overlays.push(OrderedMcpOverlay::Set(Box::new(
++                        codex_mcp::McpServerRegistration::from_hosted_apps(
++                            self.extensions.mcp_server_contributors()[index].id(),
++                            contribution_order,
++                            *config,
++                        ),
++                    )));
++                    contribution_order += 1;
++                }
+                 McpPreSessionOverlay::Unresolved => {
+                     return Err(PreSessionMcpError::UnresolvedContributors(vec![index]));
+                 }
+             }
+         }
+ 
+-        // All registered sources can only remove/omit servers, and the actual
+-        // effective configuration above contains no server/plugin/Apps source.
++        // Retain actual compatibility/extension registration and overlay order
++        // BEFORE the original auth gate. API auth removes only hosted Apps;
++        // Enabled empty Plugins retain their original source owner; configured
++        // MCP, installed/loaded rows and unknown plugin inputs still refuse.
+         // Reuse ordinary config construction; do not call plugin loading or an
+         // existing runtime's current_binding (which can start discovery).
+-        let mcp_config = config
+-            .to_mcp_config_with_loaded_plugins(&PluginLoadOutcome::default(), std::iter::empty());
+-        if !mcp_config
+-            .mcp_server_catalog
+-            .configured_servers()
+-            .is_empty()
+-        {
++        let disabled_plugins = PluginLoadOutcome::default();
++        let loaded_plugins = plugin_sources
++            .as_ref()
++            .map(EmptyPluginSourcesObservation::loaded_plugins)
++            .unwrap_or(&disabled_plugins);
++        let mcp_config =
++            config.to_mcp_config_with_loaded_plugins(loaded_plugins, std::iter::empty());
++        let mcp_config = materialize_mcp_catalog(
++            mcp_config,
++            /*isolated*/ false,
++            /*originator: original threadless projection*/ None,
++            McpEnvironmentScope::Selected(&selections),
++            catalog_overlays,
++        );
++        if !codex_mcp::effective_mcp_servers(&mcp_config, auth).is_empty() {
+             return Err(PreSessionMcpError::ConfiguredSources);
+         }
++        if let Some(plugins) = plugin_sources.as_ref() {
++            plugins
++                .with_current_api_key_sources(|| ())
++                .map_err(|_| PreSessionMcpError::SourceOwnerChanged)?;
++        }
+         let binding = Arc::new(McpBinding::empty(Arc::new(mcp_config)));
+         options.environments = Some(selections);
+         Ok(PreSessionMcpSources {
+@@ -204,6 +286,8 @@ impl McpManager {
+             environments,
+             selection_origin,
+             binding,
++            api_key_credentials: None,
++            plugin_sources,
+         })
+     }
+ 
+@@ -217,6 +301,19 @@ impl McpManager {
+         {
+             return Err(PreSessionMcpError::SourceOwnerChanged);
+         }
++        if let Some(plugins) = sources.plugin_sources() {
++            if !plugins.belongs_to(&self.plugins_manager)
++                || !plugins.matches_config(&sources.options.config.plugins_config_input())
++                || !sources
++                    .api_key_credentials()
++                    .is_some_and(|credentials| plugins.uses_credentials(credentials))
++            {
++                return Err(PreSessionMcpError::SourceOwnerChanged);
++            }
++            plugins
++                .with_current_api_key_sources(|| ())
++                .map_err(|_| PreSessionMcpError::SourceOwnerChanged)?;
++        }
+         if matches!(sources.selection_origin, SelectionOrigin::Default)
+             && Some(default_thread_environment_selections(
+                 environment_manager,
+diff --git a/codex-rs/core/src/thread_manager/pre_session_inputs.rs b/codex-rs/core/src/thread_manager/pre_session_inputs.rs
+index 7f9c7d1ea88f539c6abf58ef6791730d1d5db0d3..b3d78a9234997965e0e882ffb1d9319a6ad300cd 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_inputs.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_inputs.rs
+@@ -10,8 +10,74 @@ impl ThreadManager {
+     /// absence. This neither starts a Session nor qualifies a prepared request.
+     pub fn capture_pre_session_mcp_sources(
+         &self,
+-        mut options: StartThreadOptions,
++        options: StartThreadOptions,
++    ) -> Result<PreSessionMcpSources, PreSessionMcpError> {
++        let options = self.resolve_pre_session_start_options(options)?;
++        self.state
++            .mcp_manager
++            .capture_pre_session_fresh_sources(options, self.state.environment_manager.clone())
++    }
++
++    /// Retains the original cached API-key owner while materializing the
++    /// ordinary hosted Apps registration and applying the existing auth gate.
++    /// Enabled Plugins require the same original manager's genuine empty API
++    /// source observation. Configured/retained/unknown sources still refuse.
++    /// This covers the original threadless MCP projection, not full turn
++    /// originator/configuration/context currency, count or prepared admission.
++    pub fn capture_pre_session_api_key_mcp_sources(
++        &self,
++        options: StartThreadOptions,
++        credentials: codex_login::auth::CapturedApiKeyCredentials,
+     ) -> Result<PreSessionMcpSources, PreSessionMcpError> {
++        let options = self.resolve_pre_session_start_options(options)?;
++        let credentials = std::sync::Arc::new(credentials);
++        let auth = self
++            .state
++            .auth_manager
++            .with_current_api_key_credentials(&credentials, |auth, _| auth.clone())
++            .ok_or(PreSessionMcpError::UnresolvedApiKeyCredentials)?;
++        let plugin_sources = if options
++            .config
++            .features
++            .enabled(codex_features::Feature::Plugins)
++        {
++            Some(
++                self.state
++                    .plugins_manager
++                    .observe_empty_api_key_sources(
++                        &options.config.plugins_config_input(),
++                        std::sync::Arc::clone(&credentials),
++                    )
++                    .map_err(|_| PreSessionMcpError::ConfiguredSources)?,
++            )
++        } else {
++            None
++        };
++        // Do not run even closed registered plans under the auth publisher lock.
++        // This is an observation; revalidate after projection and retain the
++        // opaque credential selection for the later actual guarded operation.
++        let mut sources = self
++            .state
++            .mcp_manager
++            .capture_pre_session_sources_with_auth(
++                options,
++                self.state.environment_manager.clone(),
++                Some(&auth),
++                plugin_sources,
++            )?;
++        self.state
++            .auth_manager
++            .with_current_api_key_credentials(&credentials, |_, _| ())
++            .ok_or(PreSessionMcpError::UnresolvedApiKeyCredentials)?;
++        sources.api_key_credentials = Some(credentials);
++        self.validate_pre_session_mcp_sources(&sources)?;
++        Ok(sources)
++    }
++
++    fn resolve_pre_session_start_options(
++        &self,
++        mut options: StartThreadOptions,
++    ) -> Result<StartThreadOptions, PreSessionMcpError> {
+         // Ordinary isolated startup constructs another MCP manager from its
+         // explicit isolated registry. This capture only qualifies the actual
+         // inherited manager; never certify a different registry's absence.
+@@ -27,9 +93,7 @@ impl ThreadManager {
+         // another source/registry policy if the manager's default later changes.
+         options.session_source = Some(session_source);
+         options.thread_extension_init.insert(isolation);
+-        self.state
+-            .mcp_manager
+-            .capture_pre_session_fresh_sources(options, self.state.environment_manager.clone())
++        Ok(options)
+     }
+ 
+     /// Renews only this packet's registry/environment custody. Actual selected
+@@ -39,6 +103,12 @@ impl ThreadManager {
+         &self,
+         sources: &PreSessionMcpSources,
+     ) -> Result<(), PreSessionMcpError> {
++        if let Some(credentials) = sources.api_key_credentials() {
++            self.state
++                .auth_manager
++                .with_current_api_key_credentials(credentials, |_, _| ())
++                .ok_or(PreSessionMcpError::UnresolvedApiKeyCredentials)?;
++        }
+         self.state
+             .mcp_manager
+             .validate_pre_session_sources(sources, &self.state.environment_manager)
+diff --git a/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs b/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
+index 87a99fd47d5cf41d6ac1901537014250f6916950..369d6907709e3df709a9c93924004c4c2cada2e1 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
+@@ -527,3 +527,230 @@ async fn fresh_global_instruction_observation_refuses_unknown_provider_before_it
+     assert_eq!(calls.load(Ordering::SeqCst), 0);
+     assert!(manager.state.threads.read().await.is_empty());
+ }
++
++// Declarative hosted-source fixture. Actual extension plan/ordinary-byte
++// equivalence is separately exercised in codex-mcp-extension; this is not a
++// substituted full app-server registry or default-Plugins qualification.
++fn hosted_apps_source(context: McpPreSessionContext<'_, Config>) -> McpPreSessionOverlay {
++    McpPreSessionOverlay::HostedApps {
++        config: Box::new(codex_mcp::hosted_plugin_runtime_mcp_server_config(
++            &context.config().chatgpt_base_url,
++            context.config().apps_mcp_product_sku.as_deref(),
++            context.originator(),
++        )),
++    }
++}
++
++#[tokio::test]
++async fn api_key_mcp_capture_retains_registration_then_applies_original_auth_gate() {
++    let mut config = config().await;
++    config.features.enable(Feature::Apps).unwrap();
++    let mut manager = manager(&config);
++    let calls = Arc::new(AtomicUsize::new(0));
++    let mut registry = ExtensionRegistryBuilder::new();
++    registry.mcp_server_contributor_with_pre_session_plan(
++        Arc::new(RuntimeSource(Arc::clone(&calls))),
++        hosted_apps_source,
++    );
++    let state = Arc::get_mut(&mut manager.state).unwrap();
++    state.extensions = Arc::new(registry.build());
++    state.mcp_manager = Arc::new(McpManager::new_with_extensions(
++        Arc::clone(&state.plugins_manager),
++        Arc::clone(&state.extensions),
++        state.mcp_manager.codex_apps_tools_cache(),
++    ));
++    let mut created = manager.state.thread_created_tx.subscribe();
++    let credentials = manager
++        .auth_manager()
++        .capture_cached_api_key_credentials()
++        .unwrap();
++    let source = manager
++        .capture_pre_session_api_key_mcp_sources(
++            StartThreadOptions::new(config.clone()),
++            credentials,
++        )
++        .unwrap();
++    assert!(
++        source
++            .start_options()
++            .config
++            .features
++            .enabled(Feature::Apps)
++    );
++    assert!(
++        !source
++            .start_options()
++            .config
++            .features
++            .enabled(Feature::Plugins)
++    );
++    assert!(source.api_key_credentials().is_some());
++    assert!(source.binding().tools().is_empty());
++    assert!(!source.binding().plugins_available());
++    let mcp_config = source.binding().config();
++    assert!(mcp_config.apps_enabled);
++    let registered = mcp_config
++        .mcp_server_catalog
++        .server(codex_mcp::CODEX_APPS_MCP_SERVER_NAME)
++        .unwrap();
++    assert_eq!(
++        registered.source(),
++        &codex_mcp::McpServerSource::Extension {
++            id: "runtime-source".to_string(),
++            host_owned_apps: true,
++        }
++    );
++    let api_auth = CodexAuth::from_api_key("offline-no-model-call");
++    assert!(codex_mcp::effective_mcp_servers(mcp_config, Some(&api_auth)).is_empty());
++    let backend_auth = CodexAuth::create_dummy_chatgpt_auth_for_testing();
++    assert!(
++        codex_mcp::effective_mcp_servers(mcp_config, Some(&backend_auth))
++            .contains_key(codex_mcp::CODEX_APPS_MCP_SERVER_NAME)
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert_eq!(manager.state.threads.read().await.len(), 0);
++    assert!(matches!(
++        created.try_recv(),
++        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
++    ));
++    manager.validate_pre_session_mcp_sources(&source).unwrap();
++
++    // The original credential publisher, not a copied API-key label, fences
++    // future validation. The offline provider below only changes that owner.
++    manager
++        .auth_manager()
++        .set_external_auth(Arc::new(OfflineApiAuth))
++        .await
++        .unwrap();
++    assert_eq!(
++        manager.validate_pre_session_mcp_sources(&source),
++        Err(PreSessionMcpError::UnresolvedApiKeyCredentials)
++    );
++}
++
++struct OfflineApiAuth;
++impl codex_login::ExternalAuth for OfflineApiAuth {
++    fn resolve(&self) -> codex_login::ExternalAuthFuture<'_, CodexAuth> {
++        Box::pin(async { Ok(CodexAuth::from_api_key("offline-other-owner")) })
++    }
++    fn refresh(
++        &self,
++        _context: codex_login::ExternalAuthRefreshContext,
++    ) -> codex_login::ExternalAuthFuture<'_, CodexAuth> {
++        self.resolve()
++    }
++}
++
++#[tokio::test]
++async fn api_key_mcp_capture_refuses_foreign_credentials_plugins_and_unknown_sources() {
++    let mut config = config().await;
++    config.features.enable(Feature::Apps).unwrap();
++    let mut manager = manager(&config);
++    let foreign = codex_login::AuthManager::from_auth_for_testing(CodexAuth::from_api_key(
++        "offline-no-model-call",
++    ));
++    assert_eq!(
++        manager
++            .capture_pre_session_api_key_mcp_sources(
++                StartThreadOptions::new(config.clone()),
++                foreign.capture_cached_api_key_credentials().unwrap(),
++            )
++            .err(),
++        Some(PreSessionMcpError::UnresolvedApiKeyCredentials)
++    );
++    let mut plugins = config.clone();
++    plugins.features.enable(Feature::Plugins).unwrap();
++    // An enabled flag and API auth alone still cannot manufacture the original
++    // PluginsManager observation required by the lower-level MCP projection.
++    let auth = manager.auth_manager().auth_cached().unwrap();
++    assert_eq!(
++        manager
++            .state
++            .mcp_manager
++            .capture_pre_session_sources_with_auth(
++                StartThreadOptions::new(plugins),
++                Arc::clone(&manager.state.environment_manager),
++                Some(&auth),
++                None,
++            )
++            .err(),
++        Some(PreSessionMcpError::ConfiguredSources)
++    );
++    let calls = Arc::new(AtomicUsize::new(0));
++    let mut registry = ExtensionRegistryBuilder::new();
++    registry.mcp_server_contributor(Arc::new(RuntimeSource(Arc::clone(&calls))));
++    let state = Arc::get_mut(&mut manager.state).unwrap();
++    state.extensions = Arc::new(registry.build());
++    state.mcp_manager = Arc::new(McpManager::new_with_extensions(
++        Arc::clone(&state.plugins_manager),
++        Arc::clone(&state.extensions),
++        state.mcp_manager.codex_apps_tools_cache(),
++    ));
++    assert_eq!(
++        manager
++            .capture_pre_session_api_key_mcp_sources(
++                StartThreadOptions::new(config),
++                manager
++                    .auth_manager()
++                    .capture_cached_api_key_credentials()
++                    .unwrap(),
++            )
++            .err(),
++        Some(PreSessionMcpError::UnresolvedContributors(vec![0]))
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++}
++
++#[tokio::test]
++async fn actual_default_plugin_inputs_retain_original_api_owner_without_cache_loading_or_session() {
++    let config = test_config().await;
++    assert!(config.features.enabled(Feature::Apps));
++    assert!(config.features.enabled(Feature::Plugins));
++    assert!(config.mcp_servers.get().is_empty());
++    let manager = manager(&config);
++    let mut created = manager.state.thread_created_tx.subscribe();
++    let sources = manager
++        .capture_pre_session_api_key_mcp_sources(
++            StartThreadOptions::new(config.clone()),
++            manager
++                .auth_manager()
++                .capture_cached_api_key_credentials()
++                .unwrap(),
++        )
++        .unwrap();
++    let plugins = sources.plugin_sources().unwrap();
++    assert!(plugins.belongs_to(&manager.plugins_manager()));
++    assert!(plugins.matches_config(&config.plugins_config_input()));
++    assert!(plugins.uses_credentials(sources.api_key_credentials().unwrap()));
++    assert_eq!(
++        plugins.installed_selection(),
++        codex_core_plugins::InstalledPluginSourceSelection::ApiDomainWithoutSelectedInstalledRows
++    );
++    assert!(plugins.loaded_plugins().plugins().is_empty());
++    assert!(
++        sources
++            .start_options()
++            .config
++            .features
++            .enabled(Feature::Apps)
++    );
++    assert!(
++        sources
++            .start_options()
++            .config
++            .features
++            .enabled(Feature::Plugins)
++    );
++    assert!(sources.binding().tools().is_empty());
++    manager.validate_pre_session_mcp_sources(&sources).unwrap();
++    manager.plugins_manager().clear_cache();
++    assert_eq!(
++        manager.validate_pre_session_mcp_sources(&sources),
++        Err(PreSessionMcpError::SourceOwnerChanged)
++    );
++    assert!(manager.state.threads.read().await.is_empty());
++    assert!(matches!(
++        created.try_recv(),
++        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
++    ));
++}
+diff --git a/codex-rs/core/src/thread_manager/pre_session_skills.rs b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+index e47f6f7b6cfb47c783fac435bfd938f8dd9ad38d..ac651474569aa9e3128f70b83a59d51ef8c87382 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_skills.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+@@ -51,8 +51,9 @@ fn unavailable() -> CodexErr {
+ 
+ impl ThreadManager {
+     /// Requires this manager's genuine inherited, fresh MCP-absence packet.
+-    /// Configured Apps/plugins/root inventories remain refused by that source
+-    /// rather than being dropped to construct a successful Skills observation.
++    /// Configured MCP, retained plugins and selected roots still refuse. API
++    /// Apps retain their registration before the ordinary auth gate removes
++    /// their effective servers; enabled empty Plugins retain their real owner.
+     /// Model metadata is captured passively from the original catalog; it is
+     /// explicitly unverified for selected-account/provider access.
+     pub(crate) async fn observe_pre_session_skills<'a>(
+@@ -82,9 +83,9 @@ impl ThreadManager {
+             .capture_model_limit_candidate(model_id, &config.to_models_manager_config())
+             .await
+             .ok_or_else(unavailable)?;
+-        // Apps/plugins/selected roots have already been excluded by the actual
+-        // MCP source, so their connector counts and effective plugin roots are
+-        // genuinely empty for this supported partition. Other configurations
++        // The actual MCP source proves effective API Apps and retained plugin
++        // roots empty without clearing flags or raw registrations. Connector
++        // counts and plugin roots are genuinely empty for this partition. Other configurations
+         // need their original source collectors before this path can support them.
+         let input = source
+             .observe_first_input(
+@@ -135,17 +136,29 @@ impl ThreadManager {
+             .ok_or_else(unavailable)?;
+         self.validate_pre_session_mcp_sources(sources)
+             .map_err(|_| unavailable())?;
+-        // All async source work is finished. Renew these three actual
++        // All async source work is finished. Renew these actual
+         // publishers together while the original catalog read guard remains
+         // live. This point check still supplies no lease after returning and
+         // does not cover the remaining source/configuration/permission owners.
+-        self.state
+-            .environment_manager
+-            .with_current_selected_environment_publications(&environment_publication, || {
+-                self.state
+-                    .skills_service
+-                    .with_current_pre_session_prompt_roots(skills.host_observation(), || ())
+-            })
++        let renew_sources = || {
++            self.state
++                .environment_manager
++                .with_current_selected_environment_publications(&environment_publication, || {
++                    self.state
++                        .skills_service
++                        .with_current_pre_session_prompt_roots(skills.host_observation(), || ())
++                })
++        };
++        let renewed = if let Some(plugins) = sources.plugin_sources() {
++            // Original installed/loaded locks precede original auth; never
++            // invoke this under a separate AuthManager publisher guard.
++            plugins
++                .with_current_api_key_sources(renew_sources)
++                .map_err(|_| unavailable())?
++        } else {
++            renew_sources()
++        };
++        renewed
+             .map_err(|_| unavailable())?
+             .map_err(|_| unavailable())?;
+         drop(catalog);
+diff --git a/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs b/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
+index 43168b7e158b38a3fcc68df7866747eb16ca4b54..486116325853bd4eb2d3b880bdf22ff990f1befe 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
+@@ -1,9 +1,11 @@
+ use std::collections::HashMap;
+ use std::sync::Arc;
+ 
++use codex_config::ConfigLayerStack;
+ use codex_config::Constrained;
+ use codex_config::config_toml::ConfigToml;
+ use codex_exec_server::EnvironmentManager;
++use codex_exec_server::LOCAL_FS;
+ use codex_extension_api::ExtensionRegistryBuilder;
+ use codex_login::CodexAuth;
+ use codex_skills_extension::ExecutorSkillProvider;
+@@ -21,13 +23,15 @@ use crate::thread_manager::StartThreadOptions;
+ async fn config(home: &tempfile::TempDir) -> Config {
+     let toml: ConfigToml =
+         toml::from_str("model='gpt-6-luna'\n[skills.bundled]\nenabled=false\n").unwrap();
+-    let mut config = Config::load_from_base_config_with_overrides(
++    let mut config = Config::load_config_with_layer_stack(
++        LOCAL_FS.as_ref(),
+         toml,
+         ConfigOverrides {
+             cwd: Some(home.path().to_path_buf()),
+             ..Default::default()
+         },
+         AbsolutePathBuf::from_absolute_path(home.path()).unwrap(),
++        ConfigLayerStack::default(),
+     )
+     .await
+     .unwrap();
+diff --git a/codex-rs/ext/extension-api/src/mcp_pre_session.rs b/codex-rs/ext/extension-api/src/mcp_pre_session.rs
+index cfeb70f8db6ff9a81854db09d8d43dbf5190f513..fc41f77cd2b5b1f73f8595326fed49b913a3de76 100644
+--- a/codex-rs/ext/extension-api/src/mcp_pre_session.rs
++++ b/codex-rs/ext/extension-api/src/mcp_pre_session.rs
+@@ -14,6 +14,7 @@ use crate::SelectedPlugin;
+ pub struct McpPreSessionContext<'a, C> {
+     config: &'a C,
+     selected_capability_roots: &'a [SelectedCapabilityRoot],
++    originator: Option<&'a str>,
+ }
+ 
+ impl<C> Clone for McpPreSessionContext<'_, C> {
+@@ -29,6 +30,7 @@ impl<'a, C> McpPreSessionContext<'a, C> {
+         Self {
+             config,
+             selected_capability_roots,
++            originator: None,
+         }
+     }
+ 
+@@ -39,18 +41,34 @@ impl<'a, C> McpPreSessionContext<'a, C> {
+     pub fn selected_capability_roots(&self) -> &'a [SelectedCapabilityRoot] {
+         self.selected_capability_roots
+     }
++
++    pub fn with_originator(mut self, originator: Option<&'a str>) -> Self {
++        self.originator = originator;
++        self
++    }
++
++    pub fn originator(&self) -> Option<&'a str> {
++        self.originator
++    }
+ }
+ 
+ /// Closed contribution outcomes supported before MCP activation.
+ ///
+ /// There is deliberately no caller-supplied server/tool catalog. Sources that
+-/// might add servers, connectors or selected plugin identities remain unresolved.
+-/// Both closed variants settle the entire registered source contribution;
++/// need discovery, connectors or selected plugin identities remain unresolved.
++/// Hosted Apps retains its original registration BEFORE auth gating; it does
++/// not establish empty tools, availability or permission to start discovery.
++/// The absence variants settle the entire registered source contribution;
+ /// even plugins without MCP servers must not be omitted by an absence plan.
+-#[derive(Clone, Debug, Eq, PartialEq)]
++#[derive(Clone, Debug, PartialEq)]
+ pub enum McpPreSessionOverlay {
+     NoContributions,
+-    RemoveServer { name: String },
++    RemoveServer {
++        name: String,
++    },
++    HostedApps {
++        config: Box<codex_config::McpServerConfig>,
++    },
+     Unresolved,
+ }
+ 
+@@ -59,9 +77,12 @@ pub enum McpPreSessionOverlay {
+ /// this is not permission to invoke a runtime callback during preparation.
+ pub type McpPreSessionPlan<C> = for<'a> fn(McpPreSessionContext<'a, C>) -> McpPreSessionOverlay;
+ 
++pub(crate) type RetainedMcpPreSessionPlan<C> =
++    Arc<dyn for<'a> Fn(McpPreSessionContext<'a, C>) -> McpPreSessionOverlay + Send + Sync>;
++
+ pub(crate) struct PlannedMcpSource<C: Sync> {
+     pub(crate) contributor: Arc<dyn McpServerContributor<C>>,
+-    pub(crate) plan: McpPreSessionPlan<C>,
++    pub(crate) plan: RetainedMcpPreSessionPlan<C>,
+ }
+ 
+ impl<C: Sync> PlannedMcpSource<C> {
+@@ -78,7 +99,10 @@ impl<C: Sync> PlannedMcpSource<C> {
+                     .map(|root| root.selected_root.clone()),
+             );
+         }
+-        (self.plan)(McpPreSessionContext::new(context.config(), &roots))
++        (self.plan)(
++            McpPreSessionContext::new(context.config(), &roots)
++                .with_originator(context.originator()),
++        )
+     }
+ }
+ 
+@@ -102,7 +126,9 @@ impl<C: Sync> McpServerContributor<C> for PlannedMcpSource<C> {
+                 McpPreSessionOverlay::RemoveServer { name } => {
+                     vec![McpServerContribution::Remove { name }]
+                 }
+-                McpPreSessionOverlay::Unresolved => runtime,
++                McpPreSessionOverlay::HostedApps { .. } | McpPreSessionOverlay::Unresolved => {
++                    runtime
++                }
+             }
+         })
+     }
+@@ -116,7 +142,8 @@ impl<C: Sync> McpServerContributor<C> for PlannedMcpSource<C> {
+             let runtime = self.contributor.selected_plugins(context).await;
+             match plan {
+                 McpPreSessionOverlay::NoContributions
+-                | McpPreSessionOverlay::RemoveServer { .. } => Vec::new(),
++                | McpPreSessionOverlay::RemoveServer { .. }
++                | McpPreSessionOverlay::HostedApps { .. } => Vec::new(),
+                 McpPreSessionOverlay::Unresolved => runtime,
+             }
+         })
+diff --git a/codex-rs/ext/extension-api/src/registry.rs b/codex-rs/ext/extension-api/src/registry.rs
+index e6d39f4bf275b95089cc17dbbfa0b82582d7def3..0bf498b8046d7adf74365678182873f9ad5c3b15 100644
+--- a/codex-rs/ext/extension-api/src/registry.rs
++++ b/codex-rs/ext/extension-api/src/registry.rs
+@@ -33,6 +33,7 @@ use crate::TurnItemContributor;
+ use crate::TurnLifecycleContributor;
+ use crate::TurnStartAdmission;
+ use crate::mcp_pre_session::PlannedMcpSource;
++use crate::mcp_pre_session::RetainedMcpPreSessionPlan;
+ use crate::tool_inventory::FixedToolContributor;
+ use crate::tool_pre_session::PlannedToolContributor;
+ 
+@@ -154,10 +155,41 @@ impl<C: Sync> ExtensionRegistryBuilder<C> {
+         plan: McpPreSessionPlan<C>,
+     ) where
+         C: 'static,
++    {
++        self.register_mcp_source_plan(contributor, Arc::new(plan));
++    }
++
++    /// Binds a pure plan to the SAME concrete allocation registered for ordinary
++    /// contribution. The plan may inspect this owner's retained provider set;
++    /// it must not invoke providers, thread callbacks, discovery or refresh.
++    pub fn mcp_server_contributor_with_source_plan<T>(
++        &mut self,
++        contributor: Arc<T>,
++        plan: for<'a> fn(&T, McpPreSessionContext<'a, C>) -> McpPreSessionOverlay,
++    ) where
++        T: McpServerContributor<C> + 'static,
++        C: 'static,
++    {
++        let source = Arc::clone(&contributor);
++        self.register_mcp_source_plan(
++            contributor,
++            Arc::new(move |context| plan(source.as_ref(), context)),
++        );
++    }
++
++    fn register_mcp_source_plan(
++        &mut self,
++        contributor: Arc<dyn McpServerContributor<C>>,
++        plan: RetainedMcpPreSessionPlan<C>,
++    ) where
++        C: 'static,
+     {
+         self.registry
+             .mcp_server_contributors
+-            .push(Arc::new(PlannedMcpSource { contributor, plan }));
++            .push(Arc::new(PlannedMcpSource {
++                contributor,
++                plan: Arc::clone(&plan),
++            }));
+         self.registry.mcp_pre_session_plans.push(Some(plan));
+     }
+ 
+@@ -246,7 +278,7 @@ pub struct ExtensionRegistry<C: Sync> {
+     coupled_context_sources: Vec<CoupledContextSource>,
+     prompt_context_sources: Vec<PromptContextSource>,
+     mcp_server_contributors: Vec<Arc<dyn McpServerContributor<C>>>,
+-    mcp_pre_session_plans: Vec<Option<McpPreSessionPlan<C>>>,
++    mcp_pre_session_plans: Vec<Option<RetainedMcpPreSessionPlan<C>>>,
+     turn_input_contributors: Vec<Arc<dyn TurnInputContributor>>,
+     tool_contributors: Vec<Arc<dyn ToolContributor>>,
+     pre_session_tool_definitions: Vec<Option<Arc<[ExtensionToolDefinition]>>>,
+diff --git a/codex-rs/ext/extension-api/tests/pre_session_mcp.rs b/codex-rs/ext/extension-api/tests/pre_session_mcp.rs
+index b7fbfe2856f69cb1e8e7fccf640a78b85ec17e8a..5732c2fd836f030218eea11881c7698cbeb8f926 100644
+--- a/codex-rs/ext/extension-api/tests/pre_session_mcp.rs
++++ b/codex-rs/ext/extension-api/tests/pre_session_mcp.rs
+@@ -92,3 +92,83 @@ async fn closed_registration_owns_ordinary_metadata_instead_of_an_empty_inventor
+     ));
+     assert_eq!(calls.load(Ordering::SeqCst), 2);
+ }
++
++struct OriginalOwnerSource {
++    closed: bool,
++    calls: Arc<AtomicUsize>,
++    observed_pointer: Arc<AtomicUsize>,
++}
++
++impl McpServerContributor<()> for OriginalOwnerSource {
++    fn id(&self) -> &'static str {
++        "original-owner"
++    }
++    fn contribute<'a>(
++        &'a self,
++        _context: McpServerContributionContext<'a, ()>,
++    ) -> ExtensionFuture<'a, Vec<McpServerContribution>> {
++        self.calls.fetch_add(1, Ordering::SeqCst);
++        Box::pin(async { Vec::new() })
++    }
++}
++
++fn original_owner_plan(
++    source: &OriginalOwnerSource,
++    _context: McpPreSessionContext<'_, ()>,
++) -> McpPreSessionOverlay {
++    source
++        .observed_pointer
++        .store(std::ptr::from_ref(source) as usize, Ordering::SeqCst);
++    if source.closed {
++        McpPreSessionOverlay::NoContributions
++    } else {
++        McpPreSessionOverlay::Unresolved
++    }
++}
++
++#[tokio::test]
++async fn source_bound_plan_uses_same_original_allocation_without_runtime_calls() {
++    let calls = Arc::new(AtomicUsize::new(0));
++    let pointer = Arc::new(AtomicUsize::new(0));
++    let owner = Arc::new(OriginalOwnerSource {
++        closed: true,
++        calls: Arc::clone(&calls),
++        observed_pointer: Arc::clone(&pointer),
++    });
++    let original = Arc::as_ptr(&owner) as usize;
++    let mut builder = ExtensionRegistryBuilder::new();
++    builder.mcp_server_contributor_with_source_plan(owner, original_owner_plan);
++    let registry = builder.build();
++    assert_eq!(
++        registry.pre_session_mcp_overlays(McpPreSessionContext::new(&(), &[])),
++        Ok(vec![McpPreSessionOverlay::NoContributions])
++    );
++    assert_eq!(pointer.load(Ordering::SeqCst), original);
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    let copied = registry.to_builder().build();
++    assert_eq!(
++        copied.pre_session_mcp_overlays(McpPreSessionContext::new(&(), &[])),
++        Ok(vec![McpPreSessionOverlay::NoContributions])
++    );
++    assert_eq!(pointer.load(Ordering::SeqCst), original);
++    registry.mcp_server_contributors()[0]
++        .contribute(McpServerContributionContext::global(&()))
++        .await;
++    assert_eq!(calls.load(Ordering::SeqCst), 1);
++    let mut foreign = ExtensionRegistryBuilder::new();
++    foreign.mcp_server_contributor_with_source_plan(
++        Arc::new(OriginalOwnerSource {
++            closed: false,
++            calls: Arc::clone(&calls),
++            observed_pointer: Arc::clone(&pointer),
++        }),
++        original_owner_plan,
++    );
++    assert_eq!(
++        foreign
++            .build()
++            .pre_session_mcp_overlays(McpPreSessionContext::new(&(), &[])),
++        Err(vec![0])
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 1);
++}
+diff --git a/codex-rs/ext/history-notes/src/extension.rs b/codex-rs/ext/history-notes/src/extension.rs
+index 440d3e0f4944fee38fabc41063c7ea9ccf3d6ec8..21d15fb09a11fb6f3cee887f1f0217b228e71573 100644
+--- a/codex-rs/ext/history-notes/src/extension.rs
++++ b/codex-rs/ext/history-notes/src/extension.rs
+@@ -31,7 +31,7 @@ use crate::tools::HistoryNotesTool;
+ // Bound model context even when note paths are unusually long.
+ const MAX_THREAD_HINT_BYTES: usize = 4_000;
+ 
+-struct HistoryNotesExtension {
++pub(super) struct HistoryNotesExtension {
+     auth_manager: Arc<AuthManager>,
+ }
+ 
+@@ -43,7 +43,7 @@ struct HistoryNotesAgentIdentity {
+     agent_name: String,
+ }
+ 
+-fn tool_selection(config: &Config) -> ToolPreSessionSelection {
++pub(super) fn tool_selection(config: &Config) -> ToolPreSessionSelection {
+     if config
+         .token_budget
+         .as_ref()
+@@ -197,6 +197,6 @@ pub fn install(registry: &mut ExtensionRegistryBuilder<Config>, auth_manager: Ar
+     let extension = Arc::new(HistoryNotesExtension { auth_manager });
+     registry.thread_lifecycle_contributor(extension.clone());
+     registry.config_contributor(extension.clone());
+-    registry.prompt_contributor(extension.clone());
++    registry.prompt_context_source(extension.clone());
+     registry.tool_contributor_with_pre_session_plan(extension, Arc::new(tool_selection));
+ }
+diff --git a/codex-rs/ext/history-notes/src/lib.rs b/codex-rs/ext/history-notes/src/lib.rs
+index 06cc5ed8f000880db51aa4a6b1ceef2b0647f545..22fa5262a5cf9675a8e6c40071c7f7d64e2b86a4 100644
+--- a/codex-rs/ext/history-notes/src/lib.rs
++++ b/codex-rs/ext/history-notes/src/lib.rs
+@@ -1,5 +1,10 @@
+ mod backend;
+ mod extension;
++mod pre_session;
+ mod tools;
+ 
+ pub use extension::install;
++pub use pre_session::HistoryNotesInitialObservation;
++pub use pre_session::HistoryNotesObservationError;
++pub use pre_session::RegisteredHistoryNotesSource;
++pub use pre_session::registered_history_notes_sources;
+diff --git a/codex-rs/ext/history-notes/src/pre_session.rs b/codex-rs/ext/history-notes/src/pre_session.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..8204eb88534bddb1d229da6563c4faccaf3bc9d5
+--- /dev/null
++++ b/codex-rs/ext/history-notes/src/pre_session.rs
+@@ -0,0 +1,72 @@
++use codex_core::config::Config;
++use codex_extension_api::ContextSourceRegistrationError;
++use codex_extension_api::ExtensionRegistry;
++use codex_extension_api::PromptFragment;
++use codex_extension_api::RegisteredPromptContextSource;
++use codex_extension_api::ToolPreSessionSelection;
++
++use crate::extension::HistoryNotesExtension;
++use crate::extension::tool_selection;
++
++/// The actual installed prompt allocation, independent of its tool partition.
++pub struct RegisteredHistoryNotesSource {
++    registration: RegisteredPromptContextSource<HistoryNotesExtension>,
++}
++
++/// Source-owned prompt absence for the borrowed fresh configuration only.
++/// This is not a configuration-publication, account or whole-request lease.
++pub struct HistoryNotesInitialObservation<'a> {
++    _source: &'a HistoryNotesExtension,
++    config: &'a Config,
++    fragments: Vec<PromptFragment>,
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub enum HistoryNotesObservationError {
++    Registration(ContextSourceRegistrationError),
++    UnresolvedHintSource,
++}
++
++pub fn registered_history_notes_sources(
++    registry: &ExtensionRegistry<Config>,
++) -> Vec<RegisteredHistoryNotesSource> {
++    registry
++        .registered_prompt_context_sources::<HistoryNotesExtension>()
++        .into_iter()
++        .map(|registration| RegisteredHistoryNotesSource { registration })
++        .collect()
++}
++
++impl RegisteredHistoryNotesSource {
++    /// Uses the SAME predicate that prevents ordinary backend installation.
++    /// An enabled config still requires genuine account/agent/hint custody;
++    /// missing auth, backend failure or a missing thread is not absence proof.
++    /// No auth lookup, HTTP, lifecycle, analytics or tool callback is invoked.
++    pub fn observe_initial_context<'a>(
++        &self,
++        registry: &'a ExtensionRegistry<Config>,
++        config: &'a Config,
++    ) -> Result<HistoryNotesInitialObservation<'a>, HistoryNotesObservationError> {
++        let source = registry
++            .borrow_prompt_context_source(&self.registration)
++            .map_err(HistoryNotesObservationError::Registration)?;
++        if tool_selection(config) != ToolPreSessionSelection::NoTools {
++            return Err(HistoryNotesObservationError::UnresolvedHintSource);
++        }
++        Ok(HistoryNotesInitialObservation {
++            _source: source,
++            config,
++            fragments: Vec::new(),
++        })
++    }
++}
++
++impl HistoryNotesInitialObservation<'_> {
++    pub fn captured_config(&self) -> &Config {
++        self.config
++    }
++
++    pub fn initial_fragments(&self) -> &[PromptFragment] {
++        &self.fragments
++    }
++}
+diff --git a/codex-rs/ext/history-notes/tests/history_notes_extension.rs b/codex-rs/ext/history-notes/tests/history_notes_extension.rs
+index 151f4618e6463dff03df69746165445fe0cecb86..9b9431708a31efdf060dd442102b5b988074c4a5 100644
+--- a/codex-rs/ext/history-notes/tests/history_notes_extension.rs
++++ b/codex-rs/ext/history-notes/tests/history_notes_extension.rs
+@@ -74,6 +74,24 @@ async fn disabled_history_notes_capture_tracks_ordinary_configuration() -> TestR
+     // Capture precedes both thread stores and all lifecycle callbacks.
+     let capture = registry.capture_pre_session_tools_for_config(&config)?;
+     assert!(capture.definitions().is_empty());
++    let context = {
++        let sources = codex_history_notes_extension::registered_history_notes_sources(&registry);
++        assert_eq!(sources.len(), 1);
++        sources[0]
++            .observe_initial_context(&registry, &config)
++            .unwrap()
++    };
++    assert!(std::ptr::eq(context.captured_config(), &config));
++    assert!(context.initial_fragments().is_empty());
++    let sources = codex_history_notes_extension::registered_history_notes_sources(&registry);
++    assert!(matches!(
++        sources[0].observe_initial_context(&registry.to_builder().build(), &config),
++        Err(
++            codex_history_notes_extension::HistoryNotesObservationError::Registration(
++                codex_extension_api::ContextSourceRegistrationError::RegistryChanged
++            )
++        )
++    ));
+     let session_store = ExtensionData::new("session");
+     let thread_store = ExtensionData::new("thread");
+     for contributor in registry.thread_lifecycle_contributors() {
+@@ -97,6 +115,10 @@ async fn disabled_history_notes_capture_tracks_ordinary_configuration() -> TestR
+         .as_mut()
+         .expect("token budget")
+         .use_history_notes_extension = true;
++    assert!(matches!(
++        sources[0].observe_initial_context(&registry, &enabled),
++        Err(codex_history_notes_extension::HistoryNotesObservationError::UnresolvedHintSource)
++    ));
+     assert_eq!(
+         registry.renew_pre_session_tools_for_config(&capture, &enabled),
+         Err(PreSessionToolInventoryError::StateBoundContributors {
+@@ -122,6 +144,9 @@ async fn disabled_history_notes_capture_tracks_ordinary_configuration() -> TestR
+             .await
+             .is_empty()
+     );
++    // Source-owned disabled prompt data agrees with the real ordinary path.
++    // The borrowed config is not an upstream publication/ABA lease.
++    assert!(context.initial_fragments().is_empty());
+     Ok(())
+ }
+ 
+diff --git a/codex-rs/ext/mcp/src/lib.rs b/codex-rs/ext/mcp/src/lib.rs
+index 7ca2d3ed94a098c96eab92fd4fbd8f6a170c6dec..b9a79210068ffe7d7cb6bdbc77efdf2dbd552b4b 100644
+--- a/codex-rs/ext/mcp/src/lib.rs
++++ b/codex-rs/ext/mcp/src/lib.rs
+@@ -43,7 +43,13 @@ fn hosted_plugin_runtime_plan(context: McpPreSessionContext<'_, Config>) -> McpP
+         .features
+         .enabled(codex_features::Feature::Apps)
+     {
+-        McpPreSessionOverlay::Unresolved
++        McpPreSessionOverlay::HostedApps {
++            config: Box::new(hosted_plugin_runtime_mcp_server_config(
++                &context.config().chatgpt_base_url,
++                context.config().apps_mcp_product_sku.as_deref(),
++                context.originator(),
++            )),
++        }
+     } else {
+         McpPreSessionOverlay::RemoveServer {
+             name: CODEX_APPS_MCP_SERVER_NAME.to_string(),
+@@ -61,20 +67,23 @@ impl McpServerContributor<Config> for HostedPluginRuntimeExtension {
+         context: McpServerContributionContext<'a, Config>,
+     ) -> ExtensionFuture<'a, Vec<McpServerContribution>> {
+         Box::pin(async move {
+-            let config = context.config();
+-            let name = CODEX_APPS_MCP_SERVER_NAME.to_string();
+-            if !config.features.enabled(codex_features::Feature::Apps) {
+-                return vec![McpServerContribution::Remove { name }];
++            match hosted_plugin_runtime_plan(
++                McpPreSessionContext::new(context.config(), &[])
++                    .with_originator(context.originator()),
++            ) {
++                McpPreSessionOverlay::HostedApps { config } => {
++                    vec![McpServerContribution::HostedApps {
++                        config,
++                        protocol_mode: None,
++                    }]
++                }
++                McpPreSessionOverlay::RemoveServer { name } => {
++                    vec![McpServerContribution::Remove { name }]
++                }
++                McpPreSessionOverlay::NoContributions | McpPreSessionOverlay::Unresolved => {
++                    unreachable!("hosted source has exactly its original set/remove projections")
++                }
+             }
+-
+-            vec![McpServerContribution::HostedApps {
+-                config: Box::new(hosted_plugin_runtime_mcp_server_config(
+-                    &config.chatgpt_base_url,
+-                    config.apps_mcp_product_sku.as_deref(),
+-                    context.originator(),
+-                )),
+-                protocol_mode: None,
+-            }]
+         })
+     }
+ }
+diff --git a/codex-rs/ext/mcp/src/lib_tests.rs b/codex-rs/ext/mcp/src/lib_tests.rs
+index 32bd14e48e0cda24bedb20a318e2f6546e461ee3..f6d00524c6024d7481d13af086c53771dd4c3fc8 100644
+--- a/codex-rs/ext/mcp/src/lib_tests.rs
++++ b/codex-rs/ext/mcp/src/lib_tests.rs
+@@ -50,12 +50,18 @@ async fn hosted_plugin_runtime_forwards_thread_originator() -> Result<(), Box<dy
+             .and_then(|headers| headers.get("originator")),
+         Some(&"codex_work_desktop".to_string())
+     );
++    let McpPreSessionOverlay::HostedApps { config: observed } = hosted_plugin_runtime_plan(
++        McpPreSessionContext::new(&config, &[]).with_originator(Some("codex_work_desktop")),
++    ) else {
++        panic!("enabled hosted source must retain its actual registration")
++    };
++    assert_eq!(observed.as_ref(), server.as_ref());
+ 
+     Ok(())
+ }
+ 
+ #[tokio::test]
+-async fn installed_sources_share_closed_absence_and_refuse_enabled_discovery()
++async fn installed_sources_share_original_config_and_retained_provider_selection()
+ -> Result<(), Box<dyn std::error::Error>> {
+     let home = tempfile::tempdir()?;
+     let mut config = ConfigBuilder::default()
+@@ -102,18 +108,108 @@ async fn installed_sources_share_closed_absence_and_refuse_enabled_discovery()
+     assert!(
+         matches!(ordinary.as_slice(), [McpServerContribution::Remove { name }] if name == CODEX_APPS_MCP_SERVER_NAME)
+     );
+-    for (feature, index) in [
+-        (codex_features::Feature::Apps, 0),
+-        (codex_features::Feature::Plugins, 1),
+-    ] {
+-        let mut enabled = config.clone();
+-        enabled.features.enable(feature)?;
+-        assert!(
+-            registry
+-                .pre_session_mcp_overlays(McpPreSessionContext::new(&enabled, &[]))
+-                .err()
+-                .is_some_and(|indexes| indexes.contains(&index))
+-        );
++    // Apps now retains the original source data, before any auth gate. It is
++    // not an absence declaration or backend discovery/availability grant.
++    let mut enabled_apps = config.clone();
++    enabled_apps
++        .features
++        .enable(codex_features::Feature::Apps)?;
++    assert!(matches!(
++        registry
++            .pre_session_mcp_overlays(McpPreSessionContext::new(&enabled_apps, &[]))
++            .map_err(|indexes| format!("unresolved source indexes: {indexes:?}"))?
++            .as_slice(),
++        [
++            McpPreSessionOverlay::HostedApps { .. },
++            McpPreSessionOverlay::NoContributions
++        ]
++    ));
++    let mut enabled = config.clone();
++    enabled.features.enable(codex_features::Feature::Plugins)?;
++    assert!(matches!(
++        registry
++            .pre_session_mcp_overlays(McpPreSessionContext::new(&enabled, &[]))
++            .map_err(|indexes| format!("unresolved source indexes: {indexes:?}"))?
++            .as_slice(),
++        [
++            McpPreSessionOverlay::RemoveServer { .. },
++            McpPreSessionOverlay::NoContributions
++        ]
++    ));
++    Ok(())
++}
++
++struct UncalledCloudProvider(std::sync::Arc<std::sync::atomic::AtomicUsize>);
++
++impl codex_core_plugins::PluginProvider for UncalledCloudProvider {
++    fn list(
++        &self,
++        _query: codex_core_plugins::PluginListQuery,
++    ) -> codex_core_plugins::PluginProviderFuture<'_, codex_core_plugins::PluginCatalog> {
++        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++        panic!("a source plan must never perform cloud discovery")
+     }
++}
++
++#[tokio::test]
++async fn default_registered_plugin_source_checks_actual_cloud_owner_and_selected_roots()
++-> Result<(), Box<dyn std::error::Error>> {
++    let home = tempfile::tempdir()?;
++    let config = ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .fallback_cwd(Some(home.path().to_path_buf()))
++        .build()
++        .await?;
++    assert!(config.features.enabled(codex_features::Feature::Apps));
++    assert!(config.features.enabled(codex_features::Feature::Plugins));
++    let environments =
++        std::sync::Arc::new(codex_exec_server::EnvironmentManager::default_for_tests());
++    let mut builder = ExtensionRegistryBuilder::new();
++    install(&mut builder);
++    install_plugins(&mut builder, std::sync::Arc::clone(&environments));
++    let registry = builder.build();
++    assert!(matches!(
++        registry
++            .pre_session_mcp_overlays(McpPreSessionContext::new(&config, &[]))
++            .map_err(|indexes| format!("unresolved source indexes: {indexes:?}"))?
++            .as_slice(),
++        [
++            McpPreSessionOverlay::HostedApps { .. },
++            McpPreSessionOverlay::NoContributions
++        ]
++    ));
++    let roots = vec![codex_protocol::capabilities::SelectedCapabilityRoot {
++        id: "actual-selected-root".to_string(),
++        location: codex_protocol::capabilities::CapabilityRootLocation::Environment {
++            environment_id: "local".to_string(),
++            path: codex_utils_path_uri::PathUri::from_abs_path(&config.cwd),
++        },
++    }];
++    assert_eq!(
++        registry.pre_session_mcp_overlays(McpPreSessionContext::new(&config, &roots)),
++        Err(vec![1])
++    );
++    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
++    let mut with_cloud = ExtensionRegistryBuilder::new();
++    install(&mut with_cloud);
++    install_plugin_providers(
++        &mut with_cloud,
++        PluginProviders::new(std::sync::Arc::new(
++            codex_core_plugins::ExecutorPluginProvider::new(environments),
++        ))
++        .with_cloud_provider(std::sync::Arc::new(UncalledCloudProvider(
++            std::sync::Arc::clone(&calls),
++        ))),
++    );
++    assert_eq!(
++        with_cloud
++            .build()
++            .pre_session_mcp_overlays(McpPreSessionContext::new(&config, &[])),
++        Err(vec![1])
++    );
++    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
++    // Only the registered executor/cloud contributor was settled. The separate
++    // host PluginsManager source, plugin prompt inventory and full factory are
++    // not replaced by this NoContributions result.
+     Ok(())
+ }
+diff --git a/codex-rs/ext/mcp/src/plugin.rs b/codex-rs/ext/mcp/src/plugin.rs
+index 3ae9c4e451ea5341624e38353b84545aebe9c962..dc8523a55beeee1ab200c7ef88b02693eb9ca23d 100644
+--- a/codex-rs/ext/mcp/src/plugin.rs
++++ b/codex-rs/ext/mcp/src/plugin.rs
+@@ -111,9 +111,14 @@ impl PluginContributor {
+ }
+ 
+ pub(crate) fn pre_session_plugin_plan(
++    source: &PluginContributor,
+     context: codex_extension_api::McpPreSessionContext<'_, Config>,
+ ) -> codex_extension_api::McpPreSessionOverlay {
+-    if !context.config().features.enabled(Feature::Plugins)
++    // This source owns only selected executor roots and its actual optional
++    // cloud provider. Host-configured/installed plugins belong to PluginsManager
++    // and must be qualified separately; this settles neither that source nor
++    // the complete plugin prompt partition.
++    if (!context.config().features.enabled(Feature::Plugins) || source.providers.cloud.is_none())
+         && context.selected_capability_roots().is_empty()
+     {
+         codex_extension_api::McpPreSessionOverlay::NoContributions
+diff --git a/codex-rs/ext/mcp/src/plugin_contributor.rs b/codex-rs/ext/mcp/src/plugin_contributor.rs
+index 6a446c0f500a99dab3c265111e9b2a08de88c022..c60f8e6a21207324dc14f7f9bf5d842649948a79 100644
+--- a/codex-rs/ext/mcp/src/plugin_contributor.rs
++++ b/codex-rs/ext/mcp/src/plugin_contributor.rs
+@@ -25,7 +25,7 @@ pub fn install_plugin_providers(
+     builder.thread_lifecycle_contributor(contributor.clone());
+     builder.config_contributor(contributor.clone());
+     builder.turn_lifecycle_contributor(contributor.clone());
+-    builder.mcp_server_contributor_with_pre_session_plan(
++    builder.mcp_server_contributor_with_source_plan(
+         contributor,
+         crate::plugin::pre_session_plugin_plan,
+     );
+diff --git a/codex-rs/ext/memories/src/extension.rs b/codex-rs/ext/memories/src/extension.rs
+index 5c9468bcc34696d81e694cd8b17e1de65140bd97..1c80f3c6c48a0dc121486b2dbab91a5ff5b5fe87 100644
+--- a/codex-rs/ext/memories/src/extension.rs
++++ b/codex-rs/ext/memories/src/extension.rs
+@@ -52,7 +52,7 @@ impl MemoriesExtensionConfig {
+         }
+     }
+ 
+-    fn from_config(config: &Config) -> Self {
++    pub(crate) fn from_config(config: &Config) -> Self {
+         Self {
+             enabled: config.features.enabled(Feature::MemoryTool) && config.memories.use_memories,
+             dedicated_tools: config.memories.dedicated_tools,
+@@ -176,7 +176,7 @@ pub fn install(
+     let extension = Arc::new(MemoriesExtension::new(metrics_client));
+     registry.thread_lifecycle_contributor(extension.clone());
+     registry.config_contributor(extension.clone());
+-    registry.prompt_contributor(extension.clone());
++    registry.prompt_context_source(extension.clone());
+     registry.tool_contributor_with_pre_session_plan(
+         extension,
+         Arc::new(|config| MemoriesExtensionConfig::from_config(config).tool_selection()),
+diff --git a/codex-rs/ext/memories/src/lib.rs b/codex-rs/ext/memories/src/lib.rs
+index 25120c7a3aeb1b8d10fe0b5c9727a65bbe0072fe..f973fbf572915e2e02fce133749bc2f9f2951fd4 100644
+--- a/codex-rs/ext/memories/src/lib.rs
++++ b/codex-rs/ext/memories/src/lib.rs
+@@ -2,11 +2,16 @@ mod backend;
+ mod extension;
+ mod local;
+ mod metrics;
++mod pre_session;
+ mod prompts;
+ mod schema;
+ mod tools;
+ 
+ pub use extension::install;
++pub use pre_session::MemoriesInitialObservation;
++pub use pre_session::MemoriesObservationError;
++pub use pre_session::RegisteredMemoriesSource;
++pub use pre_session::registered_memories_sources;
+ 
+ pub(crate) const DEFAULT_LIST_MAX_RESULTS: usize = 2_000;
+ pub(crate) const MAX_LIST_RESULTS: usize = 2_000;
+diff --git a/codex-rs/ext/memories/src/pre_session.rs b/codex-rs/ext/memories/src/pre_session.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..cc8648b2beec45ca8b19672d3cb538c4107e8c7d
+--- /dev/null
++++ b/codex-rs/ext/memories/src/pre_session.rs
+@@ -0,0 +1,69 @@
++use codex_core::config::Config;
++use codex_extension_api::ContextSourceRegistrationError;
++use codex_extension_api::ExtensionRegistry;
++use codex_extension_api::PromptFragment;
++use codex_extension_api::RegisteredPromptContextSource;
++
++use crate::extension::MemoriesExtension;
++use crate::extension::MemoriesExtensionConfig;
++
++pub struct RegisteredMemoriesSource {
++    registration: RegisteredPromptContextSource<MemoriesExtension>,
++}
++
++/// Source-owned prompt absence for this borrowed fresh configuration only.
++/// Enabled memories require actual summary custody even without dedicated tools.
++/// This does not attest to external configuration or filesystem currency.
++pub struct MemoriesInitialObservation<'a> {
++    _source: &'a MemoriesExtension,
++    config: &'a Config,
++    fragments: Vec<PromptFragment>,
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub enum MemoriesObservationError {
++    Registration(ContextSourceRegistrationError),
++    UnresolvedSummarySource,
++}
++
++pub fn registered_memories_sources(
++    registry: &ExtensionRegistry<Config>,
++) -> Vec<RegisteredMemoriesSource> {
++    registry
++        .registered_prompt_context_sources::<MemoriesExtension>()
++        .into_iter()
++        .map(|registration| RegisteredMemoriesSource { registration })
++        .collect()
++}
++
++impl RegisteredMemoriesSource {
++    /// Shares the ordinary config projection, not the weaker NoTools plan.
++    /// No summary read, backend construction, lifecycle, metrics or tool runs.
++    pub fn observe_initial_context<'a>(
++        &self,
++        registry: &'a ExtensionRegistry<Config>,
++        config: &'a Config,
++    ) -> Result<MemoriesInitialObservation<'a>, MemoriesObservationError> {
++        let source = registry
++            .borrow_prompt_context_source(&self.registration)
++            .map_err(MemoriesObservationError::Registration)?;
++        if MemoriesExtensionConfig::from_config(config).enabled {
++            return Err(MemoriesObservationError::UnresolvedSummarySource);
++        }
++        Ok(MemoriesInitialObservation {
++            _source: source,
++            config,
++            fragments: Vec::new(),
++        })
++    }
++}
++
++impl MemoriesInitialObservation<'_> {
++    pub fn captured_config(&self) -> &Config {
++        self.config
++    }
++
++    pub fn initial_fragments(&self) -> &[PromptFragment] {
++        &self.fragments
++    }
++}
+diff --git a/codex-rs/ext/memories/src/tests.rs b/codex-rs/ext/memories/src/tests.rs
+index 6ef9321bc07090b0c4cd5600cacf4d320443eb1f..4c8852d6d32366114d8cf9f47bfefd571643dafa 100644
+--- a/codex-rs/ext/memories/src/tests.rs
++++ b/codex-rs/ext/memories/src/tests.rs
+@@ -603,6 +603,110 @@ fn memory_tool_name(tool_name: &str) -> ToolName {
+     ToolName::namespaced(crate::MEMORY_TOOLS_NAMESPACE, tool_name)
+ }
+ 
++#[tokio::test]
++async fn registered_memory_prompt_absence_does_not_follow_nondedicated_tool_absence() {
++    use codex_core::config::ConfigBuilder;
++    use codex_features::Feature;
++
++    let home = tempfile::tempdir().unwrap();
++    let config = ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .build()
++        .await
++        .unwrap();
++    assert!(!config.features.enabled(Feature::MemoryTool));
++    let mut builder = ExtensionRegistryBuilder::new();
++    crate::install(&mut builder, None);
++    let registry = builder.build();
++    let context = {
++        let sources = crate::registered_memories_sources(&registry);
++        assert_eq!(sources.len(), 1);
++        sources[0]
++            .observe_initial_context(&registry, &config)
++            .unwrap()
++    };
++    assert!(std::ptr::eq(context.captured_config(), &config));
++    assert!(context.initial_fragments().is_empty());
++    let sources = crate::registered_memories_sources(&registry);
++    assert!(matches!(
++        sources[0].observe_initial_context(&registry.to_builder().build(), &config),
++        Err(crate::MemoriesObservationError::Registration(
++            codex_extension_api::ContextSourceRegistrationError::RegistryChanged
++        ))
++    ));
++
++    let mut enabled = config.clone();
++    enabled.features.enable(Feature::MemoryTool).unwrap();
++    enabled.memories.use_memories = true;
++    enabled.memories.dedicated_tools = false;
++    assert!(
++        registry
++            .capture_pre_session_tools_for_config(&enabled)
++            .unwrap()
++            .definitions()
++            .is_empty()
++    );
++    assert!(matches!(
++        sources[0].observe_initial_context(&registry, &enabled),
++        Err(crate::MemoriesObservationError::UnresolvedSummarySource)
++    ));
++    let memory_root = enabled
++        .codex_home
++        .join(enabled.memories.version.directory_name());
++    tokio::fs::create_dir_all(&memory_root).await.unwrap();
++    tokio::fs::write(
++        memory_root.join("memory_summary.md"),
++        "actual summary bytes",
++    )
++    .await
++    .unwrap();
++    let session = ExtensionData::new("ordinary-session");
++    let thread = ExtensionData::new("ordinary-thread");
++    for contributor in registry.thread_lifecycle_contributors() {
++        contributor
++            .on_thread_start(codex_extension_api::ThreadStartInput {
++                config: &enabled,
++                session_source: &codex_protocol::protocol::SessionSource::Exec,
++                persistent_thread_state_available: false,
++                environments: &[],
++                mcp_resource_client: None,
++                extension_metrics: None,
++                session_store: &session,
++                thread_store: &thread,
++            })
++            .await;
++    }
++    let ordinary = registry.context_contributors()[0]
++        .contribute_thread_context(&session, &thread)
++        .await;
++    assert!(!ordinary.is_empty());
++    assert!(
++        ordinary
++            .iter()
++            .any(|fragment| fragment.text().contains("actual summary bytes"))
++    );
++    assert!(
++        registry
++            .tool_contributors()
++            .iter()
++            .all(|source| source.tools(&session, &thread).is_empty())
++    );
++
++    enabled.memories.dedicated_tools = true;
++    assert!(matches!(
++        sources[0].observe_initial_context(&registry, &enabled),
++        Err(crate::MemoriesObservationError::UnresolvedSummarySource)
++    ));
++    enabled.memories.use_memories = false;
++    assert!(
++        sources[0]
++            .observe_initial_context(&registry, &enabled)
++            .unwrap()
++            .initial_fragments()
++            .is_empty()
++    );
++}
++
+ #[tokio::test]
+ async fn installed_memory_source_declares_only_config_proven_tool_absence() {
+     use codex_core::config::ConfigBuilder;

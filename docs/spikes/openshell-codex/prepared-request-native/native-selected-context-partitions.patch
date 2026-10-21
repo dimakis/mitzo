@@ -1,0 +1,649 @@
+diff --git a/codex-rs/app-server/src/extensions/pre_session_context.rs b/codex-rs/app-server/src/extensions/pre_session_context.rs
+index 993a5a619a995ef4e1afeb0e98ecd70d997a2e35..b665153dea8428ff71dec55112734cd5b90493a5 100644
+--- a/codex-rs/app-server/src/extensions/pre_session_context.rs
++++ b/codex-rs/app-server/src/extensions/pre_session_context.rs
+@@ -5,7 +5,7 @@
+ //! observation covers only its existing source-owned initial partition. Built-in
+ //! sections, all other partitions and config/policy/date/filesystem currentness
+ //! still need their original observations before any request/count/State use.
+-//! This packet has no Ready/admission/rendering interface and invokes no ordinary
++//! This packet has no Ready/admission/complete-context interface and invokes no ordinary
+ //! context/lifecycle/tool/model callbacks or Session construction.
+ #![cfg_attr(
+     not(test),
+@@ -45,6 +45,8 @@ pub(crate) enum AppServerExtensionSourceError {
+     Clock(PreSessionClockError),
+     SelectedConfigMismatch,
+     CredentialsUnavailable,
++    SelectedStartUnavailable,
++    BuiltinSourcesUnavailable,
+     Registration(ContextSourceRegistrationError),
+     HistoryNotes(HistoryNotesObservationError),
+     GitAttribution(GitAttributionObservationError),
+@@ -148,3 +150,101 @@ impl<'a> CapturedAppServerExtensionSources<'a> {
+ #[cfg(test)]
+ #[path = "pre_session_context_tests.rs"]
+ mod tests;
++
++/// Original data stays partitioned: missing native sections cannot be flattened
++/// away into a complete initial context. The source packet retains first-input,
++/// tools and all original Skills observations separately; none is discarded.
++pub(crate) struct ObservedAppServerInitialContext<'a> {
++    pub(crate) sources: &'a CapturedAppServerExtensionSources<'a>,
++    pub(crate) selected:
++        &'a crate::config_manager::selected_start_config::SelectedConfiguredStart<'a>,
++    pub(crate) builtin: codex_core::PreSessionBuiltinContextData,
++    pub(crate) extensions: Vec<ObservedExtensionInitialPartition<'a>>,
++}
++
++/// Keep ORIGINAL typed observations rather than classifying missing partitions
++/// from empty vectors. Their source-owned accessors retain section IDs, slots,
++/// exact fragments, and the difference between prompt and first-turn inputs.
++pub(crate) enum ObservedExtensionInitialPartition<'a> {
++    Skills(&'a PreSessionSkillsObservation<'a>),
++    HistoryNotes(&'a HistoryNotesInitialObservation<'a>),
++    GitAttribution(&'a GitAttributionInitialObservation<'a>),
++    Memories(&'a MemoriesInitialObservation<'a>),
++}
++impl ObservedExtensionInitialPartition<'_> {
++    pub(crate) fn registration_index(&self) -> usize {
++        match self {
++            Self::Skills(observation) => observation.skills().context_source_identity(),
++            Self::HistoryNotes(observation) => observation.context_source_identity(),
++            Self::GitAttribution(observation) => observation.context_source_identity(),
++            Self::Memories(observation) => observation.context_source_identity(),
++        }
++        .registration_index()
++    }
++}
++
++impl<'a> CapturedAppServerExtensionSources<'a> {
++    /// Original installed composition owner. This retains partial DATA only;
++    /// there is no caller classification, complete-context renderer or request
++    /// builder. Only controlled publications are checked here; config/cloud/filesystem
++    /// renewal remains a separate original-owner operation, not a lease.
++    pub(crate) async fn observe_initial_context_partitions(
++        &'a self,
++        selected: &'a crate::config_manager::selected_start_config::SelectedConfiguredStart<'a>,
++    ) -> Result<ObservedAppServerInitialContext<'a>, AppServerExtensionSourceError> {
++        if !selected
++            .start()
++            .mcp_sources()
++            .is_some_and(|sources| std::ptr::eq(sources, self.sources))
++        {
++            return Err(AppServerExtensionSourceError::SelectedConfigMismatch);
++        }
++        selected
++            .with_current(self.manager, || ())
++            .map_err(|_| AppServerExtensionSourceError::SelectedStartUnavailable)?;
++        let registry = self
++            .manager
++            .pre_session_extension_registry(self.sources)
++            .map_err(AppServerExtensionSourceError::NativeMcp)?;
++        registry
++            .assert_bound_context_source_registrations(&self.registrations)
++            .map_err(AppServerExtensionSourceError::Registration)?;
++        let builtin = self
++            .manager
++            .observe_pre_session_builtin_context(selected.start(), self.skills, &self.system_clock)
++            .await
++            .map_err(|_| AppServerExtensionSourceError::BuiltinSourcesUnavailable)?;
++        let mut extensions = vec![ObservedExtensionInitialPartition::Skills(self.skills)];
++        extensions.extend(
++            self.history_notes
++                .iter()
++                .map(ObservedExtensionInitialPartition::HistoryNotes),
++        );
++        for observation in &self.git_attribution {
++            observation
++                .with_current_api_key_source(|| ())
++                .map_err(AppServerExtensionSourceError::GitAttribution)?;
++            extensions.push(ObservedExtensionInitialPartition::GitAttribution(
++                observation,
++            ));
++        }
++        extensions.extend(
++            self.memories
++                .iter()
++                .map(ObservedExtensionInitialPartition::Memories),
++        );
++        extensions.sort_by_key(ObservedExtensionInitialPartition::registration_index);
++        selected
++            .with_current(self.manager, || ())
++            .map_err(|_| AppServerExtensionSourceError::SelectedStartUnavailable)?;
++        registry
++            .assert_bound_context_source_registrations(&self.registrations)
++            .map_err(AppServerExtensionSourceError::Registration)?;
++        Ok(ObservedAppServerInitialContext {
++            sources: self,
++            selected,
++            builtin,
++            extensions,
++        })
++    }
++}
+diff --git a/codex-rs/app-server/src/extensions/pre_session_context_tests.rs b/codex-rs/app-server/src/extensions/pre_session_context_tests.rs
+index cd675e71123ebbbc34ea4f1b986e90ffb3de0b4b..397dbcbefed660db919e10d11e8388b8f76e4aa8 100644
+--- a/codex-rs/app-server/src/extensions/pre_session_context_tests.rs
++++ b/codex-rs/app-server/src/extensions/pre_session_context_tests.rs
+@@ -64,6 +64,7 @@ async fn original_manager(
+     Arc<AuthManager>,
+     Arc<ThreadManager>,
+     Arc<AtomicUsize>,
++    ConfigManager,
+ ) {
+     let home = tempfile::tempdir().unwrap();
+     let clock_config = if matches!(&fixture, RegistryFixture::ExternalClock) {
+@@ -76,7 +77,8 @@ async fn original_manager(
+         format!("model = 'gpt-6-luna'\nchatgpt_base_url = '{base_url}'\n{clock_config}"),
+     )
+     .unwrap();
+-    let config = ConfigManager::without_managed_config_for_tests(home.path().to_path_buf())
++    let loader = selected_config_manager(home.path());
++    let config = loader
+         .load_for_cwd(
+             /*request_overrides*/ None,
+             ConfigOverrides::default(),
+@@ -141,13 +143,13 @@ async fn original_manager(
+             Some(Arc::new(UnexpectedExternalClock)),
+         )
+     });
+-    (home, config, auth, manager, calls)
++    (home, config, auth, manager, calls, loader)
+ }
+ 
+ #[tokio::test]
+ async fn actual_app_server_registry_retains_original_context_observations_without_startup() {
+     let backend = wiremock::MockServer::start().await;
+-    let (_home, config, auth, manager, calls) =
++    let (_home, config, auth, manager, calls, _loader) =
+         original_manager(&backend.uri(), RegistryFixture::Installed).await;
+     let sources = manager
+         .capture_pre_session_api_key_mcp_sources(
+@@ -212,7 +214,7 @@ async fn actual_app_server_registry_retains_original_context_observations_withou
+ #[tokio::test]
+ async fn selected_external_clock_refuses_without_a_fake_thread_or_system_fallback() {
+     let backend = wiremock::MockServer::start().await;
+-    let (_home, config, auth, manager, calls) =
++    let (_home, config, auth, manager, calls, _loader) =
+         original_manager(&backend.uri(), RegistryFixture::ExternalClock).await;
+     let sources = manager
+         .capture_pre_session_api_key_mcp_sources(
+@@ -238,7 +240,7 @@ async fn selected_external_clock_refuses_without_a_fake_thread_or_system_fallbac
+ #[tokio::test]
+ async fn an_actual_extra_legacy_contributor_is_unresolved_even_when_its_callback_returns_empty() {
+     let backend = wiremock::MockServer::start().await;
+-    let (_home, config, auth, manager, calls) =
++    let (_home, config, auth, manager, calls, _loader) =
+         original_manager(&backend.uri(), RegistryFixture::AdditionalUnknown).await;
+     let sources = manager
+         .capture_pre_session_api_key_mcp_sources(
+@@ -264,7 +266,7 @@ async fn an_actual_extra_legacy_contributor_is_unresolved_even_when_its_callback
+ #[tokio::test]
+ async fn equal_configuration_values_from_another_original_source_packet_do_not_match() {
+     let backend = wiremock::MockServer::start().await;
+-    let (_home, config, auth, manager, calls) =
++    let (_home, config, auth, manager, calls, _loader) =
+         original_manager(&backend.uri(), RegistryFixture::Installed).await;
+     let second_config = config.clone();
+     let sources = manager
+@@ -303,3 +305,181 @@ async fn equal_configuration_values_from_another_original_source_packet_do_not_m
+     assert!(manager.list_thread_ids().await.is_empty());
+     assert!(backend.received_requests().await.unwrap().is_empty());
+ }
++
++fn selected_config_manager(home: &std::path::Path) -> ConfigManager {
++    // Preserve installed constructor/layers/default flags. Only external managed
++    // filesystem/MDM effects are redirected into this offline fixture directory.
++    ConfigManager::new(
++        home.to_path_buf(),
++        Vec::new(),
++        codex_config::LoaderOverrides::with_managed_config_path_for_tests(
++            home.join("managed.toml"),
++        ),
++        /*strict_config*/ false,
++        codex_config::CloudConfigBundleLoader::default(),
++        codex_arg0::Arg0DispatchPaths::default(),
++        Arc::new(codex_config::NoopThreadConfigLoader),
++    )
++}
++
++#[tokio::test]
++async fn installed_selected_start_preserves_original_context_partitions() {
++    let backend = wiremock::MockServer::start().await;
++    let (home, _config, auth, manager, calls, loader) =
++        original_manager(&backend.uri(), RegistryFixture::Installed).await;
++    let selected_config = loader
++        .load_selected_start_config(
++            /*request*/ None,
++            ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let config = selected_config.config().clone();
++    assert!(config.features.enabled(Feature::Apps));
++    assert!(config.features.enabled(Feature::Plugins));
++    let mut selected = selected_config
++        .capture(&manager, StartThreadOptions::new(config))
++        .await
++        .unwrap();
++    selected
++        .capture_api_mcp(&manager, auth.capture_cached_api_key_credentials().unwrap())
++        .unwrap();
++    let sources = selected.start().mcp_sources().unwrap();
++    let skills = manager
++        .observe_pre_session_skills(sources, &[])
++        .await
++        .unwrap();
++    let captured = capture_installed_extension_sources(&manager, sources, &skills).unwrap();
++    let observed = captured
++        .observe_initial_context_partitions(&selected)
++        .await
++        .unwrap();
++    assert!(std::ptr::eq(observed.sources, &captured));
++    assert!(std::ptr::eq(observed.selected, &selected));
++    assert_eq!(
++        observed
++            .extensions
++            .iter()
++            .map(ObservedExtensionInitialPartition::registration_index)
++            .collect::<Vec<_>>(),
++        captured
++            .registrations()
++            .registration_indexes()
++            .collect::<Vec<_>>()
++    );
++    let retained_skills = observed
++        .extensions
++        .iter()
++        .find_map(|partition| match partition {
++            ObservedExtensionInitialPartition::Skills(skills) => Some(*skills),
++            _ => None,
++        })
++        .unwrap();
++    assert!(std::ptr::eq(retained_skills, &skills));
++    assert_eq!(
++        retained_skills.skills().initial_world_state(),
++        skills.skills().initial_world_state()
++    );
++    assert_eq!(
++        retained_skills.skills().thread_context(),
++        skills.skills().thread_context()
++    );
++    let raw_model = codex_prompts::render_model_instructions(skills.skills().model());
++    let config = captured.configuration();
++    let expected_model = if !config.update_plan_enabled
++        && config.model_catalog.is_none()
++        && (config.base_instructions.is_none()
++            || matches!(
++                config.base_instructions_provenance,
++                Some(codex_protocol::models::BaseInstructionsProvenance::Model { .. })
++            )) {
++        codex_prompts::without_update_plan_instructions(&raw_model)
++    } else {
++        raw_model
++    };
++    assert_eq!(observed.builtin.model_instructions(), expected_model);
++    assert!(observed.builtin.unresolved_partitions().contains(
++        &codex_core::UnresolvedInitialContextPartition::PermissionsAndEnvironmentSnapshot
++    ));
++    assert!(
++        observed
++            .builtin
++            .unresolved_partitions()
++            .contains(&codex_core::UnresolvedInitialContextPartition::FinalizedToolPlan)
++    );
++    assert!(
++        observed
++            .builtin
++            .unresolved_partitions()
++            .contains(&codex_core::UnresolvedInitialContextPartition::NativeTurnIdentity)
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(backend.received_requests().await.unwrap().is_empty());
++    // A changed actual selected config source invalidates renewal, even though
++    // all retained data and registered contributors remain available.
++    std::fs::write(
++        home.path().join(codex_config::CONFIG_TOML_FILE),
++        "model='gpt-6-luna'\ndeveloper_instructions='changed source'\n",
++    )
++    .unwrap();
++    assert!(selected.renew(&manager).await.is_err());
++    assert_eq!(
++        captured
++            .observe_initial_context_partitions(&selected)
++            .await
++            .err(),
++        Some(AppServerExtensionSourceError::SelectedStartUnavailable)
++    );
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(backend.received_requests().await.unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn equal_selected_values_refuse_foreign_context_composition() {
++    let backend = wiremock::MockServer::start().await;
++    let (home, _config, auth, manager, calls, loader) =
++        original_manager(&backend.uri(), RegistryFixture::Installed).await;
++    let mut starts = Vec::new();
++    for _ in 0..2 {
++        let selected_config = loader
++            .load_selected_start_config(
++                /*request*/ None,
++                ConfigOverrides {
++                    cwd: Some(home.path().to_path_buf()),
++                    ..Default::default()
++                },
++            )
++            .await
++            .unwrap();
++        let config = selected_config.config().clone();
++        let mut selected = selected_config
++            .capture(&manager, StartThreadOptions::new(config))
++            .await
++            .unwrap();
++        selected
++            .capture_api_mcp(&manager, auth.capture_cached_api_key_credentials().unwrap())
++            .unwrap();
++        starts.push(selected);
++    }
++    let first = &starts[0];
++    let sources = first.start().mcp_sources().unwrap();
++    let skills = manager
++        .observe_pre_session_skills(sources, &[])
++        .await
++        .unwrap();
++    let captured = capture_installed_extension_sources(&manager, sources, &skills).unwrap();
++    assert_eq!(
++        captured
++            .observe_initial_context_partitions(&starts[1])
++            .await
++            .err(),
++        Some(AppServerExtensionSourceError::SelectedConfigMismatch)
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(backend.received_requests().await.unwrap().is_empty());
++}
+diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
+index 5762d0872bb3067654e597cc7550c983001710a9..19fb1dc597b045a04671f06bb82cdc6e6af126f8 100644
+--- a/codex-rs/core/src/lib.rs
++++ b/codex-rs/core/src/lib.rs
+@@ -150,6 +150,7 @@ pub(crate) mod windows_sandbox_read_grants;
+ pub use thread_manager::ForkSnapshot;
+ pub use thread_manager::InternalSessionParent;
+ pub use thread_manager::NewThread;
++pub use thread_manager::PreSessionBuiltinContextData;
+ pub use thread_manager::PreSessionClockError;
+ pub use thread_manager::PreSessionSkillsObservation;
+ pub use thread_manager::PreSessionSystemClockObservation;
+@@ -158,6 +159,7 @@ pub use thread_manager::SelectedStartInputs;
+ pub use thread_manager::StartThreadOptions;
+ pub use thread_manager::ThreadManager;
+ pub use thread_manager::ThreadShutdownReport;
++pub use thread_manager::UnresolvedInitialContextPartition;
+ pub use thread_manager::build_models_manager;
+ pub use thread_manager::local_agent_graph_store_from_state_db;
+ pub use thread_manager::passthrough_image_store;
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index 83aa3d20376fcafc831eebd10c09da4508471782..9e9f7478366b79a9f243b46c2873f7fc002246ae 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -240,6 +240,10 @@ pub struct ThreadManager {
+     _test_codex_home_guard: Option<TempCodexHomeGuard>,
+ }
+ 
++#[path = "thread_manager/pre_session_builtin_context.rs"]
++mod pre_session_builtin_context;
++pub use pre_session_builtin_context::PreSessionBuiltinContextData;
++pub use pre_session_builtin_context::UnresolvedInitialContextPartition;
+ #[path = "thread_manager/pre_session_clock.rs"]
+ mod pre_session_clock;
+ #[path = "thread_manager/pre_session_global_instructions.rs"]
+diff --git a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..3ec661f87505a387d7f79d35802902ff58d0b604
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+@@ -0,0 +1,198 @@
++//! Genuine selected-start builtin DATA, deliberately incomplete.
++//! No Session/Turn/WorldState, lifecycle callback, tool, network, identity,
++//! request/count/State operation or complete-context rendering is available.
++//! These projections are observations, not leases over external sources.
++use super::PreSessionSkillsObservation;
++use super::PreSessionSystemClockObservation;
++use super::SelectedStartInputs;
++use super::ThreadManager;
++use crate::session::initial_context_builtin;
++use crate::session::initial_context_builtin::InitialDeveloperData;
++use crate::session::initial_context_render::ResolvedInitialSection;
++use codex_context_fragments::RenderedFragment;
++use codex_features::Feature;
++use std::io;
++
++/// Actual unresolved original producer inputs. A successful partial projection
++/// never converts these into absence or qualifies a complete initial request.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum UnresolvedInitialContextPartition {
++    ModelAndBaseInstructionsSelection,
++    InitialTurnSettings,
++    PermissionsAndEnvironmentSnapshot,
++    RepositoryInstructions,
++    RealtimeAndSubagentState,
++    FinalizedToolPlan,
++    NativeTurnIdentity,
++    TokenBudgetHistory,
++    PluginRecommendations,
++}
++
++/// Non-Clone/non-Serialize partial data. Section IDs/bytes and source checks
++/// cannot establish readiness. No method constructs a Prompt or ResponseItems.
++pub struct PreSessionBuiltinContextData {
++    model_instructions: String,
++    sections: Vec<ResolvedInitialSection>,
++    trailing_sections: Vec<ResolvedInitialSection>,
++    developer: InitialDeveloperData,
++    unresolved: Vec<UnresolvedInitialContextPartition>,
++}
++impl PreSessionBuiltinContextData {
++    pub fn model_instructions(&self) -> &str {
++        &self.model_instructions
++    }
++    /// Each section is separate: missing sections MUST NOT be flattened away
++    /// into purported full-world-state order. Extension composition belongs
++    /// between the leading and trailing partitions at the original owner.
++    pub fn leading_sections(
++        &self,
++    ) -> impl Iterator<Item = (&'static str, Vec<RenderedFragment>)> + '_ {
++        self.sections.iter().map(|section| {
++            (
++                section.id,
++                section
++                    .fragments
++                    .iter()
++                    .map(|fragment| fragment.rendered.clone())
++                    .collect(),
++            )
++        })
++    }
++    pub fn trailing_sections(
++        &self,
++    ) -> impl Iterator<Item = (&'static str, Vec<RenderedFragment>)> + '_ {
++        self.trailing_sections.iter().map(|section| {
++            (
++                section.id,
++                section
++                    .fragments
++                    .iter()
++                    .map(|fragment| fragment.rendered.clone())
++                    .collect(),
++            )
++        })
++    }
++    pub fn developer_fragments(&self) -> &[RenderedFragment] {
++        &self.developer.developer_sections
++    }
++    pub fn unresolved_partitions(&self) -> &[UnresolvedInitialContextPartition] {
++        &self.unresolved
++    }
++}
++fn unavailable(message: &'static str) -> io::Error {
++    io::Error::other(message)
++}
++impl ThreadManager {
++    /// Projects only settled builtin inputs from the actual selected-start and
++    /// its same Skills/clock observations. Full model selection, effective turn
++    /// settings, ordinary environment snapshot and history remain unresolved.
++    pub async fn observe_pre_session_builtin_context(
++        &self,
++        selected: &SelectedStartInputs,
++        skills: &PreSessionSkillsObservation<'_>,
++        clock: &PreSessionSystemClockObservation<'_>,
++    ) -> io::Result<PreSessionBuiltinContextData> {
++        self.with_current_selected_start(selected, || ())?;
++        let sources = selected
++            .mcp_sources()
++            .ok_or_else(|| unavailable("selected MCP source is missing"))?;
++        if !std::ptr::eq(sources, skills.sources) || !std::ptr::eq(sources, clock.start_sources()) {
++            return Err(unavailable(
++                "builtin observations belong to another selected start",
++            ));
++        }
++        let config = &sources.start_options().config;
++        let source = sources
++            .start_options()
++            .session_source
++            .as_ref()
++            .ok_or_else(|| unavailable("ordinary source is unresolved"))?;
++        if sources.api_key_credentials().is_none() {
++            return Err(unavailable("original API source is unresolved"));
++        }
++        let catalog = self
++            .state
++            .models_manager
++            .pin_model_limit_candidate(skills.model_candidate())
++            .await
++            .ok_or_else(|| unavailable("selected model catalog changed"))?;
++        self.with_current_selected_start(selected, || ())?;
++        // The existing API-key source is verified above. Use the SAME original
++        // feature/auth predicate as TurnContext::apps_enabled, not a flag reset.
++        let apps_enabled = config
++            .features
++            .apps_enabled_for_auth(/*has_chatgpt_auth*/ false)
++            && config.orchestrator_mcp_enabled;
++        let model = skills.skills().model();
++        let (environments, apps, plugins) = initial_context_builtin::execution_guidance(
++            config,
++            model,
++            sources.binding(),
++            apps_enabled,
++        );
++        let sections = vec![
++            ResolvedInitialSection::native(environments),
++            ResolvedInitialSection::native(apps),
++            ResolvedInitialSection::native(plugins),
++        ];
++        let trailing_sections = initial_context_builtin::managed_developer_section(config, source)
++            .map(ResolvedInitialSection::native)
++            .into_iter()
++            .collect();
++        let mut unresolved = vec![
++            UnresolvedInitialContextPartition::ModelAndBaseInstructionsSelection,
++            UnresolvedInitialContextPartition::InitialTurnSettings,
++            UnresolvedInitialContextPartition::PermissionsAndEnvironmentSnapshot,
++            UnresolvedInitialContextPartition::RepositoryInstructions,
++            UnresolvedInitialContextPartition::RealtimeAndSubagentState,
++            UnresolvedInitialContextPartition::FinalizedToolPlan,
++            UnresolvedInitialContextPartition::NativeTurnIdentity,
++        ];
++        if config.features.enabled(Feature::TokenBudget)
++            && model.resolved_context_window().is_some()
++        {
++            unresolved.push(UnresolvedInitialContextPartition::TokenBudgetHistory);
++        }
++        if config.features.plugin_recommendations_enabled() {
++            unresolved.push(UnresolvedInitialContextPartition::PluginRecommendations);
++        }
++        let data = PreSessionBuiltinContextData {
++            model_instructions: initial_context_builtin::model_instructions(config, model),
++            sections,
++            trailing_sections,
++            developer: InitialDeveloperData::new(source, config.developer_instructions.as_deref()),
++            unresolved,
++        };
++        // Renew the original selected publications, never a caller readiness bit.
++        // This point check grants no later lease and does not cover missing
++        // environment/config/filesystem/history inputs.
++        let renew = || {
++            self.state
++                .environment_manager
++                .with_current_selected_environment_publications(
++                    skills.environment_publication(),
++                    || {
++                        self.state
++                            .skills_service
++                            .with_current_pre_session_prompt_roots(
++                                skills.skills().host_observation(),
++                                || (),
++                            )
++                    },
++                )
++        };
++        let renewed = if let Some(plugins) = sources.plugin_sources() {
++            plugins
++                .with_current_api_key_sources(renew)
++                .map_err(|_| unavailable("plugin source changed"))?
++        } else {
++            renew()
++        };
++        renewed
++            .map_err(|_| unavailable("selected environment changed"))?
++            .map_err(|_| unavailable("host Skills source changed"))?;
++        self.with_current_selected_start(selected, || ())?;
++        drop(catalog);
++        Ok(data)
++    }
++}
+diff --git a/codex-rs/core/src/thread_manager/pre_session_skills.rs b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+index eebedce13d6a76cc2e1a6f9d5a2bae550d40340b..d12eba2e5cf1492153697d773dee696bc8499102 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_skills.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+@@ -26,6 +26,7 @@ use crate::config::Config;
+ mod tests;
+ 
+ pub struct PreSessionSkillsObservation<'a> {
++    pub(crate) sources: &'a PreSessionMcpSources,
+     model: UnverifiedModelLimitCandidate,
+     skills: SkillsContextObservation<'a, Config>,
+     environment_publication: SelectedEnvironmentPublicationObservation<'a>,
+@@ -163,6 +164,7 @@ impl ThreadManager {
+             .map_err(|_| unavailable())?;
+         drop(catalog);
+         Ok(PreSessionSkillsObservation {
++            sources,
+             model,
+             skills,
+             environment_publication,
+diff --git a/codex-rs/ext/extension-api/src/registry/context_registration_set.rs b/codex-rs/ext/extension-api/src/registry/context_registration_set.rs
+index b00d6aa39fc8bf9533df111b6b23d23ecf25ad9e..cff4fc708ce89cf46cb4f448f920fe894d6bc72d 100644
+--- a/codex-rs/ext/extension-api/src/registry/context_registration_set.rs
++++ b/codex-rs/ext/extension-api/src/registry/context_registration_set.rs
+@@ -19,6 +19,14 @@ pub struct ContextSourceIdentity {
+     source: Arc<dyn ContextContributor>,
+ }
+ 
++impl ContextSourceIdentity {
++    /// Original prompt contributor position, for ordering observed data only.
++    /// This number does not validate provenance; retain/bind the opaque identity.
++    pub fn registration_index(&self) -> usize {
++        self.context_index
++    }
++}
++
+ /// Complete original registration membership, ordered by the actual registry.
+ /// This proves provenance/coverage of allocations, never observed context data.
+ pub struct BoundContextSourceRegistrations {

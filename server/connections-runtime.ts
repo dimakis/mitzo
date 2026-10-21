@@ -119,7 +119,30 @@ export function createConnectionsRuntime(options: {
   resolveConversationBinding?: (conversationId: string) => { accountId: string } | undefined;
   /** Tests may replace a reviewed built-in executor with a deterministic fake. */
   capabilityExecutors?: Readonly<Record<string, CapabilityExecutor>>;
+  /** Host-owned external transports. These do not replace enrollment, custody,
+   * validation, readiness, the connection gate or any public authority owner.
+   * Omitted transports retain the normal native implementation.
+   */
+  externalEffects?: {
+    gatewayCommand?: CommandRunner;
+    githubHostCommand?: NonNullable<ConstructorParameters<typeof GitHubCliHostPublisher>[0]>;
+    openAIRequest?: typeof fetch;
+    enrollmentKeychain?: {
+      create: NonNullable<ConstructorParameters<typeof OpenAIEnrollmentKeychainCredentials>[0]>;
+      request: NonNullable<ConstructorParameters<typeof KeychainRotationCredentials>[0]>;
+    };
+  };
 }): ConnectionsRuntime {
+  const externalGatewayCommand = options.externalEffects?.gatewayCommand;
+  const githubHostCommand = options.externalEffects?.githubHostCommand;
+  const openAIRequest = options.externalEffects?.openAIRequest;
+  const enrollmentKeychain = options.externalEffects?.enrollmentKeychain;
+  if (
+    enrollmentKeychain &&
+    (typeof enrollmentKeychain.create !== 'function' ||
+      typeof enrollmentKeychain.request !== 'function')
+  )
+    throw new Error('Explicit enrollment Keychain transport requires create and request');
   mkdirSync(options.directory, { recursive: true, mode: 0o700 });
   const store = new ConnectionStore(join(options.directory, 'connections.db'));
   const gatewayName = options.gateway ?? 'openshell';
@@ -135,7 +158,7 @@ export function createConnectionsRuntime(options: {
         ...(options.gatewayInsecure ? ['--gateway-insecure'] : []),
       ]
     : ['--gateway', gatewayName];
-  const runGateway: CommandRunner = async (args, run) => {
+  const nativeRunGateway: CommandRunner = async (args, run) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), run.timeoutMs);
     try {
@@ -163,6 +186,7 @@ export function createConnectionsRuntime(options: {
       clearTimeout(timer);
     }
   };
+  const runGateway = externalGatewayCommand ?? nativeRunGateway;
   const gateway = new OpenShellConnectionGateway(runGateway, {
     workspace: options.workspace,
     ...(options.profilePath ? { profilePath: options.profilePath } : {}),
@@ -240,7 +264,11 @@ export function createConnectionsRuntime(options: {
     });
   }
   if (options.openAIEnrollmentDatabase) {
-    if (options.openAIAccountEnrollmentEnabled && process.platform !== 'darwin')
+    if (
+      options.openAIAccountEnrollmentEnabled &&
+      process.platform !== 'darwin' &&
+      !enrollmentKeychain
+    )
       throw new Error('OpenAI account enrollment requires macOS');
     if (!options.openAIAccountEnrollmentEnabled && !existsSync(options.openAIEnrollmentDatabase))
       throw new Error('Retained OpenAI enrollment registry is missing');
@@ -249,9 +277,13 @@ export function createConnectionsRuntime(options: {
     openAIEnrollment = new OpenAIAccountEnrollment({
       store: enrollmentStore,
       gateway: new OpenShellOpenAIEnrollmentGateway(runGateway, options.workspace),
-      discoverModels: discoverOpenAIEnrollmentModels,
-      keychain: new OpenAIEnrollmentKeychainCredentials(),
-      validateKey: validateOpenAIKey,
+      discoverModels: (value, signal) =>
+        discoverOpenAIEnrollmentModels(value, signal, openAIRequest),
+      keychain: new OpenAIEnrollmentKeychainCredentials(
+        enrollmentKeychain?.create,
+        new KeychainRotationCredentials(enrollmentKeychain?.request),
+      ),
+      validateKey: (value, signal) => validateOpenAIKey(value, signal, openAIRequest),
       gatewayBinding,
       workspace: options.workspace,
       gate: (work) => service.withCredentialMutation(work),
@@ -290,7 +322,7 @@ export function createConnectionsRuntime(options: {
       throw new Error('OpenShell control transport failed');
     }
   };
-  const githubHost = new GitHubCliHostPublisher();
+  const githubHost = new GitHubCliHostPublisher(githubHostCommand);
   const verifyGithubPublishingIdentity = async (
     connectionId: string,
     signal: AbortSignal,

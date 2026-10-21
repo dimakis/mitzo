@@ -1,0 +1,234 @@
+diff --git a/codex-rs/app-server/tests/suite/v2/executor_mcp.rs b/codex-rs/app-server/tests/suite/v2/executor_mcp.rs
+index 314aeb5..3936f71 100644
+--- a/codex-rs/app-server/tests/suite/v2/executor_mcp.rs
++++ b/codex-rs/app-server/tests/suite/v2/executor_mcp.rs
+@@ -1,3 +1,4 @@
++use anyhow::Context;
+ use anyhow::Result;
+ use app_test_support::MockResponsesConfig;
+ use app_test_support::TestAppServer;
+@@ -414,7 +415,15 @@ async fn legacy_executor_blocks_plugin_host_credentials_and_keeps_host_owned_mcp
+         }]),
+     )
+     .await?;
+-    let servers = mcp_server_statuses(&mut app_server, thread_id.clone()).await?;
++    let status_list_start = std::time::Instant::now();
++    let servers = mcp_server_statuses(&mut app_server, thread_id.clone())
++        .await
++        .with_context(|| {
++            format!(
++                "legacy executor MCP status list failed after acknowledged thread/start; elapsed {:?}, original timeout {:?}",
++                status_list_start.elapsed(), DEFAULT_READ_TIMEOUT,
++            )
++        })?;
+     assert!(servers.iter().any(|server| server.name == "host_remote"));
+     assert!(
+         servers
+diff --git a/codex-rs/core/src/session/model_client_construction.rs b/codex-rs/core/src/session/model_client_construction.rs
+index e327c96..69a8e8b 100644
+--- a/codex-rs/core/src/session/model_client_construction.rs
++++ b/codex-rs/core/src/session/model_client_construction.rs
+@@ -50,7 +50,7 @@ pub(super) struct RetainedOriginalClient {
+     facts: OriginalClientFacts,
+ }
+ struct OriginalClientFacts {
+-    config: Config,
++    config: Box<Config>,
+     provider: ModelProviderInfo,
+     source: SessionSource,
+     originator: String,
+@@ -136,7 +136,7 @@ impl OriginalSessionModelClientInputs<'_> {
+         extensions: Arc<ExtensionRegistry<Config>>,
+     ) -> RetainedOriginalClient {
+         let facts = OriginalClientFacts {
+-            config: self.config.clone(),
++            config: Box::new(self.config.clone()),
+             provider: self.provider_info.clone(),
+             source: self.session_source.clone(),
+             originator: self.originator.to_string(),
+diff --git a/codex-rs/core/src/session/model_client_construction_tests.rs b/codex-rs/core/src/session/model_client_construction_tests.rs
+index 7c0d65b..ddc8e9a 100644
+--- a/codex-rs/core/src/session/model_client_construction_tests.rs
++++ b/codex-rs/core/src/session/model_client_construction_tests.rs
+@@ -279,3 +279,63 @@ async fn retained_original_client_refuses_changed_post_lifecycle_inputs() -> any
+     assert!(retained.adopt(changed).is_err());
+     Ok(())
+ }
++
++#[tokio::test]
++async fn retained_client_heap_snapshot_keeps_same_client_and_ordinary_optional_layout()
++-> anyhow::Result<()> {
++    let (session, _turn) = crate::session::tests::make_session_and_context().await;
++    let session = Arc::new(session);
++    let config = session.get_config().await;
++    let options = crate::StartThreadOptions::new(config.as_ref().clone());
++    let state = session.state.lock().await;
++    let configuration = &state.session_configuration;
++    let routing = session
++        .services
++        .thread_extension_data
++        .get_or_init(|| config.workspace_routing_context());
++    assert!(configuration.provider.info().is_openai());
++    assert!(configuration.provider.info().gateway_oauth.is_none());
++    assert!(configuration.provider.info().aws.is_none());
++    assert!(configuration.provider.info().auth.is_none());
++    let inputs = || OriginalSessionModelClientInputs {
++        config: config.as_ref(),
++        provider_info: configuration.provider.info(),
++        session_source: &configuration.session_source,
++        originator: &configuration.originator,
++        parent_thread_id: configuration.parent_thread_id,
++        auth_manager: &session.services.auth_manager,
++        thread_id: session.thread_id(),
++        initial_history: &options.initial_history,
++        reasoning_effort_override_enabled: original_effort_override(
++            config.as_ref(),
++            configuration.thread_source.as_ref(),
++        ),
++        attestation_provider: session.services.attestation_provider.clone(),
++        workspace_routing: &routing,
++        extensions: session.services.extensions.as_ref(),
++        executed_tool_calls: &session.services.executed_tool_calls,
++        fork_cache_key: None,
++        tx_event: &session.tx_event,
++        codex_responses_headers: session
++            .services
++            .thread_extension_data
++            .get::<crate::CodexResponsesHeaders>(),
++    };
++    // These original layouts are present in ordinary futures even for None and
++    // NotConstructed. Keep both retained Configs out of their inline footprint.
++    assert!(std::mem::size_of::<RetainedOriginalClient>() < std::mem::size_of::<Config>());
++    assert!(
++        std::mem::size_of::<Option<super::super::client_input_data::OriginalClientInputData>>()
++            < std::mem::size_of::<Config>()
++    );
++    let retained = inputs().retain(Arc::clone(&session.services.extensions));
++    let snapshot: &Box<Config> = &retained.facts.config;
++    assert_eq!(snapshot.as_ref(), config.as_ref());
++    let address = snapshot.as_ref() as *const Config;
++    let witness = retained.client().clone();
++    let moved = Box::new(retained);
++    assert!(std::ptr::eq(moved.facts.config.as_ref(), address));
++    let adopted = (*moved).adopt(inputs())?;
++    assert!(witness.same_private_state_for_test(&adopted));
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/startup_selection.rs b/codex-rs/core/src/session/startup_selection.rs
+index 4bc275b..ff5bc90 100644
+--- a/codex-rs/core/src/session/startup_selection.rs
++++ b/codex-rs/core/src/session/startup_selection.rs
+@@ -21,7 +21,7 @@ pub(super) struct StartupSelectionOwner {
+     auth: Arc<AuthManager>,
+     pub(crate) credentials: Arc<codex_login::auth::CapturedApiKeyCredentials>,
+     candidate: Arc<UnverifiedModelLimitCandidate>,
+-    raw: Config,
++    raw: Box<Config>,
+     effective: Arc<Config>,
+     source: SessionSource,
+ }
+@@ -122,7 +122,7 @@ impl OriginalStartupSelection {
+                 auth: Arc::clone(auth),
+                 credentials,
+                 candidate: Arc::new(candidate),
+-                raw,
++                raw: Box::new(raw),
+                 effective: Arc::clone(&effective),
+                 source: source.clone(),
+             },
+@@ -218,7 +218,7 @@ impl OriginalStartupSelection {
+         self.stages
+             .baseline
+             .validate(config, source, self.stages.trusted, inputs)?;
+-        let raw = self.owner.raw.clone();
++        let raw = self.owner.raw.as_ref().clone();
+         Ok((self.owner, self.stages, raw))
+     }
+ }
+diff --git a/codex-rs/core/src/session/startup_selection_tests.rs b/codex-rs/core/src/session/startup_selection_tests.rs
+index e27c4a2..06425d0 100644
+--- a/codex-rs/core/src/session/startup_selection_tests.rs
++++ b/codex-rs/core/src/session/startup_selection_tests.rs
+@@ -462,3 +462,32 @@ async fn original_startup_retains_effective_baseline_and_rejects_changed_selecte
+     assert_eq!(endpoint.reads.load(Ordering::SeqCst), 1);
+     Ok(())
+ }
++
++#[tokio::test]
++async fn retained_startup_config_heap_storage_preserves_values_and_original_adoption()
++-> anyhow::Result<()> {
++    let (_home, options, auth, models, _) = fixture().await?;
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    // A layout regression matters even when the ordinary path carries None.
++    assert!(std::mem::size_of::<Option<StartupSelectionOwner>>() < std::mem::size_of::<Config>());
++    assert!(std::mem::size_of::<OriginalStartupSelection>() < std::mem::size_of::<Config>());
++    let raw: &Box<Config> = &startup.owner.raw;
++    assert_eq!(raw.as_ref(), &options.config);
++    let address = raw.as_ref() as *const Config;
++    let effective = startup.effective_config().clone();
++    let moved = Box::new(startup);
++    assert!(std::ptr::eq(moved.raw_config(), address));
++    let (owner, _stages, adopted_raw) = (*moved).into_session(
++        &models,
++        &auth,
++        &effective,
++        configured_settings_data::ConfiguredBaselineInputs::from_options(&options, None),
++        &SessionSource::Exec,
++    )?;
++    assert!(std::ptr::eq(owner.raw.as_ref(), address));
++    assert_eq!(adopted_raw, options.config);
++    assert_eq!(owner.raw.as_ref(), &adopted_raw);
++    Ok(())
++}
+diff --git a/codex-rs/exec-server/tests/exec_process.rs b/codex-rs/exec-server/tests/exec_process.rs
+index a075122..b4a64ca 100644
+--- a/codex-rs/exec-server/tests/exec_process.rs
++++ b/codex-rs/exec-server/tests/exec_process.rs
+@@ -93,7 +93,12 @@ enum ProcessEventSnapshot {
+ 
+ async fn create_process_context(use_remote: bool) -> Result<ProcessContext> {
+     if use_remote {
+-        let server = exec_server().await?;
++        // Keep the existing child warning diagnostics for snapshot failures.
++        let server = common::exec_server::exec_server_with_env(
++            [("RUST_LOG", "codex_exec_server::shell_snapshot=warn")],
++            &[],
++        )
++        .await?;
+         let environment = Environment::create_for_tests(Some(server.websocket_url().to_string()))?;
+         Ok(ProcessContext {
+             backend: environment.get_exec_backend(),
+diff --git a/codex-rs/ext/skills/src/host_roots_tests.rs b/codex-rs/ext/skills/src/host_roots_tests.rs
+index fee6c1a..2e05d87 100644
+--- a/codex-rs/ext/skills/src/host_roots_tests.rs
++++ b/codex-rs/ext/skills/src/host_roots_tests.rs
+@@ -406,6 +406,27 @@ async fn repo_ancestry_without_project_marker_does_not_walk_parents() {
+     fs::create_dir_all(outer.join(".agents/skills")).expect("create outer skills");
+     fs::create_dir_all(cwd.join(".agents/skills")).expect("create cwd skills");
+ 
++    // Record the real fixture precondition without changing root discovery.
++    let markers = super::project_root_markers_from_stack(&stack(Vec::new()));
++    let observed_root = super::find_project_root(LOCAL_FS.as_ref(), &cwd, &markers).await;
++    eprintln!(
++        "no-marker fixture: cwd={cwd:?}, observed_root={observed_root:?}, markers={markers:?}"
++    );
++    for ancestor in cwd.ancestors() {
++        for marker in &markers {
++            let path = ancestor.join(marker);
++            match fs::symlink_metadata(path.as_path()) {
++                Ok(metadata) => eprintln!(
++                    "ancestor marker exists: path={path:?}, directory={}",
++                    metadata.is_dir()
++                ),
++                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
++                Err(error) => {
++                    eprintln!("ancestor marker read failed: path={path:?}, error={error}")
++                }
++            }
++        }
++    }
+     let roots = repo_agents_skill_roots(Some(Arc::clone(&LOCAL_FS)), &stack(Vec::new()), &cwd)
+         .await
+         .into_iter()

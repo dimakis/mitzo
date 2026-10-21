@@ -1,0 +1,664 @@
+diff --git a/codex-rs/core/src/session/client_input_data.rs b/codex-rs/core/src/session/client_input_data.rs
+index bf89a78..407a626 100644
+--- a/codex-rs/core/src/session/client_input_data.rs
++++ b/codex-rs/core/src/session/client_input_data.rs
+@@ -4,6 +4,8 @@
+ use super::*;
+ use crate::CodexResponsesHeaders;
+ use crate::state::ExecutedToolCalls;
++use crate::thread_manager::selected_start_frame::CapturedSelectedStartFrame;
++use crate::thread_manager::selected_start_frame::InheritedSessionSourceFrame;
+ use codex_model_provider::WorkspaceRoutingContext;
+ use std::io;
+ 
+@@ -37,6 +39,8 @@ pub(crate) struct OriginalClientInputData {
+     pub(crate) executed: ExecutedToolCalls,
+     recorder_enabled: bool,
+     channels: Option<SessionChannels>,
++    source_frame: Option<CapturedSelectedStartFrame>,
++    session_frame: Option<InheritedSessionSourceFrame>,
+ }
+ fn same_optional<T>(a: &Option<Arc<T>>, b: &Option<Arc<T>>) -> bool {
+     match (a, b) {
+@@ -71,8 +75,42 @@ impl OriginalClientInputData {
+             executed: ExecutedToolCalls::new(&config.features, history),
+             recorder_enabled: ExecutedToolCalls::is_enabled(&config.features),
+             channels: Some(SessionChannels::allocate()),
++            source_frame: None,
++            session_frame: None,
+         }
+     }
++    pub(crate) fn install_source_frame(
++        &mut self,
++        frame: CapturedSelectedStartFrame,
++    ) -> io::Result<()> {
++        if self.source_frame.is_some() || self.session_frame.is_some() {
++            return Err(io::Error::other("original source frame already installed"));
++        }
++        self.source_frame = Some(frame);
++        Ok(())
++    }
++    pub(crate) fn source_frame(&self) -> Option<&CapturedSelectedStartFrame> {
++        self.source_frame.as_ref()
++    }
++    pub(crate) fn take_source_frame(&mut self) -> Option<CapturedSelectedStartFrame> {
++        self.source_frame.take()
++    }
++    pub(crate) fn install_session_frame(
++        &mut self,
++        frame: InheritedSessionSourceFrame,
++    ) -> io::Result<()> {
++        if self.source_frame.is_some() || self.session_frame.is_some() {
++            return Err(io::Error::other("original session frame already installed"));
++        }
++        self.session_frame = Some(frame);
++        Ok(())
++    }
++    pub(crate) fn session_frame(&self) -> Option<&InheritedSessionSourceFrame> {
++        self.session_frame.as_ref()
++    }
++    pub(crate) fn take_session_frame(&mut self) -> Option<InheritedSessionSourceFrame> {
++        self.session_frame.take()
++    }
+     pub(crate) fn validate_init(
+         &self,
+         init: &ExtensionDataInit,
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index 25197af..0108137 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -763,7 +763,7 @@ impl Session {
+         client_mcp_extensions: ClientMcpExtensions,
+         agent_control: AgentControlInit,
+         reserved_thread_id: Option<ThreadId>,
+-        inherited_client_inputs: Option<super::client_input_data::OriginalClientInputData>,
++        mut inherited_client_inputs: Option<super::client_input_data::OriginalClientInputData>,
+         environment_manager: Arc<EnvironmentManager>,
+         inherited_environments: Option<TurnEnvironmentSnapshot>,
+         analytics_events_client: Option<AnalyticsEventsClient>,
+@@ -834,10 +834,27 @@ impl Session {
+             },
+         }
+         .filter(|_| forked_from_id.is_some());
+-        let parent_thread_id = super::source_frame::session_parent_thread_id(
+-            session_configuration.parent_thread_id,
+-            &initial_history,
+-        );
++        let parent_thread_id = if let Some(frame) = inherited_client_inputs
++            .as_ref()
++            .and_then(|inputs| inputs.session_frame())
++        {
++            frame
++                .validate(
++                    &session_configuration.session_source,
++                    &session_configuration.originator,
++                    session_configuration.parent_thread_id,
++                    &initial_history,
++                    config.ephemeral,
++                )
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++            frame.parent()
++        } else {
++            let parent_thread_id = super::source_frame::session_parent_thread_id(
++                session_configuration.parent_thread_id,
++                &initial_history,
++            );
++            parent_thread_id
++        };
+         session_configuration.parent_thread_id = parent_thread_id;
+         let is_paginated_subagent = matches!(
+             session_configuration.history_mode,
+@@ -869,11 +886,20 @@ impl Session {
+                 .root_thread_instructions_provider(thread_id, instructions.thread_provider);
+         }
+         // Ephemeral forks reuse cache routing, without sharing storage or lifecycle identity.
+-        let fork_cache_key = super::source_frame::fork_prompt_cache_key(
+-            &initial_history,
+-            config.ephemeral,
+-            &session_configuration.session_source,
+-        );
++        let fork_cache_key = match inherited_client_inputs
++            .as_mut()
++            .and_then(|inputs| inputs.take_session_frame())
++        {
++            Some(frame) => frame.into_fork_cache_key(),
++            None => {
++                let fork_cache_key = super::source_frame::fork_prompt_cache_key(
++                    &initial_history,
++                    config.ephemeral,
++                    &session_configuration.session_source,
++                );
++                fork_cache_key
++            }
++        };
+         let resumed_session_id = match &initial_history {
+             InitialHistory::Resumed(resumed) => {
+                 resumed.history.iter().find_map(|item| match item {
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index ca4f9be..49d7585 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -1,4 +1,6 @@
+ mod managed;
++#[path = "thread_manager/selected_start_frame.rs"]
++pub(crate) mod selected_start_frame;
+ mod shared_instructions;
+ 
+ use crate::CodexAppsToolsCache;
+@@ -1140,17 +1142,23 @@ impl ThreadManager {
+         inherited_exec_policy: Option<Arc<crate::exec_policy::ExecPolicyManager>>,
+         inherited_agent_control: Option<selected_start::SelectedStartNativeAllocation>,
+     ) -> CodexResult<NewThread> {
+-        let (resumed_session_source, resumed_thread_source) = options
+-            .initial_history
+-            .get_resumed_session_sources()
+-            .unwrap_or_else(|| (self.state.session_source.clone(), None));
+-        options.session_source = Some(
+-            options
+-                .session_source
+-                .take()
+-                .unwrap_or(resumed_session_source),
+-        );
+-        options.thread_source = options.thread_source.take().or(resumed_thread_source);
++        if let Some(allocation) = inherited_agent_control.as_ref() {
++            allocation
++                .validate_source_options(&options)
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        } else {
++            let (resumed_session_source, resumed_thread_source) = options
++                .initial_history
++                .get_resumed_session_sources()
++                .unwrap_or_else(|| (self.state.session_source.clone(), None));
++            options.session_source = Some(
++                options
++                    .session_source
++                    .take()
++                    .unwrap_or(resumed_session_source),
++            );
++            options.thread_source = options.thread_source.take().or(resumed_thread_source);
++        }
+         let parent = options.internal_parent.take();
+         if parent.is_some()
+             && (!matches!(options.session_source, Some(SessionSource::Internal(_)))
+@@ -2072,7 +2080,16 @@ impl ThreadManagerState {
+     }
+ 
+     /// Spawn a new thread with optional history and register it with the manager.
+-    async fn spawn_thread(&self, request: ThreadSpawnRequest) -> CodexResult<NewThread> {
++    async fn spawn_thread(&self, mut request: ThreadSpawnRequest) -> CodexResult<NewThread> {
++        let retained_source_frame = request
++            .inherited_client_inputs
++            .as_mut()
++            .and_then(|inputs| inputs.take_source_frame());
++        if let Some(frame) = retained_source_frame.as_ref() {
++            frame
++                .validate_request(self, &request)
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        }
+         let ThreadSpawnRequest {
+             startup,
+             options,
+@@ -2086,7 +2103,7 @@ impl ThreadManagerState {
+             inherited_instructions,
+             inherited_exec_policy,
+             user_shell_override,
+-            inherited_client_inputs,
++            mut inherited_client_inputs,
+         } = request;
+         let StartThreadOptions {
+             mut config,
+@@ -2109,7 +2126,10 @@ impl ThreadManagerState {
+             disabled_plugin_ids,
+         } = options;
+         let inherited_environments = captured_environments.or(inherited_environments);
+-        let session_source = session_source.unwrap_or_else(|| self.session_source.clone());
++        let session_source = match retained_source_frame.as_ref() {
++            Some(frame) => frame.source().clone(),
++            None => session_source.unwrap_or_else(|| self.session_source.clone()),
++        };
+         // Older callers and saved reviewers identify isolation through their source.
+         // New internal callers supply an explicit runtime policy before startup.
+         let isolation = session_isolation(&thread_extension_init, &session_source);
+@@ -2188,11 +2208,17 @@ impl ThreadManagerState {
+             }
+             (_, control) => control,
+         };
+-        let parent_thread_id = crate::session::source_frame::spawn_parent_thread_id(
+-            parent_thread_id,
+-            &initial_history,
+-            &session_source,
+-        );
++        let parent_thread_id = match retained_source_frame.as_ref() {
++            Some(frame) => frame.parent(),
++            None => {
++                let parent_thread_id = crate::session::source_frame::spawn_parent_thread_id(
++                    parent_thread_id,
++                    &initial_history,
++                    &session_source,
++                );
++                parent_thread_id
++            }
++        };
+         // Host controllers can already be shared with live threads. Publish root settings
+         // only after registration succeeds, so a failed start cannot update their tree.
+         let initial_host_config = (self.agent_control_factory.is_some()
+@@ -2262,16 +2288,34 @@ impl ThreadManagerState {
+             .parent_rollout_thread_trace_for_source(&session_source, &initial_history)
+             .await;
+         let tracked_session_source = session_source.clone();
+-        let originator = self
+-            .effective_originator(
+-                &initial_history,
+-                metrics_service_name.as_deref(),
+-                &session_source,
+-                parent_thread_id,
+-                forked_from_thread_id,
+-                parent_originator,
+-            )
+-            .await;
++        let (originator, inherited_session_frame) = match retained_source_frame {
++            Some(frame) => {
++                let (originator, session) = frame.adopt();
++                (originator, Some(session))
++            }
++            None => {
++                let originator = self
++                    .effective_originator(
++                        &initial_history,
++                        metrics_service_name.as_deref(),
++                        &session_source,
++                        parent_thread_id,
++                        forked_from_thread_id,
++                        parent_originator,
++                    )
++                    .await;
++                (originator, None)
++            }
++        };
++        if let Some(frame) = inherited_session_frame {
++            inherited_client_inputs
++                .as_mut()
++                .ok_or_else(|| {
++                    CodexErr::InvalidRequest("retained client input owner missing".to_string())
++                })?
++                .install_session_frame(frame)
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        }
+         let source_changed_during_startup = Arc::new(AtomicBool::new(false));
+         {
+             let mut starting = self
+@@ -2312,7 +2356,13 @@ impl ThreadManagerState {
+             fork_persistence,
+             // Keep only the manager registration internal. The session and its saved
+             // history retain Guardian's existing identity for metadata, filtering and resume.
+-            session_source: crate::session::source_frame::session_source_for_spawn(session_source),
++            session_source: match inherited_client_inputs
++                .as_ref()
++                .and_then(|inputs| inputs.session_frame())
++            {
++                Some(frame) => frame.source().clone(),
++                None => crate::session::source_frame::session_source_for_spawn(session_source),
++            },
+             forked_from_thread_id,
+             parent_thread_id,
+             thread_source: thread_source.clone(),
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index 1e35e78..76eac31 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -91,7 +91,8 @@ impl ThreadManager {
+             ));
+         }
+         let policy = Arc::new(SelectedStartPolicy::load(&options.config).await?);
+-        let allocation = SelectedStartNativeAllocation::allocate(self, &mut options)?;
++        let mut allocation = SelectedStartNativeAllocation::allocate(self, &mut options)?;
++        let options = allocation.capture_source_frame(self, options).await?;
+         Ok(SelectedStartInputs {
+             owner: Arc::clone(&self.state),
+             inputs: Some(Inputs::Options(options)),
+@@ -143,7 +144,10 @@ impl ThreadManager {
+     ) -> io::Result<R> {
+         if !Arc::ptr_eq(&self.state, &selected.owner)
+             || selected.inputs.is_none()
+-            || selected.allocation.is_none()
++            || !selected
++                .allocation
++                .as_ref()
++                .is_some_and(|allocation| allocation.inputs.source_frame().is_some())
+             || selected.invalidated.load(Ordering::Acquire)
+         {
+             return Err(io::Error::other(
+diff --git a/codex-rs/core/src/thread_manager/selected_start_allocation.rs b/codex-rs/core/src/thread_manager/selected_start_allocation.rs
+index a04b7fa..af55832 100644
+--- a/codex-rs/core/src/thread_manager/selected_start_allocation.rs
++++ b/codex-rs/core/src/thread_manager/selected_start_allocation.rs
+@@ -35,6 +35,31 @@ impl SelectedStartNativeAllocation {
+             inputs,
+         })
+     }
++    pub(super) async fn capture_source_frame(
++        &mut self,
++        manager: &ThreadManager,
++        options: StartThreadOptions,
++    ) -> io::Result<StartThreadOptions> {
++        // Actual private request constructor supplies its OWN parent/fork data;
++        // the SAME retained native controller is cloned, never reallocated.
++        let request = ThreadSpawnRequest::new(
++            options,
++            Arc::clone(&manager.state.auth_manager),
++            self.control.clone(),
++        );
++        let frame = manager
++            .state
++            .capture_selected_source_frame(&request)
++            .await?;
++        self.inputs.install_source_frame(frame)?;
++        Ok(request.options)
++    }
++    pub(crate) fn validate_source_options(&self, options: &StartThreadOptions) -> io::Result<()> {
++        self.inputs
++            .source_frame()
++            .ok_or_else(|| io::Error::other("selected source frame missing"))?
++            .validate_options(options)
++    }
+     pub(super) fn thread_id(&self) -> ThreadId {
+         self.thread_id
+     }
+diff --git a/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs b/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs
+index f77f29d..f80ac44 100644
+--- a/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs
++++ b/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs
+@@ -308,3 +308,117 @@ async fn changed_header_routing_identity_and_recorder_projection_refuse() {
+     inputs.validate_config(&adoption.options.config).unwrap();
+     assert!(manager.list_thread_ids().await.is_empty());
+ }
++
++#[tokio::test]
++async fn retained_original_request_getter_data_is_moved_once_without_session_start() {
++    let (_home, config, manager) = fixture().await;
++    let mut options = StartThreadOptions::new(config);
++    options.metrics_service_name = Some(" CODEX_WORK_WEB ".to_string());
++    let mut events = manager.subscribe_thread_created();
++    let mut selected = manager.prepare_selected_start(options).await.unwrap();
++    let adoption = manager.adopt_selected_start(&mut selected).unwrap();
++    assert!(manager.adopt_selected_start(&mut selected).is_err());
++    let (control, mut inputs) = adoption.allocation.into_parts();
++    let frame = inputs.take_source_frame().unwrap();
++    assert!(inputs.take_source_frame().is_none());
++    let mut request = ThreadSpawnRequest::new(
++        adoption.options,
++        Arc::clone(&manager.state.auth_manager),
++        control,
++    );
++    frame
++        .validate_request(manager.state.as_ref(), &request)
++        .unwrap();
++    let (_foreign_home, _foreign_config, foreign) = fixture().await;
++    assert!(
++        frame
++            .validate_request(foreign.state.as_ref(), &request)
++            .is_err()
++    );
++    let original_metrics = request.options.metrics_service_name.clone();
++    request.options.metrics_service_name = Some("different".to_string());
++    assert!(
++        frame
++            .validate_request(manager.state.as_ref(), &request)
++            .is_err()
++    );
++    request.options.metrics_service_name = original_metrics;
++    let original_source = request.options.session_source.clone();
++    request.options.session_source = Some(SessionSource::Custom("changed".to_string()));
++    assert!(
++        frame
++            .validate_request(manager.state.as_ref(), &request)
++            .is_err()
++    );
++    request.options.session_source = original_source;
++    request.options.initial_history = InitialHistory::Cleared;
++    assert!(
++        frame
++            .validate_request(manager.state.as_ref(), &request)
++            .is_err()
++    );
++    request.options.initial_history = InitialHistory::New;
++    request.options.config.ephemeral = !request.options.config.ephemeral;
++    assert!(
++        frame
++            .validate_request(manager.state.as_ref(), &request)
++            .is_err()
++    );
++    request.options.config.ephemeral = !request.options.config.ephemeral;
++    request.parent_thread_id = Some(ThreadId::new());
++    assert!(
++        frame
++            .validate_request(manager.state.as_ref(), &request)
++            .is_err()
++    );
++    request.parent_thread_id = None;
++    frame
++        .validate_request(manager.state.as_ref(), &request)
++        .unwrap();
++    let source = frame.source().clone();
++    let parent = frame.parent();
++    let (originator, session) = frame.adopt();
++    assert_eq!(originator, "codex_work_web");
++    inputs.install_session_frame(session).unwrap();
++    let session_source = crate::session::source_frame::session_source_for_spawn(source);
++    // A later ordinary configuration cannot overwrite the retained getter data.
++    assert!(
++        inputs
++            .session_frame()
++            .unwrap()
++            .validate(
++                &session_source,
++                "changed-after-capture",
++                parent,
++                &request.options.initial_history,
++                request.options.config.ephemeral,
++            )
++            .is_err()
++    );
++    inputs
++        .session_frame()
++        .unwrap()
++        .validate(
++            &session_source,
++            &originator,
++            parent,
++            &request.options.initial_history,
++            request.options.config.ephemeral,
++        )
++        .unwrap();
++    let session = inputs.take_session_frame().unwrap();
++    assert!(inputs.take_session_frame().is_none());
++    assert_eq!(
++        session.into_fork_cache_key(),
++        crate::session::source_frame::fork_prompt_cache_key(
++            &request.options.initial_history,
++            request.options.config.ephemeral,
++            &session_source,
++        )
++    );
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(matches!(
++        events.try_recv(),
++        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
++    ));
++}
+diff --git a/codex-rs/core/src/thread_manager/selected_start_frame.rs b/codex-rs/core/src/thread_manager/selected_start_frame.rs
+new file mode 100644
+index 0000000..0071a9a
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/selected_start_frame.rs
+@@ -0,0 +1,170 @@
++//! Actual original getter-produced source-frame DATA custody, not authority.
++//! Minted only from the private original request/allocation owner. Process and
++//! loaded-parent snapshots are frozen values, not an environment/source lease.
++use super::*;
++use crate::session::source_frame;
++use std::io;
++
++pub(crate) struct CapturedSelectedStartFrame {
++    owner: Arc<ThreadManagerState>,
++    extensions: Arc<ExtensionRegistry<Config>>,
++    mcp: Arc<McpManager>,
++    source: SessionSource,
++    raw_parent: Option<ThreadId>,
++    raw_fork: Option<ThreadId>,
++    raw_parent_originator: Option<String>,
++    metrics: Option<String>,
++    ephemeral: bool,
++    parent: Option<ThreadId>,
++    originator: String,
++    session_source: SessionSource,
++    fork_cache_key: Option<String>,
++}
++
++pub(crate) struct InheritedSessionSourceFrame {
++    source: SessionSource,
++    originator: String,
++    parent: Option<ThreadId>,
++    ephemeral: bool,
++    fork_cache_key: Option<String>,
++}
++
++impl ThreadManagerState {
++    pub(super) async fn capture_selected_source_frame(
++        self: &Arc<Self>,
++        request: &ThreadSpawnRequest,
++    ) -> io::Result<CapturedSelectedStartFrame> {
++        let options = &request.options;
++        let source = options
++            .session_source
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original start source was not resolved"))?;
++        if !matches!(options.initial_history, InitialHistory::New)
++            || options.internal_parent.is_some()
++            || options.inherited_environments.is_some()
++        {
++            return Err(io::Error::other(
++                "selected source frame requires original fresh inputs",
++            ));
++        }
++        let parent = source_frame::spawn_parent_thread_id(
++            request.parent_thread_id,
++            &options.initial_history,
++            source,
++        );
++        // SAME real getter and fallback semantics as ordinary spawn. It may
++        // initialize the EXISTING process originator owner; no new publisher,
++        // model/lifecycle callback, inference or environment mutation is added.
++        let originator = self
++            .effective_originator(
++                &options.initial_history,
++                options.metrics_service_name.as_deref(),
++                source,
++                parent,
++                request.forked_from_thread_id,
++                request.parent_originator.clone(),
++            )
++            .await;
++        let session_source = source_frame::session_source_for_spawn(source.clone());
++        let fork_cache_key = source_frame::fork_prompt_cache_key(
++            &options.initial_history,
++            options.config.ephemeral,
++            &session_source,
++        );
++        Ok(CapturedSelectedStartFrame {
++            owner: Arc::clone(self),
++            extensions: Arc::clone(&self.extensions),
++            mcp: Arc::clone(&self.mcp_manager),
++            source: source.clone(),
++            raw_parent: request.parent_thread_id,
++            raw_fork: request.forked_from_thread_id,
++            raw_parent_originator: request.parent_originator.clone(),
++            metrics: options.metrics_service_name.clone(),
++            ephemeral: options.config.ephemeral,
++            parent,
++            originator,
++            session_source,
++            fork_cache_key,
++        })
++    }
++}
++impl CapturedSelectedStartFrame {
++    pub(super) fn validate_options(&self, options: &StartThreadOptions) -> io::Result<()> {
++        if options.session_source.as_ref() != Some(&self.source)
++            || !matches!(options.initial_history, InitialHistory::New)
++            || options.internal_parent.is_some()
++            || options.inherited_environments.is_some()
++            || options.metrics_service_name != self.metrics
++            || options.config.ephemeral != self.ephemeral
++        {
++            return Err(io::Error::other("retained original source inputs changed"));
++        }
++        Ok(())
++    }
++    pub(super) fn validate_request(
++        &self,
++        manager: &ThreadManagerState,
++        request: &ThreadSpawnRequest,
++    ) -> io::Result<()> {
++        self.validate_options(&request.options)?;
++        if !std::ptr::eq(self.owner.as_ref(), manager)
++            || !Arc::ptr_eq(&self.extensions, &manager.extensions)
++            || !Arc::ptr_eq(&self.mcp, &manager.mcp_manager)
++            || self.raw_parent != request.parent_thread_id
++            || self.raw_fork != request.forked_from_thread_id
++            || self.raw_parent_originator != request.parent_originator
++        {
++            return Err(io::Error::other(
++                "retained original source request owner changed",
++            ));
++        }
++        Ok(())
++    }
++    pub(super) fn source(&self) -> &SessionSource {
++        &self.source
++    }
++    pub(super) fn parent(&self) -> Option<ThreadId> {
++        self.parent
++    }
++    pub(super) fn adopt(self) -> (String, InheritedSessionSourceFrame) {
++        let session = InheritedSessionSourceFrame {
++            source: self.session_source,
++            originator: self.originator.clone(),
++            parent: self.parent,
++            ephemeral: self.ephemeral,
++            fork_cache_key: self.fork_cache_key,
++        };
++        (self.originator, session)
++    }
++}
++impl InheritedSessionSourceFrame {
++    pub(crate) fn source(&self) -> &SessionSource {
++        &self.source
++    }
++    pub(crate) fn parent(&self) -> Option<ThreadId> {
++        self.parent
++    }
++    pub(crate) fn validate(
++        &self,
++        source: &SessionSource,
++        originator: &str,
++        parent: Option<ThreadId>,
++        history: &InitialHistory,
++        ephemeral: bool,
++    ) -> io::Result<()> {
++        if source != &self.source
++            || originator != self.originator.as_str()
++            || parent != self.parent
++            || !matches!(history, InitialHistory::New)
++            || ephemeral != self.ephemeral
++        {
++            return Err(io::Error::other(
++                "ordinary startup changed retained source data",
++            ));
++        }
++        Ok(())
++    }
++    pub(crate) fn into_fork_cache_key(self) -> Option<String> {
++        self.fork_cache_key
++    }
++}

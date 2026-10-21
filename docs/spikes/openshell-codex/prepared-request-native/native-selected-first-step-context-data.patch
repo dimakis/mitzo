@@ -1,0 +1,678 @@
+diff --git a/codex-rs/app-server/src/request_processors/fresh_command_ingress.rs b/codex-rs/app-server/src/request_processors/fresh_command_ingress.rs
+index 0b2fbb5..eb30a19 100644
+--- a/codex-rs/app-server/src/request_processors/fresh_command_ingress.rs
++++ b/codex-rs/app-server/src/request_processors/fresh_command_ingress.rs
+@@ -205,6 +205,10 @@ impl ThreadRequestProcessor {
+                 request_trace,
+             )
+             .await?;
++        selected
++            .capture_first_step_context(self.thread_manager.as_ref())
++            .await
++            .map_err(|e| internal_error(e.to_string()))?;
+         Ok(RequestInputPreparation::Command {
+             operation_id,
+             captured_source_pins,
+diff --git a/codex-rs/app-server/src/selected_start_config.rs b/codex-rs/app-server/src/selected_start_config.rs
+index 9651206..8d46f0a 100644
+--- a/codex-rs/app-server/src/selected_start_config.rs
++++ b/codex-rs/app-server/src/selected_start_config.rs
+@@ -101,6 +101,7 @@ pub(crate) struct SelectedConfiguredStart {
+         Option<std::sync::Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>>,
+     // Retained until a genuine selected metadata consumer is integrated.
+     client_info: Option<crate::request_processors::AppServerClientInfo>,
++    first_step_context: Option<codex_core::PreSessionBuiltinContextData>,
+ }
+ 
+ impl ConfigManager {
+@@ -286,6 +287,7 @@ impl SelectedStartConfig {
+             start,
+             installed: Some(installed),
+             client_info: Some(client_info),
++            first_step_context: None,
+         })
+     }
+ 
+@@ -312,6 +314,7 @@ impl SelectedStartConfig {
+             start,
+             installed: None,
+             client_info: None,
++            first_step_context: None,
+         })
+     }
+ }
+@@ -403,6 +406,55 @@ impl SelectedConfiguredStart {
+ 
+     /// Source-only settings candidate. Resolved DATA arguments do not identify
+     /// an intended command or authorize environment use/ordinary dispatch.
++    /// Retain owned, explicitly incomplete builtin DATA through the installed
++    /// heterogeneous extension composition. No Session, dispatch or count occurs.
++    pub(crate) async fn capture_first_step_context(
++        &mut self,
++        manager: &ThreadManager,
++    ) -> io::Result<()> {
++        let result = async {
++            self.renew(manager).await?;
++            if self.first_step_context.is_some() {
++                return Err(io::Error::other("first-step context already retained"));
++            }
++            let data = {
++                let sources = self
++                    .start
++                    .mcp_sources()
++                    .ok_or_else(|| io::Error::other("original API sources missing"))?;
++                self.installed
++                    .as_ref()
++                    .ok_or_else(|| io::Error::other("original installed composition missing"))?
++                    .observe(manager, sources)
++                    .map_err(|e| io::Error::other(format!("{e:?}")))?;
++                // Typed non-user inputs refuse here before any Skills loader work.
++                let skills = manager
++                    .observe_selected_start_skills(&self.start)
++                    .await
++                    .map_err(io::Error::other)?;
++                let extensions =
++                    crate::extensions::pre_session_context::capture_installed_extension_sources(
++                        manager, sources, &skills,
++                    )
++                    .map_err(|e| io::Error::other(format!("{e:?}")))?;
++                extensions
++                    .observe_initial_context_partitions(self)
++                    .await
++                    .map_err(|e| io::Error::other(format!("{e:?}")))?
++                    .builtin
++            };
++            self.renew(manager).await?;
++            manager.validate_selected_builtin_context(&self.start, &data)?;
++            self.first_step_context = Some(data);
++            Ok(())
++        }
++        .await;
++        if result.is_err() {
++            self.source.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
++
+     pub(crate) async fn capture_settings(
+         &mut self,
+         manager: &ThreadManager,
+@@ -580,6 +632,9 @@ impl SelectedConfiguredStart {
+             .renew_selected_start(&self.start)
+             .await
+             .map_err(io::Error::other)?;
++        if let Some(data) = &self.first_step_context {
++            manager.validate_selected_builtin_context(&self.start, data)?;
++        }
+         self.source.renew().await
+     }
+ 
+@@ -627,6 +682,9 @@ impl SelectedConfiguredStart {
+         if self.source.invalidated.load(Ordering::Acquire) {
+             return Err(io::Error::other("selected start source was invalidated"));
+         }
++        if let Some(data) = &self.first_step_context {
++            manager.validate_selected_builtin_context(&self.start, data)?;
++        }
+         self.source
+             .runtime
+             .with_current(|| manager.with_current_selected_start(&self.start, associate))
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index 0427ac7..841bfa2 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -761,3 +761,128 @@ async fn first_command_model_capture_rejects_unreviewed_row_without_session_or_s
+         codex_thread_store::InMemoryThreadStoreCalls::default()
+     );
+ }
++
++#[tokio::test]
++async fn installed_first_step_context_retains_command_model_and_rejects_baseline_observation() {
++    for reply in [false, true] {
++        let home = tempfile::tempdir().unwrap();
++        let configs = manager(home.path());
++        let source = configs
++            .load_selected_start_config(
++                None,
++                ConfigOverrides {
++                    cwd: Some(home.path().to_path_buf()),
++                    model: Some("gpt-6-luna".into()),
++                    personality: Some(codex_protocol::config_types::Personality::Pragmatic),
++                    ..Default::default()
++                },
++            )
++            .await
++            .unwrap();
++        let config = source.config().clone();
++        assert!(config.features.enabled(Feature::Apps));
++        assert!(config.features.enabled(Feature::Plugins));
++        let store = Arc::new(InMemoryThreadStore::default());
++        let mut catalog = None;
++        let (threads, installed, _) =
++            thread_manager_with_models(&config, Arc::clone(&store), |auth| {
++                let models: codex_models_manager::manager::SharedModelsManager = Arc::new(
++                    codex_models_manager::manager::OpenAiModelsManager::new_without_cache(
++                        Arc::new(NoStartupEndpoint),
++                        Some(Arc::clone(auth)),
++                    ),
++                );
++                catalog = Some(Arc::clone(&models));
++                models
++            });
++        let original = OriginalFirstCommandStart::new(
++            StartThreadOptions::new(config),
++            threads.reserve_thread_start(),
++            installed,
++            crate::request_processors::AppServerClientInfo::capture(None, None),
++        );
++        let mut selected = source
++            .capture_first_command(&threads, original)
++            .await
++            .unwrap();
++        selected.capture_startup(&threads).await.unwrap();
++        selected.capture_startup_api_mcp(&threads).unwrap();
++        let value = if reply {
++            serde_json::json!({"input":[],"toolOutput":{"name":"actual-reply","namespace":null,"output":"reply bytes"},"personality":"friendly"})
++        } else {
++            serde_json::json!({"input":[],"personality":"friendly"})
++        };
++        let body = serde_json::from_value(value).unwrap();
++        selected
++            .capture_command(&threads, "first-context".into(), body, None)
++            .await
++            .unwrap();
++        if reply {
++            assert!(selected.capture_first_step_context(&threads).await.is_err());
++            assert!(selected.first_step_context.is_none());
++        } else {
++            let expected_instructions;
++            {
++                let sources = selected.start().mcp_sources().unwrap();
++                let baseline = threads
++                    .observe_pre_session_skills(sources, &[])
++                    .await
++                    .unwrap();
++                let actual = threads
++                    .observe_selected_start_skills(selected.start())
++                    .await
++                    .unwrap();
++                let mut config = sources.start_options().config.to_models_manager_config();
++                config.personality = Some(codex_protocol::config_types::Personality::Friendly);
++                let expected = catalog
++                    .as_ref()
++                    .unwrap()
++                    .get_model_info("gpt-6-luna", &config)
++                    .await;
++                assert_eq!(actual.skills().model(), &expected);
++                assert!(sources.start_options().config.base_instructions.is_none());
++                assert!(sources.start_options().config.model_catalog.is_none());
++                let rendered = codex_prompts::render_model_instructions(&expected);
++                expected_instructions = if sources.start_options().config.update_plan_enabled {
++                    rendered
++                } else {
++                    codex_prompts::without_update_plan_instructions(&rendered)
++                };
++                let clock = threads.observe_pre_session_system_clock(sources).unwrap();
++                assert!(
++                    threads
++                        .observe_pre_session_builtin_context(selected.start(), &baseline, &clock)
++                        .await
++                        .is_err()
++                );
++            }
++            selected.capture_first_step_context(&threads).await.unwrap();
++            let partial = selected.first_step_context.as_ref().unwrap();
++            assert_eq!(partial.model_instructions(), expected_instructions);
++            let (foreign, _, _) = thread_manager(
++                &selected.start().start_options().unwrap().config,
++                Arc::new(InMemoryThreadStore::default()),
++            );
++            assert!(
++                foreign
++                    .validate_selected_builtin_context(selected.start(), partial)
++                    .is_err()
++            );
++            assert!(partial.unresolved_partitions().contains(
++                &codex_core::UnresolvedInitialContextPartition::PermissionsAndEnvironmentSnapshot
++            ));
++            assert!(partial.unresolved_partitions().contains(
++                &codex_core::UnresolvedInitialContextPartition::OriginalFreshHistoryAndAgentState
++            ));
++            selected.renew(&threads).await.unwrap();
++            assert!(selected.capture_first_step_context(&threads).await.is_err());
++        }
++        assert!(selected.renew(&threads).await.is_err());
++        assert!(selected.adopt_startup(&threads).await.is_err());
++        assert!(threads.list_thread_ids().await.is_empty());
++        assert_eq!(
++            store.calls().await,
++            codex_thread_store::InMemoryThreadStoreCalls::default()
++        );
++    }
++}
+diff --git a/codex-rs/core/src/session/selected_settings_candidate.rs b/codex-rs/core/src/session/selected_settings_candidate.rs
+index 8ac8835..fa2e099 100644
+--- a/codex-rs/core/src/session/selected_settings_candidate.rs
++++ b/codex-rs/core/src/session/selected_settings_candidate.rs
+@@ -55,6 +55,52 @@ impl SelectedSettingsCandidate {
+         Ok(())
+     }
+ 
++    /// Model and first-input DATA come only from this candidate's original
++    /// paired command. Environment/plugin-dependent context is not yet supported.
++    pub(crate) fn first_step_context_inputs<'a>(
++        &'a self,
++        startup: &OriginalStartupSelection,
++    ) -> io::Result<
++        Option<(
++            &'a Arc<codex_models_manager::model_limits::UnverifiedModelLimitCandidate>,
++            &'a codex_protocol::openai_models::ModelInfo,
++            &'a [codex_protocol::user_input::UserInput],
++        )>,
++    > {
++        self.validate(startup)?;
++        // Preserve explicitly partial baseline-only observation. A paired,
++        // attempted or burned first command can never enter this legacy arm.
++        if self.command.is_none() && !self.first_step_attempted {
++            return Ok(None);
++        }
++        let model = self
++            .first_step_model
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original first-step model missing"))?;
++        if self.overrides.environments.is_some()
++            || self.overrides.runtime_workspace_roots.is_some()
++            || self.overrides.profile_workspace_roots.is_some()
++            || self.overrides.disabled_plugin_ids.is_some()
++            || self.data.cwd != self.source.cwd
++        {
++            return Err(io::Error::other(
++                "first-step environment/plugin context unresolved",
++            ));
++        }
++        let command = self
++            .command
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original intended command missing"))?;
++        let codex_protocol::turn_input::TurnInput::UserInput { content, .. } =
++            &command.request.input
++        else {
++            return Err(io::Error::other(
++                "typed reply first-context partition unresolved",
++            ));
++        };
++        Ok(Some((&model.candidate, model.data.model_info(), content)))
++    }
++
+     pub(crate) async fn capture_first_step_model(
+         &mut self,
+         startup: &OriginalStartupSelection,
+diff --git a/codex-rs/core/src/session/selected_settings_candidate_tests.rs b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+index 26d72e4..7501597 100644
+--- a/codex-rs/core/src/session/selected_settings_candidate_tests.rs
++++ b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+@@ -338,3 +338,95 @@ async fn first_step_refuses_missing_foreign_changed_model_settings_and_catalog_p
+     assert!(candidate.renew_first_step_model(&startup).await.is_err());
+     Ok(())
+ }
++
++#[tokio::test]
++async fn first_step_context_uses_same_command_model_and_refuses_lossy_reply_or_root_substitution()
++-> anyhow::Result<()> {
++    let (_home, mut options, auth, models, _) = super::super::tests::fixture().await?;
++    options.config.features.enable(Feature::GuardianApproval);
++    options.config.personality = Some(codex_protocol::config_types::Personality::Pragmatic);
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let mut candidate = startup.settings_candidate(ThreadSettingsOverrides {
++        personality: Some(codex_protocol::config_types::Personality::Friendly),
++        ..Default::default()
++    })?;
++    assert!(candidate.first_step_context_inputs(&startup)?.is_none());
++    let input = vec![codex_protocol::user_input::UserInput::Text {
++        text: "$actual-command".into(),
++        text_elements: Vec::new(),
++    }];
++    candidate.pair_command(
++        "context".into(),
++        codex_protocol::turn_input::TurnInputRequest::user_input(input.clone()),
++        None,
++        None,
++        None,
++    )?;
++    candidate.capture_first_step_model(&startup).await?;
++    let (row, actual_row, retained_input) = candidate
++        .first_step_context_inputs(&startup)?
++        .expect("captured first-step model");
++    assert!(Arc::ptr_eq(
++        row,
++        &candidate.first_step_model.as_ref().unwrap().candidate
++    ));
++    assert_eq!(
++        row.model_info(),
++        candidate
++            .first_step_model
++            .as_ref()
++            .unwrap()
++            .data
++            .model_info()
++    );
++    assert!(std::ptr::eq(
++        actual_row,
++        candidate
++            .first_step_model
++            .as_ref()
++            .unwrap()
++            .data
++            .model_info()
++    ));
++    assert_eq!(retained_input, input.as_slice());
++    let original = candidate.command.as_ref().unwrap().request.input.clone();
++    let mut plugins = startup.settings_candidate(ThreadSettingsOverrides {
++        disabled_plugin_ids: Some(Vec::new()),
++        ..Default::default()
++    })?;
++    plugins.pair_command(
++        "plugins".into(),
++        codex_protocol::turn_input::TurnInputRequest::user_input(input.clone()),
++        None,
++        None,
++        None,
++    )?;
++    plugins.capture_first_step_model(&startup).await?;
++    assert!(plugins.validate(&startup).is_ok());
++    assert!(plugins.first_step_context_inputs(&startup).is_err());
++    assert_eq!(plugins.command.as_ref().unwrap().request.input, original);
++    let reply = serde_json::from_value(
++        serde_json::json!({"type":"function_call_output","call_id":"actual-reply","output":"retained reply"}),
++    )?;
++    let mut reply_candidate = startup.settings_candidate_without_overrides()?;
++    let request = codex_protocol::turn_input::TurnInputRequest::new(
++        codex_protocol::turn_input::TurnInput::ResponseItem(reply),
++    );
++    let original = request.input.clone();
++    reply_candidate.pair_command("reply".into(), request, None, None, None)?;
++    reply_candidate.capture_first_step_model(&startup).await?;
++    assert!(reply_candidate.first_step_context_inputs(&startup).is_err());
++    assert_eq!(
++        reply_candidate.command.as_ref().unwrap().request.input,
++        original
++    );
++    let step = Arc::clone(&candidate.data.step);
++    candidate.data.step = Arc::new((*step).clone());
++    assert!(candidate.first_step_context_inputs(&startup).is_err());
++    candidate.data.step = step;
++    assert!(candidate.capture_first_step_model(&startup).await.is_err());
++    assert!(candidate.first_step_context_inputs(&startup).is_err());
++    Ok(())
++}
+diff --git a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+index cbe21dc..8023aa3 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+@@ -39,6 +39,8 @@ pub enum UnresolvedInitialContextPartition {
+     reason = "Retained typed inputs await complete original first-command/history producers."
+ )]
+ pub struct PreSessionBuiltinContextData {
++    model_candidate:
++        std::sync::Arc<codex_models_manager::model_limits::UnverifiedModelLimitCandidate>,
+     model_instructions: String,
+     sections: Vec<ResolvedInitialSection>,
+     trailing_sections: Vec<ResolvedInitialSection>,
+@@ -90,6 +92,20 @@ fn unavailable(message: &'static str) -> io::Error {
+     io::Error::other(message)
+ }
+ impl ThreadManager {
++    /// Immutable DATA binding only; caller still renews original source owners.
++    pub fn validate_selected_builtin_context(
++        &self,
++        selected: &SelectedStartInputs,
++        data: &PreSessionBuiltinContextData,
++    ) -> io::Result<()> {
++        let (model, _, _) = self
++            .selected_start_first_step_context_inputs(selected)?
++            .ok_or_else(|| unavailable("paired first-step settings missing"))?;
++        if !std::sync::Arc::ptr_eq(model, &data.model_candidate) {
++            return Err(unavailable("builtin first-step model owner changed"));
++        }
++        Ok(())
++    }
+     /// Projects only settled builtin inputs from the actual selected-start and
+     /// its same Skills/clock observations. Full model selection, effective first-command settings, native identity,
+     /// history and agent state remain unresolved; baseline permission and local
+@@ -109,6 +125,15 @@ impl ThreadManager {
+                 "builtin observations belong to another selected start",
+             ));
+         }
++        let first_step = self.selected_start_first_step_context_inputs(selected)?;
++        if let Some((model, row, input)) = first_step {
++            if !std::sync::Arc::ptr_eq(model, skills.model_candidate_arc())
++                || skills.skills().model() != row
++                || skills.skills().user_input() != input
++            {
++                return Err(unavailable("builtin first-step observations changed"));
++            }
++        }
+         let config = &sources.start_options().config;
+         let source = sources
+             .start_options()
+@@ -188,6 +213,10 @@ impl ThreadManager {
+             UnresolvedInitialContextPartition::FinalizedToolPlan,
+             UnresolvedInitialContextPartition::NativeTurnIdentity,
+         ];
++        if first_step.is_some() {
++            // Existing sections remain BASELINE permission/environment DATA.
++            unresolved.push(UnresolvedInitialContextPartition::PermissionsAndEnvironmentSnapshot);
++        }
+         if config.features.enabled(Feature::TokenBudget)
+             && model.resolved_context_window().is_some()
+         {
+@@ -200,6 +229,7 @@ impl ThreadManager {
+             unresolved.push(UnresolvedInitialContextPartition::PluginRecommendations);
+         }
+         let data = PreSessionBuiltinContextData {
++            model_candidate: std::sync::Arc::clone(skills.model_candidate_arc()),
+             model_instructions: initial_context_builtin::model_instructions(config, model),
+             sections,
+             trailing_sections,
+diff --git a/codex-rs/core/src/thread_manager/pre_session_skills.rs b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+index d12eba2..39c582c 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_skills.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+@@ -27,7 +27,7 @@ mod tests;
+ 
+ pub struct PreSessionSkillsObservation<'a> {
+     pub(crate) sources: &'a PreSessionMcpSources,
+-    model: UnverifiedModelLimitCandidate,
++    model: std::sync::Arc<UnverifiedModelLimitCandidate>,
+     skills: SkillsContextObservation<'a, Config>,
+     environment_publication: SelectedEnvironmentPublicationObservation<'a>,
+ }
+@@ -37,6 +37,10 @@ impl PreSessionSkillsObservation<'_> {
+         &self.model
+     }
+ 
++    pub(crate) fn model_candidate_arc(&self) -> &std::sync::Arc<UnverifiedModelLimitCandidate> {
++        &self.model
++    }
++
+     pub fn skills(&self) -> &SkillsContextObservation<'_, Config> {
+         &self.skills
+     }
+@@ -61,6 +65,18 @@ impl ThreadManager {
+         &'a self,
+         sources: &'a PreSessionMcpSources,
+         input: &[UserInput],
++    ) -> CodexResult<PreSessionSkillsObservation<'a>> {
++        self.observe_pre_session_skills_with_model(sources, input, None)
++            .await
++    }
++    pub(super) async fn observe_pre_session_skills_with_model<'a>(
++        &'a self,
++        sources: &'a PreSessionMcpSources,
++        input: &[UserInput],
++        retained_model: Option<(
++            std::sync::Arc<UnverifiedModelLimitCandidate>,
++            &codex_protocol::openai_models::ModelInfo,
++        )>,
+     ) -> CodexResult<PreSessionSkillsObservation<'a>> {
+         self.pre_session_extension_registry(sources)
+             .map_err(|_| unavailable())?;
+@@ -77,13 +93,28 @@ impl ThreadManager {
+         let [source] = registered.as_slice() else {
+             return Err(unavailable());
+         };
+-        let model_id = config.model.as_deref().ok_or_else(unavailable)?;
+-        let model = self
+-            .state
+-            .models_manager
+-            .capture_model_limit_candidate(model_id, &config.to_models_manager_config())
+-            .await
+-            .ok_or_else(unavailable)?;
++        let (model, retained_row) = match retained_model {
++            Some((model, row)) => (model, Some(row)),
++            None => {
++                let model_id = config.model.as_deref().ok_or_else(unavailable)?;
++                (
++                    std::sync::Arc::new(
++                        self.state
++                            .models_manager
++                            .capture_model_limit_candidate(
++                                model_id,
++                                &config.to_models_manager_config(),
++                            )
++                            .await
++                            .ok_or_else(unavailable)?,
++                    ),
++                    None,
++                )
++            }
++        };
++        if retained_row.is_some_and(|row| row != model.model_info()) {
++            return Err(unavailable());
++        }
+         // The actual MCP source proves effective API Apps and retained plugin
+         // roots empty without clearing flags or raw registrations. Connector
+         // counts and plugin roots are genuinely empty for this partition. Other configurations
+@@ -92,7 +123,7 @@ impl ThreadManager {
+             .observe_first_input(
+                 &self.state.extensions,
+                 config,
+-                model.model_info(),
++                retained_row.unwrap_or_else(|| model.model_info()),
+                 input,
+                 &HashMap::new(),
+             )
+diff --git a/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs b/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
+index dc5daa2..f01e49a 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
+@@ -220,3 +220,50 @@ async fn passive_registry_access_requires_the_same_original_mcp_and_thread_regis
+     );
+     assert!(manager.state.threads.read().await.is_empty());
+ }
++
++#[tokio::test]
++async fn shared_skills_body_retains_exact_model_arc_and_legacy_prompt_data() {
++    let home = tempfile::tempdir().unwrap();
++    let config = config(&home).await;
++    let manager = manager(&config);
++    let sources = manager
++        .capture_pre_session_mcp_sources(StartThreadOptions::new(config))
++        .unwrap();
++    let input = vec![UserInput::Text {
++        text: "ordinary input".into(),
++        text_elements: Vec::new(),
++    }];
++    let baseline = manager
++        .observe_pre_session_skills(&sources, &input)
++        .await
++        .unwrap();
++    let retained = manager
++        .observe_pre_session_skills_with_model(
++            &sources,
++            &input,
++            Some((
++                Arc::clone(baseline.model_candidate_arc()),
++                baseline.skills().model(),
++            )),
++        )
++        .await
++        .unwrap();
++    assert!(Arc::ptr_eq(
++        baseline.model_candidate_arc(),
++        retained.model_candidate_arc()
++    ));
++    assert_eq!(retained.skills().model(), baseline.skills().model());
++    assert_eq!(
++        retained.skills().user_input(),
++        baseline.skills().user_input()
++    );
++    assert_eq!(
++        retained.skills().initial_world_state(),
++        baseline.skills().initial_world_state()
++    );
++    assert_eq!(
++        retained.skills().host_items(),
++        baseline.skills().host_items()
++    );
++    assert!(manager.state.threads.read().await.is_empty());
++}
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index 5a6e898..a7436a2 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -255,6 +255,52 @@ impl ThreadManager {
+         result
+     }
+ 
++    pub(super) fn selected_start_first_step_context_inputs<'a>(
++        &self,
++        selected: &'a SelectedStartInputs,
++    ) -> io::Result<
++        Option<(
++            &'a Arc<codex_models_manager::model_limits::UnverifiedModelLimitCandidate>,
++            &'a codex_protocol::openai_models::ModelInfo,
++            &'a [codex_protocol::user_input::UserInput],
++        )>,
++    > {
++        self.with_current_selected_start(selected, || ())?;
++        let Some(settings) = &selected.settings else {
++            return Ok(None);
++        };
++        let startup = selected
++            .allocation
++            .as_ref()
++            .and_then(|a| a.inputs.startup())
++            .ok_or_else(|| io::Error::other("original startup selection missing"))?;
++        settings.first_step_context_inputs(startup)
++    }
++
++    /// Selected input and model come from the same paired owner, never callers.
++    pub async fn observe_selected_start_skills<'a>(
++        &'a self,
++        selected: &'a SelectedStartInputs,
++    ) -> CodexResult<super::PreSessionSkillsObservation<'a>> {
++        self.renew_selected_start(selected)
++            .await
++            .map_err(|e| CodexErr::InvalidRequest(e.to_string()))?;
++        let (model, row, input) = self
++            .selected_start_first_step_context_inputs(selected)
++            .map_err(|e| CodexErr::InvalidRequest(e.to_string()))?
++            .ok_or_else(|| CodexErr::InvalidRequest("paired first-step settings missing".into()))?;
++        let sources = selected
++            .mcp_sources()
++            .ok_or_else(|| CodexErr::InvalidRequest("original API sources missing".into()))?;
++        let observed = self
++            .observe_pre_session_skills_with_model(sources, input, Some((Arc::clone(model), row)))
++            .await?;
++        self.renew_selected_start(selected)
++            .await
++            .map_err(|e| CodexErr::InvalidRequest(e.to_string()))?;
++        Ok(observed)
++    }
++
+     /// Resolves first-step model DATA for the same paired candidate. No turn,
+     /// context, callback or admission is started; failures burn selected custody.
+     pub async fn capture_selected_start_first_step_model(

@@ -9,6 +9,11 @@ import {
 } from '../../preview/conversation-joining-fixture';
 import type { LegacyConversationJoiningOwner as ConversationJoiningOwner } from '../../lib/conversation-joining-review';
 import { markAuthLost, restoreCookieAuthentication } from '../../lib/api-fetch';
+import {
+  retainedArtifact,
+  retainedJoiningReviewFixture,
+  retainedPin,
+} from '../../lib/__tests__/conversation-joining-retained-fixture';
 
 beforeEach(async () => {
   markAuthLost();
@@ -54,6 +59,81 @@ function receipt(input?: Parameters<ConversationJoiningOwner['confirm']>[0]): Co
     execution: COLLABORATION_EXECUTION_DISABLED,
   };
 }
+
+it('keeps both artifact kinds and original retained provenance through review and refreeze', async () => {
+  const port = owner();
+  const review = retainedJoiningReviewFixture();
+  port.review.mockResolvedValueOnce(review);
+  const setup = joiningSetupFixture();
+  setup.artifacts.push(retainedPin());
+  const { result } = renderHook(() => useConversationJoiningReview(port));
+  await act(() => result.current.prepare(setup));
+  expect(result.current.canConfirm).toBe(true);
+  expect(result.current.review?.snapshot.artifacts).toHaveLength(2);
+  expect(result.current.review?.snapshot.artifacts[1]).toMatchObject(retainedArtifact);
+  const edited = structuredClone(review);
+  edited.snapshot.joiningBrief = 'Keep the exact retained revision.';
+  edited.snapshot.snapshotId = '00000000-0000-4000-8000-000000000099';
+  edited.snapshot.sha256 = 'b'.repeat(64);
+  port.review.mockResolvedValueOnce(edited);
+  await act(() => result.current.editBrief(edited.snapshot.joiningBrief));
+  expect(result.current.canConfirm).toBe(true);
+  expect(port.review.mock.calls[1][0].setup.artifacts).toEqual(setup.artifacts);
+  expect(result.current.review?.snapshot.sourceConversationId).toBe('source-chat');
+  expect(result.current.review?.snapshot.artifacts[1]).not.toHaveProperty('sourceConversationId');
+});
+
+it.each(['wrong-kind', 'missing-filename', 'latest-title', 'latest-filename'] as const)(
+  'refuses retained review metadata with %s even when the bare pin matches',
+  async (change) => {
+    const port = owner();
+    const review = retainedJoiningReviewFixture();
+    if (change === 'wrong-kind') review.artifactLabels!.pop();
+    if (change === 'missing-filename') delete review.artifactLabels![1].filename;
+    if (change === 'latest-title') review.artifactLabels![1].title = 'Latest r3 title';
+    if (change === 'latest-filename') review.artifactLabels![1].filename = 'latest-r3.md';
+    port.review.mockResolvedValueOnce(review);
+    const setup = joiningSetupFixture();
+    setup.artifacts.push(retainedPin());
+    const { result } = renderHook(() => useConversationJoiningReview(port));
+    await act(() => result.current.prepare(setup));
+    expect(result.current.error).toBeTruthy();
+    expect(result.current.canConfirm).toBe(false);
+    expect(port.confirm).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['selected', 'conversation_so_far'] as const)(
+  'checks extra kind-aware artifact context according to the explicit %s mode',
+  async (context) => {
+    const port = owner();
+    const setup = { ...joiningSetupFixture(), context };
+    const response = retainedJoiningReviewFixture();
+    response.snapshot.mode = context;
+    port.review.mockResolvedValueOnce(response);
+    const { result } = renderHook(() => useConversationJoiningReview(port));
+    await act(() => result.current.prepare(setup));
+    expect(result.current.canConfirm).toBe(context === 'conversation_so_far');
+    expect(!!result.current.error).toBe(context === 'selected');
+    expect(port.confirm).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['snapshot', 'both'] as const)(
+  'refuses duplicate artifact identities in the selected %s even when counts match',
+  async (where) => {
+    const port = owner();
+    const setup = joiningSetupFixture();
+    const response = joiningReviewFixture();
+    response.snapshot.artifacts.push(structuredClone(response.snapshot.artifacts[0]));
+    if (where === 'both') setup.artifacts.push(structuredClone(setup.artifacts[0]));
+    port.review.mockResolvedValueOnce(response);
+    const { result } = renderHook(() => useConversationJoiningReview(port));
+    await act(() => result.current.prepare(setup));
+    expect(result.current.canConfirm).toBe(false);
+    expect(result.current.error).toBeTruthy();
+  },
+);
 it('opening a flow performs no read, allocation or confirmation', () => {
   const port = owner();
   const { result } = renderHook(() => useConversationJoiningReview(port));

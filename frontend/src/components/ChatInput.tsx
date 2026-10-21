@@ -3,6 +3,7 @@ import { MotionPresence } from './MotionPresence';
 import { ComposerResponders, type ComposerResponderSelection } from './ComposerResponders';
 import {
   useState,
+  useMemo,
   useRef,
   useEffect,
   useCallback,
@@ -36,6 +37,8 @@ import {
   getChatDraft,
   saveChatDraft,
   consumeChatDraft,
+  upgradeSessionChatDraft,
+  hasConcurrentLegacyChatDraft,
 } from '../lib/chat-drafts';
 
 export interface ChatInputDraftControl {
@@ -48,6 +51,13 @@ export interface ChatInputDraftControl {
 
 interface Props {
   responders?: ComposerResponderSelection;
+  /** Only an explicit recipient choice can upgrade this existing session's
+   * legacy text owner; normal mounting/typing keeps its ordinary ownership. */
+  legacyRecipientUpgrade?: {
+    collaborationId: string;
+    settings: ChatDraft['settings'];
+    isCurrent(): boolean;
+  };
   /** A retained delivery route may support text and voice but no attachments. */
   textOnly?: boolean;
   settings?: ReactNode;
@@ -106,6 +116,7 @@ const EMPTY_MESSAGES: FinishedMessage[] = [];
 
 export function ChatInput({
   responders,
+  legacyRecipientUpgrade,
   textOnly = false,
   settings,
   sendLabel = 'Send message',
@@ -161,7 +172,7 @@ export function ChatInput({
     assignedDraft.current = null;
   const assignment =
     draftStorageKey === undefined ? (assignedDraft.current?.assignment ?? null) : null;
-  const [text, setText, clearDraft, flushDraft] = useDraft(
+  const [text, setText, clearDraft, flushDraft, prepareDraftUpgrade] = useDraft(
     sessionId,
     initialText ?? savedChatDraft?.text,
     draftStorageKey,
@@ -231,11 +242,122 @@ export function ChatInput({
     }),
     [draftStorageKey, clearDraft, text, flushDraft, savedChatDraft, images, activeContextBlocks],
   );
+  const [upgradingRecipients, setUpgradingRecipients] = useState(false);
+  const [recipientUpgradeError, setRecipientUpgradeError] = useState<string | null>(null);
+  const recipientUpgradeAlive = useRef(true);
+  const recipientUpgradeSequence = useRef(0);
+  const recipientUpgradeScope = useMemo(
+    () => ({
+      sessionId,
+      composerGeneration,
+      draftStorageKey,
+      savedId: savedChatDraft?.id,
+      owner: legacyRecipientUpgrade?.isCurrent,
+    }),
+    [
+      sessionId,
+      composerGeneration,
+      draftStorageKey,
+      savedChatDraft?.id,
+      legacyRecipientUpgrade?.isCurrent,
+    ],
+  );
+  const currentUpgradeScope = useRef(recipientUpgradeScope);
+  currentUpgradeScope.current = recipientUpgradeScope;
+  const editedRecipients = JSON.stringify({
+    text,
+    images,
+    contextBlocks: activeContextBlocks,
+    settings: legacyRecipientUpgrade?.settings,
+  });
+  const currentEditedRecipients = useRef(editedRecipients);
+  currentEditedRecipients.current = editedRecipients;
+  useEffect(() => {
+    const sequence = recipientUpgradeSequence;
+    recipientUpgradeAlive.current = true;
+    return () => {
+      recipientUpgradeAlive.current = false;
+      sequence.current++;
+    };
+  }, []);
+  useEffect(() => {
+    recipientUpgradeSequence.current++;
+    setUpgradingRecipients(false);
+    setRecipientUpgradeError(null);
+  }, [recipientUpgradeScope]);
+  const retainedResponders =
+    responders && legacyRecipientUpgrade && !savedChatDraft
+      ? {
+          ...responders,
+          disabled: responders.disabled || upgradingRecipients,
+          onChange: (
+            _ids: string[],
+            intent?: import('@mitzo/protocol').CollaborationMessageInput['responders'],
+          ) => {
+            if (!intent || upgradingRecipients || !legacyRecipientUpgrade.isCurrent()) return false;
+            const reference = prepareDraftUpgrade();
+            if (!reference || reference.sessionId !== sessionId) {
+              setRecipientUpgradeError(
+                'The saved draft changed. Your current text stays here; check it before choosing recipients.',
+              );
+              return false;
+            }
+            const scope = recipientUpgradeScope,
+              input = editedRecipients;
+            const sequence = ++recipientUpgradeSequence.current;
+            const current = () =>
+              recipientUpgradeAlive.current &&
+              currentUpgradeScope.current === scope &&
+              recipientUpgradeSequence.current === sequence &&
+              currentEditedRecipients.current === input &&
+              legacyRecipientUpgrade.isCurrent();
+            const hasMention = /(?:^|\s)@([\p{L}\p{N}_-]*)$/u.test(text);
+            setUpgradingRecipients(true);
+            setRecipientUpgradeError(null);
+            void upgradeSessionChatDraft({
+              ...reference,
+              content: {
+                text: hasMention ? text.slice(0, text.lastIndexOf('@')) : text,
+                images,
+                contextBlocks: activeContextBlocks,
+              },
+              settings: {
+                ...legacyRecipientUpgrade.settings,
+                collaborationResponders: {
+                  collaborationId: legacyRecipientUpgrade.collaborationId,
+                  responders: intent,
+                },
+              },
+              isCurrent: current,
+            }).then((result) => {
+              if (
+                !recipientUpgradeAlive.current ||
+                currentUpgradeScope.current !== scope ||
+                recipientUpgradeSequence.current !== sequence
+              )
+                return;
+              setUpgradingRecipients(false);
+              if (result.state !== 'upgraded')
+                setRecipientUpgradeError(
+                  'Recipient choices could not be saved. Your current draft stays here; check it before retrying.',
+                );
+            });
+            // The original editor stays intact until the existing owner publishes its
+            // confirmed rich binding. useDraft then loads the exact chosen content.
+            return false;
+          },
+        }
+      : responders;
   const selectedResponderIds =
     responders?.responders?.kind === 'selected'
       ? responders.responders.sessionIds
       : (responders?.selectedIds ?? []);
+  const concurrentLegacyDraft =
+    !!savedChatDraft && !!sessionId && hasConcurrentLegacyChatDraft(sessionId);
   const sendDisabledReason =
+    (concurrentLegacyDraft
+      ? 'Another editor changed this conversation’s earlier draft. Check the retained versions before sending.'
+      : undefined) ??
     suppliedSendDisabledReason ??
     (respondersOpen ? 'Choose who replies, or close the picker to keep your draft.' : undefined) ??
     (responders?.responders?.kind === 'selected' && !responders.responders.sessionIds.length
@@ -946,6 +1068,7 @@ export function ChatInput({
           </button>
         </div>
       ))}
+      {recipientUpgradeError && <p role="alert">{recipientUpgradeError}</p>}
       <ChatStatusMessage status={sendDisabledReason} />
       <div className="chat-input-row">
         <textarea
@@ -977,7 +1100,7 @@ export function ChatInput({
           >
             {responders && (
               <ComposerResponders
-                selection={responders}
+                selection={retainedResponders!}
                 text={text}
                 onTextChange={setText}
                 input={textareaRef}

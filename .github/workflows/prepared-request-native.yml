@@ -23,8 +23,9 @@ jobs:
     name: Native offline fixtures (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     # Cold setup/builds need room for the complete offline fixture suite.
-    # Linux run 39215620265 exceeded 90 minutes while tests were still passing.
-    timeout-minutes: 120
+    # Source89 run39463080370 hit120min on bothOS during the complete suite.
+    # Retain full coverage, one test thread and zero retries; allow completion.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
@@ -156,6 +157,7 @@ jobs:
           print(json.dumps(proof))
           PY
       - name: Build standalone native test helpers
+        id: native_helpers
         shell: bash
         working-directory: .native-prepared-source/codex-rs
         env:
@@ -188,14 +190,182 @@ jobs:
               echo "CARGO_BIN_EXE_codex_linux_sandbox=$CARGO_TARGET_DIR/debug/codex-linux-sandbox"
             } >> "$GITHUB_ENV"
           fi
-      - name: Run native crate fixtures without provider credentials
+      - name: Discover and run required Core regression fixtures first
+        id: original_regression_oracles
+        if: ${{ !cancelled() && steps.native_helpers.outcome == 'success' }}
         shell: bash
         working-directory: .native-prepared-source/codex-rs
         env:
           CARGO_NET_OFFLINE: 'true'
         run: |
           set -euo pipefail
-          native_packages=(-p codex-core -p codex-http-client -p codex-state -p codex-api -p codex-guardian-reviewer -p codex-extension-api -p codex-mcp-extension -p codex-login -p codex-memories-extension -p codex-web-search-extension -p codex-history-notes-extension -p codex-goal-extension -p codex-models-manager)
+          # Early diagnostic ordering only; the complete original suite still runs.
+          native_oracle_filter='test(=client::public_responses_capture::tests::bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture) | test(=client::public_responses_capture::tests::public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row) | test(=thread_manager::pre_session_skills::tests::original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup) | test(=session::client_input_data::tests::retained_tool_carrier_burns_foreign_allocation_and_repeated_install_or_take) | test(=session::client_input_data::tests::retained_tool_binding_ignores_unbound_contexts_and_never_recovers_after_cancel_or_failure) | test(=session::turn_input::tests::retained_tools_bind_only_actual_admitted_user_and_reject_automatic_or_recovery) | test(=tools::spec_plan::tests::retained_actual_registry_iterator_associates_before_router_and_preserves_final_specs) | test(=tools::spec_plan::tests::retained_router_metadata_mismatch_burns_before_adapter_and_cannot_fall_back) | test(=session::configured_settings_data::tests::configured_baseline_preserves_actual_history_owner_and_explicit_empty_precedence) | test(=session::configured_settings_data::tests::configured_baseline_uses_real_context_fallback_but_never_foreign_settings_owner) | test(=session::configured_settings_data::tests::configured_step_preserves_original_luna_tier_filter_and_full_settings_data) | test(=session::configured_settings_data::tests::configured_permission_environment_stages_keep_original_values_and_unresolved_states) | test(=session::startup_selection::tests::original_startup_retains_effective_baseline_and_rejects_changed_selected_inputs) | test(=session::configured_settings_data::tests::retained_configured_baseline_keeps_owned_data_and_burns_each_stage) | test(=session::configured_settings_data::tests::retained_configured_baseline_refuses_changed_presence_order_history_source_and_fork) | test(=session::configured_settings_update::tests::providerless_update_preserves_whole_mutable_data_and_sparse_precedence) | test(=session::configured_settings_update::tests::providerless_environment_guard_and_permission_errors_precede_step_edits) | test(=session::configured_settings_update::tests::providerless_permission_environment_and_roots_are_resolved_before_final_step) | test(=session::startup_selection::selected_settings_candidate::tests::selected_candidate_uses_retained_baseline_and_sparse_tier_precedence) | test(=session::startup_selection::selected_settings_candidate::tests::selected_candidate_refuses_foreign_effective_owner_and_changed_baseline) | test(=session::startup_selection::selected_settings_candidate::tests::selected_candidate_checks_proposed_permissions_before_step_constraints) | test(=session::client_input_data::fresh_history_data::tests::actual_selected_packet_moves_same_window_and_history_into_original_stages_once) | test(=session::client_input_data::fresh_history_data::tests::foreign_changed_source_history_and_equal_config_owner_burn_selected_slot) | test(=session::client_input_data::fresh_history_data::tests::wrong_stage_missing_values_and_non_new_capture_never_reconstruct_history) | test(=session::turn_input_submission::tests::whole_request_all_modes_and_trace_move_once_into_original_core_submission) | test(=session::turn_input_submission::tests::original_oneshot_preserves_routing_decisions_and_error_payloads) | test(=session::turn_input_submission::tests::dropping_same_original_submission_closes_waiter_and_waiter_loss_does_not_replay) | test(=session::turn_input_submission::tests::same_opaque_command_and_complete_request_cross_actual_core_channel_once) | test(=session::turn_input_submission::tests::protocol_wrapping_preserves_controls_recovery_and_legacy_turn_input) | test(=session::turn_input_submission::tests::dropping_queued_typed_command_closes_original_waiter_without_replay) | test(=session::startup_selection::selected_settings_candidate::tests::paired_command_uses_native_normalized_settings_and_same_prepared_data_once) | test(=session::startup_selection::selected_settings_candidate::tests::paired_first_step_uses_changed_personality_and_exact_effective_overrides_once) | test(=session::startup_selection::selected_settings_candidate::tests::first_step_refuses_missing_foreign_changed_model_settings_and_catalog_publication) | test(=session::first_step_model_data::tests::original_first_step_preserves_resolved_row_and_late_summary_tier_filtering) | test(=session::first_step_model_data::tests::ordinary_first_step_resolves_changed_model_instead_of_reusing_startup_row) | test(=session::startup_selection::tests::retained_startup_config_heap_storage_preserves_values_and_original_adoption) | test(=session::model_client_construction::tests::retained_client_heap_snapshot_keeps_same_client_and_ordinary_optional_layout) | test(=session::initial_model_state_data::tests::original_previous_model_precedence_and_native_fragment_match_actual_model_data) | test(=session::client_input_data::fresh_history_data::tests::actual_fresh_capsule_moves_distinct_constructor_and_post_event_reset_once) | test(=session::client_input_data::fresh_history_data::tests::original_fresh_previous_stages_refuse_foreign_config_source_history_or_wrong_order) | test(=session::base_instructions_data::tests::original_provenance_branches_preserve_config_history_precedence_and_prompt_copy) | test(=session::base_instructions_data::tests::captured_base_values_move_once_and_refuse_foreign_changed_or_nonfresh_inputs) | test(=session::startup_selection::tests::retained_base_stays_startup_owned_across_first_command_personality_and_original_packet_adoption) | test(=session::turn_user_input_data::tests::original_internal_projection_keeps_order_and_ignores_all_non_user_partitions) | test(=session::turn_user_input_data::tests::original_start_classification_rejects_reply_ids_other_items_and_mail_without_mutation) | test(=session::startup_selection::selected_settings_candidate::tests::first_step_context_uses_same_command_model_and_refuses_lossy_reply_or_root_substitution) | test(=session::startup_selection::selected_settings_candidate::tests::permission_context_refuses_foreign_changed_burned_and_keeps_unpaired_baseline) | test(=session::startup_selection::selected_settings_candidate::tests::standalone_skills_projection_retains_same_complete_box_and_original_model_owner) | test(=thread_manager::pre_session_skills::tests::shared_skills_body_retains_exact_model_arc_and_legacy_prompt_data) | test(=session::configured_settings_data::tests::candidate_permission_section_uses_actual_proposed_profile_step_and_original_renderer) | test(=environment_selection::initial_context::tests::original_local_roots_materialize_proposed_profile_and_refuse_changed_selection_or_cwd)'
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            NEXTEST_PROFILE=local RUST_MIN_STACK=8388608 \
+            cargo nextest list --lib -p codex-core -E "$native_oracle_filter" \
+            --message-format json > native-core-regression-list.json
+          python3 - <<'PY_ORACLES'
+          import json
+          from pathlib import Path
+          expected = {'client::public_responses_capture::tests::bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture', 'client::public_responses_capture::tests::public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row', 'environment_selection::initial_context::tests::original_local_roots_materialize_proposed_profile_and_refuse_changed_selection_or_cwd', 'session::base_instructions_data::tests::captured_base_values_move_once_and_refuse_foreign_changed_or_nonfresh_inputs', 'session::base_instructions_data::tests::original_provenance_branches_preserve_config_history_precedence_and_prompt_copy', 'session::client_input_data::fresh_history_data::tests::actual_fresh_capsule_moves_distinct_constructor_and_post_event_reset_once', 'session::client_input_data::fresh_history_data::tests::actual_selected_packet_moves_same_window_and_history_into_original_stages_once', 'session::client_input_data::fresh_history_data::tests::foreign_changed_source_history_and_equal_config_owner_burn_selected_slot', 'session::client_input_data::fresh_history_data::tests::original_fresh_previous_stages_refuse_foreign_config_source_history_or_wrong_order', 'session::client_input_data::fresh_history_data::tests::wrong_stage_missing_values_and_non_new_capture_never_reconstruct_history', 'session::client_input_data::tests::retained_tool_binding_ignores_unbound_contexts_and_never_recovers_after_cancel_or_failure', 'session::client_input_data::tests::retained_tool_carrier_burns_foreign_allocation_and_repeated_install_or_take', 'session::configured_settings_data::tests::candidate_permission_section_uses_actual_proposed_profile_step_and_original_renderer', 'session::configured_settings_data::tests::configured_baseline_preserves_actual_history_owner_and_explicit_empty_precedence', 'session::configured_settings_data::tests::configured_baseline_uses_real_context_fallback_but_never_foreign_settings_owner', 'session::configured_settings_data::tests::configured_permission_environment_stages_keep_original_values_and_unresolved_states', 'session::configured_settings_data::tests::configured_step_preserves_original_luna_tier_filter_and_full_settings_data', 'session::configured_settings_data::tests::retained_configured_baseline_keeps_owned_data_and_burns_each_stage', 'session::configured_settings_data::tests::retained_configured_baseline_refuses_changed_presence_order_history_source_and_fork', 'session::configured_settings_update::tests::providerless_environment_guard_and_permission_errors_precede_step_edits', 'session::configured_settings_update::tests::providerless_permission_environment_and_roots_are_resolved_before_final_step', 'session::configured_settings_update::tests::providerless_update_preserves_whole_mutable_data_and_sparse_precedence', 'session::first_step_model_data::tests::ordinary_first_step_resolves_changed_model_instead_of_reusing_startup_row', 'session::first_step_model_data::tests::original_first_step_preserves_resolved_row_and_late_summary_tier_filtering', 'session::initial_model_state_data::tests::original_previous_model_precedence_and_native_fragment_match_actual_model_data', 'session::model_client_construction::tests::retained_client_heap_snapshot_keeps_same_client_and_ordinary_optional_layout', 'session::startup_selection::selected_settings_candidate::tests::first_step_context_uses_same_command_model_and_refuses_lossy_reply_or_root_substitution', 'session::startup_selection::selected_settings_candidate::tests::first_step_refuses_missing_foreign_changed_model_settings_and_catalog_publication', 'session::startup_selection::selected_settings_candidate::tests::paired_command_uses_native_normalized_settings_and_same_prepared_data_once', 'session::startup_selection::selected_settings_candidate::tests::paired_first_step_uses_changed_personality_and_exact_effective_overrides_once', 'session::startup_selection::selected_settings_candidate::tests::permission_context_refuses_foreign_changed_burned_and_keeps_unpaired_baseline', 'session::startup_selection::selected_settings_candidate::tests::selected_candidate_checks_proposed_permissions_before_step_constraints', 'session::startup_selection::selected_settings_candidate::tests::selected_candidate_refuses_foreign_effective_owner_and_changed_baseline', 'session::startup_selection::selected_settings_candidate::tests::selected_candidate_uses_retained_baseline_and_sparse_tier_precedence', 'session::startup_selection::selected_settings_candidate::tests::standalone_skills_projection_retains_same_complete_box_and_original_model_owner', 'session::startup_selection::tests::original_startup_retains_effective_baseline_and_rejects_changed_selected_inputs', 'session::startup_selection::tests::retained_base_stays_startup_owned_across_first_command_personality_and_original_packet_adoption', 'session::startup_selection::tests::retained_startup_config_heap_storage_preserves_values_and_original_adoption', 'session::turn_input::tests::retained_tools_bind_only_actual_admitted_user_and_reject_automatic_or_recovery', 'session::turn_input_submission::tests::dropping_queued_typed_command_closes_original_waiter_without_replay', 'session::turn_input_submission::tests::dropping_same_original_submission_closes_waiter_and_waiter_loss_does_not_replay', 'session::turn_input_submission::tests::original_oneshot_preserves_routing_decisions_and_error_payloads', 'session::turn_input_submission::tests::protocol_wrapping_preserves_controls_recovery_and_legacy_turn_input', 'session::turn_input_submission::tests::same_opaque_command_and_complete_request_cross_actual_core_channel_once', 'session::turn_input_submission::tests::whole_request_all_modes_and_trace_move_once_into_original_core_submission', 'session::turn_user_input_data::tests::original_internal_projection_keeps_order_and_ignores_all_non_user_partitions', 'session::turn_user_input_data::tests::original_start_classification_rejects_reply_ids_other_items_and_mail_without_mutation', 'thread_manager::pre_session_skills::tests::original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup', 'thread_manager::pre_session_skills::tests::shared_skills_body_retains_exact_model_arc_and_legacy_prompt_data', 'tools::spec_plan::tests::retained_actual_registry_iterator_associates_before_router_and_preserves_final_specs', 'tools::spec_plan::tests::retained_router_metadata_mismatch_burns_before_adapter_and_cannot_fall_back'}
+          report = json.loads(Path('native-core-regression-list.json').read_text())
+          observed = set()
+          for suite in report['rust-suites'].values():
+              if suite['package-name'] != 'codex-core' or suite['kind'] != 'lib' or suite['status'] != 'listed':
+                  continue
+              for name, case in suite['testcases'].items():
+                  if not case['ignored'] and case['filter-match']['status'] == 'matches':
+                      observed.add(name)
+          if observed != expected:
+              raise RuntimeError(f'Expected exact 51 Core regression cases, observed: {sorted(observed)}')
+          PY_ORACLES
+          oracle_status=0
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            just test --lib -p codex-core -E "$native_oracle_filter" \
+            --test-threads 1 --retries 0 2>&1 | tee native-core-regression-fixtures.log || oracle_status=$?
+          if [[ -f target/nextest/local/junit.xml ]]; then
+            mv target/nextest/local/junit.xml native-core-regression-junit.xml
+          fi
+          exit "$oracle_status"
+      - name: Discover and run explicit extension library fixtures
+        if: ${{ !cancelled() && steps.native_helpers.outcome == 'success' }}
+        id: extension_libraries
+        shell: bash
+        working-directory: .native-prepared-source/codex-rs
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          set -euo pipefail
+          # Both original Cargo libraries use test=false. Explicit --lib selects
+          # their real unit harnesses; the complete package suite remains below.
+          library_status=0
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            NEXTEST_PROFILE=local RUST_MIN_STACK=8388608 \
+            cargo nextest list --lib -p codex-goal-extension -p codex-extension-api \
+            --message-format json > native-extension-lib-list.json
+          python3 - <<'PY_DISCOVERY'
+          import json
+          from pathlib import Path
+          expected = {
+              'codex-goal-extension': {
+                  'extension::tool_selection_tests::goal_original_ordered_metadata_matches_real_executors_and_refuses_order_or_missing_tools',
+                  'extension::tool_selection_tests::goal_visibility_and_persistence_keep_original_metadata_and_execution_policy_separate',
+              },
+              'codex-extension-api': {
+                  'tool_pre_session::tests::source_plan_unknown_first_and_foreign_changed_source_config_refuse_without_tool_calls',
+                  'tool_pre_session::tests::ordinary_config_renewal_retains_real_thread_start_source_and_legacy_forwarding',
+              },
+          }
+          report = json.loads(Path('native-extension-lib-list.json').read_text())
+          observed = {}
+          for suite in report['rust-suites'].values():
+              if suite['kind'] != 'lib' or suite['status'] != 'listed':
+                  continue
+              for name, case in suite['testcases'].items():
+                  if not case['ignored'] and case['filter-match']['status'] == 'matches':
+                      observed.setdefault(suite['package-name'], set()).add(name)
+          for package, names in expected.items():
+              missing = names - observed.get(package, set())
+              if missing:
+                  raise RuntimeError(f'Actual explicit library discovery missing {package}: {sorted(missing)}')
+          Path('native-extension-lib-discovery.json').write_text(json.dumps({
+              'status': 'DISCOVERED_NOT_EXECUTED',
+              'required': {package: sorted(names) for package, names in expected.items()},
+          }, indent=2) + '\n')
+          PY_DISCOVERY
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            just test --lib -p codex-goal-extension -p codex-extension-api \
+            --test-threads 1 --retries 0 2>&1 | tee native-extension-lib-fixtures.log || library_status=$?
+          if [[ -f target/nextest/local/junit.xml ]]; then
+            mv target/nextest/local/junit.xml native-extension-lib-junit.xml
+          fi
+          exit "$library_status"
+      - name: Discover and run required AppServer data-owner fixtures
+        id: app_server_data_oracles
+        if: ${{ !cancelled() && steps.native_helpers.outcome == 'success' }}
+        shell: bash
+        working-directory: .native-prepared-source/codex-rs
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          set -euo pipefail
+          # Diagnostic ordering only; preserve the complete original package suite.
+          app_server_filter='test(=request_processors::turn_processor::turn_command_data::tests::original_command_stages_preserve_every_user_variant_selector_and_context_role) | test(=request_processors::turn_processor::turn_command_data::tests::original_command_preserves_absent_null_empty_and_start_tier_assembly) | test(=request_processors::turn_processor::turn_command_data::tests::original_command_keeps_validation_priority_unicode_count_and_late_output_image_refusal) | test(=request_processors::turn_processor::turn_command_data::tests::original_command_preserves_function_output_content_without_rendering_or_materializing) | test(=request_processors::turn_processor::turn_settings_data::tests::unchanged_normalization_needs_no_live_snapshot_or_startup_preview) | test(=request_processors::turn_processor::turn_settings_data::tests::original_explicit_empty_and_default_environment_paths_keep_distinct_roots) | test(=request_processors::turn_processor::turn_settings_data::tests::selected_settings_named_permission_failure_and_candidate_one_use_refuse_without_start) | test(=config_manager::runtime_feature_source::tests::owned_runtime_observation_outlives_initiating_manager_and_tracks_shared_clone_aba) | test(=config_manager::runtime_feature_source::tests::owned_poisoned_original_publisher_refuses_observation_and_association) | test(=config_manager::selected_start_config::tests::owned_selected_source_outlives_initiating_manager_and_rejects_foreign_substitution) | test(=config_manager::selected_start_config::tests::owned_selected_source_keeps_same_writer_clone_publication_and_refuses_aba) | test(=request_processors::turn_processor::turn_command_data::tests::route_independent_body_preserves_complete_raw_input_and_null_empty_matrix) | test(=request_processors::turn_processor::turn_command_data::tests::route_independent_body_and_original_legacy_wrapper_preserve_complete_request_data) | test(=request_processors::thread_processor::first_command_options::tests::original_default_and_explicit_options_preserve_whole_data_without_starting) | test(=request_processors::thread_processor::first_command_options::tests::original_explicit_history_roots_dynamic_mcp_trace_and_source_survive_stages) | test(=request_processors::thread_processor::first_command_options::tests::invalid_dynamic_tools_refuse_in_original_pre_metadata_stage) | test(=request_processors::client_info_data::tests::raw_metadata_preserves_absence_empty_content_and_owned_buffers_until_resolution) | test(=request_processors::client_info_data::tests::original_xcode_prefix_and_case_boundaries_are_resolved_without_normalization) | test(=config_manager::selected_start_config::tests::initiating_client_info_moves_with_original_options_reservation_and_installed_owner) | test(=config_manager::selected_start_config::tests::parsed_fresh_command_pairs_once_and_foreign_or_missing_sources_refuse_without_start) | test(=config_manager::selected_start_config::tests::first_command_model_capture_rejects_unreviewed_row_without_session_or_store) | test(=request_processors::thread_processor::fresh_command_ingress::tests::prepare_decoder_keeps_scope_selection_and_command_presence_distinct) | test(=request_processors::turn_processor::turn_command_data::tests::fresh_decode_preserves_all_original_body_fields_and_double_option_tier) | test(=config_manager::selected_start_config::tests::installed_first_step_context_retains_command_model_and_rejects_baseline_observation) | test(=config_manager::selected_start_config::tests::installed_candidate_permission_projection_uses_private_pipeline_and_keeps_named_root_refusal) | test(=config_manager::selected_start_config::tests::installed_prompt_base_keeps_original_startup_provenance_with_changed_first_personality) | test(=config_manager::selected_start_config::tests::installed_initial_model_data_consumes_actual_fresh_sources_without_claiming_complete_history)'
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            NEXTEST_PROFILE=local RUST_MIN_STACK=8388608 \
+            cargo nextest list --lib -p codex-app-server -E "$app_server_filter" \
+            --message-format json > native-app-server-data-list.json
+          python3 - <<'PY_APP_DATA'
+          import json
+          from pathlib import Path
+          expected = {'config_manager::runtime_feature_source::tests::owned_poisoned_original_publisher_refuses_observation_and_association', 'config_manager::runtime_feature_source::tests::owned_runtime_observation_outlives_initiating_manager_and_tracks_shared_clone_aba', 'config_manager::selected_start_config::tests::first_command_model_capture_rejects_unreviewed_row_without_session_or_store', 'config_manager::selected_start_config::tests::initiating_client_info_moves_with_original_options_reservation_and_installed_owner', 'config_manager::selected_start_config::tests::installed_candidate_permission_projection_uses_private_pipeline_and_keeps_named_root_refusal', 'config_manager::selected_start_config::tests::installed_first_step_context_retains_command_model_and_rejects_baseline_observation', 'config_manager::selected_start_config::tests::installed_initial_model_data_consumes_actual_fresh_sources_without_claiming_complete_history', 'config_manager::selected_start_config::tests::installed_prompt_base_keeps_original_startup_provenance_with_changed_first_personality', 'config_manager::selected_start_config::tests::owned_selected_source_keeps_same_writer_clone_publication_and_refuses_aba', 'config_manager::selected_start_config::tests::owned_selected_source_outlives_initiating_manager_and_rejects_foreign_substitution', 'config_manager::selected_start_config::tests::parsed_fresh_command_pairs_once_and_foreign_or_missing_sources_refuse_without_start', 'request_processors::client_info_data::tests::original_xcode_prefix_and_case_boundaries_are_resolved_without_normalization', 'request_processors::client_info_data::tests::raw_metadata_preserves_absence_empty_content_and_owned_buffers_until_resolution', 'request_processors::thread_processor::first_command_options::tests::invalid_dynamic_tools_refuse_in_original_pre_metadata_stage', 'request_processors::thread_processor::first_command_options::tests::original_default_and_explicit_options_preserve_whole_data_without_starting', 'request_processors::thread_processor::first_command_options::tests::original_explicit_history_roots_dynamic_mcp_trace_and_source_survive_stages', 'request_processors::thread_processor::fresh_command_ingress::tests::prepare_decoder_keeps_scope_selection_and_command_presence_distinct', 'request_processors::turn_processor::turn_command_data::tests::fresh_decode_preserves_all_original_body_fields_and_double_option_tier', 'request_processors::turn_processor::turn_command_data::tests::original_command_keeps_validation_priority_unicode_count_and_late_output_image_refusal', 'request_processors::turn_processor::turn_command_data::tests::original_command_preserves_absent_null_empty_and_start_tier_assembly', 'request_processors::turn_processor::turn_command_data::tests::original_command_preserves_function_output_content_without_rendering_or_materializing', 'request_processors::turn_processor::turn_command_data::tests::original_command_stages_preserve_every_user_variant_selector_and_context_role', 'request_processors::turn_processor::turn_command_data::tests::route_independent_body_and_original_legacy_wrapper_preserve_complete_request_data', 'request_processors::turn_processor::turn_command_data::tests::route_independent_body_preserves_complete_raw_input_and_null_empty_matrix', 'request_processors::turn_processor::turn_settings_data::tests::original_explicit_empty_and_default_environment_paths_keep_distinct_roots', 'request_processors::turn_processor::turn_settings_data::tests::selected_settings_named_permission_failure_and_candidate_one_use_refuse_without_start', 'request_processors::turn_processor::turn_settings_data::tests::unchanged_normalization_needs_no_live_snapshot_or_startup_preview'}
+          report = json.loads(Path('native-app-server-data-list.json').read_text())
+          observed = set()
+          for suite in report['rust-suites'].values():
+              if suite['package-name'] != 'codex-app-server' or suite['kind'] != 'lib' or suite['status'] != 'listed':
+                  continue
+              for name, case in suite['testcases'].items():
+                  if not case['ignored'] and case['filter-match']['status'] == 'matches':
+                      observed.add(name)
+          if observed != expected:
+              raise RuntimeError(f'Expected exact 27 AppServer data-owner cases, observed: {sorted(observed)}')
+          PY_APP_DATA
+          app_server_status=0
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            just test --lib -p codex-app-server -E "$app_server_filter" \
+            --test-threads 1 --retries 0 2>&1 | tee native-app-server-data-fixtures.log || app_server_status=$?
+          if [[ -f target/nextest/local/junit.xml ]]; then
+            mv target/nextest/local/junit.xml native-app-server-data-junit.xml
+          fi
+          exit "$app_server_status"
+      - name: Discover and run prior full-suite stack regressions first
+        id: prior_stack_regressions
+        if: ${{ !cancelled() && steps.native_helpers.outcome == 'success' }}
+        shell: bash
+        working-directory: .native-prepared-source/codex-rs
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          set -euo pipefail
+          # Early diagnostic ordering only; the complete original suite still runs.
+          native_stack_regression_filter='test(=suite::v2::mcp_resource::metadata_and_mcp_requests_complete_while_unrelated_resume_loads_config) | test(=suite::v2::mcp_resource::resume_reloads_config_when_saved_workspace_roots_change) | test(=suite::v2::mcp_resource::resume_revalidates_persisted_thread_after_config_load::duplicate_resume) | test(=suite::v2::mcp_resource::resume_revalidates_persisted_thread_after_config_load::git_metadata_and_project_assignment) | test(=suite::v2::mcp_resource::resume_revalidates_persisted_thread_after_config_load::project_deletion) | test(=suite::v2::remote_thread_store::cold_thread_resume_rechecks_non_local_history_after_config_load) | test(=guardian::tests::guardian_ephemeral_retry_preserves_parallel_trunk_and_fork_history)'
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            NEXTEST_PROFILE=local RUST_MIN_STACK=8388608 \
+            cargo nextest list -p codex-core -p codex-app-server -E "$native_stack_regression_filter" \
+            --message-format json > native-stack-regression-list.json
+          python3 - <<'PY_ORACLES'
+          import json
+          from pathlib import Path
+          expected = {'guardian::tests::guardian_ephemeral_retry_preserves_parallel_trunk_and_fork_history', 'suite::v2::mcp_resource::metadata_and_mcp_requests_complete_while_unrelated_resume_loads_config', 'suite::v2::mcp_resource::resume_reloads_config_when_saved_workspace_roots_change', 'suite::v2::mcp_resource::resume_revalidates_persisted_thread_after_config_load::duplicate_resume', 'suite::v2::mcp_resource::resume_revalidates_persisted_thread_after_config_load::git_metadata_and_project_assignment', 'suite::v2::mcp_resource::resume_revalidates_persisted_thread_after_config_load::project_deletion', 'suite::v2::remote_thread_store::cold_thread_resume_rechecks_non_local_history_after_config_load'}
+          report = json.loads(Path('native-stack-regression-list.json').read_text())
+          observed = set()
+          for suite in report['rust-suites'].values():
+              if suite['package-name'] not in {'codex-core', 'codex-app-server'} or suite['status'] != 'listed':
+                  continue
+              for name, case in suite['testcases'].items():
+                  if not case['ignored'] and case['filter-match']['status'] == 'matches':
+                      observed.add(name)
+          if observed != expected:
+              raise RuntimeError(f'Expected exact seven prior full-suite stack regression cases, observed: {sorted(observed)}')
+          PY_ORACLES
+          oracle_status=0
+          env -u CODEX_TEST_REALTIME_TLS_ADDRESS -u CODEX_TEST_REALTIME_TLS_TRUST \
+            just test -p codex-core -p codex-app-server -E "$native_stack_regression_filter" \
+            --test-threads 1 --retries 0 2>&1 | tee native-stack-regression-fixtures.log || oracle_status=$?
+          if [[ -f target/nextest/local/junit.xml ]]; then
+            mv target/nextest/local/junit.xml native-stack-regression-junit.xml
+          fi
+          exit "$oracle_status"
+      - name: Run native crate fixtures without provider credentials
+        if: ${{ !cancelled() && steps.native_helpers.outcome == 'success' }}
+        shell: bash
+        working-directory: .native-prepared-source/codex-rs
+        env:
+          CARGO_NET_OFFLINE: 'true'
+        run: |
+          set -euo pipefail
+          native_packages=(-p codex-core -p codex-http-client -p codex-state -p codex-api -p codex-guardian-reviewer -p codex-extension-api -p codex-mcp-extension -p codex-login -p codex-memories-extension -p codex-web-search-extension -p codex-history-notes-extension -p codex-goal-extension -p codex-models-manager -p codex-home -p codex-model-provider-info -p codex-skills-extension -p codex-skills -p codex-exec-server -p codex-app-server -p codex-git-attribution -p codex-core-plugins -p codex-execpolicy)
           if [[ "$RUNNER_OS" == 'Linux' ]]; then
             native_packages+=(-p codex-linux-sandbox)
           fi
@@ -204,7 +374,7 @@ jobs:
             --test-threads 1 --retries 0 2>&1 | tee native-fixtures.log
       - name: Check native source formatting
         working-directory: .native-prepared-source/codex-rs
-        run: cargo fmt --check -p codex-core -p codex-http-client -p codex-state -p codex-api -p codex-linux-sandbox -p codex-guardian-reviewer -p codex-extension-api -p codex-mcp-extension -p codex-login -p codex-memories-extension -p codex-web-search-extension -p codex-history-notes-extension -p codex-goal-extension -p codex-models-manager
+        run: cargo fmt --check -p codex-core -p codex-http-client -p codex-state -p codex-api -p codex-linux-sandbox -p codex-guardian-reviewer -p codex-extension-api -p codex-mcp-extension -p codex-login -p codex-memories-extension -p codex-web-search-extension -p codex-history-notes-extension -p codex-goal-extension -p codex-models-manager -p codex-home -p codex-model-provider-info -p codex-skills-extension -p codex-skills -p codex-exec-server -p codex-app-server -p codex-git-attribution -p codex-core-plugins -p codex-execpolicy
       - name: Retain exact-source fixture evidence
         if: always()
         uses: actions/upload-artifact@v7
@@ -212,6 +382,19 @@ jobs:
           name: native-fixtures-${{ matrix.os }}
           path: |
             .native-prepared-source/codex-rs/native-fixtures.log
+            .native-prepared-source/codex-rs/native-core-regression-list.json
+            .native-prepared-source/codex-rs/native-core-regression-fixtures.log
+            .native-prepared-source/codex-rs/native-core-regression-junit.xml
+            .native-prepared-source/codex-rs/native-stack-regression-list.json
+            .native-prepared-source/codex-rs/native-stack-regression-fixtures.log
+            .native-prepared-source/codex-rs/native-stack-regression-junit.xml
+            .native-prepared-source/codex-rs/native-extension-lib-list.json
+            .native-prepared-source/codex-rs/native-extension-lib-discovery.json
+            .native-prepared-source/codex-rs/native-extension-lib-fixtures.log
+            .native-prepared-source/codex-rs/native-extension-lib-junit.xml
+            .native-prepared-source/codex-rs/native-app-server-data-list.json
+            .native-prepared-source/codex-rs/native-app-server-data-fixtures.log
+            .native-prepared-source/codex-rs/native-app-server-data-junit.xml
             .native-prepared-source/codex-rs/target/nextest/local/junit.xml
             .native-prepared-source/native-v8-artifacts.json
             docs/spikes/openshell-codex/prepared-request-native/source-evidence.json

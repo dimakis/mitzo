@@ -781,3 +781,74 @@ it('rejects a trusted review identity from a different original request before s
   ).rejects.toThrow('snapshot_changed');
   expect(source.openConversation).not.toHaveBeenCalled();
 });
+
+function retainedRead() {
+  return {
+    ...pin,
+    kind: 'retainedArtifactVersion' as const,
+    retention: 'independent' as const,
+    itemId: 'work',
+    filename: 'plan.md',
+    title: 'Plan',
+    provenance: {
+      sessionId: 'absent-origin',
+      sourceKind: 'session_artifact' as const,
+      sourcePath: null,
+    },
+    mediaType: 'application/octet-stream' as const,
+    sizeBytes: Buffer.byteLength('revision two'),
+    bytes: Buffer.from('revision two'),
+  };
+}
+it('keeps same-ID inline and independent retained versions distinct with exact provenance and bytes', async () => {
+  const legacyRead = source.readArtifact;
+  source.readArtifact = async (selected) =>
+    'kind' in selected ? retainedRead() : legacyRead(selected);
+  const tagged = { kind: 'retainedArtifactVersion', ...pin };
+  const draft = await compileCollaborationSourceContext(
+    { ...selection('selected'), artifacts: [pin, tagged] },
+    source,
+  );
+  expect(draft.artifacts).toHaveLength(2);
+  expect(draft.artifacts[0]).toMatchObject({ sourceConversationId: 'older-source' });
+  expect(draft.artifacts[1]).toEqual({
+    ...tagged,
+    retention: 'independent',
+    itemId: 'work',
+    filename: 'plan.md',
+    title: 'Plan',
+    provenance: { sessionId: 'absent-origin', sourceKind: 'session_artifact', sourcePath: null },
+    mediaType: 'application/octet-stream',
+    sizeBytes: Buffer.byteLength('revision two'),
+    contentBase64: Buffer.from('revision two').toString('base64'),
+  });
+  expect(draft.artifacts[1]).not.toHaveProperty('sourceConversationId');
+  expect(draft.capacity.status).toBe('unverified');
+  const group = randomUUID();
+  store.upsertSession({ sessionId: 'one', conversationSource: 'mitzo' });
+  store.collaborationConversation.begin(group, { requestId: randomUUID(), sessionId: 'one' });
+  const saved = store.collaborationConversation.saveSnapshot(group, draft);
+  expect(store.collaborationConversation.getSnapshot(group, saved.snapshotId)).toEqual(saved);
+  expect(saved.artifacts).toEqual(draft.artifacts);
+});
+it('refuses wrong-kind hydration and fabricated retained source-conversation fields', async () => {
+  const tagged = { kind: 'retainedArtifactVersion', ...pin };
+  await expect(
+    compileCollaborationSourceContext({ ...selection('selected'), artifacts: [tagged] }, source),
+  ).rejects.toThrow();
+  source.readArtifact = async () => ({ ...retainedRead(), sourceConversationId: 'fabricated' });
+  await expect(
+    compileCollaborationSourceContext({ ...selection('selected'), artifacts: [tagged] }, source),
+  ).rejects.toThrow();
+});
+it('does not treat an inline visible reference as a retained So-far reference with the same ID', async () => {
+  const read = vi.fn(async () => retainedRead());
+  source.readArtifact = read;
+  await expect(
+    compileCollaborationSourceContext(
+      { ...selection(), artifacts: [{ kind: 'retainedArtifactVersion', ...pin }] },
+      source,
+    ),
+  ).rejects.toThrow();
+  expect(read).not.toHaveBeenCalled();
+});

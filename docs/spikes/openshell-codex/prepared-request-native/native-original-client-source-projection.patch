@@ -1,0 +1,218 @@
+diff --git a/codex-rs/core/src/session/model_client_construction.rs b/codex-rs/core/src/session/model_client_construction.rs
+index 3980f266d020638b6bc56acf214eebd67584140a..3339465d317a261b15f3f3c1ddcd734caa055589 100644
+--- a/codex-rs/core/src/session/model_client_construction.rs
++++ b/codex-rs/core/src/session/model_client_construction.rs
+@@ -6,7 +6,6 @@
+ //! No selected-start client constructor is available until those owners supply
+ //! genuine inputs; identity allocation alone cannot satisfy this boundary.
+ use super::session::Session;
+-use super::session::SessionConfiguration;
+ use crate::attestation::AttestationProvider;
+ use crate::client::ModelClient;
+ use crate::config::Config;
+@@ -18,8 +17,10 @@ use codex_history::InitialHistory;
+ use codex_login::AuthManager;
+ use codex_login::auth::AgentIdentityAuthPolicy;
+ use codex_model_provider::WorkspaceRoutingContext;
++use codex_model_provider_info::ModelProviderInfo;
+ use codex_protocol::ThreadId;
+ use codex_protocol::protocol::Event;
++use codex_protocol::protocol::SessionSource;
+ use std::sync::Arc;
+ 
+ /// Required data from original owners. Visible only to the Session composition
+@@ -28,7 +29,10 @@ use std::sync::Arc;
+ /// by any future source-owned pre-session allocation/adoption implementation.
+ pub(super) struct OriginalSessionModelClientInputs<'a> {
+     pub(super) config: &'a Config,
+-    pub(super) session_configuration: &'a SessionConfiguration,
++    pub(super) provider_info: &'a ModelProviderInfo,
++    pub(super) session_source: &'a SessionSource,
++    pub(super) originator: &'a str,
++    pub(super) parent_thread_id: Option<ThreadId>,
+     pub(super) auth_manager: &'a Arc<AuthManager>,
+     pub(super) thread_id: ThreadId,
+     pub(super) initial_history: &'a InitialHistory,
+@@ -45,7 +49,10 @@ impl OriginalSessionModelClientInputs<'_> {
+     pub(super) fn construct(self) -> ModelClient {
+         let Self {
+             config,
+-            session_configuration,
++            provider_info,
++            session_source,
++            originator,
++            parent_thread_id,
+             auth_manager,
+             thread_id,
+             initial_history,
+@@ -66,9 +73,9 @@ impl OriginalSessionModelClientInputs<'_> {
+                 AgentIdentityAuthPolicy::JwtOnly
+             },
+             thread_id,
+-            session_configuration.provider.info().clone(),
+-            session_configuration.session_source.clone(),
+-            session_configuration.originator.clone(),
++            (*provider_info).clone(),
++            (*session_source).clone(),
++            originator.to_string(),
+             config.model_verbosity,
+             config.features.enabled(Feature::ContentItemKinds),
+             reasoning_effort_override_enabled,
+@@ -91,8 +98,8 @@ impl OriginalSessionModelClientInputs<'_> {
+         ))
+         .with_session_context(
+             crate::guardian::prompt_cache_key_override_for_review_session(
+-                &session_configuration.session_source,
+-                session_configuration.parent_thread_id,
++                session_source,
++                parent_thread_id,
+             )
+             .or(fork_cache_key),
+             tx_event.clone(),
+diff --git a/codex-rs/core/src/session/model_client_construction_tests.rs b/codex-rs/core/src/session/model_client_construction_tests.rs
+index cc6d2e652f7e4785f1aa539f6b44deeb6e40183b..88a4c477a3c4be9e68821233b98ac909d0a470b0 100644
+--- a/codex-rs/core/src/session/model_client_construction_tests.rs
++++ b/codex-rs/core/src/session/model_client_construction_tests.rs
+@@ -39,7 +39,10 @@ async fn original_session_owner_inputs_preserve_client_auth_and_offline_request_
+         Some(codex_protocol::protocol::ThreadSource::Feature(feature)) if feature == "thread_title");
+     let projected = OriginalSessionModelClientInputs {
+         config: &config,
+-        session_configuration: configuration,
++        provider_info: configuration.provider.info(),
++        session_source: &configuration.session_source,
++        originator: &configuration.originator,
++        parent_thread_id: configuration.parent_thread_id,
+         auth_manager: &session.services.auth_manager,
+         thread_id: session.thread_id(),
+         initial_history: &original_start.initial_history,
+@@ -83,3 +86,114 @@ async fn original_session_owner_inputs_preserve_client_auth_and_offline_request_
+     );
+     Ok(())
+ }
++
++// A data-only comparison of every Config-derived constructor input. This is
++// not eligibility/currentness evidence and does not construct a ModelClient.
++type ConstructorConfigProjection = (
++    codex_model_provider_info::ModelProviderInfo,
++    Option<codex_protocol::config_types::Verbosity>,
++    bool,
++    [bool; 6],
++    Option<String>,
++    codex_http_client::HttpClientFactory,
++);
++
++fn constructor_config_projection(config: &Config) -> ConstructorConfigProjection {
++    (
++        config.model_provider.clone(),
++        config.model_verbosity,
++        config.ephemeral,
++        [
++            Feature::UseAgentIdentity,
++            Feature::ContentItemKinds,
++            Feature::ReasoningEffortOverride,
++            Feature::EnableRequestCompression,
++            Feature::RuntimeMetrics,
++            Feature::ConcurrentReasoningSummaries,
++        ]
++        .map(|feature| config.features.enabled(feature)),
++        Session::build_model_client_beta_features_header(config),
++        config.http_client_factory(),
++    )
++}
++
++async fn configured_startup_fixture() -> anyhow::Result<(tempfile::TempDir, Config)> {
++    let home = tempfile::tempdir()?;
++    std::fs::write(home.path().join("config.toml"), "model = 'gpt-6-luna'\n")?;
++    let config = crate::config::ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .loader_overrides(
++            codex_config::LoaderOverrides::with_managed_config_path_for_tests(
++                home.path().join("managed.toml"),
++            ),
++        )
++        .fallback_cwd(Some(home.path().to_path_buf()))
++        .build()
++        .await?;
++    Ok((home, config))
++}
++
++#[tokio::test]
++async fn original_startup_preference_reset_preserves_constructor_factory_and_beta_inputs()
++-> anyhow::Result<()> {
++    let (_home, mut config) = configured_startup_fixture().await?;
++    let configured = config.clone();
++    let expected = constructor_config_projection(&config);
++    // Use the shipped source owner's ACTUAL row. No fabricated ModelInfo or
++    // custom catalog, refresh, account/model access attestation or Session.
++    let model = codex_models_manager::bundled_models_response()?
++        .models
++        .into_iter()
++        .find(|row| Some(row.slug.as_str()) == config.model.as_deref())
++        .ok_or_else(|| anyhow::anyhow!("configured model missing from bundled owner"))?;
++    config.prepare_token_budget_for_startup()?;
++    // Original Config publishers produce inherited activation data; original
++    // startup resets it from its retained configured-preference snapshot.
++    config.features.enable(Feature::TokenBudget)?;
++    config
++        .token_budget
++        .get_or_insert_default()
++        .use_history_notes_extension = true;
++    assert_ne!(config, configured);
++    assert_eq!(constructor_config_projection(&config), expected);
++    config.prepare_token_budget_for_startup()?;
++    let auth = codex_login::CodexAuth::from_api_key("synthetic-startup-projection");
++    super::super::token_budget::apply_experimental_context(&mut config, Some(&auth), &model)?;
++    super::super::token_budget::apply_model_defaults(&mut config, &model);
++    assert_eq!(constructor_config_projection(&config), expected);
++    // Full Config retains a startup snapshot; equality of constructor inputs
++    // never asserts that raw and effective Config are interchangeable.
++    assert_ne!(config, configured);
++    // Factory equality covers configured settings, not live cookies/policy
++    // publication currency, source leases or a transport capability grant.
++    Ok(())
++}
++
++#[tokio::test]
++async fn original_consumed_feature_and_factory_settings_changes_are_observable()
++-> anyhow::Result<()> {
++    let (_home, mut config) = configured_startup_fixture().await?;
++    let before = constructor_config_projection(&config);
++    let previous = config.features.enabled(Feature::ContentItemKinds);
++    config
++        .features
++        .set_enabled(Feature::ContentItemKinds, !previous)?;
++    assert_ne!(constructor_config_projection(&config), before);
++    config
++        .features
++        .set_enabled(Feature::ContentItemKinds, previous)?;
++    assert_eq!(constructor_config_projection(&config), before);
++    // Change an actual factory input, not TokenBudget or permission-only state.
++    config.respect_system_proxy = false;
++    let before_factory = config.http_client_factory();
++    let previous = config.features.enabled(Feature::SystemProxyFallback);
++    config
++        .features
++        .set_enabled(Feature::SystemProxyFallback, !previous)?;
++    assert_ne!(config.http_client_factory(), before_factory);
++    config
++        .features
++        .set_enabled(Feature::SystemProxyFallback, previous)?;
++    assert_eq!(config.http_client_factory(), before_factory);
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index 335aca63fe93f1d97b9dda7b1d24871bfd5ba897..fa387e513073fde9d465f65ca91f2b30e0c7fe79 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -1696,7 +1696,10 @@ impl Session {
+                 time_provider,
+                 model_client: super::model_client_construction::OriginalSessionModelClientInputs {
+                     config: config.as_ref(),
+-                    session_configuration: &session_configuration,
++                    provider_info: session_configuration.provider.info(),
++                    session_source: &session_configuration.session_source,
++                    originator: &session_configuration.originator,
++                    parent_thread_id: session_configuration.parent_thread_id,
+                     auth_manager: &auth_manager,
+                     thread_id,
+                     initial_history: &initial_history,

@@ -1,5 +1,6 @@
 import type {
   AgentProfileSelection,
+  CollaborationApplicationReviewResult,
   CollaborationApplicationReviewInput,
   CollaborationJoin,
   CollaborationJoinInput,
@@ -19,17 +20,15 @@ export interface ConversationAgentSetup {
   runOn: 'openshell' | 'local';
   selection: AccountSelection | null;
   agent: AgentProfileSelection | null;
+  /** Exact read-only repository intent reviewed in the current source catalog. */
+  sourceRepository?: string;
   /** Explicit fresh-target intent only; the server revalidates preparation custody. */
   repositoryWorkspaceId?: string;
   permissionMode?: CollaborationApplicationReviewInput['target']['permissionMode'];
 }
-export interface ConversationArtifactOption {
-  artifactId: string;
-  revision: number;
-  sha256: string;
-  title: string;
-  filename?: string;
-}
+export type ConversationArtifactOption = NonNullable<
+  CollaborationApplicationReviewResult['artifactLabels']
+>[number];
 export interface ConversationJoiningReviewResult {
   snapshot: CollaborationSnapshot;
   settings: CollaborationSettings;
@@ -45,12 +44,19 @@ export interface ConversationJoiningReviewRequest {
   setup: ConversationAgentSetup;
   joiningBrief?: string;
   previousSnapshot?: { snapshotId: string; sha256: string };
+  /** Retained public source selectors for a brief-only refreeze, never source bytes or access proof. */
+  previousSource?: Pick<
+    CollaborationApplicationReviewInput['selection'],
+    'boundary' | 'expectedMembershipRevision'
+  >;
 }
 interface JoiningOwnerBase {
   sourceConversationId: string;
   artifacts?: ConversationArtifactOption[];
   confirm(input: CollaborationJoinInput): Promise<CollaborationJoin>;
   recover(joinId: string, signal: AbortSignal): Promise<CollaborationJoin>;
+  /** Ordinary draft consumption only after the hook verifies a linked receipt. */
+  onLinked?(join: CollaborationJoin): void;
 }
 export interface LegacyConversationJoiningOwner extends JoiningOwnerBase {
   kind?: undefined;
@@ -65,6 +71,10 @@ export interface LegacyConversationJoiningOwner extends JoiningOwnerBase {
 export interface ApplicationConversationJoiningOwner extends JoiningOwnerBase {
   kind: 'application';
   collaborationId: string;
+  sourceRepository?: string;
+  /** Optional existing ordinary target staging, invoked only by an explicit
+   * review intent after its request is retained. Capture itself stays observational. */
+  prepareReview?(input: ConversationJoiningReviewRequest, signal: AbortSignal): Promise<void>;
   captureReview(
     input: ConversationJoiningReviewRequest,
     signal: AbortSignal,

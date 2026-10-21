@@ -1,0 +1,2297 @@
+diff --git a/codex-rs/codex-api/src/endpoint/frozen_responses_tests.rs b/codex-rs/codex-api/src/endpoint/frozen_responses_tests.rs
+index f67b5bc..5e4d1fb 100644
+--- a/codex-rs/codex-api/src/endpoint/frozen_responses_tests.rs
++++ b/codex-rs/codex-api/src/endpoint/frozen_responses_tests.rs
+@@ -413,3 +413,35 @@ async fn frozen_refuses_auth_changing_accept_semantics() {
+     );
+     assert!(transport.requests.lock().unwrap().is_empty());
+ }
++
++#[tokio::test]
++async fn frozen_retains_native_version_header_and_refuses_auth_inventing_it() {
++    let transport = transport(json!({"object":"response.input_tokens", "input_tokens":7}));
++    let mut selected = provider();
++    selected
++        .headers
++        .insert("version", HeaderValue::from_static("native-owned-version"));
++    let client = ResponsesClient::new(transport.clone(), selected, Arc::new(Auth));
++    assert_eq!(client.count_input_tokens(&frozen()).await.unwrap(), 7);
++    assert_eq!(
++        transport.requests.lock().unwrap()[0]
++            .headers
++            .get("version")
++            .unwrap(),
++        "native-owned-version"
++    );
++    transport.requests.lock().unwrap().clear();
++    let auth = AppendingHeaderAuth(
++        http::HeaderName::from_static("version"),
++        HeaderValue::from_static("other"),
++    );
++    let client = ResponsesClient::new(transport.clone(), provider(), Arc::new(auth));
++    assert!(client.count_input_tokens(&frozen()).await.is_err());
++    assert!(
++        client
++            .stream_frozen_request(&frozen(), ResponsesOptions::default())
++            .await
++            .is_err()
++    );
++    assert!(transport.requests.lock().unwrap().is_empty());
++}
+diff --git a/codex-rs/codex-api/src/endpoint/session.rs b/codex-rs/codex-api/src/endpoint/session.rs
+index 4d1c38f..77bdd18 100644
+--- a/codex-rs/codex-api/src/endpoint/session.rs
++++ b/codex-rs/codex-api/src/endpoint/session.rs
+@@ -38,6 +38,7 @@ fn validate_frozen_headers(headers: &HeaderMap) -> Result<(), ApiError> {
+                 | "content-encoding"
+                 | "accept"
+                 | "user-agent"
++                | "version"
+                 | "x-client-request-id"
+                 | "session-id"
+                 | "thread-id"
+@@ -125,6 +126,7 @@ impl<T: HttpTransport> EndpointSession<T> {
+                 http::header::CONTENT_LENGTH,
+                 http::header::HOST,
+                 http::header::ACCEPT,
++                http::HeaderName::from_static("version"),
+             ]
+             .iter()
+             .any(|key| {
+diff --git a/codex-rs/codex-home/Cargo.toml b/codex-rs/codex-home/Cargo.toml
+index 068ec55..1d34fbc 100644
+--- a/codex-rs/codex-home/Cargo.toml
++++ b/codex-rs/codex-home/Cargo.toml
+@@ -13,7 +13,7 @@ workspace = true
+ [dependencies]
+ codex-extension-api = { workspace = true }
+ codex-utils-absolute-path = { workspace = true }
+-tokio = { workspace = true, features = ["fs"] }
++tokio = { workspace = true, features = ["fs", "io-util"] }
+ tracing = { workspace = true }
+ 
+ [dev-dependencies]
+diff --git a/codex-rs/codex-home/src/instructions/mod.rs b/codex-rs/codex-home/src/instructions/mod.rs
+index a16ad66..68e84a5 100644
+--- a/codex-rs/codex-home/src/instructions/mod.rs
++++ b/codex-rs/codex-home/src/instructions/mod.rs
+@@ -6,11 +6,12 @@ use std::sync::Mutex;
+ use codex_extension_api::Instructions;
+ use codex_extension_api::LoadInstructionsFuture;
+ use codex_extension_api::LoadedUserInstructions;
++use codex_extension_api::PreSessionUserInstructionsSource;
+ use codex_extension_api::UserInstructionsProvider;
+ use codex_utils_absolute_path::AbsolutePathBuf;
+ 
+-const DEFAULT_AGENTS_MD_FILENAME: &str = "AGENTS.md";
+-const LOCAL_AGENTS_MD_FILENAME: &str = "AGENTS.override.md";
++pub(super) const DEFAULT_AGENTS_MD_FILENAME: &str = "AGENTS.md";
++pub(super) const LOCAL_AGENTS_MD_FILENAME: &str = "AGENTS.override.md";
+ 
+ /// Loads user instructions from a Codex home directory.
+ #[derive(Clone, Debug)]
+@@ -65,14 +66,9 @@ impl CodexHomeUserInstructionsProvider {
+                     continue;
+                 }
+             };
+-            let contents = String::from_utf8_lossy(&data);
+-            let trimmed = contents.trim();
+-            if !trimmed.is_empty() {
++            if let Some(instructions) = decode_instructions(&data, path) {
+                 return LoadedUserInstructions {
+-                    instructions: Some(Instructions {
+-                        text: trimmed.to_string(),
+-                        source: Some(path),
+-                    }),
++                    instructions: Some(instructions),
+                     warnings,
+                 };
+             }
+@@ -85,6 +81,12 @@ impl CodexHomeUserInstructionsProvider {
+ }
+ 
+ impl UserInstructionsProvider for CodexHomeUserInstructionsProvider {
++    fn pre_session_source(&self) -> Option<PreSessionUserInstructionsSource> {
++        Some(PreSessionUserInstructionsSource::CodexHome {
++            codex_home: self.codex_home.clone(),
++        })
++    }
++
+     fn load_user_instructions(&self) -> LoadInstructionsFuture<'_> {
+         Box::pin(async move {
+             let mut loaded = self.load_from_codex_home().await;
+@@ -109,5 +111,16 @@ impl UserInstructionsProvider for CodexHomeUserInstructionsProvider {
+     }
+ }
+ 
++// Shared with fresh read-only capture: preserve ordinary precedence, lossy UTF-8
++// conversion and trim semantics rather than maintaining another instruction format.
++pub(super) fn decode_instructions(data: &[u8], source: AbsolutePathBuf) -> Option<Instructions> {
++    let contents = String::from_utf8_lossy(data);
++    let trimmed = contents.trim();
++    (!trimmed.is_empty()).then(|| Instructions {
++        text: trimmed.to_string(),
++        source: Some(source),
++    })
++}
++
+ #[cfg(test)]
+ mod tests;
+diff --git a/codex-rs/codex-home/src/lib.rs b/codex-rs/codex-home/src/lib.rs
+index 7ca5e58..1981a86 100644
+--- a/codex-rs/codex-home/src/lib.rs
++++ b/codex-rs/codex-home/src/lib.rs
+@@ -1,3 +1,7 @@
+ mod instructions;
++mod pre_session_instructions;
+ 
+ pub use instructions::CodexHomeUserInstructionsProvider;
++
++pub use pre_session_instructions::CodexHomeInstructionsObservation;
++pub use pre_session_instructions::observe_codex_home_instructions;
+diff --git a/codex-rs/codex-home/src/pre_session_instructions.rs b/codex-rs/codex-home/src/pre_session_instructions.rs
+new file mode 100644
+index 0000000..9daf389
+--- /dev/null
++++ b/codex-rs/codex-home/src/pre_session_instructions.rs
+@@ -0,0 +1,249 @@
++//! Bounded read-only observations of the actual global instruction source.
++//!
++//! No provider load/cache callback, warning suppression or history mutation runs
++//! here. Observed file metadata and bytes are not an atomic currentness/lease or
++//! a count/admission grant. The complete factory must bind this to its real
++//! provider/configuration and renew all actual source authorities at commitment.
++use crate::instructions::DEFAULT_AGENTS_MD_FILENAME;
++use crate::instructions::LOCAL_AGENTS_MD_FILENAME;
++use crate::instructions::decode_instructions;
++use codex_extension_api::Instructions;
++use codex_utils_absolute_path::AbsolutePathBuf;
++use std::io;
++use std::time::SystemTime;
++use tokio::io::AsyncReadExt;
++
++const MAX_CANDIDATE_BYTES: u64 = 4 * 1024 * 1024;
++
++#[derive(Debug, Eq, PartialEq)]
++struct MetadataObservation {
++    len: u64,
++    modified: Option<SystemTime>,
++    created: Option<SystemTime>,
++    readonly: bool,
++    file: bool,
++    directory: bool,
++    symlink: bool,
++    #[cfg(unix)]
++    unix: (u64, u64, u32, u32, u32, u64, i64, i64),
++}
++impl MetadataObservation {
++    fn from_metadata(metadata: &std::fs::Metadata) -> Self {
++        #[cfg(unix)]
++        use std::os::unix::fs::MetadataExt;
++        Self {
++            len: metadata.len(),
++            modified: metadata.modified().ok(),
++            created: metadata.created().ok(),
++            readonly: metadata.permissions().readonly(),
++            file: metadata.is_file(),
++            directory: metadata.is_dir(),
++            symlink: metadata.file_type().is_symlink(),
++            #[cfg(unix)]
++            unix: (
++                metadata.dev(),
++                metadata.ino(),
++                metadata.mode(),
++                metadata.uid(),
++                metadata.gid(),
++                metadata.nlink(),
++                metadata.ctime(),
++                metadata.ctime_nsec(),
++            ),
++        }
++    }
++}
++
++#[derive(Debug, Eq, PartialEq)]
++enum CandidateObservation {
++    Absent,
++    NonFile {
++        link: MetadataObservation,
++        target: MetadataObservation,
++    },
++    File {
++        link: MetadataObservation,
++        target: MetadataObservation,
++        bytes: Vec<u8>,
++    },
++}
++
++/// Private, non-serializable source observation; never a provider or filesystem
++/// authorization capability. Every tested precedence candidate is retained.
++#[derive(Debug, Eq, PartialEq)]
++pub struct CodexHomeInstructionsObservation {
++    root: AbsolutePathBuf,
++    root_link: MetadataObservation,
++    root_target: MetadataObservation,
++    candidates: Vec<(&'static str, CandidateObservation)>,
++    instructions: Option<Instructions>,
++}
++impl CodexHomeInstructionsObservation {
++    pub fn instructions(&self) -> Option<&Instructions> {
++        self.instructions.as_ref()
++    }
++    pub fn codex_home(&self) -> &AbsolutePathBuf {
++        &self.root
++    }
++}
++
++fn changed() -> io::Error {
++    io::Error::other("global instruction source changed during observation")
++}
++
++/// Uses the ordinary owner's exact override/default order and decoder. A read
++/// error is unavailable, never cached fallback or confirmed empty instructions.
++/// Does not create a directory/file or mutate the provider's fallback/warnings.
++pub async fn observe_codex_home_instructions(
++    codex_home: AbsolutePathBuf,
++) -> io::Result<CodexHomeInstructionsObservation> {
++    let root_link = MetadataObservation::from_metadata(
++        &tokio::fs::symlink_metadata(codex_home.as_path()).await?,
++    );
++    let root_target =
++        MetadataObservation::from_metadata(&tokio::fs::metadata(codex_home.as_path()).await?);
++    if !root_target.directory {
++        return Err(io::Error::other(
++            "global instruction source root is unavailable",
++        ));
++    }
++    let mut candidates = Vec::with_capacity(2);
++    let mut instructions = None;
++    for name in [LOCAL_AGENTS_MD_FILENAME, DEFAULT_AGENTS_MD_FILENAME] {
++        let path = codex_home.join(name);
++        let link = match tokio::fs::symlink_metadata(path.as_path()).await {
++            Ok(value) => MetadataObservation::from_metadata(&value),
++            Err(error) if error.kind() == io::ErrorKind::NotFound => {
++                candidates.push((name, CandidateObservation::Absent));
++                continue;
++            }
++            Err(error) => return Err(error),
++        };
++        let metadata = tokio::fs::metadata(path.as_path()).await?;
++        if !metadata.is_file() {
++            candidates.push((
++                name,
++                CandidateObservation::NonFile {
++                    link,
++                    target: MetadataObservation::from_metadata(&metadata),
++                },
++            ));
++            continue;
++        }
++        let mut file = tokio::fs::File::open(path.as_path()).await?;
++        let target = MetadataObservation::from_metadata(&file.metadata().await?);
++        if !target.file || target.len > MAX_CANDIDATE_BYTES {
++            return Err(io::Error::other(
++                "global instruction source exceeds supported capture bounds",
++            ));
++        }
++        let mut bytes = Vec::new();
++        (&mut file)
++            .take(MAX_CANDIDATE_BYTES + 1)
++            .read_to_end(&mut bytes)
++            .await?;
++        if bytes.len() as u64 > MAX_CANDIDATE_BYTES {
++            return Err(io::Error::other(
++                "global instruction source exceeds supported capture bounds",
++            ));
++        }
++        if MetadataObservation::from_metadata(&file.metadata().await?) != target
++            || MetadataObservation::from_metadata(&tokio::fs::metadata(path.as_path()).await?)
++                != target
++            || MetadataObservation::from_metadata(
++                &tokio::fs::symlink_metadata(path.as_path()).await?,
++            ) != link
++        {
++            return Err(changed());
++        }
++        instructions = decode_instructions(&bytes, path);
++        candidates.push((
++            name,
++            CandidateObservation::File {
++                link,
++                target,
++                bytes,
++            },
++        ));
++        if instructions.is_some() {
++            break;
++        }
++    }
++    if MetadataObservation::from_metadata(&tokio::fs::symlink_metadata(codex_home.as_path()).await?)
++        != root_link
++        || MetadataObservation::from_metadata(&tokio::fs::metadata(codex_home.as_path()).await?)
++            != root_target
++    {
++        return Err(changed());
++    }
++    Ok(CodexHomeInstructionsObservation {
++        root: codex_home,
++        root_link,
++        root_target,
++        candidates,
++        instructions,
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::MAX_CANDIDATE_BYTES;
++    use super::observe_codex_home_instructions;
++    use crate::CodexHomeUserInstructionsProvider;
++    use codex_extension_api::UserInstructionsProvider;
++    use codex_utils_absolute_path::AbsolutePathBuf;
++    use pretty_assertions::assert_eq;
++
++    fn root(home: &tempfile::TempDir) -> AbsolutePathBuf {
++        AbsolutePathBuf::try_from(home.path().to_path_buf()).unwrap()
++    }
++
++    #[tokio::test]
++    async fn fresh_observation_matches_ordinary_precedence_decoder_and_detects_replacement() {
++        let home = tempfile::TempDir::new().unwrap();
++        std::fs::write(home.path().join("AGENTS.md"), b"  actual fallback \xff  ").unwrap();
++        std::fs::write(home.path().join("AGENTS.override.md"), "  \n ").unwrap();
++        let provider = CodexHomeUserInstructionsProvider::new(root(&home));
++        let observed = observe_codex_home_instructions(root(&home)).await.unwrap();
++        let ordinary = provider.load_user_instructions().await;
++        assert_eq!(observed.instructions(), ordinary.instructions.as_ref());
++        assert_eq!(observed.instructions().unwrap().text, "actual fallback �");
++        std::fs::write(home.path().join("AGENTS.override.md"), "actual override").unwrap();
++        let changed = observe_codex_home_instructions(root(&home)).await.unwrap();
++        std::assert!(observed != changed);
++        assert_eq!(changed.instructions().unwrap().text, "actual override");
++    }
++
++    #[tokio::test]
++    async fn fresh_observation_bounds_sources_without_truncation_or_directory_creation() {
++        let home = tempfile::TempDir::new().unwrap();
++        let missing = root(&home).join("missing");
++        std::assert!(
++            observe_codex_home_instructions(missing.clone())
++                .await
++                .is_err()
++        );
++        std::assert!(!missing.as_path().exists());
++        let file = std::fs::File::create(home.path().join("AGENTS.override.md")).unwrap();
++        file.set_len(MAX_CANDIDATE_BYTES + 1).unwrap();
++        std::assert!(observe_codex_home_instructions(root(&home)).await.is_err());
++        assert_eq!(file.metadata().unwrap().len(), MAX_CANDIDATE_BYTES + 1);
++    }
++
++    #[cfg(unix)]
++    #[tokio::test]
++    async fn fresh_failure_never_consumes_ordinary_fallback_or_warning_state() {
++        let home = tempfile::TempDir::new().unwrap();
++        let path = home.path().join("AGENTS.override.md");
++        std::fs::write(&path, "last ordinary snapshot").unwrap();
++        let provider = CodexHomeUserInstructionsProvider::new(root(&home));
++        let previous = provider.load_user_instructions().await;
++        std::fs::remove_file(&path).unwrap();
++        std::os::unix::fs::symlink("AGENTS.override.md", &path).unwrap();
++        std::assert!(observe_codex_home_instructions(root(&home)).await.is_err());
++        let ordinary = provider.load_user_instructions().await;
++        assert_eq!(ordinary.instructions, previous.instructions);
++        assert_eq!(ordinary.warnings.len(), 1);
++        std::assert!(provider.load_user_instructions().await.warnings.is_empty());
++    }
++}
+diff --git a/codex-rs/core/Cargo.toml b/codex-rs/core/Cargo.toml
+index d5fd95d..918d59d 100644
+--- a/codex-rs/core/Cargo.toml
++++ b/codex-rs/core/Cargo.toml
+@@ -52,6 +52,7 @@ codex-guardian-context = { workspace = true }
+ codex-guardian-reviewer = { workspace = true }
+ codex-history = { workspace = true }
+ codex-hooks = { workspace = true }
++codex-home = { workspace = true }
+ codex-http-client = { workspace = true }
+ codex-install-context = { workspace = true }
+ codex-network-proxy = { workspace = true }
+@@ -144,7 +145,6 @@ assert_cmd = { workspace = true }
+ assert_matches = { workspace = true }
+ codex-exec-server-test-support = { workspace = true }
+ codex-image-generation-extension = { workspace = true }
+-codex-home = { workspace = true }
+ codex-otel = { workspace = true }
+ codex-test-binary-support = { workspace = true }
+ codex-utils-cargo-bin = { workspace = true }
+diff --git a/codex-rs/core/src/client.rs b/codex-rs/core/src/client.rs
+index bb320fe..a2a9324 100644
+--- a/codex-rs/core/src/client.rs
++++ b/codex-rs/core/src/client.rs
+@@ -34,6 +34,8 @@ use std::sync::atomic::Ordering;
+ 
+ #[path = "client_prepared_api_claim.rs"]
+ mod prepared_api_claim;
++#[path = "client_prepared_count.rs"]
++mod prepared_count;
+ #[path = "client_public_responses_capture.rs"]
+ mod public_responses_capture;
+ #[path = "client_tool_metadata.rs"]
+diff --git a/codex-rs/core/src/client_common.rs b/codex-rs/core/src/client_common.rs
+index 4e76ac5..59dca93 100644
+--- a/codex-rs/core/src/client_common.rs
++++ b/codex-rs/core/src/client_common.rs
+@@ -56,24 +56,53 @@ impl Default for Prompt {
+     }
+ }
+ 
++/// Encoding belongs to the actual selected transport, independently of the
++/// retained model catalog row. Public HTTP captures use standard Responses;
++/// ordinary native requests retain the catalog-selected encoding unchanged.
++#[derive(Clone, Copy)]
++pub(crate) enum ResponsesWireFormat {
++    ModelDefault,
++    PublicHttp,
++}
++impl ResponsesWireFormat {
++    pub(crate) fn uses_lite(self, model: &ModelInfo) -> bool {
++        match self {
++            Self::ModelDefault => model.use_responses_lite,
++            Self::PublicHttp => false,
++        }
++    }
++}
++
+ impl Prompt {
+     pub(crate) fn get_formatted_input_for_request(
+         &self,
+         model_info: &ModelInfo,
++    ) -> Vec<ResponseItem> {
++        self.get_formatted_input_for_wire(model_info, ResponsesWireFormat::ModelDefault)
++    }
++
++    pub(crate) fn get_formatted_input_for_wire(
++        &self,
++        model_info: &ModelInfo,
++        wire: ResponsesWireFormat,
+     ) -> Vec<ResponseItem> {
+         let mut input = self.input.clone();
+-        normalize_image_details(&mut input, model_info);
++        normalize_image_details(&mut input, model_info, wire);
+         input
+     }
+ }
+ 
+-fn normalize_image_details(items: &mut [ResponseItem], model_info: &ModelInfo) {
++fn normalize_image_details(
++    items: &mut [ResponseItem],
++    model_info: &ModelInfo,
++    wire: ResponsesWireFormat,
++) {
+     for item in items {
+         match item {
+             ResponseItem::Message { content, .. } => {
+                 for content_item in content {
+                     if let ContentItem::InputImage { detail, .. } = content_item {
+-                        normalize_image_detail(detail, model_info);
++                        normalize_image_detail(detail, model_info, wire);
+                     }
+                 }
+             }
+@@ -84,7 +113,7 @@ fn normalize_image_details(items: &mut [ResponseItem], model_info: &ModelInfo) {
+                         if let FunctionCallOutputContentItem::InputImage { detail, .. } =
+                             content_item
+                         {
+-                            normalize_image_detail(detail, model_info);
++                            normalize_image_detail(detail, model_info, wire);
+                         }
+                     }
+                 }
+@@ -108,8 +137,12 @@ fn normalize_image_details(items: &mut [ResponseItem], model_info: &ModelInfo) {
+     }
+ }
+ 
+-fn normalize_image_detail(detail: &mut Option<ImageDetail>, model_info: &ModelInfo) {
+-    if model_info.use_responses_lite {
++fn normalize_image_detail(
++    detail: &mut Option<ImageDetail>,
++    model_info: &ModelInfo,
++    wire: ResponsesWireFormat,
++) {
++    if wire.uses_lite(model_info) {
+         *detail = None;
+     } else if *detail == Some(ImageDetail::Original) && !model_info.supports_image_detail_original {
+         *detail = Some(DEFAULT_IMAGE_DETAIL);
+diff --git a/codex-rs/core/src/client_format_tests.rs b/codex-rs/core/src/client_format_tests.rs
+index bffbcc1..a672933 100644
+--- a/codex-rs/core/src/client_format_tests.rs
++++ b/codex-rs/core/src/client_format_tests.rs
+@@ -215,6 +215,9 @@ fn public_body_capture_uses_actual_model_client_state_credentials_and_contributo
+         &credentials,
+     )?;
+     assert_eq!(captured.request().body(), &expected);
++    assert_eq!(captured.model_info(), &model);
++    std::assert!(captured.matches_client_selection(&client, &credentials));
++    std::assert!(captured.matches_client_selection(&client.clone(), &credentials));
+     assert_eq!(
+         captured
+             .observations()
+@@ -225,6 +228,7 @@ fn public_body_capture_uses_actual_model_client_state_credentials_and_contributo
+     let foreign =
+         AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-selected-api-key"));
+     let foreign_credentials = foreign.capture_cached_api_key_credentials().unwrap();
++    std::assert!(!captured.matches_client_selection(&client, &foreign_credentials));
+     assert!(
+         client
+             .capture_public_api_responses_body(
+diff --git a/codex-rs/core/src/client_prepared_count.rs b/codex-rs/core/src/client_prepared_count.rs
+new file mode 100644
+index 0000000..2fa3d69
+--- /dev/null
++++ b/codex-rs/core/src/client_prepared_count.rs
+@@ -0,0 +1,470 @@
++//! Count evidence for an exact ordinary public-API capture, never admission.
++//!
++//! No credential lock survives an await. The catalog read guard spans the count,
++//! but the returned observation retains no guard or authority for later effects.
++
++use std::sync::Arc;
++
++use codex_api::ApiError;
++use codex_api::AuthProvider;
++use codex_api::ResponsesClient as ApiResponsesClient;
++use codex_http_client::ClientRouteClass;
++use codex_login::auth::CapturedApiKeyCredentials;
++use codex_login::default_client::create_single_attempt_transport_for_routes_async;
++use codex_model_provider::BearerAuthProvider;
++use codex_models_manager::manager::SharedModelsManager;
++use codex_models_manager::model_limits::UnverifiedModelLimitCandidate;
++
++use super::public_responses_capture::CapturedPublicApiResponsesRequest;
++
++/// Process-local count evidence only. Not Clone, serializable, Ready, or a permit.
++pub(crate) struct PublicApiCountObservation<'a> {
++    _client: &'a super::ModelClient,
++    captured: &'a CapturedPublicApiResponsesRequest,
++    _credentials: &'a CapturedApiKeyCredentials,
++    _models_manager: &'a SharedModelsManager,
++    limits: &'a UnverifiedModelLimitCandidate,
++    input_tokens: u64,
++}
++
++impl PublicApiCountObservation<'_> {
++    pub(crate) fn input_tokens(&self) -> u64 {
++        self.input_tokens
++    }
++
++    pub(crate) fn captured_request(&self) -> &CapturedPublicApiResponsesRequest {
++        self.captured
++    }
++
++    pub(crate) fn model_limits(&self) -> &UnverifiedModelLimitCandidate {
++        self.limits
++    }
++}
++
++impl super::ModelClient {
++    pub(crate) async fn count_captured_public_api_request<'a>(
++        &'a self,
++        captured: &'a CapturedPublicApiResponsesRequest,
++        credentials: &'a CapturedApiKeyCredentials,
++        models_manager: &'a SharedModelsManager,
++        limits: &'a UnverifiedModelLimitCandidate,
++    ) -> Result<PublicApiCountObservation<'a>, ApiError> {
++        if !captured.matches_client_selection(self, credentials) {
++            return Err(refused(
++                "count capture no longer matches ordinary selection",
++            ));
++        }
++        let request = captured.request();
++        if captured.model_info() != limits.model_info()
++            || request
++                .body()
++                .get("model")
++                .and_then(serde_json::Value::as_str)
++                != Some(limits.model_info().slug.as_str())
++            || request.max_output_tokens() == 0
++            || request.max_output_tokens() > limits.ceilings().maximum_output_tokens
++            || limits.ceilings().context_window == 0
++        {
++            return Err(refused("count capture does not match native model limits"));
++        }
++        // Reuse the exact provider/header conversion retained by original body
++        // capture. Never independently re-read project/org environment variables
++        // to construct another provider between counting and generation.
++        let manager = self.public_api_credential_owner()?;
++        let provider = captured
++            .provider_capture()
++            .filter(|provider| provider.sources_match_current_observation())
++            .ok_or_else(|| refused("original provider header sources changed"))?
++            .provider()
++            .clone();
++
++        let (auth, factory) = manager
++            .with_current_api_key_credentials(credentials, |auth, factory| {
++                let token = auth
++                    .get_token()
++                    .map_err(|_| refused("unavailable ordinary API authorization"))?;
++                if token.trim().is_empty() {
++                    return Err(refused("invalid ordinary API authorization"));
++                }
++                let auth = BearerAuthProvider::new(token);
++                // Native BearerAuthProvider otherwise omits an invalid header.
++                // Check privately; neither key nor header enters diagnostics.
++                let headers = auth.to_auth_headers();
++                if headers.len() != 1 || !headers.contains_key(http::header::AUTHORIZATION) {
++                    return Err(refused("invalid ordinary API authorization"));
++                }
++                Ok((auth, factory.clone()))
++            })
++            .ok_or_else(|| refused("ordinary credential selection changed before count"))??;
++        let transport =
++            create_single_attempt_transport_for_routes_async(factory, ClientRouteClass::Api)
++                .await
++                .map_err(|_| refused("account-bound single-attempt transport unavailable"))?;
++        let client = ApiResponsesClient::new(transport, provider, Arc::new(auth));
++        let catalog = models_manager
++            .pin_model_limit_candidate(limits)
++            .await
++            .ok_or_else(|| refused("native model catalog selection changed before count"))?;
++
++        // The initial matches_client_selection bound this client allocation and
++        // capture revision to these credentials. This fixed manager's original
++        // credential observation includes monotonic ABA revisions. Renew it
++        // directly here: calling matches_client_selection under the catalog guard
++        // would reenter provider callbacks. No synchronous auth guard is retained.
++        if manager
++            .with_current_api_key_credentials(credentials, |_, _| ())
++            .is_none()
++        {
++            return Err(refused(
++                "ordinary credential selection changed before count",
++            ));
++        }
++        let count = client.count_input_tokens(request).await;
++        let current = manager
++            .with_current_api_key_credentials(credentials, |_, _| ())
++            .is_some();
++        drop(catalog);
++        if !current || !captured.matches_client_selection(self, credentials) {
++            return Err(refused(
++                "ordinary credential selection changed during count",
++            ));
++        }
++        let input_tokens = count?;
++        Ok(PublicApiCountObservation {
++            _client: self,
++            captured,
++            _credentials: credentials,
++            _models_manager: models_manager,
++            limits,
++            input_tokens,
++        })
++    }
++}
++
++fn refused(message: &str) -> ApiError {
++    ApiError::InvalidRequest {
++        message: message.to_string(),
++    }
++}
++
++// This one-file handoff intentionally keeps its offline fixtures in this file.
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use codex_client::HttpTransport;
++    use codex_client::Request;
++    use codex_client::Response;
++    use codex_client::StreamResponse;
++    use codex_client::TransportError;
++    use codex_http_client::HttpClientFactory;
++    use codex_http_client::OutboundProxyPolicy;
++    use codex_login::AuthManager;
++    use codex_login::CodexAuth;
++    use codex_login::auth::AgentIdentityAuthPolicy;
++    use codex_model_provider_info::ModelProviderInfo;
++    use codex_models_manager::ModelsManagerConfig;
++    use codex_models_manager::manager::ModelsEndpointClient;
++    use codex_models_manager::manager::ModelsEndpointFuture;
++    use codex_models_manager::manager::ModelsEndpointResponse;
++    use codex_models_manager::manager::OpenAiModelsManager;
++    use codex_models_manager::manager::RefreshStrategy;
++    use codex_protocol::ThreadId;
++    use codex_protocol::config_types::ReasoningSummary;
++    use codex_protocol::openai_models::ModelInfo;
++    use codex_protocol::protocol::SessionSource;
++    use pretty_assertions::assert_eq;
++    use std::sync::Mutex;
++
++    #[derive(Debug)]
++    struct OfflineEndpoint(ModelInfo);
++    impl ModelsEndpointClient for OfflineEndpoint {
++        fn identity(&self) -> Option<String> {
++            Some("offline-catalog".into())
++        }
++        fn has_command_auth(&self) -> bool {
++            false
++        }
++        fn supports_api_key_models(&self) -> bool {
++            true
++        }
++        fn has_provider_api_key(&self) -> bool {
++            true
++        }
++        fn uses_codex_backend(&self) -> ModelsEndpointFuture<'_, bool> {
++            Box::pin(async { false })
++        }
++        fn list_models<'a>(
++            &'a self,
++            _client_version: &'a str,
++            _factory: HttpClientFactory,
++        ) -> ModelsEndpointFuture<'a, codex_protocol::error::Result<ModelsEndpointResponse>>
++        {
++            Box::pin(async {
++                Ok(ModelsEndpointResponse {
++                    models: vec![self.0.clone()],
++                    etag: None,
++                    identity: "offline-catalog".into(),
++                })
++            })
++        }
++    }
++
++    async fn limits() -> (SharedModelsManager, UnverifiedModelLimitCandidate) {
++        // Publish the exact bundled row through the real native catalog owner.
++        // Public encoding belongs to its route; the catalog flag is preserved.
++        // The catalog endpoint below has no network client or credentials.
++        let row = codex_models_manager::bundled_models_response()
++            .unwrap()
++            .models
++            .into_iter()
++            .find(|model| model.slug == "gpt-6-luna")
++            .unwrap();
++        let manager: SharedModelsManager = Arc::new(
++            OpenAiModelsManager::new_without_cache(
++                Arc::new(OfflineEndpoint(row)),
++                /*auth_manager*/ None,
++            )
++            .with_provider_catalog(),
++        );
++        manager.set_api_key_model_discovery_enabled(true);
++        manager
++            .raw_model_catalog(
++                RefreshStrategy::Online,
++                HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
++            )
++            .await;
++        let candidate = manager
++            .capture_model_limit_candidate("gpt-6-luna", &ModelsManagerConfig::default())
++            .await
++            .unwrap();
++        (manager, candidate)
++    }
++
++    fn client(auth: Arc<AuthManager>) -> super::super::ModelClient {
++        super::super::ModelClient::new(
++            Some(auth),
++            AgentIdentityAuthPolicy::JwtOnly,
++            ThreadId::new(),
++            ModelProviderInfo::create_openai_provider(/*base_url*/ None),
++            SessionSource::Exec,
++            "offline-prepared-count".into(),
++            /*model_verbosity*/ None,
++            /*content_item_kinds_enabled*/ true,
++            /*reasoning_effort_override_enabled*/ false,
++            /*enable_request_compression*/ false,
++            /*include_timing_metrics*/ false,
++            /*beta_features_header*/ None,
++            /*concurrent_reasoning_summaries_enabled*/ false,
++            /*attestation_provider*/ None,
++            HttpClientFactory::new(OutboundProxyPolicy::ReqwestDefault),
++            codex_model_provider::WorkspaceRoutingContext::new(
++                "https://chatgpt.com/backend-api".into(),
++            ),
++            Vec::new(),
++        )
++    }
++
++    fn capture(
++        client: &super::super::ModelClient,
++        credentials: &CapturedApiKeyCredentials,
++        model: &ModelInfo,
++        output: u64,
++    ) -> CapturedPublicApiResponsesRequest {
++        client
++            .capture_public_api_responses_body(
++                &crate::client_common::Prompt::default(),
++                model,
++                crate::responses_metadata::CodexResponsesMetadata::new(
++                    "offline-installation".into(),
++                    "offline-session".into(),
++                    client.state.thread_id.to_string(),
++                    "offline-window".into(),
++                ),
++                crate::responses_request_format::ResponsesGenerationOptions {
++                    effort: None,
++                    summary: ReasoningSummary::None,
++                    service_tier: None,
++                },
++                crate::responses_request_format::ResponsesOutputBudget {
++                    max_output_tokens: output,
++                    model_output_limit: output,
++                },
++                credentials,
++            )
++            .unwrap()
++    }
++
++    fn assert_refusal(result: Result<PublicApiCountObservation<'_>, ApiError>, message: &str) {
++        match result {
++            Err(ApiError::InvalidRequest { message: actual }) => assert_eq!(actual, message),
++            _ => panic!("expected bounded offline refusal"),
++        }
++    }
++
++    #[tokio::test]
++    async fn count_refuses_foreign_client_and_credential_owner_before_transport() {
++        let (models, limits) = limits().await;
++        let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-count"));
++        let credentials = auth.capture_cached_api_key_credentials().unwrap();
++        let original = client(Arc::clone(&auth));
++        let capture = capture(&original, &credentials, limits.model_info(), 16);
++        let foreign = client(auth);
++        assert_refusal(
++            foreign
++                .count_captured_public_api_request(&capture, &credentials, &models, &limits)
++                .await,
++            "count capture no longer matches ordinary selection",
++        );
++        let other_auth =
++            AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-count"));
++        let other_credentials = other_auth.capture_cached_api_key_credentials().unwrap();
++        assert_refusal(
++            original
++                .count_captured_public_api_request(&capture, &other_credentials, &models, &limits)
++                .await,
++            "count capture no longer matches ordinary selection",
++        );
++    }
++
++    #[tokio::test]
++    async fn count_refuses_full_model_drift_and_excess_output_before_transport() {
++        let (models, limits) = limits().await;
++        let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-count"));
++        let credentials = auth.capture_cached_api_key_credentials().unwrap();
++        let client = client(auth);
++        let mut changed = limits.model_info().clone();
++        changed.description = Some("changed full model metadata".into());
++        for capture in [
++            capture(&client, &credentials, &changed, 16),
++            capture(
++                &client,
++                &credentials,
++                limits.model_info(),
++                limits.ceilings().maximum_output_tokens + 1,
++            ),
++        ] {
++            assert_refusal(
++                client
++                    .count_captured_public_api_request(&capture, &credentials, &models, &limits)
++                    .await,
++                "count capture does not match native model limits",
++            );
++        }
++    }
++
++    #[tokio::test]
++    async fn capture_retains_native_default_provider_headers_without_constructing_network_transport()
++     {
++        let (_models, limits) = limits().await;
++        let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-count"));
++        let credentials = auth.capture_cached_api_key_credentials().unwrap();
++        let client = client(auth);
++        let capture = capture(&client, &credentials, limits.model_info(), 16);
++        assert_eq!(
++            capture
++                .provider_capture()
++                .unwrap()
++                .provider()
++                .headers
++                .get("version")
++                .unwrap(),
++            env!("CARGO_PKG_VERSION")
++        );
++        assert!(capture.model_info().use_responses_lite);
++        assert!(capture.matches_client_selection(&client, &credentials));
++        // Do not invoke the real count factory's success path in this offline
++        // fixture: only the separate in-memory endpoint test executes count.
++    }
++
++    #[tokio::test]
++    async fn count_refuses_logout_of_original_credentials_before_transport() -> anyhow::Result<()> {
++        let (models, limits) = limits().await;
++        let home = tempfile::TempDir::new()?;
++        let auth = AuthManager::from_auth_for_testing_with_home(
++            CodexAuth::from_api_key("offline-count"),
++            home.path().to_path_buf(),
++        );
++        let credentials = auth.capture_cached_api_key_credentials().unwrap();
++        let client = client(Arc::clone(&auth));
++        let capture = capture(&client, &credentials, limits.model_info(), 16);
++        auth.logout().await?;
++        assert_refusal(
++            client
++                .count_captured_public_api_request(&capture, &credentials, &models, &limits)
++                .await,
++            "count capture no longer matches ordinary selection",
++        );
++        Ok(())
++    }
++
++    // This transport contains no HTTP client, socket, delegate or fallback. It
++    // exercises the native count endpoint in memory, not the factory's success
++    // path: the factory deliberately has no transport injection seam.
++    #[derive(Clone, Default)]
++    struct SyntheticTransport(Arc<Mutex<Vec<Request>>>);
++    impl HttpTransport for SyntheticTransport {
++        async fn execute(&self, _request: Request) -> Result<Response, TransportError> {
++            panic!("count must use execute_once")
++        }
++        async fn execute_once(&self, request: Request) -> Result<Response, TransportError> {
++            self.0.lock().unwrap().push(request);
++            Ok(Response {
++                status: http::StatusCode::OK,
++                headers: http::HeaderMap::new(),
++                body: br#"{"object":"response.input_tokens","input_tokens":7}"#
++                    .to_vec()
++                    .into(),
++            })
++        }
++        async fn stream(&self, _request: Request) -> Result<StreamResponse, TransportError> {
++            panic!("count must never stream")
++        }
++    }
++
++    #[tokio::test]
++    async fn synthetic_transport_counts_retained_projection_without_network_or_turn() {
++        let (_models, limits) = limits().await;
++        let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-count"));
++        let credentials = auth.capture_cached_api_key_credentials().unwrap();
++        let owner = client(auth);
++        let capture = capture(&owner, &credentials, limits.model_info(), 16);
++        // The endpoint uses the exact provider captured from the real original
++        // native client. Only HTTP transport and bearer bytes are synthetic.
++        let provider = capture.provider_capture().unwrap().provider().clone();
++        let transport = SyntheticTransport::default();
++        let client = ApiResponsesClient::new(
++            transport.clone(),
++            provider,
++            Arc::new(BearerAuthProvider::new("offline-count".into())),
++        );
++        assert_eq!(
++            client.count_input_tokens(capture.request()).await.unwrap(),
++            7
++        );
++        let requests = transport.0.lock().unwrap();
++        assert_eq!(requests.len(), 1);
++        assert_eq!(
++            requests[0].headers.get("version").unwrap(),
++            env!("CARGO_PKG_VERSION")
++        );
++        assert_eq!(
++            (&requests[0].method, requests[0].url.as_str()),
++            (
++                &http::Method::POST,
++                "https://api.openai.com/v1/responses/input_tokens"
++            )
++        );
++        assert_eq!(
++            serde_json::from_slice::<serde_json::Value>(
++                &requests[0].prepare_body_for_send().unwrap().body_bytes()
++            )
++            .unwrap(),
++            *capture.request().count_body()
++        );
++        assert_eq!(
++            requests[0].headers[http::header::AUTHORIZATION],
++            "Bearer offline-count"
++        );
++        assert!(!requests[0].headers.contains_key(http::header::COOKIE));
++    }
++}
+diff --git a/codex-rs/core/src/client_public_responses_capture.rs b/codex-rs/core/src/client_public_responses_capture.rs
+index 7d6aed5..7329632 100644
+--- a/codex-rs/core/src/client_public_responses_capture.rs
++++ b/codex-rs/core/src/client_public_responses_capture.rs
+@@ -26,7 +26,7 @@ use crate::responses_request_format::ResolvedResponsesRequestContext;
+ use crate::responses_request_format::ResponsesGenerationOptions;
+ use crate::responses_request_format::ResponsesOutputBudget;
+ use crate::responses_request_format::capture_finalized_responses_request;
+-use crate::responses_request_format::format_responses_request;
++use crate::responses_request_format::format_public_responses_request;
+ use crate::responses_request_format::normalize_request_copy;
+ 
+ /// Owner-captured ordinary inputs, before the explicit public metadata projection.
+@@ -54,6 +54,14 @@ pub(crate) struct PublicApiResponsesCaptureInputs {
+ pub(crate) struct CapturedPublicApiResponsesRequest {
+     request: FrozenResponsesRequest,
+     observations: CodexResponsesMetadata,
++    model_info: ModelInfo,
++    provider: Option<Arc<codex_model_provider_info::CapturedApiProvider>>,
++    // Retain the real client allocation and atomically observed credential revisions.
++    // Pure formatting has no owner and cannot be counted as an ordinary capture.
++    ordinary_owner: Option<(
++        Arc<super::ModelClientState>,
++        codex_login::auth::AuthChangeState,
++    )>,
+ }
+ 
+ #[cfg_attr(
+@@ -68,6 +76,44 @@ impl CapturedPublicApiResponsesRequest {
+     pub(crate) fn observations(&self) -> &CodexResponsesMetadata {
+         &self.observations
+     }
++
++    pub(super) fn model_info(&self) -> &ModelInfo {
++        &self.model_info
++    }
++
++    pub(super) fn provider_capture(
++        &self,
++    ) -> Option<&codex_model_provider_info::CapturedApiProvider> {
++        self.provider.as_deref()
++    }
++
++    /// Observation check for the count factory only. Never use this returned
++    /// boolean as admission/consume authority; those need the actual owner locks.
++    pub(super) fn matches_client_selection(
++        &self,
++        client: &super::ModelClient,
++        credentials: &codex_login::auth::CapturedApiKeyCredentials,
++    ) -> bool {
++        let Some((owner, change)) = &self.ordinary_owner else {
++            return false;
++        };
++        if !Arc::ptr_eq(owner, &client.state)
++            || !self
++                .provider
++                .as_ref()
++                .is_some_and(|provider| provider.sources_match_current_observation())
++        {
++            return false;
++        }
++        let Ok(manager) = client.public_api_credential_owner() else {
++            return false;
++        };
++        manager
++            .with_current_api_key_credentials(credentials, |_, _| {
++                *manager.auth_change_state_receiver().borrow() == *change
++            })
++            .unwrap_or(false)
++    }
+ }
+ 
+ /// Uses the actual ordinary formatter and normalization on already-captured data.
+@@ -95,7 +141,7 @@ pub(crate) fn capture_public_api_responses_request(
+     if !contributors.is_empty() {
+         return Err(unsupported("unresolved request contributors"));
+     }
+-    if !context.is_openai || context.is_amazon_bedrock || model.use_responses_lite {
++    if !context.is_openai || context.is_amazon_bedrock || !model.supported_in_api {
+         return Err(unsupported("unsupported request formatting family"));
+     }
+     if prompt.cyber_access_program.is_some() {
+@@ -138,13 +184,16 @@ pub(crate) fn capture_public_api_responses_request(
+     // metadata below. Public metadata is NOT an alias for client_metadata. Item
+     // observation removal uses ordinary InternalMetadataPolicy::Omit unchanged;
+     // all model-visible input and selected generation settings stay with the
+-    // ordinary formatter. In particular, internal stream controls are not cleared.
++    // same formatter under the actual public HTTP encoding policy. Model catalog
++    // Lite preferences remain in the retained full row, while every wire-sensitive
++    // branch (including image normalization) uses that one public encoding choice.
++    // Internal stream controls are not cleared.
+     let public_context = ResolvedResponsesRequestContext {
+         client_metadata: HashMap::new(),
+         internal_metadata: InternalMetadataPolicy::Omit,
+         ..context
+     };
+-    let mut request = format_responses_request(prompt, model, &public_context, generation)
++    let mut request = format_public_responses_request(prompt, model, &public_context, generation)
+         .map_err(|_| unsupported("ordinary request formatting failed"))?;
+     normalize_request_copy(&mut request.input, normalization);
+     // Omit must have settled optional internal observations before the shared
+@@ -165,6 +214,9 @@ pub(crate) fn capture_public_api_responses_request(
+     Ok(CapturedPublicApiResponsesRequest {
+         request,
+         observations: metadata,
++        model_info: model.clone(),
++        provider: None,
++        ordinary_owner: None,
+     })
+ }
+ 
+@@ -190,13 +242,14 @@ impl super::ModelClient {
+         credentials: &codex_login::auth::CapturedApiKeyCredentials,
+     ) -> Result<CapturedPublicApiResponsesRequest, ApiError> {
+         let manager = self.public_api_credential_owner()?;
++        let provider = Arc::new(self.capture_public_api_provider()?);
+         // Resolve immutable ordinary inputs before entering the credential lock;
+         // no provider trait callback or auth reentry runs inside that closure.
+         let context = self
+             .resolved_responses_request_context(model, &metadata, /*include_internal*/ true);
+         manager
+             .with_current_api_key_credentials(credentials, |_, _| {
+-                capture_public_api_responses_request(
++                let mut captured = capture_public_api_responses_request(
+                     prompt,
+                     model,
+                     PublicApiResponsesCaptureInputs {
+@@ -209,11 +262,64 @@ impl super::ModelClient {
+                         },
+                     },
+                     &self.request_contributors,
+-                )
++                )?;
++                if !provider.sources_match_current_observation() {
++                    return Err(unsupported("provider headers changed during capture"));
++                }
++                captured.provider = Some(provider);
++                captured.ordinary_owner = Some((
++                    Arc::clone(&self.state),
++                    *manager.auth_change_state_receiver().borrow(),
++                ));
++                Ok(captured)
+             })
+             .ok_or_else(|| unsupported("ordinary cached credential ownership changed"))?
+     }
+ 
++    /// Capture the original native provider conversion once, including its actual
++    /// version and selected project/organization environment header sources. The
++    /// same private result travels with the body into count and frozen dispatch.
++    fn capture_public_api_provider(
++        &self,
++    ) -> Result<codex_model_provider_info::CapturedApiProvider, ApiError> {
++        if self.state.beta_features_header.is_some()
++            || (self.state.include_attestation && self.state.attestation_provider.is_some())
++        {
++            return Err(unsupported("unresolved public API header contributors"));
++        }
++        let captured = self
++            .state
++            .provider
++            .info()
++            .capture_api_provider(Some(codex_protocol::auth::AuthMode::ApiKey))
++            .map_err(|_| unsupported("selected provider header capture"))?;
++        let provider = captured.provider();
++        if provider.base_url.trim_end_matches('/') != "https://api.openai.com/v1"
++            || provider
++                .query_params
++                .as_ref()
++                .is_some_and(|params| !params.is_empty())
++            || provider.headers.keys().any(|name| {
++                !matches!(
++                    name.as_str(),
++                    "version"
++                        | "openai-project"
++                        | "openai-organization"
++                        | "user-agent"
++                        | "traceparent"
++                        | "tracestate"
++                )
++            })
++            || provider
++                .headers
++                .get("version")
++                .is_some_and(|value| value != env!("CARGO_PKG_VERSION"))
++        {
++            return Err(unsupported("selected public API route or headers"));
++        }
++        Ok(captured)
++    }
++
+     // ModelClient::new constructs ConfiguredModelProvider from immutable provider
+     // info and an immutable AuthManager Arc. Share its exact ordinary route gate
+     // before formatting or acquiring a guarded pending claim; this is not model,
+diff --git a/codex-rs/core/src/client_public_responses_capture_tests.rs b/codex-rs/core/src/client_public_responses_capture_tests.rs
+index 2d70bb5..eccfe3d 100644
+--- a/codex-rs/core/src/client_public_responses_capture_tests.rs
++++ b/codex-rs/core/src/client_public_responses_capture_tests.rs
+@@ -206,7 +206,88 @@ fn public_policy_refuses_contributors_and_unsupported_stream_controls_without_cl
+     selected.context.concurrent_reasoning_summaries_enabled = true;
+     selected.generation.summary = ReasoningSummary::Auto;
+     assert!(capture_public_api_responses_request(&prompt(), &model(), selected, &[]).is_err());
+-    let mut lite = model();
+-    lite.use_responses_lite = true;
+-    assert!(capture_public_api_responses_request(&prompt(), &lite, inputs(), &[]).is_err());
++    let mut unsupported = model();
++    unsupported.supported_in_api = false;
++    assert!(capture_public_api_responses_request(&prompt(), &unsupported, inputs(), &[]).is_err());
++}
++
++#[test]
++fn public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row() {
++    let mut selected_model = model();
++    selected_model.use_responses_lite = true;
++    let original_model = selected_model.clone();
++    let selected_prompt = prompt();
++    let original_prompt = selected_prompt.clone();
++    let native_inputs = inputs();
++    let native = crate::responses_request_format::format_responses_request(
++        &selected_prompt,
++        &selected_model,
++        &native_inputs.context,
++        native_inputs.generation,
++    )
++    .unwrap();
++    let native = serde_json::to_value(native).unwrap();
++    assert_eq!(native["instructions"], json!(""));
++    assert_eq!(native["input"][0]["type"], json!("additional_tools"));
++    assert_eq!(native["parallel_tool_calls"], json!(false));
++    assert_eq!(native["reasoning"]["context"], json!("all_turns"));
++    let public =
++        capture_public_api_responses_request(&selected_prompt, &selected_model, inputs(), &[])
++            .unwrap();
++    let body = public.request().body();
++    assert_eq!(
++        body["instructions"],
++        json!(selected_prompt.base_instructions.text)
++    );
++    assert_eq!(body["tools"][0]["name"], json!("ReadKnowledge"));
++    assert_eq!(
++        body["input"][0]["content"][0]["text"],
++        json!("retained explicit prompt")
++    );
++    assert_eq!(body["input"][0]["content"][1]["detail"], json!("high"));
++    assert_eq!(body["parallel_tool_calls"], json!(true));
++    assert!(body["reasoning"].get("context").is_none());
++    assert_eq!(
++        body["text"]["format"]["schema"],
++        original_prompt.output_schema.unwrap()
++    );
++    assert_eq!(public.model_info(), &original_model);
++    assert_eq!(selected_model, original_model);
++    assert_eq!(selected_prompt.input, original_prompt.input);
++    assert_eq!(&*selected_prompt.tools, &*original_prompt.tools);
++    let restored =
++        FrozenResponsesRequest::from_encoded(public.request().encoded_body(), 128).unwrap();
++    assert_eq!(restored.body(), public.request().body());
++    assert_eq!(restored.count_body(), public.request().count_body());
++}
++
++#[test]
++fn bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture() {
++    let selected_model = codex_models_manager::bundled_models_response()
++        .unwrap()
++        .models
++        .into_iter()
++        .find(|model| model.slug == "gpt-6-luna")
++        .unwrap();
++    let original = selected_model.clone();
++    assert!(selected_model.use_responses_lite);
++    assert!(selected_model.supported_in_api);
++    let captured =
++        capture_public_api_responses_request(&prompt(), &selected_model, inputs(), &[]).unwrap();
++    assert_eq!(captured.model_info(), &original);
++    assert_eq!(captured.request().body()["model"], json!("gpt-6-luna"));
++    assert_eq!(
++        captured.request().body()["instructions"],
++        json!("retained instructions and brief")
++    );
++    assert_eq!(
++        captured.request().body()["tools"][0]["name"],
++        json!("ReadKnowledge")
++    );
++    assert!(
++        captured.request().body()["reasoning"]
++            .get("context")
++            .is_none()
++    );
++    assert_eq!(selected_model, original);
+ }
+diff --git a/codex-rs/core/src/responses_request_format.rs b/codex-rs/core/src/responses_request_format.rs
+index 7dc8805..1c40da1 100644
+--- a/codex-rs/core/src/responses_request_format.rs
++++ b/codex-rs/core/src/responses_request_format.rs
+@@ -7,6 +7,7 @@
+ //! unsupported native semantics remain a refusal.
+ 
+ use crate::client_common::Prompt;
++use crate::client_common::ResponsesWireFormat;
+ use crate::context::BaseInstructionsFragment;
+ use crate::context::ContextualUserFragment;
+ use codex_api::ApiError;
+@@ -128,14 +129,48 @@ pub(crate) fn format_responses_request(
+     context: &ResolvedResponsesRequestContext,
+     options: ResponsesGenerationOptions,
+ ) -> Result<ResponsesApiRequest> {
+-    let mut input = prompt.get_formatted_input_for_request(model_info);
++    format_responses_request_for_wire(
++        prompt,
++        model_info,
++        context,
++        options,
++        ResponsesWireFormat::ModelDefault,
++    )
++}
++
++/// The public route owns this encoding selection. The original model row remains
++/// intact for limits/currentness; neither a caller-supplied replacement catalog
++/// nor a modified `use_responses_lite` flag establishes public API eligibility.
++pub(crate) fn format_public_responses_request(
++    prompt: &Prompt,
++    model_info: &ModelInfo,
++    context: &ResolvedResponsesRequestContext,
++    options: ResponsesGenerationOptions,
++) -> Result<ResponsesApiRequest> {
++    format_responses_request_for_wire(
++        prompt,
++        model_info,
++        context,
++        options,
++        ResponsesWireFormat::PublicHttp,
++    )
++}
++
++fn format_responses_request_for_wire(
++    prompt: &Prompt,
++    model_info: &ModelInfo,
++    context: &ResolvedResponsesRequestContext,
++    options: ResponsesGenerationOptions,
++    wire: ResponsesWireFormat,
++) -> Result<ResponsesApiRequest> {
++    let mut input = prompt.get_formatted_input_for_wire(model_info, wire);
+     if !context.reasoning_effort_override_enabled {
+         // Unsupported models and disabled overrides must also accept saved history.
+         // Filter only the request copy; persisted history remains unchanged.
+         input.retain(|item| !matches!(item, ResponseItem::ConfigurationUpdate { .. }));
+     }
+     let is_openai = context.is_openai;
+-    let (instructions, tools) = if model_info.use_responses_lite {
++    let (instructions, tools) = if wire.uses_lite(model_info) {
+         // These prompt-only items are rebuilt on every request. Hash their visible payloads
+         // within the thread so retries and resumed sessions preserve their identity.
+         let prefix_namespace = Uuid::new_v5(
+@@ -185,7 +220,7 @@ pub(crate) fn format_responses_request(
+             }
+         }
+     }
+-    let reasoning = build_reasoning(model_info, options.effort, options.summary);
++    let reasoning = build_reasoning(model_info, options.effort, options.summary, wire);
+     let stream_options = (context.concurrent_reasoning_summaries_enabled
+         && is_openai
+         && reasoning.summary.is_some())
+@@ -222,7 +257,7 @@ pub(crate) fn format_responses_request(
+         input,
+         tools,
+         tool_choice: "auto".to_string(),
+-        parallel_tool_calls: prompt.parallel_tool_calls && !model_info.use_responses_lite,
++        parallel_tool_calls: prompt.parallel_tool_calls && !wire.uses_lite(model_info),
+         reasoning: Some(reasoning),
+         store: false,
+         stream: true,
+@@ -241,6 +276,7 @@ fn build_reasoning(
+     model_info: &ModelInfo,
+     effort: Option<ReasoningEffortConfig>,
+     summary: ReasoningSummaryConfig,
++    wire: ResponsesWireFormat,
+ ) -> Reasoning {
+     Reasoning {
+         effort: effort
+@@ -251,8 +287,8 @@ fn build_reasoning(
+             .then_some(summary),
+         // When Responses Lite is disabled, omit context so Responses uses the default,
+         // which is currently `current_turn`.
+-        context: model_info
+-            .use_responses_lite
++        context: wire
++            .uses_lite(model_info)
+             .then_some(ReasoningContext::AllTurns),
+     }
+ }
+diff --git a/codex-rs/core/src/session/initial_context_render.rs b/codex-rs/core/src/session/initial_context_render.rs
+new file mode 100644
+index 0000000..08242e4
+--- /dev/null
++++ b/codex-rs/core/src/session/initial_context_render.rs
+@@ -0,0 +1,305 @@
++//! Pure final rendering shared by ordinary initial context and pre-session assembly.
++//!
++//! The renderer consumes plain resolved native fragments and invokes no extension
++//! callbacks. Ordinary WorldState collection is separate and may invoke callbacks;
++//! it is not a pre-session-safe read. Neither result proves source currentness or
++//! admission. Fresh source capture still needs its actual closed owner guards.
++use crate::context::ContextualUserFragment;
++use crate::context::GuardianPolicy;
++use crate::context::ManagedDeveloperInstructions;
++use crate::context::ModelSwitchInstructions;
++use crate::context::MultiAgentRoleInstructions;
++use crate::context::RecommendedPluginsInstructions;
++use crate::context::world_state::WorldState;
++use codex_context_fragments::RenderedFragment;
++use codex_protocol::models::ResponseItem;
++use codex_protocol::protocol::MULTI_AGENT_MODE_OPEN_TAG;
++
++#[derive(Clone, Debug)]
++enum InitialFragmentPlacement {
++    ModelSwitch,
++    MultiAgentMode,
++    ManagedDeveloperInstructions,
++    SeparateDeveloper,
++    Developer,
++    User,
++}
++
++/// Immutable fragment data only. No WorldState, extension closure or trait object
++/// survives into pure rendering. This is not a source/currentness witness.
++#[derive(Clone, Debug)]
++pub(crate) struct ResolvedInitialWorldState(Vec<(InitialFragmentPlacement, RenderedFragment)>);
++
++/// Ordinary source collection, NOT a pre-session-safe read: WorldState::render_full
++/// can invoke extension render callbacks. Fresh preparation must establish closed
++/// source ownership before materializing any such state; it cannot borrow a live
++/// Session's returned fragments as that proof.
++pub(crate) fn collect_initial_world_state(world_state: &WorldState) -> ResolvedInitialWorldState {
++    let fragments = world_state
++        .render_full()
++        .into_iter()
++        .filter_map(|fragment| {
++            let placement = match fragment.role() {
++                "developer"
++                    if fragment.markers().0 == ModelSwitchInstructions::type_markers().0 =>
++                {
++                    InitialFragmentPlacement::ModelSwitch
++                }
++                "developer" if fragment.markers().0 == MULTI_AGENT_MODE_OPEN_TAG => {
++                    InitialFragmentPlacement::MultiAgentMode
++                }
++                "developer"
++                    if fragment.markers().0 == ManagedDeveloperInstructions::type_markers().0 =>
++                {
++                    InitialFragmentPlacement::ManagedDeveloperInstructions
++                }
++                "developer"
++                    if fragment.markers().0 == MultiAgentRoleInstructions::type_markers().0 =>
++                {
++                    InitialFragmentPlacement::SeparateDeveloper
++                }
++                "developer"
++                    if fragment.requires_separate_message() && fragment.markers().0.is_empty() =>
++                {
++                    InitialFragmentPlacement::SeparateDeveloper
++                }
++                "developer" => InitialFragmentPlacement::Developer,
++                "user" => InitialFragmentPlacement::User,
++                _ => return None,
++            };
++            Some((placement, fragment.render_fragment()))
++        })
++        .collect();
++    ResolvedInitialWorldState(fragments)
++}
++
++pub(crate) struct InitialContextRenderInput<'a> {
++    pub world_state: ResolvedInitialWorldState,
++    pub developer_sections: Vec<RenderedFragment>,
++    pub contextual_user_sections: Vec<RenderedFragment>,
++    pub separate_developer_sections: Vec<RenderedFragment>,
++    pub recommended_plugins: Option<RecommendedPluginsInstructions>,
++    pub separate_guardian_developer_message: bool,
++    pub developer_instructions: Option<&'a str>,
++    pub turn_id: &'a str,
++}
++
++pub(crate) fn render_initial_context(input: InitialContextRenderInput<'_>) -> Vec<ResponseItem> {
++    let InitialContextRenderInput {
++        world_state,
++        mut developer_sections,
++        mut contextual_user_sections,
++        mut separate_developer_sections,
++        recommended_plugins,
++        separate_guardian_developer_message,
++        developer_instructions,
++        turn_id,
++    } = input;
++    // Render the active mode after the usage hint so it can override that hint.
++    let mut initial_multi_agent_mode = None;
++    let mut managed_developer_instructions = None;
++    for (placement, fragment) in world_state.0 {
++        match placement {
++            InitialFragmentPlacement::ModelSwitch => developer_sections.insert(0, fragment),
++            InitialFragmentPlacement::MultiAgentMode => initial_multi_agent_mode = Some(fragment),
++            InitialFragmentPlacement::ManagedDeveloperInstructions => {
++                managed_developer_instructions = Some(fragment)
++            }
++            InitialFragmentPlacement::SeparateDeveloper => {
++                separate_developer_sections.push(fragment)
++            }
++            InitialFragmentPlacement::Developer => developer_sections.push(fragment),
++            InitialFragmentPlacement::User => contextual_user_sections.push(fragment),
++        }
++    }
++
++    if let Some(recommended_plugins) = recommended_plugins {
++        developer_sections.push(recommended_plugins.render_fragment());
++    }
++
++    let mut items = Vec::with_capacity(4);
++    if let Some(developer_message) =
++        crate::context_manager::updates::build_rendered_message(developer_sections)
++    {
++        items.push(developer_message);
++    }
++    for section in separate_developer_sections {
++        if let Some(developer_message) =
++            crate::context_manager::updates::build_rendered_message(vec![section])
++        {
++            items.push(developer_message);
++        }
++    }
++    if let Some(initial_multi_agent_mode) = initial_multi_agent_mode
++        && let Some(message) =
++            crate::context_manager::updates::build_rendered_message(vec![initial_multi_agent_mode])
++    {
++        items.push(message);
++    }
++    if let Some(contextual_user_message) =
++        crate::context_manager::updates::build_rendered_message(contextual_user_sections)
++    {
++        items.push(contextual_user_message);
++    }
++    // Emit the guardian policy prompt as a separate developer item so the guardian
++    // subagent sees a distinct, easy-to-audit instruction block.
++    if separate_guardian_developer_message
++        && let Some(developer_instructions) = developer_instructions
++        && !developer_instructions.is_empty()
++        && let Some(guardian_developer_message) =
++            crate::context_manager::updates::build_rendered_message(vec![
++                GuardianPolicy::new(developer_instructions).render_fragment(),
++            ])
++    {
++        items.push(guardian_developer_message);
++    }
++    if let Some(managed_developer_instructions) = managed_developer_instructions
++        && let Some(message) = crate::context_manager::updates::build_rendered_message(vec![
++            managed_developer_instructions,
++        ])
++    {
++        items.push(message);
++    }
++    // New context windows and compaction install these items directly into replacement history.
++    for item in &mut items {
++        item.set_turn_id_if_missing(turn_id);
++    }
++    items
++}
++
++#[cfg(test)]
++mod tests {
++    use super::InitialContextRenderInput;
++    use super::collect_initial_world_state;
++    use super::render_initial_context;
++    use crate::context::ContextualUserFragment;
++    use crate::context::DeveloperInstructions;
++    use crate::context::GuardianPolicy;
++    use crate::context::UserInstructions;
++    use crate::context::world_state::ModelInstructionsState;
++    use crate::context::world_state::WorldState;
++    use codex_protocol::models::ContentItem;
++    use codex_protocol::models::ResponseItem;
++    use pretty_assertions::assert_eq;
++
++    fn text(item: &ResponseItem) -> Vec<&str> {
++        let ResponseItem::Message { content, .. } = item else {
++            panic!("Expected native context message");
++        };
++        content
++            .iter()
++            .map(|content| match content {
++                ContentItem::InputText { text } => text.as_str(),
++                _ => panic!("Expected native instruction text"),
++            })
++            .collect()
++    }
++
++    #[test]
++    fn shared_render_preserves_native_order_knowledge_user_bytes_and_isolated_policy() {
++        let mut world_state = WorldState::default();
++        world_state.add_section(ModelInstructionsState::new(
++            "gpt-6-luna",
++            Some("prior-model"),
++            "actual native model instructions".into(),
++        ));
++        let knowledge = "Selected Knowledge\n  retained whitespace λ\n";
++        let items = render_initial_context(InitialContextRenderInput {
++            world_state: collect_initial_world_state(&world_state),
++            developer_sections: vec![DeveloperInstructions::new(knowledge).render_fragment()],
++            contextual_user_sections: vec![
++                UserInstructions {
++                    directory: Some("/retained/workspace".into()),
++                    text: "Actual selected project instructions".into(),
++                }
++                .render_fragment(),
++            ],
++            separate_developer_sections: vec![
++                GuardianPolicy::new("separate native hint").render_fragment(),
++            ],
++            recommended_plugins: None,
++            separate_guardian_developer_message: true,
++            developer_instructions: Some("isolated native guardian policy"),
++            turn_id: "original-turn",
++        });
++        let roles: Vec<_> = items
++            .iter()
++            .map(|item| match item {
++                ResponseItem::Message { role, .. } => role.as_str(),
++                _ => panic!("Expected native context message"),
++            })
++            .collect();
++        assert_eq!(roles, ["developer", "developer", "user", "developer"]);
++        let first = text(&items[0]);
++        std::assert!(first[0].contains("actual native model instructions"));
++        assert_eq!(first[1], knowledge);
++        assert_eq!(text(&items[1]), ["separate native hint"]);
++        std::assert!(text(&items[2])[0].contains("Actual selected project instructions"));
++        assert_eq!(text(&items[3]), ["isolated native guardian policy"]);
++        std::assert!(
++            items
++                .iter()
++                .all(|item| item.turn_id() == Some("original-turn"))
++        );
++    }
++
++    #[test]
++    fn shared_render_does_not_invent_context_or_a_native_turn_for_empty_inputs() {
++        let world_state = WorldState::default();
++        let items = render_initial_context(InitialContextRenderInput {
++            world_state: collect_initial_world_state(&world_state),
++            developer_sections: Vec::new(),
++            contextual_user_sections: Vec::new(),
++            separate_developer_sections: Vec::new(),
++            recommended_plugins: None,
++            separate_guardian_developer_message: false,
++            developer_instructions: Some("ordinary collector already owns this fragment"),
++            turn_id: "",
++        });
++        std::assert!(items.is_empty());
++    }
++    #[test]
++    fn pure_render_cannot_reenter_an_actual_extension_world_state_callback() {
++        use codex_extension_api::RenderedWorldStateFragment;
++        use codex_extension_api::WorldStateSectionContribution;
++        use std::sync::Arc;
++        use std::sync::atomic::AtomicUsize;
++        use std::sync::atomic::Ordering;
++
++        let calls = Arc::new(AtomicUsize::new(0));
++        let observed = Arc::clone(&calls);
++        let mut world_state = WorldState::default();
++        world_state.add_extension_section(WorldStateSectionContribution::new(
++            "initial_render_test",
++            serde_json::json!({"version": 1}),
++            move |_| {
++                observed.fetch_add(1, Ordering::SeqCst);
++                Some(RenderedWorldStateFragment::new(
++                    "developer",
++                    ("", ""),
++                    "resolved extension instructions",
++                ))
++            },
++        ));
++        let resolved = collect_initial_world_state(&world_state);
++        assert_eq!(calls.load(Ordering::SeqCst), 1);
++        let render = |world_state| {
++            render_initial_context(InitialContextRenderInput {
++                world_state,
++                developer_sections: Vec::new(),
++                contextual_user_sections: Vec::new(),
++                separate_developer_sections: Vec::new(),
++                recommended_plugins: None,
++                separate_guardian_developer_message: false,
++                developer_instructions: None,
++                turn_id: "",
++            })
++        };
++        let first = render(resolved.clone());
++        let second = render(resolved);
++        assert_eq!(calls.load(Ordering::SeqCst), 1);
++        assert_eq!(first, second);
++        assert_eq!(text(&first[0]), ["resolved extension instructions"]);
++        std::assert!(first[0].turn_id().is_none());
++    }
++}
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 4c3226a..1e82b35 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -24,10 +24,6 @@ use crate::config::ManagedFeatures;
+ use crate::config::resolve_tool_suggest_config_from_layer_stack;
+ use crate::context::ContextualUserFragment;
+ use crate::context::DeveloperInstructions;
+-use crate::context::GuardianPolicy;
+-use crate::context::ManagedDeveloperInstructions;
+-use crate::context::ModelSwitchInstructions;
+-use crate::context::MultiAgentRoleInstructions;
+ use crate::context::NetworkRuleSaved;
+ use crate::context::RecommendedPluginsInstructions;
+ use crate::context::world_state::WorldState;
+@@ -136,7 +132,6 @@ use codex_protocol::protocol::HistoryPosition;
+ use codex_protocol::protocol::InterAgentCommunication;
+ use codex_protocol::protocol::ItemCompletedEvent;
+ use codex_protocol::protocol::ItemStartedEvent;
+-use codex_protocol::protocol::MULTI_AGENT_MODE_OPEN_TAG;
+ use codex_protocol::protocol::MultiAgentVersion;
+ use codex_protocol::protocol::RawResponseItemEvent;
+ use codex_protocol::protocol::SessionSource;
+@@ -235,6 +230,7 @@ mod extension_interruption;
+ pub(crate) mod extension_metrics;
+ mod guardian_checkpoint;
+ mod handlers;
++pub(crate) mod initial_context_render;
+ mod inject;
+ mod reasoning_effort;
+ mod submission;
+@@ -4308,7 +4304,7 @@ impl Session {
+     ) -> Vec<ResponseItem> {
+         let turn_context = step_context.turn.as_ref();
+         let mut developer_sections = Vec::<RenderedFragment>::with_capacity(8);
+-        let mut contextual_user_sections = Vec::<RenderedFragment>::with_capacity(2);
++        let contextual_user_sections = Vec::<RenderedFragment>::with_capacity(2);
+         let mut separate_developer_sections = Vec::<RenderedFragment>::new();
+         let mut context_window_hints = Vec::new();
+         let (session_source, auto_compact_window_ids) = {
+@@ -4448,97 +4444,20 @@ impl Session {
+                 .render_fragment(),
+             );
+         }
+-        // Render the active mode after the usage hint so it can override that hint.
+-        let mut initial_multi_agent_mode = None;
+-        let mut managed_developer_instructions = None;
+-        for fragment in world_state.render_full() {
+-            match fragment.role() {
+-                "developer"
+-                    if fragment.markers().0 == ModelSwitchInstructions::type_markers().0 =>
+-                {
+-                    // New-model instructions must precede the rest of the developer context.
+-                    developer_sections.insert(0, fragment.render_fragment());
+-                }
+-                "developer" if fragment.markers().0 == MULTI_AGENT_MODE_OPEN_TAG => {
+-                    initial_multi_agent_mode = Some(fragment);
+-                }
+-                "developer"
+-                    if fragment.markers().0 == ManagedDeveloperInstructions::type_markers().0 =>
+-                {
+-                    managed_developer_instructions = Some(fragment);
+-                }
+-                "developer"
+-                    if fragment.markers().0 == MultiAgentRoleInstructions::type_markers().0 =>
+-                {
+-                    separate_developer_sections.push(fragment.render_fragment());
+-                }
+-                "developer"
+-                    if fragment.requires_separate_message() && fragment.markers().0.is_empty() =>
+-                {
+-                    separate_developer_sections.push(fragment.render_fragment());
+-                }
+-                "developer" => developer_sections.push(fragment.render_fragment()),
+-                "user" => contextual_user_sections.push(fragment.render_fragment()),
+-                _ => {}
+-            }
+-        }
+-
+-        if let Some(recommended_plugins) = recommended_plugin_candidates
+-            .as_deref()
+-            .and_then(RecommendedPluginsInstructions::from_plugins)
+-        {
+-            developer_sections.push(recommended_plugins.render_fragment());
+-        }
+-
+-        let mut items = Vec::with_capacity(4);
+-        if let Some(developer_message) =
+-            crate::context_manager::updates::build_rendered_message(developer_sections)
+-        {
+-            items.push(developer_message);
+-        }
+-        for section in separate_developer_sections {
+-            if let Some(developer_message) =
+-                crate::context_manager::updates::build_rendered_message(vec![section])
+-            {
+-                items.push(developer_message);
+-            }
+-        }
+-        if let Some(initial_multi_agent_mode) = initial_multi_agent_mode
+-            && let Some(message) = crate::context_manager::updates::build_rendered_message(vec![
+-                initial_multi_agent_mode.render_fragment(),
+-            ])
+-        {
+-            items.push(message);
+-        }
+-        if let Some(contextual_user_message) =
+-            crate::context_manager::updates::build_rendered_message(contextual_user_sections)
+-        {
+-            items.push(contextual_user_message);
+-        }
+-        // Emit the guardian policy prompt as a separate developer item so the guardian
+-        // subagent sees a distinct, easy-to-audit instruction block.
+-        if separate_guardian_developer_message
+-            && let Some(developer_instructions) = turn_context.developer_instructions.as_deref()
+-            && !developer_instructions.is_empty()
+-            && let Some(guardian_developer_message) =
+-                crate::context_manager::updates::build_rendered_message(vec![
+-                    GuardianPolicy::new(developer_instructions).render_fragment(),
+-                ])
+-        {
+-            items.push(guardian_developer_message);
+-        }
+-        if let Some(managed_developer_instructions) = managed_developer_instructions
+-            && let Some(message) = crate::context_manager::updates::build_rendered_message(vec![
+-                managed_developer_instructions.render_fragment(),
+-            ])
+-        {
+-            items.push(message);
+-        }
+-        // New context windows and compaction install these items directly into replacement history.
+-        for item in &mut items {
+-            item.set_turn_id_if_missing(&turn_context.sub_id);
+-        }
+-        items
++        initial_context_render::render_initial_context(
++            initial_context_render::InitialContextRenderInput {
++                world_state: initial_context_render::collect_initial_world_state(world_state),
++                developer_sections,
++                contextual_user_sections,
++                separate_developer_sections,
++                recommended_plugins: recommended_plugin_candidates
++                    .as_deref()
++                    .and_then(RecommendedPluginsInstructions::from_plugins),
++                separate_guardian_developer_message,
++                developer_instructions: turn_context.developer_instructions.as_deref(),
++                turn_id: &turn_context.sub_id,
++            },
++        )
+     }
+ 
+     #[tracing::instrument(level = "trace", skip_all, fields(item_count = items.len()))]
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index 643f748..da54da1 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -240,6 +240,8 @@ pub struct ThreadManager {
+     _test_codex_home_guard: Option<TempCodexHomeGuard>,
+ }
+ 
++#[path = "thread_manager/pre_session_global_instructions.rs"]
++mod pre_session_global_instructions;
+ #[path = "thread_manager/pre_session_inputs.rs"]
+ mod pre_session_inputs;
+ 
+diff --git a/codex-rs/core/src/thread_manager/pre_session_global_instructions.rs b/codex-rs/core/src/thread_manager/pre_session_global_instructions.rs
+new file mode 100644
+index 0000000..0d95d55
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/pre_session_global_instructions.rs
+@@ -0,0 +1,86 @@
++//! Original global instruction source for fresh request assembly, without a Session.
++//! This is an observed source partition. Re-reading bytes is not an atomic source
++//! lease, whole-R currentness, measurement, one-use consume or admission authority.
++#![cfg_attr(
++    not(test),
++    allow(dead_code, reason = "Fresh prepared factory is being connected.")
++)]
++use super::ThreadManager;
++use crate::PreSessionMcpSources;
++use codex_extension_api::Instructions;
++use codex_extension_api::PreSessionUserInstructionsSource;
++use codex_extension_api::UserInstructionsProvider;
++use codex_home::CodexHomeInstructionsObservation;
++use codex_home::observe_codex_home_instructions;
++use codex_protocol::error::CodexErr;
++use codex_protocol::error::Result as CodexResult;
++use std::sync::Arc;
++
++pub(crate) struct PreSessionGlobalInstructionsObservation {
++    provider: Arc<dyn UserInstructionsProvider>,
++    source: PreSessionUserInstructionsSource,
++    observation: CodexHomeInstructionsObservation,
++}
++impl PreSessionGlobalInstructionsObservation {
++    pub(crate) fn instructions(&self) -> Option<&Instructions> {
++        self.observation.instructions()
++    }
++}
++fn unavailable() -> CodexErr {
++    CodexErr::InvalidRequest("fresh global instruction source is unavailable".to_string())
++}
++impl ThreadManager {
++    /// Resolve only registration-owned native source metadata. Never call the
++    /// legacy load/cache callback or reinterpret unavailable as an empty source.
++    pub(crate) async fn observe_pre_session_global_instructions(
++        &self,
++        sources: &PreSessionMcpSources,
++    ) -> CodexResult<PreSessionGlobalInstructionsObservation> {
++        self.validate_pre_session_mcp_sources(sources)
++            .map_err(|_| unavailable())?;
++        let provider = Arc::clone(&self.state.user_instructions_provider);
++        let source = provider.pre_session_source().ok_or_else(unavailable)?;
++        let root = match &source {
++            PreSessionUserInstructionsSource::CodexHome { codex_home }
++                if *codex_home == sources.start_options().config.codex_home =>
++            {
++                codex_home.clone()
++            }
++            _ => return Err(unavailable()),
++        };
++        let observation = observe_codex_home_instructions(root)
++            .await
++            .map_err(|_| unavailable())?;
++        self.validate_pre_session_mcp_sources(sources)
++            .map_err(|_| unavailable())?;
++        if !Arc::ptr_eq(&provider, &self.state.user_instructions_provider)
++            || provider.pre_session_source().as_ref() != Some(&source)
++        {
++            return Err(unavailable());
++        }
++        Ok(PreSessionGlobalInstructionsObservation {
++            provider,
++            source,
++            observation,
++        })
++    }
++
++    /// Observation renewal only; no caller may use this result as a later native
++    /// transaction guard. All actual source owners still need ordered commitment.
++    pub(crate) async fn renew_pre_session_global_instruction_observation(
++        &self,
++        sources: &PreSessionMcpSources,
++        original: &PreSessionGlobalInstructionsObservation,
++    ) -> CodexResult<()> {
++        if !Arc::ptr_eq(&original.provider, &self.state.user_instructions_provider) {
++            return Err(unavailable());
++        }
++        let observed = self
++            .observe_pre_session_global_instructions(sources)
++            .await?;
++        if original.source != observed.source || original.observation != observed.observation {
++            return Err(unavailable());
++        }
++        Ok(())
++    }
++}
+diff --git a/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs b/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
+index 258a5fc..87a99fd 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_inputs_tests.rs
+@@ -450,3 +450,80 @@ async fn retained_source_and_isolation_do_not_reselect_manager_defaults() {
+     );
+     assert_eq!(manager.state.threads.read().await.len(), 0);
+ }
++
++#[tokio::test]
++async fn fresh_global_instruction_observation_preserves_actual_files_without_a_session_or_cache_load()
++ {
++    use codex_extension_api::UserInstructionsProvider;
++    use codex_home::CodexHomeUserInstructionsProvider;
++    let home = tempfile::TempDir::new().unwrap();
++    let mut config = config().await;
++    config.codex_home =
++        codex_utils_absolute_path::AbsolutePathBuf::try_from(home.path().to_path_buf()).unwrap();
++    std::fs::write(home.path().join("AGENTS.md"), " fallback ").unwrap();
++    std::fs::write(home.path().join("AGENTS.override.md"), " selected λ \n").unwrap();
++    let mut manager = manager(&config);
++    let provider = Arc::new(CodexHomeUserInstructionsProvider::new(
++        config.codex_home.clone(),
++    ));
++    Arc::get_mut(&mut manager.state)
++        .unwrap()
++        .user_instructions_provider = provider.clone();
++    let mut created = manager.state.thread_created_tx.subscribe();
++    let sources = manager
++        .capture_pre_session_mcp_sources(StartThreadOptions::new(config))
++        .unwrap();
++    let observed = manager
++        .observe_pre_session_global_instructions(&sources)
++        .await
++        .unwrap();
++    let ordinary = provider.load_user_instructions().await;
++    assert_eq!(observed.instructions(), ordinary.instructions.as_ref());
++    assert_eq!(observed.instructions().unwrap().text, "selected λ");
++    manager
++        .renew_pre_session_global_instruction_observation(&sources, &observed)
++        .await
++        .unwrap();
++    std::fs::write(home.path().join("AGENTS.override.md"), "changed").unwrap();
++    assert!(
++        manager
++            .renew_pre_session_global_instruction_observation(&sources, &observed)
++            .await
++            .is_err()
++    );
++    assert!(manager.state.threads.read().await.is_empty());
++    assert!(matches!(
++        created.try_recv(),
++        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
++    ));
++}
++
++#[tokio::test]
++async fn fresh_global_instruction_observation_refuses_unknown_provider_before_its_load_callback() {
++    use codex_extension_api::LoadInstructionsFuture;
++    use codex_extension_api::UserInstructionsProvider;
++    struct Stateful(Arc<AtomicUsize>);
++    impl UserInstructionsProvider for Stateful {
++        fn load_user_instructions(&self) -> LoadInstructionsFuture<'_> {
++            self.0.fetch_add(1, Ordering::SeqCst);
++            Box::pin(async { panic!("Stateful load must not run during fresh capture") })
++        }
++    }
++    let config = config().await;
++    let mut manager = manager(&config);
++    let calls = Arc::new(AtomicUsize::new(0));
++    Arc::get_mut(&mut manager.state)
++        .unwrap()
++        .user_instructions_provider = Arc::new(Stateful(Arc::clone(&calls)));
++    let sources = manager
++        .capture_pre_session_mcp_sources(StartThreadOptions::new(config))
++        .unwrap();
++    assert!(
++        manager
++            .observe_pre_session_global_instructions(&sources)
++            .await
++            .is_err()
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert!(manager.state.threads.read().await.is_empty());
++}
+diff --git a/codex-rs/ext/extension-api/src/lib.rs b/codex-rs/ext/extension-api/src/lib.rs
+index 7c33eee..e6e3f83 100644
+--- a/codex-rs/ext/extension-api/src/lib.rs
++++ b/codex-rs/ext/extension-api/src/lib.rs
+@@ -120,6 +120,7 @@ pub use turn_admission::TurnStartAdmission;
+ pub use user_instructions::Instructions;
+ pub use user_instructions::LoadInstructionsFuture;
+ pub use user_instructions::LoadedUserInstructions;
++pub use user_instructions::PreSessionUserInstructionsSource;
+ pub use user_instructions::ThreadInstructionsProvider;
+ pub use user_instructions::UserInstructionsProvider;
+ 
+diff --git a/codex-rs/ext/extension-api/src/user_instructions.rs b/codex-rs/ext/extension-api/src/user_instructions.rs
+index 544c15b..6766361 100644
+--- a/codex-rs/ext/extension-api/src/user_instructions.rs
++++ b/codex-rs/ext/extension-api/src/user_instructions.rs
+@@ -58,6 +58,16 @@ pub trait ThreadInstructionsProvider: Send + Sync {
+     }
+ }
+ 
++/// Native registration-owned source description for effect-free fresh collection.
++/// It describes the real provider's source, not loaded text or an access grant.
++/// Unknown providers remain unresolved; callers must bind this to the actual
++/// selected native configuration and retain the original provider identity.
++#[derive(Clone, Debug, Eq, PartialEq)]
++#[non_exhaustive]
++pub enum PreSessionUserInstructionsSource {
++    CodexHome { codex_home: AbsolutePathBuf },
++}
++
+ /// Loads global user instructions shared across root threads.
+ ///
+ /// Core reads this provider at startup and when capturing model-request context.
+@@ -67,4 +77,10 @@ pub trait ThreadInstructionsProvider: Send + Sync {
+ pub trait UserInstructionsProvider: Send + Sync {
+     /// Loads the current global snapshot for a root runtime.
+     fn load_user_instructions(&self) -> LoadInstructionsFuture<'_>;
++
++    /// Pure source metadata only. Never load/cache/refresh or call another provider
++    /// here. Legacy or stateful providers must return None, not an empty snapshot.
++    fn pre_session_source(&self) -> Option<PreSessionUserInstructionsSource> {
++        None
++    }
+ }
+diff --git a/codex-rs/model-provider-info/src/captured_provider.rs b/codex-rs/model-provider-info/src/captured_provider.rs
+new file mode 100644
+index 0000000..97a8c5a
+--- /dev/null
++++ b/codex-rs/model-provider-info/src/captured_provider.rs
+@@ -0,0 +1,139 @@
++//! Source-owned provider/header observation. Environment values are read once
++//! into the same provider conversion used by ordinary requests. This is neither
++//! an account grant nor an atomic environment lease; renew observations at every
++//! owner boundary and reuse the retained provider for count and frozen dispatch.
++use super::*;
++use std::collections::HashSet;
++use std::ffi::OsString;
++
++/// Immutable process-local provider capture; no serialization or source callback.
++/// Retaining this does not establish source currentness at a later transaction.
++pub struct CapturedApiProvider {
++    provider: ApiProvider,
++    environment: Vec<(String, Option<OsString>)>,
++    residency: Option<ResidencyRequirement>,
++}
++impl CapturedApiProvider {
++    pub fn provider(&self) -> &ApiProvider {
++        &self.provider
++    }
++
++    /// Observation renewal only, never a permit for a later operation. A process
++    /// environment can change immediately afterwards; the frozen request continues
++    /// using its original provider rather than independently converting again.
++    pub fn sources_match_current_observation(&self) -> bool {
++        self.residency == read_managed_residency_requirement()
++            && self
++                .environment
++                .iter()
++                .all(|(name, value)| std::env::var_os(name) == *value)
++    }
++}
++fn unavailable() -> CodexErr {
++    CodexErr::InvalidRequest("selected provider headers cannot be captured".to_string())
++}
++impl ModelProviderInfo {
++    /// Resolve the actual configured literal/environment headers once. Malformed
++    /// values refuse instead of silently omitting configured request material.
++    /// Ordinary permissive conversion retains its existing behavior separately.
++    pub fn capture_api_provider(
++        &self,
++        auth_mode: Option<AuthMode>,
++    ) -> CodexResult<CapturedApiProvider> {
++        let mut headers = HeaderMap::new();
++        let mut literal_names = HashSet::new();
++        if let Some(literals) = &self.http_headers {
++            for (name, value) in literals {
++                let name = HeaderName::try_from(name.as_str()).map_err(|_| unavailable())?;
++                if !literal_names.insert(name.clone()) {
++                    return Err(unavailable());
++                }
++                headers.insert(
++                    name,
++                    HeaderValue::try_from(value.as_str()).map_err(|_| unavailable())?,
++                );
++            }
++        }
++        let mut environment = Vec::new();
++        let mut env_names = HashSet::new();
++        if let Some(sources) = &self.env_http_headers {
++            for (name, variable) in sources {
++                let name = HeaderName::try_from(name.as_str()).map_err(|_| unavailable())?;
++                if !env_names.insert(name.clone())
++                    || variable.is_empty()
++                    || variable.contains(['=', '\0'])
++                {
++                    return Err(unavailable());
++                }
++                let value = std::env::var_os(variable);
++                if let Some(value) = &value {
++                    let value = value.to_str().ok_or_else(unavailable)?;
++                    if !value.trim().is_empty() {
++                        headers.insert(
++                            name,
++                            HeaderValue::try_from(value).map_err(|_| unavailable())?,
++                        );
++                    }
++                }
++                environment.push((variable.clone(), value));
++            }
++        }
++        let residency = read_managed_residency_requirement();
++        let provider = self.api_provider_with_headers(auth_mode, headers, residency)?;
++        let captured = CapturedApiProvider {
++            provider,
++            environment,
++            residency,
++        };
++        if !captured.sources_match_current_observation() {
++            return Err(unavailable());
++        }
++        Ok(captured)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use pretty_assertions::assert_eq;
++
++    #[test]
++    fn native_default_headers_survive_the_same_provider_conversion() {
++        let info = ModelProviderInfo::create_openai_provider(None);
++        let captured = info.capture_api_provider(Some(AuthMode::ApiKey)).unwrap();
++        let ordinary = info.to_api_provider(Some(AuthMode::ApiKey)).unwrap();
++        assert_eq!(captured.provider().headers, ordinary.headers);
++        assert_eq!(captured.provider().base_url, ordinary.base_url);
++        assert_eq!(
++            captured.provider().headers.get("version").unwrap(),
++            env!("CARGO_PKG_VERSION")
++        );
++        assert!(captured.sources_match_current_observation());
++    }
++
++    #[test]
++    fn capture_refuses_malformed_or_case_ambiguous_literals_without_changing_ordinary_conversion() {
++        for literals in [
++            HashMap::from([("version".to_string(), "bad\nheader".to_string())]),
++            HashMap::from([
++                ("version".to_string(), "one".to_string()),
++                ("Version".to_string(), "two".to_string()),
++            ]),
++        ] {
++            let mut info = ModelProviderInfo::create_openai_provider(None);
++            info.http_headers = Some(literals);
++            assert!(info.capture_api_provider(Some(AuthMode::ApiKey)).is_err());
++            assert!(info.to_api_provider(Some(AuthMode::ApiKey)).is_ok());
++        }
++    }
++
++    #[test]
++    fn capture_refuses_unreadable_environment_source_names_without_accessing_them() {
++        let mut info = ModelProviderInfo::create_openai_provider(None);
++        info.env_http_headers = Some(HashMap::from([(
++            "OpenAI-Project".to_string(),
++            "invalid=variable".to_string(),
++        )]));
++        assert!(info.capture_api_provider(Some(AuthMode::ApiKey)).is_err());
++    }
++}
+diff --git a/codex-rs/model-provider-info/src/lib.rs b/codex-rs/model-provider-info/src/lib.rs
+index 5d5b1f9..8a34472 100644
+--- a/codex-rs/model-provider-info/src/lib.rs
++++ b/codex-rs/model-provider-info/src/lib.rs
+@@ -31,6 +31,9 @@ use std::sync::PoisonError;
+ use std::sync::RwLock;
+ use std::time::Duration;
+ 
++mod captured_provider;
++pub use captured_provider::CapturedApiProvider;
++
+ mod gateway_oauth;
+ pub use gateway_oauth::GatewayOAuthConfig;
+ pub use gateway_oauth::GatewayOAuthDelivery;
+@@ -419,6 +422,19 @@ other non-default provider fields are not supported"
+ 
+     /// Builds an API provider with managed residency taking precedence over configured headers.
+     pub fn to_api_provider(&self, auth_mode: Option<AuthMode>) -> CodexResult<ApiProvider> {
++        self.api_provider_with_headers(
++            auth_mode,
++            self.build_header_map()?,
++            read_managed_residency_requirement(),
++        )
++    }
++
++    fn api_provider_with_headers(
++        &self,
++        auth_mode: Option<AuthMode>,
++        mut headers: HeaderMap,
++        residency: Option<ResidencyRequirement>,
++    ) -> CodexResult<ApiProvider> {
+         let default_base_url = if matches!(
+             auth_mode,
+             Some(
+@@ -438,8 +454,7 @@ other non-default provider fields are not supported"
+             .clone()
+             .unwrap_or_else(|| default_base_url.to_string());
+ 
+-        let mut headers = self.build_header_map()?;
+-        if let Some(requirement) = read_managed_residency_requirement() {
++        if let Some(requirement) = residency {
+             let value = match requirement {
+                 ResidencyRequirement::Us => HeaderValue::from_static("us"),
+             };

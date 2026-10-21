@@ -1,0 +1,10 @@
+diff --git a/codex-rs/core/src/client_public_responses_capture_tests.rs b/codex-rs/core/src/client_public_responses_capture_tests.rs
+index 72c34c9..8bfd0dc 100644
+--- a/codex-rs/core/src/client_public_responses_capture_tests.rs
++++ b/codex-rs/core/src/client_public_responses_capture_tests.rs
+@@ -1,4 +1,5 @@
+ use super::*;
++use crate::client::ModelClient;
+ use crate::responses_request_format::format_responses_request;
+ use codex_extension_api::ModelRequestInput;
+ use codex_extension_api::ModelResponseInterceptor;

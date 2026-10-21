@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.472-knowledge-perf';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.474-symposium-native-fixtures';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-client-reserved-adoption.patch':
+    '21e7841582e699dea93ce400e5c5de72459e6951ac19a9dc2c2272ee5c6d54e7',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-retained-source-frame.patch':
+    '83f8f0ae995e23806dd0c1c685f7a8cf837ff4004e38a311421acd4b08d3d10f',
   '../../packages/protocol/src/agent-communication-store.ts':
     '7a611a0953117b064f89e966c5520dc70598e6856e707ce735e8419acfbb4753',
   '../../packages/protocol/src/agent-communication.ts':
@@ -177,7 +182,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-migration-adapter.ts':
     '80de415c99219bfa5f4b371ef3ab6b247f22211610418bce69e2980dae58e431',
   '../../frontend/src/lib/conversation-joining-application-owner.ts':
-    'd575f127b74ecfdf627cb448d9dc06c47e7497d1842c51fa76c9682af401e6e4',
+    '6f94fc394fa740a1e053770232954bb091d1589750fe35e028d2043f2ffed314',
   '../tool-builder-runtime.ts': 'b854fbfa534a8d47f249e1ba8edf65009719ece8c2718d213f29589001e47f05',
   '../installed-custom-tools.ts':
     '103aa54c9df80d683bb0a8f58fa296970e5be0bad0a37acb3a7b2b7e32079af3',
@@ -215,9 +220,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/conversation-repository-label.ts':
     'd995d0b4bf5b26b364c6d1bdf98ea5e591716976b436f134e5952db3cb97419d',
   '../../frontend/src/lib/conversation-joining-recovery.ts':
-    'f05570232deea0814fd1db0addee83e8155b61375f887f5476ad4ba30abf0571',
+    'c7ec0d30a4cbc9068dca72438a2d0a88eb87d18b293457b11948988409377a35',
   '../collaboration-application-review.ts':
-    '620d3455583727da0480f007294d66a2e06e4a727a4df23864d5fbbc0fc06966',
+    '8b44bddf29078d9479c940b0ed00124e3435afcda6972fa71131c3597ca3dadb',
   '../../frontend/src/lib/saved-artifact-location.ts':
     'b884336c70dae85d63d955fb9d454f4a7cd28e8e9d2fca94e3839b7e6b6444a5',
   '../../frontend/src/components/SavedArtifactRouteDialog.tsx':
@@ -231,9 +236,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SavedArtifactDialog.tsx':
     '4f3cb5204c11db0ce409eb7469e359cbbd5440c63a09b0ab9ad91b3e99a70ce8',
   '../collaboration-retained-artifact-source.ts':
-    'e0f9accb6ebbd1e7f8b7447e6fb42fcde021af4f6af634f63d6a2613ccd1c470',
+    '817f3b03bacbec5ca607d04c352e1271ebc87f93b668f92054c443151858b2c1',
   '../collaboration-forwarding.ts':
-    '8eb6d7b32dab93b30b92241c9e83b9bd24ef644c38b0648c363847679e2ccdcb',
+    'c59e30f6d9dc3d91106491e7848c18f4d62f8dc70b88e09fb1bab72e5364a4ac',
   '../sandbox-ownership-review.ts':
     '13825b93677cbe7bc7afd8059abf71e0cc47b79c3b534beeeb7feb6541ec8629',
   '../../frontend/src/components/SandboxOwnershipReview.tsx':
@@ -319,7 +324,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '599f1574e4fb2deace9d5b0aa19e639d6bd7aed727837d404f44ff916eba8a5f',
   '../codex-session-events.ts': 'ac907391d5427c054eb4b2d5d64e28c853b5b5c52cf5bc689467aec994e532d9',
   '../collaboration-context-source.ts':
-    '4315a579a1741c55d7c62b9b43fdde35967ad1b6e630eb1d1b5389221cac0995',
+    '47b8f3a48982779c976955ff7b48c07239d65256bc8b6a22d07ae65ccb98bfbb',
   '../../packages/protocol/src/collaboration-visible-source.ts':
     '8747b800cf069cad636dc5ae6e92a347e55b59c9f01fe64af84587e047af1567',
   '../telos-work-conversation.ts':
@@ -336,11 +341,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/browser-crypto.ts':
     '5d10eb99cc0f0d8cbabd7eeefa9ce245bd14c8f32921edbf197a13f4b849b270',
   '../../frontend/src/components/ConversationJoiningReview.tsx':
-    '97184120337bd86fdcd0c09384d33a82d31cd6eccc05ca9a3a1dc297564423ba',
+    'a6796ce07f03725ee489681fabcd9b545a4b8504261290945517590e5470319b',
   '../../frontend/src/hooks/useConversationJoiningReview.ts':
-    'dbd20e6d0be416972288a4454dc0e6eaf771db9c50fcfc1fc4538f407e5b0a54',
+    'd55b2009abb0aadc979dbd17f180ee2b766f4e2cb7fb60e9a54e0a6659cd74ed',
   '../../frontend/src/lib/conversation-joining-review.ts':
-    '91b857e6e0f5be379cb871543c9181c4c49a3e75c85972bdd00b28ff5ab54890',
+    'e25462f38b4a19de42a6c4533b56967b49c59f504e668cb1fd670ed43a554442',
   '../../frontend/src/styles/home.css':
     '284a0c689b4f3071b6e07e097e89cd03f90fb7d4ee6d5f3a956bd35cbe588556',
   '../../frontend/src/styles/tokens.css':
@@ -354,9 +359,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/account-selection.ts':
     'd866165714758849b0ac5e5d578971f5f12742494b747b04bd1d31f0045c9650',
   '../../frontend/src/components/ConversationAgents.tsx':
-    'ad099f4b66e624a7baac6963cef7891508797155c059f9d55bc04ef3f11edced',
+    '7c71c29c3bc71dca06d0a0bfe131ddf72c71881e28ae6662ed1c19b9fff02a61',
   '../../frontend/src/components/ConversationAgents.css':
-    '780ed8c88c4f1f45a2f5488387a436e7634a3816e0d72a3f5cdd8cd02e111be9',
+    'd1b97f4a9730544f87d86a4688bdd28569c1d3b8a68212316f8f54423475bf36',
   '../../frontend/src/components/ComposerResponders.tsx':
     '1d9d03fc824c8903172bc7216dfcdd7bf0275092315b824f583d96410b900c76',
   '../../frontend/src/components/ComposerResponders.css':
@@ -366,19 +371,19 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../api-schemas.ts': '1f036d99280f706a1a0aa5bf9115bf748c57654afc16d9e1540a3f3b79374961',
   '../connections-store.ts': '0143b2eff9725aed9e2d483087719733174974afd26486eb32d7f9335788c3bb',
   '../collaboration-context-compiler.ts':
-    'd52551cd2b7515c93b86acdcba09ca46118d6632c698831e2bc5540dd866e572',
+    '917b32aa231511e6391a7e722723642794a547aa1b2e543ab86d99b889d184b6',
   '../../packages/protocol/src/collaboration-forward-custody.ts':
     '63368fb15184ad9424eb91ef60a6bf8d37fd9ae67a6305eea46cef8e34d56d95',
   '../../packages/protocol/package.json':
     'a61c766103f7c7ba441d67bc52ea1d583e42f57ba8ad1ca2c90d50bdd25fb746',
   '../../packages/protocol/src/collaboration-forward.ts':
-    '400794ca0ec65ee75f153787d18ffbf1bdca81f0187959e69fade002b9c18271',
+    '24fa815ce9f2b2673bfd4e656c455b239e5ad2fd26d22a3d5bbe51fac1513ec5',
   '../../packages/protocol/src/collaboration-conversation.ts':
-    '2dbb2919ab9f5afe75ef015d255808116a38d4b61000eae0793508f78e6cb87d',
+    '164d36d40da9e5ef983a7714f0b0369d7714c111bba2340a6504815a044297b3',
   '../../packages/protocol/src/collaboration-conversation-store.ts':
-    '0d650294683d000155f3ccb013eb71715c9476457a8667a42bfb800b8ef73d5c',
+    'f5ceb2396c016d3fc29364c93dc18175caf98b1eaef8d647ba473820e8d2fd2a',
   '../../packages/client/src/collaboration-api.ts':
-    '7f3bf72a97b268a687dab4cd3f6593d510d4e601fc1306504c9bb8e708de5b6c',
+    '6a2f8b6270c1970a7c44388fe5f42b0ef33bcd0d54067dc76ee018cb83fa6739',
   '../../packages/client/src/collaboration-projection.ts':
     'c1c4ba9954434950444389c70be7c1f31460e5fcddc4d99d6edfd74fd113890e',
   '../../packages/client/src/index.ts':
@@ -388,7 +393,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/CollaborationTranscript.css':
     'e617da58d37e75e41c4f165ff976675017d4bd650c8949a6b0f2f4fe1634c392',
   '../../frontend/src/hooks/useConversationPresentation.ts':
-    'bb3f8e3f54479d60d0306849f63665654f15fb9256310a1b381fd865a64a728c',
+    '47560f74a0d68206cd2bccad8f6a8e4621e6352bbe321845663444c7faa69bb6',
   '../../frontend/src/lib/conversation-presentation.ts':
     'cc15c8961398998acff1315699feb77cd614278d9109804b5f1495d796a5d9bd',
   '../openshell-cli-environment.ts':
@@ -435,7 +440,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-tasks.ts':
     '41388daf112e457878580cfc9235d7aedaf202b17f78938a0841982ecee1b968',
   '../session-collaboration-router.ts':
-    'aa163fc91d802239f87ada222b962bc40db98aacfe182f30b28b0dda6247880d',
+    '9942aad799316c357c2673096f3a8f0e1c61ae510a71ec51a10d462abaa4be5b',
   '../../packages/protocol/src/session-collaboration.ts':
     'e8e47f2b79832f0288063745acbed93c7c5f8f4db71f5c8a71705b1b02a59198',
   '../../packages/protocol/src/session-collaboration-store.ts':
@@ -531,7 +536,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    'bfbecbf9591e473d830e8c7544c236aa10150a77a168e3f2c7435298c36123f8',
+    'afd229552db9115af479dc1d026ad006cf73d216dbbba20c43ef8bbf5d9d78c3',
   '../../frontend/src/components/ComposerTools.tsx':
     '932d2f492cb6f82d8bd5fe45223ac61386390774249e73c2d64b649a8419cd6a',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -557,7 +562,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/launch-draft-delivery.ts':
     '88b02b396b8222b978d6307ea7a0470123c799c46b3e0e48e9f017fc1bf72b4a',
   '../../frontend/src/hooks/useDraft.ts':
-    '1b98e2c6fcf8864ebf2fb45984b926e2ba9fe21f71aa6368de7545d7dd161b62',
+    '6b1e52a2e59745e2976d4a639d4c3a0b7f03bfcd95832809e0ff1665eaaf66f1',
   '../../frontend/src/hooks/usePendingLaunch.ts':
     '50d02ac129734f1944e464361413f85afc6ef0fbcbc1ab232de9a7e7a513f779',
   '../../frontend/src/hooks/useStageChatLaunch.ts':
@@ -565,7 +570,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useBriefingChat.ts':
     'd0b124d3acf747c6a2605cdf23a7a0bfa59fc87d2aed1d3cd230e440d2c69996',
   '../../frontend/src/lib/chat-drafts.ts':
-    '0d497a601cc88f92c3d6ef28fd2f05dba28d9beb86f7c7398800c713f28a193a',
+    '213d48b45026e86a57ae5c07727c8f086099e2e1ab292aebf7cf6dc2eb9928df',
   '../../frontend/src/lib/chat-runtime-selection.ts':
     'b47f7b6cc1bd0d261c7c57560204a1e5d18edd72f58e34e7e9fd63eba1244de0',
   '../../frontend/src/lib/explicit-local-chat.ts':
@@ -573,9 +578,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '89c3593476f8ee0e99ab1ad1f8b0879626e731a8581cf755f5090624cb8ceedd',
   '../../frontend/src/pages/ChatView.tsx':
-    '4edcd063d58c5058c9908068aee6a912e44f6a1e4ff2ecb64c8d36a58a306634',
+    'ff01617577cce3533995201881ca19dfe8c53f71927ccaa7c88d3d8144f5610f',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'fef4ee0df2d132782ca0ee954a8b35274a870cfbc2a8b2c8e0f5af9a99d106a8',
+    '1f0887e46cda5e5e2b51c82ddfeba04df3a4e845a7aaacbd676e5b708b25d1a5',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -662,7 +667,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14',
   '../url-access-tool.ts': '045e01d27a5c5428b9430e440916875a622ea8eb90f598c577d22a2da680a457',
   '../web-access-tool.ts': '0c5e1a8a589cc660983f814abd1994b6b877b1bd1f02b6bc8c26521f6ae1ba13',
-  '../index.ts': 'bfcd808067f3c7028004afbc07f7797fa6206da898ed1933416c0ab069cd3ff9',
+  '../index.ts': 'afc7f047cf9ef186f69dd0311eac861d3020a47260b9b475f271f5fea21601f0',
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '3e511081210d3ccd59755d28eb9a4d74c91bdac8a4c21a2dd3882080f89e072e',
@@ -695,9 +700,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '17053c6f4316441c06927b60663488d1446f62120ea5e12b00ac3fc5473f82e0',
+  '../chat.ts': '2e6ff8df3943b3ae7adac4fe08f7b23f141fdf03402c9f9ec93901b5e9a4a408',
   '../../packages/harness/src/session-registry.ts':
-    'a356f9fe321fa35e13aea28ec8480dfa63766e96a0f8a861dcd2cba533e5c118',
+    'ca7bfe6f28eed1432a26fa1cb32e72664b66915b7918aad1a363b303dd9a1c8c',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
@@ -705,7 +710,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': 'ac75d9b0ca808ea14c0f07f3ff6ff020bc9899d1b246cd900a386d4c93af3481',
+  '../app.ts': '6b4d48ed8c3c6968dd2798c2ac476bea4a9a86a5e364a3eb99ca7064fea86e6f',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -866,7 +871,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '4c29712dd8c80db92f6872815848aac37858a4d59b8861700aefc8c8c97e185a',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '95799f43eed7d0f818bcbb1cf9cc504d99168bc31877f4f17a19ae9fd0539d13',
-  '../repository-workspaces.ts': '5c423c32123a0ca984ac3d353369a17855f08fc6692cafcb4bc37c99dfe25f48',
+  '../repository-workspaces.ts': '8c8a55acd1d84d0e04dd1cf20191504e5f7045f710a79185603410bfce309ad9',
   '../../packages/protocol/src/session-metadata-store.ts':
     'fe9caaac077de634f0e76e8c203323a8075461815d973cbf5c431347f7844c09',
   '../../packages/protocol/src/event-store.ts':
@@ -882,7 +887,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/types.ts':
     'c431dcf57377fc97ed38af3be33bee555cd4934bd9d250ee54ff285c9272f177',
   '../repository-workspace-runtime.ts':
-    '5f840bd1d8074b6e63c21c12f88b7e966a28d6cd6cfb83b5dcb9cd01a1ade414',
+    '07392283170a840b2deb9bea390d2205295192609ee0d45048a6d314ead2e9cf',
   '../repository-workspace-router.ts':
     'bf65668f4b3a782216eefbbc097fe8888aaf6b73b0cdcf9427c3feb104ccc178',
   '../trusted-native-operation.ts':
@@ -896,10 +901,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
   '../openshell-runtime.ts': '3bb6af48164c23b647dffe9f26dcbbb80c7769f55ce7f57fb5a4d3e334752c24',
-  '../codex-admission-preparation.ts':
-    '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
   '../codex-chat-session.ts': '1a77bae1206b5e282a37b17efa088e86ebbdc740d40376ebb71a306d7011bdd8',
-  '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
+  '../connections-runtime.ts': 'ef3a8ab39bad7cfb68c9cbcf11f1e62538f04962682463a4bbce4204baee4e6f',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
   'capabilities/service.ts': '14a1986c8d019599788ee2538ce2e0f991a8af56c0d186977063a523dbae6516',
@@ -929,7 +932,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '66b14b31ebae4889522bb259c0863a6e05da4cdf613cf372dea355640eb1f154',
+    '58cf41036dd939d63ecf8c52751c4b2bb3aa671baaeeefb8b1c035b054542f5e',
   '../../packages/protocol/src/telos-work.ts':
     '7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043',
   '../agent-context-authority.ts':
@@ -1223,31 +1226,131 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '4ef4ba56945500aa99e4cfb550b7c059a33406f532a1e6ad89a006fadae618d3',
   '../../frontend/src/pages/FileViewer.tsx':
     '9b8b8637790030d943979c66e8788af95a7e488122fe15bb9cad4e29c0b2fc80',
-  '../../frontend/src/components/TelosChatFrame.tsx':
-    '3264d9f5eb462995b7901fe81e8fd9dc34107af5ca2e4c672c606704c26a9f0d',
-  '../../frontend/src/components/TelosChatList.tsx':
-    '488b027baa3f9fe8dd8ca6126966004ff2a560b1a8a06a570b685e476e93defe',
-  '../../frontend/src/components/TelosWorkControls.tsx':
-    '6f1568aa0156c091bdc999d9384bdd03aeba17bafde40575294c92c5f29868dd',
-  '../../frontend/src/hooks/useTelosChatDetails.ts':
-    'f1b2e94eb37468ed215e2c4f9045f67c8d6acda4e8814c66d7938b38e51232d3',
-  '../../frontend/src/hooks/useTelosChatRoute.ts':
-    'ec6615ec65d49692c418be6ef5ec7249290dc11f72ccf61a7768bd35b83bde36',
-  '../../frontend/src/hooks/useTelosChatWork.ts':
-    '1daa58043c0b6f2bd837378b9c120de884381683dd9e4e680d5003c46d6ee62c',
-  '../../frontend/src/hooks/useTelosWorkControls.ts':
-    '68b5ce268bc6266f09bf3743414e2a2852880f2e0a130cf6ff73b3793c9ccbe4',
-  '../../frontend/src/lib/telos-chat-return.ts':
-    '82a93d73cc17247366037d16e0909473fbbb8f64b73a1730f1456bbadf701077',
-  '../../frontend/src/lib/telos-chat-rows.ts':
-    'c7a31faa96b46c2992baadb43e06f968cdac9e54e19957ceb7372b9afca9ebe8',
-  '../../frontend/src/lib/telos-chat-tree-context.ts':
-    'd00c462c170663a8868eb29157e9e512c5672473cb0db9ab7611a87794a298bd',
-  '../../frontend/src/lib/telos-item-navigation.ts':
-    'da0d9a3b1ad1a525317aa406f5a2346d3ea52da8ec7282caf84b14a63d57dbe9',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-default-plugin-context-sources.patch':
+    '41261571d95910ef66500dac9b0589d82e24ac299b22e9a1c9dd78d5c86ebca6',
+  '../../frontend/src/components/ConversationDiscussionFeedback.tsx':
+    'bd034c1a201f3dc6e125ada3aaa263015ca24e9586844a1c59599a35dc984695',
+  '../../frontend/src/hooks/useConversationDiscussion.ts':
+    'ee8637a70ef4fc013bcdbd7cd72ae8200e800d1dc9c1253e123a3cda9a3bf55c',
+  '../../frontend/src/hooks/useConversationJoiningApplication.ts':
+    'f24b00d83f500a217bddce73691b12f5750e8faa9625d53847e726d5d3c6d21e',
+  '../../frontend/src/hooks/useConversationJoiningCatalog.ts':
+    '8fe2c2c035cd70f5929541e68083866f24c1e24a3b4f31894695c0361bed9c29',
+  '../../frontend/src/hooks/useConversationJoiningSourceSetup.ts':
+    'da98dd5a4a92892a1ae1518564212ace0e3a932cc0022b1ed95d647b59b9d49a',
+  '../../frontend/src/lib/conversation-joining-artifacts.ts':
+    '4ad9e03658c7ff3d5738227615b14959c3ad9249836264aa9b2145194bf4288a',
+  '../../frontend/src/lib/conversation-joining-brief.ts':
+    '84cc96f350bb24a8b9451e41b475dbd7406641b1a6408a3968be378b4f0d10e4',
+  '../../frontend/src/lib/conversation-joining-prepared-owner.ts':
+    '1079b4e1f91dd0767915f86e37ebf13cc3e6134f105b8ae213243a64b1ac58da',
+  '../../frontend/src/lib/conversation-joining-source-owner.ts':
+    'f2c40227d8f3cc9a3bc4e4772cdc7a538aea8c76fa1b3bc73d3b0fec6e526131',
+  '../../frontend/src/lib/conversation-joining-target-intent.ts':
+    'edb05310d6b0eedf0086f2d36096797ad7eeecd01313df3f6bf164559ea049d0',
+  '../../frontend/src/lib/conversation-joining-target-owner.ts':
+    '179ddb9af72174f4d2b7bac022c74e585d1185c82480627490332ffd2b7b1a95',
+  '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
+  '../../packages/protocol/src/collaboration-source-catalog.ts':
+    'fde9f163f2e3e277c72b34f28cbd89d7c157e02bba8fea66fdd0cffb2b47bd7d',
+  '../collaboration-source-catalog.ts':
+    '97778f796b842253212bd100a1be79873286e4c13543f6d144d0c0cf5f56ead9',
+  '../collaboration-retained-context-source.ts':
+    '229abff7f4898c717fd9019523cb0739cde72e6e303f9dbecf1f3bef0ce624cc',
+  '../collaboration-joining-retained-artifacts.ts':
+    '696cd73f112bf49fba37c06f7d5bc771f617d75749bb39e3551ac95ec1c468b0',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-default-git-context.patch':
+    '3693319660e1ee91cd59af45ab74d1d2418e901d049f9f2105784048f79926c6',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-core-skills-publications.patch':
+    '7264a410590d1656b5d4993271b6afe4a640e439081b432d41792e146d20fbf1',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-coupled-skills-context.patch':
+    '026b5eb684e75e04cdcb13a0b2b23b8760c8d229ed94964155bd8a192837e56b',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-skills-readonly-context.patch':
+    'a8221d494e396ad10fecc75d0312a7e99c03b597f69a9b215bd3aeb287b5e549',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-fresh-request-inputs.patch':
+    '40bb63a12250c94e3c6d8dda6cc0065d3832c0805fd8864d88a15b3f348047fe',
   '../../frontend/src/lib/telos-work-entry-role.ts':
     '1116a555e86fbd95a99c4addd1d00c55480928d4d277d9c33bb11e7b430465af',
-  '../chat-event-stream.ts': 'a77fdefdccda2b8bb2c5e3c53d84c161cf145d43e3e014db1083ec40cf891037',
+  '../../frontend/src/components/TelosChatFrame.tsx':
+    '3264d9f5eb462995b7901fe81e8fd9dc34107af5ca2e4c672c606704c26a9f0d',
+  '../../frontend/src/hooks/useTelosChatDetails.ts':
+    'f1b2e94eb37468ed215e2c4f9045f67c8d6acda4e8814c66d7938b38e51232d3',
+  '../../frontend/src/hooks/useTelosWorkControls.ts':
+    '68b5ce268bc6266f09bf3743414e2a2852880f2e0a130cf6ff73b3793c9ccbe4',
+  '../../frontend/src/components/TelosChatList.tsx':
+    '488b027baa3f9fe8dd8ca6126966004ff2a560b1a8a06a570b685e476e93defe',
+  '../../frontend/src/lib/telos-chat-tree-context.ts':
+    'd00c462c170663a8868eb29157e9e512c5672473cb0db9ab7611a87794a298bd',
+  '../../frontend/src/hooks/useTelosChatWork.ts':
+    '1daa58043c0b6f2bd837378b9c120de884381683dd9e4e680d5003c46d6ee62c',
+  '../../frontend/src/components/TelosWorkControls.tsx':
+    '6f1568aa0156c091bdc999d9384bdd03aeba17bafde40575294c92c5f29868dd',
+  '../../frontend/src/hooks/useTelosChatRoute.ts':
+    'ec6615ec65d49692c418be6ef5ec7249290dc11f72ccf61a7768bd35b83bde36',
+  '../../frontend/src/lib/telos-chat-rows.ts':
+    'c7a31faa96b46c2992baadb43e06f968cdac9e54e19957ceb7372b9afca9ebe8',
+  '../../frontend/src/lib/telos-item-navigation.ts':
+    'da0d9a3b1ad1a525317aa406f5a2346d3ea52da8ec7282caf84b14a63d57dbe9',
+  '../../frontend/src/lib/telos-chat-return.ts':
+    '82a93d73cc17247366037d16e0909473fbbb8f64b73a1730f1456bbadf701077',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-provider-header-fixture.patch':
+    'd4617e4f8c868cd76883310d0cd4768fea72d413a9279d9666c3d216b6344f7b',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-initial-context-data.patch':
+    'b6fffacfcb934fd51eeb671d8d2a4003751a01ab640ca2a29d031a0e202a9205',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-context-partitions.patch':
+    '945c08dd4d8ee9bc6914c1393624d977c5444cbb96847666cfd3a67b0c288b58',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-model-provenance-import.patch':
+    'f2ab3f724083611f435b61f3b432c87cf3313519bb9e8049697f35cfea3107e5',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-builtin-initial-context-producer.patch':
+    'f619ed402c154221a0d6920b18bc704e8c1f0b8dd1802a54d31fde45e3737318',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-environment-context.patch':
+    'cbf63f5f22172a84534c8ecbee3923fe5a234901d3809a2d0537d8835467a4ad',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-missing-source-policy-refusal.patch':
+    '1c87962921cd62d392680f5c77739d313e4cf529ef7a2cab9a91147246123c64',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-selected-allocation.patch':
+    '8353c066db35ce16bb110262ef9862d0ca5386b51bce28ddad4f20a39a9592d5',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-client-input-adoption.patch':
+    'f7ee3f66efd0d4184c2ada03ed3746872a3fab9f26becca598b79a516126e6c9',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-client-source-projection.patch':
+    'c308396b865d06621c313dcda9c7d6dd7c628ac22389899ca3038b6602a048c4',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-image-and-source-fixtures.patch':
+    'ec446a7d3a47cef1367abd4781e7e9cd647324cf275170bb84f4c5d1f3562d80',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-installed-registry.patch':
+    '4f23421b2c13f10758feae38f751da00789704d65ef6060abb54a882014a3249',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-session-provenance-import.patch':
+    '42a30b81986512fe61d9d98941d278171dac1ca98dbe6939913122bbb8dde7a4',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-source-frame-data.patch':
+    '0c5637fdec06f2e6d2836b7e6be4fc59764c807d06c5cde14c22099ddbebead3',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-session-format.patch':
+    '8af4bc406348c4a03c3875e5113dda650cd8d591ea3eb130235193c552398189',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-startup-selection.patch':
+    '4d08edd85cfa0019d2417ee7c46bf440928924218f1157dfe18806c29c6ec0bb',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-public-capture-client-test-import.patch':
+    '9bd157355ee47c4bdd4f27a641732126c3f121a5cd34e37ab3894882d61fdb26',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-source-goal-tools.patch':
+    '97575e0433900c779b1be773c9c372de36bf6c56accbac06e71552d18c98dc31',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-admitted-extension-carry.patch':
+    '2ede5c8a7d5c6d522b6291faf1d78fb0ad5d3f3c7a64c93bc3cf67f0256d655a',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-auth-manager-test-support.patch':
+    '77d70742d8bcb7a5e7d93113e70a7ed25ccccb8a50707a77c9688112bd2269db',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-turn-command-data.patch':
+    'a62db9c54a14615d36402c2b2b6fa88cf72788de2a00d6b520755951844d873b',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-configured-settings-data.patch':
+    'f2ee2b89921c5cc7a85982847cb3ab9b41c39b44370d6f5f1ced03262190f573',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-retained-configured-baseline.patch':
+    'cb53fbb73ef67fbf16f897559e48fbc2d6f6093717df20c19fad253cd3c8e886',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-providerless-settings-update.patch':
+    'b203d396aed782af897aec2052dc72d2cc2f77c08bfae0071bc0dfb72508f9f7',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-registry-fixture-arc-owners.patch':
+    '1d89257e005fefe78cf9949b07699db65e7beffd00a32e5f23f5c188e025f84f',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-settings-normalization.patch':
+    '7dbd314d6ba2634ff08bd143d5419fad526a1a63624996d2e0f58e4b2fd4c609',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-config-owned-custody.patch':
+    'd886d3eb979496fa7b0b023655a000045e401cff95484cc39a0ba0805c95b9f7',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-providerless-fixture-borrow-order.patch':
+    '34b0e7eadcca952719343b3668f59d9eb213c8f259f1005707301164ca37125a',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-route-independent-command-body.patch':
+    '06dc296c6f15c57689f556d9563c4b785da64321787b0cdc9af8a8c966f42b04',
   '../native-host-tool-context.ts':
     'd604969880662dd2feb09f6e3cda2b5db2783f35b64a44e891c77a7618a3207a',
   '../symposium-publication-credentials.ts':
@@ -1299,4 +1402,36 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '87d6517e779b9b29f2e636a1919ea844beb0fc034f01fbfdf1c740fa5117ab52',
   '../../frontend/src/lib/telos-source-updates.ts':
     'd04a21a711eb8c7118491d94b1363f02b36b0f7457bbe711906f3d67bdbb6e8d',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-first-command-options.patch':
+    '5609b3654669aae0cfadc8e8f1a721a99508bcaa1fb5596971ca9b0f0649619a',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-fresh-history-seed.patch':
+    '8538fafc16853427f9f6b1914a444b211e4dbd3c7341fef24afde325f869d7ad',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-turn-input-envelope.patch':
+    '80d18dcccc8c9409a6f6cebb9673b2c97347ee605053a24755870c98bd11696e',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-typed-command-carrier.patch':
+    '5e19e68d42e9aed2693f91edbd36bcc1ed2e3e84e14700d7e47edb741dd3d793',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-client-info-ingress.patch':
+    'a40617f38eccd9f719e7ec7ccbe300ae3ef162ec0c51ce7876f293d6cadefa3a',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-fresh-command-ingress.patch':
+    '60332d92a86906fff70df42d9ffefc89fbb758d1c2a92c1f404ffd0f8689964c',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-first-step-model-data.patch':
+    '9a698872b18230975bcf73d483b080cf43cbbcadd29b614a835eebaf98f06bff',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-startup-heap-storage-and-failure-diagnostics.patch':
+    'd23431be69e78ab01a84dc15d08087d423eb57cd20ef5facc6d4800d68042cc9',
+  '../codex-admission-preparation.ts':
+    '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-first-step-context-data.patch':
+    'd74bd2f0a29fd41252d08b5e80cbc068f59d6e353bbe70f5d3d09ef63d0e0309',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-first-step-permission-data.patch':
+    '8bfff1d5d64a7805f879d920891cc84620933447238491b4585c3b06331540d4',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-typed-input-skills-projection.patch':
+    '6b86c78d0217d6df50e8d0e6bedf05b104f6933a81126e74e44d27419ec52c49',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-startup-base-provenance.patch':
+    '8389fcc26ef8077e8a84f1a5ebe3f0bdfd4549c1bfb7f677933eb6942342a83d',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-initial-model-state-data.patch':
+    '146fe47b4a50f7c22253fc728ffaa0556825855a465b461db3d2ac0f0d152a98',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-test-fixture-compile-compatibility.patch':
+    '8e5b42b60522d41c94256be832786f3c35408f5abdc8d55dcfe0a359825d96e1',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-typed-user-input-fixture-api-repair.patch':
+    '7330348000512f425b8a01570516b1c646023b1f45266de9c56550474906536a',
 });

@@ -1,0 +1,930 @@
+diff --git a/codex-rs/app-server/src/selected_start_config.rs b/codex-rs/app-server/src/selected_start_config.rs
+index 39a4ab7..2a49175 100644
+--- a/codex-rs/app-server/src/selected_start_config.rs
++++ b/codex-rs/app-server/src/selected_start_config.rs
+@@ -353,6 +353,42 @@ impl SelectedConfiguredStart<'_> {
+         self.renew_extension_tools(manager, &tools).await?;
+         Ok(tools)
+     }
++    /// Explicit retained phase; capture-only callers keep their old API.
++    pub(crate) async fn retain_extension_tools(
++        &mut self,
++        manager: &ThreadManager,
++    ) -> io::Result<()> {
++        let result = async {
++            self.renew(manager).await?;
++            self.installed
++                .as_ref()
++                .ok_or_else(|| io::Error::other("original first-command composition missing"))?
++                .observe(
++                    manager,
++                    self.start
++                        .mcp_sources()
++                        .ok_or_else(|| io::Error::other("original API MCP sources missing"))?,
++                )
++                .map_err(|error| io::Error::other(format!("{error:?}")))?;
++            manager.retain_selected_start_extension_tools(&mut self.start)?;
++            self.installed
++                .as_ref()
++                .ok_or_else(|| io::Error::other("original first-command composition missing"))?
++                .observe(
++                    manager,
++                    self.start
++                        .mcp_sources()
++                        .ok_or_else(|| io::Error::other("original API MCP sources missing"))?,
++                )
++                .map_err(|error| io::Error::other(format!("{error:?}")))?;
++            self.renew(manager).await
++        }
++        .await;
++        if result.is_err() {
++            self.source.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
+     pub(crate) async fn renew_extension_tools(
+         &self,
+         manager: &ThreadManager,
+diff --git a/codex-rs/core/src/session/client_input_data.rs b/codex-rs/core/src/session/client_input_data.rs
+index 121cf4f..e050e77 100644
+--- a/codex-rs/core/src/session/client_input_data.rs
++++ b/codex-rs/core/src/session/client_input_data.rs
+@@ -39,6 +39,7 @@ enum OriginalClientSlot {
+ pub(crate) struct OriginalClientInputData {
+     client: OriginalClientSlot,
+     startup: Option<super::startup_selection::OriginalStartupSelection>,
++    extension_tools: OriginalExtensionToolSlot,
+     thread_id: ThreadId,
+     init: ExtensionDataInit,
+     routing_config: (String, AbsolutePathBuf, codex_config::ConfigLayerStack),
+@@ -73,6 +74,7 @@ impl OriginalClientInputData {
+         Self {
+             client: OriginalClientSlot::NotConstructed,
+             startup: None,
++            extension_tools: OriginalExtensionToolSlot::Uncaptured,
+             thread_id,
+             init: init.clone(),
+             routing_config: (
+@@ -89,6 +91,58 @@ impl OriginalClientInputData {
+             session_frame: None,
+         }
+     }
++    pub(crate) fn retain_extension_tools(
++        &mut self,
++        registry: Arc<codex_extension_api::ExtensionRegistry<Config>>,
++        config: &Config,
++        source: &SessionSource,
++        capture: codex_extension_api::PreSessionExtensionTools,
++    ) -> io::Result<()> {
++        if !matches!(
++            std::mem::replace(
++                &mut self.extension_tools,
++                OriginalExtensionToolSlot::Consumed
++            ),
++            OriginalExtensionToolSlot::Uncaptured
++        ) {
++            return Err(io::Error::other("extension tool custody already attempted"));
++        }
++        registry
++            .renew_pre_session_tools_for_source(&capture, config, source)
++            .map_err(io::Error::other)?;
++        self.extension_tools =
++            OriginalExtensionToolSlot::Retained(Arc::new(OriginalPreparedExtensionTools {
++                thread_id: self.thread_id,
++                registry,
++                config: config.clone(),
++                source: source.clone(),
++                capture,
++            }));
++        Ok(())
++    }
++    pub(super) fn take_extension_tools(
++        &mut self,
++        thread_id: ThreadId,
++        registry: &Arc<codex_extension_api::ExtensionRegistry<Config>>,
++        config: &Config,
++        source: &SessionSource,
++    ) -> io::Result<Option<PreparedExtensionToolCarry>> {
++        match std::mem::replace(
++            &mut self.extension_tools,
++            OriginalExtensionToolSlot::Consumed,
++        ) {
++            OriginalExtensionToolSlot::Uncaptured => Ok(None),
++            OriginalExtensionToolSlot::Retained(plan) => {
++                plan.renew(thread_id, registry, config, source)?;
++                Ok(Some(PreparedExtensionToolCarry {
++                    state: std::sync::Mutex::new(PreparedExtensionToolState::Pending(plan)),
++                }))
++            }
++            OriginalExtensionToolSlot::Consumed => {
++                Err(io::Error::other("extension tool custody consumed"))
++            }
++        }
++    }
+     pub(crate) fn startup(&self) -> Option<&super::startup_selection::OriginalStartupSelection> {
+         self.startup.as_ref()
+     }
+@@ -280,6 +334,180 @@ impl OriginalClientInputData {
+     }
+ }
+ 
++enum OriginalExtensionToolSlot {
++    Uncaptured,
++    Retained(Arc<OriginalPreparedExtensionTools>),
++    Consumed,
++}
++
++/// Original registry-minted extension partition, not the final Core/MCP plan.
++/// Config is the retained selected effective DATA snapshot; selection renewal
++/// is not a whole-Config/account/permission currentness grant.
++pub(crate) struct OriginalPreparedExtensionTools {
++    thread_id: ThreadId,
++    registry: Arc<codex_extension_api::ExtensionRegistry<Config>>,
++    config: Config,
++    source: SessionSource,
++    capture: codex_extension_api::PreSessionExtensionTools,
++}
++impl OriginalPreparedExtensionTools {
++    fn renew(
++        &self,
++        thread_id: ThreadId,
++        registry: &Arc<codex_extension_api::ExtensionRegistry<Config>>,
++        config: &Config,
++        source: &SessionSource,
++    ) -> io::Result<()> {
++        if thread_id != self.thread_id
++            || !Arc::ptr_eq(registry, &self.registry)
++            || source != &self.source
++        {
++            return Err(io::Error::other("prepared extension tool owner changed"));
++        }
++        self.registry
++            .renew_pre_session_tools_for_source(&self.capture, &self.config, &self.source)
++            .map_err(io::Error::other)?;
++        registry
++            .renew_pre_session_tools_for_source(&self.capture, config, source)
++            .map_err(io::Error::other)
++    }
++}
++
++pub(crate) enum PreparedExtensionToolTurnKind {
++    User,
++    Unsupported,
++}
++
++enum PreparedExtensionToolState {
++    Pending(Arc<OriginalPreparedExtensionTools>),
++    Binding(Arc<()>),
++    Bound(
++        Arc<OriginalPreparedExtensionTools>,
++        std::sync::Weak<super::turn_context::TurnContext>,
++    ),
++    Failed,
++}
++
++pub(crate) struct PreparedExtensionToolBinding {
++    token: Arc<()>,
++    plan: Arc<OriginalPreparedExtensionTools>,
++}
++
++/// One actual Session's pending/bound partition. Failure or cancellation while
++/// binding cannot restore Pending or become the ordinary None path. No lock is
++/// held while plans, metadata getters or other original callbacks are invoked.
++pub(crate) struct PreparedExtensionToolCarry {
++    state: std::sync::Mutex<PreparedExtensionToolState>,
++}
++impl PreparedExtensionToolCarry {
++    pub(crate) fn begin_turn(
++        &self,
++        kind: PreparedExtensionToolTurnKind,
++    ) -> io::Result<PreparedExtensionToolBinding> {
++        let mut state = self
++            .state
++            .lock()
++            .map_err(|_| io::Error::other("prepared tool custody poisoned"))?;
++        let previous = std::mem::replace(&mut *state, PreparedExtensionToolState::Failed);
++        match (kind, previous) {
++            (PreparedExtensionToolTurnKind::User, PreparedExtensionToolState::Pending(plan)) => {
++                let token = Arc::new(());
++                *state = PreparedExtensionToolState::Binding(Arc::clone(&token));
++                Ok(PreparedExtensionToolBinding { token, plan })
++            }
++            _ => Err(io::Error::other(
++                "prepared tools require their one admitted User turn",
++            )),
++        }
++    }
++    pub(crate) fn bind_turn(
++        &self,
++        binding: PreparedExtensionToolBinding,
++        session: &super::session::Session,
++        turn: &Arc<super::turn_context::TurnContext>,
++    ) -> io::Result<()> {
++        let renewed = binding.plan.renew(
++            session.thread_id(),
++            &session.services.extensions,
++            &turn.config,
++            &turn.session_source,
++        );
++        let mut state = self
++            .state
++            .lock()
++            .map_err(|_| io::Error::other("prepared tool custody poisoned"))?;
++        if renewed.is_err()
++            || !matches!(&*state, PreparedExtensionToolState::Binding(token) if Arc::ptr_eq(token, &binding.token))
++        {
++            *state = PreparedExtensionToolState::Failed;
++            return Err(io::Error::other("prepared tool turn binding changed"));
++        }
++        *state = PreparedExtensionToolState::Bound(binding.plan, Arc::downgrade(turn));
++        Ok(())
++    }
++    pub(crate) fn plan_for_turn(
++        &self,
++        turn: &super::turn_context::TurnContext,
++    ) -> io::Result<Arc<OriginalPreparedExtensionTools>> {
++        let state = self
++            .state
++            .lock()
++            .map_err(|_| io::Error::other("prepared tool custody poisoned"))?;
++        if let PreparedExtensionToolState::Bound(plan, owner) = &*state
++            && owner
++                .upgrade()
++                .is_some_and(|owner| std::ptr::eq(owner.as_ref(), turn))
++        {
++            return Ok(Arc::clone(plan));
++        }
++        Err(io::Error::other(
++            "prepared tools are not bound to this turn",
++        ))
++    }
++    pub(crate) fn associate(
++        &self,
++        plan: &Arc<OriginalPreparedExtensionTools>,
++        session: &super::session::Session,
++        turn: &super::turn_context::TurnContext,
++        executors: &[Arc<dyn for<'call> codex_tools::ToolExecutor<codex_tools::ToolCall<'call>>>],
++    ) -> io::Result<()> {
++        let result = (|| {
++            if !Arc::ptr_eq(plan, &self.plan_for_turn(turn)?) {
++                return Err(io::Error::other("prepared tool partition changed"));
++            }
++            plan.renew(
++                session.thread_id(),
++                &session.services.extensions,
++                &turn.config,
++                &turn.session_source,
++            )?;
++            session
++                .services
++                .extensions
++                .associate_pre_session_tools_for_source(
++                    &plan.capture,
++                    &turn.config,
++                    &turn.session_source,
++                    executors,
++                )
++                .map_err(io::Error::other)?;
++            // Refuse invalidation which occurred while callbacks ran, too.
++            if !Arc::ptr_eq(plan, &self.plan_for_turn(turn)?) {
++                return Err(io::Error::other("prepared tool partition changed"));
++            }
++            Ok(())
++        })();
++        if result.is_err() {
++            *self
++                .state
++                .lock()
++                .map_err(|_| io::Error::other("prepared tool custody poisoned"))? =
++                PreparedExtensionToolState::Failed;
++        }
++        result
++    }
++}
++
+ #[cfg(test)]
+ #[path = "client_input_data_tests.rs"]
+ mod tests;
+diff --git a/codex-rs/core/src/session/client_input_data_tests.rs b/codex-rs/core/src/session/client_input_data_tests.rs
+index 363763b..487b703 100644
+--- a/codex-rs/core/src/session/client_input_data_tests.rs
++++ b/codex-rs/core/src/session/client_input_data_tests.rs
+@@ -74,3 +74,142 @@ async fn actual_client_slot_moves_same_state_once_and_burns_changed_inputs() ->
+     assert!(matches!(carrier.client, OriginalClientSlot::Consumed));
+     Ok(())
+ }
++
++// Test-only source constructor through the actual original carrier's retain/take
++// APIs. No startup/model/Config authority is fabricated by this fixture.
++impl OriginalClientInputData {
++    pub(crate) fn extension_tool_carry_fixture(
++        session: &super::super::session::Session,
++        config: &Config,
++        source: &SessionSource,
++    ) -> io::Result<PreparedExtensionToolCarry> {
++        let mut init = ExtensionDataInit::default();
++        let mut carrier =
++            Self::allocate(config, &InitialHistory::New, &mut init, session.thread_id());
++        let registry = Arc::clone(&session.services.extensions);
++        let capture = registry
++            .capture_pre_session_tools_for_source(config, source)
++            .map_err(io::Error::other)?;
++        carrier.retain_extension_tools(Arc::clone(&registry), config, source, capture)?;
++        let carry = carrier
++            .take_extension_tools(session.thread_id(), &registry, config, source)?
++            .ok_or_else(|| io::Error::other("retained tools missing"))?;
++        assert!(
++            carrier
++                .take_extension_tools(session.thread_id(), &registry, config, source)
++                .is_err()
++        );
++        Ok(carry)
++    }
++}
++
++#[tokio::test]
++async fn retained_tool_carrier_burns_foreign_allocation_and_repeated_install_or_take()
++-> anyhow::Result<()> {
++    let (session, turn) = crate::session::tests::make_session_and_context().await;
++    let config = &turn.config;
++    let source = &turn.session_source;
++    let registry = Arc::clone(&session.services.extensions);
++    let make = || {
++        let mut init = ExtensionDataInit::default();
++        OriginalClientInputData::allocate(
++            config,
++            &InitialHistory::New,
++            &mut init,
++            session.thread_id(),
++        )
++    };
++    let capture = || registry.capture_pre_session_tools_for_source(config, source);
++    let mut carrier = make();
++    carrier.retain_extension_tools(Arc::clone(&registry), config, source, capture()?)?;
++    assert!(
++        carrier
++            .take_extension_tools(ThreadId::new(), &registry, config, source)
++            .is_err()
++    );
++    assert!(
++        carrier
++            .take_extension_tools(session.thread_id(), &registry, config, source)
++            .is_err()
++    );
++    let mut carrier = make();
++    carrier.retain_extension_tools(Arc::clone(&registry), config, source, capture()?)?;
++    assert!(
++        carrier
++            .retain_extension_tools(Arc::clone(&registry), config, source, capture()?)
++            .is_err()
++    );
++    assert!(
++        carrier
++            .take_extension_tools(session.thread_id(), &registry, config, source)
++            .is_err()
++    );
++    let mut carrier = make();
++    carrier.retain_extension_tools(Arc::clone(&registry), config, source, capture()?)?;
++    let foreign = codex_extension_api::ExtensionRegistryBuilder::<Config>::new().build();
++    assert!(
++        carrier
++            .take_extension_tools(session.thread_id(), &foreign, config, source)
++            .is_err()
++    );
++    assert!(
++        carrier
++            .take_extension_tools(session.thread_id(), &registry, config, source)
++            .is_err()
++    );
++    Ok(())
++}
++
++#[tokio::test]
++async fn retained_tool_binding_ignores_unbound_contexts_and_never_recovers_after_cancel_or_failure()
++-> anyhow::Result<()> {
++    let (session, turn) = crate::session::tests::make_session_and_context().await;
++    let turn = Arc::new(turn);
++    let carry = OriginalClientInputData::extension_tool_carry_fixture(
++        &session,
++        &turn.config,
++        &turn.session_source,
++    )?;
++    assert!(carry.plan_for_turn(&turn).is_err());
++    let binding = carry.begin_turn(PreparedExtensionToolTurnKind::User)?;
++    carry.bind_turn(binding, &session, &turn)?;
++    let first = carry.plan_for_turn(&turn)?;
++    assert!(Arc::ptr_eq(&first, &carry.plan_for_turn(&turn)?));
++    let (_, foreign_turn) = crate::session::tests::make_session_and_context().await;
++    assert!(carry.plan_for_turn(&foreign_turn).is_err());
++    assert!(Arc::ptr_eq(&first, &carry.plan_for_turn(&turn)?));
++    assert!(
++        carry
++            .begin_turn(PreparedExtensionToolTurnKind::User)
++            .is_err()
++    );
++    assert!(carry.plan_for_turn(&turn).is_err());
++
++    let cancelled = OriginalClientInputData::extension_tool_carry_fixture(
++        &session,
++        &turn.config,
++        &turn.session_source,
++    )?;
++    drop(cancelled.begin_turn(PreparedExtensionToolTurnKind::User)?);
++    assert!(
++        cancelled
++            .begin_turn(PreparedExtensionToolTurnKind::User)
++            .is_err()
++    );
++    assert!(cancelled.plan_for_turn(&turn).is_err());
++
++    let failed = OriginalClientInputData::extension_tool_carry_fixture(
++        &session,
++        &turn.config,
++        &turn.session_source,
++    )?;
++    let binding = failed.begin_turn(PreparedExtensionToolTurnKind::User)?;
++    let (foreign_session, _) = crate::session::tests::make_session_and_context().await;
++    assert!(failed.bind_turn(binding, &foreign_session, &turn).is_err());
++    assert!(
++        failed
++            .begin_turn(PreparedExtensionToolTurnKind::User)
++            .is_err()
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index a42762b..68686cc 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -1714,6 +1714,16 @@ impl Session {
+                 plugins_manager: Arc::clone(&plugins_manager),
+                 mcp_manager: Arc::clone(&mcp_manager),
+                 extensions: Arc::clone(&extensions),
++                prepared_extension_tools: if let Some(inputs) = &mut inherited_client_inputs {
++                    inputs.take_extension_tools(
++                        thread_id,
++                        &extensions,
++                        config.as_ref(),
++                        &session_configuration.session_source,
++                    )?
++                } else {
++                    None
++                },
+                 // TODO(jif): extract session to share between sub-agents
+                 session_extension_data,
+                 thread_extension_data,
+diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
+index 3190535..e467f8f 100644
+--- a/codex-rs/core/src/session/tests.rs
++++ b/codex-rs/core/src/session/tests.rs
+@@ -6641,6 +6641,7 @@ pub(crate) async fn make_session_and_context() -> (Session, TurnContext) {
+     )
+     .expect("initialize test hooks");
+     let services = SessionServices {
++        prepared_extension_tools: None,
+         mcp_runtime,
+         mcp_handler_cache: Default::default(),
+         unified_exec_manager: UnifiedExecProcessManager::new(
+@@ -8919,6 +8920,7 @@ where
+     )
+     .expect("initialize test hooks");
+     let services = SessionServices {
++        prepared_extension_tools: None,
+         mcp_runtime,
+         mcp_handler_cache: Default::default(),
+         unified_exec_manager: UnifiedExecProcessManager::new(
+diff --git a/codex-rs/core/src/session/turn_input.rs b/codex-rs/core/src/session/turn_input.rs
+index d9a5c6a..cb564a7 100644
+--- a/codex-rs/core/src/session/turn_input.rs
++++ b/codex-rs/core/src/session/turn_input.rs
+@@ -128,6 +128,24 @@ impl PreparedTurnInputSettings {
+         submission_id: String,
+         kind: TurnStartKind,
+     ) -> CodexResult<Option<Arc<TurnContext>>> {
++        // Only actual admitted User work may take the retained partition.
++        // A cancelled/failing construction leaves a burned binding, not None.
++        let prepared_tool_binding = session
++            .services
++            .prepared_extension_tools
++            .as_ref()
++            .map(|carry| {
++                carry.begin_turn(match kind {
++                    TurnStartKind::User => {
++                        super::client_input_data::PreparedExtensionToolTurnKind::User
++                    }
++                    TurnStartKind::Automatic | TurnStartKind::Recovery => {
++                        super::client_input_data::PreparedExtensionToolTurnKind::Unsupported
++                    }
++                })
++            })
++            .transpose()
++            .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
+         let TurnStartOptions {
+             turn_trigger,
+             final_output_json_schema,
+@@ -169,6 +187,17 @@ impl PreparedTurnInputSettings {
+         let Some((turn_context, settings_snapshot)) = turn_context else {
+             return Ok(None);
+         };
++        if let Some(binding) = prepared_tool_binding {
++            session
++                .services
++                .prepared_extension_tools
++                .as_ref()
++                .ok_or_else(|| {
++                    CodexErr::InvalidRequest("prepared tool custody missing".to_string())
++                })?
++                .bind_turn(binding, session.as_ref(), &turn_context)
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        }
+         if let Some(turn_trigger) = turn_trigger {
+             turn_context
+                 .turn_metadata_state
+diff --git a/codex-rs/core/src/session/turn_input_tests.rs b/codex-rs/core/src/session/turn_input_tests.rs
+index e76b3e2..8af2549 100644
+--- a/codex-rs/core/src/session/turn_input_tests.rs
++++ b/codex-rs/core/src/session/turn_input_tests.rs
+@@ -1072,3 +1072,61 @@ async fn steer_preserves_request_origin(
+     );
+     session.abort_all_tasks(TurnAbortReason::Interrupted).await;
+ }
++
++#[tokio::test]
++async fn retained_tools_bind_only_actual_admitted_user_and_reject_automatic_or_recovery()
++-> anyhow::Result<()> {
++    use crate::session::client_input_data::OriginalClientInputData;
++    for kind in [
++        TurnStartKind::Automatic,
++        TurnStartKind::Recovery,
++        TurnStartKind::User,
++    ] {
++        let (mut session, turn) = make_session_and_context().await;
++        session.services.prepared_extension_tools =
++            Some(OriginalClientInputData::extension_tool_carry_fixture(
++                &session,
++                &turn.config,
++                &turn.session_source,
++            )?);
++        let session = Arc::new(session);
++        // A real context-only build must not take pending admitted-work custody.
++        let context_only = session.new_default_turn().await;
++        let carry = session.services.prepared_extension_tools.as_ref().unwrap();
++        assert!(carry.plan_for_turn(&context_only).is_err());
++        let prepared = PreparedTurnInputSettings::prepare(
++            &session,
++            ThreadSettingsOverrides::default(),
++            TurnStartOptions::default(),
++        )
++        .await?;
++        let result = prepared
++            .apply_started(&session, "retained-user".to_string(), kind)
++            .await;
++        match kind {
++            TurnStartKind::User => {
++                let admitted = result?.unwrap();
++                let plan = carry.plan_for_turn(&admitted)?;
++                assert!(Arc::ptr_eq(&plan, &carry.plan_for_turn(&admitted)?));
++                assert!(carry.plan_for_turn(&context_only).is_err());
++                assert!(Arc::ptr_eq(&plan, &carry.plan_for_turn(&admitted)?));
++            }
++            TurnStartKind::Automatic | TurnStartKind::Recovery => {
++                assert!(result.is_err());
++                let next = PreparedTurnInputSettings::prepare(
++                    &session,
++                    ThreadSettingsOverrides::default(),
++                    TurnStartOptions::default(),
++                )
++                .await?;
++                assert!(
++                    next.apply_started(&session, "cannot-recover".to_string(), TurnStartKind::User)
++                        .await
++                        .is_err()
++                );
++            }
++        }
++        assert!(session.active_turn.lock().await.is_none());
++    }
++    Ok(())
++}
+diff --git a/codex-rs/core/src/state/service.rs b/codex-rs/core/src/state/service.rs
+index ded1f87..aaf2f2a 100644
+--- a/codex-rs/core/src/state/service.rs
++++ b/codex-rs/core/src/state/service.rs
+@@ -75,6 +75,8 @@ pub(crate) struct SessionServices {
+     pub(crate) plugins_manager: Arc<PluginsManager>,
+     pub(crate) mcp_manager: Arc<McpManager>,
+     pub(crate) extensions: Arc<ExtensionRegistry<crate::config::Config>>,
++    pub(crate) prepared_extension_tools:
++        Option<crate::session::client_input_data::PreparedExtensionToolCarry>,
+     pub(crate) session_extension_data: ExtensionData,
+     pub(crate) thread_extension_data: ExtensionData,
+     /// MCP extensions fixed when this session is created.
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index a11c777..36c2089 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -275,6 +275,39 @@ impl ThreadManager {
+         self.with_current_selected_start(selected, || ())?;
+         Ok(capture)
+     }
++    /// Retains the SAME registry-minted partition in the existing allocation.
++    /// Ordinary Session/turn coupling remains distinct from full request capture.
++    pub fn retain_selected_start_extension_tools(
++        &self,
++        selected: &mut SelectedStartInputs,
++    ) -> io::Result<()> {
++        let result = (|| {
++            let capture = self.capture_selected_start_extension_tools(selected)?;
++            let config = selected.start_options()?.config.clone();
++            let allocation = selected
++                .allocation
++                .as_mut()
++                .ok_or_else(|| io::Error::other("original allocation missing"))?;
++            let source = allocation
++                .inputs
++                .source_frame()
++                .ok_or_else(|| io::Error::other("original source frame missing"))?
++                .client_source()
++                .0
++                .clone();
++            allocation.inputs.retain_extension_tools(
++                Arc::clone(&self.state.extensions),
++                &config,
++                &source,
++                capture,
++            )?;
++            self.with_current_selected_start(selected, || ())
++        })();
++        if result.is_err() {
++            selected.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
+     pub fn renew_selected_start_extension_tools(
+         &self,
+         selected: &SelectedStartInputs,
+diff --git a/codex-rs/core/src/tools/spec_plan.rs b/codex-rs/core/src/tools/spec_plan.rs
+index 2b1eb7d..682914e 100644
+--- a/codex-rs/core/src/tools/spec_plan.rs
++++ b/codex-rs/core/src/tools/spec_plan.rs
+@@ -125,12 +125,27 @@ pub(crate) fn build_tool_router(
+         &registered_mcp_tools,
+         &mut registry,
+     );
+-    let standalone_web_search_tool = append_extension_tool_executors(
+-        turn_context,
+-        model_info,
+-        extension_tool_executors(session, step_store),
+-        &mut registry,
+-    );
++    let standalone_web_search_tool = if let Some(carry) = &session.services.prepared_extension_tools
++    {
++        let plan = carry
++            .plan_for_turn(turn_context)
++            .map_err(|error| CodexErrorDetails::InvalidRequest(error.to_string()))?;
++        // Collect the ordinary iterator ONCE, then adapt these SAME executors.
++        // Legacy None retains its original lazy callback/getter ordering below.
++        let executors = extension_tool_executors(session, step_store).collect::<Vec<_>>();
++        carry
++            .associate(&plan, session, turn_context, &executors)
++            .map_err(|error| CodexErrorDetails::InvalidRequest(error.to_string()))?;
++        append_extension_tool_executors(turn_context, model_info, executors, &mut registry)
++    } else {
++        let standalone_web_search_tool = append_extension_tool_executors(
++            turn_context,
++            model_info,
++            extension_tool_executors(session, step_store),
++            &mut registry,
++        );
++        standalone_web_search_tool
++    };
+     append_dynamic_tool_runtimes(&turn_context.dynamic_tools, &mut registry);
+     let hosted_specs = hosted_model_tool_specs(
+         turn_context,
+diff --git a/codex-rs/core/src/tools/spec_plan_tests.rs b/codex-rs/core/src/tools/spec_plan_tests.rs
+index 5287f49..3a4a20c 100644
+--- a/codex-rs/core/src/tools/spec_plan_tests.rs
++++ b/codex-rs/core/src/tools/spec_plan_tests.rs
+@@ -3669,3 +3669,222 @@ async fn bedrock_web_search_keeps_hosted_fallback() {
+     bedrock_with_standalone_web_search.assert_visible_contains(&["web_search"]);
+     bedrock_with_standalone_web_search.assert_visible_lacks(&["web"]);
+ }
++
++#[tokio::test]
++async fn retained_actual_registry_iterator_associates_before_router_and_preserves_final_specs()
++-> anyhow::Result<()> {
++    use crate::session::client_input_data::OriginalClientInputData;
++    use crate::session::client_input_data::PreparedExtensionToolTurnKind;
++    let (mut session, turn) = make_session_and_context().await;
++    let turn = Arc::new(turn);
++    let trace = Arc::new(Mutex::new(Vec::new()));
++    let mut builder = codex_extension_api::ExtensionRegistryBuilder::<crate::config::Config>::new();
++    builder.tool_contributor_with_source_pre_session_plan(
++        Arc::new(OrderedPlanningContributor {
++            event: "retained_contributor",
++            trace: Arc::clone(&trace),
++            role_path: None,
++            return_tool: true,
++        }),
++        Arc::new(|_| codex_extension_api::ToolPreSessionSelection::Unresolved),
++        Arc::new(|_, _| {
++            codex_extension_api::SourceToolPreSessionSelection::Definitions(
++                vec![
++                    codex_extension_api::ExtensionToolDefinition::from_default_spec(
++                        ToolName::namespaced("ordering", "probe"),
++                        TestNamespaceExtensionTool {
++                            namespace: "ordering",
++                            tool_name: "probe",
++                        }
++                        .spec(),
++                    ),
++                ]
++                .into(),
++            )
++        }),
++    );
++    session.services.extensions = builder.build();
++    let mcp = Arc::new(codex_mcp::McpBinding::empty(mcp_config_for_test(
++        &turn.config,
++    )));
++    let ordinary = super::build_tool_router(
++        &session,
++        &turn,
++        turn.model_info(),
++        &turn.initial_environments,
++        &mcp,
++        false,
++        &turn.extension_data,
++        None,
++    )?;
++    session.services.prepared_extension_tools =
++        Some(OriginalClientInputData::extension_tool_carry_fixture(
++            &session,
++            &turn.config,
++            &turn.session_source,
++        )?);
++    let carry = session.services.prepared_extension_tools.as_ref().unwrap();
++    // No callback/tool execution occurs in capture or binding.
++    trace.lock().unwrap().clear();
++    let binding = carry.begin_turn(PreparedExtensionToolTurnKind::User)?;
++    carry.bind_turn(binding, &session, &turn)?;
++    assert!(trace.lock().unwrap().is_empty());
++    for _ in 0..2 {
++        trace.lock().unwrap().clear();
++        let prepared = super::build_tool_router(
++            &session,
++            &turn,
++            turn.model_info(),
++            &turn.initial_environments,
++            &mcp,
++            false,
++            &turn.extension_data,
++            None,
++        )?;
++        assert_eq!(
++            prepared.model_visible_specs(),
++            ordinary.model_visible_specs()
++        );
++        assert_eq!(
++            trace
++                .lock()
++                .unwrap()
++                .iter()
++                .filter(|event| **event == "retained_contributor")
++                .count(),
++            1
++        );
++    }
++    let foreign = session.new_default_turn().await;
++    trace.lock().unwrap().clear();
++    assert!(
++        super::build_tool_router(
++            &session,
++            &foreign,
++            foreign.model_info(),
++            &foreign.initial_environments,
++            &mcp,
++            false,
++            &foreign.extension_data,
++            None
++        )
++        .is_err()
++    );
++    assert!(!trace.lock().unwrap().contains(&"retained_contributor"));
++    Ok(())
++}
++
++#[tokio::test]
++async fn retained_router_metadata_mismatch_burns_before_adapter_and_cannot_fall_back()
++-> anyhow::Result<()> {
++    use crate::session::client_input_data::OriginalClientInputData;
++    use crate::session::client_input_data::PreparedExtensionToolTurnKind;
++    let (mut session, turn) = make_session_and_context().await;
++    let mut turn = Arc::new(turn);
++    let trace = Arc::new(Mutex::new(Vec::new()));
++    let captured_ephemeral = turn.config.ephemeral;
++    let mut builder = codex_extension_api::ExtensionRegistryBuilder::<crate::config::Config>::new();
++    builder.tool_contributor_with_source_pre_session_plan(
++        Arc::new(OrderedPlanningContributor {
++            event: "mismatching_contributor",
++            trace: Arc::clone(&trace),
++            role_path: None,
++            return_tool: false,
++        }),
++        Arc::new(|_| codex_extension_api::ToolPreSessionSelection::Unresolved),
++        Arc::new(move |config, _| {
++            if config.ephemeral != captured_ephemeral {
++                codex_extension_api::SourceToolPreSessionSelection::Unresolved
++            } else {
++                codex_extension_api::SourceToolPreSessionSelection::Definitions(
++                    vec![
++                        codex_extension_api::ExtensionToolDefinition::from_default_spec(
++                            ToolName::namespaced("ordering", "probe"),
++                            TestNamespaceExtensionTool {
++                                namespace: "ordering",
++                                tool_name: "probe",
++                            }
++                            .spec(),
++                        ),
++                    ]
++                    .into(),
++                )
++            }
++        }),
++    );
++    session.services.extensions = builder.build();
++    // The original test Config is retained; no production eligibility/default is changed.
++    let changed_config = OriginalClientInputData::extension_tool_carry_fixture(
++        &session,
++        &turn.config,
++        &turn.session_source,
++    )?;
++    let binding = changed_config.begin_turn(PreparedExtensionToolTurnKind::User)?;
++    Arc::make_mut(&mut Arc::get_mut(&mut turn).unwrap().config).ephemeral = !captured_ephemeral;
++    assert!(changed_config.bind_turn(binding, &session, &turn).is_err());
++    Arc::make_mut(&mut Arc::get_mut(&mut turn).unwrap().config).ephemeral = captured_ephemeral;
++    assert!(
++        changed_config
++            .begin_turn(PreparedExtensionToolTurnKind::User)
++            .is_err()
++    );
++    let changed_source = OriginalClientInputData::extension_tool_carry_fixture(
++        &session,
++        &turn.config,
++        &turn.session_source,
++    )?;
++    let binding = changed_source.begin_turn(PreparedExtensionToolTurnKind::User)?;
++    let original_source = turn.session_source.clone();
++    Arc::get_mut(&mut turn).unwrap().session_source =
++        SessionSource::SubAgent(SubAgentSource::Review);
++    assert!(changed_source.bind_turn(binding, &session, &turn).is_err());
++    Arc::get_mut(&mut turn).unwrap().session_source = original_source;
++    assert!(
++        changed_source
++            .begin_turn(PreparedExtensionToolTurnKind::User)
++            .is_err()
++    );
++    let carry = OriginalClientInputData::extension_tool_carry_fixture(
++        &session,
++        &turn.config,
++        &turn.session_source,
++    )?;
++    let binding = carry.begin_turn(PreparedExtensionToolTurnKind::User)?;
++    carry.bind_turn(binding, &session, &turn)?;
++    session.services.prepared_extension_tools = Some(carry);
++    let mcp = Arc::new(codex_mcp::McpBinding::empty(mcp_config_for_test(
++        &turn.config,
++    )));
++    trace.lock().unwrap().clear();
++    assert!(
++        super::build_tool_router(
++            &session,
++            &turn,
++            turn.model_info(),
++            &turn.initial_environments,
++            &mcp,
++            false,
++            &turn.extension_data,
++            None
++        )
++        .is_err()
++    );
++    assert_eq!(*trace.lock().unwrap(), vec!["mismatching_contributor"]);
++    // A later valid selection cannot turn this failed association into None.
++    trace.lock().unwrap().clear();
++    assert!(
++        super::build_tool_router(
++            &session,
++            &turn,
++            turn.model_info(),
++            &turn.initial_environments,
++            &mcp,
++            false,
++            &turn.extension_data,
++            None
++        )
++        .is_err()
++    );
++    assert!(trace.lock().unwrap().is_empty());
++    Ok(())
++}

@@ -1,0 +1,844 @@
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index 3b7a851..605dddd 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -988,3 +988,99 @@ async fn installed_candidate_permission_projection_uses_private_pipeline_and_kee
+         );
+     }
+ }
++
++#[tokio::test]
++async fn installed_prompt_base_keeps_original_startup_provenance_with_changed_first_personality() {
++    for custom in [false, true] {
++        let home = tempfile::tempdir().unwrap();
++        let configs = manager(home.path());
++        let source = configs
++            .load_selected_start_config(
++                None,
++                ConfigOverrides {
++                    cwd: Some(home.path().to_path_buf()),
++                    model: Some("gpt-6-luna".into()),
++                    personality: Some(codex_protocol::config_types::Personality::Pragmatic),
++                    base_instructions: custom.then(|| "custom original bytes".into()),
++                    ..Default::default()
++                },
++            )
++            .await
++            .unwrap();
++        let config = source.config().clone();
++        assert!(config.features.enabled(Feature::Apps));
++        assert!(config.features.enabled(Feature::Plugins));
++        let store = Arc::new(InMemoryThreadStore::default());
++        let mut catalog = None;
++        let (threads, installed, _) =
++            thread_manager_with_models(&config, Arc::clone(&store), |auth| {
++                let models: codex_models_manager::manager::SharedModelsManager = Arc::new(
++                    codex_models_manager::manager::OpenAiModelsManager::new_without_cache(
++                        Arc::new(NoStartupEndpoint),
++                        Some(Arc::clone(auth)),
++                    ),
++                );
++                catalog = Some(Arc::clone(&models));
++                models
++            });
++        let startup_row = catalog
++            .as_ref()
++            .unwrap()
++            .get_model_info("gpt-6-luna", &config.to_models_manager_config())
++            .await;
++        let expected = if custom {
++            codex_protocol::models::BaseInstructions {
++                text: "custom original bytes".into(),
++                provenance: Some(codex_protocol::models::BaseInstructionsProvenance::Custom),
++            }
++        } else {
++            let text = codex_prompts::render_model_instructions(&startup_row);
++            codex_protocol::models::BaseInstructions {
++                text: if !config.update_plan_enabled && config.model_catalog.is_none() {
++                    codex_prompts::without_update_plan_instructions(&text)
++                } else {
++                    text
++                },
++                provenance: Some(codex_protocol::models::BaseInstructionsProvenance::Model {
++                    model: startup_row.slug.clone(),
++                }),
++            }
++        };
++        let original = OriginalFirstCommandStart::new(
++            StartThreadOptions::new(config),
++            threads.reserve_thread_start(),
++            installed,
++            crate::request_processors::AppServerClientInfo::capture(None, None),
++        );
++        let mut selected = source
++            .capture_first_command(&threads, original)
++            .await
++            .unwrap();
++        selected.capture_startup(&threads).await.unwrap();
++        selected.capture_startup_api_mcp(&threads).unwrap();
++        let body = serde_json::from_value(serde_json::json!({"input":[],"personality":"friendly"}))
++            .unwrap();
++        selected
++            .capture_command(&threads, "base-source".into(), body, None)
++            .await
++            .unwrap();
++        selected.capture_first_step_context(&threads).await.unwrap();
++        let partial = selected.first_step_context.as_ref().unwrap();
++        assert_eq!(partial.prompt_base_instructions(), Some(&expected));
++        threads
++            .validate_selected_builtin_context(selected.start(), partial)
++            .unwrap();
++        assert!(partial.unresolved_partitions().contains(
++            &codex_core::UnresolvedInitialContextPartition::ModelAndBaseInstructionsSelection
++        ));
++        assert!(partial.unresolved_partitions().contains(
++            &codex_core::UnresolvedInitialContextPartition::OriginalFreshHistoryAndAgentState
++        ));
++        assert!(selected.adopt_startup(&threads).await.is_err());
++        assert!(threads.list_thread_ids().await.is_empty());
++        assert_eq!(
++            store.calls().await,
++            codex_thread_store::InMemoryThreadStoreCalls::default()
++        );
++    }
++}
+diff --git a/codex-rs/core/src/session/base_instructions_data.rs b/codex-rs/core/src/session/base_instructions_data.rs
+new file mode 100644
+index 0000000..afe7e20
+--- /dev/null
++++ b/codex-rs/core/src/session/base_instructions_data.rs
+@@ -0,0 +1,136 @@
++//! Original base text and provenance DATA, consumed at distinct ordinary stages.
++//! Neither this snapshot nor prompt-copy rendering supplies previous-turn state.
++use super::*;
++use codex_prompts::render_model_instructions;
++use codex_protocol::models::{BaseInstructions, BaseInstructionsProvenance};
++use std::io;
++
++pub(super) enum BaseProvenanceAdoption {
++    Ordinary,
++    Retained(Option<BaseInstructionsProvenance>),
++}
++pub(super) struct OriginalBaseInstructionsData {
++    text: Option<String>,
++    provenance: Option<Box<OriginalBaseProvenance>>,
++}
++pub(super) struct OriginalBaseProvenance {
++    config: Arc<Config>,
++    source: SessionSource,
++    model: ModelInfo,
++    value: Option<BaseInstructionsProvenance>,
++}
++impl OriginalBaseInstructionsData {
++    pub(super) fn capture(
++        config: Arc<Config>,
++        source: &SessionSource,
++        history: &InitialHistory,
++        model: &ModelInfo,
++    ) -> io::Result<Self> {
++        if !matches!(history, InitialHistory::New) {
++            return Err(io::Error::other(
++                "selected base requires original fresh history",
++            ));
++        }
++        let text = super::startup_selection::resolve_base_instructions(&config, history, model);
++        let value = resolve_provenance(&config, history, model);
++        Ok(Self {
++            text: Some(text),
++            provenance: Some(Box::new(OriginalBaseProvenance {
++                config,
++                source: source.clone(),
++                model: model.clone(),
++                value,
++            })),
++        })
++    }
++    pub(super) fn snapshot(
++        &self,
++        config: &Arc<Config>,
++        source: &SessionSource,
++        model: &ModelInfo,
++    ) -> io::Result<BaseInstructions> {
++        let provenance = self
++            .provenance
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original base provenance moved"))?;
++        provenance.validate_owners(config, source, model)?;
++        Ok(BaseInstructions {
++            text: self
++                .text
++                .as_ref()
++                .ok_or_else(|| io::Error::other("original base text moved"))?
++                .clone(),
++            provenance: provenance.value.clone(),
++        })
++    }
++    pub(super) fn take_text(&mut self) -> io::Result<String> {
++        self.text
++            .take()
++            .ok_or_else(|| io::Error::other("startup base instructions already adopted"))
++    }
++    pub(super) fn take_provenance(&mut self) -> io::Result<Box<OriginalBaseProvenance>> {
++        self.provenance
++            .take()
++            .ok_or_else(|| io::Error::other("startup base provenance already adopted"))
++    }
++}
++impl OriginalBaseProvenance {
++    fn validate_owners(
++        &self,
++        config: &Arc<Config>,
++        source: &SessionSource,
++        model: &ModelInfo,
++    ) -> io::Result<()> {
++        if !Arc::ptr_eq(config, &self.config) || source != &self.source || model != &self.model {
++            return Err(io::Error::other(
++                "original base config/source/startup row changed",
++            ));
++        }
++        Ok(())
++    }
++    pub(super) fn adopt(
++        self: Box<Self>,
++        config: &Arc<Config>,
++        source: &SessionSource,
++        history: &InitialHistory,
++        model: &ModelInfo,
++    ) -> io::Result<Option<BaseInstructionsProvenance>> {
++        self.validate_owners(config, source, model)?;
++        if !matches!(history, InitialHistory::New) {
++            return Err(io::Error::other("original base history changed"));
++        }
++        Ok(self.value)
++    }
++}
++
++pub(super) fn resolve_provenance(
++    config: &Config,
++    initial_history: &InitialHistory,
++    model_info: &ModelInfo,
++) -> Option<BaseInstructionsProvenance> {
++    if config.base_instructions.is_some() {
++        Some(
++            config
++                .base_instructions_provenance
++                .clone()
++                .unwrap_or(BaseInstructionsProvenance::Custom),
++        )
++    } else if let Some(inherited_base_instructions) = initial_history.get_base_instructions() {
++        let BaseInstructions { text, provenance } = inherited_base_instructions;
++        provenance.or_else(|| {
++            (text == render_model_instructions(model_info)).then(|| {
++                BaseInstructionsProvenance::Model {
++                    model: model_info.slug.clone(),
++                }
++            })
++        })
++    } else {
++        Some(BaseInstructionsProvenance::Model {
++            model: model_info.slug.clone(),
++        })
++    }
++}
++
++#[cfg(test)]
++#[path = "base_instructions_data_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/base_instructions_data_tests.rs b/codex-rs/core/src/session/base_instructions_data_tests.rs
+new file mode 100644
+index 0000000..64282ce
+--- /dev/null
++++ b/codex-rs/core/src/session/base_instructions_data_tests.rs
+@@ -0,0 +1,177 @@
++use super::*;
++use codex_protocol::protocol::{SessionMeta, SessionMetaLine};
++use pretty_assertions::assert_eq;
++
++async fn source() -> anyhow::Result<(tempfile::TempDir, Arc<Config>, ModelInfo)> {
++    let home = tempfile::tempdir()?;
++    let config = crate::config::ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .loader_overrides(
++            codex_config::LoaderOverrides::with_managed_config_path_for_tests(
++                home.path().join("managed.toml"),
++            ),
++        )
++        .fallback_cwd(Some(home.path().to_path_buf()))
++        .build()
++        .await?;
++    let row = codex_models_manager::bundled_models_response()?
++        .models
++        .into_iter()
++        .find(|row| row.slug == "gpt-6-luna")
++        .unwrap();
++    Ok((home, Arc::new(config), row))
++}
++fn inherited(base: BaseInstructions) -> InitialHistory {
++    InitialHistory::Forked(vec![RolloutItem::SessionMeta(SessionMetaLine {
++        meta: SessionMeta {
++            base_instructions: Some(base),
++            ..SessionMeta::default()
++        },
++        git: None,
++    })])
++}
++impl OriginalBaseInstructionsData {
++    pub(in crate::session) fn text_storage_for_test(&self) -> *const u8 {
++        self.text.as_ref().unwrap().as_ptr()
++    }
++}
++#[tokio::test]
++async fn original_provenance_branches_preserve_config_history_precedence_and_prompt_copy()
++-> anyhow::Result<()> {
++    let (_home, config, row) = source().await?;
++    let rendered = render_model_instructions(&row);
++    let model = Some(BaseInstructionsProvenance::Model {
++        model: row.slug.clone(),
++    });
++    for (history, expected) in [
++        (InitialHistory::New, model.clone()),
++        (
++            inherited(BaseInstructions {
++                text: rendered.clone(),
++                provenance: None,
++            }),
++            model.clone(),
++        ),
++        (
++            inherited(BaseInstructions {
++                text: "unknown inherited bytes".into(),
++                provenance: None,
++            }),
++            None,
++        ),
++        (
++            inherited(BaseInstructions {
++                text: rendered.clone(),
++                provenance: Some(BaseInstructionsProvenance::Custom),
++            }),
++            Some(BaseInstructionsProvenance::Custom),
++        ),
++    ] {
++        assert_eq!(resolve_provenance(&config, &history, &row), expected);
++    }
++    for provenance in [
++        None,
++        model.clone(),
++        Some(BaseInstructionsProvenance::Custom),
++    ] {
++        let mut selected = (*config).clone();
++        selected.base_instructions = Some("configured override".into());
++        selected.base_instructions_provenance = provenance.clone();
++        let history = inherited(BaseInstructions {
++            text: rendered.clone(),
++            provenance: model.clone(),
++        });
++        assert_eq!(
++            resolve_provenance(&selected, &history, &row),
++            provenance.or(Some(BaseInstructionsProvenance::Custom))
++        );
++        assert_eq!(
++            super::super::startup_selection::resolve_base_instructions(&selected, &history, &row),
++            "configured override"
++        );
++    }
++    let raw = BaseInstructions {
++        text: rendered,
++        provenance: model,
++    };
++    let mut filtered = (*config).clone();
++    filtered.update_plan_enabled = false;
++    filtered.model_catalog = None;
++    let copy =
++        super::super::initial_context_builtin::prompt_base_instructions(&filtered, raw.clone());
++    assert_eq!(
++        copy,
++        BaseInstructions {
++            text: codex_prompts::without_update_plan_instructions(&raw.text),
++            provenance: raw.provenance.clone()
++        }
++    );
++    let custom = BaseInstructions {
++        text: "custom bytes".into(),
++        provenance: Some(BaseInstructionsProvenance::Custom),
++    };
++    assert_eq!(
++        super::super::initial_context_builtin::prompt_base_instructions(&filtered, custom.clone()),
++        custom
++    );
++    filtered.update_plan_enabled = true;
++    assert_eq!(
++        super::super::initial_context_builtin::prompt_base_instructions(&filtered, raw.clone()),
++        raw
++    );
++    Ok(())
++}
++#[tokio::test]
++async fn captured_base_values_move_once_and_refuse_foreign_changed_or_nonfresh_inputs()
++-> anyhow::Result<()> {
++    let (_home, config, row) = source().await?;
++    let make = || {
++        OriginalBaseInstructionsData::capture(
++            Arc::clone(&config),
++            &SessionSource::Exec,
++            &InitialHistory::New,
++            &row,
++        )
++    };
++    let mut data = make()?;
++    let expected = data.snapshot(&config, &SessionSource::Exec, &row)?;
++    let storage = data.text_storage_for_test();
++    let text = data.take_text()?;
++    assert_eq!(text.as_ptr(), storage);
++    assert_eq!(text, expected.text);
++    assert!(data.take_text().is_err());
++    let provenance = data.take_provenance()?;
++    assert_eq!(
++        provenance.adopt(&config, &SessionSource::Exec, &InitialHistory::New, &row)?,
++        expected.provenance
++    );
++    assert!(data.take_provenance().is_err());
++    assert!(data.snapshot(&config, &SessionSource::Exec, &row).is_err());
++    for variant in 0..3 {
++        let mut data = make()?;
++        let provenance = data.take_provenance()?;
++        let foreign = Arc::new((*config).clone());
++        let mut changed = row.clone();
++        changed.slug.push_str("-changed");
++        let (actual_config, source, actual_row) = match variant {
++            0 => (&foreign, SessionSource::Exec, &row),
++            1 => (&config, SessionSource::VSCode, &row),
++            _ => (&config, SessionSource::Exec, &changed),
++        };
++        assert!(
++            provenance
++                .adopt(actual_config, &source, &InitialHistory::New, actual_row)
++                .is_err()
++        );
++    }
++    assert!(
++        OriginalBaseInstructionsData::capture(
++            Arc::clone(&config),
++            &SessionSource::Exec,
++            &InitialHistory::Forked(Vec::new()),
++            &row
++        )
++        .is_err()
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/client_input_data.rs b/codex-rs/core/src/session/client_input_data.rs
+index 7ce4683..af5798b 100644
+--- a/codex-rs/core/src/session/client_input_data.rs
++++ b/codex-rs/core/src/session/client_input_data.rs
+@@ -12,6 +12,15 @@ use std::io;
+ #[path = "fresh_history_data.rs"]
+ pub(super) mod fresh_history_data;
+ 
++enum OriginalBaseProvenanceSlot {
++    Ordinary,
++    Retained(
++        ThreadId,
++        Box<super::base_instructions_data::OriginalBaseProvenance>,
++    ),
++    Consumed,
++}
++
+ enum OriginalFreshHistorySlot {
+     Ordinary,
+     Retained(ThreadId, fresh_history_data::OriginalFreshHistoryData),
+@@ -48,6 +57,7 @@ enum OriginalClientSlot {
+ pub(crate) struct OriginalClientInputData {
+     client: OriginalClientSlot,
+     startup: Option<super::startup_selection::OriginalStartupSelection>,
++    base_provenance: OriginalBaseProvenanceSlot,
+     fresh_history: OriginalFreshHistorySlot,
+     extension_tools: OriginalExtensionToolSlot,
+     thread_id: ThreadId,
+@@ -84,6 +94,7 @@ impl OriginalClientInputData {
+         Self {
+             client: OriginalClientSlot::NotConstructed,
+             startup: None,
++            base_provenance: OriginalBaseProvenanceSlot::Ordinary,
+             fresh_history: OriginalFreshHistorySlot::Ordinary,
+             extension_tools: OriginalExtensionToolSlot::Uncaptured,
+             thread_id,
+@@ -216,6 +227,61 @@ impl OriginalClientInputData {
+             }
+         }
+     }
++    pub(super) fn stage_base_provenance_for_session(&mut self) -> io::Result<()> {
++        if !matches!(self.base_provenance, OriginalBaseProvenanceSlot::Ordinary) {
++            self.base_provenance = OriginalBaseProvenanceSlot::Consumed;
++            return Err(io::Error::other("original base provenance stage repeated"));
++        }
++        match self.startup.as_mut() {
++            Some(startup) => {
++                self.base_provenance = OriginalBaseProvenanceSlot::Consumed;
++                let data = startup.take_base_provenance()?;
++                self.base_provenance = OriginalBaseProvenanceSlot::Retained(self.thread_id, data);
++                Ok(())
++            }
++            None if matches!(self.fresh_history, OriginalFreshHistorySlot::Ordinary) => Ok(()),
++            None => {
++                self.base_provenance = OriginalBaseProvenanceSlot::Consumed;
++                Err(io::Error::other(
++                    "original selected startup missing before base stage",
++                ))
++            }
++        }
++    }
++    pub(super) fn take_base_provenance(
++        &mut self,
++        reserved: Option<ThreadId>,
++        config: &Arc<Config>,
++        source: &SessionSource,
++        history: &InitialHistory,
++        model: &ModelInfo,
++    ) -> io::Result<super::base_instructions_data::BaseProvenanceAdoption> {
++        use super::base_instructions_data::BaseProvenanceAdoption;
++        match std::mem::replace(
++            &mut self.base_provenance,
++            OriginalBaseProvenanceSlot::Consumed,
++        ) {
++            OriginalBaseProvenanceSlot::Ordinary => {
++                if self.startup.is_some()
++                    || !matches!(self.fresh_history, OriginalFreshHistorySlot::Ordinary)
++                {
++                    return Err(io::Error::other("selected base provenance was not staged"));
++                }
++                Ok(BaseProvenanceAdoption::Ordinary)
++            }
++            OriginalBaseProvenanceSlot::Retained(id, data) => {
++                if reserved != Some(id) {
++                    return Err(io::Error::other("original base allocation changed"));
++                }
++                Ok(BaseProvenanceAdoption::Retained(
++                    data.adopt(config, source, history, model)?,
++                ))
++            }
++            OriginalBaseProvenanceSlot::Consumed => {
++                Err(io::Error::other("original base provenance consumed"))
++            }
++        }
++    }
+     pub(super) fn take_startup(
+         &mut self,
+     ) -> Option<super::startup_selection::OriginalStartupSelection> {
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 263b3f9..1d1f923 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -262,6 +262,7 @@ mod rollout_reconstruction;
+ pub(crate) mod session;
+ pub(crate) use parent_approval::InitialExecApprovalIssuer;
+ pub(crate) use parent_approval::InterceptedApprovalSelection;
++mod base_instructions_data;
+ mod first_step_model_data;
+ pub(crate) mod startup_prewarm;
+ pub(crate) mod startup_selection;
+@@ -612,6 +613,11 @@ impl Session {
+             client_input_data::SessionChannels::allocate()
+         };
+ 
++        if let Some(inputs) = &mut inherited_client_inputs {
++            inputs
++                .stage_base_provenance_for_session()
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        }
+         let (startup_owner, mut startup_stages, config) = match inherited_client_inputs
+             .as_mut()
+             .and_then(|inputs| inputs.take_startup())
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index d62aebe..1f14d96 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -28,12 +28,10 @@ use codex_extension_api::ExtensionDataInit;
+ use codex_http_client::ClientRouteClass;
+ use codex_http_client::RouteAwareClientPool;
+ use codex_model_provider::SharedModelProvider;
+-use codex_prompts::render_model_instructions;
+ use codex_protocol::SessionId;
+ use codex_protocol::capabilities::SelectedCapabilityRoot;
+ use codex_protocol::config_types::ShellEnvironmentPolicy;
+ use codex_protocol::mcp::ClientMcpExtensions;
+-use codex_protocol::models::BaseInstructionsProvenance;
+ use codex_protocol::models::ProfileWorkspaceRoot;
+ use codex_protocol::protocol::EnvironmentConfig;
+ use codex_protocol::protocol::HookCompletedEvent;
+@@ -601,26 +599,26 @@ impl Session {
+                 .model(),
+             session_configuration.provider
+         );
+-        let base_instructions_provenance = if config.base_instructions.is_some() {
+-            Some(
+-                config
+-                    .base_instructions_provenance
+-                    .clone()
+-                    .unwrap_or(BaseInstructionsProvenance::Custom),
+-            )
+-        } else if let Some(inherited_base_instructions) = initial_history.get_base_instructions() {
+-            let BaseInstructions { text, provenance } = inherited_base_instructions;
+-            provenance.or_else(|| {
+-                (text == render_model_instructions(&model_info)).then(|| {
+-                    BaseInstructionsProvenance::Model {
+-                        model: model_info.slug.clone(),
+-                    }
+-                })
+-            })
+-        } else {
+-            Some(BaseInstructionsProvenance::Model {
+-                model: model_info.slug.clone(),
+-            })
++        let base_instructions_provenance = match match &mut inherited_client_inputs {
++            Some(inputs) => inputs
++                .take_base_provenance(
++                    reserved_thread_id,
++                    &config,
++                    &session_configuration.session_source,
++                    &initial_history,
++                    &model_info,
++                )
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?,
++            None => super::base_instructions_data::BaseProvenanceAdoption::Ordinary,
++        } {
++            super::base_instructions_data::BaseProvenanceAdoption::Retained(value) => value,
++            super::base_instructions_data::BaseProvenanceAdoption::Ordinary => {
++                super::base_instructions_data::resolve_provenance(
++                    &config,
++                    &initial_history,
++                    &model_info,
++                )
++            }
+         };
+         let forked_from_id = session_configuration
+             .forked_from_thread_id
+diff --git a/codex-rs/core/src/session/startup_selection.rs b/codex-rs/core/src/session/startup_selection.rs
+index ff5bc90..e5703dc 100644
+--- a/codex-rs/core/src/session/startup_selection.rs
++++ b/codex-rs/core/src/session/startup_selection.rs
+@@ -29,7 +29,7 @@ pub(super) struct StartupSelectionStages {
+     model: String,
+     reviewed: Option<Arc<Config>>,
+     effective: Option<Arc<Config>>,
+-    base: Option<String>,
++    base: super::base_instructions_data::OriginalBaseInstructionsData,
+     trusted: bool,
+     pub(super) baseline: configured_settings_data::OwnedConfiguredBaseline,
+ }
+@@ -93,8 +93,12 @@ impl OriginalStartupSelection {
+             candidate.model_info(),
+         )
+         .map_err(io::Error::other)?;
+-        let base =
+-            resolve_base_instructions(&effective, &options.initial_history, candidate.model_info());
++        let base = super::base_instructions_data::OriginalBaseInstructionsData::capture(
++            Arc::clone(&effective),
++            source,
++            &options.initial_history,
++            candidate.model_info(),
++        )?;
+         auth.with_current_api_key_credentials(&credentials, |_, _| ())
+             .ok_or_else(|| io::Error::other("original credentials changed"))?;
+         let baseline = configured_settings_data::OwnedConfiguredBaseline::capture(
+@@ -130,7 +134,7 @@ impl OriginalStartupSelection {
+                 model,
+                 reviewed: Some(reviewed),
+                 effective: Some(effective),
+-                base: Some(base),
++                base,
+                 trusted,
+                 baseline,
+             },
+@@ -150,6 +154,18 @@ impl OriginalStartupSelection {
+         }
+         Ok(data)
+     }
++    pub(crate) fn base_instructions(&self) -> io::Result<codex_protocol::models::BaseInstructions> {
++        self.stages.base.snapshot(
++            &self.owner.effective,
++            &self.owner.source,
++            self.owner.model_info(),
++        )
++    }
++    pub(super) fn take_base_provenance(
++        &mut self,
++    ) -> io::Result<Box<super::base_instructions_data::OriginalBaseProvenance>> {
++        self.stages.base.take_provenance()
++    }
+     pub(crate) fn catalog_observation(
+         &self,
+     ) -> (SharedModelsManager, Arc<UnverifiedModelLimitCandidate>) {
+@@ -268,9 +284,7 @@ impl StartupSelectionStages {
+             .ok_or_else(|| io::Error::other("startup activation already adopted"))
+     }
+     pub(super) fn take_base(&mut self) -> io::Result<String> {
+-        self.base
+-            .take()
+-            .ok_or_else(|| io::Error::other("startup base instructions already adopted"))
++        self.base.take_text()
+     }
+ }
+ 
+diff --git a/codex-rs/core/src/session/startup_selection_tests.rs b/codex-rs/core/src/session/startup_selection_tests.rs
+index 06425d0..0ffaca4 100644
+--- a/codex-rs/core/src/session/startup_selection_tests.rs
++++ b/codex-rs/core/src/session/startup_selection_tests.rs
+@@ -491,3 +491,90 @@ async fn retained_startup_config_heap_storage_preserves_values_and_original_adop
+     assert_eq!(owner.raw.as_ref(), &adopted_raw);
+     Ok(())
+ }
++
++#[tokio::test]
++async fn retained_base_stays_startup_owned_across_first_command_personality_and_original_packet_adoption()
++-> anyhow::Result<()> {
++    let (_home, mut options, auth, models, _) = fixture().await?;
++    options.config.personality = Some(codex_protocol::config_types::Personality::Pragmatic);
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let expected = startup.base_instructions()?;
++    let mut command =
++        startup.settings_candidate(codex_protocol::protocol::ThreadSettingsOverrides {
++            personality: Some(codex_protocol::config_types::Personality::Friendly),
++            ..Default::default()
++        })?;
++    command.pair_command(
++        "base-data".into(),
++        codex_protocol::turn_input::TurnInputRequest::user_input(Vec::new()),
++        None,
++        None,
++        None,
++    )?;
++    command.capture_first_step_model(&startup).await?;
++    assert_eq!(startup.base_instructions()?, expected);
++    let manager = crate::ThreadManager::for_fresh_history_fixture(
++        &options.config,
++        Arc::clone(&auth),
++        Arc::clone(&models),
++    );
++    let reservation = manager.reserve_thread_start();
++    let id = reservation.thread_id();
++    let mut selected = manager
++        .prepare_reserved_selected_start(options, reservation)
++        .await?;
++    manager
++        .capture_selected_start_startup(&mut selected)
++        .await?;
++    let adoption = manager.adopt_selected_start_startup(&mut selected).await?;
++    let (actual_id, options, mut inputs) = adoption.into_fresh_history_fixture_parts();
++    assert_eq!(actual_id, id);
++    inputs.stage_base_provenance_for_session()?;
++    let startup = inputs.take_startup().unwrap();
++    let frame = inputs.source_frame().unwrap();
++    let source = frame.client_source().0.clone();
++    let fork = frame.configured_fork(&options)?;
++    let row = startup.owner.model_info().clone();
++    let (_owner, mut stages, _raw) = startup.into_session(
++        &models,
++        &auth,
++        &options.config,
++        configured_settings_data::ConfiguredBaselineInputs::from_options(&options, fork),
++        &source,
++    )?;
++    stages.take_review()?;
++    let effective = stages.take_effective()?;
++    let storage = stages.base.text_storage_for_test();
++    let text = stages.take_base()?;
++    assert_eq!(text.as_ptr(), storage);
++    assert_eq!(text, expected.text);
++    let adopted = inputs.take_base_provenance(
++        Some(id),
++        &effective,
++        &source,
++        &options.initial_history,
++        &row,
++    )?;
++    let super::super::base_instructions_data::BaseProvenanceAdoption::Retained(provenance) =
++        adopted
++    else {
++        panic!("retained startup cannot fall back")
++    };
++    assert_eq!(provenance, expected.provenance);
++    assert!(
++        inputs
++            .take_base_provenance(
++                Some(id),
++                &effective,
++                &source,
++                &options.initial_history,
++                &row
++            )
++            .is_err()
++    );
++    assert!(stages.take_base().is_err());
++    assert!(manager.list_thread_ids().await.is_empty());
++    Ok(())
++}
+diff --git a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+index 44ffd21..e3fa013 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_builtin_context.rs
+@@ -42,6 +42,7 @@ pub struct PreSessionBuiltinContextData {
+     model_candidate:
+         std::sync::Arc<codex_models_manager::model_limits::UnverifiedModelLimitCandidate>,
+     model_instructions: String,
++    prompt_base: Option<codex_protocol::models::BaseInstructions>,
+     sections: Vec<ResolvedInitialSection>,
+     trailing_sections: Vec<ResolvedInitialSection>,
+     developer: InitialDeveloperData,
+@@ -59,6 +60,9 @@ pub(crate) struct SelectedStartPermissionProjection {
+     section: crate::session::initial_world_state_data::PermissionInitialContext,
+ }
+ impl PreSessionBuiltinContextData {
++    pub fn prompt_base_instructions(&self) -> Option<&codex_protocol::models::BaseInstructions> {
++        self.prompt_base.as_ref()
++    }
+     pub fn model_instructions(&self) -> &str {
+         &self.model_instructions
+     }
+@@ -157,6 +161,9 @@ impl ThreadManager {
+             .apps_enabled_for_auth(/*has_chatgpt_auth*/ false)
+             && config.orchestrator_mcp_enabled;
+         let model = skills.skills().model();
++        let prompt_base = self
++            .selected_start_base_instructions(selected)?
++            .map(|base| initial_context_builtin::prompt_base_instructions(config, base));
+         let (environments, apps, plugins) = initial_context_builtin::execution_guidance(
+             config,
+             model,
+@@ -240,6 +247,7 @@ impl ThreadManager {
+         let data = PreSessionBuiltinContextData {
+             model_candidate: std::sync::Arc::clone(skills.model_candidate_arc()),
+             model_instructions: initial_context_builtin::model_instructions(config, model),
++            prompt_base,
+             sections,
+             trailing_sections,
+             developer: InitialDeveloperData::new(source, config.developer_instructions.as_deref()),
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index 15045cf..0946c92 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -277,6 +277,22 @@ impl ThreadManager {
+         settings.first_step_context_inputs(startup)
+     }
+ 
++    pub(super) fn selected_start_base_instructions(
++        &self,
++        selected: &SelectedStartInputs,
++    ) -> io::Result<Option<codex_protocol::models::BaseInstructions>> {
++        self.with_current_selected_start(selected, || ())?;
++        match selected
++            .allocation
++            .as_ref()
++            .and_then(|allocation| allocation.inputs.startup())
++        {
++            Some(startup) => startup.base_instructions().map(Some),
++            None if selected.settings.is_none() => Ok(None),
++            None => Err(io::Error::other("paired original startup base missing")),
++        }
++    }
++
+     pub(super) fn selected_start_first_step_permission(
+         &self,
+         selected: &SelectedStartInputs,

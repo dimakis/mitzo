@@ -1,0 +1,1653 @@
+diff --git a/codex-rs/app-server/src/extensions/registry_provenance_tests.rs b/codex-rs/app-server/src/extensions/registry_provenance_tests.rs
+index 869300d..676dc17 100644
+--- a/codex-rs/app-server/src/extensions/registry_provenance_tests.rs
++++ b/codex-rs/app-server/src/extensions/registry_provenance_tests.rs
+@@ -239,3 +239,43 @@ async fn foreign_custom_derived_and_extra_contributors_never_inherit_provenance(
+     assert!(foreign.list_thread_ids().await.is_empty());
+     Ok(())
+ }
++
++#[tokio::test]
++async fn installed_defaults_construct_original_client_without_reinstalling_or_starting()
++-> anyhow::Result<()> {
++    let (_home, config, auth, manager, installed) = fixture(/*registry_override*/ None).await?;
++    let mut created = manager.subscribe_thread_created();
++    let token = manager.reserve_thread_start();
++    let mut options = codex_core::StartThreadOptions::new(config);
++    options
++        .thread_extension_init
++        .insert(codex_core::CodexResponsesHeaders {
++            model: "gpt-6-luna".to_string(),
++            headers: http::HeaderMap::new(),
++        });
++    let mut selected = manager
++        .prepare_reserved_selected_start(options, token)
++        .await?;
++    manager.capture_selected_start_api_mcp(
++        &mut selected,
++        auth.capture_cached_api_key_credentials().unwrap(),
++    )?;
++    installed
++        .observe(&manager, selected.mcp_sources().unwrap())
++        .map_err(|error| anyhow::anyhow!("{error:?}"))?;
++    manager.construct_selected_start_client(&mut selected)?;
++    installed
++        .observe(&manager, selected.mcp_sources().unwrap())
++        .map_err(|error| anyhow::anyhow!("{error:?}"))?;
++    let adoption = manager.adopt_selected_start(&mut selected)?;
++    assert!(Arc::ptr_eq(
++        &auth,
++        &adoption.client()?.auth_manager().unwrap()
++    ));
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(matches!(
++        created.try_recv(),
++        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
++    ));
++    Ok(())
++}
+diff --git a/codex-rs/app-server/src/message_processor.rs b/codex-rs/app-server/src/message_processor.rs
+index b8da92f..96533f8 100644
+--- a/codex-rs/app-server/src/message_processor.rs
++++ b/codex-rs/app-server/src/message_processor.rs
+@@ -145,7 +145,7 @@ pub(crate) struct MessageProcessor {
+         dead_code,
+         reason = "Original composition retained for fresh client observation."
+     )]
+-    installed_thread_extensions: InstalledThreadExtensions,
++    installed_thread_extensions: Arc<InstalledThreadExtensions>,
+     user_verification: Arc<crate::user_verification::Service>,
+     outgoing: Arc<OutgoingMessageSender>,
+     models_refresh_worker: ModelsRefreshWorker,
+@@ -387,8 +387,10 @@ impl MessageProcessor {
+                 None => manager,
+             }
+         });
+-        let installed_thread_extensions = installed_extensions
+-            .expect("original registry builder ran during native manager construction");
++        let installed_thread_extensions = Arc::new(
++            installed_extensions
++                .expect("original registry builder ran during native manager construction"),
++        );
+         let model_catalog = Arc::new(crate::model_catalog::ModelCatalog::new(
+             config_manager.clone(),
+             Arc::clone(&config),
+@@ -522,6 +524,7 @@ impl MessageProcessor {
+         );
+         let thread_processor = ThreadRequestProcessor::new(
+             auth_manager.clone(),
++            Arc::clone(&installed_thread_extensions),
+             Arc::clone(&thread_manager),
+             outgoing.clone(),
+             arg0_paths.clone(),
+diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
+index 19b2fea..3378283 100644
+--- a/codex-rs/app-server/src/request_processors/thread_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
+@@ -49,6 +49,16 @@ async fn stage_pending_thread_metadata(
+         return Ok(None);
+     }
+     let thread_id = thread_manager.reserve_thread_id();
++    stage_pending_thread_metadata_for_id(thread_store, patch, operation, thread_id).await?;
++    Ok(Some(thread_id))
++}
++
++async fn stage_pending_thread_metadata_for_id(
++    thread_store: &dyn ThreadStore,
++    patch: StoreThreadMetadataPatch,
++    operation: &'static str,
++    thread_id: ThreadId,
++) -> Result<(), JSONRPCErrorError> {
+     thread_store
+         .stage_pending_thread_metadata(thread_id, patch)
+         .await
+@@ -59,7 +69,26 @@ async fn stage_pending_thread_metadata(
+             ThreadStoreError::InvalidRequest { message } => invalid_request(message),
+             error => internal_error(format!("failed to stage {operation} metadata: {error}")),
+         })?;
+-    Ok(Some(thread_id))
++    Ok(())
++}
++
++async fn stage_reserved_first_command_metadata(
++    thread_manager: &ThreadManager,
++    thread_store: &dyn ThreadStore,
++    patch: StoreThreadMetadataPatch,
++) -> Result<Option<codex_core::NativeStartReservation>, JSONRPCErrorError> {
++    if patch.is_empty() {
++        return Ok(None);
++    }
++    let reservation = thread_manager.reserve_thread_start();
++    stage_pending_thread_metadata_for_id(
++        thread_store,
++        patch,
++        "thread/start",
++        reservation.thread_id(),
++    )
++    .await?;
++    Ok(Some(reservation))
+ }
+ 
+ async fn remove_pending_thread_metadata(
+@@ -444,6 +473,7 @@ fn validate_dynamic_tools(tools: &[DynamicToolSpec]) -> Result<(), String> {
+ #[derive(Clone)]
+ pub(crate) struct ThreadRequestProcessor {
+     pub(super) auth_manager: Arc<AuthManager>,
++    installed: Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
+     pub(super) thread_manager: Arc<ThreadManager>,
+     pub(super) outgoing: Arc<OutgoingMessageSender>,
+     pub(super) arg0_paths: Arg0DispatchPaths,
+@@ -484,6 +514,7 @@ impl ThreadRequestProcessor {
+     #[allow(clippy::too_many_arguments)]
+     pub(crate) fn new(
+         auth_manager: Arc<AuthManager>,
++        installed: Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
+         thread_manager: Arc<ThreadManager>,
+         outgoing: Arc<OutgoingMessageSender>,
+         arg0_paths: Arg0DispatchPaths,
+@@ -503,6 +534,7 @@ impl ThreadRequestProcessor {
+     ) -> Self {
+         Self {
+             auth_manager,
++            installed,
+             thread_manager,
+             outgoing,
+             arg0_paths,
+@@ -1227,10 +1259,12 @@ impl ThreadRequestProcessor {
+         let config_manager = self.config_manager.clone();
+         let thread_store = Arc::clone(&self.thread_store);
+         let initial_config_warnings = Arc::clone(&self.initial_config_warnings);
++        let installed = Arc::clone(&self.installed);
+         let outgoing = Arc::clone(&listener_task_context.outgoing);
+         let error_request_id = request_id.clone();
+         let thread_start_task = async move {
+             if let Err(error) = Self::thread_start_task(
++                installed,
+                 listener_task_context,
+                 thread_store,
+                 config_manager,
+@@ -1313,6 +1347,7 @@ impl ThreadRequestProcessor {
+ 
+     #[allow(clippy::too_many_arguments)]
+     async fn thread_start_task(
++        installed: Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
+         listener_task_context: ListenerTaskContext,
+         thread_store: Arc<dyn ThreadStore>,
+         config_manager: ConfigManager,
+@@ -1409,11 +1444,11 @@ impl ThreadRequestProcessor {
+         if !selected_capability_roots.is_empty() {
+             thread_extension_init.insert(selected_capability_roots);
+         }
+-        let mut start_options = StartThreadOptions::new(config);
+-        let reserved_thread_id = if start_options.config.ephemeral {
++        let start_options = StartThreadOptions::new(config);
++        let reservation = if start_options.config.ephemeral {
+             None
+         } else {
+-            stage_pending_thread_metadata(
++            stage_reserved_first_command_metadata(
+                 listener_task_context.thread_manager.as_ref(),
+                 thread_store.as_ref(),
+                 StoreThreadMetadataPatch {
+@@ -1421,13 +1456,15 @@ impl ThreadRequestProcessor {
+                     daybreak_enabled,
+                     ..Default::default()
+                 },
+-                "thread/start",
+             )
+             .await?
+         };
+-        let thread_id = reserved_thread_id
+-            .unwrap_or_else(|| listener_task_context.thread_manager.reserve_thread_id());
+-        start_options.reserved_thread_id = Some(thread_id);
++        let reserved_thread_id = reservation
++            .as_ref()
++            .map(codex_core::NativeStartReservation::thread_id);
++        let reservation = reservation
++            .unwrap_or_else(|| listener_task_context.thread_manager.reserve_thread_start());
++        let thread_id = reservation.thread_id();
+         // Startup can prewarm the Responses socket before start_thread returns.
+         // Register the creating client first so that handshake can request attestation.
+         listener_task_context
+@@ -1435,26 +1472,34 @@ impl ThreadRequestProcessor {
+             .try_add_connection_to_thread(thread_id, request_id.connection_id)
+             .await;
+         let create_thread_started_at = std::time::Instant::now();
+-        let new_thread = listener_task_context
+-            .thread_manager
+-            .start_thread(StartThreadOptions {
+-                allow_provider_model_fallback,
+-                initial_history: match session_start_source
+-                    .unwrap_or(codex_app_server_protocol::ThreadStartSource::Startup)
+-                {
+-                    codex_app_server_protocol::ThreadStartSource::Startup => InitialHistory::New,
+-                    codex_app_server_protocol::ThreadStartSource::Clear => InitialHistory::Cleared,
++        let new_thread =
++            crate::config_manager::selected_start_config::OriginalFirstCommandStart::new(
++                StartThreadOptions {
++                    allow_provider_model_fallback,
++                    initial_history: match session_start_source
++                        .unwrap_or(codex_app_server_protocol::ThreadStartSource::Startup)
++                    {
++                        codex_app_server_protocol::ThreadStartSource::Startup => {
++                            InitialHistory::New
++                        }
++                        codex_app_server_protocol::ThreadStartSource::Clear => {
++                            InitialHistory::Cleared
++                        }
++                    },
++                    history_mode,
++                    thread_source,
++                    dynamic_tools,
++                    metrics_service_name: service_name,
++                    parent_trace: request_trace,
++                    environments: Some(environments),
++                    thread_extension_init,
++                    client_mcp_extensions,
++                    ..start_options
+                 },
+-                history_mode,
+-                thread_source,
+-                dynamic_tools,
+-                metrics_service_name: service_name,
+-                parent_trace: request_trace,
+-                environments: Some(environments),
+-                thread_extension_init,
+-                client_mcp_extensions,
+-                ..start_options
+-            })
++                reservation,
++                installed,
++            )
++            .start_ordinary(listener_task_context.thread_manager.as_ref())
+             .instrument(tracing::info_span!(
+                 "app_server.thread_start.create_thread",
+                 otel.name = "app_server.thread_start.create_thread",
+diff --git a/codex-rs/app-server/src/selected_start_config.rs b/codex-rs/app-server/src/selected_start_config.rs
+index 06a3cfc..8ebbb29 100644
+--- a/codex-rs/app-server/src/selected_start_config.rs
++++ b/codex-rs/app-server/src/selected_start_config.rs
+@@ -21,11 +21,49 @@ use codex_git_utils::resolve_root_git_project_for_trust;
+ use codex_protocol::config_types::TrustLevel;
+ use std::collections::HashMap;
+ use std::io;
++use std::sync::Arc;
+ use std::sync::atomic::AtomicBool;
+ use std::sync::atomic::Ordering;
+ use toml::Value as TomlValue;
+ use tracing::warn;
+ 
++/// Original first-command DATA; actual issuer/composition owners, not Ready.
++pub(crate) struct OriginalFirstCommandStart {
++    options: StartThreadOptions,
++    reservation: codex_core::NativeStartReservation,
++    installed: Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++}
++impl OriginalFirstCommandStart {
++    pub(crate) fn new(
++        options: StartThreadOptions,
++        reservation: codex_core::NativeStartReservation,
++        installed: Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++    ) -> Self {
++        Self {
++            options,
++            reservation,
++            installed,
++        }
++    }
++    pub(crate) fn into_parts(
++        self,
++    ) -> (
++        StartThreadOptions,
++        codex_core::NativeStartReservation,
++        Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++    ) {
++        (self.options, self.reservation, self.installed)
++    }
++    pub(crate) async fn start_ordinary(
++        self,
++        manager: &ThreadManager,
++    ) -> codex_protocol::error::Result<codex_core::NewThread> {
++        manager
++            .start_reserved_thread(self.options, self.reservation)
++            .await
++    }
++}
++
+ enum TrustPersistence {
+     Ordinary,
+     RefuseChange,
+@@ -45,6 +83,8 @@ pub(crate) struct SelectedStartConfig<'a> {
+ pub(crate) struct SelectedConfiguredStart<'a> {
+     source: SelectedStartConfig<'a>,
+     start: SelectedStartInputs,
++    installed:
++        Option<std::sync::Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>>,
+ }
+ 
+ impl ConfigManager {
+@@ -211,6 +251,27 @@ impl<'a> SelectedStartConfig<'a> {
+         result
+     }
+ 
++    pub(crate) async fn capture_first_command(
++        self,
++        manager: &ThreadManager,
++        command: OriginalFirstCommandStart,
++    ) -> io::Result<SelectedConfiguredStart<'a>> {
++        let (mut options, reservation, installed) = command.into_parts();
++        if options.config != self.config {
++            return Err(io::Error::other("selected first-command config changed"));
++        }
++        options.config = self.config.clone();
++        let start = manager
++            .prepare_reserved_selected_start(options, reservation)
++            .await?;
++        self.renew().await?;
++        Ok(SelectedConfiguredStart {
++            source: self,
++            start,
++            installed: Some(installed),
++        })
++    }
++
+     pub(crate) async fn capture(
+         self,
+         manager: &ThreadManager,
+@@ -232,6 +293,7 @@ impl<'a> SelectedStartConfig<'a> {
+         Ok(SelectedConfiguredStart {
+             source: self,
+             start,
++            installed: None,
+         })
+     }
+ }
+@@ -248,6 +310,39 @@ impl SelectedConfiguredStart<'_> {
+         manager.capture_selected_start_api_mcp(&mut self.start, credentials)
+     }
+ 
++    pub(crate) async fn construct_client(&mut self, manager: &ThreadManager) -> io::Result<()> {
++        let result = async {
++            self.renew(manager).await?;
++            let installed = self
++                .installed
++                .as_ref()
++                .ok_or_else(|| io::Error::other("original first-command composition missing"))?;
++            installed
++                .observe(
++                    manager,
++                    self.start
++                        .mcp_sources()
++                        .ok_or_else(|| io::Error::other("original API MCP sources missing"))?,
++                )
++                .map_err(|error| io::Error::other(format!("{error:?}")))?;
++            manager.construct_selected_start_client(&mut self.start)?;
++            installed
++                .observe(
++                    manager,
++                    self.start
++                        .mcp_sources()
++                        .ok_or_else(|| io::Error::other("original API MCP sources missing"))?,
++                )
++                .map_err(|error| io::Error::other(format!("{error:?}")))?;
++            self.renew(manager).await
++        }
++        .await;
++        if result.is_err() {
++            self.source.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
++
+     pub(crate) async fn renew(&self, manager: &ThreadManager) -> io::Result<()> {
+         self.source.renew().await?;
+         manager
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index 39ca11f..8b8fffd 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -30,7 +30,14 @@ fn manager(home: &std::path::Path) -> ConfigManager {
+     )
+ }
+ 
+-fn thread_manager(config: &Config, store: Arc<InMemoryThreadStore>) -> Arc<ThreadManager> {
++fn thread_manager(
++    config: &Config,
++    store: Arc<InMemoryThreadStore>,
++) -> (
++    Arc<ThreadManager>,
++    Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++    Arc<AuthManager>,
++) {
+     let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("synthetic-offline"));
+     let environment = Arc::new(EnvironmentManager::default_for_tests());
+     let (outgoing_tx, _outgoing_rx) = tokio::sync::mpsc::channel(4);
+@@ -38,22 +45,16 @@ fn thread_manager(config: &Config, store: Arc<InMemoryThreadStore>) -> Arc<Threa
+         outgoing_tx,
+         codex_analytics::AnalyticsEventsClient::disabled(),
+     ));
+-    let sink = crate::extensions::app_server_extension_event_sink(
+-        outgoing,
+-        crate::thread_state::ThreadStateManager::new(),
++    let thread_states = crate::thread_state::ThreadStateManager::new();
++    let attestation = crate::attestation::app_server_attestation_provider(
++        Arc::clone(&outgoing),
++        thread_states.clone(),
+     );
+-    Arc::new_cyclic(|owner| {
+-        ThreadManager::new(
+-            config,
+-            Arc::clone(&auth),
+-            Arc::new(StaticModelsManager::new(
+-                Some(Arc::clone(&auth)),
+-                ModelsResponse { models: Vec::new() },
+-            )),
+-            CodexAppsToolsCache::default(),
+-            SessionSource::Exec,
+-            Arc::clone(&environment),
+-            crate::extensions::thread_extensions(crate::extensions::ThreadExtensionDependencies {
++    let sink = crate::extensions::app_server_extension_event_sink(outgoing, thread_states);
++    let mut installed = None;
++    let threads = Arc::new_cyclic(|owner| {
++        let composition = crate::extensions::installed_thread_extensions(
++            crate::extensions::ThreadExtensionDependencies {
+                 event_sink: Arc::clone(&sink),
+                 auth_manager: Arc::clone(&auth),
+                 state_db: None,
+@@ -73,7 +74,21 @@ fn thread_manager(config: &Config, store: Arc<InMemoryThreadStore>) -> Arc<Threa
+                 turn_start_admission: Some(Arc::new(
+                     crate::turn_admission::TurnAdmission::default(),
+                 )),
+-            }),
++            },
++        );
++        let registry = composition.registry();
++        installed = Some(Arc::new(composition));
++        ThreadManager::new(
++            config,
++            Arc::clone(&auth),
++            Arc::new(StaticModelsManager::new(
++                Some(Arc::clone(&auth)),
++                ModelsResponse { models: Vec::new() },
++            )),
++            CodexAppsToolsCache::default(),
++            SessionSource::Exec,
++            Arc::clone(&environment),
++            registry,
+             Arc::new(CodexHomeUserInstructionsProvider::new(
+                 config.codex_home.clone(),
+             )),
+@@ -82,10 +97,11 @@ fn thread_manager(config: &Config, store: Arc<InMemoryThreadStore>) -> Arc<Threa
+             store,
+             /*agent_graph_store*/ None,
+             "offline-selected-start".to_string(),
+-            /*attestation_provider*/ None,
++            Some(Arc::clone(&attestation)),
+             /*external_time_provider*/ None,
+         )
+-    })
++    });
++    (threads, installed.unwrap(), auth)
+ }
+ 
+ #[tokio::test]
+@@ -106,7 +122,7 @@ async fn actual_config_manager_and_thread_manager_retain_default_selection_witho
+     assert!(config.features.enabled(Feature::Apps));
+     assert!(config.features.enabled(Feature::Plugins));
+     let store = Arc::new(InMemoryThreadStore::default());
+-    let threads = thread_manager(&config, Arc::clone(&store));
++    let (threads, _installed, _auth) = thread_manager(&config, Arc::clone(&store));
+     let mut captured = selected
+         .capture(&threads, StartThreadOptions::new(config.clone()))
+         .await
+@@ -138,7 +154,8 @@ async fn replaced_config_runtime_aba_and_persisted_settings_changes_refuse() {
+         .unwrap();
+     let mut replaced = source.config().clone();
+     replaced.model = Some("caller-replacement".to_string());
+-    let threads = thread_manager(source.config(), Arc::new(InMemoryThreadStore::default()));
++    let (threads, _installed, _auth) =
++        thread_manager(source.config(), Arc::new(InMemoryThreadStore::default()));
+     assert!(
+         source
+             .capture(&threads, StartThreadOptions::new(replaced))
+@@ -172,3 +189,97 @@ async fn replaced_config_runtime_aba_and_persisted_settings_changes_refuse() {
+         .unwrap();
+     assert!(source.renew().await.is_err());
+ }
++
++#[tokio::test]
++async fn original_first_command_source_constructs_and_adopts_same_reserved_client_without_start() {
++    let home = tempfile::tempdir().unwrap();
++    let configs = manager(home.path());
++    let source = configs
++        .load_selected_start_config(
++            /*request*/ None,
++            ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let config = source.config().clone();
++    assert!(config.features.enabled(Feature::Apps));
++    assert!(config.features.enabled(Feature::Plugins));
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, installed, auth) = thread_manager(&config, Arc::clone(&store));
++    let token = threads.reserve_thread_start();
++    let command = OriginalFirstCommandStart::new(StartThreadOptions::new(config), token, installed);
++    let mut selected = source
++        .capture_first_command(&threads, command)
++        .await
++        .unwrap();
++    selected
++        .capture_api_mcp(&threads, auth.capture_cached_api_key_credentials().unwrap())
++        .unwrap();
++    selected.construct_client(&threads).await.unwrap();
++    assert!(Arc::ptr_eq(
++        &auth,
++        &threads
++            .selected_start_client(selected.start())
++            .unwrap()
++            .auth_manager()
++            .unwrap()
++    ));
++    let adoption = selected.adopt(&threads).unwrap();
++    assert!(Arc::ptr_eq(
++        &auth,
++        &adoption.client().unwrap().auth_manager().unwrap()
++    ));
++    assert!(selected.adopt(&threads).is_err());
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++}
++
++#[tokio::test]
++async fn original_publisher_change_after_client_construction_prevents_adoption() {
++    let home = tempfile::tempdir().unwrap();
++    let configs = manager(home.path());
++    let source = configs
++        .load_selected_start_config(
++            /*request*/ None,
++            ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, installed, auth) = thread_manager(source.config(), Arc::clone(&store));
++    let command = OriginalFirstCommandStart::new(
++        StartThreadOptions::new(source.config().clone()),
++        threads.reserve_thread_start(),
++        installed,
++    );
++    let mut selected = source
++        .capture_first_command(&threads, command)
++        .await
++        .unwrap();
++    selected
++        .capture_api_mcp(&threads, auth.capture_cached_api_key_credentials().unwrap())
++        .unwrap();
++    selected.construct_client(&threads).await.unwrap();
++    configs
++        .extend_runtime_feature_enablement([("apps".to_string(), false)])
++        .unwrap();
++    configs
++        .extend_runtime_feature_enablement([("apps".to_string(), true)])
++        .unwrap();
++    assert!(selected.renew(&threads).await.is_err());
++    assert!(selected.adopt(&threads).is_err());
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++}
+diff --git a/codex-rs/core/src/client_public_responses_capture.rs b/codex-rs/core/src/client_public_responses_capture.rs
+index 7329632..fa32053 100644
+--- a/codex-rs/core/src/client_public_responses_capture.rs
++++ b/codex-rs/core/src/client_public_responses_capture.rs
+@@ -320,15 +320,12 @@ impl super::ModelClient {
+         Ok(captured)
+     }
+ 
+-    // ModelClient::new constructs ConfiguredModelProvider from immutable provider
+-    // info and an immutable AuthManager Arc. Share its exact ordinary route gate
+-    // before formatting or acquiring a guarded pending claim; this is not model,
+-    // network-policy, source or complete account/runtime qualification.
+-    pub(super) fn public_api_credential_owner(
+-        &self,
+-    ) -> Result<Arc<codex_login::AuthManager>, ApiError> {
++    pub(crate) fn validate_public_api_client_inputs(
++        session_source: &codex_protocol::protocol::SessionSource,
++        provider: &codex_model_provider_info::ModelProviderInfo,
++    ) -> Result<(), ApiError> {
+         if !matches!(
+-            self.state.session_source,
++            session_source,
+             codex_protocol::protocol::SessionSource::Cli
+                 | codex_protocol::protocol::SessionSource::VSCode
+                 | codex_protocol::protocol::SessionSource::Exec
+@@ -337,7 +334,6 @@ impl super::ModelClient {
+         ) {
+             return Err(unsupported("unsupported ordinary native session source"));
+         }
+-        let provider = self.state.provider.info();
+         if !provider.is_openai()
+             || !provider.requires_openai_auth
+             || provider.wire_api != codex_model_provider_info::WireApi::Responses
+@@ -372,6 +368,20 @@ impl super::ModelClient {
+                 return Err(unsupported("unsupported ordinary public API origin"));
+             }
+         }
++        Ok(())
++    }
++
++    // ModelClient::new constructs ConfiguredModelProvider from immutable provider
++    // info and an immutable AuthManager Arc. Share its exact ordinary route gate
++    // before formatting or acquiring a guarded pending claim; this is not model,
++    // network-policy, source or complete account/runtime qualification.
++    pub(super) fn public_api_credential_owner(
++        &self,
++    ) -> Result<Arc<codex_login::AuthManager>, ApiError> {
++        Self::validate_public_api_client_inputs(
++            &self.state.session_source,
++            self.state.provider.info(),
++        )?;
+         let manager = self
+             .state
+             .provider
+diff --git a/codex-rs/core/src/client_public_responses_capture_tests.rs b/codex-rs/core/src/client_public_responses_capture_tests.rs
+index f784c6e..72c34c9 100644
+--- a/codex-rs/core/src/client_public_responses_capture_tests.rs
++++ b/codex-rs/core/src/client_public_responses_capture_tests.rs
+@@ -304,3 +304,110 @@ fn bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_
+     );
+     assert_eq!(selected_model, original);
+ }
++
++#[tokio::test]
++async fn original_reserved_client_state_moves_with_actual_ordinary_adoption() -> anyhow::Result<()>
++{
++    let home = tempfile::tempdir()?;
++    let config = crate::config::ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .loader_overrides(
++            codex_config::LoaderOverrides::with_managed_config_path_for_tests(
++                home.path().join("managed.toml"),
++            ),
++        )
++        .fallback_cwd(Some(home.path().to_path_buf()))
++        .build()
++        .await?;
++    let manager = crate::ThreadManager::with_models_provider_and_home_for_tests(
++        codex_login::CodexAuth::from_api_key("synthetic-same-client"),
++        config.model_provider.clone(),
++        home.path().to_path_buf(),
++        Arc::new(codex_exec_server::EnvironmentManager::default_for_tests()),
++    );
++    let token = manager.reserve_thread_start();
++    let id = token.thread_id();
++    let mut selected = manager
++        .prepare_reserved_selected_start(crate::StartThreadOptions::new(config.clone()), token)
++        .await?;
++    manager.capture_selected_start_api_mcp(
++        &mut selected,
++        manager
++            .auth_manager()
++            .capture_cached_api_key_credentials()
++            .unwrap(),
++    )?;
++    manager.construct_selected_start_client(&mut selected)?;
++    let state = Arc::clone(&manager.selected_start_client(&selected)?.state);
++    assert_eq!(state.thread_id, id);
++    assert!(state.beta_features_header.is_some());
++    let adoption = manager.adopt_selected_start(&mut selected)?;
++    assert!(Arc::ptr_eq(&state, &adoption.client()?.state));
++    assert!(manager.adopt_selected_start(&mut selected).is_err());
++    let mut second = manager
++        .prepare_selected_start(crate::StartThreadOptions::new(config))
++        .await?;
++    manager.capture_selected_start_api_mcp(
++        &mut second,
++        manager
++            .auth_manager()
++            .capture_cached_api_key_credentials()
++            .unwrap(),
++    )?;
++    manager.construct_selected_start_client(&mut second)?;
++    assert!(
++        manager
++            .construct_selected_start_client(&mut second)
++            .is_err()
++    );
++    assert!(manager.selected_start_client(&second).is_err());
++    assert!(manager.adopt_selected_start(&mut second).is_err());
++    assert!(manager.list_thread_ids().await.is_empty());
++    Ok(())
++}
++
++#[tokio::test]
++async fn original_public_route_preflight_refuses_custom_auth_and_foreign_origin()
++-> anyhow::Result<()> {
++    let home = tempfile::tempdir()?;
++    let config = crate::config::ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .loader_overrides(
++            codex_config::LoaderOverrides::with_managed_config_path_for_tests(
++                home.path().join("managed.toml"),
++            ),
++        )
++        .fallback_cwd(Some(home.path().to_path_buf()))
++        .build()
++        .await?;
++    let mut provider = config.model_provider;
++    ModelClient::validate_public_api_client_inputs(
++        &codex_protocol::protocol::SessionSource::Exec,
++        &provider,
++    )
++    .unwrap();
++    provider.base_url = Some("https://unqualified.invalid/v1".to_string());
++    assert!(
++        ModelClient::validate_public_api_client_inputs(
++            &codex_protocol::protocol::SessionSource::Exec,
++            &provider
++        )
++        .is_err()
++    );
++    provider.base_url = None;
++    provider.experimental_bearer_token = Some("synthetic-unqualified".into());
++    assert!(
++        ModelClient::validate_public_api_client_inputs(
++            &codex_protocol::protocol::SessionSource::Exec,
++            &provider
++        )
++        .is_err()
++    );
++    Ok(())
++}
++
++impl ModelClient {
++    pub(crate) fn same_private_state_for_test(&self, other: &Self) -> bool {
++        Arc::ptr_eq(&self.state, &other.state)
++    }
++}
+diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
+index cef1339..0600b00 100644
+--- a/codex-rs/core/src/lib.rs
++++ b/codex-rs/core/src/lib.rs
+@@ -150,6 +150,7 @@ pub(crate) mod windows_sandbox_read_grants;
+ pub use session::initial_world_state_data::CompleteBuiltinInitialContextData;
+ pub use thread_manager::ForkSnapshot;
+ pub use thread_manager::InternalSessionParent;
++pub use thread_manager::NativeStartReservation;
+ pub use thread_manager::NewThread;
+ pub use thread_manager::PreSessionBuiltinContextData;
+ pub use thread_manager::PreSessionBuiltinContextRefusal;
+diff --git a/codex-rs/core/src/session/client_input_data.rs b/codex-rs/core/src/session/client_input_data.rs
+index 407a626..7f09da1 100644
+--- a/codex-rs/core/src/session/client_input_data.rs
++++ b/codex-rs/core/src/session/client_input_data.rs
+@@ -1,6 +1,6 @@
+-//! Original client INPUT allocations, never a ModelClient or readiness grant.
+-//! Retain actual init values/history and move the same owners into ordinary
+-//! startup. No Session/Turn/ExtensionData, transport, auth or lifecycle is made.
++//! Original client inputs and optional one-use ORIGINAL client custody.
++//! Preserve genuine owners; no Session/Turn/ExtensionData/transport is made.
++//! Client construction is allowed only after the original supported-route gate.
+ use super::*;
+ use crate::CodexResponsesHeaders;
+ use crate::state::ExecutedToolCalls;
+@@ -30,7 +30,14 @@ impl SessionChannels {
+ 
+ /// Retained data owners only. The init map shares interior-mutable values; these
+ /// checks do not certify arbitrary extension state or selected config currency.
++enum OriginalClientSlot {
++    NotConstructed,
++    Retained(super::model_client_construction::RetainedOriginalClient),
++    Consumed,
++}
++
+ pub(crate) struct OriginalClientInputData {
++    client: OriginalClientSlot,
+     thread_id: ThreadId,
+     init: ExtensionDataInit,
+     routing_config: (String, AbsolutePathBuf, codex_config::ConfigLayerStack),
+@@ -63,6 +70,7 @@ impl OriginalClientInputData {
+             .get::<WorkspaceRoutingContext>()
+             .expect("original routing was inserted");
+         Self {
++            client: OriginalClientSlot::NotConstructed,
+             thread_id,
+             init: init.clone(),
+             routing_config: (
+@@ -79,6 +87,84 @@ impl OriginalClientInputData {
+             session_frame: None,
+         }
+     }
++    pub(crate) fn prepare_client(
++        &mut self,
++        options: &crate::StartThreadOptions,
++        auth: &Arc<codex_login::AuthManager>,
++        attestation: Option<Arc<dyn crate::attestation::AttestationProvider>>,
++        extensions: Arc<codex_extension_api::ExtensionRegistry<Config>>,
++    ) -> io::Result<()> {
++        self.validate_init(&options.thread_extension_init, Some(self.thread_id))?;
++        self.validate_config(&options.config)?;
++        // Burn the construction slot BEFORE calling the original constructor.
++        if !matches!(
++            std::mem::replace(&mut self.client, OriginalClientSlot::Consumed),
++            OriginalClientSlot::NotConstructed
++        ) {
++            return Err(io::Error::other(
++                "original client construction already attempted",
++            ));
++        }
++        let frame = self
++            .source_frame
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original source frame missing"))?;
++        let (source, originator, parent, cache) = frame.client_source();
++        crate::client::ModelClient::validate_public_api_client_inputs(
++            source,
++            &options.config.model_provider,
++        )
++        .map_err(io::Error::other)?;
++        let event = &self
++            .channels
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original channels consumed"))?
++            .tx_event;
++        let retained = super::model_client_construction::OriginalSessionModelClientInputs {
++            config: &options.config,
++            provider_info: &options.config.model_provider,
++            session_source: source,
++            originator,
++            parent_thread_id: parent,
++            auth_manager: auth,
++            thread_id: self.thread_id,
++            initial_history: &options.initial_history,
++            reasoning_effort_override_enabled:
++                super::model_client_construction::original_effort_override(
++                    &options.config,
++                    options.thread_source.as_ref(),
++                ),
++            attestation_provider: attestation,
++            workspace_routing: &self.routing,
++            extensions: extensions.as_ref(),
++            executed_tool_calls: &self.executed,
++            fork_cache_key: cache,
++            tx_event: event,
++            codex_responses_headers: self.headers.clone(),
++        }
++        .retain(Arc::clone(&extensions));
++        self.client = OriginalClientSlot::Retained(retained);
++        Ok(())
++    }
++    pub(crate) fn client(&self) -> io::Result<&crate::client::ModelClient> {
++        match &self.client {
++            OriginalClientSlot::Retained(retained) => Ok(retained.client()),
++            _ => Err(io::Error::other("original client unavailable or consumed")),
++        }
++    }
++    pub(super) fn adopt_client(
++        &mut self,
++        actual: super::model_client_construction::OriginalSessionModelClientInputs<'_>,
++    ) -> io::Result<crate::client::ModelClient> {
++        match std::mem::replace(&mut self.client, OriginalClientSlot::Consumed) {
++            OriginalClientSlot::NotConstructed => Ok(actual.construct()),
++            OriginalClientSlot::Retained(retained) => retained.adopt(actual),
++            OriginalClientSlot::Consumed => {
++                Err(io::Error::other("original client already consumed"))
++            }
++        }
++    }
++
+     pub(crate) fn install_source_frame(
+         &mut self,
+         frame: CapturedSelectedStartFrame,
+@@ -161,3 +247,7 @@ impl OriginalClientInputData {
+         Ok(())
+     }
+ }
++
++#[cfg(test)]
++#[path = "client_input_data_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/client_input_data_tests.rs b/codex-rs/core/src/session/client_input_data_tests.rs
+new file mode 100644
+index 0000000..363763b
+--- /dev/null
++++ b/codex-rs/core/src/session/client_input_data_tests.rs
+@@ -0,0 +1,76 @@
++use super::*;
++
++#[tokio::test]
++async fn actual_client_slot_moves_same_state_once_and_burns_changed_inputs() -> anyhow::Result<()> {
++    let (session, _turn) = crate::session::tests::make_session_and_context().await;
++    let session = Arc::new(session);
++    let config = session.get_config().await;
++    let options = crate::StartThreadOptions::new(config.as_ref().clone());
++    let state = session.state.lock().await;
++    let configuration = &state.session_configuration;
++    crate::client::ModelClient::validate_public_api_client_inputs(
++        &configuration.session_source,
++        configuration.provider.info(),
++    )?;
++    let routing = session
++        .services
++        .thread_extension_data
++        .get_or_init(|| config.workspace_routing_context());
++    let inputs = || super::super::model_client_construction::OriginalSessionModelClientInputs {
++        config: config.as_ref(),
++        provider_info: configuration.provider.info(),
++        session_source: &configuration.session_source,
++        originator: &configuration.originator,
++        parent_thread_id: configuration.parent_thread_id,
++        auth_manager: &session.services.auth_manager,
++        thread_id: session.thread_id(),
++        initial_history: &options.initial_history,
++        reasoning_effort_override_enabled:
++            super::super::model_client_construction::original_effort_override(
++                config.as_ref(),
++                configuration.thread_source.as_ref(),
++            ),
++        attestation_provider: session.services.attestation_provider.clone(),
++        workspace_routing: &routing,
++        extensions: session.services.extensions.as_ref(),
++        executed_tool_calls: &session.services.executed_tool_calls,
++        fork_cache_key: None,
++        tx_event: &session.tx_event,
++        codex_responses_headers: session
++            .services
++            .thread_extension_data
++            .get::<crate::CodexResponsesHeaders>(),
++    };
++    let slot = || {
++        let mut init = options.thread_extension_init.clone();
++        let mut carrier = OriginalClientInputData::allocate(
++            config.as_ref(),
++            &options.initial_history,
++            &mut init,
++            session.thread_id(),
++        );
++        // A real RetainedOriginalClient from the ORIGINAL constructor supplies
++        // this private slot fixture. It is not a fresh-source/currentness grant.
++        carrier.client =
++            OriginalClientSlot::Retained(inputs().retain(Arc::clone(&session.services.extensions)));
++        carrier
++    };
++    let mut carrier = slot();
++    let witness = carrier.client()?.clone();
++    let adopted = carrier.adopt_client(inputs())?;
++    assert!(witness.same_private_state_for_test(&adopted));
++    assert!(carrier.client().is_err());
++    assert!(carrier.adopt_client(inputs()).is_err());
++    assert!(matches!(carrier.client, OriginalClientSlot::Consumed));
++
++    let mut carrier = slot();
++    let mut changed = inputs();
++    changed.reasoning_effort_override_enabled = !changed.reasoning_effort_override_enabled;
++    assert!(carrier.adopt_client(changed).is_err());
++    assert!(carrier.client().is_err());
++    // Even valid original inputs cannot fall back to a second construction
++    // after a failed adoption burned the actual slot.
++    assert!(carrier.adopt_client(inputs()).is_err());
++    assert!(matches!(carrier.client, OriginalClientSlot::Consumed));
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/model_client_construction.rs b/codex-rs/core/src/session/model_client_construction.rs
+index 3339465..e327c96 100644
+--- a/codex-rs/core/src/session/model_client_construction.rs
++++ b/codex-rs/core/src/session/model_client_construction.rs
+@@ -3,8 +3,8 @@
+ //! acquisition. None are inferred from a fresh label or substituted with empty
+ //! ExtensionData. Provider construction is NOT universally pre-session pure:
+ //! configured gateway OAuth can eagerly create shared auth/HTTP state.
+-//! No selected-start client constructor is available until those owners supply
+-//! genuine inputs; identity allocation alone cannot satisfy this boundary.
++//! Selected preparation retains the same supported original constructor inputs;
++//! ordinary startup must adopt them unchanged after its real lifecycle callbacks.
+ use super::session::Session;
+ use crate::attestation::AttestationProvider;
+ use crate::client::ModelClient;
+@@ -45,7 +45,119 @@ pub(super) struct OriginalSessionModelClientInputs<'a> {
+     pub(super) tx_event: &'a Sender<Event>,
+     pub(super) codex_responses_headers: Option<Arc<crate::CodexResponsesHeaders>>,
+ }
++pub(super) struct RetainedOriginalClient {
++    client: ModelClient,
++    facts: OriginalClientFacts,
++}
++struct OriginalClientFacts {
++    config: Config,
++    provider: ModelProviderInfo,
++    source: SessionSource,
++    originator: String,
++    parent: Option<ThreadId>,
++    thread_id: ThreadId,
++    effort_override: bool,
++    auth: Arc<AuthManager>,
++    attestation: Option<Arc<dyn AttestationProvider>>,
++    routing: Arc<WorkspaceRoutingContext>,
++    extensions: Arc<ExtensionRegistry<Config>>,
++    executed: ExecutedToolCalls,
++    cache: Option<String>,
++    event: Sender<Event>,
++    headers: Option<Arc<crate::CodexResponsesHeaders>>,
++}
++fn same_optional<T: ?Sized>(a: &Option<Arc<T>>, b: &Option<Arc<T>>) -> bool {
++    match (a, b) {
++        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
++        (None, None) => true,
++        _ => false,
++    }
++}
++pub(super) fn original_effort_override(
++    config: &Config,
++    source: Option<&codex_protocol::protocol::ThreadSource>,
++) -> bool {
++    let title = config.ephemeral
++        && matches!(source,
++        Some(codex_protocol::protocol::ThreadSource::Feature(feature)) if feature == "thread_title");
++    config.features.enabled(Feature::ReasoningEffortOverride) && !title
++}
++impl RetainedOriginalClient {
++    pub(super) fn client(&self) -> &ModelClient {
++        &self.client
++    }
++    pub(super) fn adopt(
++        self,
++        actual: OriginalSessionModelClientInputs<'_>,
++    ) -> std::io::Result<ModelClient> {
++        let f = &self.facts;
++        let c = actual.config;
++        let same_config = f.config.model_verbosity == c.model_verbosity
++            && f.config.http_client_factory() == c.http_client_factory()
++            && Session::build_model_client_beta_features_header(&f.config)
++                == Session::build_model_client_beta_features_header(c)
++            && [
++                Feature::UseAgentIdentity,
++                Feature::ContentItemKinds,
++                Feature::EnableRequestCompression,
++                Feature::RuntimeMetrics,
++                Feature::ConcurrentReasoningSummaries,
++            ]
++            .into_iter()
++            .all(|feature| f.config.features.enabled(feature) == c.features.enabled(feature));
++        if !same_config
++            || f.provider != *actual.provider_info
++            || f.source != *actual.session_source
++            || f.originator != actual.originator
++            || f.parent != actual.parent_thread_id
++            || f.thread_id != actual.thread_id
++            || f.effort_override != actual.reasoning_effort_override_enabled
++            || !matches!(actual.initial_history, InitialHistory::New)
++            || !Arc::ptr_eq(&f.auth, actual.auth_manager)
++            || !same_optional(&f.attestation, &actual.attestation_provider)
++            || !Arc::ptr_eq(&f.routing, actual.workspace_routing)
++            || !std::ptr::eq(f.extensions.as_ref(), actual.extensions)
++            || !f.executed.same_owner(actual.executed_tool_calls)
++            || f.cache != actual.fork_cache_key
++            || !f.event.same_channel(actual.tx_event)
++            || !same_optional(&f.headers, &actual.codex_responses_headers)
++        {
++            return Err(std::io::Error::other(
++                "ordinary startup changed retained client inputs",
++            ));
++        }
++        Ok(self.client)
++    }
++}
++
+ impl OriginalSessionModelClientInputs<'_> {
++    pub(super) fn retain(
++        self,
++        extensions: Arc<ExtensionRegistry<Config>>,
++    ) -> RetainedOriginalClient {
++        let facts = OriginalClientFacts {
++            config: self.config.clone(),
++            provider: self.provider_info.clone(),
++            source: self.session_source.clone(),
++            originator: self.originator.to_string(),
++            parent: self.parent_thread_id,
++            thread_id: self.thread_id,
++            effort_override: self.reasoning_effort_override_enabled,
++            auth: Arc::clone(self.auth_manager),
++            attestation: self.attestation_provider.clone(),
++            routing: Arc::clone(self.workspace_routing),
++            extensions,
++            executed: self.executed_tool_calls.clone(),
++            cache: self.fork_cache_key.clone(),
++            event: self.tx_event.clone(),
++            headers: self.codex_responses_headers.clone(),
++        };
++        RetainedOriginalClient {
++            client: self.construct(),
++            facts,
++        }
++    }
++
+     pub(super) fn construct(self) -> ModelClient {
+         let Self {
+             config,
+diff --git a/codex-rs/core/src/session/model_client_construction_tests.rs b/codex-rs/core/src/session/model_client_construction_tests.rs
+index 88a4c47..7c0d65b 100644
+--- a/codex-rs/core/src/session/model_client_construction_tests.rs
++++ b/codex-rs/core/src/session/model_client_construction_tests.rs
+@@ -197,3 +197,85 @@ async fn original_consumed_feature_and_factory_settings_changes_are_observable()
+     assert_eq!(config.http_client_factory(), before_factory);
+     Ok(())
+ }
++
++#[tokio::test]
++async fn retained_original_client_refuses_changed_post_lifecycle_inputs() -> anyhow::Result<()> {
++    let (session, _turn) = crate::session::tests::make_session_and_context().await;
++    let session = Arc::new(session);
++    let config = session.get_config().await;
++    let options = crate::StartThreadOptions::new(config.as_ref().clone());
++    let state = session.state.lock().await;
++    let configuration = &state.session_configuration;
++    let routing = session
++        .services
++        .thread_extension_data
++        .get_or_init(|| config.workspace_routing_context());
++    // Original fixture/constructor owners supply inputs; no preparation Session
++    // is fabricated. This unit fixture asserts DATA adoption, not history authority.
++    let inputs = || OriginalSessionModelClientInputs {
++        config: config.as_ref(),
++        provider_info: configuration.provider.info(),
++        session_source: &configuration.session_source,
++        originator: &configuration.originator,
++        parent_thread_id: configuration.parent_thread_id,
++        auth_manager: &session.services.auth_manager,
++        thread_id: session.thread_id(),
++        initial_history: &options.initial_history,
++        reasoning_effort_override_enabled: original_effort_override(
++            config.as_ref(),
++            configuration.thread_source.as_ref(),
++        ),
++        attestation_provider: session.services.attestation_provider.clone(),
++        workspace_routing: &routing,
++        extensions: session.services.extensions.as_ref(),
++        executed_tool_calls: &session.services.executed_tool_calls,
++        fork_cache_key: None,
++        tx_event: &session.tx_event,
++        codex_responses_headers: session
++            .services
++            .thread_extension_data
++            .get::<crate::CodexResponsesHeaders>(),
++    };
++    let retain = || inputs().retain(Arc::clone(&session.services.extensions));
++    let adopted = retain().adopt(inputs())?;
++    assert!(Arc::ptr_eq(
++        &adopted.auth_manager().unwrap(),
++        &session.services.auth_manager
++    ));
++    let mut changed_config = config.as_ref().clone();
++    let enabled = changed_config.features.enabled(Feature::ContentItemKinds);
++    changed_config
++        .features
++        .set_enabled(Feature::ContentItemKinds, !enabled)?;
++    let retained = retain();
++    let mut changed = inputs();
++    changed.config = &changed_config;
++    assert!(retained.adopt(changed).is_err());
++    let retained = retain();
++    let mut changed = inputs();
++    changed.reasoning_effort_override_enabled = !changed.reasoning_effort_override_enabled;
++    assert!(retained.adopt(changed).is_err());
++    let retained = retain();
++    let mut changed = inputs();
++    changed.codex_responses_headers = Some(Arc::new(crate::CodexResponsesHeaders {
++        model: "changed-by-lifecycle".to_string(),
++        headers: http::HeaderMap::new(),
++    }));
++    assert!(retained.adopt(changed).is_err());
++    let replaced = Arc::new(config.workspace_routing_context());
++    let retained = retain();
++    let mut changed = inputs();
++    changed.workspace_routing = &replaced;
++    assert!(retained.adopt(changed).is_err());
++    let recorder = ExecutedToolCalls::new(&config.features, &options.initial_history);
++    let retained = retain();
++    let mut changed = inputs();
++    changed.executed_tool_calls = &recorder;
++    assert!(retained.adopt(changed).is_err());
++    let (event, _receiver) = async_channel::unbounded();
++    let retained = retain();
++    let mut changed = inputs();
++    changed.tx_event = &event;
++    assert!(retained.adopt(changed).is_err());
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index 0108137..a42762b 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -1676,13 +1676,11 @@ impl Session {
+                 thread_extension_data.get::<crate::CodexResponsesHeaders>();
+             // Ephemeral title requests use request-level effort even when managed settings
+             // enable overrides. The client-supplied tag selects cache behavior, not permissions.
+-            let title_request = config.ephemeral
+-                && matches!(
++            let reasoning_effort_override_enabled =
++                super::model_client_construction::original_effort_override(
++                    config.as_ref(),
+                     session_configuration.thread_source.as_ref(),
+-                    Some(ThreadSource::Feature(feature)) if feature == "thread_title"
+                 );
+-            let reasoning_effort_override_enabled =
+-                config.features.enabled(Feature::ReasoningEffortOverride) && !title_request;
+             let services = SessionServices {
+                 // Start with an empty connection set. The initialized set is
+                 // published after SessionConfigured so MCP events follow it.
+@@ -1734,25 +1732,32 @@ impl Session {
+                 thread_store: Arc::clone(&thread_store),
+                 attestation_provider: attestation_provider.clone(),
+                 time_provider,
+-                model_client: super::model_client_construction::OriginalSessionModelClientInputs {
+-                    config: config.as_ref(),
+-                    provider_info: session_configuration.provider.info(),
+-                    session_source: &session_configuration.session_source,
+-                    originator: &session_configuration.originator,
+-                    parent_thread_id: session_configuration.parent_thread_id,
+-                    auth_manager: &auth_manager,
+-                    thread_id,
+-                    initial_history: &initial_history,
+-                    reasoning_effort_override_enabled,
+-                    attestation_provider,
+-                    workspace_routing: &workspace_routing,
+-                    extensions: extensions.as_ref(),
+-                    executed_tool_calls: &executed_tool_calls,
+-                    fork_cache_key,
+-                    tx_event: &tx_event,
+-                    codex_responses_headers,
+-                }
+-                .construct(),
++                model_client: {
++                    let inputs =
++                        super::model_client_construction::OriginalSessionModelClientInputs {
++                            config: config.as_ref(),
++                            provider_info: session_configuration.provider.info(),
++                            session_source: &session_configuration.session_source,
++                            originator: &session_configuration.originator,
++                            parent_thread_id: session_configuration.parent_thread_id,
++                            auth_manager: &auth_manager,
++                            thread_id,
++                            initial_history: &initial_history,
++                            reasoning_effort_override_enabled,
++                            attestation_provider,
++                            workspace_routing: &workspace_routing,
++                            extensions: extensions.as_ref(),
++                            executed_tool_calls: &executed_tool_calls,
++                            fork_cache_key,
++                            tx_event: &tx_event,
++                            codex_responses_headers,
++                        };
++                    if let Some(retained) = &mut inherited_client_inputs {
++                        retained.adopt_client(inputs)?
++                    } else {
++                        inputs.construct()
++                    }
++                },
+                 executed_tool_calls: executed_tool_calls.clone(),
+                 code_mode_service: crate::tools::code_mode::CodeModeService::new(
+                     thread_id,
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index 49d7585..864bcf5 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -408,6 +408,17 @@ pub(crate) struct ResumeThreadWithHistoryOptions {
+     pub(crate) client_mcp_extensions: Option<ClientMcpExtensions>,
+ }
+ 
++/// One-use allocation DATA minted by the original native issuer. No Clone/serde.
++pub struct NativeStartReservation {
++    owner: Arc<ThreadManagerState>,
++    thread_id: ThreadId,
++}
++impl NativeStartReservation {
++    pub fn thread_id(&self) -> ThreadId {
++        self.thread_id
++    }
++}
++
+ /// Shared, `Arc`-owned state for [`ThreadManager`]. This `Arc` is required to have a single
+ /// `Arc` reference that can be downgraded to by `LocalAgentControl` while preventing every single
+ /// function to require an `Arc<&Self>`.
+@@ -1113,6 +1124,40 @@ impl ThreadManager {
+         self.start_thread(options).await
+     }
+ 
++    /// Original native issuer custody, not authority or a started thread.
++    pub fn reserve_thread_start(&self) -> NativeStartReservation {
++        NativeStartReservation {
++            owner: Arc::clone(&self.state),
++            thread_id: self.reserve_thread_id(),
++        }
++    }
++
++    fn consume_start_reservation(
++        &self,
++        reservation: NativeStartReservation,
++    ) -> CodexResult<ThreadId> {
++        if !Arc::ptr_eq(&self.state, &reservation.owner) {
++            return Err(CodexErr::InvalidRequest(
++                "foreign native reservation".to_string(),
++            ));
++        }
++        Ok(reservation.thread_id)
++    }
++
++    pub async fn start_reserved_thread(
++        &self,
++        mut options: StartThreadOptions,
++        reservation: NativeStartReservation,
++    ) -> CodexResult<NewThread> {
++        if options.reserved_thread_id.is_some() {
++            return Err(CodexErr::InvalidRequest(
++                "raw reservation replaced native custody".to_string(),
++            ));
++        }
++        options.reserved_thread_id = Some(self.consume_start_reservation(reservation)?);
++        self.start_thread(options).await
++    }
++
+     /// Allocates a thread ID before startup so a caller can associate host-owned state with it.
+     pub fn reserve_thread_id(&self) -> ThreadId {
+         self.state.thread_id_generator.as_ref()()
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index 76eac31..e8480cb 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -1,5 +1,5 @@
+ //! One-use selected ordinary start custody retains a private native identity.
+-//! No Session, ModelClient, count, State record or Ready is created. Configuration authority remains with
++//! No Session, count, State record or Ready is created. Configuration authority remains with
+ //! the original app-server loader; external source renewal is not an atomic lease.
+ use super::*;
+ use crate::PreSessionMcpSources;
+@@ -32,6 +32,13 @@ pub struct SelectedStartAdoption {
+     allocation: SelectedStartNativeAllocation,
+ }
+ 
++impl SelectedStartAdoption {
++    /// Borrow retained data only; this is not count/admission authorization.
++    pub fn client(&self) -> io::Result<&crate::client::ModelClient> {
++        self.allocation.inputs.client()
++    }
++}
++
+ impl SelectedStartInputs {
+     pub fn start_options(&self) -> io::Result<&StartThreadOptions> {
+         match self.inputs.as_ref() {
+@@ -65,8 +72,29 @@ impl SelectedStartInputs {
+ 
+ impl ThreadManager {
+     pub async fn prepare_selected_start(
++        &self,
++        options: StartThreadOptions,
++    ) -> io::Result<SelectedStartInputs> {
++        self.prepare_selected_start_inner(options, /*reserved*/ None)
++            .await
++    }
++
++    pub async fn prepare_reserved_selected_start(
++        &self,
++        options: StartThreadOptions,
++        reservation: NativeStartReservation,
++    ) -> io::Result<SelectedStartInputs> {
++        let reserved = self
++            .consume_start_reservation(reservation)
++            .map_err(io::Error::other)?;
++        self.prepare_selected_start_inner(options, Some(reserved))
++            .await
++    }
++
++    async fn prepare_selected_start_inner(
+         &self,
+         mut options: StartThreadOptions,
++        reserved: Option<ThreadId>,
+     ) -> io::Result<SelectedStartInputs> {
+         let source = options
+             .session_source
+@@ -91,7 +119,7 @@ impl ThreadManager {
+             ));
+         }
+         let policy = Arc::new(SelectedStartPolicy::load(&options.config).await?);
+-        let mut allocation = SelectedStartNativeAllocation::allocate(self, &mut options)?;
++        let mut allocation = SelectedStartNativeAllocation::allocate(self, &mut options, reserved)?;
+         let options = allocation.capture_source_frame(self, options).await?;
+         Ok(SelectedStartInputs {
+             owner: Arc::clone(&self.state),
+@@ -122,6 +150,74 @@ impl ThreadManager {
+         self.with_current_selected_start(selected, || ())
+     }
+ 
++    /// Constructs the ORIGINAL client once from retained source owners. No
++    /// Session, callback, transport or request is started. Renewals are snapshots,
++    /// not an admission/attempt authorization.
++    pub fn construct_selected_start_client(
++        &self,
++        selected: &mut SelectedStartInputs,
++    ) -> io::Result<()> {
++        self.with_current_selected_start(selected, || ())?;
++        let credentials = selected
++            .mcp_sources()
++            .and_then(|sources| sources.api_key_credentials.as_ref())
++            .map(Arc::clone)
++            .ok_or_else(|| io::Error::other("original API credential packet missing"))?;
++        let auth = &self.state.auth_manager;
++        auth.with_current_api_key_credentials(&credentials, |_, _| ())
++            .ok_or_else(|| io::Error::other("original credentials changed"))?;
++        // The auth read guards above are DROPPED before original constructor
++        // cached-auth reads. No reentry/await under an AuthManager guard.
++        let options = selected.start_options()?;
++        let frame = selected
++            .allocation
++            .as_ref()
++            .and_then(|a| a.inputs.source_frame())
++            .ok_or_else(|| io::Error::other("original source frame missing"))?;
++        crate::client::ModelClient::validate_public_api_client_inputs(
++            frame.client_source().0,
++            &options.config.model_provider,
++        )
++        .map_err(io::Error::other)?;
++        let result = (|| {
++            let options = match selected.inputs.as_ref() {
++                Some(Inputs::Mcp(sources)) => sources.start_options(),
++                _ => return Err(io::Error::other("original API sources missing")),
++            };
++            let allocation = selected
++                .allocation
++                .as_mut()
++                .ok_or_else(|| io::Error::other("original allocation missing"))?;
++            allocation.validate_source_options(options)?;
++            allocation.inputs.prepare_client(
++                options,
++                &self.state.auth_manager,
++                self.state.attestation_provider.clone(),
++                Arc::clone(&self.state.extensions),
++            )?;
++            auth.with_current_api_key_credentials(&credentials, |_, _| ())
++                .ok_or_else(|| io::Error::other("original credentials changed"))?;
++            self.with_current_selected_start(selected, || ())
++        })();
++        if result.is_err() {
++            selected.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
++
++    pub fn selected_start_client<'a>(
++        &self,
++        selected: &'a SelectedStartInputs,
++    ) -> io::Result<&'a crate::client::ModelClient> {
++        self.with_current_selected_start(selected, || ())?;
++        selected
++            .allocation
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original allocation missing"))?
++            .inputs
++            .client()
++    }
++
+     pub async fn renew_selected_start(&self, selected: &SelectedStartInputs) -> io::Result<()> {
+         self.with_current_selected_start(selected, || ())?;
+         if let Err(error) = selected
+@@ -194,9 +290,9 @@ impl ThreadManager {
+         })?
+     }
+ 
+-    /// Ordinary identity/controller adoption only. No prepared ModelClient has
+-    /// been constructed: original lifecycle/metadata/history inputs remain open.
+-    /// This API does not dispatch a captured/count-witnessed request.
++    /// Ordinary identity/controller/client DATA adoption. Actual lifecycle still
++    /// runs and changed retained client inputs refuse. No captured/count-witnessed
++    /// dispatch or readiness authority is granted by this API.
+     pub async fn start_selected_start(
+         &self,
+         adoption: SelectedStartAdoption,
+diff --git a/codex-rs/core/src/thread_manager/selected_start_allocation.rs b/codex-rs/core/src/thread_manager/selected_start_allocation.rs
+index af55832..378e971 100644
+--- a/codex-rs/core/src/thread_manager/selected_start_allocation.rs
++++ b/codex-rs/core/src/thread_manager/selected_start_allocation.rs
+@@ -13,13 +13,14 @@ impl SelectedStartNativeAllocation {
+     pub(super) fn allocate(
+         manager: &ThreadManager,
+         options: &mut StartThreadOptions,
++        reserved: Option<ThreadId>,
+     ) -> io::Result<Self> {
+         // prepare_selected_start has already required genuine fresh options and
+         // loaded the strict original policy. No new controller factory is run.
+         let control = manager.agent_control_for_config(&options.config);
+         let thread_id = original_thread_id(
+             &options.initial_history,
+-            options.reserved_thread_id,
++            reserved,
+             &AgentControlInit::Local(control.clone()),
+         )
+         .map_err(io::Error::other)?;
+diff --git a/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs b/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs
+index f80ac44..7d26c48 100644
+--- a/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs
++++ b/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs
+@@ -422,3 +422,47 @@ async fn retained_original_request_getter_data_is_moved_once_without_session_sta
+         Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+     ));
+ }
++
++#[tokio::test]
++async fn genuine_reserved_issuer_is_adopted_once_and_foreign_or_raw_ids_refuse() {
++    let (_home, config, manager) = fixture().await;
++    let (_foreign_home, _foreign_config, foreign) = fixture().await;
++    let calls = Arc::new(AtomicUsize::new(0));
++    let issued = Arc::clone(&calls);
++    let manager = manager.with_thread_id_generator(move || {
++        issued.fetch_add(1, Ordering::SeqCst);
++        ThreadId::new()
++    });
++    let token = manager.reserve_thread_start();
++    let id = token.thread_id();
++    let mut selected = manager
++        .prepare_reserved_selected_start(StartThreadOptions::new(config.clone()), token)
++        .await
++        .unwrap();
++    assert_eq!(selected.allocation.as_ref().unwrap().thread_id(), id);
++    assert!(
++        selected
++            .start_options()
++            .unwrap()
++            .reserved_thread_id
++            .is_none()
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 1);
++    let adoption = manager.adopt_selected_start(&mut selected).unwrap();
++    assert_eq!(adoption.options.reserved_thread_id, Some(id));
++    assert!(manager.adopt_selected_start(&mut selected).is_err());
++    assert!(
++        foreign
++            .prepare_reserved_selected_start(
++                StartThreadOptions::new(config.clone()),
++                manager.reserve_thread_start()
++            )
++            .await
++            .is_err()
++    );
++    let mut raw = StartThreadOptions::new(config);
++    raw.reserved_thread_id = Some(id);
++    assert!(manager.prepare_selected_start(raw).await.is_err());
++    assert_eq!(calls.load(Ordering::SeqCst), 2);
++    assert!(manager.list_thread_ids().await.is_empty());
++}
+diff --git a/codex-rs/core/src/thread_manager/selected_start_frame.rs b/codex-rs/core/src/thread_manager/selected_start_frame.rs
+index 0071a9a..7142503 100644
+--- a/codex-rs/core/src/thread_manager/selected_start_frame.rs
++++ b/codex-rs/core/src/thread_manager/selected_start_frame.rs
+@@ -14,6 +14,7 @@ pub(crate) struct CapturedSelectedStartFrame {
+     raw_fork: Option<ThreadId>,
+     raw_parent_originator: Option<String>,
+     metrics: Option<String>,
++    thread_source: Option<codex_protocol::protocol::ThreadSource>,
+     ephemeral: bool,
+     parent: Option<ThreadId>,
+     originator: String,
+@@ -80,6 +81,7 @@ impl ThreadManagerState {
+             raw_fork: request.forked_from_thread_id,
+             raw_parent_originator: request.parent_originator.clone(),
+             metrics: options.metrics_service_name.clone(),
++            thread_source: options.thread_source.clone(),
+             ephemeral: options.config.ephemeral,
+             parent,
+             originator,
+@@ -95,6 +97,7 @@ impl CapturedSelectedStartFrame {
+             || options.internal_parent.is_some()
+             || options.inherited_environments.is_some()
+             || options.metrics_service_name != self.metrics
++            || options.thread_source != self.thread_source
+             || options.config.ephemeral != self.ephemeral
+         {
+             return Err(io::Error::other("retained original source inputs changed"));
+@@ -120,6 +123,14 @@ impl CapturedSelectedStartFrame {
+         }
+         Ok(())
+     }
++    pub(crate) fn client_source(&self) -> (&SessionSource, &str, Option<ThreadId>, Option<String>) {
++        (
++            &self.session_source,
++            &self.originator,
++            self.parent,
++            self.fork_cache_key.clone(),
++        )
++    }
+     pub(super) fn source(&self) -> &SessionSource {
+         &self.source
+     }
+diff --git a/codex-rs/core/src/tools/executed_tool_calls.rs b/codex-rs/core/src/tools/executed_tool_calls.rs
+index ee05b48..a337021 100644
+--- a/codex-rs/core/src/tools/executed_tool_calls.rs
++++ b/codex-rs/core/src/tools/executed_tool_calls.rs
+@@ -248,6 +248,17 @@ impl ExecutedToolCallRecorderState {
+ }
+ 
+ impl ExecutedToolCalls {
++    /// Data-owner identity only. Original new/default allocate these owners
++    /// together and Clone retains them; this does not attest recorder contents.
++    pub(crate) fn same_owner(&self, other: &Self) -> bool {
++        Arc::ptr_eq(&self.state, &other.state)
++            && Arc::ptr_eq(
++                &self.retained_direct_metadata_bytes,
++                &other.retained_direct_metadata_bytes,
++            )
++            && Arc::ptr_eq(&self.pending_direct_calls, &other.pending_direct_calls)
++    }
++
+     pub(crate) fn new(features: &Features, history: &InitialHistory) -> Self {
+         Self {
+             state: Arc::new(Mutex::new(Self::is_enabled(features).then(|| {

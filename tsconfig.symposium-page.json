@@ -1,0 +1,21 @@
+{
+  "extends": "./frontend/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "incremental": false,
+    "paths": {
+      "@mitzo/protocol": ["./packages/protocol/src/index.ts"],
+      "@mitzo/protocol/*": ["./packages/protocol/src/*"],
+      "@mitzo/client": ["./packages/client/src/index.ts"],
+      "@mitzo/client/hooks": ["./packages/client/src/hooks/index.ts"],
+      "@mitzo/harness": ["./packages/harness/src/index.ts"]
+    }
+  },
+  "references": [],
+  "include": [
+    "tests/acceptance/application-browser-transport.ts",
+    "tests/acceptance/enrolled-application-page.repro.ts",
+    "tests/acceptance/symposium-page-entry.tsx",
+    "frontend/src/vite-env.d.ts"
+  ]
+}

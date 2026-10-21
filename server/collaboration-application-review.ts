@@ -17,13 +17,16 @@ import {
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 import { loadAccountProfiles } from './account-profiles.js';
+import { resolveChatAgentProfile } from './agent-library-binding.js';
+import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import {
-  readOrdinaryCodexAgentProfile,
-  resolveOrdinaryCodexAgentProfile,
-} from './ordinary-codex-agent-profile.js';
-import { assertOrdinarySilentPreparationAuthority } from './ordinary-repository-preparation-authority.js';
+  assertOrdinaryRepositoryPreparation,
+  assertOrdinarySilentPreparationAuthority,
+} from './ordinary-repository-preparation-authority.js';
 import { OrdinaryCollaborationReview } from './collaboration-review-owner.js';
 import { createCollaborationContextSource } from './collaboration-context-source.js';
+import { createCollaborationRetainedContext } from './collaboration-retained-context-source.js';
+import type { TelosArtifactStore } from './telos-artifact-store.js';
 import type { EventStore } from './event-store.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 
@@ -34,7 +37,13 @@ const unavailable = () => new CollaborationContractError('execution_unavailable'
  * No native capacity adapter is installed, so every new review is unverified.
  */
 export class CollaborationApplicationReview {
-  constructor(private readonly owners: { store: EventStore; workspaces: RepositoryWorkspaces }) {}
+  constructor(
+    private readonly owners: {
+      store: EventStore;
+      workspaces: RepositoryWorkspaces;
+      retainedArtifacts?: TelosArtifactStore;
+    },
+  ) {}
 
   async review(
     auth: AuthSession,
@@ -67,13 +76,50 @@ export class CollaborationApplicationReview {
         throw unavailable();
     };
     assertObservation();
-    const result = (
+    const result = async (
       snapshot: CollaborationSnapshot,
       settings: CollaborationSettings,
       expectedMembershipRevision: number,
     ) => {
       assertObservation();
-      const artifactLabels = snapshot.artifacts.map((pin) => {
+      const visible = this.owners.store.openCollaborationVisibleSource(
+        snapshot.sourceConversationId,
+        snapshot.boundary,
+      );
+      const retainedSource = createCollaborationRetainedContext({
+        source: visible,
+        artifacts: this.owners.retainedArtifacts,
+        authorize: async () => assertObservation(),
+        assertSourceCurrent: assertObservation,
+      });
+      const outputs = new Map<string, ReturnType<EventStore['getSessionOutput']>>();
+      const artifactLabels = [];
+      for (const pin of snapshot.artifacts) {
+        if ('kind' in pin) {
+          const metadata = await retainedSource.metadata({
+            kind: pin.kind,
+            artifactId: pin.artifactId,
+            revision: pin.revision,
+            sha256: pin.sha256,
+          });
+          const { contentBase64, ...frozen } = pin;
+          const bytes = Buffer.from(contentBase64, 'base64');
+          if (
+            !isDeepStrictEqual(metadata, frozen) ||
+            bytes.byteLength !== metadata.sizeBytes ||
+            createHash('sha256').update(bytes).digest('hex') !== pin.sha256
+          )
+            throw new CollaborationContractError('snapshot_changed');
+          artifactLabels.push({
+            kind: pin.kind,
+            artifactId: pin.artifactId,
+            revision: pin.revision,
+            sha256: pin.sha256,
+            title: metadata.title,
+            filename: metadata.filename,
+          });
+          continue;
+        }
         const output = this.owners.store.getSessionOutput(
           snapshot.sourceConversationId,
           pin.artifactId,
@@ -87,13 +133,25 @@ export class CollaborationApplicationReview {
           output.source.messageEndSeq > snapshot.boundary.sequence
         )
           throw new CollaborationContractError('snapshot_changed');
-        return {
+        outputs.set(pin.artifactId, output);
+        artifactLabels.push({
           artifactId: pin.artifactId,
           revision: pin.revision,
           sha256: pin.sha256,
           title: output.title,
-        };
-      });
+        });
+      }
+      assertObservation();
+      visible.assertCurrent();
+      retainedSource.assertOwnedCurrent();
+      for (const [id, output] of outputs)
+        if (
+          !isDeepStrictEqual(
+            this.owners.store.getSessionOutput(snapshot.sourceConversationId, id),
+            output,
+          )
+        )
+          throw new CollaborationContractError('snapshot_changed');
       return CollaborationApplicationReviewResultSchema.parse({
         snapshot,
         settings,
@@ -156,6 +214,7 @@ export class CollaborationApplicationReview {
       throw new CollaborationContractError('snapshot_changed');
     const source = createCollaborationContextSource({
       store: this.owners.store,
+      retainedArtifacts: this.owners.retainedArtifacts,
       authorizeConversation: async () => {
         assertObservation();
       },
@@ -193,21 +252,24 @@ export class CollaborationApplicationReview {
     const proof = record.ordinaryPreparation;
     if (
       !proof ||
-      record.state !== 'ready' ||
+      (record.state !== 'preview' && record.state !== 'ready') ||
       record.conversationId ||
       record.hostReservation ||
       record.ordinaryFirstReservation ||
       record.handoff ||
       proof.runtimeBinding.execution.location !== target.runOn ||
-      proof.runtimeBinding.harness.implementation !== 'codex'
+      (record.state === 'ready' && proof.runtimeBinding.harness.implementation !== 'codex')
     )
       throw unavailable();
+    // A genuine preview captures account/runtime intent without acquiring a source.
+    // Its observational settings cannot qualify silent allocation or native capacity.
+    const harness = proof.runtimeBinding.harness.implementation;
     const profiles = loadAccountProfiles();
     const binding = profiles.resolve(target.accountId, target.model);
     profiles.validateModelSelection(binding, target.model, target.reasoningEffort);
     const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
     const resolveBinding = () => {
-      const inventory = ordinaryRepositoryRuntimeInventory(target.runOn, 'codex');
+      const inventory = ordinaryRepositoryRuntimeInventory(target.runOn, harness);
       const current = inventory.profiles.resolve(target.accountId, target.model);
       inventory.profiles.validateModelSelection(current, target.model, target.reasoningEffort);
       const result = inventory.catalog.resolve({
@@ -216,7 +278,7 @@ export class CollaborationApplicationReview {
           provider: current.provider,
           profileRevision: current.profileRevision,
         },
-        harness: 'codex',
+        harness,
         targetId: proof.runtimeBinding.execution.targetId,
         mode: target.permissionMode,
       });
@@ -229,10 +291,15 @@ export class CollaborationApplicationReview {
       return result.binding;
     };
     const runtime = resolveBinding();
-    const agent = await resolveOrdinaryCodexAgentProfile({
+    const agent = await resolveChatAgentProfile({
       requested: target.agent,
       provider: binding.provider,
-      execution: runtime.execution,
+      toolRoute:
+        runtime.execution.location === 'openshell'
+          ? 'openshell'
+          : harness === 'codex'
+            ? 'codex-owned-local'
+            : 'local-api',
       lookup: (selection) => readAgentLibraryProfile(selection, connectionId),
     });
     if (!agent || agent.definition.contextRecipe !== undefined) throw unavailable();
@@ -248,8 +315,14 @@ export class CollaborationApplicationReview {
       },
       repositoryWorkspaceId: target.repositoryWorkspaceId,
     };
-    await this.owners.workspaces.qualifiedStatus(record.id, binding);
-    await assertOrdinarySilentPreparationAuthority(proof, binding, settings, signal);
+    await this.owners.workspaces.qualifiedStatus(record.id, binding, signal);
+    if (record.state === 'ready')
+      await assertOrdinarySilentPreparationAuthority(proof, binding, settings, signal);
+    else
+      await assertOrdinaryRepositoryPreparation(proof, binding, signal, true, {
+        model: target.model,
+        thinking: target.reasoningEffort,
+      });
     const assertCurrent = () => {
       signal.throwIfAborted();
       resolveBinding();

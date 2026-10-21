@@ -6,9 +6,437 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 81 patches
+## Current composed source: 134 patches
 
-The 81 ordered patches reconstruct native tree
+The 134 ordered patches reconstruct native tree `564608a128d39d0de25c548d132b8b11defad617`
+(local source `47f8044cdc14f31a6a01027431f960fbfb37e0e9`). All previous 133 patch records and bytes,
+and their complete source boundary, remain exact. Accepted main `1886f505ab9c799eea8599829abb037988c0ba9b`
+is included through normal merges. Three later private context cuts are excluded.
+
+One test fixture uses the actual `ResponseItemId::from_server` constructor and
+matches `CodexErrorDetails::InvalidRequest` through `error.details()`. This repairs
+the two compiler sites observed in published 133 without changing production,
+expected values, assertions, test identities, discovery or budgets. No new tests
+are added. The repair has not been compiled or run locally.
+
+Published 133 Linux independently passed 27 AppServer and four Goal/API tests.
+Its 51 Core and seven prior-stack cases reached neither discovery nor execution;
+the redirected lists were invalid zero-byte JSON. The full 23-package attempt
+failed Core lib-test compilation and formatting was skipped. macOS independently
+passed the same 27 AppServer and four Goal/API identities, with the same two
+compiler sites blocking Core, prior-stack and full 22-package execution; formatting
+was skipped. These are 31 distinct identities per OS. Earlier runtime failures
+remain unresolved and unmeasured.
+
+Fresh CI must retain exact 51 Core, 27 AppServer, four Goal/API and seven separate
+stack cases, the original full 22 packages plus Linux sandbox, and formatting.
+One thread, zero retries and the original budgets remain. No earlier result
+qualifies this successor. Full context/tools/request/count/currentness/State,
+RPC/factory/Ready/Join and final participant reply remain open. PRESENT adoption
+stays refused. No model call, installation or deployment.
+
+## Previous composed source: 133 patches
+
+The 133 ordered patches reconstruct native tree `4a7c3f19a7db35b845da2aba8e55a5120a21f399`
+(local source `44ae9263c7cdebe750ff0f3371c6d545e7ebf6f7`). Every previous 127 patch record
+and byte and its complete source boundary remain exact. Accepted main `58bdfbe9c7faa6021b6f7ce8d94388e09be00623`
+is included through a normal merge; earlier EA5 acceptance cases retain their
+original source scope.
+
+Six source-reviewed cuts retain original first-step Skills/model/permission DATA,
+the original typed-input Skills projection, startup-owned base/provenance, and
+separate original constructor/fresh-history previous-settings values. The actual
+ordinary consumers retain their original evaluation, event and write order.
+A two-test-file compatibility repair addresses the four published127 compiler
+sites without changing production, assertions, budgets or discovery. All 18 new
+fixture functions are UNCOMPILED_UNRUN locally. The installed model-section
+fixture observes the genuine same-slug empty native section and retained order;
+different-model nonempty rendering has separate Core fixture coverage, without
+widening the supported model descriptor or claiming an installed positive.
+
+Published 127 independently passed the same 23 AppServer and 4 Goal/API unit names
+on each platform. Its 37 Core and 7 prior-stack targets never reached discovery
+or execution because Core lib-test compilation failed. Both full-suite attempts
+failed compilation101 before runtime and formatting was skipped. The 13 earlier
+unique 119 runtime failures remain unresolved and unmeasured. No previous result
+qualifies this successor.
+
+CI must discover and run exact 51 Core, 27 AppServer and the same 4 Goal/API names,
+the original 7 stack regressions, original 22-package full suite plus Linux sandbox,
+and formatting. One thread, zero retries and all original budgets remain.
+Full initial context/tools/request/count/currentness/State C-to-R/admission,
+registered RPC/factory/Ready/Join and final participant reply remain open.
+PRESENT adoption stays refused. No model call, installation or deployment.
+
+## Previous composed source: 127 patches
+
+The 127 ordered patches reconstruct native tree `539c34fa4bb824b81e0f4bc379d62478b2277112`
+(local source `01f39b8e6222fda4c0e08207d3a2750cb17d17d2`). Every previous119 patch record
+and byte and the complete prior source boundary remain exact. Accepted main
+ea5ae7590da152cf9c5663b72d7b799cc2e8fba2 is composed in this candidate.
+
+The additions retain original first-command options/history/queue/client metadata,
+strict private fresh command parsing and native-owned normalized pairing, and the
+actual first-step model resolver/late ordinary settings consumer. A bounded private
+snapshot-storage change addresses the seven observed stack-overflow regressions;
+only CI can establish whether it repairs them. Test-only diagnostics expose the
+remaining shell-snapshot/skill-root assertions and Mac MCP deadline without changing
+original assertions or budgets. All 26 additional fixtures remain
+UNCOMPILED_UNRUN locally. CI requires 37 Core and 23 AppServer
+data-owner names, the same four Goal/API names, seven original stack regressions,
+and the complete original22 packages plus Linux sandbox and formatting.
+
+Published119 passed the same38 targeted unit identities on both platforms. Its
+full Mac suite recorded9409pass/8fail/39filtered skips; Linux9621pass/12fail/23filtered
+skips. Seven stack-overflow identities overlap across platforms; thirteen unique
+failed names remain retained. Both full suites failed and formatting skipped.
+The34 Core/AppServer focused passes overlap full-suite coverage; four Goal/API
+library tests are separate. No119 result qualifies this successor.
+
+Full initial context/tools/final request/count/currentness/State C-to-R/admission,
+registered RPC/factory/Ready/Join/final participant reply remain open. Candidate
+PRESENT adoption stays refused. No real model call, installation or deployment.
+
+## Previous composed source: 119 patches
+
+The 119 ordered patches reconstruct native tree
+`c5d4d25bac5c95a7139bcf2e4bfa19051f8bcc52` (local source
+`bd59b7a06af3ec4291b3198cfe64af30f4a71e94`). All 115 public predecessor patches
+and all three closed local118 additions remain byte-exact. Local118 was frozen
+but never committed or published: the reviewed body change completed while
+Mac115 was still running, so this batch avoids an immediately superseded CI run.
+
+Patches116–118 retain the closed normalizer, original manager/publisher ownership
+and fixture borrow-order changes described below. Patch119 separates the exact24
+non-route parsed body fields from the genuine legacy route behind unchanged
+ordinary staged APIs. The exhaustive25-field move stays after original checks
+and client-info, the real ordinary caller is byte-exact, and shared conversion
+and final request building run once. No fake thread ID, fresh parser/constructor,
+export, selected pairing, adoption or new RPC/State/Ready is introduced.
+
+Two new body inverse/request-parity fixtures retain null/empty/order/user/reply
+DATA and all old whole-object/error oracles. Parity shares the algorithm and is
+not independent semantic evidence. All12 new fixtures remain UNCOMPILED_UNRUN.
+CI requires the original21 Core and13 AppServer names (retained11plus2body),
+with the4 Goal/API cases and original full22+Linuxsandbox/fmt/thread/retry/budget
+unchanged. Separate phase JUnit records do not qualify the full suite.
+
+Exact-source CI is required for119. Both public115 native jobs finished before
+this publication. Linux's independently qualified four Goal/API unit passes are
+separate from its Core/full-suite compilation failure. Mac also finished with
+Core/full-suite failure; bounded raw triage observes the same fixture E0505.
+Its named phase qualification is pending, so no Mac fixture counts are claimed
+here. The identical field-order repair is included in119, requiring fresh CI.
+No source-only repair or prior result establishes full factory/count/State/RPC/
+Ready/nativeJoin/final participant reply.
+
+## Previous unpublished composition: 118 patches
+
+The 118 ordered patches reconstruct native tree
+`65c4089cc0a4279723ebbd6f8754f41699a502ca` (local source
+`35c4641ce0aa9ab3a43d0999f71e4f0701c055c1`). All 115 earlier patch
+records and bytes remain exact. Fresh exact-source CI is required.
+
+Patch 116 shares the actual ordinary mutable-settings normalizer with selected
+DATA capture through the original Core prepare_update algorithm. Its source-bound
+candidate does not permit ordinary adoption while present. Patch 117 owns clones
+of the SAME original ConfigManager and runtime publisher; loader renewal, actual
+writer identity, pointer ABA, Busy and Poisoned fences remain. No new operation
+map, epoch, serializable authority or replacement manager is introduced.
+
+Patch 118 moves the identical config Arc field after the fixture's final borrowed
+parts use. It addresses the Core lib-test E0505 observed in public115 Linux early
+and full phases, without changing assertions, production or input data. This is
+a source repair, not compiler success. The115 Linux terminal failure and separate
+Goal/API phase remain retained; Mac115 is still running at this checkpoint.
+
+Ten additional fixtures are authored and source-reviewed, UNCOMPILED_UNRUN locally.
+CI requires exact21 early Core names (old18 plus3 selected-candidate), and exact11
+AppServer data-owner names (retained4 command DATA plus7 normalizer/owned-custody).
+The explicit4 Goal/API cases and original full22-package suite plus Linux sandbox
+and formatting remain, with one thread, zero retries and240-minute budget.
+Diagnostic failures do not suppress the full suite after successful helpers.
+Each early phase retains its own list/log/JUnit; its counts are not added to
+full-suite counts. No prior115 result qualifies new118 source.
+
+No local Rust compilation, tests, model call, installation or account selection.
+Actual parsed-command custody/ingress, candidate adoption into real Session,
+complete initial context/tools/final request, count/currentness/State/RPC/host
+factory, Ready and native joining/final participant reply remain open.
+
+## Previous composed source: 115 patches
+
+The 115 ordered patches reconstruct native tree
+`723845058a07b0eae1e7feaeb8ee4ede3d5b3128` (local source
+`44f612aa97a17daf50c81ee5c18a06751a04c326`). All 111 earlier patch
+records and bytes remain unchanged. Fresh exact-source CI is required.
+
+Patches 112–114 share the original configured-settings projection, retained
+selected baseline and mutable-settings algorithm through their existing owners.
+The ordinary provider-first order, later fallible permission/environment field,
+30-field construction and publication tail remain. Mutable-settings updates retain
+the original CWD compatibility filesystem branch and final StepSettings.apply
+position; providerless does not imply pure or I/O-free. Ten new Core fixtures
+cover baseline precedence and owner mismatch, retained stage consumption and
+settings/permission/environment constraints. All are UNCOMPILED/UNRUN locally.
+
+Patch 115 wraps four test-only registry constructions in their required Arc
+owners, preserving all original assertions and production code. These correct
+four E0308 errors observed in public 111 Linux CI. That terminal run failed
+Core and Goal library-test compilation, including the full-suite phase. Mac 111
+also terminated with compilation failures at the same four source locations;
+its independently retained logs remain separate evidence.
+No old native test result qualifies this new source.
+
+The early Core step now requires exactly 18 nonignored cases: the original eight
+and all ten new configured-settings cases. The four explicit Goal/API fixtures,
+original complete 22-package suite plus Linux sandbox, formatting, one test
+thread, zero retries and 240-minute budget remain. Added diagnostic failures
+still fail the job and do not suppress the full suite after successful helpers.
+
+The host lockfile separately updates only Vite's version, resolved URL and
+integrity to the official 6.4.4 patch. No dependency is installed locally.
+No local Rust compilation, real model call, installation or account selection
+occurred. Full command normalization/capture, complete initial context/final tools,
+request/count/State/currentness, RPC/host adoption, Ready and joining/reply remain
+open. Source distribution does not install or qualify a runtime.
+
+## Previous composed source: 111 patches
+
+The 111 ordered patches reconstruct native tree
+`880a0c07338ce70d7cd839759b53a75b824c18f3` (local source
+`a22eb78be77f979137cf697779a6e3cf28734cf9`). All 109 earlier patch
+records and bytes remain unchanged. Fresh exact-source CI is required.
+
+Patch 110 fixes the five AppServer test compilation errors observed in public
+107 Linux CI. The existing public Core test-support boundary returns only the
+same Arc pointer-identity predicate. The getter remains private, the five actual
+client/authentication assertions remain, and runtime client code is unchanged.
+Public 107 Linux executed zero fixtures; its failure and the three historical
+regression failures remain recorded. Mac 107 is separate and still in progress
+at this preparation checkpoint.
+
+Patch 111 retains all 25 original turn request fields in staged, single-use DATA
+and shares their existing ordinary validation and conversion bodies at the same
+error/effect positions. Thread, environment, permission and effective settings
+remain with their original live owners. Four new AppServer fixtures are authored
+but UNCOMPILED/UNRUN. This extraction does not wire selected-start capture or
+request/prepare, establish intended-command identity, or complete the factory.
+
+The reviewed Goal/carry source, page-recorder repair, early eight Core oracles,
+explicit extension-library targets and complete 22-package suite below remain.
+No local Rust compilation, model call, installation or account selection occurred.
+Full request/count/State/currentness, RPC/host adoption, Ready and joining/reply
+remain open. Earlier qualification does not transfer to this source.
+
+## Previous unpublished composition: 109 patches
+
+The 109 ordered patches reconstruct native tree
+`eaafee0c18477031e6b6b96b7bd972304a5a2bba` (local source
+`d8a86a91a675300959a9e91cc10f2a82a389b359`). All 107 earlier patch
+records and bytes remain unchanged. This source requires fresh CI; the retained
+public 107 results do not qualify these new sources.
+
+Patch 108 captures the original Goal get/create/update definitions from the same
+registry and actual source/effective configuration, preserving real handlers,
+visibility and execution policy. Patch 109 carries that opaque extension partition
+through the original allocation into the real Session. It binds only the actual
+admitted User turn and checks the original registry's actual executor sequence
+before adaptation and router finalization. Failed or consumed custody cannot
+fall back to an ordinary empty plan; the original None lazy path remains exact.
+
+Five Core and four Goal/API fixtures are authored but UNCOMPILED/UNRUN locally.
+Both original extension libraries declare test=false, so CI additionally selects
+both explicit library targets and requires the four actual named cases. Three
+retained historical regression oracles and the five new Core cases run early; the complete original suite covering 22 packages plus Linux sandbox, one thread, zero retries and a budget of 240 minutes remain.
+Added diagnostic failures remain failures and do not suppress the full suite.
+
+The page recorder separately drains actual response-body reads before closing
+its browser owner and asserts errors after final retention. Its two changed
+browser cases pass using retained official 107 bundles with all original 3399
+input hashes checked, without a local build. The original 107 unclean final
+network receipt is retained and is not relabelled as this candidate's pass.
+
+This does not freeze intended first-command content/overrides, full initial
+context or final Core/MCP/policy specs. Complete request/count/State/currentness,
+RPC/host adoption, Ready, joining/reply and selected later-turn continuation
+remain open. No runtime install, account selection or real model call occurred.
+
+## Previous composed source: 107 patches
+
+The107 ordered patches reconstruct native tree
+`d05bb05b2e3d8395e8fae4144a6669ac12c0ad5f` (local source
+`b17efb6332df194e14ae5c96ecedb4b3e51849bd`). All105 earlier patch records
+and bytes remain unchanged.
+
+Patch106 shares the original startup review-policy, full model-row, TokenBudget
+and base-instruction transformations at their ordinary acquisition positions.
+The selected owner retains raw loader/policy configuration separately from the
+effective configuration used by MCP and the original client. The same credential
+Arc, catalog publisher, source frame, registry and original one-time allocation
+remain bound. Ordinary Session adopts each retained stage once without selecting
+or transforming it again. Its ordinary None refresh/default/fallback path remains.
+Four new fixtures are authored and UNCOMPILED/UNRUN locally.
+
+Source105 built both standalone helpers but failed Core test compilation on both
+platforms: the capture fixture lacked the original ModelClient import, producing
+four missing-type diagnostics and a dependent missing test predicate. No native
+crate fixture executed; formatting skipped. Patch107 supplies only that import,
+retaining every production byte and assertion. This repair still requires fresh CI.
+
+Source review and installed scoped Rust1.95 formatting do not establish compiler
+or runtime qualification. Full first-step settings/context and Goal/tool plans,
+final headers/body, authoritative count and jointly guarded State association,
+durable host/RPC custody and actual joining/reply remain open. No installation,
+account access, model call, Ready or Join is claimed.
+
+## Retained 105-patch checkpoint
+
+The105 ordered patches reconstruct native tree
+`9e3512cf6d188fec34a95e746276b06584d917ac` (local source
+`c3f27be9de985e000b783c2927e5e6e22453a6c1`). All first103 patch records
+and bytes remain unchanged.
+
+Patch104 captures the actual original source/parent/originator/cache getter data
+once and moves it into ordinary startup. The original originator getter may
+initialize its existing process owner; this is no atomic environment lease.
+Patch105 adds an opaque same-manager reservation from the original ID issuer and
+uses the real first-command options and installed composition. Existing selected
+configuration custody constructs one original supported ModelClient and retains
+its actual auth, attestation, routing, recorder, channels, headers and contributors.
+Ordinary startup moves that same client at its original constructor site after
+real lifecycle inputs validate. Changed or consumed inputs refuse without a
+second constructor. Ordinary Clear, configured MCP and other-provider starts keep
+the original path; unsupported selected public routes refuse before construction.
+
+The actual beta header remains unresolved at final capture. Any actual request
+contributors are retained and must be supported rather than dropped. Effective model/context, final headers/tools/body, authoritative
+count and State association, durable committed/RPC custody and the actual host
+factory/first-request caller remain open. Borrowed configuration observations do
+not become persistent packets. No count, Ready, runtime installation or Join is
+claimed. The new source-frame fixture and eight client/issuer fixtures are authored
+but uncompiled and unrun locally. Exact-source CI retains every original package,
+one test thread, zero retries and240minutes. Scoped installed1.95 formatting and
+source-preservation reviews are separate from compiler/runtime qualification.
+
+## Retained 103-patch checkpoint
+
+The 103 ordered patches reconstruct native tree
+`607b88e5275dc347713a85c2b6ae454470bffb54` (local source `d89bc3cba1a78c947b297bedb9b2653ebaddbc50`).
+All first 99 records and patch bytes remain unchanged. Patch 100 retains the
+original installed default registry and concrete object inventories under the
+same original weak manager and MCP packet. Patch 101 restores one direct Session
+model-provenance enum import. Patch 102 shares original source/history/parent,
+originator precedence and fork-cache DATA transforms at their original call sites.
+Actual process/async acquisition, configuration, history and client construction
+remain with their original owners and order.
+Patch 103 applies only the installed Rust 1.95 canonical formatter to Session.
+The unchanged required Cargo formatting gate traverses that file; its previous
+line wrapping/indentation would fail after the fixture suite. No gate is weakened.
+
+Source 99 run `39482696019` failed production Core library compilation on both
+platforms while building standalone helpers. The three E0433 errors name the
+missing `BaseInstructionsProvenance` at Session lines 791, 797 and 803. Native crate
+fixtures and formatting skipped; no source-89 failing oracle is now qualified.
+Complete original logs and terminal evidence remain retained. Patch 101 supplies
+only that missing import, preserving every other byte of its parent Session.
+
+All new Rust fixtures remain uncompiled and unrun locally. Exact-source CI keeps
+the complete original package list, one test thread, zero retries and the justified
+240-minute budget. Local verification is reconstruction, static checks and scoped
+formatting only. Installed-registry membership and pure data functions do not
+prove callback effects, final metadata, source currentness, retained-frame adoption,
+complete factory/count/State ownership, host/runtime adoption, joining or Ready.
+No runtime installation or model call is made.
+
+## Retained 99-patch checkpoint
+
+The 99 ordered patches reconstruct native tree
+`6e7109d979ed7deeb4e00fe3ec3473083d0e1b74` (local source `b2f34ca45571ca7514b5f307b76a78b475829769`).
+All first 89 patch records and bytes remain unchanged. Patches 90–98 extract
+original initial-context data, selected environment/source partitions and the
+ordinary ModelClient allocation and consumed inputs. They do not construct a
+pre-session ModelClient or complete the fresh request factory. The private
+equivalent of public patch 89 is not applied a second time.
+
+Patch 99 preserves documented image detail `original` through the exact public
+generation body, count projection and restoration; unknown detail values still
+refuse. It also supplies the actual temporary User layer to the hidden Knowledge
+fixture and asserts the original Lite serializer's omission of empty instructions.
+The bundled Luna model and original Knowledge bytes remain unchanged.
+
+Source 89 run `39463080370` ended on both platforms at the 120-minute job limit.
+Retained fixture logs contain 6,828 Linux passes and three failures through record
+6,831 of 9,568, and 6,171 Mac passes and the same three failures through record
+6,174 of 9,352. These are overlapping partial platform records, not final totals or
+a passing suite. No final JUnit summary exists and formatting skipped. The three
+failures are repaired in patch 99; the next exact-source CI has 240 minutes with
+the same complete package list, one test thread and zero retries.
+
+All new Rust compilation and test execution remain pending CI. Locally only exact
+source reconstruction, scoped Rust formatting and static checks are performed.
+Complete original request assembly, registry/source authority, count/State
+association, actual app-server/host adoption and executable joining remain open.
+No installed runtime, account selection, model call or Ready grant is made.
+
+## Retained 89-patch checkpoint
+
+The 89 ordered patches reconstruct native tree
+`5afdd74dd6631cf91d32325d78914dff3bc6a8f7` (local source `349165924d187197140074b8cfefe087d2e73cba`).
+All first 88 patch records and bytes remain unchanged. Patch 89 corrects only
+three fixture header values to the existing `RedactedString` type. Their exact
+malformed/case-ambiguous bytes and every assertion are preserved; no production
+provider behavior, visibility, policy or guard changes.
+
+Source 88 run `39454890578`, Linux job `118739246813`, compiled the production
+helpers and Core/AppServer tests but failed the ModelProviderInfo library-test
+build with E0308 before any crate fixture executed. Mac was still compiling its
+fixture build at capture. Original logs and artifact `12283706338` are retained;
+these partial builds do not qualify either source. Exact source 89 compilation,
+fixture execution and formatting remain pending CI. Locally only exact source
+reconstruction, scoped Rust formatting and static checks are performed.
+
+Patch 88 retains actual ordinary selected Config and strict-policy one-use
+adoption, runtime-feature data publication fences, System-clock/environment
+partitions and registered extension identities. Complete original request
+assembly, native count/State association, actual app-server/host adoption and
+executable joining remain open. No installed runtime or Ready grant is made.
+
+## Retained 87-patch checkpoint
+
+The 87 ordered patches reconstruct native tree
+`f09fc186e1ee1beb81495f003feb736bfcab0756` (local source `a7498d7eb0bb7fb33130d2d4729c88fd980291e7`).
+All first 86 patch records and bytes are retained unchanged. Patch 87 composes
+seven private source commits; it must not also be applied as their individual patches.
+
+Original source owners now provide disabled History/Memory prompt data, hosted
+Apps registration followed by the existing API auth gate, and original executor/
+cloud PluginContributor plans. The actual HostPlugins manager retains installed
+and loaded publication identities, including insert/capacity-evict ABA, and the
+same opaque API credential observation used by the Core packet. Default flags
+stay enabled. Configured, retained or unknown sources still refuse. The new Core
+default-positive fixture uses the original test manager's empty extension registry;
+it does not prove complete app-server registry or request-factory composition.
+
+Actual source 86 run `39408201470` built the production helper on both platforms,
+then failed Core library-test compilation with one E0624 each: the new Skills
+fixture called a private configuration wrapper. Zero fixtures ran; no JUnit exists
+and formatting skipped. Patch 87 calls that wrapper's existing crate-visible
+underlying owner with the exact same five arguments. No production visibility,
+configuration discovery, fixture policy or assertion changes. The older source85
+production import failure remains separate retained evidence.
+
+All new Rust fixtures remain uncompiled and unrun. Exact-source CI explicitly
+adds `codex-core-plugins` units and formatting on both platforms while retaining
+the previous 20 packages, Linux sandbox, one test thread and zero retries. Source
+reconstruction and independent static audits are not compilation or execution.
+Complete configuration/permission/filesystem/source leases, the real fresh
+request factory, count-State association and app-server/host wiring remain open.
+No installed runtime, selected charged account, Ready or joining grant is made.
+
+### Retained 81-patch checkpoint
+
+The original 81 ordered patches reconstruct native tree
 `e2b7d2093d6a671ac0929730a0297139ca2067b7` (local source `673a893f754b03ded8efba534b452c29233ffc8e`).
 
 Patch 81 corrects two Arc cloning expressions in the actual catalog owner.

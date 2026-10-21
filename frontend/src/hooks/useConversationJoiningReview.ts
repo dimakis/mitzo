@@ -2,10 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createBrowserId } from '../lib/browser-crypto';
 import {
   CollaborationApplicationReviewInputSchema,
+  CollaborationApplicationReviewResultSchema,
   CollaborationJoinInputSchema,
   CollaborationJoinSchema,
-  CollaborationSettingsSchema,
-  CollaborationSnapshotSchema,
   type CollaborationJoin,
   type CollaborationJoinInput,
 } from '@mitzo/protocol';
@@ -27,6 +26,11 @@ import {
   AUTH_RESTORED_EVENT,
   currentVerifiedAuthSessionId,
 } from '../lib/api-fetch';
+import {
+  conversationArtifactKey,
+  sameConversationArtifact,
+} from '../lib/conversation-joining-artifacts';
+import { ConversationJoiningTargetError } from '../lib/conversation-joining-target-intent';
 
 type State = {
   review: ConversationJoiningReviewResult | null;
@@ -81,6 +85,10 @@ function ready(state: State) {
     snapshot.capacity.assessments.some((a) => equal(a.settings, settings))
   );
 }
+const repositoryCurrent = (owner: ConversationJoiningOwner, setup: ConversationAgentSetup | null) =>
+  owner.kind !== 'application' ||
+  setup?.sourceRepository === undefined ||
+  owner.sourceRepository === setup.sourceRepository;
 function readReview(
   raw: ConversationJoiningReviewResult,
   owner: ConversationJoiningOwner,
@@ -88,12 +96,10 @@ function readReview(
   brief?: string,
   previous?: ConversationJoiningReviewFence,
 ): ConversationJoiningReviewResult {
-  const review = {
-    ...raw,
-    snapshot: CollaborationSnapshotSchema.parse(raw.snapshot),
-    settings: CollaborationSettingsSchema.parse(raw.settings),
-  };
+  const review = CollaborationApplicationReviewResultSchema.parse(raw);
   const { snapshot, settings } = review;
+  const selectedArtifacts = setup.artifacts.map(conversationArtifactKey).sort();
+  const frozenArtifacts = snapshot.artifacts.map(conversationArtifactKey).sort();
   if (
     !Number.isSafeInteger(review.expectedMembershipRevision) ||
     review.expectedMembershipRevision < 0 ||
@@ -111,31 +117,20 @@ function readReview(
         [...snapshot.messages.map((m) => m.messageId)].sort(),
         [...setup.messageIds].sort(),
       )) ||
-    setup.artifacts.some(
-      (a) =>
-        !snapshot.artifacts.some(
-          (pin) =>
-            a.artifactId === pin.artifactId &&
-            a.revision === pin.revision &&
-            a.sha256 === pin.sha256,
-        ),
-    ) ||
-    snapshot.artifacts.some(
-      (pin) =>
-        !review.artifactLabels?.some(
-          (label) =>
-            label.artifactId === pin.artifactId &&
-            label.revision === pin.revision &&
-            label.sha256 === pin.sha256 &&
-            typeof label.title === 'string' &&
-            label.title.trim().length > 0 &&
-            label.title.length <= 1000 &&
-            (label.filename === undefined ||
-              (typeof label.filename === 'string' &&
-                label.filename.trim().length > 0 &&
-                label.filename.length <= 1000)),
-        ),
-    ) ||
+    (setup.context === 'selected'
+      ? new Set(selectedArtifacts).size !== selectedArtifacts.length ||
+        new Set(frozenArtifacts).size !== frozenArtifacts.length ||
+        !equal(frozenArtifacts, selectedArtifacts)
+      : setup.artifacts.some(
+          (a) => !snapshot.artifacts.some((pin) => sameConversationArtifact(a, pin)),
+        )) ||
+    snapshot.artifacts.some((pin) => {
+      const labels = review.artifactLabels?.filter((label) => sameConversationArtifact(label, pin));
+      return (
+        labels?.length !== 1 ||
+        ('kind' in pin && (labels[0].title !== pin.title || labels[0].filename !== pin.filename))
+      );
+    }) ||
     (brief !== undefined && snapshot.joiningBrief !== brief) ||
     (previous &&
       (joiningReviewFence(review).sourceSha256 !== previous.sourceSha256 ||
@@ -388,6 +383,14 @@ export function useConversationJoiningReview(
                 },
               }
             : {}),
+          ...(previous && owner.kind === 'application' && current.current.review
+            ? {
+                previousSource: {
+                  boundary: structuredClone(current.current.review.snapshot.boundary),
+                  expectedMembershipRevision: previous.expectedMembershipRevision,
+                },
+              }
+            : {}),
         };
     lastReview.current = {
       input: structuredClone(input),
@@ -429,6 +432,13 @@ export function useConversationJoiningReview(
         });
       }
     } catch {
+      // A pending ordinary preparation can refuse a changed draft. Retrying
+      // must still recover its original stored review, never the rejected ID.
+      if (retained.current)
+        lastReview.current = {
+          input: structuredClone(retained.current.reviewRequest),
+          previous: retained.current.previousReview,
+        };
       update({
         setup: captured,
         ...(brief !== undefined ? { brief } : {}),
@@ -442,6 +452,9 @@ export function useConversationJoiningReview(
       if (owner.kind === 'application') {
         if (retained.current?.version !== 2) throw new Error('Application intent unavailable');
         if (retained.current.application.state === 'capture_pending') {
+          if (owner.prepareReview)
+            await owner.prepareReview(structuredClone(input), controller.signal);
+          if (!canPublish(operation, identity)) return;
           const raw = await owner.captureReview(structuredClone(input), controller.signal);
           if (!canPublish(operation, identity)) return;
           const normalized = CollaborationApplicationReviewInputSchema.parse(raw);
@@ -480,11 +493,14 @@ export function useConversationJoiningReview(
       const accepted = readReview(result, owner, captured, brief, previous);
       save({ ...retained.current!, acceptedReview: joiningReviewFence(accepted) });
       update({ review: accepted, brief: accepted.snapshot.joiningBrief, pending: null });
-    } catch {
+    } catch (cause) {
       if (!canPublish(operation, identity)) return;
       update({
         pending: null,
-        error: 'The joining brief could not be checked. Your setup and edits stay here.',
+        error:
+          cause instanceof ConversationJoiningTargetError
+            ? cause.message
+            : 'The joining brief could not be checked. Your setup and edits stay here.',
       });
     }
   };
@@ -498,7 +514,8 @@ export function useConversationJoiningReview(
     const identity = ownerIdentity(owner)!;
     let input = state.submission;
     if (!input) {
-      if (!ready(state) || !state.review || !state.setup) return;
+      if (!ready(state) || !state.review || !state.setup || !repositoryCurrent(owner, state.setup))
+        return;
       input = CollaborationJoinInputSchema.parse({
         requestId: createBrowserId(),
         expectedMembershipRevision: state.review.expectedMembershipRevision,
@@ -581,7 +598,7 @@ export function useConversationJoiningReview(
     ...state,
     review: ownerAvailable ? state.review : null,
     requiresRecovery: restored.current && state.join !== null,
-    canConfirm: ownerAvailable && ready(state),
+    canConfirm: ownerAvailable && !!owner && repositoryCurrent(owner, state.setup) && ready(state),
     locked:
       state.submission !== null ||
       storageBlocked.current ||
@@ -589,7 +606,7 @@ export function useConversationJoiningReview(
       (!!owner && !journal.current),
     hasAttemptFor: (setup: ConversationAgentSetup) =>
       current.current.setup !== null && equal(current.current.setup, setup),
-    prepare: (setup: ConversationAgentSetup) => {
+    prepare: (setup: ConversationAgentSetup, initialBrief?: string) => {
       if (!ownerAvailable) return Promise.resolve();
       try {
         ensureRecovery();
@@ -607,7 +624,9 @@ export function useConversationJoiningReview(
           ? review(saved.input.setup, saved.input.joiningBrief, saved.previous, saved.input)
           : Promise.resolve();
       }
-      return review(setup);
+      // Initial application intent needs explicit editable brief bytes. A resumed
+      // attempt above always retains its original request, including empty edits.
+      return review(setup, initialBrief);
     },
     prepareFreshReview: (setup: ConversationAgentSetup) => {
       const state = current.current;

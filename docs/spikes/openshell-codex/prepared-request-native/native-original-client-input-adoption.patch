@@ -1,0 +1,640 @@
+diff --git a/codex-rs/core/src/codex_delegate.rs b/codex-rs/core/src/codex_delegate.rs
+index 9d6b9656ba9fd559a7b4a1e8ca966cf154d47e2a..27d557de56ae6517db9bcac6d566988c2ea30a7f 100644
+--- a/codex-rs/core/src/codex_delegate.rs
++++ b/codex-rs/core/src/codex_delegate.rs
+@@ -129,6 +129,7 @@ pub(crate) async fn run_codex_thread_interactive(
+         thread_extension_init,
+         client_mcp_extensions: parent_session.services.client_mcp_extensions.clone(),
+         reserved_thread_id: None,
++        inherited_client_inputs: None,
+         analytics_events_client: Some(parent_session.services.analytics_events_client.clone()),
+         image_store: Arc::clone(&parent_session.services.image_store),
+         thread_store: Arc::clone(&parent_session.services.thread_store),
+diff --git a/codex-rs/core/src/session/client_input_data.rs b/codex-rs/core/src/session/client_input_data.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..bf89a787e86f643be0aca71771ed3a5568b70cbc
+--- /dev/null
++++ b/codex-rs/core/src/session/client_input_data.rs
+@@ -0,0 +1,125 @@
++//! Original client INPUT allocations, never a ModelClient or readiness grant.
++//! Retain actual init values/history and move the same owners into ordinary
++//! startup. No Session/Turn/ExtensionData, transport, auth or lifecycle is made.
++use super::*;
++use crate::CodexResponsesHeaders;
++use crate::state::ExecutedToolCalls;
++use codex_model_provider::WorkspaceRoutingContext;
++use std::io;
++
++pub(crate) struct SessionChannels {
++    pub(crate) tx_sub: Sender<Submission>,
++    pub(crate) rx_sub: Receiver<Submission>,
++    pub(crate) tx_event: Sender<Event>,
++    pub(crate) rx_event: Receiver<Event>,
++}
++impl SessionChannels {
++    pub(crate) fn allocate() -> Self {
++        let (tx_sub, rx_sub) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
++        let (tx_event, rx_event) = async_channel::unbounded();
++        Self {
++            tx_sub,
++            rx_sub,
++            tx_event,
++            rx_event,
++        }
++    }
++}
++
++/// Retained data owners only. The init map shares interior-mutable values; these
++/// checks do not certify arbitrary extension state or selected config currency.
++pub(crate) struct OriginalClientInputData {
++    thread_id: ThreadId,
++    init: ExtensionDataInit,
++    routing_config: (String, AbsolutePathBuf, codex_config::ConfigLayerStack),
++    pub(crate) routing: Arc<WorkspaceRoutingContext>,
++    pub(crate) headers: Option<Arc<CodexResponsesHeaders>>,
++    pub(crate) executed: ExecutedToolCalls,
++    recorder_enabled: bool,
++    channels: Option<SessionChannels>,
++}
++fn same_optional<T>(a: &Option<Arc<T>>, b: &Option<Arc<T>>) -> bool {
++    match (a, b) {
++        (Some(a), Some(b)) => Arc::ptr_eq(a, b),
++        (None, None) => true,
++        _ => false,
++    }
++}
++impl OriginalClientInputData {
++    pub(crate) fn allocate(
++        config: &Config,
++        history: &InitialHistory,
++        init: &mut ExtensionDataInit,
++        thread_id: ThreadId,
++    ) -> Self {
++        if init.get::<WorkspaceRoutingContext>().is_none() {
++            init.insert(config.workspace_routing_context());
++        }
++        let routing = init
++            .get::<WorkspaceRoutingContext>()
++            .expect("original routing was inserted");
++        Self {
++            thread_id,
++            init: init.clone(),
++            routing_config: (
++                config.chatgpt_base_url.clone(),
++                config.cwd.clone(),
++                config.config_layer_stack.clone(),
++            ),
++            routing,
++            headers: init.get::<CodexResponsesHeaders>(),
++            executed: ExecutedToolCalls::new(&config.features, history),
++            recorder_enabled: ExecutedToolCalls::is_enabled(&config.features),
++            channels: Some(SessionChannels::allocate()),
++        }
++    }
++    pub(crate) fn validate_init(
++        &self,
++        init: &ExtensionDataInit,
++        thread_id: Option<ThreadId>,
++    ) -> io::Result<()> {
++        if thread_id != Some(self.thread_id)
++            || !same_optional(
++                &self.init.get::<WorkspaceRoutingContext>(),
++                &init.get::<WorkspaceRoutingContext>(),
++            )
++            || !same_optional(&self.headers, &init.get::<CodexResponsesHeaders>())
++        {
++            return Err(io::Error::other("retained original client init changed"));
++        }
++        Ok(())
++    }
++    pub(crate) fn take_channels(&mut self) -> io::Result<SessionChannels> {
++        self.channels
++            .take()
++            .ok_or_else(|| io::Error::other("original channels already adopted"))
++    }
++    pub(crate) fn validate_config(&self, config: &Config) -> io::Result<()> {
++        if self.routing_config
++            != (
++                config.chatgpt_base_url.clone(),
++                config.cwd.clone(),
++                config.config_layer_stack.clone(),
++            )
++            || self.recorder_enabled != ExecutedToolCalls::is_enabled(&config.features)
++        {
++            return Err(io::Error::other("retained original client config changed"));
++        }
++        Ok(())
++    }
++    pub(crate) fn validate_scope(
++        &self,
++        scope: &codex_extension_api::ExtensionData,
++    ) -> io::Result<()> {
++        if !scope
++            .get::<WorkspaceRoutingContext>()
++            .is_some_and(|routing| Arc::ptr_eq(&self.routing, &routing))
++            || !same_optional(&self.headers, &scope.get::<CodexResponsesHeaders>())
++        {
++            return Err(io::Error::other(
++                "ordinary lifecycle changed retained client metadata",
++            ));
++        }
++        Ok(())
++    }
++}
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 2ff1562de7062d54b8674dc9d75fab3ad3b81791..a9c5ebd32245ee23f9f833b97b8c89707a3ad6d8 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -220,6 +220,7 @@ use codex_protocol::error::Result as CodexResult;
+ #[cfg(test)]
+ use codex_protocol::exec_output::StreamOutput;
+ 
++pub(crate) mod client_input_data;
+ mod code_mode_warning;
+ pub(crate) mod context_window;
+ mod daemon_recovery;
+@@ -472,6 +473,7 @@ pub(crate) struct SessionSpawnArgs {
+     pub(crate) thread_extension_init: ExtensionDataInit,
+     pub(crate) client_mcp_extensions: ClientMcpExtensions,
+     pub(crate) reserved_thread_id: Option<ThreadId>,
++    pub(crate) inherited_client_inputs: Option<client_input_data::OriginalClientInputData>,
+     pub(crate) analytics_events_client: Option<AnalyticsEventsClient>,
+     pub(crate) image_store: Arc<dyn AttachmentStore>,
+     pub(crate) thread_store: Arc<dyn ThreadStore>,
+@@ -575,6 +577,7 @@ impl Session {
+             thread_extension_init,
+             client_mcp_extensions,
+             reserved_thread_id,
++            mut inherited_client_inputs,
+             analytics_events_client,
+             image_store,
+             thread_store,
+@@ -584,8 +587,21 @@ impl Session {
+             git_enrichment_policy,
+             windows_sandbox_proxy_settings_mode,
+         } = args;
+-        let (tx_sub, rx_sub) = async_channel::bounded(SUBMISSION_CHANNEL_CAPACITY);
+-        let (tx_event, rx_event) = async_channel::unbounded();
++        let client_input_data::SessionChannels {
++            tx_sub,
++            rx_sub,
++            tx_event,
++            rx_event,
++        } = if let Some(inputs) = inherited_client_inputs.as_mut() {
++            inputs
++                .validate_init(&thread_extension_init, reserved_thread_id)
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++            inputs
++                .take_channels()
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?
++        } else {
++            client_input_data::SessionChannels::allocate()
++        };
+ 
+         let isolation = thread_extension_init
+             .get::<codex_extension_api::SessionIsolation>()
+@@ -736,6 +752,11 @@ impl Session {
+             )?;
+             token_budget::apply_model_defaults(Arc::make_mut(&mut config), &model_info);
+         }
++        if let Some(inputs) = &inherited_client_inputs {
++            inputs
++                .validate_config(&config)
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        }
+         let configured_config = Arc::clone(&config);
+         let multi_agent_version = config.multi_agent_version_override().or_else(|| {
+             resolve_multi_agent_version(&conversation_history, inherited_multi_agent_version)
+@@ -900,6 +921,7 @@ impl Session {
+             client_mcp_extensions,
+             agent_control,
+             reserved_thread_id,
++            inherited_client_inputs,
+             environment_manager,
+             inherited_environments,
+             analytics_events_client,
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index 77e245569e5a3172c5951a553de06d67d142d349..335aca63fe93f1d97b9dda7b1d24871bfd5ba897 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -762,6 +762,7 @@ impl Session {
+         client_mcp_extensions: ClientMcpExtensions,
+         agent_control: AgentControlInit,
+         reserved_thread_id: Option<ThreadId>,
++        inherited_client_inputs: Option<super::client_input_data::OriginalClientInputData>,
+         environment_manager: Arc<EnvironmentManager>,
+         inherited_environments: Option<TurnEnvironmentSnapshot>,
+         analytics_events_client: Option<AnalyticsEventsClient>,
+@@ -1627,10 +1628,12 @@ impl Session {
+                 }).await;
+             }
+ 
+-            let executed_tool_calls = crate::state::ExecutedToolCalls::new(
+-                &config.features,
+-                &initial_history,
+-            );
++            let executed_tool_calls = if let Some(inputs) = &inherited_client_inputs {
++                inputs.validate_scope(&thread_extension_data)?;
++                inputs.executed.clone()
++            } else {
++                crate::state::ExecutedToolCalls::new(&config.features, &initial_history)
++            };
+             let codex_responses_headers = thread_extension_data.get::<crate::CodexResponsesHeaders>();
+             // Ephemeral title requests use request-level effort even when managed settings
+             // enable overrides. The client-supplied tag selects cache behavior, not permissions.
+diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
+index 13ebc68245dcf8d5adf31da8ec5ecbc77dbbf829..319053527160c6b107c9f9112bf1a6138e68efbc 100644
+--- a/codex-rs/core/src/session/tests.rs
++++ b/codex-rs/core/src/session/tests.rs
+@@ -6396,6 +6396,7 @@ async fn session_new_fails_when_zsh_fork_enabled_without_packaged_zsh() {
+         ClientMcpExtensions::default(),
+         LocalAgentControl::default().into(),
+         /*reserved_thread_id*/ None,
++        /*inherited_client_inputs*/ None,
+         environment_manager,
+         /*inherited_environments*/ None,
+         /*analytics_events_client*/ None,
+@@ -6946,6 +6947,7 @@ async fn make_session_with_config_and_rx(
+         ClientMcpExtensions::default(),
+         LocalAgentControl::default().into(),
+         /*reserved_thread_id*/ None,
++        /*inherited_client_inputs*/ None,
+         environment_manager,
+         /*inherited_environments*/ None,
+         /*analytics_events_client*/ None,
+@@ -7078,6 +7080,7 @@ async fn make_session_with_history_source_and_agent_control_and_rx(
+         ClientMcpExtensions::default(),
+         agent_control.into(),
+         /*reserved_thread_id*/ None,
++        /*inherited_client_inputs*/ None,
+         environment_manager,
+         /*inherited_environments*/ None,
+         /*analytics_events_client*/ None,
+diff --git a/codex-rs/core/src/session/tests/guardian_tests.rs b/codex-rs/core/src/session/tests/guardian_tests.rs
+index 2d78c4af2a903be9c22a1b02024a610a7d42cb29..5080af1c575163a963bf6839a04c8176151ad9e3 100644
+--- a/codex-rs/core/src/session/tests/guardian_tests.rs
++++ b/codex-rs/core/src/session/tests/guardian_tests.rs
+@@ -1337,6 +1337,7 @@ async fn guardian_subagent_does_not_inherit_parent_exec_policy_rules() {
+         thread_extension_init,
+         client_mcp_extensions: ClientMcpExtensions::default(),
+         reserved_thread_id: None,
++        inherited_client_inputs: None,
+         analytics_events_client: None,
+         image_store: crate::thread_manager::passthrough_image_store(),
+         thread_store,
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index 62a61b7e0ff0ed634c2fce03e7e0acc8214bd311..6bc24bab7d854fa1329b73120cbd2506edaeefd1 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -365,6 +365,7 @@ struct ThreadSpawnRequest {
+     inherited_instructions: Option<SessionInstructions>,
+     inherited_exec_policy: Option<Arc<crate::exec_policy::ExecPolicyManager>>,
+     user_shell_override: Option<crate::shell::Shell>,
++    inherited_client_inputs: Option<crate::session::client_input_data::OriginalClientInputData>,
+ }
+ 
+ impl ThreadSpawnRequest {
+@@ -386,6 +387,7 @@ impl ThreadSpawnRequest {
+             inherited_instructions: None,
+             inherited_exec_policy: None,
+             user_shell_override: None,
++            inherited_client_inputs: None,
+         }
+     }
+ }
+@@ -1165,7 +1167,7 @@ impl ThreadManager {
+         forked_from_thread_id: Option<ThreadId>,
+         startup: Option<Arc<crate::session::startup::SessionStartup>>,
+         inherited_exec_policy: Option<Arc<crate::exec_policy::ExecPolicyManager>>,
+-        inherited_agent_control: Option<LocalAgentControl>,
++        inherited_agent_control: Option<selected_start::SelectedStartNativeAllocation>,
+     ) -> CodexResult<NewThread> {
+         let (resumed_session_source, resumed_thread_source) = options
+             .initial_history
+@@ -1196,14 +1198,20 @@ impl ThreadManager {
+             request.forked_from_thread_id = request.options.initial_history.forked_from_id();
+             request
+         } else {
+-            let agent_control = inherited_agent_control
+-                .unwrap_or_else(|| self.agent_control_for_config(&options.config));
++            let (agent_control, inherited_client_inputs) =
++                if let Some(allocation) = inherited_agent_control {
++                    let (control, inputs) = allocation.into_parts();
++                    (control, Some(inputs))
++                } else {
++                    (self.agent_control_for_config(&options.config), None)
++                };
+             let mut request = ThreadSpawnRequest::new(
+                 options,
+                 Arc::clone(&self.state.auth_manager),
+                 agent_control,
+             );
+             request.forked_from_thread_id = forked_from_thread_id;
++            request.inherited_client_inputs = inherited_client_inputs;
+             request
+         };
+         request.startup = startup;
+@@ -2108,6 +2116,7 @@ impl ThreadManagerState {
+             inherited_instructions,
+             inherited_exec_policy,
+             user_shell_override,
++            inherited_client_inputs,
+         } = request;
+         let StartThreadOptions {
+             mut config,
+@@ -2360,6 +2369,7 @@ impl ThreadManagerState {
+             thread_extension_init,
+             client_mcp_extensions,
+             reserved_thread_id,
++            inherited_client_inputs,
+             analytics_events_client: self.analytics_events_client.clone(),
+             image_store: Arc::clone(&self.image_store),
+             thread_store: Arc::clone(&self.thread_store),
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index a2edb00a11977d70d7716e6730a42be70fce4869..1e35e78c4102fe9a6f13e9ec13d71ff59fe379ca 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -8,7 +8,7 @@ use std::io;
+ 
+ #[path = "selected_start_allocation.rs"]
+ mod allocation;
+-use allocation::SelectedStartNativeAllocation;
++pub(super) use allocation::SelectedStartNativeAllocation;
+ 
+ enum Inputs {
+     Options(StartThreadOptions),
+@@ -91,7 +91,7 @@ impl ThreadManager {
+             ));
+         }
+         let policy = Arc::new(SelectedStartPolicy::load(&options.config).await?);
+-        let allocation = SelectedStartNativeAllocation::allocate(self, &options)?;
++        let allocation = SelectedStartNativeAllocation::allocate(self, &mut options)?;
+         Ok(SelectedStartInputs {
+             owner: Arc::clone(&self.state),
+             inputs: Some(Inputs::Options(options)),
+@@ -216,7 +216,7 @@ impl ThreadManager {
+             /*forked_from_thread_id*/ None,
+             /*startup*/ None,
+             Some(Arc::clone(&adoption.policy.manager)),
+-            Some(adoption.allocation.into_control()),
++            Some(adoption.allocation),
+         ))
+         .await
+     }
+diff --git a/codex-rs/core/src/thread_manager/selected_start_allocation.rs b/codex-rs/core/src/thread_manager/selected_start_allocation.rs
+index abf637b06b663688ef6b0430a7a167fcdae3a950..a04b7fa3e66a18c9396b83c8c12028ae3ccf29b5 100644
+--- a/codex-rs/core/src/thread_manager/selected_start_allocation.rs
++++ b/codex-rs/core/src/thread_manager/selected_start_allocation.rs
+@@ -4,14 +4,15 @@
+ use super::*;
+ use crate::session::native_allocation::original_thread_id;
+ 
+-pub(super) struct SelectedStartNativeAllocation {
++pub(crate) struct SelectedStartNativeAllocation {
+     thread_id: ThreadId,
+     control: LocalAgentControl,
++    pub(super) inputs: crate::session::client_input_data::OriginalClientInputData,
+ }
+ impl SelectedStartNativeAllocation {
+     pub(super) fn allocate(
+         manager: &ThreadManager,
+-        options: &StartThreadOptions,
++        options: &mut StartThreadOptions,
+     ) -> io::Result<Self> {
+         // prepare_selected_start has already required genuine fresh options and
+         // loaded the strict original policy. No new controller factory is run.
+@@ -22,13 +23,28 @@ impl SelectedStartNativeAllocation {
+             &AgentControlInit::Local(control.clone()),
+         )
+         .map_err(io::Error::other)?;
+-        Ok(Self { thread_id, control })
++        let inputs = crate::session::client_input_data::OriginalClientInputData::allocate(
++            &options.config,
++            &options.initial_history,
++            &mut options.thread_extension_init,
++            thread_id,
++        );
++        Ok(Self {
++            thread_id,
++            control,
++            inputs,
++        })
+     }
+     pub(super) fn thread_id(&self) -> ThreadId {
+         self.thread_id
+     }
+-    pub(super) fn into_control(self) -> LocalAgentControl {
+-        self.control
++    pub(crate) fn into_parts(
++        self,
++    ) -> (
++        LocalAgentControl,
++        crate::session::client_input_data::OriginalClientInputData,
++    ) {
++        (self.control, self.inputs)
+     }
+ }
+ 
+diff --git a/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs b/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs
+index 90887ea33592162f0ca76633774f75df8cfd7caf..f77f29d935658d3b3e38c4babc39e38dc444b696 100644
+--- a/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs
++++ b/codex-rs/core/src/thread_manager/selected_start_allocation_tests.rs
+@@ -64,7 +64,7 @@ async fn same_original_allocation_and_controller_are_adopted_once_without_starti
+     assert_eq!(allocations.load(Ordering::SeqCst), 1);
+     let adoption = manager.adopt_selected_start(&mut selected).unwrap();
+     assert_eq!(adoption.options.reserved_thread_id, Some(original_id));
+-    let control = adoption.allocation.into_control();
++    let control = adoption.allocation.into_parts().0;
+     // Exercise the very original resolver ordinary Session uses at adoption,
+     // with the consumed SAME controller and original selected options.
+     assert_eq!(
+@@ -122,3 +122,189 @@ async fn foreign_owner_and_strict_policy_failure_never_reallocate_or_transfer_id
+     assert!(manager.list_thread_ids().await.is_empty());
+     assert!(foreign.list_thread_ids().await.is_empty());
+ }
++
++#[tokio::test]
++async fn actual_preloaded_init_and_history_recorder_keep_the_same_owners_at_adoption() {
++    use crate::CodexResponsesHeaders;
++    use codex_model_provider::WorkspaceRoutingContext;
++    use codex_protocol::mcp::McpAttributionSource;
++
++    let (_home, config, manager) = fixture().await;
++    let mut options = StartThreadOptions::new(config);
++    options.thread_extension_init.insert(CodexResponsesHeaders {
++        model: "fixture-model".to_string(),
++        headers: http::HeaderMap::new(),
++    });
++    options
++        .thread_extension_init
++        .insert(options.config.workspace_routing_context());
++    let original_headers = options
++        .thread_extension_init
++        .get::<CodexResponsesHeaders>()
++        .unwrap();
++    let original_routing = options
++        .thread_extension_init
++        .get::<WorkspaceRoutingContext>()
++        .unwrap();
++    let mut selected = manager.prepare_selected_start(options).await.unwrap();
++    let adoption = manager.adopt_selected_start(&mut selected).unwrap();
++    let original_id = adoption.options.reserved_thread_id.unwrap();
++    let (_control, inputs) = adoption.allocation.into_parts();
++    inputs
++        .validate_init(&adoption.options.thread_extension_init, Some(original_id))
++        .unwrap();
++    inputs.validate_config(&adoption.options.config).unwrap();
++    assert!(Arc::ptr_eq(
++        inputs.headers.as_ref().unwrap(),
++        &original_headers
++    ));
++    assert!(Arc::ptr_eq(&inputs.routing, &original_routing));
++    let ordinary_recorder = crate::state::ExecutedToolCalls::new(
++        &adoption.options.config.features,
++        &adoption.options.initial_history,
++    );
++    assert_eq!(
++        inputs.executed.mcp_attribution_snapshot(),
++        ordinary_recorder.mcp_attribution_snapshot()
++    );
++    let adopted_recorder = inputs.executed.clone();
++    adopted_recorder.record_mcp_source(McpAttributionSource {
++        connector_id: None,
++        plugin_id: None,
++        server_name: "fixture-server".to_string(),
++        tool_name: "fixture-tool".to_string(),
++        first_turn_id: "fixture-attribution-only".to_string(),
++    });
++    assert_ne!(
++        adopted_recorder.mcp_attribution_snapshot(),
++        ordinary_recorder.mcp_attribution_snapshot()
++    );
++    assert_eq!(
++        inputs.executed.mcp_attribution_snapshot(),
++        adopted_recorder.mcp_attribution_snapshot()
++    );
++    // Exercise the ORIGINAL ordinary scope constructor with the SAME allocated
++    // native identity and retained init; preparation never constructs a scope.
++    let scope = codex_extension_api::ExtensionData::new_with_init(
++        original_id.to_string(),
++        adoption.options.thread_extension_init,
++    );
++    inputs.validate_scope(&scope).unwrap();
++    scope.insert(CodexResponsesHeaders {
++        model: "replaced-by-lifecycle".to_string(),
++        headers: http::HeaderMap::new(),
++    });
++    assert!(inputs.validate_scope(&scope).is_err());
++    assert!(manager.adopt_selected_start(&mut selected).is_err());
++    assert!(manager.list_thread_ids().await.is_empty());
++}
++
++#[tokio::test]
++async fn actual_absent_header_and_original_channels_are_retained_and_consumed_once() {
++    use crate::CodexResponsesHeaders;
++    use codex_model_provider::WorkspaceRoutingContext;
++    use codex_protocol::protocol::Event;
++    use codex_protocol::protocol::EventMsg;
++    use codex_protocol::protocol::WarningEvent;
++
++    let (_home, config, manager) = fixture().await;
++    let mut events = manager.state.thread_created_tx.subscribe();
++    let mut selected = manager
++        .prepare_selected_start(StartThreadOptions::new(config))
++        .await
++        .unwrap();
++    let retained_routing = selected
++        .start_options()
++        .unwrap()
++        .thread_extension_init
++        .get::<WorkspaceRoutingContext>()
++        .unwrap();
++    let adoption = manager.adopt_selected_start(&mut selected).unwrap();
++    let (_control, mut inputs) = adoption.allocation.into_parts();
++    inputs
++        .validate_init(
++            &adoption.options.thread_extension_init,
++            adoption.options.reserved_thread_id,
++        )
++        .unwrap();
++    assert!(
++        adoption
++            .options
++            .thread_extension_init
++            .get::<CodexResponsesHeaders>()
++            .is_none()
++    );
++    assert!(inputs.headers.is_none());
++    assert!(Arc::ptr_eq(&inputs.routing, &retained_routing));
++    let channels = inputs.take_channels().unwrap();
++    assert!(inputs.take_channels().is_err());
++    let warning = Event {
++        id: "data-channel-only".to_string(),
++        msg: EventMsg::Warning(WarningEvent {
++            message: "no session was started".to_string(),
++        }),
++    };
++    channels.tx_event.try_send(warning.clone()).unwrap();
++    assert_eq!(
++        serde_json::to_value(channels.rx_event.try_recv().unwrap()).unwrap(),
++        serde_json::to_value(warning).unwrap()
++    );
++    assert!(channels.rx_event.try_recv().is_err());
++    // The legacy None path uses this SAME original channel allocator. Closing
++    // either original submission endpoint is visible to the retained peer.
++    drop(channels.tx_sub);
++    assert!(channels.rx_sub.is_closed());
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(matches!(
++        events.try_recv(),
++        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
++    ));
++}
++
++#[tokio::test]
++async fn changed_header_routing_identity_and_recorder_projection_refuse() {
++    use crate::CodexResponsesHeaders;
++    use codex_features::Feature;
++
++    let (_home, config, manager) = fixture().await;
++    let mut selected = manager
++        .prepare_selected_start(StartThreadOptions::new(config))
++        .await
++        .unwrap();
++    let adoption = manager.adopt_selected_start(&mut selected).unwrap();
++    let (_control, inputs) = adoption.allocation.into_parts();
++    let init = &adoption.options.thread_extension_init;
++    let id = adoption.options.reserved_thread_id;
++    inputs.validate_init(init, id).unwrap();
++    let mut changed = init.clone();
++    changed.insert(CodexResponsesHeaders {
++        model: "introduced".to_string(),
++        headers: http::HeaderMap::new(),
++    });
++    assert!(inputs.validate_init(&changed, id).is_err());
++    let mut changed = init.clone();
++    changed.insert(adoption.options.config.workspace_routing_context());
++    assert!(inputs.validate_init(&changed, id).is_err());
++    assert!(inputs.validate_init(init, Some(ThreadId::new())).is_err());
++    let mut changed_config = adoption.options.config.clone();
++    changed_config.chatgpt_base_url.push_str("/changed");
++    assert!(inputs.validate_config(&changed_config).is_err());
++    let mut changed_config = adoption.options.config.clone();
++    if changed_config
++        .features
++        .enabled(Feature::ExecutedToolCallMetadata)
++    {
++        changed_config
++            .features
++            .disable(Feature::ExecutedToolCallMetadata);
++    } else {
++        changed_config
++            .features
++            .enable(Feature::ExecutedToolCallMetadata);
++    }
++    assert!(inputs.validate_config(&changed_config).is_err());
++    // A refused validation does not replace the retained input or consume it.
++    inputs.validate_init(init, id).unwrap();
++    inputs.validate_config(&adoption.options.config).unwrap();
++    assert!(manager.list_thread_ids().await.is_empty());
++}

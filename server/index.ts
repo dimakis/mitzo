@@ -714,6 +714,7 @@ const v2Ctx: V2HandlerContext = {
 // SSE (server→client) + HTTP POST (client→server) transport for chat events.
 // Runs alongside WS during migration. Feature-flagged on the client side.
 
+// Mount the original SSE stream and HTTP POST chat endpoints (authenticated)
 mountApplicationChatTransport(app, chatSseRegistry, v2Ctx);
 
 /**

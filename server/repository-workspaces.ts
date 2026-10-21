@@ -280,6 +280,51 @@ interface Dependencies {
 }
 /** Durable preparations are bound to the exact selected AI account and GitHub connection revision. */
 export class RepositoryWorkspaces {
+  /** Observational intent from the existing claim ledger. Never opens a source
+   * checkout, initializes tables, or returns credentials/runtime capabilities. */
+  static readConversationRepositoryIntent(
+    database: string,
+    conversationId: string,
+    expectedWorkspaceId: string,
+  ) {
+    z.string().min(1).max(200).parse(conversationId);
+    z.string().uuid().parse(expectedWorkspaceId);
+    const db = new Database(database, { readonly: true, fileMustExist: true });
+    try {
+      const row = db
+        .prepare(
+          `SELECT id, conversation_id,
+        json_extract(record,'$.id') AS record_id,
+        json_extract(record,'$.conversationId') AS record_conversation,
+        json_extract(record,'$.state') AS state,
+        json_extract(record,'$.repository') AS repository
+        FROM repository_workspaces WHERE conversation_id=? AND id=?`,
+        )
+        .get(conversationId, expectedWorkspaceId) as
+        | {
+            id: string;
+            conversation_id: string;
+            record_id: unknown;
+            record_conversation: unknown;
+            state: unknown;
+            repository: unknown;
+          }
+        | undefined;
+      if (
+        !row ||
+        row.record_id !== expectedWorkspaceId ||
+        row.record_conversation !== conversationId ||
+        row.state !== 'claimed' ||
+        typeof row.repository !== 'string' ||
+        row.repository.length > 256 ||
+        canonicalRepositorySelection(row.repository) !== row.repository
+      )
+        throw Error('Repository claim metadata unavailable');
+      return { repository: row.repository };
+    } finally {
+      db.close();
+    }
+  }
   private db: Database.Database;
   private ordinaryWorkspaceCustody?: OrdinaryWorkspaceCustody;
   private activeOperations = 0;
@@ -963,9 +1008,16 @@ export class RepositoryWorkspaces {
     }
     signal.throwIfAborted();
   }
-  async qualifiedStatus(id: string, binding: AccountBinding) {
+  async qualifiedStatus(
+    id: string,
+    binding: AccountBinding,
+    signal: AbortSignal = AbortSignal.timeout(30000),
+  ) {
     return this.runOperation(async () => {
       const record = this.get(id);
+      // Observing a planned source retains the original account/connection access
+      // checks without acquiring its working copy or granting silent preparation.
+      if (record.state === 'preview') await this.authorize(record, binding, signal);
       if (!isDeepStrictEqual(record.binding, binding)) {
         if (
           record.state !== 'ready' ||
@@ -973,11 +1025,11 @@ export class RepositoryWorkspaces {
           !record.ordinaryPreparation?.sourceIdentity
         )
           throw new Error('Prepared first command is frozen');
-        await this.assertOrdinaryPreparation(record, binding, AbortSignal.timeout(30000), true);
+        await this.assertOrdinaryPreparation(record, binding, signal, true);
       } else if (record.ordinaryPreparation)
-        await this.assertOrdinaryPreparation(record, binding, AbortSignal.timeout(30000));
+        await this.assertOrdinaryPreparation(record, binding, signal);
       if (record.state === 'ready' && record.ordinaryPreparation)
-        await this.verifyHostSource(record, AbortSignal.timeout(30000));
+        await this.verifyHostSource(record, signal);
       this.assertUnchangedHostRecord(record);
       return publicRepositoryWorkspace(record);
     });

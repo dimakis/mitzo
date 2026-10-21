@@ -1,0 +1,591 @@
+diff --git a/codex-rs/app-server/src/selected_start_config.rs b/codex-rs/app-server/src/selected_start_config.rs
+index 78d303c..9651206 100644
+--- a/codex-rs/app-server/src/selected_start_config.rs
++++ b/codex-rs/app-server/src/selected_start_config.rs
+@@ -386,6 +386,10 @@ impl SelectedConfiguredStart {
+                     version,
+                 )
+                 .map_err(|e| crate::error_code::internal_error(e.to_string()))?;
++            manager
++                .capture_selected_start_first_step_model(&mut self.start)
++                .await
++                .map_err(|e| crate::error_code::internal_error(e.to_string()))?;
+             self.renew(manager)
+                 .await
+                 .map_err(|e| crate::error_code::internal_error(e.to_string()))
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index 52f3d3c..0427ac7 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -705,3 +705,59 @@ async fn parsed_fresh_command_pairs_once_and_foreign_or_missing_sources_refuse_w
+     );
+     assert!(selected.adopt(&threads).is_err());
+ }
++
++#[tokio::test]
++async fn first_command_model_capture_rejects_unreviewed_row_without_session_or_store() {
++    let home = tempfile::tempdir().unwrap();
++    let configs = manager(home.path());
++    let source = configs
++        .load_selected_start_config(
++            None,
++            ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                model: Some("gpt-6-luna".into()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let config = source.config().clone();
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, installed, _) = thread_manager_with_models(&config, Arc::clone(&store), |auth| {
++        Arc::new(
++            codex_models_manager::manager::OpenAiModelsManager::new_without_cache(
++                Arc::new(NoStartupEndpoint),
++                Some(Arc::clone(auth)),
++            ),
++        )
++    });
++    let original = OriginalFirstCommandStart::new(
++        StartThreadOptions::new(config),
++        threads.reserve_thread_start(),
++        installed,
++        crate::request_processors::AppServerClientInfo::capture(None, None),
++    );
++    let mut selected = source
++        .capture_first_command(&threads, original)
++        .await
++        .unwrap();
++    selected.capture_startup(&threads).await.unwrap();
++    selected.capture_startup_api_mcp(&threads).unwrap();
++    let body = serde_json::from_value(serde_json::json!({
++        "input":[], "model":"unreviewed-first-command-model", "personality":"pragmatic"
++    }))
++    .unwrap();
++    assert!(
++        selected
++            .capture_command(&threads, "model-change".into(), body, None)
++            .await
++            .is_err()
++    );
++    assert!(selected.renew(&threads).await.is_err());
++    assert!(selected.adopt_startup(&threads).await.is_err());
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++}
+diff --git a/codex-rs/core/src/session/first_step_model_data.rs b/codex-rs/core/src/session/first_step_model_data.rs
+new file mode 100644
+index 0000000..592c6c8
+--- /dev/null
++++ b/codex-rs/core/src/session/first_step_model_data.rs
+@@ -0,0 +1,41 @@
++//! Original model DATA, resolved at the ordinary first-step acquisition point.
++//! Borrowed metadata supports intervening startup work; consumption stays at the
++//! original ResolvedStepSettings point. No turn, request or admission is created.
++use super::step_settings::{ModelInfoOverrides, ResolvedStepSettings, StepSettings};
++use codex_features::{Feature, Features};
++use codex_models_manager::manager::ModelsManager;
++use codex_protocol::openai_models::ModelInfo;
++use std::sync::Arc;
++
++pub(super) struct OriginalFirstStepModelData {
++    model_info: ModelInfo,
++}
++impl OriginalFirstStepModelData {
++    pub(super) async fn capture(
++        step: &StepSettings,
++        models: &dyn ModelsManager,
++        overrides: &ModelInfoOverrides,
++    ) -> Self {
++        Self {
++            model_info: step.resolve_model_info(models, overrides).await,
++        }
++    }
++    pub(super) fn model_info(&self) -> &ModelInfo {
++        &self.model_info
++    }
++    pub(super) fn into_resolved(
++        self,
++        step: Arc<StepSettings>,
++        features: &Features,
++    ) -> Arc<ResolvedStepSettings> {
++        Arc::new(ResolvedStepSettings::new(
++            step,
++            Arc::new(self.model_info),
++            features.enabled(Feature::FastMode),
++        ))
++    }
++}
++
++#[cfg(test)]
++#[path = "first_step_model_data_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/first_step_model_data_tests.rs b/codex-rs/core/src/session/first_step_model_data_tests.rs
+new file mode 100644
+index 0000000..d2bde4f
+--- /dev/null
++++ b/codex-rs/core/src/session/first_step_model_data_tests.rs
+@@ -0,0 +1,72 @@
++use super::*;
++use crate::session::startup_selection::OriginalStartupSelection;
++use pretty_assertions::assert_eq;
++
++#[tokio::test]
++async fn original_first_step_preserves_resolved_row_and_late_summary_tier_filtering()
++-> anyhow::Result<()> {
++    let (_home, step, models, overrides, features) =
++        OriginalStartupSelection::first_step_fixture().await?;
++    for fast in [false, true] {
++        let mut features = features.clone();
++        if fast {
++            features.enable(codex_features::Feature::FastMode);
++        } else {
++            features.disable(codex_features::Feature::FastMode);
++        }
++        let expected = step.resolve_model_info(models.as_ref(), &overrides).await;
++        let data = OriginalFirstStepModelData::capture(&step, models.as_ref(), &overrides).await;
++        assert_eq!(data.model_info(), &expected);
++        let resolved = data.into_resolved(Arc::clone(&step), &features);
++        assert_eq!(resolved.model_info.as_ref(), &expected);
++        assert_eq!(resolved.selected(), step.as_ref());
++        assert_eq!(
++            resolved.reasoning_summary,
++            step.reasoning_summary
++                .unwrap_or(expected.default_reasoning_summary)
++        );
++        assert_eq!(
++            resolved.service_tier,
++            super::super::get_service_tier(step.service_tier.clone(), fast, &expected)
++        );
++        assert_eq!(resolved.service_tier, fast.then(|| "priority".to_string()));
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn ordinary_first_step_resolves_changed_model_instead_of_reusing_startup_row()
++-> anyhow::Result<()> {
++    let (_home, baseline, _, overrides, features) =
++        OriginalStartupSelection::first_step_fixture().await?;
++    let catalog = codex_models_manager::bundled_models_response()?;
++    let changed = catalog
++        .models
++        .iter()
++        .find(|row| row.slug != baseline.collaboration_mode.model())
++        .expect("bundled catalog contains a distinct actual model")
++        .slug
++        .clone();
++    let models = codex_models_manager::manager::StaticModelsManager::new(None, catalog);
++    let startup = baseline.resolve_model_info(&models, &overrides).await;
++    let mut step = (*baseline).clone();
++    step.collaboration_mode =
++        step.collaboration_mode
++            .with_updates(Some(changed.clone()), None, None);
++    step.personality = Some(codex_protocol::config_types::Personality::Friendly);
++    step.reasoning_summary = None;
++    let step = Arc::new(step);
++    let expected = step.resolve_model_info(&models, &overrides).await;
++    let data = OriginalFirstStepModelData::capture(&step, &models, &overrides).await;
++    assert_eq!(data.model_info(), &expected);
++    assert_eq!(data.model_info().slug, changed);
++    assert_ne!(data.model_info().slug, startup.slug);
++    let resolved = data.into_resolved(Arc::clone(&step), &features);
++    assert_eq!(resolved.selected(), step.as_ref());
++    assert_eq!(resolved.model_info.as_ref(), &expected);
++    assert_eq!(
++        resolved.reasoning_summary,
++        expected.default_reasoning_summary
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 183fc44..0c4b50d 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -262,6 +262,7 @@ mod rollout_reconstruction;
+ pub(crate) mod session;
+ pub(crate) use parent_approval::InitialExecApprovalIssuer;
+ pub(crate) use parent_approval::InterceptedApprovalSelection;
++mod first_step_model_data;
+ pub(crate) mod startup_prewarm;
+ pub(crate) mod startup_selection;
+ mod step_activation;
+diff --git a/codex-rs/core/src/session/selected_settings_candidate.rs b/codex-rs/core/src/session/selected_settings_candidate.rs
+index 52db257..8ac8835 100644
+--- a/codex-rs/core/src/session/selected_settings_candidate.rs
++++ b/codex-rs/core/src/session/selected_settings_candidate.rs
+@@ -9,6 +9,15 @@ pub(crate) struct SelectedSettingsCandidate {
+     overrides: ThreadSettingsOverrides,
+     data: ConfiguredSettingsCandidateData,
+     command: Option<OriginalSelectedCommand>,
++    first_step_attempted: bool,
++    first_step_model: Option<SelectedFirstStepModelData>,
++}
++struct SelectedFirstStepModelData {
++    step: Arc<super::super::step_settings::StepSettings>,
++    models: SharedModelsManager,
++    overrides: super::super::step_settings::ModelInfoOverrides,
++    candidate: Arc<codex_models_manager::model_limits::UnverifiedModelLimitCandidate>,
++    data: super::super::first_step_model_data::OriginalFirstStepModelData,
+ }
+ struct OriginalSelectedCommand {
+     ordinary_id: String,
+@@ -46,13 +55,99 @@ impl SelectedSettingsCandidate {
+         Ok(())
+     }
+ 
++    pub(crate) async fn capture_first_step_model(
++        &mut self,
++        startup: &OriginalStartupSelection,
++    ) -> io::Result<()> {
++        // Attempting capture twice burns the retained packet, never reconstructs it.
++        if self.first_step_attempted {
++            self.first_step_model = None;
++            return Err(io::Error::other(
++                "first-step model already captured or burned",
++            ));
++        }
++        self.validate(startup)?;
++        self.first_step_attempted = true;
++        if self.command.is_none() {
++            return Err(io::Error::other("original intended command missing"));
++        }
++        let models = &startup.owner.models;
++        let overrides: super::super::step_settings::ModelInfoOverrides =
++            self.source.to_models_manager_config().into();
++        let settings = overrides.models_manager_config(self.data.step.personality);
++        let candidate = Arc::new(
++            models
++                .capture_model_limit_candidate(self.data.step.collaboration_mode.model(), &settings)
++                .await
++                .ok_or_else(|| {
++                    io::Error::other("first-step exact catalog candidate unavailable")
++                })?,
++        );
++        // No catalog/auth lock is held while the ORIGINAL resolver runs.
++        let data = super::super::first_step_model_data::OriginalFirstStepModelData::capture(
++            &self.data.step,
++            models.as_ref(),
++            &overrides,
++        )
++        .await;
++        let pin = models
++            .pin_model_limit_candidate(&candidate)
++            .await
++            .ok_or_else(|| io::Error::other("first-step catalog publication changed"))?;
++        if candidate.model_info() != data.model_info() {
++            return Err(io::Error::other("first-step resolved catalog row changed"));
++        }
++        self.first_step_model = Some(SelectedFirstStepModelData {
++            step: Arc::clone(&self.data.step),
++            models: Arc::clone(models),
++            overrides,
++            candidate: Arc::clone(&candidate),
++            data,
++        });
++        self.validate(startup)?;
++        drop(pin);
++        Ok(())
++    }
++    pub(crate) async fn renew_first_step_model(
++        &self,
++        startup: &OriginalStartupSelection,
++    ) -> io::Result<()> {
++        self.validate(startup)?;
++        if let Some(model) = &self.first_step_model {
++            let _pin = model
++                .models
++                .pin_model_limit_candidate(&model.candidate)
++                .await
++                .ok_or_else(|| io::Error::other("first-step catalog publication changed"))?;
++            self.validate(startup)?;
++        }
++        Ok(())
++    }
++
+     pub(crate) fn validate(&self, startup: &OriginalStartupSelection) -> io::Result<()> {
+         if !Arc::ptr_eq(&self.source, &startup.owner.effective) {
+             return Err(io::Error::other(
+                 "selected settings effective owner changed",
+             ));
+         }
+-        startup.stages.baseline.bind_effective(&self.source)
++        startup.stages.baseline.bind_effective(&self.source)?;
++        if self.first_step_attempted && self.first_step_model.is_none() {
++            return Err(io::Error::other("first-step model capture burned"));
++        }
++        if let Some(model) = &self.first_step_model {
++            if !Arc::ptr_eq(&model.step, &self.data.step)
++                || !Arc::ptr_eq(&model.models, &startup.owner.models)
++                || model.overrides != self.source.to_models_manager_config().into()
++                || model.candidate.model_info() != model.data.model_info()
++                || self
++                    .command
++                    .as_ref()
++                    .is_none_or(|command| command.request.thread_settings != self.overrides)
++            {
++                return Err(io::Error::other("first-step model source changed"));
++            }
++        }
++        Ok(())
+     }
+ }
+ impl OriginalStartupSelection {
+@@ -64,6 +159,8 @@ impl OriginalStartupSelection {
+             overrides: ThreadSettingsOverrides::default(),
+             data: self.stages.baseline.selected_settings_data()?,
+             command: None,
++            first_step_attempted: false,
++            first_step_model: None,
+         })
+     }
+     pub(crate) fn settings_candidate(
+@@ -90,6 +187,8 @@ impl OriginalStartupSelection {
+             overrides,
+             data: next,
+             command: None,
++            first_step_attempted: false,
++            first_step_model: None,
+         })
+     }
+ }
+diff --git a/codex-rs/core/src/session/selected_settings_candidate_tests.rs b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+index 922d724..26d72e4 100644
+--- a/codex-rs/core/src/session/selected_settings_candidate_tests.rs
++++ b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+@@ -216,3 +216,125 @@ async fn paired_command_uses_native_normalized_settings_and_same_prepared_data_o
+     );
+     Ok(())
+ }
++
++impl OriginalStartupSelection {
++    pub(crate) async fn first_step_fixture() -> anyhow::Result<(
++        tempfile::TempDir,
++        Arc<super::super::super::step_settings::StepSettings>,
++        SharedModelsManager,
++        super::super::super::step_settings::ModelInfoOverrides,
++        codex_features::Features,
++    )> {
++        let (home, mut options, auth, models, _) = super::super::tests::fixture().await?;
++        options.config.features.enable(Feature::GuardianApproval);
++        let startup = Self::capture(&options, &SessionSource::Exec, None, &auth, &models).await?;
++        let candidate = startup.settings_candidate(ThreadSettingsOverrides {
++            service_tier: Some(Some("priority".into())),
++            ..Default::default()
++        })?;
++        Ok((
++            home,
++            Arc::clone(&candidate.data.step),
++            models,
++            startup.owner.effective.to_models_manager_config().into(),
++            startup.owner.effective.features.clone(),
++        ))
++    }
++}
++
++#[tokio::test]
++async fn paired_first_step_uses_changed_personality_and_exact_effective_overrides_once()
++-> anyhow::Result<()> {
++    let (_home, mut options, auth, models, _) = super::super::tests::fixture().await?;
++    options.config.features.enable(Feature::GuardianApproval);
++    options.config.model_context_window = Some(32000);
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let baseline = startup.settings_candidate_without_overrides()?;
++    let personality = if baseline.data.step.personality
++        == Some(codex_protocol::config_types::Personality::Pragmatic)
++    {
++        codex_protocol::config_types::Personality::Friendly
++    } else {
++        codex_protocol::config_types::Personality::Pragmatic
++    };
++    let mut candidate = startup.settings_candidate(ThreadSettingsOverrides {
++        personality: Some(personality),
++        service_tier: Some(Some("priority".into())),
++        ..Default::default()
++    })?;
++    candidate.pair_command(
++        "model-data".into(),
++        codex_protocol::turn_input::TurnInputRequest::user_input(Vec::new()),
++        None,
++        None,
++        None,
++    )?;
++    let step = Arc::clone(&candidate.data.step);
++    assert_ne!(step.personality, baseline.data.step.personality);
++    let overrides = startup.owner.effective.to_models_manager_config().into();
++    let expected = step.resolve_model_info(models.as_ref(), &overrides).await;
++    candidate.capture_first_step_model(&startup).await?;
++    let retained = candidate.first_step_model.as_ref().unwrap();
++    assert!(Arc::ptr_eq(&retained.step, &step));
++    assert_eq!(retained.data.model_info(), &expected);
++    assert_eq!(retained.candidate.model_info(), &expected);
++    assert_eq!(retained.overrides, overrides);
++    candidate.renew_first_step_model(&startup).await?;
++    assert!(candidate.capture_first_step_model(&startup).await.is_err());
++    assert!(candidate.validate(&startup).is_err());
++    Ok(())
++}
++
++#[tokio::test]
++async fn first_step_refuses_missing_foreign_changed_model_settings_and_catalog_publication()
++-> anyhow::Result<()> {
++    let (_home, options, auth, models, _) = super::super::tests::fixture().await?;
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let foreign =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let mut missing = startup.settings_candidate_without_overrides()?;
++    assert!(missing.capture_first_step_model(&startup).await.is_err());
++    assert!(missing.validate(&startup).is_err());
++    let mut unknown = startup.settings_candidate(ThreadSettingsOverrides {
++        model: Some("unreviewed-first-command-model".into()),
++        ..Default::default()
++    })?;
++    unknown.pair_command(
++        "unknown".into(),
++        codex_protocol::turn_input::TurnInputRequest::user_input(Vec::new()),
++        None,
++        None,
++        None,
++    )?;
++    assert!(unknown.capture_first_step_model(&startup).await.is_err());
++    let mut candidate = startup.settings_candidate_without_overrides()?;
++    candidate.pair_command(
++        "owned".into(),
++        codex_protocol::turn_input::TurnInputRequest::user_input(Vec::new()),
++        None,
++        None,
++        None,
++    )?;
++    assert!(candidate.validate(&foreign).is_err());
++    candidate.capture_first_step_model(&startup).await?;
++    candidate.source = Arc::new((*startup.owner.effective).clone());
++    assert!(candidate.validate(&startup).is_err());
++    candidate.source = Arc::clone(&startup.owner.effective);
++    let retained_step = Arc::clone(&candidate.data.step);
++    candidate.data.step = Arc::new((*retained_step).clone());
++    assert!(candidate.validate(&startup).is_err());
++    candidate.data.step = retained_step;
++    models
++        .raw_model_catalog(
++            codex_models_manager::manager::RefreshStrategy::Online,
++            options.config.http_client_factory(),
++        )
++        .await;
++    assert!(candidate.renew_first_step_model(&startup).await.is_err());
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/turn_context.rs b/codex-rs/core/src/session/turn_context.rs
+index a4f87be..9187c88 100644
+--- a/codex-rs/core/src/session/turn_context.rs
++++ b/codex-rs/core/src/session/turn_context.rs
+@@ -1156,20 +1156,20 @@ impl Session {
+             .map(TurnEnvironment::permission_profile)
+             .cloned()
+             .unwrap_or_else(|| session_configuration.permission_profile());
+-        let model_info = session_configuration
+-            .step_settings
+-            .resolve_model_info(
+-                self.services.models_manager.as_ref(),
+-                &session_configuration.model_info_overrides,
+-            )
+-            .await;
++        let first_step_model = super::first_step_model_data::OriginalFirstStepModelData::capture(
++            &session_configuration.step_settings,
++            self.services.models_manager.as_ref(),
++            &session_configuration.model_info_overrides,
++        )
++        .await;
++        let model_info = first_step_model.model_info();
+         let multi_agent_version = match build_mode {
+             TurnContextBuildMode::Full => {
+                 // Only execution and initial context creation publish model metadata.
+                 self.services
+                     .thread_extension_data
+                     .insert(model_info.clone());
+-                self.resolve_multi_agent_version_for_model(&model_info, &per_turn_config)
++                self.resolve_multi_agent_version_for_model(model_info, &per_turn_config)
+             }
+             TurnContextBuildMode::StartupPrewarm | TurnContextBuildMode::InjectItems => {
+                 per_turn_config.multi_agent_version_for_model(
+@@ -1213,11 +1213,10 @@ impl Session {
+                 .snapshot_for_config(&skills_input, fs)
+                 .await
+         };
+-        let step_settings = Arc::new(ResolvedStepSettings::new(
++        let step_settings = first_step_model.into_resolved(
+             Arc::clone(&session_configuration.step_settings),
+-            Arc::new(model_info),
+-            self.features.enabled(Feature::FastMode),
+-        ));
++            &self.features,
++        );
+         let mut turn_context: TurnContext = Self::make_turn_context(
+             self.thread_id(),
+             self.session_id(),
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index afc49a1..5a6e898 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -255,6 +255,34 @@ impl ThreadManager {
+         result
+     }
+ 
++    /// Resolves first-step model DATA for the same paired candidate. No turn,
++    /// context, callback or admission is started; failures burn selected custody.
++    pub async fn capture_selected_start_first_step_model(
++        &self,
++        selected: &mut SelectedStartInputs,
++    ) -> io::Result<()> {
++        let result = async {
++            self.renew_selected_start(selected).await?;
++            let startup = selected
++                .allocation
++                .as_ref()
++                .and_then(|a| a.inputs.startup())
++                .ok_or_else(|| io::Error::other("original startup selection missing"))?;
++            selected
++                .settings
++                .as_mut()
++                .ok_or_else(|| io::Error::other("selected candidate missing"))?
++                .capture_first_step_model(startup)
++                .await?;
++            self.renew_selected_start(selected).await
++        }
++        .await;
++        if result.is_err() {
++            selected.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
++
+     fn capture_selected_settings(
+         &self,
+         selected: &mut SelectedStartInputs,
+@@ -530,6 +558,18 @@ impl ThreadManager {
+                 return Err(error);
+             }
+         }
++        if let (Some(settings), Some(startup)) = (
++            selected.settings.as_ref(),
++            selected
++                .allocation
++                .as_ref()
++                .and_then(|a| a.inputs.startup()),
++        ) {
++            if let Err(error) = settings.renew_first_step_model(startup).await {
++                selected.invalidated.store(true, Ordering::Release);
++                return Err(error);
++            }
++        }
+         self.with_current_selected_start(selected, || ())
+     }
+ 

@@ -1,0 +1,768 @@
+diff --git a/codex-rs/core/src/context/world_state/tools.rs b/codex-rs/core/src/context/world_state/tools.rs
+index b3f3ff3665a473125fef86615fe5314eb70d88e2..2283618f829367abc699ee0d414d9a8d06c6f096 100644
+--- a/codex-rs/core/src/context/world_state/tools.rs
++++ b/codex-rs/core/src/context/world_state/tools.rs
+@@ -26,6 +26,7 @@ const MAX_NAMESPACE_DESCRIPTION_CHARS: usize = 250;
+ const OMITTED_LINE_RESERVE_BYTES: usize = 64;
+ 
+ /// Deferred tool namespaces visible to the model for one sampling step.
++#[derive(Clone)]
+ pub(crate) struct ToolsState {
+     deferred_namespaces: BTreeMap<String, String>,
+     metrics: Arc<dyn ExtensionMetrics>,
+diff --git a/codex-rs/core/src/session/initial_context_builtin.rs b/codex-rs/core/src/session/initial_context_builtin.rs
+index d1ee6a0fc87bffd228501c04036b160bf32e52f0..93d528e7d3893ea618db1dae679ffbcaed954c74 100644
+--- a/codex-rs/core/src/session/initial_context_builtin.rs
++++ b/codex-rs/core/src/session/initial_context_builtin.rs
+@@ -105,6 +105,34 @@ pub(crate) fn managed_developer_section(
+     })
+ }
+ 
++/// Concrete ordinary permission formatter; all settings/profile/policy inputs
++/// still require their real selection owners. This function grants no currency.
++#[allow(clippy::too_many_arguments)]
++pub(crate) fn permission_section(
++    config: &Config,
++    model: &ModelInfo,
++    policy: &codex_execpolicy::Policy,
++    profile: &codex_protocol::models::PermissionProfile,
++    approval: codex_protocol::protocol::AskForApproval,
++    reviewer: codex_protocol::config_types::ApprovalsReviewer,
++    cwd: &std::path::Path,
++    paths: Option<&codex_protocol::permissions::FileSystemSandboxPolicyContext<'_>>,
++) -> crate::context::world_state::PermissionsState {
++    crate::context::world_state::PermissionsState::new(
++        profile,
++        approval,
++        codex_prompts::ApprovalPromptContext::new(
++            reviewer,
++            codex_prompts::ResolvedModelMessages::from_model(model),
++        ),
++        policy,
++        cwd,
++        paths,
++        config.features.enabled(Feature::ExecPermissionApprovals),
++        config.features.enabled(Feature::RequestPermissionsTool),
++    )
++}
++
+ /// Slot application shared with ordinary initial context. ContextWindow data
+ /// remains a hint partition; it must not become an ordinary developer fragment.
+ #[derive(Default)]
+diff --git a/codex-rs/core/src/session/initial_world_state_data.rs b/codex-rs/core/src/session/initial_world_state_data.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..d2d3b7d5cf35729e8b95bc1d313c4ee7b2fd5c8a
+--- /dev/null
++++ b/codex-rs/core/src/session/initial_world_state_data.rs
+@@ -0,0 +1,167 @@
++//! Complete ORIGINAL builtin section input boundary, after source acquisition.
++//! Ordinary startup and preparation share order and concrete native renderers.
++//! Options express ORIGINAL enabled/selected sections, never caller readiness.
++//! Only actual source owners may establish their inputs; this data owns no lease.
++#![cfg_attr(
++    not(test),
++    allow(
++        dead_code,
++        reason = "Complete fresh source inputs are not yet available."
++    )
++)]
++use super::initial_context_render::ResolvedInitialSection;
++use crate::context::TokenBudgetContext;
++use crate::context::world_state::AgentsMdState;
++use crate::context::world_state::AppsInstructionsState;
++use crate::context::world_state::CollaborationModeState;
++use crate::context::world_state::CompactPermissionsState;
++use crate::context::world_state::ContextWindowGuidanceState;
++use crate::context::world_state::EnvironmentsInstructionsState;
++use crate::context::world_state::EnvironmentsState;
++use crate::context::world_state::ManagedDeveloperInstructionsState;
++use crate::context::world_state::ModelInstructionsState;
++use crate::context::world_state::MultiAgentModeState;
++use crate::context::world_state::MultiAgentUsageHintState;
++use crate::context::world_state::PermissionsState;
++use crate::context::world_state::PersistentModeState;
++use crate::context::world_state::PluginsInstructionsState;
++use crate::context::world_state::RealtimeState;
++use crate::context::world_state::ToolsState;
++use crate::context::world_state::WorldState;
++
++#[derive(Clone)]
++pub(crate) enum PermissionInitialContext {
++    Full(PermissionsState),
++    Compact(CompactPermissionsState),
++}
++
++/// Every original native section before extension WorldState contributions.
++/// Missing active source facts cannot be represented by a partial constructor.
++#[derive(Clone)]
++pub(crate) struct BuiltinInitialContextBeforeExtensions {
++    pub(crate) model: ModelInstructionsState,
++    pub(crate) token_budget: Option<TokenBudgetContext>,
++    pub(crate) guidance: ContextWindowGuidanceState,
++    pub(crate) realtime: RealtimeState,
++    pub(crate) agents_md: AgentsMdState,
++    pub(crate) permission: PermissionInitialContext,
++    pub(crate) collaboration: Option<CollaborationModeState>,
++    pub(crate) persistent: Option<PersistentModeState>,
++    pub(crate) environments: Option<EnvironmentsState>,
++    pub(crate) environments_instructions: EnvironmentsInstructionsState,
++    pub(crate) apps_instructions: AppsInstructionsState,
++    pub(crate) plugins_instructions: PluginsInstructionsState,
++    pub(crate) tools: Option<ToolsState>,
++}
++
++/// Original native tail, AFTER extension sections and before final rendering.
++#[derive(Clone)]
++pub(crate) struct BuiltinInitialContextAfterExtensions {
++    pub(crate) usage_hint: Option<MultiAgentUsageHintState>,
++    pub(crate) multi_agent_mode: MultiAgentModeState,
++    pub(crate) managed: Option<ManagedDeveloperInstructionsState>,
++}
++
++macro_rules! native_sections {
++    ($($variant:ident($section:ty)),+ $(,)?) => {
++        enum NativeInitialSection { $($variant($section)),+ }
++        impl NativeInitialSection {
++            fn install(self, target: &mut WorldState) {
++                match self { $(Self::$variant(section) => target.add_section(section)),+ }
++            }
++            fn resolve(self) -> ResolvedInitialSection {
++                match self { $(Self::$variant(section) => ResolvedInitialSection::native(section)),+ }
++            }
++        }
++    };
++}
++native_sections! {
++    Model(ModelInstructionsState), Budget(TokenBudgetContext), Guidance(ContextWindowGuidanceState),
++    Realtime(RealtimeState), Agents(AgentsMdState), Permissions(PermissionsState),
++    CompactPermissions(CompactPermissionsState), Collaboration(CollaborationModeState),
++    Persistent(PersistentModeState), Environments(EnvironmentsState),
++    EnvironmentsInstructions(EnvironmentsInstructionsState), Apps(AppsInstructionsState),
++    Plugins(PluginsInstructionsState), Tools(ToolsState), UsageHint(MultiAgentUsageHintState),
++    MultiAgent(MultiAgentModeState), Managed(ManagedDeveloperInstructionsState),
++}
++impl BuiltinInitialContextBeforeExtensions {
++    fn sections(self) -> Vec<NativeInitialSection> {
++        let mut sections = vec![NativeInitialSection::Model(self.model)];
++        sections.extend(self.token_budget.map(NativeInitialSection::Budget));
++        sections.push(NativeInitialSection::Guidance(self.guidance));
++        sections.push(NativeInitialSection::Realtime(self.realtime));
++        sections.push(NativeInitialSection::Agents(self.agents_md));
++        sections.push(match self.permission {
++            PermissionInitialContext::Full(section) => NativeInitialSection::Permissions(section),
++            PermissionInitialContext::Compact(section) => {
++                NativeInitialSection::CompactPermissions(section)
++            }
++        });
++        sections.extend(self.collaboration.map(NativeInitialSection::Collaboration));
++        sections.extend(self.persistent.map(NativeInitialSection::Persistent));
++        sections.extend(self.environments.map(NativeInitialSection::Environments));
++        sections.push(NativeInitialSection::EnvironmentsInstructions(
++            self.environments_instructions,
++        ));
++        sections.push(NativeInitialSection::Apps(self.apps_instructions));
++        sections.push(NativeInitialSection::Plugins(self.plugins_instructions));
++        sections.extend(self.tools.map(NativeInitialSection::Tools));
++        sections
++    }
++    pub(crate) fn install(self) -> WorldState {
++        let mut world = WorldState::default();
++        for section in self.sections() {
++            section.install(&mut world);
++        }
++        world
++    }
++    /// Keeps markers, separate-message metadata, section IDs and native origin.
++    /// No WorldState or extension callback is constructed/invoked on this path.
++    pub(crate) fn resolve(self) -> Vec<ResolvedInitialSection> {
++        self.sections()
++            .into_iter()
++            .map(NativeInitialSection::resolve)
++            .collect()
++    }
++}
++impl BuiltinInitialContextAfterExtensions {
++    fn sections(self) -> Vec<NativeInitialSection> {
++        let mut sections = Vec::new();
++        sections.extend(self.usage_hint.map(NativeInitialSection::UsageHint));
++        sections.push(NativeInitialSection::MultiAgent(self.multi_agent_mode));
++        sections.extend(self.managed.map(NativeInitialSection::Managed));
++        sections
++    }
++    pub(crate) fn install(self, world: &mut WorldState) {
++        for section in self.sections() {
++            section.install(world);
++        }
++    }
++    pub(crate) fn resolve(self) -> Vec<ResolvedInitialSection> {
++        self.sections()
++            .into_iter()
++            .map(NativeInitialSection::resolve)
++            .collect()
++    }
++}
++
++/// Complete builtin DATA only: extension partitions and every original source
++/// renewal remain independent. Never serializable or a request/admission grant.
++pub struct CompleteBuiltinInitialContextData {
++    pub(crate) before_extensions: Vec<ResolvedInitialSection>,
++    pub(crate) after_extensions: Vec<ResolvedInitialSection>,
++}
++impl CompleteBuiltinInitialContextData {
++    pub(crate) fn from_original_inputs(
++        before: BuiltinInitialContextBeforeExtensions,
++        after: BuiltinInitialContextAfterExtensions,
++    ) -> Self {
++        Self {
++            before_extensions: before.resolve(),
++            after_extensions: after.resolve(),
++        }
++    }
++}
++#[cfg(test)]
++#[path = "initial_world_state_data_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/initial_world_state_data_tests.rs b/codex-rs/core/src/session/initial_world_state_data_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..4599ed584f90121e1bec975a4e3f4e776ea0c4fe
+--- /dev/null
++++ b/codex-rs/core/src/session/initial_world_state_data_tests.rs
+@@ -0,0 +1,102 @@
++use super::*;
++use crate::session::initial_context_builtin::InitialDeveloperData;
++use crate::session::initial_context_render::{
++    InitialContextRenderInput, ResolvedInitialWorldState, collect_initial_world_state,
++    render_initial_context,
++};
++use pretty_assertions::assert_eq;
++use std::sync::Arc;
++
++#[tokio::test]
++async fn original_session_full_builtin_data_preserves_native_order_roles_and_placement()
++-> anyhow::Result<()> {
++    // Genuine ordinary Session/Step owner is a comparison oracle outside the
++    // preparation branch. No hand-built Session/Turn/Step or inference is used.
++    let (session, turn) = crate::session::tests::make_session_and_context().await;
++    let session = Arc::new(session);
++    let step = session
++        .capture_step_context(Arc::new(turn), &tokio_util::sync::CancellationToken::new())
++        .await?;
++    let (before, _) = session
++        .collect_builtin_initial_context_before_extensions(&step)
++        .await?;
++    let after = session.collect_builtin_initial_context_after_extensions(&step);
++    // Compare the extracted strict formatter against the original constructor,
++    // using genuine ordinary settings/environment/policy/model owners.
++    if let PermissionInitialContext::Full(section) = &before.permission {
++        use crate::context::world_state::WorldStateSection;
++        let environment = step.environments.primary();
++        let sandbox = environment
++            .filter(|entry| entry.environment.is_remote())
++            .map(|entry| entry.sandbox_context(/*additional_permissions*/ None));
++        let paths = sandbox
++            .as_ref()
++            .map(codex_file_system::FileSystemSandboxContext::policy_context);
++        let profile = step
++            .turn
++            .permission_profile_for_environments(&step.environments);
++        let cwd = environment
++            .and_then(|entry| entry.cwd().to_abs_path().ok())
++            .unwrap_or_else(|| step.turn.cwd.clone());
++        let policy = session
++            .services
++            .exec_policy
++            .current_for_prefix_rules(step.turn.allow_prefix_rules());
++        let original = PermissionsState::new(
++            &profile,
++            step.settings.approval_policy(),
++            codex_prompts::ApprovalPromptContext::new(
++                step.settings.approvals_reviewer(),
++                codex_prompts::ResolvedModelMessages::from_model(&step.settings.model_info),
++            ),
++            &policy,
++            &cwd,
++            paths.as_ref(),
++            step.turn
++                .config
++                .features
++                .enabled(codex_features::Feature::ExecPermissionApprovals),
++            step.turn
++                .config
++                .features
++                .enabled(codex_features::Feature::RequestPermissionsTool),
++        );
++        assert_eq!(section.snapshot(), original.snapshot());
++    }
++
++    let complete =
++        CompleteBuiltinInitialContextData::from_original_inputs(before.clone(), after.clone());
++    let mut ordinary_native = before.install();
++    after.install(&mut ordinary_native);
++    let original = collect_initial_world_state(&ordinary_native);
++    let resolved = ResolvedInitialWorldState::from_sections(
++        complete
++            .before_extensions
++            .into_iter()
++            .chain(complete.after_extensions)
++            .collect(),
++    );
++    let render = |world_state| {
++        let developer = InitialDeveloperData::new(
++            &step.turn.session_source,
++            step.turn.developer_instructions.as_deref(),
++        );
++        render_initial_context(InitialContextRenderInput {
++            world_state,
++            developer_sections: developer.developer_sections,
++            contextual_user_sections: Vec::new(),
++            separate_developer_sections: Vec::new(),
++            recommended_plugins: None,
++            separate_guardian_developer_message: crate::guardian::is_basic_session_source(
++                &step.turn.session_source,
++            ),
++            developer_instructions: step.turn.developer_instructions.as_deref(),
++            turn_id: &step.turn.sub_id,
++        })
++    };
++    // Whole annotated native-component items: roles, markers, separate-message
++    // placement, whitespace and the REAL ordinary turn identity. This does not
++    // qualify extension/tool inventories or a complete fresh prepared factory.
++    assert_eq!(render(resolved), render(original));
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index f7c81e29a4911fbe0089d2caff6492cf54598a60..59e220a8a2e025823849aa5a1463ed40d5d8ae02 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -229,6 +229,7 @@ mod guardian_checkpoint;
+ mod handlers;
+ pub(crate) mod initial_context_builtin;
+ pub(crate) mod initial_context_render;
++pub(crate) mod initial_world_state_data;
+ mod inject;
+ mod reasoning_effort;
+ mod submission;
+@@ -286,6 +287,7 @@ use self::turn::agent_message_text;
+ use self::turn::collect_explicit_app_ids_from_skill_items;
+ use self::turn::realtime_text_for_event;
+ use self::turn_context::TurnContext;
++pub(crate) use world_state::OriginalEnvironmentSubagentState;
+ #[cfg(test)]
+ mod rollout_reconstruction_tests;
+ 
+diff --git a/codex-rs/core/src/session/world_state.rs b/codex-rs/core/src/session/world_state.rs
+index e59be611a57b115bc4eb08fc1d54d588d184cee1..92c2540dc669ef1c214bea798d8e65140a699d05 100644
+--- a/codex-rs/core/src/session/world_state.rs
++++ b/codex-rs/core/src/session/world_state.rs
+@@ -1,6 +1,10 @@
+ use std::sync::Arc;
+ 
+ use super::initial_context_builtin;
++use super::initial_world_state_data::{
++    BuiltinInitialContextAfterExtensions, BuiltinInitialContextBeforeExtensions,
++    PermissionInitialContext,
++};
+ use super::session::Session;
+ use super::step_context::StepContext;
+ use crate::context::TokenBudgetContext;
+@@ -12,7 +16,6 @@ use crate::context::world_state::EnvironmentsState;
+ use crate::context::world_state::ModelInstructionsState;
+ use crate::context::world_state::MultiAgentModeState;
+ use crate::context::world_state::MultiAgentUsageHintState;
+-use crate::context::world_state::PermissionsState;
+ use crate::context::world_state::PersistentModeState;
+ use crate::context::world_state::RealtimeState;
+ use crate::context::world_state::ToolsState;
+@@ -20,7 +23,6 @@ use crate::context::world_state::WorldState;
+ use codex_extension_api::WorldStateContributionInput;
+ use codex_features::Feature;
+ use codex_file_system::FileSystemSandboxContext;
+-use codex_prompts::ApprovalPromptContext;
+ use codex_prompts::ResolvedModelMessages;
+ use codex_protocol::error::Result as CodexResult;
+ use codex_protocol::models::BaseInstructionsProvenance;
+@@ -29,12 +31,68 @@ use codex_protocol::protocol::MultiAgentVersion;
+ const MAX_ENVIRONMENT_SUBAGENTS: usize = 8;
+ const MAX_ENVIRONMENT_SUBAGENT_BYTES: usize = 1_024;
+ 
++/// Retained original thread-keyed agent-state data. Only the original Session
++/// collector below mints it; a pre-session fresh label cannot substitute for it.
++pub(crate) struct OriginalEnvironmentSubagentState(String);
++impl OriginalEnvironmentSubagentState {
++    pub(crate) fn into_text(self) -> String {
++        self.0
++    }
++}
++
+ impl Session {
+     #[tracing::instrument(name = "world_state.build", level = "info", skip_all)]
+     pub(crate) async fn build_world_state_for_step(
+         &self,
+         step_context: &StepContext,
+     ) -> CodexResult<WorldState> {
++        let (before, extension_metrics) = self
++            .collect_builtin_initial_context_before_extensions(step_context)
++            .await?;
++        let turn_context = step_context.turn.as_ref();
++        let environments = step_context.environments.to_selections();
++        let ready_selected_capability_roots = step_context
++            .selected_capability_roots
++            .iter()
++            .map(|root| root.selected_root().clone())
++            .collect::<Vec<_>>();
++        let previous_world_state = self.state.lock().await.history.world_state_checkpoint();
++        let mut world_state = before.install();
++        for contributor in self.services.extensions.context_contributors() {
++            for section in contributor
++                .contribute_world_state(WorldStateContributionInput {
++                    thread_id: self.thread_id(),
++                    turn_id: turn_context.sub_id.as_str(),
++                    model_info: &step_context.settings.model_info,
++                    environments: &environments,
++                    ready_selected_capability_roots: &ready_selected_capability_roots,
++                    executor_capability_discovery: step_context
++                        .executor_capability_discovery
++                        .as_deref(),
++                    extension_metrics: Some(Arc::clone(&extension_metrics)),
++                    session_store: &self.services.session_extension_data,
++                    thread_store: &self.services.thread_extension_data,
++                    turn_store: turn_context.extension_data.as_ref(),
++                    previous_world_state: previous_world_state.as_ref().map(|state| &state.state),
++                })
++                .await
++            {
++                world_state.add_extension_section(section);
++            }
++        }
++        self.collect_builtin_initial_context_after_extensions(step_context)
++            .install(&mut world_state);
++        Ok(world_state)
++    }
++    /// Original acquisition retained for ordinary startup. Preparation must NOT
++    /// call this Session method; its concrete DATA result is the shared boundary.
++    pub(crate) async fn collect_builtin_initial_context_before_extensions(
++        &self,
++        step_context: &StepContext,
++    ) -> CodexResult<(
++        BuiltinInitialContextBeforeExtensions,
++        Arc<dyn codex_extension_api::ExtensionMetrics>,
++    )> {
+         let turn_context = step_context.turn.as_ref();
+         let settings = &step_context.settings;
+         let model_info = settings.model_info.as_ref();
+@@ -63,55 +121,24 @@ impl Session {
+                         .cloned()
+                 })
+         };
+-        let environment_subagents = if turn_context.config.include_environment_context {
+-            match turn_context.multi_agent_version {
+-                MultiAgentVersion::V2 => {
+-                    let agent_paths = self
+-                        .services
+-                        .agent_control
+-                        .child_agent_paths(self.thread_id)
+-                        .await;
+-                    let mut lines =
+-                        Vec::with_capacity(agent_paths.len().min(MAX_ENVIRONMENT_SUBAGENTS));
+-                    let mut rendered_bytes = "  <subagents>\n  </subagents>\n".len();
+-                    for agent_path in agent_paths {
+-                        if lines.len() == MAX_ENVIRONMENT_SUBAGENTS {
+-                            break;
+-                        }
+-                        let line = format!(r#"<agent name="{agent_path}" />"#);
+-                        let line_bytes = "    \n".len() + line.len();
+-                        if rendered_bytes + line_bytes <= MAX_ENVIRONMENT_SUBAGENT_BYTES {
+-                            rendered_bytes += line_bytes;
+-                            lines.push(line);
+-                        }
+-                    }
+-                    lines.join("\n")
+-                }
+-                MultiAgentVersion::Disabled | MultiAgentVersion::V1 => {
+-                    self.services
+-                        .local_agent_runtime
+-                        .format_legacy_environment_context_subagents(self.thread_id)
+-                        .await
+-                }
+-            }
+-        } else {
+-            String::new()
+-        };
+-        let mut world_state = WorldState::default();
+-        world_state.add_section(ModelInstructionsState::new(
++        let environment_subagents = self
++            .collect_original_environment_subagent_state(step_context)
++            .await;
++        let model = ModelInstructionsState::new(
+             &model_info.slug,
+             previous_model.as_deref(),
+             model_instructions,
+-        ));
++        );
+         let token_budget_enabled = turn_context.config.features.enabled(Feature::TokenBudget)
+             && step_context
+                 .settings
+                 .model_info
+                 .resolved_context_window()
+                 .is_some();
++        let mut token_budget = None;
+         if token_budget_enabled {
+             let window_ids = self.state.lock().await.auto_compact_window_ids();
+-            world_state.add_section(TokenBudgetContext::new(
++            token_budget = Some(TokenBudgetContext::new(
+                 turn_context
+                     .session_source
+                     .get_agent_path()
+@@ -127,9 +154,9 @@ impl Session {
+             .as_ref()
+             .and_then(|config| config.guidance_message.as_deref())
+             .filter(|_| token_budget_enabled);
+-        world_state.add_section(ContextWindowGuidanceState::new(guidance));
++        let guidance = ContextWindowGuidanceState::new(guidance);
+         let realtime = &step_context.realtime;
+-        world_state.add_section(RealtimeState::new(
++        let realtime = RealtimeState::new(
+             realtime.active,
+             realtime
+                 .mode_instructions
+@@ -143,12 +170,13 @@ impl Session {
+                 .mode_instructions
+                 .as_ref()
+                 .and_then(|instructions| instructions.end.as_deref()),
+-        ));
+-        world_state.add_section(AgentsMdState::new(step_context.loaded_agents_md.as_deref()));
++        );
++        let agents_md = AgentsMdState::new(step_context.loaded_agents_md.as_deref());
+         let exec_policy = self
+             .services
+             .exec_policy
+             .current_for_prefix_rules(turn_context.allow_prefix_rules());
++        let permission;
+         if turn_context.config.include_permissions_instructions {
+             let environment = step_context.environments.primary();
+             let sandbox = environment
+@@ -165,33 +193,32 @@ impl Session {
+             let cwd = environment
+                 .and_then(|environment| environment.cwd().to_abs_path().ok())
+                 .unwrap_or_else(|| turn_context.cwd.clone());
+-            world_state.add_section(PermissionsState::new(
+-                &permission_profile,
+-                settings.approval_policy(),
+-                ApprovalPromptContext::new(settings.approvals_reviewer(), model_messages),
++            permission =
++                PermissionInitialContext::Full(initial_context_builtin::permission_section(
++                    &turn_context.config,
++                    model_info,
++                    exec_policy.as_ref(),
++                    &permission_profile,
++                    settings.approval_policy(),
++                    settings.approvals_reviewer(),
++                    &cwd,
++                    paths.as_ref(),
++                ));
++        } else {
++            permission = PermissionInitialContext::Compact(CompactPermissionsState::new(
+                 exec_policy.as_ref(),
+-                &cwd,
+-                paths.as_ref(),
+-                turn_context
+-                    .config
+-                    .features
+-                    .enabled(Feature::ExecPermissionApprovals),
+-                turn_context
+-                    .config
+-                    .features
+-                    .enabled(Feature::RequestPermissionsTool),
+             ));
+-        } else {
+-            world_state.add_section(CompactPermissionsState::new(exec_policy.as_ref()));
+         }
++        let mut collaboration = None;
+         if turn_context.config.include_collaboration_mode_instructions {
+-            world_state.add_section(CollaborationModeState::from_collaboration_mode(
++            collaboration = Some(CollaborationModeState::from_collaboration_mode(
+                 &settings.effective_collaboration_mode(),
+                 model_messages.collaboration_modes(),
+                 turn_context.config.update_plan_enabled,
+                 turn_context.config.model_catalog.is_some(),
+             ));
+         }
++        let mut persistent = None;
+         if !crate::guardian::is_basic_session_source(&turn_context.session_source) {
+             let send_user_message_async_available =
+                 !turn_context.session_source.is_non_root_agent()
+@@ -201,7 +228,7 @@ impl Session {
+                         .experimental_supported_tools
+                         .iter()
+                         .any(|tool| tool == "send_user_message_async");
+-            world_state.add_section(PersistentModeState::new(
++            persistent = Some(PersistentModeState::new(
+                 turn_context.config.features.persistent_execution_enabled(
+                     step_context.settings.effective_reasoning_effort().as_ref(),
+                 ),
+@@ -209,19 +236,20 @@ impl Session {
+                 send_user_message_async_available,
+             ));
+         }
++        let mut environment_context = None;
+         if turn_context.config.include_environment_context {
+             let current_date = self
+                 .read_clock_for_context(turn_context, "environment_date")
+                 .await?
+                 .map(crate::current_time::environment_date);
+-            world_state.add_section(
++            environment_context = Some(
+                 EnvironmentsState::from_turn_context_with_environments(
+                     turn_context,
+                     &step_context.environments,
+                     current_date,
+                 )
+                 .await
+-                .with_subagents(environment_subagents),
++                .with_subagents(environment_subagents.into_text()),
+             );
+         }
+         let (environments_instructions, apps_instructions, plugins_instructions) =
+@@ -231,66 +259,104 @@ impl Session {
+                 &step_context.mcp,
+                 turn_context.apps_enabled(),
+             );
+-        world_state.add_section(environments_instructions);
+-        world_state.add_section(apps_instructions);
+-        world_state.add_section(plugins_instructions);
+         let extension_metrics = super::extension_metrics::from_session_telemetry(
+             step_context.session_telemetry.clone(),
+         );
++        let mut tools = None;
+         if turn_context
+             .config
+             .features
+             .enabled(Feature::DeferredToolWorldState)
+         {
+-            world_state.add_section(ToolsState::new(
++            tools = Some(ToolsState::new(
+                 step_context.tool_router.deferred_tool_namespaces(),
+                 Arc::clone(&extension_metrics),
+             ));
+         }
+-        let environments = step_context.environments.to_selections();
+-        let ready_selected_capability_roots = step_context
+-            .selected_capability_roots
+-            .iter()
+-            .map(|root| root.selected_root().clone())
+-            .collect::<Vec<_>>();
+-        let previous_world_state = self.state.lock().await.history.world_state_checkpoint();
+-        for contributor in self.services.extensions.context_contributors() {
+-            for section in contributor
+-                .contribute_world_state(WorldStateContributionInput {
+-                    thread_id: self.thread_id(),
+-                    turn_id: turn_context.sub_id.as_str(),
+-                    model_info: &step_context.settings.model_info,
+-                    environments: &environments,
+-                    ready_selected_capability_roots: &ready_selected_capability_roots,
+-                    executor_capability_discovery: step_context
+-                        .executor_capability_discovery
+-                        .as_deref(),
+-                    extension_metrics: Some(Arc::clone(&extension_metrics)),
+-                    session_store: &self.services.session_extension_data,
+-                    thread_store: &self.services.thread_extension_data,
+-                    turn_store: turn_context.extension_data.as_ref(),
+-                    previous_world_state: previous_world_state.as_ref().map(|state| &state.state),
+-                })
+-                .await
+-            {
+-                world_state.add_extension_section(section);
++        Ok((
++            BuiltinInitialContextBeforeExtensions {
++                model,
++                token_budget,
++                guidance,
++                realtime,
++                agents_md,
++                permission,
++                collaboration,
++                persistent,
++                environments: environment_context,
++                environments_instructions,
++                apps_instructions,
++                plugins_instructions,
++                tools,
++            },
++            extension_metrics,
++        ))
++    }
++
++    pub(crate) async fn collect_original_environment_subagent_state(
++        &self,
++        step_context: &StepContext,
++    ) -> OriginalEnvironmentSubagentState {
++        let turn_context = step_context.turn.as_ref();
++        let environment_subagents = if turn_context.config.include_environment_context {
++            match turn_context.multi_agent_version {
++                MultiAgentVersion::V2 => {
++                    let agent_paths = self
++                        .services
++                        .agent_control
++                        .child_agent_paths(self.thread_id)
++                        .await;
++                    let mut lines =
++                        Vec::with_capacity(agent_paths.len().min(MAX_ENVIRONMENT_SUBAGENTS));
++                    let mut rendered_bytes = "  <subagents>\n  </subagents>\n".len();
++                    for agent_path in agent_paths {
++                        if lines.len() == MAX_ENVIRONMENT_SUBAGENTS {
++                            break;
++                        }
++                        let line = format!(r#"<agent name="{agent_path}" />"#);
++                        let line_bytes = "    \n".len() + line.len();
++                        if rendered_bytes + line_bytes <= MAX_ENVIRONMENT_SUBAGENT_BYTES {
++                            rendered_bytes += line_bytes;
++                            lines.push(line);
++                        }
++                    }
++                    lines.join("\n")
++                }
++                MultiAgentVersion::Disabled | MultiAgentVersion::V1 => {
++                    self.services
++                        .local_agent_runtime
++                        .format_legacy_environment_context_subagents(self.thread_id)
++                        .await
++                }
+             }
+-        }
++        } else {
++            String::new()
++        };
++        OriginalEnvironmentSubagentState(environment_subagents)
++    }
++
++    pub(crate) fn collect_builtin_initial_context_after_extensions(
++        &self,
++        step_context: &StepContext,
++    ) -> BuiltinInitialContextAfterExtensions {
++        let turn_context = step_context.turn.as_ref();
+         let mut multi_agent_mode = MultiAgentModeState::new(
+             super::multi_agents::effective_multi_agent_mode(step_context),
+         );
++        let mut multi_agent_usage_hint = None;
+         if let Some(usage_hint_text) = super::multi_agents::usage_hint_text(step_context) {
+             let usage_hint = MultiAgentUsageHintState::new(usage_hint_text);
+             multi_agent_mode = multi_agent_mode.with_usage_hint(&usage_hint);
+-            world_state.add_section(usage_hint);
++            multi_agent_usage_hint = Some(usage_hint);
+         }
+-        world_state.add_section(multi_agent_mode);
+-        if let Some(managed) = initial_context_builtin::managed_developer_section(
++        let managed = initial_context_builtin::managed_developer_section(
+             &turn_context.config,
+             &turn_context.session_source,
+-        ) {
+-            world_state.add_section(managed);
++        );
++        BuiltinInitialContextAfterExtensions {
++            usage_hint: multi_agent_usage_hint,
++            multi_agent_mode,
++            managed,
+         }
+-        Ok(world_state)
+     }
+ }

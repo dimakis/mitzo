@@ -1,0 +1,89 @@
+diff --git a/codex-rs/app-server/src/extensions/registry_provenance_tests.rs b/codex-rs/app-server/src/extensions/registry_provenance_tests.rs
+index 676dc17..7dcf982 100644
+--- a/codex-rs/app-server/src/extensions/registry_provenance_tests.rs
++++ b/codex-rs/app-server/src/extensions/registry_provenance_tests.rs
+@@ -268,9 +268,9 @@ async fn installed_defaults_construct_original_client_without_reinstalling_or_st
+         .observe(&manager, selected.mcp_sources().unwrap())
+         .map_err(|error| anyhow::anyhow!("{error:?}"))?;
+     let adoption = manager.adopt_selected_start(&mut selected)?;
+-    assert!(Arc::ptr_eq(
++    assert!(codex_core::test_support::model_client_uses_auth_manager(
++        adoption.client()?,
+         &auth,
+-        &adoption.client()?.auth_manager().unwrap()
+     ));
+     assert!(manager.list_thread_ids().await.is_empty());
+     assert!(matches!(
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index 5dc74b2..6fc78d4 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -234,18 +234,14 @@ async fn original_first_command_source_constructs_and_adopts_same_reserved_clien
+         .capture_api_mcp(&threads, auth.capture_cached_api_key_credentials().unwrap())
+         .unwrap();
+     selected.construct_client(&threads).await.unwrap();
+-    assert!(Arc::ptr_eq(
++    assert!(codex_core::test_support::model_client_uses_auth_manager(
++        threads.selected_start_client(selected.start()).unwrap(),
+         &auth,
+-        &threads
+-            .selected_start_client(selected.start())
+-            .unwrap()
+-            .auth_manager()
+-            .unwrap()
+     ));
+     let adoption = selected.adopt(&threads).unwrap();
+-    assert!(Arc::ptr_eq(
++    assert!(codex_core::test_support::model_client_uses_auth_manager(
++        adoption.client().unwrap(),
+         &auth,
+-        &adoption.client().unwrap().auth_manager().unwrap()
+     ));
+     assert!(selected.adopt(&threads).is_err());
+     assert!(threads.list_thread_ids().await.is_empty());
+@@ -386,18 +382,14 @@ async fn installed_first_command_startup_preserves_raw_owner_and_effective_input
+         &effective
+     );
+     selected.construct_client(&threads).await.unwrap();
+-    assert!(Arc::ptr_eq(
++    assert!(codex_core::test_support::model_client_uses_auth_manager(
++        threads.selected_start_client(selected.start()).unwrap(),
+         &auth,
+-        &threads
+-            .selected_start_client(selected.start())
+-            .unwrap()
+-            .auth_manager()
+-            .unwrap()
+     ));
+     let adoption = selected.adopt_startup(&threads).await.unwrap();
+-    assert!(Arc::ptr_eq(
++    assert!(codex_core::test_support::model_client_uses_auth_manager(
++        adoption.client().unwrap(),
+         &auth,
+-        &adoption.client().unwrap().auth_manager().unwrap()
+     ));
+     assert!(selected.adopt_startup(&threads).await.is_err());
+     assert!(threads.list_thread_ids().await.is_empty());
+diff --git a/codex-rs/core/src/test_support.rs b/codex-rs/core/src/test_support.rs
+index 359ca8a..1087952 100644
+--- a/codex-rs/core/src/test_support.rs
++++ b/codex-rs/core/src/test_support.rs
+@@ -114,6 +114,18 @@ pub fn set_deterministic_process_ids(enabled: bool) {
+     unified_exec::set_deterministic_process_ids_for_tests(enabled);
+ }
+ 
++/// Cross-crate test observation of the original client's retained auth owner.
++/// This compares Arc allocation identity only; it exposes no credentials and
++/// does not establish current authorization or dispatch permission.
++pub fn model_client_uses_auth_manager(
++    client: &crate::ModelClient,
++    expected: &Arc<AuthManager>,
++) -> bool {
++    client
++        .auth_manager()
++        .is_some_and(|actual| Arc::ptr_eq(&actual, expected))
++}
++
+ pub fn auth_manager_from_auth(auth: CodexAuth) -> Arc<AuthManager> {
+     AuthManager::from_auth_for_testing(auth)
+ }

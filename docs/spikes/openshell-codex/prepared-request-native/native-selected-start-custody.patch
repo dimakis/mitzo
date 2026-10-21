@@ -1,0 +1,3627 @@
+diff --git a/codex-rs/app-server/src/config_manager.rs b/codex-rs/app-server/src/config_manager.rs
+index 2467d4d4f1c7de318f671d94052a81ad431795d8..72dd4b867f3893a862e00131d4bf41d3895a1f47 100644
+--- a/codex-rs/app-server/src/config_manager.rs
++++ b/codex-rs/app-server/src/config_manager.rs
+@@ -32,6 +32,10 @@ use tracing::warn;
+ 
+ #[path = "application_network.rs"]
+ pub(crate) mod application_network;
++#[path = "runtime_feature_source.rs"]
++mod runtime_feature_source;
++#[path = "selected_start_config.rs"]
++pub(crate) mod selected_start_config;
+ 
+ #[derive(Debug, thiserror::Error)]
+ #[error(
+@@ -44,7 +48,7 @@ pub(crate) struct ModelProviderRequirementsChanged;
+ pub(crate) struct ConfigManager {
+     codex_home: PathBuf,
+     cli_overrides: Arc<RwLock<Vec<(String, TomlValue)>>>,
+-    runtime_feature_enablement: Arc<RwLock<BTreeMap<String, bool>>>,
++    runtime_feature_enablement: Arc<RwLock<Arc<BTreeMap<String, bool>>>>,
+     loader_overrides: LoaderOverrides,
+     strict_config: bool,
+     cloud_config_bundle: Arc<RwLock<CloudConfigBundleLoader>>,
+@@ -83,7 +87,7 @@ impl ConfigManager {
+         Self {
+             codex_home,
+             cli_overrides: Arc::new(RwLock::new(cli_overrides)),
+-            runtime_feature_enablement: Arc::new(RwLock::new(BTreeMap::new())),
++            runtime_feature_enablement: Arc::new(RwLock::new(Arc::new(BTreeMap::new()))),
+             loader_overrides,
+             strict_config,
+             cloud_config_bundle: Arc::new(RwLock::new(cloud_config_bundle)),
+@@ -133,7 +137,9 @@ impl ConfigManager {
+     {
+         let mut runtime_feature_enablement =
+             self.runtime_feature_enablement.write().map_err(|_| ())?;
+-        runtime_feature_enablement.extend(enablement);
++        let mut next = runtime_feature_enablement.as_ref().clone();
++        next.extend(enablement);
++        *runtime_feature_enablement = Arc::new(next);
+         Ok(())
+     }
+ 
+@@ -508,7 +514,7 @@ impl ConfigManager {
+     fn current_runtime_feature_enablement(&self) -> BTreeMap<String, bool> {
+         self.runtime_feature_enablement
+             .read()
+-            .map(|guard| guard.clone())
++            .map(|guard| guard.as_ref().clone())
+             .unwrap_or_default()
+     }
+ 
+diff --git a/codex-rs/app-server/src/extensions.rs b/codex-rs/app-server/src/extensions.rs
+index c9f3bac31e78e44373eb72a0665222dea5941ac2..3dc9d9b6860ab819969fd714b0a5cf7f96f30f4c 100644
+--- a/codex-rs/app-server/src/extensions.rs
++++ b/codex-rs/app-server/src/extensions.rs
+@@ -1,3 +1,6 @@
++#[path = "extensions/pre_session_context.rs"]
++pub(crate) mod pre_session_context;
++
+ use std::sync::Arc;
+ use std::sync::Weak;
+ use std::time::Duration;
+diff --git a/codex-rs/app-server/src/extensions/pre_session_context.rs b/codex-rs/app-server/src/extensions/pre_session_context.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..993a5a619a995ef4e1afeb0e98ecd70d997a2e35
+--- /dev/null
++++ b/codex-rs/app-server/src/extensions/pre_session_context.rs
+@@ -0,0 +1,150 @@
++//! Concrete extension observation composition beside the ORIGINAL app-server
++//! registry. Core never imports these Config-dependent extension crates.
++//!
++//! Complete registration membership is not complete context: each retained
++//! observation covers only its existing source-owned initial partition. Built-in
++//! sections, all other partitions and config/policy/date/filesystem currentness
++//! still need their original observations before any request/count/State use.
++//! This packet has no Ready/admission/rendering interface and invokes no ordinary
++//! context/lifecycle/tool/model callbacks or Session construction.
++#![cfg_attr(
++    not(test),
++    allow(dead_code, reason = "Fresh prepared factory is being connected.")
++)]
++
++use codex_core::PreSessionClockError;
++use codex_core::PreSessionMcpError;
++use codex_core::PreSessionMcpSources;
++use codex_core::PreSessionSkillsObservation;
++use codex_core::PreSessionSystemClockObservation;
++use codex_core::ThreadManager;
++use codex_core::config::Config;
++use codex_extension_api::BoundContextSourceRegistrations;
++use codex_extension_api::ContextSourceRegistrationError;
++use codex_git_attribution::GitAttributionInitialObservation;
++use codex_git_attribution::GitAttributionObservationError;
++use codex_history_notes_extension::HistoryNotesInitialObservation;
++use codex_history_notes_extension::HistoryNotesObservationError;
++use codex_memories_extension::MemoriesInitialObservation;
++use codex_memories_extension::MemoriesObservationError;
++
++pub(crate) struct CapturedAppServerExtensionSources<'a> {
++    manager: &'a ThreadManager,
++    sources: &'a PreSessionMcpSources,
++    skills: &'a PreSessionSkillsObservation<'a>,
++    system_clock: PreSessionSystemClockObservation<'a>,
++    registrations: BoundContextSourceRegistrations,
++    history_notes: Vec<HistoryNotesInitialObservation<'a>>,
++    git_attribution: Vec<GitAttributionInitialObservation<'a>>,
++    memories: Vec<MemoriesInitialObservation<'a>>,
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub(crate) enum AppServerExtensionSourceError {
++    NativeMcp(PreSessionMcpError),
++    Clock(PreSessionClockError),
++    SelectedConfigMismatch,
++    CredentialsUnavailable,
++    Registration(ContextSourceRegistrationError),
++    HistoryNotes(HistoryNotesObservationError),
++    GitAttribution(GitAttributionObservationError),
++    Memories(MemoriesObservationError),
++}
++
++/// Retains heterogeneous original observations with the exact registry owned by
++/// the actual native manager and MCP packet. Unsupported sources refuse; no
++/// contributor is classified from a caller name/list/empty callback result.
++pub(crate) fn capture_installed_extension_sources<'a>(
++    manager: &'a ThreadManager,
++    sources: &'a PreSessionMcpSources,
++    skills: &'a PreSessionSkillsObservation<'a>,
++) -> Result<CapturedAppServerExtensionSources<'a>, AppServerExtensionSourceError> {
++    let registry = manager
++        .pre_session_extension_registry(sources)
++        .map_err(AppServerExtensionSourceError::NativeMcp)?;
++    let config = &sources.start_options().config;
++    if !std::ptr::eq(skills.skills().captured_config(), config) {
++        return Err(AppServerExtensionSourceError::SelectedConfigMismatch);
++    }
++    let system_clock = manager
++        .observe_pre_session_system_clock(sources)
++        .map_err(AppServerExtensionSourceError::Clock)?;
++    let credentials = sources
++        .api_key_credentials()
++        .ok_or(AppServerExtensionSourceError::CredentialsUnavailable)?;
++    let mut identities = vec![skills.skills().context_source_identity().clone()];
++    let mut history_notes = Vec::new();
++    for source in codex_history_notes_extension::registered_history_notes_sources(registry) {
++        let captured = source
++            .observe_initial_context(registry, config)
++            .map_err(AppServerExtensionSourceError::HistoryNotes)?;
++        identities.push(captured.context_source_identity().clone());
++        history_notes.push(captured);
++    }
++    let mut git_attribution = Vec::new();
++    for source in codex_git_attribution::registered_git_attribution_sources(registry) {
++        let captured = source
++            .observe_api_key_initial_context(registry, credentials)
++            .map_err(AppServerExtensionSourceError::GitAttribution)?;
++        identities.push(captured.context_source_identity().clone());
++        git_attribution.push(captured);
++    }
++    let mut memories = Vec::new();
++    for source in codex_memories_extension::registered_memories_sources(registry) {
++        let captured = source
++            .observe_initial_context(registry, config)
++            .map_err(AppServerExtensionSourceError::Memories)?;
++        identities.push(captured.context_source_identity().clone());
++        memories.push(captured);
++    }
++    // Registry itself checks EVERY actual registration/index/allocation. A
++    // legacy or unrecognized contributor remains unresolved, even if its
++    // ordinary callback happens to return no fragments for a fixture.
++    let registrations = registry
++        .bind_context_source_registrations(identities)
++        .map_err(AppServerExtensionSourceError::Registration)?;
++    Ok(CapturedAppServerExtensionSources {
++        manager,
++        sources,
++        skills,
++        system_clock,
++        registrations,
++        history_notes,
++        git_attribution,
++        memories,
++    })
++}
++
++impl<'a> CapturedAppServerExtensionSources<'a> {
++    pub(crate) fn manager(&self) -> &'a ThreadManager {
++        self.manager
++    }
++    pub(crate) fn native_sources(&self) -> &'a PreSessionMcpSources {
++        self.sources
++    }
++    pub(crate) fn configuration(&self) -> &'a Config {
++        &self.sources.start_options().config
++    }
++    pub(crate) fn skills(&self) -> &'a PreSessionSkillsObservation<'a> {
++        self.skills
++    }
++    pub(crate) fn system_clock(&self) -> &PreSessionSystemClockObservation<'a> {
++        &self.system_clock
++    }
++    pub(crate) fn registrations(&self) -> &BoundContextSourceRegistrations {
++        &self.registrations
++    }
++    pub(crate) fn history_notes(&self) -> &[HistoryNotesInitialObservation<'a>] {
++        &self.history_notes
++    }
++    pub(crate) fn git_attribution(&self) -> &[GitAttributionInitialObservation<'a>] {
++        &self.git_attribution
++    }
++    pub(crate) fn memories(&self) -> &[MemoriesInitialObservation<'a>] {
++        &self.memories
++    }
++}
++
++#[cfg(test)]
++#[path = "pre_session_context_tests.rs"]
++mod tests;
+diff --git a/codex-rs/app-server/src/extensions/pre_session_context_tests.rs b/codex-rs/app-server/src/extensions/pre_session_context_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..cd675e71123ebbbc34ea4f1b986e90ffb3de0b4b
+--- /dev/null
++++ b/codex-rs/app-server/src/extensions/pre_session_context_tests.rs
+@@ -0,0 +1,305 @@
++use super::*;
++use crate::config_manager::ConfigManager;
++use crate::extensions::ThreadExtensionDependencies;
++use crate::extensions::thread_extensions;
++use codex_core::StartThreadOptions;
++use codex_core::config::ConfigOverrides;
++use codex_exec_server::EnvironmentManager;
++use codex_extension_api::ContextContributor;
++use codex_extension_api::ExtensionData;
++use codex_extension_api::ExtensionFuture;
++use codex_extension_api::NoopExtensionEventSink;
++use codex_extension_api::PromptFragment;
++use codex_features::Feature;
++use codex_home::CodexHomeUserInstructionsProvider;
++use codex_login::AuthManager;
++use codex_login::CodexAuth;
++use codex_protocol::protocol::SessionSource;
++use pretty_assertions::assert_eq;
++use std::sync::Arc;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++
++struct UnknownContext(Arc<AtomicUsize>);
++impl ContextContributor for UnknownContext {
++    fn contribute_thread_context<'a>(
++        &'a self,
++        _session: &'a ExtensionData,
++        _thread: &'a ExtensionData,
++    ) -> ExtensionFuture<'a, Vec<PromptFragment>> {
++        Box::pin(async move {
++            self.0.fetch_add(1, Ordering::SeqCst);
++            Vec::new()
++        })
++    }
++}
++
++enum RegistryFixture {
++    Installed,
++    AdditionalUnknown,
++    ExternalClock,
++}
++
++struct UnexpectedExternalClock;
++impl codex_core::TimeProvider for UnexpectedExternalClock {
++    fn current_time(&self, _thread_id: codex_protocol::ThreadId) -> codex_core::TimeFuture<'_> {
++        panic!("threadless System capture must not invoke the installed External clock")
++    }
++
++    fn sleep(
++        &self,
++        _thread_id: codex_protocol::ThreadId,
++        _duration: std::time::Duration,
++    ) -> codex_core::SleepFuture<'_> {
++        panic!("threadless capture must not wait on the installed External clock")
++    }
++}
++
++async fn original_manager(
++    base_url: &str,
++    fixture: RegistryFixture,
++) -> (
++    tempfile::TempDir,
++    Config,
++    Arc<AuthManager>,
++    Arc<ThreadManager>,
++    Arc<AtomicUsize>,
++) {
++    let home = tempfile::tempdir().unwrap();
++    let clock_config = if matches!(&fixture, RegistryFixture::ExternalClock) {
++        "[features.current_time_reminder]\nenabled = true\nclock_source = 'external'\n"
++    } else {
++        ""
++    };
++    std::fs::write(
++        home.path().join(codex_config::CONFIG_TOML_FILE),
++        format!("model = 'gpt-6-luna'\nchatgpt_base_url = '{base_url}'\n{clock_config}"),
++    )
++    .unwrap();
++    let config = ConfigManager::without_managed_config_for_tests(home.path().to_path_buf())
++        .load_for_cwd(
++            /*request_overrides*/ None,
++            ConfigOverrides::default(),
++            Some(home.path().to_path_buf()),
++        )
++        .await
++        .unwrap();
++    // Observe original enabled defaults, never clear them to qualify capture.
++    assert!(config.features.enabled(Feature::Apps));
++    assert!(config.features.enabled(Feature::Plugins));
++    let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("offline-no-model-call"));
++    let state_db = codex_core::init_state_db(&config).await.unwrap();
++    let thread_store = codex_core::thread_store_from_config(&config, Some(state_db.clone()));
++    let environments = Arc::new(EnvironmentManager::default_for_tests());
++    let executor = Arc::new(
++        codex_skills_extension::ExecutorSkillProvider::new_with_restriction_product(
++            Arc::clone(&environments),
++            SessionSource::Exec.restriction_product(),
++        ),
++    );
++    let calls = Arc::new(AtomicUsize::new(0));
++    let manager = Arc::new_cyclic(|manager| {
++        let registry = thread_extensions(ThreadExtensionDependencies {
++            event_sink: Arc::new(NoopExtensionEventSink),
++            auth_manager: Arc::clone(&auth),
++            state_db: Some(state_db.clone()),
++            analytics_events_client: codex_analytics::AnalyticsEventsClient::disabled(),
++            thread_manager: manager.clone(),
++            goal_service: Arc::new(codex_goal_extension::GoalService::new()),
++            environment_manager: Arc::clone(&environments),
++            executor_skill_provider: Arc::clone(&executor),
++            git_attribution_base_url: config.chatgpt_base_url.clone(),
++            http_client_factory: config.http_client_factory(),
++            queue_service: None,
++            turn_start_admission: None,
++        });
++        let registry = match fixture {
++            RegistryFixture::Installed | RegistryFixture::ExternalClock => registry,
++            RegistryFixture::AdditionalUnknown => {
++                let mut builder = registry.to_builder();
++                builder.prompt_contributor(Arc::new(UnknownContext(Arc::clone(&calls))));
++                Arc::new(builder.build())
++            }
++        };
++        ThreadManager::new(
++            &config,
++            Arc::clone(&auth),
++            codex_core::build_models_manager(&config, Arc::clone(&auth)),
++            codex_core::CodexAppsToolsCache::default(),
++            SessionSource::Exec,
++            Arc::clone(&environments),
++            registry,
++            Arc::new(CodexHomeUserInstructionsProvider::new(
++                config.codex_home.clone(),
++            )),
++            /*analytics_events_client*/ None,
++            codex_core::passthrough_image_store(),
++            Arc::clone(&thread_store),
++            codex_core::local_agent_graph_store_from_state_db(Some(&state_db)),
++            "11111111-1111-4111-8111-111111111111".to_string(),
++            /*attestation_provider*/ None,
++            Some(Arc::new(UnexpectedExternalClock)),
++        )
++    });
++    (home, config, auth, manager, calls)
++}
++
++#[tokio::test]
++async fn actual_app_server_registry_retains_original_context_observations_without_startup() {
++    let backend = wiremock::MockServer::start().await;
++    let (_home, config, auth, manager, calls) =
++        original_manager(&backend.uri(), RegistryFixture::Installed).await;
++    let sources = manager
++        .capture_pre_session_api_key_mcp_sources(
++            StartThreadOptions::new(config),
++            auth.capture_cached_api_key_credentials().unwrap(),
++        )
++        .unwrap();
++    let skills = manager
++        .observe_pre_session_skills(&sources, &[])
++        .await
++        .unwrap();
++    let before_clock_read = chrono::Utc::now();
++    let captured = capture_installed_extension_sources(&manager, &sources, &skills).unwrap();
++    let after_clock_read = chrono::Utc::now();
++    let clock = captured.system_clock();
++    assert!(std::ptr::eq(clock.start_sources(), &sources));
++    assert!(before_clock_read <= clock.observed_time());
++    assert!(clock.observed_time() <= after_clock_read);
++    assert_eq!(
++        clock.environment_date(),
++        clock
++            .observed_time()
++            .with_timezone(&chrono::Local)
++            .format("%Y-%m-%d")
++            .to_string(),
++    );
++    assert!(!clock.timezone().is_empty());
++    assert!(std::ptr::eq(captured.manager(), manager.as_ref()));
++    assert!(std::ptr::eq(captured.native_sources(), &sources));
++    assert!(std::ptr::eq(
++        captured.configuration(),
++        &sources.start_options().config
++    ));
++    assert_eq!(captured.history_notes().len(), 1);
++    assert_eq!(captured.memories().len(), 1);
++    assert_eq!(captured.git_attribution().len(), 1);
++    assert!(std::ptr::eq(
++        captured.skills().skills().captured_config(),
++        &sources.start_options().config,
++    ));
++    let registry = manager.pre_session_extension_registry(&sources).unwrap();
++    assert_eq!(
++        captured.registrations().registration_indexes().count(),
++        registry.context_contributors().len(),
++    );
++    assert_eq!(
++        registry.assert_bound_context_source_registrations(captured.registrations()),
++        Ok(()),
++    );
++    assert_eq!(
++        registry
++            .to_builder()
++            .build()
++            .assert_bound_context_source_registrations(captured.registrations()),
++        Err(ContextSourceRegistrationError::RegistryChanged),
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(backend.received_requests().await.unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn selected_external_clock_refuses_without_a_fake_thread_or_system_fallback() {
++    let backend = wiremock::MockServer::start().await;
++    let (_home, config, auth, manager, calls) =
++        original_manager(&backend.uri(), RegistryFixture::ExternalClock).await;
++    let sources = manager
++        .capture_pre_session_api_key_mcp_sources(
++            StartThreadOptions::new(config),
++            auth.capture_cached_api_key_credentials().unwrap(),
++        )
++        .unwrap();
++    let skills = manager
++        .observe_pre_session_skills(&sources, &[])
++        .await
++        .unwrap();
++    assert_eq!(
++        capture_installed_extension_sources(&manager, &sources, &skills).err(),
++        Some(AppServerExtensionSourceError::Clock(
++            codex_core::PreSessionClockError::ExternalRequiresThreadBoundary,
++        )),
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(backend.received_requests().await.unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn an_actual_extra_legacy_contributor_is_unresolved_even_when_its_callback_returns_empty() {
++    let backend = wiremock::MockServer::start().await;
++    let (_home, config, auth, manager, calls) =
++        original_manager(&backend.uri(), RegistryFixture::AdditionalUnknown).await;
++    let sources = manager
++        .capture_pre_session_api_key_mcp_sources(
++            StartThreadOptions::new(config),
++            auth.capture_cached_api_key_credentials().unwrap(),
++        )
++        .unwrap();
++    let skills = manager
++        .observe_pre_session_skills(&sources, &[])
++        .await
++        .unwrap();
++    assert_eq!(
++        capture_installed_extension_sources(&manager, &sources, &skills).err(),
++        Some(AppServerExtensionSourceError::Registration(
++            ContextSourceRegistrationError::ContributorsChanged,
++        )),
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(backend.received_requests().await.unwrap().is_empty());
++}
++
++#[tokio::test]
++async fn equal_configuration_values_from_another_original_source_packet_do_not_match() {
++    let backend = wiremock::MockServer::start().await;
++    let (_home, config, auth, manager, calls) =
++        original_manager(&backend.uri(), RegistryFixture::Installed).await;
++    let second_config = config.clone();
++    let sources = manager
++        .capture_pre_session_api_key_mcp_sources(
++            StartThreadOptions::new(config),
++            auth.capture_cached_api_key_credentials().unwrap(),
++        )
++        .unwrap();
++    let skills = manager
++        .observe_pre_session_skills(&sources, &[])
++        .await
++        .unwrap();
++    let other_sources = manager
++        .capture_pre_session_api_key_mcp_sources(
++            StartThreadOptions::new(second_config),
++            auth.capture_cached_api_key_credentials().unwrap(),
++        )
++        .unwrap();
++    assert_eq!(
++        sources.start_options().config.model,
++        other_sources.start_options().config.model
++    );
++    assert_eq!(
++        sources.start_options().config.cwd,
++        other_sources.start_options().config.cwd
++    );
++    assert!(!std::ptr::eq(
++        &sources.start_options().config,
++        &other_sources.start_options().config,
++    ));
++    assert_eq!(
++        capture_installed_extension_sources(&manager, &other_sources, &skills).err(),
++        Some(AppServerExtensionSourceError::SelectedConfigMismatch),
++    );
++    assert_eq!(calls.load(Ordering::SeqCst), 0);
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(backend.received_requests().await.unwrap().is_empty());
++}
+diff --git a/codex-rs/app-server/src/request_processors.rs b/codex-rs/app-server/src/request_processors.rs
+index 2f4731ab23c0abecc4b11af387a5539931d5eaed..dc94cd026e5a3254b12223f0978498b04986e547 100644
+--- a/codex-rs/app-server/src/request_processors.rs
++++ b/codex-rs/app-server/src/request_processors.rs
+@@ -331,7 +331,6 @@ use codex_chatgpt::connectors;
+ use codex_config::CloudConfigBundleLoadError;
+ use codex_config::CloudConfigBundleLoadErrorCode;
+ use codex_config::ConfigLayerStack;
+-use codex_config::loader::project_trust_key;
+ use codex_config::types::McpServerTransportConfig;
+ use codex_connectors::AppInfo;
+ use codex_core::CodexThread;
+@@ -405,7 +404,6 @@ use codex_feedback::CodexFeedback;
+ use codex_feedback::FeedbackAttachmentPath;
+ use codex_feedback::FeedbackUploadOptions;
+ use codex_git_utils::git_diff_to_remote;
+-use codex_git_utils::resolve_root_git_project_for_trust;
+ use codex_login::AuthManager;
+ use codex_login::CODEX_OPEN_APP_URL;
+ use codex_login::CodexAuth;
+@@ -434,7 +432,6 @@ use codex_protocol::config_types::CollaborationMode;
+ use codex_protocol::config_types::ForcedLoginMethod;
+ use codex_protocol::config_types::Personality;
+ use codex_protocol::config_types::ReasoningSummary;
+-use codex_protocol::config_types::TrustLevel;
+ use codex_protocol::config_types::WindowsSandboxLevel;
+ use codex_protocol::error::CodexErr;
+ use codex_protocol::error::Result as CodexResult;
+@@ -526,7 +523,6 @@ use tokio::sync::watch;
+ use tokio_util::sync::CancellationToken;
+ use tokio_util::sync::DropGuard;
+ use tokio_util::task::TaskTracker;
+-use toml::Value as TomlValue;
+ use tracing::Instrument;
+ use tracing::error;
+ use tracing::info;
+diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
+index 289cb63953662eb5fba00222ec49432dd976b944..19b2fead0de9aec95a2c2fdc99adce6f8dbdbd1c 100644
+--- a/codex-rs/app-server/src/request_processors/thread_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
+@@ -1337,8 +1337,7 @@ impl ThreadRequestProcessor {
+         initial_config_warnings: Arc<Vec<ConfigWarningNotification>>,
+     ) -> Result<(), JSONRPCErrorError> {
+         let thread_start_started_at = std::time::Instant::now();
+-        let requested_cwd = typesafe_overrides.cwd.clone();
+-        let mut config = config_manager
++        let config = config_manager
+             .load_with_overrides(config_overrides.clone(), typesafe_overrides.clone())
+             .await
+             .map_err(|err| config_load_error(&err))?;
+@@ -1347,72 +1346,15 @@ impl ThreadRequestProcessor {
+                 "daybreakEnabled is not supported for ephemeral threads",
+             ));
+         }
+-        // Project-local config can launch host processes, so only the effective
+-        // permissions after managed constraints can imply project trust.
+-        let effective_permission_profile = config.permissions.effective_permission_profile();
+-        let effective_permissions_trust_project = match &effective_permission_profile {
+-            codex_protocol::models::PermissionProfile::Disabled
+-            | codex_protocol::models::PermissionProfile::External { .. } => true,
+-            codex_protocol::models::PermissionProfile::Managed { .. } => {
+-                effective_permission_profile
+-                    .file_system_sandbox_policy()
+-                    .can_write_local_path_with_cwd(config.cwd.as_path(), config.cwd.as_path())
+-            }
+-        };
+-
+-        if requested_cwd.is_some()
+-            && config.active_project.trust_level.is_none()
+-            && !config.config_layer_stack.is_projectless()
+-            && effective_permissions_trust_project
+-        {
+-            let trust_target = resolve_root_git_project_for_trust(LOCAL_FS.as_ref(), &config.cwd)
+-                .await
+-                .unwrap_or_else(|| config.cwd.clone());
+-            let current_cli_overrides = config_manager.current_cli_overrides();
+-            let cli_overrides_with_trust;
+-            let cli_overrides_for_reload = if let Err(err) =
+-                codex_core::config::set_project_trust_level(
+-                    &listener_task_context.codex_home,
+-                    trust_target.as_path(),
+-                    TrustLevel::Trusted,
+-                ) {
+-                warn!(
+-                    "failed to persist trusted project state for {}; continuing with in-memory trust for this thread: {err}",
+-                    trust_target.display()
+-                );
+-                let mut project = toml::map::Map::new();
+-                project.insert(
+-                    "trust_level".to_string(),
+-                    TomlValue::String("trusted".to_string()),
+-                );
+-                let mut projects = toml::map::Map::new();
+-                projects.insert(
+-                    project_trust_key(trust_target.as_path()),
+-                    TomlValue::Table(project),
+-                );
+-                cli_overrides_with_trust = current_cli_overrides
+-                    .iter()
+-                    .cloned()
+-                    .chain(std::iter::once((
+-                        "projects".to_string(),
+-                        TomlValue::Table(projects),
+-                    )))
+-                    .collect::<Vec<_>>();
+-                cli_overrides_with_trust.as_slice()
+-            } else {
+-                current_cli_overrides.as_slice()
+-            };
+-
+-            config = config_manager
+-                .load_with_cli_overrides(
+-                    cli_overrides_for_reload,
+-                    config_overrides,
+-                    typesafe_overrides,
+-                    /*fallback_cwd*/ None,
+-                )
+-                .await
+-                .map_err(|err| config_load_error(&err))?;
+-        }
++        let config = config_manager
++            .finish_ordinary_thread_start_config(
++                config,
++                &listener_task_context.codex_home,
++                config_overrides,
++                typesafe_overrides,
++            )
++            .await
++            .map_err(|err| config_load_error(&err))?;
+ 
+         // Thread config can include project-local warnings absent at initialization.
+         let mut config_warnings = config
+diff --git a/codex-rs/app-server/src/runtime_feature_source.rs b/codex-rs/app-server/src/runtime_feature_source.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..de759148d3c42ec1de5b9fba4ad073a25055ca9f
+--- /dev/null
++++ b/codex-rs/app-server/src/runtime_feature_source.rs
+@@ -0,0 +1,79 @@
++//! The actual ConfigManager runtime-feature input publisher, not a second epoch.
++//!
++//! Each real writer replaces its immutable DATA Arc under the existing lock.
++//! This guards that input partition only. It does not cover materialized Config,
++//! permissions, files, managed/cloud inputs or a selected start, and grants no
++//! whole-factory/count/State/admission authority. Ordinary projection is unchanged.
++#![cfg_attr(
++    not(test),
++    allow(dead_code, reason = "Fresh selected configuration is being connected.")
++)]
++
++use super::ConfigManager;
++use std::collections::BTreeMap;
++use std::sync::Arc;
++use std::sync::TryLockError;
++
++pub(crate) struct RuntimeFeatureSourceObservation<'a> {
++    manager: &'a ConfigManager,
++    publication: Arc<BTreeMap<String, bool>>,
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub(crate) enum RuntimeFeatureSourceError {
++    Busy,
++    Poisoned,
++    Changed,
++}
++
++impl ConfigManager {
++    /// Observes the original immutable published input. No loader or external
++    /// callback runs, and no lock survives into asynchronous source work.
++    pub(crate) fn observe_runtime_feature_source(
++        &self,
++    ) -> Result<RuntimeFeatureSourceObservation<'_>, RuntimeFeatureSourceError> {
++        let current = self
++            .runtime_feature_enablement
++            .try_read()
++            .map_err(lock_error)?;
++        Ok(RuntimeFeatureSourceObservation {
++            manager: self,
++            publication: Arc::clone(&current),
++        })
++    }
++}
++
++fn lock_error<T>(error: TryLockError<T>) -> RuntimeFeatureSourceError {
++    match error {
++        TryLockError::WouldBlock => RuntimeFeatureSourceError::Busy,
++        TryLockError::Poisoned(_) => RuntimeFeatureSourceError::Poisoned,
++    }
++}
++
++impl RuntimeFeatureSourceObservation<'_> {
++    pub(crate) fn features(&self) -> &BTreeMap<String, bool> {
++        &self.publication
++    }
++
++    /// Orders only this input's real writer with a bounded synchronous action.
++    /// Do not await, perform loader/file work or reenter this publisher inside
++    /// the action. All remaining configuration owners must be fenced separately.
++    pub(crate) fn with_current<R>(
++        &self,
++        associate: impl FnOnce() -> R,
++    ) -> Result<R, RuntimeFeatureSourceError> {
++        let current = self
++            .manager
++            .runtime_feature_enablement
++            .try_read()
++            .map_err(lock_error)?;
++        if !Arc::ptr_eq(&current, &self.publication) {
++            return Err(RuntimeFeatureSourceError::Changed);
++        }
++        Ok(associate())
++    }
++}
++
++#[cfg(test)]
++#[path = "runtime_feature_source_tests.rs"]
++mod tests;
+diff --git a/codex-rs/app-server/src/runtime_feature_source_tests.rs b/codex-rs/app-server/src/runtime_feature_source_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..8308b0ba30f9f547f0ed9ebdab20ce070ff38c7e
+--- /dev/null
++++ b/codex-rs/app-server/src/runtime_feature_source_tests.rs
+@@ -0,0 +1,116 @@
++use super::*;
++use pretty_assertions::assert_eq;
++use std::sync::mpsc;
++use std::time::Duration;
++
++#[tokio::test]
++async fn the_original_config_loader_uses_the_actual_published_runtime_feature_data() {
++    let home = tempfile::tempdir().unwrap();
++    let manager = ConfigManager::without_managed_config_for_tests(home.path().to_path_buf());
++    manager
++        .extend_runtime_feature_enablement([("apps".to_string(), false)])
++        .unwrap();
++    let observed = manager.observe_runtime_feature_source().unwrap();
++    let load = || {
++        manager.load_for_cwd(
++            /*request_overrides*/ None,
++            codex_core::config::ConfigOverrides::default(),
++            Some(home.path().to_path_buf()),
++        )
++    };
++    let first = load().await.unwrap();
++    assert!(!first.features.enabled(codex_features::Feature::Apps));
++    assert_eq!(
++        observed.with_current(|| observed.features().clone()),
++        Ok(BTreeMap::from([("apps".to_string(), false)])),
++    );
++    manager
++        .extend_runtime_feature_enablement([("apps".to_string(), true)])
++        .unwrap();
++    let second = load().await.unwrap();
++    assert!(second.features.enabled(codex_features::Feature::Apps));
++    assert_eq!(
++        observed.with_current(|| ()),
++        Err(RuntimeFeatureSourceError::Changed),
++    );
++}
++
++#[test]
++fn actual_runtime_writer_restoring_equal_values_invalidates_the_original_publication() {
++    let home = tempfile::tempdir().unwrap();
++    let manager = ConfigManager::without_managed_config_for_tests(home.path().to_path_buf());
++    manager
++        .extend_runtime_feature_enablement([("apps".to_string(), true)])
++        .unwrap();
++    let observed = manager.observe_runtime_feature_source().unwrap();
++    manager
++        .extend_runtime_feature_enablement([("apps".to_string(), false)])
++        .unwrap();
++    manager
++        .extend_runtime_feature_enablement([("apps".to_string(), true)])
++        .unwrap();
++    assert_eq!(
++        observed.features(),
++        &manager.current_runtime_feature_enablement()
++    );
++    let mut associated = false;
++    assert_eq!(
++        observed.with_current(|| associated = true),
++        Err(RuntimeFeatureSourceError::Changed),
++    );
++    assert!(!associated);
++}
++
++#[test]
++fn association_holds_the_actual_runtime_writer_lock_through_its_bounded_action() {
++    let home = tempfile::tempdir().unwrap();
++    let manager = Arc::new(ConfigManager::without_managed_config_for_tests(
++        home.path().to_path_buf(),
++    ));
++    let observed = manager.observe_runtime_feature_source().unwrap();
++    let (started_tx, started_rx) = mpsc::channel();
++    let (done_tx, done_rx) = mpsc::channel();
++    let mut writer = None;
++    assert_eq!(
++        observed.with_current(|| {
++            assert!(matches!(
++                manager.runtime_feature_enablement.try_write(),
++                Err(std::sync::TryLockError::WouldBlock),
++            ));
++            let manager = Arc::clone(&manager);
++            writer = Some(std::thread::spawn(move || {
++                started_tx.send(()).unwrap();
++                manager
++                    .extend_runtime_feature_enablement([("apps".to_string(), false)])
++                    .unwrap();
++                done_tx.send(()).unwrap();
++            }));
++            started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
++            assert_eq!(done_rx.try_recv(), Err(mpsc::TryRecvError::Empty));
++            42
++        }),
++        Ok(42),
++    );
++    writer.unwrap().join().unwrap();
++    done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
++    assert_eq!(
++        observed.with_current(|| ()),
++        Err(RuntimeFeatureSourceError::Changed),
++    );
++}
++
++#[test]
++fn a_busy_original_writer_refuses_before_the_action_without_blocking_or_reentry() {
++    let home = tempfile::tempdir().unwrap();
++    let manager = ConfigManager::without_managed_config_for_tests(home.path().to_path_buf());
++    let observed = manager.observe_runtime_feature_source().unwrap();
++    let writer = manager.runtime_feature_enablement.write().unwrap();
++    let mut associated = false;
++    assert_eq!(
++        observed.with_current(|| associated = true),
++        Err(RuntimeFeatureSourceError::Busy),
++    );
++    assert!(!associated);
++    drop(writer);
++    assert_eq!(observed.with_current(|| 42), Ok(42));
++}
+diff --git a/codex-rs/app-server/src/selected_start_config.rs b/codex-rs/app-server/src/selected_start_config.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..06a3cfc6959bb35fc9b3fc7f12cd883e5dedd63b
+--- /dev/null
++++ b/codex-rs/app-server/src/selected_start_config.rs
+@@ -0,0 +1,293 @@
++//! Original selected-start configuration custody. External files/MDM are renewed
++//! by bounded load fences, not an atomic filesystem lease. No Session or Ready.
++#![cfg_attr(
++    not(test),
++    allow(
++        dead_code,
++        reason = "Original selected-start custody awaits the complete factory."
++    )
++)]
++
++use super::ConfigManager;
++use super::runtime_feature_source::RuntimeFeatureSourceObservation;
++use codex_config::loader::project_trust_key;
++use codex_core::SelectedStartInputs;
++use codex_core::StartThreadOptions;
++use codex_core::ThreadManager;
++use codex_core::config::Config;
++use codex_core::config::ConfigOverrides;
++use codex_exec_server::LOCAL_FS;
++use codex_git_utils::resolve_root_git_project_for_trust;
++use codex_protocol::config_types::TrustLevel;
++use std::collections::HashMap;
++use std::io;
++use std::sync::atomic::AtomicBool;
++use std::sync::atomic::Ordering;
++use toml::Value as TomlValue;
++use tracing::warn;
++
++enum TrustPersistence {
++    Ordinary,
++    RefuseChange,
++}
++
++/// Minted only by this ConfigManager's actual ordinary loader. Not serializable,
++/// cloneable or constructible from caller-provided Config/readiness data.
++pub(crate) struct SelectedStartConfig<'a> {
++    manager: &'a ConfigManager,
++    invalidated: AtomicBool,
++    runtime: RuntimeFeatureSourceObservation<'a>,
++    config: Config,
++    request: Option<HashMap<String, serde_json::Value>>,
++    overrides: ConfigOverrides,
++}
++
++pub(crate) struct SelectedConfiguredStart<'a> {
++    source: SelectedStartConfig<'a>,
++    start: SelectedStartInputs,
++}
++
++impl ConfigManager {
++    pub(crate) async fn finish_ordinary_thread_start_config(
++        &self,
++        config: Config,
++        trust_home: &std::path::Path,
++        config_overrides: Option<HashMap<String, serde_json::Value>>,
++        typesafe_overrides: ConfigOverrides,
++    ) -> io::Result<Config> {
++        self.finish_thread_start_config(
++            config,
++            trust_home,
++            config_overrides,
++            typesafe_overrides,
++            TrustPersistence::Ordinary,
++        )
++        .await
++    }
++
++    async fn finish_thread_start_config(
++        &self,
++        mut config: Config,
++        trust_home: &std::path::Path,
++        config_overrides: Option<HashMap<String, serde_json::Value>>,
++        typesafe_overrides: ConfigOverrides,
++        trust: TrustPersistence,
++    ) -> io::Result<Config> {
++        let requested_cwd = typesafe_overrides.cwd.clone();
++        // Project-local config can launch host processes, so only the effective
++        // permissions after managed constraints can imply project trust.
++        let effective_permission_profile = config.permissions.effective_permission_profile();
++        let effective_permissions_trust_project = match &effective_permission_profile {
++            codex_protocol::models::PermissionProfile::Disabled
++            | codex_protocol::models::PermissionProfile::External { .. } => true,
++            codex_protocol::models::PermissionProfile::Managed { .. } => {
++                effective_permission_profile
++                    .file_system_sandbox_policy()
++                    .can_write_local_path_with_cwd(config.cwd.as_path(), config.cwd.as_path())
++            }
++        };
++
++        if requested_cwd.is_some()
++            && config.active_project.trust_level.is_none()
++            && !config.config_layer_stack.is_projectless()
++            && effective_permissions_trust_project
++        {
++            if matches!(trust, TrustPersistence::RefuseChange) {
++                return Err(std::io::Error::other(
++                    "selected start requires unresolved project trust persistence",
++                ));
++            }
++            let trust_target = resolve_root_git_project_for_trust(LOCAL_FS.as_ref(), &config.cwd)
++                .await
++                .unwrap_or_else(|| config.cwd.clone());
++            let current_cli_overrides = self.current_cli_overrides();
++            let cli_overrides_with_trust;
++            let cli_overrides_for_reload = if let Err(err) =
++                codex_core::config::set_project_trust_level(
++                    trust_home,
++                    trust_target.as_path(),
++                    TrustLevel::Trusted,
++                ) {
++                warn!(
++                    "failed to persist trusted project state for {}; continuing with in-memory trust for this thread: {err}",
++                    trust_target.display()
++                );
++                let mut project = toml::map::Map::new();
++                project.insert(
++                    "trust_level".to_string(),
++                    TomlValue::String("trusted".to_string()),
++                );
++                let mut projects = toml::map::Map::new();
++                projects.insert(
++                    project_trust_key(trust_target.as_path()),
++                    TomlValue::Table(project),
++                );
++                cli_overrides_with_trust = current_cli_overrides
++                    .iter()
++                    .cloned()
++                    .chain(std::iter::once((
++                        "projects".to_string(),
++                        TomlValue::Table(projects),
++                    )))
++                    .collect::<Vec<_>>();
++                cli_overrides_with_trust.as_slice()
++            } else {
++                current_cli_overrides.as_slice()
++            };
++
++            config = self
++                .load_with_cli_overrides(
++                    cli_overrides_for_reload,
++                    config_overrides,
++                    typesafe_overrides,
++                    /*fallback_cwd*/ None,
++                )
++                .await?;
++        }
++
++        Ok(config)
++    }
++
++    pub(crate) async fn load_selected_start_config(
++        &self,
++        request: Option<HashMap<String, serde_json::Value>>,
++        overrides: ConfigOverrides,
++    ) -> io::Result<SelectedStartConfig<'_>> {
++        let runtime = self
++            .observe_runtime_feature_source()
++            .map_err(|_| io::Error::other("runtime feature publication unavailable"))?;
++        let loaded = self
++            .load_with_overrides(request.clone(), overrides.clone())
++            .await?;
++        let config = self
++            .finish_thread_start_config(
++                loaded,
++                &self.codex_home,
++                request.clone(),
++                overrides.clone(),
++                TrustPersistence::RefuseChange,
++            )
++            .await?;
++        let selected = SelectedStartConfig {
++            manager: self,
++            invalidated: AtomicBool::new(false),
++            runtime,
++            config,
++            request,
++            overrides,
++        };
++        selected.renew().await?;
++        Ok(selected)
++    }
++}
++
++impl<'a> SelectedStartConfig<'a> {
++    pub(crate) fn config(&self) -> &Config {
++        &self.config
++    }
++
++    /// Reuses the real loader and exact selectors. A successful bounded before/
++    /// after comparison is not a lease over uncoordinated external writers.
++    async fn renew(&self) -> io::Result<()> {
++        if self.invalidated.load(Ordering::Acquire) {
++            return Err(io::Error::other("selected start source was invalidated"));
++        }
++        let result = async {
++            let current = self
++                .manager
++                .load_with_overrides(self.request.clone(), self.overrides.clone())
++                .await?;
++            if current != self.config {
++                return Err(io::Error::other("selected start configuration changed"));
++            }
++            self.runtime
++                .with_current(|| ())
++                .map_err(|_| io::Error::other("runtime feature publication changed"))
++        }
++        .await;
++        if result.is_err() {
++            self.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
++
++    pub(crate) async fn capture(
++        self,
++        manager: &ThreadManager,
++        mut options: StartThreadOptions,
++    ) -> io::Result<SelectedConfiguredStart<'a>> {
++        if options.config != self.config {
++            return Err(io::Error::other(
++                "selected start configuration was replaced",
++            ));
++        }
++        // The equality gate refuses caller changes; use the original owner's
++        // materialized data rather than treating an equal caller Config as custody.
++        options.config = self.config.clone();
++        let start = manager
++            .prepare_selected_start(options)
++            .await
++            .map_err(io::Error::other)?;
++        self.renew().await?;
++        Ok(SelectedConfiguredStart {
++            source: self,
++            start,
++        })
++    }
++}
++
++impl SelectedConfiguredStart<'_> {
++    pub(crate) fn start(&self) -> &SelectedStartInputs {
++        &self.start
++    }
++    pub(crate) fn capture_api_mcp(
++        &mut self,
++        manager: &ThreadManager,
++        credentials: codex_login::auth::CapturedApiKeyCredentials,
++    ) -> io::Result<()> {
++        manager.capture_selected_start_api_mcp(&mut self.start, credentials)
++    }
++
++    pub(crate) async fn renew(&self, manager: &ThreadManager) -> io::Result<()> {
++        self.source.renew().await?;
++        manager
++            .renew_selected_start(&self.start)
++            .await
++            .map_err(io::Error::other)?;
++        self.source.renew().await
++    }
++
++    pub(crate) fn adopt(
++        &mut self,
++        manager: &ThreadManager,
++    ) -> io::Result<codex_core::SelectedStartAdoption> {
++        if self.source.invalidated.load(Ordering::Acquire) {
++            return Err(io::Error::other("selected start source was invalidated"));
++        }
++        self.source
++            .runtime
++            .with_current(|| manager.adopt_selected_start(&mut self.start))
++            .map_err(|_| io::Error::other("runtime feature publication changed"))?
++    }
++
++    /// Only original controlled publications are locked here. Call renew first;
++    /// no loader/I/O/await/reentry is permitted inside the synchronous action.
++    pub(crate) fn with_current<R>(
++        &self,
++        manager: &ThreadManager,
++        associate: impl FnOnce() -> R,
++    ) -> io::Result<R> {
++        if self.source.invalidated.load(Ordering::Acquire) {
++            return Err(io::Error::other("selected start source was invalidated"));
++        }
++        self.source
++            .runtime
++            .with_current(|| manager.with_current_selected_start(&self.start, associate))
++            .map_err(|_| io::Error::other("runtime feature publication changed"))?
++            .map_err(io::Error::other)
++    }
++}
++
++#[cfg(test)]
++#[path = "selected_start_config_tests.rs"]
++mod tests;
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..39ca11f721e33173998f916a4eab8bc5a32f7d93
+--- /dev/null
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -0,0 +1,174 @@
++use super::*;
++use codex_arg0::Arg0DispatchPaths;
++use codex_config::CloudConfigBundleLoader;
++use codex_config::LoaderOverrides;
++use codex_core::CodexAppsToolsCache;
++use codex_core::passthrough_image_store;
++use codex_exec_server::EnvironmentManager;
++use codex_features::Feature;
++use codex_home::CodexHomeUserInstructionsProvider;
++use codex_login::AuthManager;
++use codex_login::CodexAuth;
++use codex_models_manager::manager::StaticModelsManager;
++use codex_protocol::openai_models::ModelsResponse;
++use codex_protocol::protocol::SessionSource;
++use codex_thread_store::InMemoryThreadStore;
++use pretty_assertions::assert_eq;
++use std::sync::Arc;
++
++fn manager(home: &std::path::Path) -> ConfigManager {
++    // Fixture filesystem sources replace host external effects; ordinary
++    // package/user/project/managed layers and default feature flags remain on.
++    ConfigManager::new(
++        home.to_path_buf(),
++        Vec::new(),
++        LoaderOverrides::with_managed_config_path_for_tests(home.join("managed.toml")),
++        /*strict_config*/ false,
++        CloudConfigBundleLoader::default(),
++        Arg0DispatchPaths::default(),
++        Arc::new(codex_config::NoopThreadConfigLoader),
++    )
++}
++
++fn thread_manager(config: &Config, store: Arc<InMemoryThreadStore>) -> Arc<ThreadManager> {
++    let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("synthetic-offline"));
++    let environment = Arc::new(EnvironmentManager::default_for_tests());
++    let (outgoing_tx, _outgoing_rx) = tokio::sync::mpsc::channel(4);
++    let outgoing = Arc::new(crate::outgoing_message::OutgoingMessageSender::new(
++        outgoing_tx,
++        codex_analytics::AnalyticsEventsClient::disabled(),
++    ));
++    let sink = crate::extensions::app_server_extension_event_sink(
++        outgoing,
++        crate::thread_state::ThreadStateManager::new(),
++    );
++    Arc::new_cyclic(|owner| {
++        ThreadManager::new(
++            config,
++            Arc::clone(&auth),
++            Arc::new(StaticModelsManager::new(
++                Some(Arc::clone(&auth)),
++                ModelsResponse { models: Vec::new() },
++            )),
++            CodexAppsToolsCache::default(),
++            SessionSource::Exec,
++            Arc::clone(&environment),
++            crate::extensions::thread_extensions(crate::extensions::ThreadExtensionDependencies {
++                event_sink: Arc::clone(&sink),
++                auth_manager: Arc::clone(&auth),
++                state_db: None,
++                analytics_events_client: codex_analytics::AnalyticsEventsClient::disabled(),
++                thread_manager: owner.clone(),
++                goal_service: Arc::new(codex_goal_extension::GoalService::new()),
++                environment_manager: Arc::clone(&environment),
++                executor_skill_provider: Arc::new(
++                    codex_skills_extension::ExecutorSkillProvider::new_with_restriction_product(
++                        Arc::clone(&environment),
++                        SessionSource::Exec.restriction_product(),
++                    ),
++                ),
++                git_attribution_base_url: config.chatgpt_base_url.clone(),
++                http_client_factory: config.http_client_factory(),
++                queue_service: None,
++                turn_start_admission: Some(Arc::new(
++                    crate::turn_admission::TurnAdmission::default(),
++                )),
++            }),
++            Arc::new(CodexHomeUserInstructionsProvider::new(
++                config.codex_home.clone(),
++            )),
++            /*analytics_events_client*/ None,
++            passthrough_image_store(),
++            store,
++            /*agent_graph_store*/ None,
++            "offline-selected-start".to_string(),
++            /*attestation_provider*/ None,
++            /*external_time_provider*/ None,
++        )
++    })
++}
++
++#[tokio::test]
++async fn actual_config_manager_and_thread_manager_retain_default_selection_without_starting() {
++    let home = tempfile::tempdir().unwrap();
++    let manager = manager(home.path());
++    let selected = manager
++        .load_selected_start_config(
++            /*request*/ None,
++            ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let config = selected.config().clone();
++    assert!(config.features.enabled(Feature::Apps));
++    assert!(config.features.enabled(Feature::Plugins));
++    let store = Arc::new(InMemoryThreadStore::default());
++    let threads = thread_manager(&config, Arc::clone(&store));
++    let mut captured = selected
++        .capture(&threads, StartThreadOptions::new(config.clone()))
++        .await
++        .unwrap();
++    captured.renew(&threads).await.unwrap();
++    assert_eq!(&captured.start().start_options().unwrap().config, &config);
++    assert_eq!(captured.with_current(&threads, || 7).unwrap(), 7);
++    let _adoption = captured.adopt(&threads).unwrap();
++    assert!(captured.adopt(&threads).is_err());
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++    assert!(!home.path().join(".sandbox_migration").exists());
++}
++
++#[tokio::test]
++async fn replaced_config_runtime_aba_and_persisted_settings_changes_refuse() {
++    let home = tempfile::tempdir().unwrap();
++    let manager = manager(home.path());
++    let overrides = ConfigOverrides {
++        cwd: Some(home.path().to_path_buf()),
++        ..Default::default()
++    };
++    let source = manager
++        .load_selected_start_config(/*request*/ None, overrides.clone())
++        .await
++        .unwrap();
++    let mut replaced = source.config().clone();
++    replaced.model = Some("caller-replacement".to_string());
++    let threads = thread_manager(source.config(), Arc::new(InMemoryThreadStore::default()));
++    assert!(
++        source
++            .capture(&threads, StartThreadOptions::new(replaced))
++            .await
++            .is_err()
++    );
++    let source = manager
++        .load_selected_start_config(/*request*/ None, overrides.clone())
++        .await
++        .unwrap();
++    manager
++        .extend_runtime_feature_enablement([("apps".to_string(), false)])
++        .unwrap();
++    manager
++        .extend_runtime_feature_enablement([("apps".to_string(), true)])
++        .unwrap();
++    assert!(source.renew().await.is_err());
++    let source = manager
++        .load_selected_start_config(/*request*/ None, overrides)
++        .await
++        .unwrap();
++    manager
++        .write_value(codex_app_server_protocol::ConfigValueWriteParams {
++            key_path: "model".to_string(),
++            value: serde_json::json!("changed-by-owner"),
++            merge_strategy: codex_app_server_protocol::MergeStrategy::Replace,
++            file_path: None,
++            expected_version: None,
++        })
++        .await
++        .unwrap();
++    assert!(source.renew().await.is_err());
++}
+diff --git a/codex-rs/core/src/context/world_state/environment.rs b/codex-rs/core/src/context/world_state/environment.rs
+index c1656865cb8b46d9f0ed80300a3ae21848c7ef8c..d51c3a0c705b646ad418de9e45fcfeeeda451378 100644
+--- a/codex-rs/core/src/context/world_state/environment.rs
++++ b/codex-rs/core/src/context/world_state/environment.rs
+@@ -37,6 +37,19 @@ pub(crate) struct EnvironmentsState {
+     subagents: Option<String>,
+ }
+ 
++/// Plain values read by the original environment/context owners. This carries
++/// no source-currentness or coverage authority. In particular, a missing shell
++/// version or date is not proof that a configured probe/clock may be omitted.
++/// Fresh preparation must retain its real observations separately and refuse
++/// unresolved effects; this constructor never performs those effects.
++pub(crate) struct ResolvedEnvironmentSources<'a> {
++    pub(crate) environments: &'a TurnEnvironmentSnapshot,
++    pub(crate) shell_version: Option<String>,
++    pub(crate) current_date: Option<String>,
++    pub(crate) timezone: Option<String>,
++    pub(crate) network: Option<NetworkContext>,
++}
++
+ impl EnvironmentsState {
+     pub(crate) async fn from_turn_context_with_environments(
+         turn_context: &TurnContext,
+@@ -55,12 +68,31 @@ impl EnvironmentsState {
+         } else {
+             None
+         };
+-        Self {
+-            environments: environment_states(environments),
++        Self::from_resolved_sources(ResolvedEnvironmentSources {
++            environments,
+             shell_version,
+             current_date,
+             timezone: turn_context.timezone.clone(),
+             network: network_from_turn_context(turn_context),
++        })
++    }
++
++    /// Pure projection shared after ordinary effects and by passive source
++    /// capture. It neither reads a clock nor probes/publishes a shell cache.
++    pub(crate) fn from_resolved_sources(sources: ResolvedEnvironmentSources<'_>) -> Self {
++        let ResolvedEnvironmentSources {
++            environments,
++            shell_version,
++            current_date,
++            timezone,
++            network,
++        } = sources;
++        Self {
++            environments: environment_states(environments),
++            shell_version,
++            current_date,
++            timezone,
++            network,
+             filesystem: environments.primary().map(|environment| {
+                 FileSystemContext::from_permission_profile(
+                     environment.permission_profile(),
+diff --git a/codex-rs/core/src/context/world_state/environment_tests.rs b/codex-rs/core/src/context/world_state/environment_tests.rs
+index 6bda9b79b65b2b5a3ff134e0a9f1920f016dce80..1023113a17a72d979ecd1fd77e4735a7dfda6ea2 100644
+--- a/codex-rs/core/src/context/world_state/environment_tests.rs
++++ b/codex-rs/core/src/context/world_state/environment_tests.rs
+@@ -414,3 +414,53 @@ fn failure_context_limits_total_detail_bytes_at_utf8_boundaries() {
+         ]
+     );
+ }
++
++#[tokio::test]
++async fn resolved_environment_projection_preserves_ordinary_source_bytes() -> Result<()> {
++    use codex_protocol::protocol::EnvironmentConfigState;
++    use codex_protocol::protocol::TurnEnvironmentSelection;
++
++    // The ordinary comparison uses the original offline Session/TurnContext
++    // fixture. No turn is started, clock read or provider invoked.
++    let (_session, turn_context) = crate::session::tests::make_session_and_context().await;
++    let selected = TurnEnvironmentSnapshot {
++        environments: vec![TurnEnvironmentState::Failed {
++            selection: TurnEnvironmentSelection {
++                environment_id: "selected-remote".to_string(),
++                cwd: PathUri::parse("file:///selected/workspace")?,
++                workspace_roots: Vec::new(),
++                config: EnvironmentConfigState::FromThread,
++            },
++            error: "Original <owner> & unavailable 界".to_string(),
++        }],
++    };
++    for current_date in [None, Some("2026-10-20".to_string())] {
++        let ordinary = EnvironmentsState::from_turn_context_with_environments(
++            &turn_context,
++            &selected,
++            current_date.clone(),
++        )
++        .await;
++        let resolved = EnvironmentsState::from_resolved_sources(ResolvedEnvironmentSources {
++            environments: &selected,
++            shell_version: None,
++            current_date,
++            timezone: turn_context.timezone.clone(),
++            network: network_from_turn_context(&turn_context),
++        });
++        // Compare complete annotated provider items, including exact role,
++        // content-kind and whitespace, as well as persisted source projection.
++        assert_eq!(resolved.render_fragment(), ordinary.render_fragment());
++        assert_eq!(
++            serde_json::to_value(resolved.snapshot())?,
++            serde_json::to_value(ordinary.snapshot())?,
++        );
++        assert!(
++            resolved
++                .body()
++                .contains("Original &lt;owner&gt; &amp; unavailable 界")
++        );
++        assert!(resolved.body().contains("<status>failed</status>"));
++    }
++    Ok(())
++}
+diff --git a/codex-rs/core/src/context/world_state/mod.rs b/codex-rs/core/src/context/world_state/mod.rs
+index 1c4441f80e3aaf8f61a0e2be2158ac443edb1c43..263c0fcf913f837ef199ec3a7526fe0c5cdc9e5a 100644
+--- a/codex-rs/core/src/context/world_state/mod.rs
++++ b/codex-rs/core/src/context/world_state/mod.rs
+@@ -13,6 +13,7 @@ mod permissions;
+ mod persistent_mode;
+ mod plugins_instructions;
+ mod realtime;
++mod section_order;
+ #[cfg(test)]
+ mod test_support;
+ mod tools;
+@@ -41,6 +42,7 @@ pub(crate) use collaboration_mode::CollaborationModeState;
+ pub(crate) use compact_permissions::CompactPermissionsState;
+ pub(crate) use context_window_guidance::ContextWindowGuidanceState;
+ pub(crate) use environment::EnvironmentsState;
++pub(crate) use environment::ResolvedEnvironmentSources;
+ pub(crate) use environments_instructions::EnvironmentsInstructionsState;
+ pub(crate) use managed_developer_instructions::ManagedDeveloperInstructions;
+ pub(crate) use managed_developer_instructions::ManagedDeveloperInstructionsState;
+@@ -52,6 +54,8 @@ pub(crate) use permissions::PermissionsState;
+ pub(crate) use persistent_mode::PersistentModeState;
+ pub(crate) use plugins_instructions::PluginsInstructionsState;
+ pub(crate) use realtime::RealtimeState;
++pub(crate) use section_order::WorldStateSectionOrigin;
++pub(crate) use section_order::insert_ordered_section;
+ pub(crate) use tools::ToolsState;
+ 
+ trait ErasedWorldStateSection: Send + Sync {
+@@ -356,28 +360,21 @@ impl fmt::Debug for WorldState {
+ 
+ impl WorldState {
+     pub(crate) fn add_section<S: WorldStateSection>(&mut self, section: S) {
+-        let id = S::ID;
+-        assert!(
+-            !self.sections.contains_key(id),
+-            "duplicate world-state section ID: {id}"
++        insert_ordered_section(
++            &mut self.sections,
++            S::ID,
++            Box::new(section),
++            WorldStateSectionOrigin::Native,
+         );
+-        self.sections.insert(id, Box::new(section));
+     }
+ 
+     pub(crate) fn add_extension_section(&mut self, section: WorldStateSectionContribution) {
+-        let id = section.id();
+-        assert!(
+-            !self.sections.contains_key(id),
+-            "duplicate world-state section ID: {id}"
++        insert_ordered_section(
++            &mut self.sections,
++            section.id(),
++            Box::new(ExtensionWorldStateSection(section)),
++            WorldStateSectionOrigin::Extension,
+         );
+-        let section = Box::new(ExtensionWorldStateSection(section));
+-        if id == "host_skills"
+-            && let Some(index) = self.sections.get_index_of(PermissionsState::ID)
+-        {
+-            self.sections.shift_insert(index, id, section);
+-        } else {
+-            self.sections.insert(id, section);
+-        }
+     }
+ 
+     pub(crate) fn snapshot(&self) -> WorldStateSnapshot {
+diff --git a/codex-rs/core/src/context/world_state/section_order.rs b/codex-rs/core/src/context/world_state/section_order.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..703db9988333a1826a90303c8ae4618fe3d5cbac
+--- /dev/null
++++ b/codex-rs/core/src/context/world_state/section_order.rs
+@@ -0,0 +1,31 @@
++//! Native section placement shared by ordinary and resolved-data collection.
++//! This is ordering only, not contributor coverage or source authority.
++use super::PermissionsState;
++use super::WorldStateSection;
++use indexmap::IndexMap;
++
++#[derive(Clone, Copy, Debug)]
++pub(crate) enum WorldStateSectionOrigin {
++    Native,
++    Extension,
++}
++
++pub(crate) fn insert_ordered_section<T>(
++    sections: &mut IndexMap<&'static str, T>,
++    id: &'static str,
++    section: T,
++    origin: WorldStateSectionOrigin,
++) {
++    assert!(
++        !sections.contains_key(id),
++        "duplicate world-state section ID: {id}"
++    );
++    if matches!(origin, WorldStateSectionOrigin::Extension)
++        && id == "host_skills"
++        && let Some(index) = sections.get_index_of(PermissionsState::ID)
++    {
++        sections.shift_insert(index, id, section);
++    } else {
++        sections.insert(id, section);
++    }
++}
+diff --git a/codex-rs/core/src/current_time.rs b/codex-rs/core/src/current_time.rs
+index b2c3fadd790d9117563c9657039f325b7a76a6ad..3faae9535cbe8661c20b7af5d1271d94c85d7983 100644
+--- a/codex-rs/core/src/current_time.rs
++++ b/codex-rs/core/src/current_time.rs
+@@ -27,9 +27,17 @@ pub trait TimeProvider: Send + Sync {
+ 
+ pub(crate) struct SystemTimeProvider;
+ 
++impl SystemTimeProvider {
++    /// The original System read has no thread-specific state or host callback.
++    /// Keep ordinary reads and threadless source observation on this same path.
++    pub(crate) fn read_current_time(&self) -> DateTime<Utc> {
++        Utc::now()
++    }
++}
++
+ impl TimeProvider for SystemTimeProvider {
+     fn current_time(&self, _thread_id: ThreadId) -> TimeFuture<'_> {
+-        Box::pin(async { Ok(Utc::now()) })
++        Box::pin(async move { Ok(self.read_current_time()) })
+     }
+ 
+     fn sleep(&self, _thread_id: ThreadId, duration: Duration) -> SleepFuture<'_> {
+@@ -40,11 +48,26 @@ impl TimeProvider for SystemTimeProvider {
+     }
+ }
+ 
++pub(crate) fn selected_clock_source(
++    config: Option<&CurrentTimeReminderConfig>,
++) -> CurrentTimeSource {
++    config.map(|config| config.clock_source).unwrap_or_default()
++}
++
++/// Original model-visible environment date projection. This is deliberately
++/// separate from the date computed when TurnContext chooses its local timezone.
++pub(crate) fn environment_date(current_time: DateTime<Utc>) -> String {
++    current_time
++        .with_timezone(&chrono::Local)
++        .format("%Y-%m-%d")
++        .to_string()
++}
++
+ pub(crate) fn resolve_time_provider(
+     config: Option<&CurrentTimeReminderConfig>,
+     external_provider: Option<Arc<dyn TimeProvider>>,
+ ) -> Result<Arc<dyn TimeProvider>> {
+-    match config.map(|config| config.clock_source).unwrap_or_default() {
++    match selected_clock_source(config) {
+         CurrentTimeSource::System => Ok(Arc::new(SystemTimeProvider)),
+         CurrentTimeSource::External => external_provider.ok_or_else(|| {
+             anyhow!(
+diff --git a/codex-rs/core/src/exec_policy.rs b/codex-rs/core/src/exec_policy.rs
+index fc9eddc7ad02d609e1c39985c1e9adf175a111f0..bc02a149bca7e409fcf3286c8d997fd942b4cee0 100644
+--- a/codex-rs/core/src/exec_policy.rs
++++ b/codex-rs/core/src/exec_policy.rs
+@@ -42,6 +42,9 @@ use shlex::try_join as shlex_try_join;
+ 
+ mod executable_identity;
+ mod model_policy;
++mod passive_source;
++mod selected_start;
++pub(crate) use selected_start::SelectedStartPolicy;
+ 
+ pub(crate) use model_policy::AllowPrefixRules;
+ 
+@@ -678,6 +681,29 @@ pub async fn load_exec_policy(config_stack: &ConfigLayerStack) -> Result<Policy,
+     // Iterate the layers in increasing order of precedence, adding the *.rules
+     // from each layer, so that higher-precedence layers can override
+     // rules defined in lower-precedence ones.
++    let policy_paths = selected_policy_paths(config_stack).await?;
++    tracing::trace!(
++        policy_paths = ?policy_paths,
++        "loaded exec policies"
++    );
++
++    let mut parser = PolicyParser::new();
++    for policy_path in &policy_paths {
++        let contents =
++            fs::read_to_string(policy_path)
++                .await
++                .map_err(|source| ExecPolicyError::ReadFile {
++                    path: policy_path.clone(),
++                    source,
++                })?;
++        parse_policy_source(&mut parser, policy_path, &contents)?;
++    }
++    finish_selected_policy(config_stack, parser, policy_paths.len())
++}
++
++async fn selected_policy_paths(
++    config_stack: &ConfigLayerStack,
++) -> Result<Vec<PathBuf>, ExecPolicyError> {
+     let mut policy_paths = Vec::new();
+     for layer in config_stack.layers_low_to_high() {
+         if config_stack.ignore_user_and_project_exec_policy_rules()
+@@ -694,31 +720,41 @@ pub async fn load_exec_policy(config_stack: &ConfigLayerStack) -> Result<Policy,
+             policy_paths.extend(layer_policy_paths);
+         }
+     }
+-    tracing::trace!(
+-        policy_paths = ?policy_paths,
+-        "loaded exec policies"
+-    );
++    Ok(policy_paths)
++}
+ 
++fn parse_selected_policy(
++    config_stack: &ConfigLayerStack,
++    sources: &[(PathBuf, String)],
++) -> Result<Policy, ExecPolicyError> {
+     let mut parser = PolicyParser::new();
+-    for policy_path in &policy_paths {
+-        let contents =
+-            fs::read_to_string(policy_path)
+-                .await
+-                .map_err(|source| ExecPolicyError::ReadFile {
+-                    path: policy_path.clone(),
+-                    source,
+-                })?;
+-        let identifier = policy_path.to_string_lossy().to_string();
+-        parser
+-            .parse(&identifier, &contents)
+-            .map_err(|source| ExecPolicyError::ParsePolicy {
+-                path: identifier,
+-                source,
+-            })?;
++    for (policy_path, contents) in sources {
++        parse_policy_source(&mut parser, policy_path, contents)?;
+     }
++    finish_selected_policy(config_stack, parser, sources.len())
++}
+ 
++fn parse_policy_source(
++    parser: &mut PolicyParser,
++    path: &Path,
++    contents: &str,
++) -> Result<(), ExecPolicyError> {
++    let identifier = path.to_string_lossy().to_string();
++    parser
++        .parse(&identifier, contents)
++        .map_err(|source| ExecPolicyError::ParsePolicy {
++            path: identifier,
++            source,
++        })
++}
++
++fn finish_selected_policy(
++    config_stack: &ConfigLayerStack,
++    parser: PolicyParser,
++    file_count: usize,
++) -> Result<Policy, ExecPolicyError> {
+     let policy = parser.build();
+-    tracing::debug!("loaded rules from {} files", policy_paths.len());
++    tracing::debug!("loaded rules from {} files", file_count);
+     tracing::trace!(rules = ?policy, "exec policy rules loaded");
+ 
+     let Some(requirements_policy) = config_stack.requirements().exec_policy.as_deref() else {
+diff --git a/codex-rs/core/src/exec_policy/model_policy.rs b/codex-rs/core/src/exec_policy/model_policy.rs
+index 9ca8bc200ee22dc076778341518aebe80b52e3dc..2943dcc58db631a769a913dae065227ddd5ba802 100644
+--- a/codex-rs/core/src/exec_policy/model_policy.rs
++++ b/codex-rs/core/src/exec_policy/model_policy.rs
+@@ -28,31 +28,38 @@ impl ExecPolicyManager {
+         &self,
+         allow_prefix_rules: AllowPrefixRules,
+     ) -> Arc<Policy> {
+-        let policy = self.current();
+-        if allow_prefix_rules == AllowPrefixRules::Honor {
+-            return policy;
+-        }
++        project_for_prefix_rules(self.current(), allow_prefix_rules)
++    }
++}
+ 
+-        let rules = policy
+-            .rules()
+-            .iter_all()
+-            .flat_map(|(program, rules)| {
+-                rules.iter().filter_map(move |rule| {
+-                    let is_allow_prefix = rule
+-                        .as_any()
+-                        .downcast_ref::<PrefixRule>()
+-                        .is_some_and(|prefix| prefix.decision == Decision::Allow);
+-                    (!is_allow_prefix).then(|| (program.clone(), Arc::clone(rule)))
+-                })
++/// Pure ordinary model projection shared with original-owner source capture.
++pub(super) fn project_for_prefix_rules(
++    policy: Arc<Policy>,
++    allow_prefix_rules: AllowPrefixRules,
++) -> Arc<Policy> {
++    if allow_prefix_rules == AllowPrefixRules::Honor {
++        return policy;
++    }
++
++    let rules = policy
++        .rules()
++        .iter_all()
++        .flat_map(|(program, rules)| {
++            rules.iter().filter_map(move |rule| {
++                let is_allow_prefix = rule
++                    .as_any()
++                    .downcast_ref::<PrefixRule>()
++                    .is_some_and(|prefix| prefix.decision == Decision::Allow);
++                (!is_allow_prefix).then(|| (program.clone(), Arc::clone(rule)))
+             })
+-            .collect();
++        })
++        .collect();
+ 
+-        Arc::new(Policy::from_parts(
+-            rules,
+-            policy.network_rules().to_vec(),
+-            policy.host_executables().clone(),
+-        ))
+-    }
++    Arc::new(Policy::from_parts(
++        rules,
++        policy.network_rules().to_vec(),
++        policy.host_executables().clone(),
++    ))
+ }
+ 
+ #[cfg(test)]
+diff --git a/codex-rs/core/src/exec_policy/passive_source.rs b/codex-rs/core/src/exec_policy/passive_source.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..4fc1eca923d69968ed3ae18195be198efffd1a03
+--- /dev/null
++++ b/codex-rs/core/src/exec_policy/passive_source.rs
+@@ -0,0 +1,68 @@
++//! Passive observation of the original in-memory policy publisher only.
++//!
++//! This does not lease policy files, effective configuration or selection, run
++//! startup migration, or create a policy owner for a fresh thread. A future
++//! consumer must retain/adopt this same original manager and settle those other
++//! sources separately before it can associate a native request.
++use super::AllowPrefixRules;
++use super::ExecPolicyManager;
++use super::model_policy::project_for_prefix_rules;
++use codex_execpolicy::Policy;
++use std::sync::Arc;
++
++pub(crate) struct ExecPolicySourceObservation<'a> {
++    manager: &'a ExecPolicyManager,
++    source: Arc<Policy>,
++    projected: Arc<Policy>,
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub(crate) enum ExecPolicySourceError {
++    Busy,
++    Changed,
++}
++
++impl ExecPolicyManager {
++    /// Captures the original publication before the ordinary model projection.
++    /// Equal filtered bytes cannot hide a replacement of that publication.
++    pub(crate) fn observe_for_prefix_rules(
++        &self,
++        selection: AllowPrefixRules,
++    ) -> ExecPolicySourceObservation<'_> {
++        let source = self.current();
++        let projected = project_for_prefix_rules(Arc::clone(&source), selection);
++        ExecPolicySourceObservation {
++            manager: self,
++            source,
++            projected,
++        }
++    }
++}
++
++impl ExecPolicySourceObservation<'_> {
++    pub(crate) fn policy(&self) -> &Arc<Policy> {
++        &self.projected
++    }
++
++    /// Runs bounded synchronous association under the SAME semaphore used by
++    /// both real policy writers. The action must not await, reenter this owner
++    /// or perform file/loader effects. The guard ends when this call returns.
++    pub(crate) fn with_current<R>(
++        &self,
++        associate: impl FnOnce() -> R,
++    ) -> Result<R, ExecPolicySourceError> {
++        let _permit = self
++            .manager
++            .update_lock
++            .try_acquire()
++            .map_err(|_| ExecPolicySourceError::Busy)?;
++        if !Arc::ptr_eq(&self.source, &self.manager.current()) {
++            return Err(ExecPolicySourceError::Changed);
++        }
++        Ok(associate())
++    }
++}
++
++#[cfg(test)]
++#[path = "passive_source_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/exec_policy/passive_source_tests.rs b/codex-rs/core/src/exec_policy/passive_source_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..7e30d5dcf2c1ab822b0759e2ef123007cbf0815f
+--- /dev/null
++++ b/codex-rs/core/src/exec_policy/passive_source_tests.rs
+@@ -0,0 +1,77 @@
++use super::*;
++use codex_execpolicy::Decision;
++use codex_execpolicy::NetworkRuleProtocol;
++use codex_protocol::approvals::ExecPolicyAmendment;
++use pretty_assertions::assert_eq;
++
++#[tokio::test]
++async fn real_prefix_publisher_invalidates_even_an_equal_filtered_projection() {
++    let home = tempfile::tempdir().expect("test policy home");
++    let manager = ExecPolicyManager::default();
++    let observed = manager.observe_for_prefix_rules(AllowPrefixRules::IgnoreForCyberModel);
++    assert_eq!(observed.with_current(|| 1), Ok(1));
++    manager
++        .append_amendment_and_update(
++            home.path(),
++            &ExecPolicyAmendment::new(vec!["cargo".to_string(), "check".to_string()]),
++        )
++        .await
++        .expect("original prefix publisher");
++    let fresh = manager.observe_for_prefix_rules(AllowPrefixRules::IgnoreForCyberModel);
++    assert!(observed.policy().get_allowed_prefixes().is_empty());
++    assert!(fresh.policy().get_allowed_prefixes().is_empty());
++    assert_eq!(
++        observed.with_current(|| 2),
++        Err(ExecPolicySourceError::Changed)
++    );
++    assert_eq!(fresh.with_current(|| 3), Ok(3));
++    assert!(!manager.current().get_allowed_prefixes().is_empty());
++}
++
++#[tokio::test]
++async fn real_network_publisher_invalidates_the_original_policy_source() {
++    let home = tempfile::tempdir().expect("test policy home");
++    let manager = ExecPolicyManager::default();
++    let observed = manager.observe_for_prefix_rules(AllowPrefixRules::Honor);
++    manager
++        .append_network_rule_and_update(
++            home.path(),
++            "original-owner.test",
++            NetworkRuleProtocol::Https,
++            Decision::Forbidden,
++            /*justification*/ None,
++        )
++        .await
++        .expect("original network publisher");
++    let fresh = manager.observe_for_prefix_rules(AllowPrefixRules::Honor);
++    assert_eq!(
++        observed.with_current(|| ()),
++        Err(ExecPolicySourceError::Changed)
++    );
++    assert_eq!(fresh.with_current(|| ()), Ok(()));
++    assert_eq!(
++        fresh.policy().network_rules(),
++        manager.current().network_rules()
++    );
++    assert!(!fresh.policy().network_rules().is_empty());
++}
++
++#[test]
++fn policy_source_guard_refuses_during_the_original_publisher_lock() {
++    let manager = ExecPolicyManager::default();
++    let observed = manager.observe_for_prefix_rules(AllowPrefixRules::Honor);
++    assert!(Arc::ptr_eq(observed.policy(), &manager.current()));
++    let update = manager
++        .update_lock
++        .try_acquire()
++        .expect("original update lock");
++    let calls = std::cell::Cell::new(0);
++    assert_eq!(
++        observed.with_current(|| calls.set(calls.get() + 1)),
++        Err(ExecPolicySourceError::Busy),
++    );
++    assert_eq!(calls.get(), 0);
++    drop(update);
++    assert_eq!(observed.with_current(|| calls.set(calls.get() + 1)), Ok(()));
++    assert_eq!(calls.get(), 1);
++}
+diff --git a/codex-rs/core/src/exec_policy/selected_start.rs b/codex-rs/core/src/exec_policy/selected_start.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..230b961c7c5bb7094139158477c3d7af9519906d
+--- /dev/null
++++ b/codex-rs/core/src/exec_policy/selected_start.rs
+@@ -0,0 +1,100 @@
++//! Strict original policy custody, with bounded source fences and no migration.
++use super::*;
++use codex_execpolicy::PrefixRuleMigrationObservation;
++use codex_execpolicy::observe_prefix_rule_migration;
++use std::io;
++use tokio::io::AsyncReadExt;
++
++pub(crate) struct SelectedStartPolicy {
++    pub(crate) manager: Arc<ExecPolicyManager>,
++    publication: Arc<Policy>,
++    files: Vec<(PathBuf, String)>,
++    migration: Option<PrefixRuleMigrationObservation>,
++}
++
++async fn files(config: &Config) -> io::Result<Vec<(PathBuf, String)>> {
++    const MAX_FILE_BYTES: u64 = 1024 * 1024;
++    const MAX_TOTAL_BYTES: usize = 8 * 1024 * 1024;
++    let mut sources = Vec::new();
++    let mut total = 0;
++    let paths = selected_policy_paths(&config.config_layer_stack)
++        .await
++        .map_err(io::Error::other)?;
++    if paths.len() > 128 {
++        return Err(io::Error::other("too many selected policy files"));
++    }
++    for path in paths {
++        let file = fs::File::open(&path).await?;
++        let mut bytes = Vec::new();
++        file.take(MAX_FILE_BYTES + 1)
++            .read_to_end(&mut bytes)
++            .await?;
++        total += bytes.len();
++        if bytes.len() as u64 > MAX_FILE_BYTES || total > MAX_TOTAL_BYTES {
++            return Err(io::Error::other("selected policy exceeds capture limit"));
++        }
++        sources.push((path, String::from_utf8(bytes).map_err(io::Error::other)?));
++    }
++    Ok(sources)
++}
++
++async fn migration(config: &Config) -> io::Result<Option<PrefixRuleMigrationObservation>> {
++    if config
++        .config_layer_stack
++        .ignore_user_and_project_exec_policy_rules()
++    {
++        return Ok(None);
++    }
++    observe_prefix_rule_migration(
++        &config.codex_home,
++        &default_policy_path(&config.codex_home),
++        BANNED_PREFIX_SUGGESTIONS,
++    )
++    .await
++    .map(Some)
++}
++
++impl SelectedStartPolicy {
++    pub(crate) async fn load(config: &Config) -> io::Result<Self> {
++        // Follow the original migration participation flag. Never create its
++        // marker or edit rules during selected-start preparation.
++        let migration = migration(config).await?;
++        let sources = files(config).await?;
++        let policy = Arc::new(
++            parse_selected_policy(&config.config_layer_stack, &sources)
++                .map_err(io::Error::other)?,
++        );
++        let selected = Self {
++            manager: Arc::new(ExecPolicyManager::new(Arc::clone(&policy))),
++            publication: policy,
++            files: sources,
++            migration,
++        };
++        selected.renew(config).await?;
++        Ok(selected)
++    }
++
++    pub(crate) async fn renew(&self, config: &Config) -> io::Result<()> {
++        let migration = migration(config).await?;
++        if migration != self.migration || files(config).await? != self.files {
++            return Err(io::Error::other("selected policy sources changed"));
++        }
++        self.with_current(|| ())
++    }
++
++    pub(crate) fn policy(&self) -> &Arc<Policy> {
++        &self.publication
++    }
++
++    pub(crate) fn with_current<R>(&self, associate: impl FnOnce() -> R) -> io::Result<R> {
++        let _permit = self
++            .manager
++            .update_lock
++            .try_acquire()
++            .map_err(|_| io::Error::other("selected policy writer busy"))?;
++        if !Arc::ptr_eq(&self.publication, &self.manager.current()) {
++            return Err(io::Error::other("selected policy publication changed"));
++        }
++        Ok(associate())
++    }
++}
+diff --git a/codex-rs/core/src/lib.rs b/codex-rs/core/src/lib.rs
+index 92ba22534945bd0a75b650c0adddb3cc08bc2a26..5762d0872bb3067654e597cc7550c983001710a9 100644
+--- a/codex-rs/core/src/lib.rs
++++ b/codex-rs/core/src/lib.rs
+@@ -150,6 +150,11 @@ pub(crate) mod windows_sandbox_read_grants;
+ pub use thread_manager::ForkSnapshot;
+ pub use thread_manager::InternalSessionParent;
+ pub use thread_manager::NewThread;
++pub use thread_manager::PreSessionClockError;
++pub use thread_manager::PreSessionSkillsObservation;
++pub use thread_manager::PreSessionSystemClockObservation;
++pub use thread_manager::SelectedStartAdoption;
++pub use thread_manager::SelectedStartInputs;
+ pub use thread_manager::StartThreadOptions;
+ pub use thread_manager::ThreadManager;
+ pub use thread_manager::ThreadShutdownReport;
+diff --git a/codex-rs/core/src/mcp/pre_session.rs b/codex-rs/core/src/mcp/pre_session.rs
+index 5cb2d32fa72f1a5a93c3027c664ac914166c8eb7..28ac9b154c621e24489ab310dcdfaa08ec5b66df 100644
+--- a/codex-rs/core/src/mcp/pre_session.rs
++++ b/codex-rs/core/src/mcp/pre_session.rs
+@@ -5,6 +5,7 @@ use codex_core_plugins::EmptyPluginSourcesObservation;
+ use codex_core_plugins::PluginLoadOutcome;
+ use codex_exec_server::Environment;
+ use codex_exec_server::EnvironmentManager;
++use codex_extension_api::ExtensionRegistry;
+ use codex_extension_api::McpPreSessionContext;
+ use codex_extension_api::McpPreSessionOverlay;
+ use codex_features::Feature;
+@@ -32,6 +33,7 @@ use crate::thread_manager::StartThreadOptions;
+ /// complete request capture, counting and prepared admission remain required.
+ pub struct PreSessionMcpSources {
+     owner: Arc<()>,
++    pub(crate) extensions: Arc<ExtensionRegistry<crate::config::Config>>,
+     options: StartThreadOptions,
+     environment_manager: Arc<EnvironmentManager>,
+     environments: Vec<(String, Arc<Environment>)>,
+@@ -281,6 +283,7 @@ impl McpManager {
+         options.environments = Some(selections);
+         Ok(PreSessionMcpSources {
+             owner: Arc::clone(&self.pre_session_source_identity),
++            extensions: Arc::clone(&self.extensions),
+             options,
+             environment_manager,
+             environments,
+@@ -297,6 +300,7 @@ impl McpManager {
+         environment_manager: &Arc<EnvironmentManager>,
+     ) -> Result<(), PreSessionMcpError> {
+         if !Arc::ptr_eq(&self.pre_session_source_identity, &sources.owner)
++            || !Arc::ptr_eq(&self.extensions, &sources.extensions)
+             || !Arc::ptr_eq(environment_manager, &sources.environment_manager)
+         {
+             return Err(PreSessionMcpError::SourceOwnerChanged);
+diff --git a/codex-rs/core/src/session/initial_context_data_tests.rs b/codex-rs/core/src/session/initial_context_data_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..fff66e1e6fd0ff2d0ede1dc7eb2d4234c3eaae72
+--- /dev/null
++++ b/codex-rs/core/src/session/initial_context_data_tests.rs
+@@ -0,0 +1,84 @@
++use super::*;
++use crate::context::world_state::WorldStateSectionOrigin;
++use codex_context_fragments::AnnotatedContent;
++use codex_extension_api::RenderedWorldStateFragment;
++use codex_extension_api::WorldStateSectionContribution;
++use codex_protocol::models::ContentItemKind;
++use pretty_assertions::assert_eq;
++use std::sync::Arc;
++use std::sync::atomic::AtomicUsize;
++use std::sync::atomic::Ordering;
++
++fn section(id: &'static str, role: &'static str, text: &str) -> ResolvedInitialSection {
++    ResolvedInitialSection {
++        id,
++        origin: WorldStateSectionOrigin::Extension,
++        fragments: vec![ResolvedInitialFragment {
++            rendered: RenderedFragment::new(
++                role,
++                AnnotatedContent::input_text(text, ContentItemKind(format!("{id}.instructions"))),
++            ),
++            start_marker: "",
++            requires_separate_message: false,
++        }],
++    }
++}
++
++fn render(data: ResolvedInitialWorldState) -> Vec<ResponseItem> {
++    render_initial_context(InitialContextRenderInput {
++        world_state: data,
++        developer_sections: Vec::new(),
++        contextual_user_sections: Vec::new(),
++        separate_developer_sections: Vec::new(),
++        recommended_plugins: None,
++        separate_guardian_developer_message: false,
++        developer_instructions: None,
++        turn_id: "ordinary-turn",
++    })
++}
++
++#[test]
++fn plain_sections_share_ordinary_skill_placement_and_never_reenter_callbacks() {
++    let calls = Arc::new(AtomicUsize::new(0));
++    let mut ordinary = WorldState::default();
++    let mut sections = Vec::new();
++    for (id, role, text) in [
++        ("permissions", "developer", "Original permission bytes\n"),
++        ("environment", "user", "Original environment λ\n  "),
++        ("host_skills", "developer", "Original skill bytes\n"),
++        ("ignored", "assistant", "Original unsupported role"),
++    ] {
++        let observed = Arc::clone(&calls);
++        ordinary.add_extension_section(WorldStateSectionContribution::new(
++            id,
++            serde_json::json!({"version": 1}),
++            move |_| {
++                observed.fetch_add(1, Ordering::SeqCst);
++                Some(RenderedWorldStateFragment::new(role, ("", ""), text))
++            },
++        ));
++        sections.push(section(id, role, text));
++    }
++    let ordinary_items = render(collect_initial_world_state(&ordinary));
++    assert_eq!(calls.load(Ordering::SeqCst), 4);
++    let data = ResolvedInitialWorldState::from_sections(sections);
++    assert_eq!(render(data.clone()), ordinary_items);
++    assert_eq!(render(data), ordinary_items);
++    assert_eq!(calls.load(Ordering::SeqCst), 4);
++    let first = serde_json::to_string(&ordinary_items[0]).expect("developer item");
++    assert!(
++        first.find("Original skill bytes").unwrap()
++            < first.find("Original permission bytes").unwrap()
++    );
++}
++
++#[test]
++#[should_panic(expected = "duplicate world-state section ID: permissions")]
++fn plain_sections_reject_duplicate_ids_even_when_the_first_has_no_fragment() {
++    let mut first = section("permissions", "developer", "");
++    first.fragments.clear();
++    ResolvedInitialWorldState::from_sections(vec![
++        first,
++        section("permissions", "developer", "replacement"),
++    ]);
++}
+diff --git a/codex-rs/core/src/session/initial_context_render.rs b/codex-rs/core/src/session/initial_context_render.rs
+index 08242e456b895af1c33c0bbe3e9d571eba2c13e1..683d88915c6aee3a2e5eb606a5a59a73d912c287 100644
+--- a/codex-rs/core/src/session/initial_context_render.rs
++++ b/codex-rs/core/src/session/initial_context_render.rs
+@@ -11,9 +11,12 @@ use crate::context::ModelSwitchInstructions;
+ use crate::context::MultiAgentRoleInstructions;
+ use crate::context::RecommendedPluginsInstructions;
+ use crate::context::world_state::WorldState;
++use crate::context::world_state::WorldStateSectionOrigin;
++use crate::context::world_state::insert_ordered_section;
+ use codex_context_fragments::RenderedFragment;
+ use codex_protocol::models::ResponseItem;
+ use codex_protocol::protocol::MULTI_AGENT_MODE_OPEN_TAG;
++use indexmap::IndexMap;
+ 
+ #[derive(Clone, Debug)]
+ enum InitialFragmentPlacement {
+@@ -30,47 +33,94 @@ enum InitialFragmentPlacement {
+ #[derive(Clone, Debug)]
+ pub(crate) struct ResolvedInitialWorldState(Vec<(InitialFragmentPlacement, RenderedFragment)>);
+ 
++/// Already rendered plain data and native placement metadata. This carries no
++/// callback, registration, source currency or completeness claim.
++#[derive(Clone, Debug)]
++pub(crate) struct ResolvedInitialFragment {
++    pub(crate) rendered: RenderedFragment,
++    pub(crate) start_marker: &'static str,
++    pub(crate) requires_separate_message: bool,
++}
++
++/// One original section's resolved data. Retain sections that rendered nothing
++/// so duplicate IDs cannot silently replace an earlier empty section.
++pub(crate) struct ResolvedInitialSection {
++    pub(crate) id: &'static str,
++    pub(crate) origin: WorldStateSectionOrigin,
++    pub(crate) fragments: Vec<ResolvedInitialFragment>,
++}
++
++impl ResolvedInitialWorldState {
++    /// Callback-free collection from already resolved source data. The caller
++    /// must separately establish every real source, complete registry coverage
++    /// and currentness. Section IDs and fragment bytes establish none of those.
++    pub(crate) fn from_sections(sections: Vec<ResolvedInitialSection>) -> Self {
++        let mut ordered = IndexMap::new();
++        for section in sections {
++            insert_ordered_section(&mut ordered, section.id, section.fragments, section.origin);
++        }
++        Self(
++            ordered
++                .into_values()
++                .flatten()
++                .filter_map(|fragment| {
++                    initial_fragment_placement(
++                        fragment.rendered.role(),
++                        fragment.start_marker,
++                        fragment.requires_separate_message,
++                    )
++                    .map(|placement| (placement, fragment.rendered))
++                })
++                .collect(),
++        )
++    }
++}
++
++fn initial_fragment_placement(
++    role: &str,
++    start_marker: &str,
++    requires_separate_message: bool,
++) -> Option<InitialFragmentPlacement> {
++    Some(match role {
++        "developer" if start_marker == ModelSwitchInstructions::type_markers().0 => {
++            InitialFragmentPlacement::ModelSwitch
++        }
++        "developer" if start_marker == MULTI_AGENT_MODE_OPEN_TAG => {
++            InitialFragmentPlacement::MultiAgentMode
++        }
++        "developer" if start_marker == ManagedDeveloperInstructions::type_markers().0 => {
++            InitialFragmentPlacement::ManagedDeveloperInstructions
++        }
++        "developer" if start_marker == MultiAgentRoleInstructions::type_markers().0 => {
++            InitialFragmentPlacement::SeparateDeveloper
++        }
++        "developer" if requires_separate_message && start_marker.is_empty() => {
++            InitialFragmentPlacement::SeparateDeveloper
++        }
++        "developer" => InitialFragmentPlacement::Developer,
++        "user" => InitialFragmentPlacement::User,
++        _ => return None,
++    })
++}
++
+ /// Ordinary source collection, NOT a pre-session-safe read: WorldState::render_full
+-/// can invoke extension render callbacks. Fresh preparation must establish closed
+-/// source ownership before materializing any such state; it cannot borrow a live
+-/// Session's returned fragments as that proof.
++/// can invoke extension render callbacks. Only the returned resolved data enters
++/// the shared final renderer; this collector is never used as source authority.
+ pub(crate) fn collect_initial_world_state(world_state: &WorldState) -> ResolvedInitialWorldState {
+-    let fragments = world_state
+-        .render_full()
+-        .into_iter()
+-        .filter_map(|fragment| {
+-            let placement = match fragment.role() {
+-                "developer"
+-                    if fragment.markers().0 == ModelSwitchInstructions::type_markers().0 =>
+-                {
+-                    InitialFragmentPlacement::ModelSwitch
+-                }
+-                "developer" if fragment.markers().0 == MULTI_AGENT_MODE_OPEN_TAG => {
+-                    InitialFragmentPlacement::MultiAgentMode
+-                }
+-                "developer"
+-                    if fragment.markers().0 == ManagedDeveloperInstructions::type_markers().0 =>
+-                {
+-                    InitialFragmentPlacement::ManagedDeveloperInstructions
+-                }
+-                "developer"
+-                    if fragment.markers().0 == MultiAgentRoleInstructions::type_markers().0 =>
+-                {
+-                    InitialFragmentPlacement::SeparateDeveloper
+-                }
+-                "developer"
+-                    if fragment.requires_separate_message() && fragment.markers().0.is_empty() =>
+-                {
+-                    InitialFragmentPlacement::SeparateDeveloper
+-                }
+-                "developer" => InitialFragmentPlacement::Developer,
+-                "user" => InitialFragmentPlacement::User,
+-                _ => return None,
+-            };
+-            Some((placement, fragment.render_fragment()))
+-        })
+-        .collect();
+-    ResolvedInitialWorldState(fragments)
++    ResolvedInitialWorldState(
++        world_state
++            .render_full()
++            .into_iter()
++            .filter_map(|fragment| {
++                let placement = initial_fragment_placement(
++                    fragment.role(),
++                    fragment.markers().0,
++                    fragment.requires_separate_message(),
++                )?;
++                Some((placement, fragment.render_fragment()))
++            })
++            .collect(),
++    )
+ }
+ 
+ pub(crate) struct InitialContextRenderInput<'a> {
+@@ -303,3 +353,7 @@ mod tests {
+         std::assert!(first[0].turn_id().is_none());
+     }
+ }
++
++#[cfg(test)]
++#[path = "initial_context_data_tests.rs"]
++mod data_tests;
+diff --git a/codex-rs/core/src/session/turn_context.rs b/codex-rs/core/src/session/turn_context.rs
+index 0d7b59d77ea6089bf4c157176a923a8069c1da62..e0a462ad7b623753dd58465e69f13831aa7de162 100644
+--- a/codex-rs/core/src/session/turn_context.rs
++++ b/codex-rs/core/src/session/turn_context.rs
+@@ -827,7 +827,7 @@ impl TurnContext {
+     }
+ }
+ 
+-fn local_time_context() -> (String, String) {
++pub(crate) fn local_time_context() -> (String, String) {
+     match iana_time_zone::get_timezone() {
+         Ok(timezone) => (Local::now().format("%Y-%m-%d").to_string(), timezone),
+         Err(_) => (
+diff --git a/codex-rs/core/src/session/world_state.rs b/codex-rs/core/src/session/world_state.rs
+index c0d7dea64d78afdee4d19784759aa17bbd845576..e021a742d08f92babf5ab42aac7e8f3dd171e2d0 100644
+--- a/codex-rs/core/src/session/world_state.rs
++++ b/codex-rs/core/src/session/world_state.rs
+@@ -229,12 +229,7 @@ impl Session {
+             let current_date = self
+                 .read_clock_for_context(turn_context, "environment_date")
+                 .await?
+-                .map(|current_time| {
+-                    current_time
+-                        .with_timezone(&chrono::Local)
+-                        .format("%Y-%m-%d")
+-                        .to_string()
+-                });
++                .map(crate::current_time::environment_date);
+             world_state.add_section(
+                 EnvironmentsState::from_turn_context_with_environments(
+                     turn_context,
+diff --git a/codex-rs/core/src/thread_manager.rs b/codex-rs/core/src/thread_manager.rs
+index b7187ea745b750dc5ccadcc46de3ce65b71b3769..83aa3d20376fcafc831eebd10c09da4508471782 100644
+--- a/codex-rs/core/src/thread_manager.rs
++++ b/codex-rs/core/src/thread_manager.rs
+@@ -240,12 +240,21 @@ pub struct ThreadManager {
+     _test_codex_home_guard: Option<TempCodexHomeGuard>,
+ }
+ 
++#[path = "thread_manager/pre_session_clock.rs"]
++mod pre_session_clock;
+ #[path = "thread_manager/pre_session_global_instructions.rs"]
+ mod pre_session_global_instructions;
+ #[path = "thread_manager/pre_session_inputs.rs"]
+ mod pre_session_inputs;
+ #[path = "thread_manager/pre_session_skills.rs"]
+ mod pre_session_skills;
++#[path = "thread_manager/selected_start.rs"]
++mod selected_start;
++pub use pre_session_clock::PreSessionClockError;
++pub use pre_session_clock::PreSessionSystemClockObservation;
++pub use pre_session_skills::PreSessionSkillsObservation;
++pub use selected_start::SelectedStartAdoption;
++pub use selected_start::SelectedStartInputs;
+ 
+ /// Captured parent identity for an internal child, including inline parents that
+ /// do not have a public entry in the thread manager. Authentication and the shared
+@@ -1130,10 +1139,26 @@ impl ThreadManager {
+     }
+ 
+     async fn start_thread_inner(
++        &self,
++        options: StartThreadOptions,
++        forked_from_thread_id: Option<ThreadId>,
++        startup: Option<Arc<crate::session::startup::SessionStartup>>,
++    ) -> CodexResult<NewThread> {
++        self.start_thread_inner_with_policy(
++            options,
++            forked_from_thread_id,
++            startup,
++            /*inherited_exec_policy*/ None,
++        )
++        .await
++    }
++
++    async fn start_thread_inner_with_policy(
+         &self,
+         mut options: StartThreadOptions,
+         forked_from_thread_id: Option<ThreadId>,
+         startup: Option<Arc<crate::session::startup::SessionStartup>>,
++        inherited_exec_policy: Option<Arc<crate::exec_policy::ExecPolicyManager>>,
+     ) -> CodexResult<NewThread> {
+         let (resumed_session_source, resumed_thread_source) = options
+             .initial_history
+@@ -1174,6 +1199,7 @@ impl ThreadManager {
+             request
+         };
+         request.startup = startup;
++        request.inherited_exec_policy = inherited_exec_policy;
+         Box::pin(self.state.spawn_thread(request)).await
+     }
+ 
+diff --git a/codex-rs/core/src/thread_manager/pre_session_clock.rs b/codex-rs/core/src/thread_manager/pre_session_clock.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..f39c365513a76882926368f01b63422df196302e
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/pre_session_clock.rs
+@@ -0,0 +1,89 @@
++//! Selected original System clock data at the genuine fresh-start boundary.
++//!
++//! This observes the environment-date partition only. It is not a wall-clock,
++//! timezone or configuration lease, and cannot count, associate, release effects
++//! or make a request Ready. A completed factory must retain the exact rendered
++//! bytes and renew/adopt its original selection at the final operation; a TTL
++//! cannot establish currency. Reminder and nonfatal-error history partitions
++//! remain separate. No Session, synthetic ThreadId or External callback runs.
++
++use chrono::DateTime;
++use chrono::Utc;
++use codex_features::CurrentTimeSource;
++
++use super::ThreadManager;
++use crate::PreSessionMcpError;
++use crate::PreSessionMcpSources;
++use crate::current_time::SystemTimeProvider;
++use crate::current_time::environment_date;
++use crate::current_time::selected_clock_source;
++
++/// Plain original date/timezone data, retaining the actual selected start packet.
++/// Successful observation grants no subsequent source-currentness authority.
++pub struct PreSessionSystemClockObservation<'a> {
++    sources: &'a PreSessionMcpSources,
++    observed_time: DateTime<Utc>,
++    environment_date: String,
++    timezone: String,
++}
++
++#[derive(Debug, PartialEq, Eq)]
++pub enum PreSessionClockError {
++    NativeMcp(PreSessionMcpError),
++    ExternalRequiresThreadBoundary,
++}
++
++impl ThreadManager {
++    /// Reads only the actual selected System source, using the same read and
++    /// date/timezone projection as ordinary startup. An installed External clock
++    /// does not change the configured default, and an explicitly selected one
++    /// must never be replaced with System or addressed through a fake thread.
++    pub fn observe_pre_session_system_clock<'a>(
++        &self,
++        sources: &'a PreSessionMcpSources,
++    ) -> Result<PreSessionSystemClockObservation<'a>, PreSessionClockError> {
++        self.validate_pre_session_mcp_sources(sources)
++            .map_err(PreSessionClockError::NativeMcp)?;
++        match selected_clock_source(
++            sources
++                .start_options()
++                .config
++                .current_time_reminder
++                .as_ref(),
++        ) {
++            CurrentTimeSource::System => {}
++            CurrentTimeSource::External => {
++                return Err(PreSessionClockError::ExternalRequiresThreadBoundary);
++            }
++        }
++        let observed_time = SystemTimeProvider.read_current_time();
++        // Ordinary environment context takes its DATE from the selected clock,
++        // but its TIMEZONE from the independent original local-time selection.
++        // Do not substitute that selection's incidental date for the clock read.
++        let (_, timezone) = crate::session::turn_context::local_time_context();
++        Ok(PreSessionSystemClockObservation {
++            sources,
++            observed_time,
++            environment_date: environment_date(observed_time),
++            timezone,
++        })
++    }
++}
++
++impl<'a> PreSessionSystemClockObservation<'a> {
++    pub fn start_sources(&self) -> &'a PreSessionMcpSources {
++        self.sources
++    }
++
++    pub fn observed_time(&self) -> DateTime<Utc> {
++        self.observed_time
++    }
++
++    pub fn environment_date(&self) -> &str {
++        &self.environment_date
++    }
++
++    pub fn timezone(&self) -> &str {
++        &self.timezone
++    }
++}
+diff --git a/codex-rs/core/src/thread_manager/pre_session_inputs.rs b/codex-rs/core/src/thread_manager/pre_session_inputs.rs
+index b3d78a9234997965e0e882ffb1d9319a6ad300cd..65320a573f0a3522742fd5634ddbe6ecf146a9e7 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_inputs.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_inputs.rs
+@@ -114,6 +114,21 @@ impl ThreadManager {
+             .validate_pre_session_sources(sources, &self.state.environment_manager)
+     }
+ 
++    /// Lends only the same original registry retained by the actual MCP and
++    /// ThreadManager owners. This is provenance at this point, not a lease over
++    /// config/context data or permission to invoke ordinary callbacks.
++    pub fn pre_session_extension_registry(
++        &self,
++        sources: &PreSessionMcpSources,
++    ) -> Result<&codex_extension_api::ExtensionRegistry<crate::config::Config>, PreSessionMcpError>
++    {
++        self.validate_pre_session_mcp_sources(sources)?;
++        if !std::sync::Arc::ptr_eq(&self.state.extensions, &sources.extensions) {
++            return Err(PreSessionMcpError::SourceOwnerChanged);
++        }
++        Ok(self.state.extensions.as_ref())
++    }
++
+     /// Returns the retained ordinary options, including the resolved original
+     /// environment selection. This restores inputs, not an execution permit.
+     pub fn release_pre_session_start_inputs(
+diff --git a/codex-rs/core/src/thread_manager/pre_session_skills.rs b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+index ac651474569aa9e3128f70b83a59d51ef8c87382..eebedce13d6a76cc2e1a6f9d5a2bae550d40340b 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_skills.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_skills.rs
+@@ -25,7 +25,7 @@ use crate::config::Config;
+ #[path = "pre_session_skills_tests.rs"]
+ mod tests;
+ 
+-pub(crate) struct PreSessionSkillsObservation<'a> {
++pub struct PreSessionSkillsObservation<'a> {
+     model: UnverifiedModelLimitCandidate,
+     skills: SkillsContextObservation<'a, Config>,
+     environment_publication: SelectedEnvironmentPublicationObservation<'a>,
+@@ -36,7 +36,7 @@ impl PreSessionSkillsObservation<'_> {
+         &self.model
+     }
+ 
+-    pub(crate) fn skills(&self) -> &SkillsContextObservation<'_, Config> {
++    pub fn skills(&self) -> &SkillsContextObservation<'_, Config> {
+         &self.skills
+     }
+ 
+@@ -56,12 +56,12 @@ impl ThreadManager {
+     /// their effective servers; enabled empty Plugins retain their real owner.
+     /// Model metadata is captured passively from the original catalog; it is
+     /// explicitly unverified for selected-account/provider access.
+-    pub(crate) async fn observe_pre_session_skills<'a>(
++    pub async fn observe_pre_session_skills<'a>(
+         &'a self,
+-        sources: &PreSessionMcpSources,
++        sources: &'a PreSessionMcpSources,
+         input: &[UserInput],
+     ) -> CodexResult<PreSessionSkillsObservation<'a>> {
+-        self.validate_pre_session_mcp_sources(sources)
++        self.pre_session_extension_registry(sources)
+             .map_err(|_| unavailable())?;
+         let config = &sources.start_options().config;
+         let environment_publication = self
+diff --git a/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs b/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
+index 486116325853bd4eb2d3b880bdf22ff990f1befe..97beac055767dc1bd9d887b48d0902a015cf30fd 100644
+--- a/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
++++ b/codex-rs/core/src/thread_manager/pre_session_skills_tests.rs
+@@ -175,3 +175,31 @@ async fn foreign_fresh_source_packet_refuses_before_source_capture_or_session_cr
+     assert!(original.state.threads.read().await.is_empty());
+     assert!(foreign.state.threads.read().await.is_empty());
+ }
++
++#[tokio::test]
++async fn passive_registry_access_requires_the_same_original_mcp_and_thread_registry() {
++    let home = tempfile::tempdir().unwrap();
++    let config = config(&home).await;
++    let mut manager = manager(&config);
++    let original = manager
++        .capture_pre_session_mcp_sources(StartThreadOptions::new(config.clone()))
++        .unwrap();
++    assert!(std::ptr::eq(
++        manager.pre_session_extension_registry(&original).unwrap(),
++        manager.state.extensions.as_ref(),
++    ));
++    let state = Arc::get_mut(&mut manager.state).unwrap();
++    // Both are genuine original owners; the new MCP manager's empty registry
++    // cannot stand in for the actual thread manager's installed Skills registry.
++    state.mcp_manager = Arc::new(McpManager::new(Arc::clone(&state.plugins_manager)));
++    let foreign_registry_sources = manager
++        .capture_pre_session_mcp_sources(StartThreadOptions::new(config))
++        .unwrap();
++    assert_eq!(
++        manager
++            .pre_session_extension_registry(&foreign_registry_sources)
++            .err(),
++        Some(crate::PreSessionMcpError::SourceOwnerChanged),
++    );
++    assert!(manager.state.threads.read().await.is_empty());
++}
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..245fe1e641ededf1cfa3acc7fe609d60be8667fc
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -0,0 +1,196 @@
++//! One-use selected ordinary start custody. No Session, identity reservation,
++//! count, State record or Ready is created. Configuration authority remains with
++//! the original app-server loader; external source renewal is not an atomic lease.
++use super::*;
++use crate::PreSessionMcpSources;
++use crate::exec_policy::SelectedStartPolicy;
++use std::io;
++
++enum Inputs {
++    Options(StartThreadOptions),
++    Mcp(PreSessionMcpSources),
++}
++
++/// Opaque non-Clone/non-Serialize custody of the actual options and strict policy.
++pub struct SelectedStartInputs {
++    owner: Arc<ThreadManagerState>,
++    inputs: Option<Inputs>,
++    invalidated: AtomicBool,
++    policy: Arc<SelectedStartPolicy>,
++}
++
++/// One-use ordinary adoption; not a dispatch/admission authorization.
++pub struct SelectedStartAdoption {
++    owner: Arc<ThreadManagerState>,
++    options: StartThreadOptions,
++    policy: Arc<SelectedStartPolicy>,
++}
++
++impl SelectedStartInputs {
++    pub fn start_options(&self) -> io::Result<&StartThreadOptions> {
++        match self.inputs.as_ref() {
++            Some(Inputs::Options(options)) => Ok(options),
++            Some(Inputs::Mcp(sources)) => Ok(sources.start_options()),
++            None => Err(io::Error::other(
++                "selected start was consumed or capture failed",
++            )),
++        }
++    }
++    pub fn mcp_sources(&self) -> Option<&PreSessionMcpSources> {
++        match self.inputs.as_ref() {
++            Some(Inputs::Mcp(sources)) => Some(sources),
++            _ => None,
++        }
++    }
++    pub fn policy(&self) -> &Arc<codex_execpolicy::Policy> {
++        self.policy.policy()
++    }
++}
++
++impl ThreadManager {
++    pub async fn prepare_selected_start(
++        &self,
++        mut options: StartThreadOptions,
++    ) -> io::Result<SelectedStartInputs> {
++        let source = options
++            .session_source
++            .clone()
++            .unwrap_or_else(|| self.state.session_source.clone());
++        if !matches!(&options.initial_history, InitialHistory::New)
++            || options.internal_parent.is_some()
++            || options.inherited_environments.is_some()
++            || options.reserved_thread_id.is_some()
++            || session_isolation(&options.thread_extension_init, &source)
++                == codex_extension_api::SessionIsolation::Isolated
++        {
++            return Err(io::Error::other(
++                "selected start requires fresh ordinary inherited inputs",
++            ));
++        }
++        options.session_source = Some(source);
++        if options.environments.is_none() {
++            options.environments = Some(self.default_environment_selections(
++                &options.config.cwd,
++                &options.config.workspace_roots,
++            ));
++        }
++        let policy = Arc::new(SelectedStartPolicy::load(&options.config).await?);
++        Ok(SelectedStartInputs {
++            owner: Arc::clone(&self.state),
++            inputs: Some(Inputs::Options(options)),
++            invalidated: AtomicBool::new(false),
++            policy,
++        })
++    }
++
++    /// Existing genuine API MCP capture retains the SAME private start options.
++    /// Failure burns this custody rather than returning partially changed inputs.
++    pub fn capture_selected_start_api_mcp(
++        &self,
++        selected: &mut SelectedStartInputs,
++        credentials: codex_login::auth::CapturedApiKeyCredentials,
++    ) -> io::Result<()> {
++        self.with_current_selected_start(selected, || ())?;
++        let Some(Inputs::Options(options)) = selected.inputs.take() else {
++            return Err(io::Error::other(
++                "selected start is not awaiting MCP capture",
++            ));
++        };
++        let sources = self
++            .capture_pre_session_api_key_mcp_sources(options, credentials)
++            .map_err(io::Error::other)?;
++        selected.inputs = Some(Inputs::Mcp(sources));
++        self.with_current_selected_start(selected, || ())
++    }
++
++    pub async fn renew_selected_start(&self, selected: &SelectedStartInputs) -> io::Result<()> {
++        self.with_current_selected_start(selected, || ())?;
++        if let Err(error) = selected
++            .policy
++            .renew(&selected.start_options()?.config)
++            .await
++        {
++            selected.invalidated.store(true, Ordering::Release);
++            return Err(error);
++        }
++        self.with_current_selected_start(selected, || ())
++    }
++
++    /// Actual policy publisher guard only. Other source owners must nest their
++    /// own guards around final synchronous association, with no I/O/await/reentry.
++    pub fn with_current_selected_start<R>(
++        &self,
++        selected: &SelectedStartInputs,
++        associate: impl FnOnce() -> R,
++    ) -> io::Result<R> {
++        if !Arc::ptr_eq(&self.state, &selected.owner)
++            || selected.inputs.is_none()
++            || selected.invalidated.load(Ordering::Acquire)
++        {
++            return Err(io::Error::other(
++                "selected start owner changed or custody consumed",
++            ));
++        }
++        if let Some(sources) = selected.mcp_sources() {
++            self.validate_pre_session_mcp_sources(sources)
++                .map_err(io::Error::other)?;
++        }
++        selected.policy.with_current(associate)
++    }
++
++    /// Consumes retained options without reconstructing Config or policy. A
++    /// second adoption (also after uncertainty) cannot recover this custody.
++    pub fn adopt_selected_start(
++        &self,
++        selected: &mut SelectedStartInputs,
++    ) -> io::Result<SelectedStartAdoption> {
++        self.with_current_selected_start(selected, || ())?;
++        let policy = Arc::clone(&selected.policy);
++        policy.with_current(|| {
++            let inputs = selected
++                .inputs
++                .take()
++                .ok_or_else(|| io::Error::other("selected start already consumed"))?;
++            let options = match inputs {
++                Inputs::Options(options) => options,
++                Inputs::Mcp(sources) => sources.into_start_options(),
++            };
++            Ok(SelectedStartAdoption {
++                owner: Arc::clone(&self.state),
++                options,
++                policy: Arc::clone(&policy),
++            })
++        })?
++    }
++
++    pub async fn start_selected_start(
++        &self,
++        adoption: SelectedStartAdoption,
++    ) -> CodexResult<NewThread> {
++        if !Arc::ptr_eq(&self.state, &adoption.owner) {
++            return Err(CodexErr::InvalidRequest(
++                "foreign selected start adoption".to_string(),
++            ));
++        }
++        adoption
++            .policy
++            .renew(&adoption.options.config)
++            .await
++            .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        adoption
++            .policy
++            .with_current(|| ())
++            .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?;
++        Box::pin(self.start_thread_inner_with_policy(
++            adoption.options,
++            /*forked_from_thread_id*/ None,
++            /*startup*/ None,
++            Some(Arc::clone(&adoption.policy.manager)),
++        ))
++        .await
++    }
++}
++
++#[cfg(test)]
++#[path = "selected_start_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/thread_manager/selected_start_tests.rs b/codex-rs/core/src/thread_manager/selected_start_tests.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..dbf3cea36fbbcd2b6369fd31c937e9671b2215b5
+--- /dev/null
++++ b/codex-rs/core/src/thread_manager/selected_start_tests.rs
+@@ -0,0 +1,131 @@
++use super::*;
++use crate::config::ConfigBuilder;
++use codex_config::LoaderOverrides;
++use codex_exec_server::EnvironmentManager;
++use pretty_assertions::assert_eq;
++
++async fn fixture() -> (tempfile::TempDir, Config, ThreadManager) {
++    let home = tempfile::tempdir().unwrap();
++    let config = ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .loader_overrides(LoaderOverrides::with_managed_config_path_for_tests(
++            home.path().join("managed.toml"),
++        ))
++        .fallback_cwd(Some(home.path().to_path_buf()))
++        .build()
++        .await
++        .unwrap();
++    let manager = ThreadManager::with_models_provider_and_home_for_tests(
++        CodexAuth::from_api_key("synthetic-no-network"),
++        config.model_provider.clone(),
++        home.path().to_path_buf(),
++        Arc::new(EnvironmentManager::default_for_tests()),
++    );
++    (home, config, manager)
++}
++
++#[tokio::test]
++async fn selected_start_restores_actual_options_and_same_strict_policy_once_without_session() {
++    let (home, config, manager) = fixture().await;
++    let mut options = StartThreadOptions::new(config.clone());
++    options.metrics_service_name = Some("retained-source".to_string());
++    options.disabled_plugin_ids = Some(vec!["retained-selection".to_string()]);
++    let mut created = manager.state.thread_created_tx.subscribe();
++    let mut selected = manager.prepare_selected_start(options).await.unwrap();
++    assert_eq!(&selected.start_options().unwrap().config, &config);
++    let policy = Arc::clone(&selected.policy.manager);
++    let publication = Arc::clone(selected.policy());
++    manager.renew_selected_start(&selected).await.unwrap();
++    let adopted = manager.adopt_selected_start(&mut selected).unwrap();
++    assert!(Arc::ptr_eq(&policy, &adopted.policy.manager));
++    assert!(Arc::ptr_eq(&publication, &adopted.policy.manager.current()));
++    assert_eq!(adopted.options.config, config);
++    assert_eq!(
++        adopted.options.metrics_service_name.as_deref(),
++        Some("retained-source")
++    );
++    assert_eq!(
++        adopted.options.disabled_plugin_ids,
++        Some(vec!["retained-selection".to_string()])
++    );
++    assert!(adopted.options.environments.is_some());
++    assert!(adopted.options.reserved_thread_id.is_none());
++    assert!(manager.adopt_selected_start(&mut selected).is_err());
++    assert!(manager.state.threads.read().await.is_empty());
++    assert!(matches!(
++        created.try_recv(),
++        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
++    ));
++    assert!(!home.path().join(".sandbox_migration").exists());
++}
++
++#[tokio::test]
++async fn strict_parse_and_migration_changes_refuse_without_writes_or_fallback() {
++    let (home, config, manager) = fixture().await;
++    let rules = home.path().join("rules");
++    std::fs::create_dir_all(&rules).unwrap();
++    let path = rules.join("default.rules");
++    let invalid = "prefix_rule(not valid";
++    std::fs::write(&path, invalid).unwrap();
++    assert!(
++        manager
++            .prepare_selected_start(StartThreadOptions::new(config.clone()))
++            .await
++            .is_err()
++    );
++    assert_eq!(std::fs::read_to_string(&path).unwrap(), invalid);
++    let migration = "prefix_rule(pattern=[\"git\"], decision=\"allow\")\n";
++    std::fs::write(&path, migration).unwrap();
++    assert!(
++        manager
++            .prepare_selected_start(StartThreadOptions::new(config))
++            .await
++            .is_err()
++    );
++    assert_eq!(std::fs::read_to_string(&path).unwrap(), migration);
++    assert!(!home.path().join(".sandbox_migration").exists());
++}
++
++#[tokio::test]
++async fn foreign_owner_changed_files_and_real_policy_writer_refuse() {
++    let (home, config, manager) = fixture().await;
++    let (_, _, foreign) = fixture().await;
++    let mut selected = manager
++        .prepare_selected_start(StartThreadOptions::new(config.clone()))
++        .await
++        .unwrap();
++    assert!(foreign.adopt_selected_start(&mut selected).is_err());
++    std::fs::create_dir_all(home.path().join("rules")).unwrap();
++    std::fs::write(
++        home.path().join("rules/added.rules"),
++        "prefix_rule(pattern=[\"echo\"], decision=\"prompt\")\n",
++    )
++    .unwrap();
++    assert!(manager.renew_selected_start(&selected).await.is_err());
++    // A newly selected packet isolates the actual writer rejection from the
++    // preceding external-file invalidation.
++    let mut selected = manager
++        .prepare_selected_start(StartThreadOptions::new(config))
++        .await
++        .unwrap();
++    selected
++        .policy
++        .manager
++        .append_network_rule_and_update(
++            home.path(),
++            "example.invalid",
++            codex_execpolicy::NetworkRuleProtocol::Https,
++            codex_execpolicy::Decision::Forbidden,
++            /*justification*/ None,
++        )
++        .await
++        .unwrap();
++    let mut associated = false;
++    assert!(
++        manager
++            .with_current_selected_start(&selected, || associated = true)
++            .is_err()
++    );
++    assert!(!associated);
++    assert!(manager.adopt_selected_start(&mut selected).is_err());
++}
+diff --git a/codex-rs/execpolicy/src/lib.rs b/codex-rs/execpolicy/src/lib.rs
+index 293e2750589dd6046a49ac7561c20c6021799bfd..bd13927fba74aaf4c3a47ec25986e6f9cd04dfd3 100644
+--- a/codex-rs/execpolicy/src/lib.rs
++++ b/codex-rs/execpolicy/src/lib.rs
+@@ -30,4 +30,6 @@ pub use rule::PrefixRule;
+ pub use rule::Rule;
+ pub use rule::RuleMatch;
+ pub use rule::RuleRef;
++pub use sandbox_migration::PrefixRuleMigrationObservation;
++pub use sandbox_migration::observe_prefix_rule_migration;
+ pub use sandbox_migration::prefix_rule_migration;
+diff --git a/codex-rs/execpolicy/src/sandbox_migration.rs b/codex-rs/execpolicy/src/sandbox_migration.rs
+index a2a57c1c4cf4703399a5eff5cf3693f4a52d25da..9b89d0b76f2601f81583e419f4f5b982d479e96f 100644
+--- a/codex-rs/execpolicy/src/sandbox_migration.rs
++++ b/codex-rs/execpolicy/src/sandbox_migration.rs
+@@ -28,6 +28,54 @@ pub async fn prefix_rule_migration(
+     Ok(())
+ }
+ 
++/// Read-only outcome of the ORIGINAL migration. Absence of a marker is supported
++/// only when its exact original filter proves no effective policy change.
++/// This is source data, not a filesystem lease or permission to create a marker.
++#[derive(Debug, PartialEq, Eq)]
++pub struct PrefixRuleMigrationObservation {
++    marker_present: bool,
++    unchanged_policy: Option<String>,
++}
++
++pub async fn observe_prefix_rule_migration(
++    codex_home: &Path,
++    policy_path: &Path,
++    banned_prefixes: &[&[&str]],
++) -> io::Result<PrefixRuleMigrationObservation> {
++    let marker_present = tokio::fs::try_exists(codex_home.join(MIGRATION_MARKER_FILENAME)).await?;
++    let unchanged_policy = if marker_present {
++        None
++    } else {
++        let file = match tokio::fs::File::open(policy_path).await {
++            Ok(file) => Some(file),
++            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
++            Err(error) => return Err(error),
++        };
++        match file {
++            None => None,
++            Some(file) => {
++                const MAX_BYTES: u64 = 1024 * 1024;
++                let mut bytes = Vec::new();
++                file.take(MAX_BYTES + 1).read_to_end(&mut bytes).await?;
++                if bytes.len() as u64 > MAX_BYTES {
++                    return Err(io::Error::other("migration policy exceeds capture limit"));
++                }
++                let contents = String::from_utf8(bytes).map_err(io::Error::other)?;
++                if strip_banned_allow_rules(&contents, banned_prefixes) != contents {
++                    return Err(io::Error::other(
++                        "prefix rule migration would change selected policy",
++                    ));
++                }
++                Some(contents)
++            }
++        }
++    };
++    Ok(PrefixRuleMigrationObservation {
++        marker_present,
++        unchanged_policy,
++    })
++}
++
+ // atomically writes the marker after creating codex home when needed.
+ async fn write_migration_marker(codex_home: &Path, marker_path: &Path) -> io::Result<()> {
+     tokio::fs::create_dir_all(codex_home).await?;
+diff --git a/codex-rs/execpolicy/src/sandbox_migration_tests.rs b/codex-rs/execpolicy/src/sandbox_migration_tests.rs
+index 5bb6af6e256cbf1a66d0057503db2e7266a063c7..e42dd21d94c0b5f46ab85c69735a8535211b15b4 100644
+--- a/codex-rs/execpolicy/src/sandbox_migration_tests.rs
++++ b/codex-rs/execpolicy/src/sandbox_migration_tests.rs
+@@ -56,3 +56,28 @@ network_rule(host="api.github.com", protocol="https", decision="allow")
+         post_migration_policy
+     );
+ }
++
++#[tokio::test]
++async fn passive_migration_observation_accepts_absence_and_refuses_effective_change() {
++    let home = tempdir().unwrap();
++    let path = home.path().join("rules/default.rules");
++    let first = observe_prefix_rule_migration(home.path(), &path, &[&["git"]])
++        .await
++        .unwrap();
++    assert!(!home.path().join(MIGRATION_MARKER_FILENAME).exists());
++    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
++    let text = "prefix_rule(pattern=[\"git\"], decision=\"allow\")\n";
++    std::fs::write(&path, text).unwrap();
++    assert!(
++        observe_prefix_rule_migration(home.path(), &path, &[&["git"]])
++            .await
++            .is_err()
++    );
++    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
++    std::fs::write(home.path().join(MIGRATION_MARKER_FILENAME), "v1\n").unwrap();
++    let settled = observe_prefix_rule_migration(home.path(), &path, &[&["git"]])
++        .await
++        .unwrap();
++    assert_ne!(first, settled);
++    assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
++}
+diff --git a/codex-rs/ext/extension-api/src/lib.rs b/codex-rs/ext/extension-api/src/lib.rs
+index 7bdf4d8da223046eb8e3e4fdf29a8f8f98d5f796..fbc515835a19febf066e24ea150176ea35515ee2 100644
+--- a/codex-rs/ext/extension-api/src/lib.rs
++++ b/codex-rs/ext/extension-api/src/lib.rs
+@@ -106,6 +106,8 @@ pub use contributors::WorldStateSectionContribution;
+ pub use mcp_pre_session::McpPreSessionContext;
+ pub use mcp_pre_session::McpPreSessionOverlay;
+ pub use mcp_pre_session::McpPreSessionPlan;
++pub use registry::BoundContextSourceRegistrations;
++pub use registry::ContextSourceIdentity;
+ pub use registry::ContextSourceRegistrationError;
+ pub use registry::ExtensionRegistry;
+ pub use registry::ExtensionRegistryBuilder;
+diff --git a/codex-rs/ext/extension-api/src/registry.rs b/codex-rs/ext/extension-api/src/registry.rs
+index 0bf498b8046d7adf74365678182873f9ad5c3b15..c5fb54ef7c43e074368978c4324847e4dccfe180 100644
+--- a/codex-rs/ext/extension-api/src/registry.rs
++++ b/codex-rs/ext/extension-api/src/registry.rs
+@@ -1,3 +1,6 @@
++mod context_registration_set;
++pub use context_registration_set::BoundContextSourceRegistrations;
++pub use context_registration_set::ContextSourceIdentity;
+ mod context_sources;
+ mod pre_session_tools;
+ mod prompt_sources;
+diff --git a/codex-rs/ext/extension-api/src/registry/context_registration_set.rs b/codex-rs/ext/extension-api/src/registry/context_registration_set.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..b00d6aa39fc8bf9533df111b6b23d23ecf25ad9e
+--- /dev/null
++++ b/codex-rs/ext/extension-api/src/registry/context_registration_set.rs
+@@ -0,0 +1,104 @@
++//! Original registry provenance only. These identities and complete sets do not
++//! attest any context partition's observed data, currency or request readiness.
++//! Concrete host composition must retain its source-owned observations beside
++//! this set and settle thread/turn/world-state partitions independently.
++use super::ContextSourceRegistrationError;
++use super::ExtensionRegistry;
++use super::RegisteredContextSource;
++use super::RegisteredPromptContextSource;
++use crate::ContextContributor;
++use crate::ToolContributor;
++use crate::TurnInputContributor;
++use std::sync::Arc;
++
++/// Opaque identity minted from one validated original typed registration.
++#[derive(Clone)]
++pub struct ContextSourceIdentity {
++    registry_identity: Arc<()>,
++    context_index: usize,
++    source: Arc<dyn ContextContributor>,
++}
++
++/// Complete original registration membership, ordered by the actual registry.
++/// This proves provenance/coverage of allocations, never observed context data.
++pub struct BoundContextSourceRegistrations {
++    registry_identity: Arc<()>,
++    sources: Vec<ContextSourceIdentity>,
++}
++
++impl BoundContextSourceRegistrations {
++    pub fn registration_indexes(&self) -> impl Iterator<Item = usize> + '_ {
++        self.sources.iter().map(|source| source.context_index)
++    }
++}
++
++impl<C: Sync> ExtensionRegistry<C> {
++    pub fn prompt_source_identity<T>(
++        &self,
++        registration: &RegisteredPromptContextSource<T>,
++    ) -> Result<ContextSourceIdentity, ContextSourceRegistrationError>
++    where
++        T: ContextContributor + 'static,
++    {
++        self.borrow_prompt_context_source(registration)?;
++        Ok(ContextSourceIdentity {
++            registry_identity: Arc::clone(&self.tool_inventory_identity),
++            context_index: registration.context_index,
++            source: Arc::clone(&self.context_contributors[registration.context_index]),
++        })
++    }
++
++    pub fn context_source_identity<T>(
++        &self,
++        registration: &RegisteredContextSource<T>,
++    ) -> Result<ContextSourceIdentity, ContextSourceRegistrationError>
++    where
++        T: ContextContributor + TurnInputContributor + ToolContributor + 'static,
++    {
++        self.assert_context_source_registration(registration)?;
++        Ok(ContextSourceIdentity {
++            registry_identity: Arc::clone(&self.tool_inventory_identity),
++            context_index: registration.context_index,
++            source: Arc::clone(&self.context_contributors[registration.context_index]),
++        })
++    }
++
++    /// Rejects missing, duplicated, foreign and unknown/legacy registrations.
++    /// Callers cannot replace actual indices or allocation pointers with names.
++    /// Successful binding does not qualify any initial context partition.
++    pub fn bind_context_source_registrations(
++        &self,
++        mut sources: Vec<ContextSourceIdentity>,
++    ) -> Result<BoundContextSourceRegistrations, ContextSourceRegistrationError> {
++        sources.sort_by_key(|source| source.context_index);
++        let bound = BoundContextSourceRegistrations {
++            registry_identity: Arc::clone(&self.tool_inventory_identity),
++            sources,
++        };
++        self.assert_bound_context_source_registrations(&bound)?;
++        Ok(bound)
++    }
++
++    pub fn assert_bound_context_source_registrations(
++        &self,
++        bound: &BoundContextSourceRegistrations,
++    ) -> Result<(), ContextSourceRegistrationError> {
++        if !Arc::ptr_eq(&self.tool_inventory_identity, &bound.registry_identity) {
++            return Err(ContextSourceRegistrationError::RegistryChanged);
++        }
++        for source in &bound.sources {
++            if !Arc::ptr_eq(&self.tool_inventory_identity, &source.registry_identity) {
++                return Err(ContextSourceRegistrationError::RegistryChanged);
++            }
++        }
++        if bound.sources.len() != self.context_contributors.len()
++            || bound.sources.iter().enumerate().any(|(index, source)| {
++                source.context_index != index
++                    || !Arc::ptr_eq(&source.source, &self.context_contributors[index])
++            })
++        {
++            return Err(ContextSourceRegistrationError::ContributorsChanged);
++        }
++        Ok(())
++    }
++}
+diff --git a/codex-rs/ext/extension-api/src/registry/context_sources.rs b/codex-rs/ext/extension-api/src/registry/context_sources.rs
+index dd7d799fa84af187f23f9157aba80f200c46fb7f..0675478155204fba8fabf850962a5b863391aabd 100644
+--- a/codex-rs/ext/extension-api/src/registry/context_sources.rs
++++ b/codex-rs/ext/extension-api/src/registry/context_sources.rs
+@@ -21,7 +21,7 @@ pub(super) struct CoupledContextSource {
+ pub struct RegisteredContextSource<T> {
+     source: Arc<T>,
+     registry_identity: Arc<()>,
+-    context_index: usize,
++    pub(super) context_index: usize,
+     turn_input_index: usize,
+     tool_index: usize,
+ }
+diff --git a/codex-rs/ext/extension-api/src/registry/prompt_sources.rs b/codex-rs/ext/extension-api/src/registry/prompt_sources.rs
+index 8a31ba83e7c0717ea2fa8f25fa418ad4cea427f6..f3d31e8fce622ad7179b5447ef0b3eb9eb6d9433 100644
+--- a/codex-rs/ext/extension-api/src/registry/prompt_sources.rs
++++ b/codex-rs/ext/extension-api/src/registry/prompt_sources.rs
+@@ -17,7 +17,7 @@ pub(super) struct PromptContextSource {
+ pub struct RegisteredPromptContextSource<T> {
+     source: Arc<T>,
+     registry_identity: Arc<()>,
+-    context_index: usize,
++    pub(super) context_index: usize,
+ }
+ 
+ impl<C: Sync> ExtensionRegistryBuilder<C> {
+diff --git a/codex-rs/ext/extension-api/tests/registry.rs b/codex-rs/ext/extension-api/tests/registry.rs
+index 1dfeb793919a10a10f3e93b54e7de45c691966cc..c86b99aa978a14c1abdb5e0b995068077c8d5db6 100644
+--- a/codex-rs/ext/extension-api/tests/registry.rs
++++ b/codex-rs/ext/extension-api/tests/registry.rs
+@@ -562,3 +562,88 @@ fn coupled_context_sources_preserve_order_without_enrolling_legacy_registrations
+         ),
+     );
+ }
++
++#[test]
++fn complete_context_registration_binding_orders_actual_heterogeneous_sources() {
++    let mut builder = ExtensionRegistryBuilder::<()>::new();
++    builder.prompt_context_source(Arc::new(AllContributors));
++    builder.coupled_context_contributor(Arc::new(AllContributors));
++    let registry = builder.build();
++    let prompt = registry.registered_prompt_context_sources::<AllContributors>();
++    let coupled = registry.registered_context_sources::<AllContributors>();
++    let bound = registry
++        .bind_context_source_registrations(vec![
++            registry.context_source_identity(&coupled[0]).unwrap(),
++            registry.prompt_source_identity(&prompt[0]).unwrap(),
++        ])
++        .unwrap();
++    assert_eq!(bound.registration_indexes().collect::<Vec<_>>(), vec![0, 1]);
++    assert_eq!(
++        registry.assert_bound_context_source_registrations(&bound),
++        Ok(())
++    );
++    let copied = registry.to_builder().build();
++    assert_eq!(
++        copied.assert_bound_context_source_registrations(&bound),
++        Err(codex_extension_api::ContextSourceRegistrationError::RegistryChanged),
++    );
++    assert_eq!(
++        copied.prompt_source_identity(&prompt[0]).err(),
++        Some(codex_extension_api::ContextSourceRegistrationError::RegistryChanged),
++    );
++}
++
++#[test]
++fn context_registration_binding_refuses_missing_duplicate_or_legacy_sources() {
++    let mut builder = ExtensionRegistryBuilder::<()>::new();
++    builder.prompt_context_source(Arc::new(AllContributors));
++    builder.prompt_context_source(Arc::new(AllContributors));
++    let registry = builder.build();
++    let prompt = registry.registered_prompt_context_sources::<AllContributors>();
++    for identities in [
++        Vec::new(),
++        vec![registry.prompt_source_identity(&prompt[0]).unwrap()],
++        vec![
++            registry.prompt_source_identity(&prompt[0]).unwrap(),
++            registry.prompt_source_identity(&prompt[0]).unwrap(),
++        ],
++    ] {
++        assert_eq!(
++            registry.bind_context_source_registrations(identities).err(),
++            Some(codex_extension_api::ContextSourceRegistrationError::ContributorsChanged),
++        );
++    }
++    let mut with_legacy = registry.to_builder();
++    with_legacy.prompt_contributor(Arc::new(AllContributors));
++    let with_legacy = with_legacy.build();
++    let identities = with_legacy
++        .registered_prompt_context_sources::<AllContributors>()
++        .iter()
++        .map(|source| with_legacy.prompt_source_identity(source).unwrap())
++        .collect();
++    assert_eq!(
++        with_legacy
++            .bind_context_source_registrations(identities)
++            .err(),
++        Some(codex_extension_api::ContextSourceRegistrationError::ContributorsChanged),
++    );
++}
++
++#[test]
++fn an_empty_context_registration_set_still_belongs_to_its_original_registry() {
++    let registry = ExtensionRegistryBuilder::<()>::new().build();
++    let bound = registry
++        .bind_context_source_registrations(Vec::new())
++        .unwrap();
++    assert_eq!(
++        registry.assert_bound_context_source_registrations(&bound),
++        Ok(())
++    );
++    assert_eq!(
++        registry
++            .to_builder()
++            .build()
++            .assert_bound_context_source_registrations(&bound),
++        Err(codex_extension_api::ContextSourceRegistrationError::RegistryChanged),
++    );
++}
+diff --git a/codex-rs/ext/git-attribution/src/git_attribution_tests.rs b/codex-rs/ext/git-attribution/src/git_attribution_tests.rs
+index a5e02df1f3574522e417a4f316907d8886319ad7..e4abce1b0d4d5baec12e6558caa6cc42885ee828 100644
+--- a/codex-rs/ext/git-attribution/src/git_attribution_tests.rs
++++ b/codex-rs/ext/git-attribution/src/git_attribution_tests.rs
+@@ -46,6 +46,20 @@ async fn registered_api_key_initial_observation_matches_ordinary_policy_without_
+         .unwrap();
+     assert!(!ordinary.enabled);
+     assert!(observed.initial_fragment().is_none());
++    let registrations = registry
++        .bind_context_source_registrations(vec![observed.context_source_identity().clone()])
++        .unwrap();
++    assert_eq!(
++        registry.assert_bound_context_source_registrations(&registrations),
++        Ok(())
++    );
++    assert_eq!(
++        registry
++            .to_builder()
++            .build()
++            .assert_bound_context_source_registrations(&registrations),
++        Err(codex_extension_api::ContextSourceRegistrationError::RegistryChanged),
++    );
+     assert_eq!(observed.with_current_api_key_source(|| 29), Ok(29));
+     assert!(server.received_requests().await.unwrap().is_empty());
+ }
+diff --git a/codex-rs/ext/git-attribution/src/pre_session.rs b/codex-rs/ext/git-attribution/src/pre_session.rs
+index 396e39d4f5be82da5bb84b00ba1b7a1fed9c13d6..e57e5e848fc0fb96821f21be05e166e90b80d571 100644
+--- a/codex-rs/ext/git-attribution/src/pre_session.rs
++++ b/codex-rs/ext/git-attribution/src/pre_session.rs
+@@ -1,3 +1,4 @@
++use codex_extension_api::ContextSourceIdentity;
+ use codex_extension_api::ContextSourceRegistrationError;
+ use codex_extension_api::ExtensionRegistry;
+ use codex_extension_api::PreviousWorldStateSection;
+@@ -16,6 +17,7 @@ pub struct RegisteredGitAttributionSource {
+ /// Plain initial context from the original API-key branch. The same opaque
+ /// original credentials must be retained for count and guarded association.
+ pub struct GitAttributionInitialObservation<'a> {
++    registration: ContextSourceIdentity,
+     source: &'a GitAttributionExtension,
+     credentials: &'a CapturedApiKeyCredentials,
+     fragment: Option<RenderedWorldStateFragment>,
+@@ -60,6 +62,9 @@ impl RegisteredGitAttributionSource {
+             })
+             .ok_or(GitAttributionObservationError::UnresolvedAuth)?;
+         Ok(GitAttributionInitialObservation {
++            registration: registry
++                .prompt_source_identity(&self.registration)
++                .map_err(GitAttributionObservationError::Registration)?,
+             source,
+             credentials,
+             fragment,
+@@ -68,6 +73,11 @@ impl RegisteredGitAttributionSource {
+ }
+ 
+ impl GitAttributionInitialObservation<'_> {
++    /// Original source provenance only, not context/currentness authority.
++    pub fn context_source_identity(&self) -> &ContextSourceIdentity {
++        &self.registration
++    }
++
+     pub fn initial_fragment(&self) -> Option<&RenderedWorldStateFragment> {
+         self.fragment.as_ref()
+     }
+diff --git a/codex-rs/ext/history-notes/src/pre_session.rs b/codex-rs/ext/history-notes/src/pre_session.rs
+index 8204eb88534bddb1d229da6563c4faccaf3bc9d5..eab8afe553c5a8deef403e82d79852505bd27aeb 100644
+--- a/codex-rs/ext/history-notes/src/pre_session.rs
++++ b/codex-rs/ext/history-notes/src/pre_session.rs
+@@ -1,4 +1,5 @@
+ use codex_core::config::Config;
++use codex_extension_api::ContextSourceIdentity;
+ use codex_extension_api::ContextSourceRegistrationError;
+ use codex_extension_api::ExtensionRegistry;
+ use codex_extension_api::PromptFragment;
+@@ -16,6 +17,7 @@ pub struct RegisteredHistoryNotesSource {
+ /// Source-owned prompt absence for the borrowed fresh configuration only.
+ /// This is not a configuration-publication, account or whole-request lease.
+ pub struct HistoryNotesInitialObservation<'a> {
++    registration: ContextSourceIdentity,
+     _source: &'a HistoryNotesExtension,
+     config: &'a Config,
+     fragments: Vec<PromptFragment>,
+@@ -54,6 +56,9 @@ impl RegisteredHistoryNotesSource {
+             return Err(HistoryNotesObservationError::UnresolvedHintSource);
+         }
+         Ok(HistoryNotesInitialObservation {
++            registration: registry
++                .prompt_source_identity(&self.registration)
++                .map_err(HistoryNotesObservationError::Registration)?,
+             _source: source,
+             config,
+             fragments: Vec::new(),
+@@ -62,6 +67,11 @@ impl RegisteredHistoryNotesSource {
+ }
+ 
+ impl HistoryNotesInitialObservation<'_> {
++    /// Original source provenance only, not context/currentness authority.
++    pub fn context_source_identity(&self) -> &ContextSourceIdentity {
++        &self.registration
++    }
++
+     pub fn captured_config(&self) -> &Config {
+         self.config
+     }
+diff --git a/codex-rs/ext/history-notes/tests/history_notes_extension.rs b/codex-rs/ext/history-notes/tests/history_notes_extension.rs
+index 9b9431708a31efdf060dd442102b5b988074c4a5..04a70d7c3012c9efdb8477e4052ec319799abde5 100644
+--- a/codex-rs/ext/history-notes/tests/history_notes_extension.rs
++++ b/codex-rs/ext/history-notes/tests/history_notes_extension.rs
+@@ -82,6 +82,20 @@ async fn disabled_history_notes_capture_tracks_ordinary_configuration() -> TestR
+             .unwrap()
+     };
+     assert!(std::ptr::eq(context.captured_config(), &config));
++    let registrations = registry
++        .bind_context_source_registrations(vec![context.context_source_identity().clone()])
++        .unwrap();
++    assert_eq!(
++        registry.assert_bound_context_source_registrations(&registrations),
++        Ok(())
++    );
++    assert_eq!(
++        registry
++            .to_builder()
++            .build()
++            .assert_bound_context_source_registrations(&registrations),
++        Err(codex_extension_api::ContextSourceRegistrationError::RegistryChanged),
++    );
+     assert!(context.initial_fragments().is_empty());
+     let sources = codex_history_notes_extension::registered_history_notes_sources(&registry);
+     assert!(matches!(
+diff --git a/codex-rs/ext/memories/src/pre_session.rs b/codex-rs/ext/memories/src/pre_session.rs
+index cc8648b2beec45ca8b19672d3cb538c4107e8c7d..d2003e1e5110534e738c92c76ae8bce13306219a 100644
+--- a/codex-rs/ext/memories/src/pre_session.rs
++++ b/codex-rs/ext/memories/src/pre_session.rs
+@@ -1,4 +1,5 @@
+ use codex_core::config::Config;
++use codex_extension_api::ContextSourceIdentity;
+ use codex_extension_api::ContextSourceRegistrationError;
+ use codex_extension_api::ExtensionRegistry;
+ use codex_extension_api::PromptFragment;
+@@ -15,6 +16,7 @@ pub struct RegisteredMemoriesSource {
+ /// Enabled memories require actual summary custody even without dedicated tools.
+ /// This does not attest to external configuration or filesystem currency.
+ pub struct MemoriesInitialObservation<'a> {
++    registration: ContextSourceIdentity,
+     _source: &'a MemoriesExtension,
+     config: &'a Config,
+     fragments: Vec<PromptFragment>,
+@@ -51,6 +53,9 @@ impl RegisteredMemoriesSource {
+             return Err(MemoriesObservationError::UnresolvedSummarySource);
+         }
+         Ok(MemoriesInitialObservation {
++            registration: registry
++                .prompt_source_identity(&self.registration)
++                .map_err(MemoriesObservationError::Registration)?,
+             _source: source,
+             config,
+             fragments: Vec::new(),
+@@ -59,6 +64,11 @@ impl RegisteredMemoriesSource {
+ }
+ 
+ impl MemoriesInitialObservation<'_> {
++    /// Original source provenance only, not context/currentness authority.
++    pub fn context_source_identity(&self) -> &ContextSourceIdentity {
++        &self.registration
++    }
++
+     pub fn captured_config(&self) -> &Config {
+         self.config
+     }
+diff --git a/codex-rs/ext/memories/src/tests.rs b/codex-rs/ext/memories/src/tests.rs
+index 4c8852d6d32366114d8cf9f47bfefd571643dafa..295b497101dc05e9cfebac1de50f6a1d8d13841e 100644
+--- a/codex-rs/ext/memories/src/tests.rs
++++ b/codex-rs/ext/memories/src/tests.rs
+@@ -626,6 +626,20 @@ async fn registered_memory_prompt_absence_does_not_follow_nondedicated_tool_abse
+             .unwrap()
+     };
+     assert!(std::ptr::eq(context.captured_config(), &config));
++    let registrations = registry
++        .bind_context_source_registrations(vec![context.context_source_identity().clone()])
++        .unwrap();
++    assert_eq!(
++        registry.assert_bound_context_source_registrations(&registrations),
++        Ok(())
++    );
++    assert_eq!(
++        registry
++            .to_builder()
++            .build()
++            .assert_bound_context_source_registrations(&registrations),
++        Err(codex_extension_api::ContextSourceRegistrationError::RegistryChanged),
++    );
+     assert!(context.initial_fragments().is_empty());
+     let sources = crate::registered_memories_sources(&registry);
+     assert!(matches!(
+diff --git a/codex-rs/ext/skills/src/first_context_observation.rs b/codex-rs/ext/skills/src/first_context_observation.rs
+index b6f3d343ac57a39d7889acc7d950f45ddd1ae994..8f0d7eb7261b2ab04bb877a9844bf0d17f99885a 100644
+--- a/codex-rs/ext/skills/src/first_context_observation.rs
++++ b/codex-rs/ext/skills/src/first_context_observation.rs
+@@ -1,5 +1,6 @@
+ use std::collections::HashMap;
+ 
++use codex_extension_api::ContextSourceIdentity;
+ use codex_extension_api::ContextualUserFragment;
+ use codex_extension_api::ExtensionRegistry;
+ use codex_extension_api::PromptFragment;
+@@ -31,6 +32,7 @@ pub struct SkillsInputObservation<'a, C: Sync> {
+     source: &'a SkillsExtension<C>,
+     registry: &'a ExtensionRegistry<C>,
+     config: SkillsExtensionConfig,
++    host_config: &'a C,
+     model: ModelInfo,
+     user_input: Vec<UserInput>,
+     connector_slug_counts: HashMap<String, usize>,
+@@ -41,6 +43,7 @@ pub struct SkillsInputObservation<'a, C: Sync> {
+ /// source publication lease, complete extension inventory or Ready grant.
+ pub struct SkillsContextObservation<'a, C: Sync> {
+     input: SkillsInputObservation<'a, C>,
++    registration: ContextSourceIdentity,
+     executor: ExecutorSkillsObservation<'a>,
+     host: HostSkillPromptObservation,
+     initial_catalogs: InitialSkillCatalogs,
+@@ -60,7 +63,7 @@ where
+     pub fn observe_first_input<'a>(
+         &self,
+         registry: &'a ExtensionRegistry<C>,
+-        config: &C,
++        config: &'a C,
+         model: &ModelInfo,
+         user_input: &[UserInput],
+         connector_slug_counts: &HashMap<String, usize>,
+@@ -95,6 +98,7 @@ where
+             source,
+             registry,
+             config: projected,
++            host_config: config,
+             model: model.clone(),
+             user_input: user_input.to_vec(),
+             connector_slug_counts: connector_slug_counts.clone(),
+@@ -172,8 +176,13 @@ where
+             .await
+             .map_err(RegisteredSkillsSourceError::Host)?;
+         let tools = executor.tool_specs();
++        let registration = input
++            .registry
++            .context_source_identity(&self.registration)
++            .map_err(RegisteredSkillsSourceError::Registration)?;
+         Ok(SkillsContextObservation {
+             input,
++            registration,
+             executor,
+             host,
+             initial_catalogs,
+@@ -186,7 +195,23 @@ where
+     }
+ }
+ 
+-impl<C: Sync> SkillsContextObservation<'_, C> {
++impl<'a, C: Sync> SkillsInputObservation<'a, C> {
++    /// Exact original host config borrow, not upstream config currentness.
++    pub fn captured_config(&self) -> &'a C {
++        self.host_config
++    }
++}
++
++impl<'a, C: Sync> SkillsContextObservation<'a, C> {
++    pub fn captured_config(&self) -> &'a C {
++        self.input.host_config
++    }
++
++    /// Original registration provenance only; all source guards remain separate.
++    pub fn context_source_identity(&self) -> &ContextSourceIdentity {
++        &self.registration
++    }
++
+     /// Native-only providers have no thread-context contribution under the
+     /// original thread query (host/cloud excluded, executor roots absent).
+     pub fn thread_context(&self) -> &[PromptFragment] {
+diff --git a/codex-rs/ext/skills/src/first_context_observation_tests.rs b/codex-rs/ext/skills/src/first_context_observation_tests.rs
+index a3875b0c92819e5de19f535982a800e44afc23a4..8a60f45aad6d12956b1680d220421da36b6f1e0c 100644
+--- a/codex-rs/ext/skills/src/first_context_observation_tests.rs
++++ b/codex-rs/ext/skills/src/first_context_observation_tests.rs
+@@ -108,6 +108,7 @@ async fn capture(case: ContextCase) {
+             &HashMap::new(),
+         )
+         .unwrap();
++    assert!(std::ptr::eq(selected.captured_config(), &include_catalog));
+     let roots = vec![SelectedCapabilityRoot {
+         id: "original-knowledge".into(),
+         location: CapabilityRootLocation::Environment {

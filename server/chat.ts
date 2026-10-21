@@ -6555,6 +6555,7 @@ export async function startOwnedLocalResponsesCommand(
   }>();
   let running = false,
     closed = false;
+  let queryLoop: Promise<void> | undefined;
   const close = () => {
     if (closed) return;
     closed = true;
@@ -6649,6 +6650,20 @@ export async function startOwnedLocalResponsesCommand(
         },
         retryInitial: (raw) => (selected.resume ? owner.admitResume(raw) : owner.admit(raw)),
         close,
+        closeIdle: async () => {
+          const queue = native.queue(sessionId, options.reservation.binding);
+          if (
+            registry.findBySessionId(sessionId)?.session !== session ||
+            scheduling ||
+            owner.activeCommandId() ||
+            queue.active ||
+            queue.queued.length
+          )
+            throw Error('Responses owner is active');
+          close();
+          await query?.interrupt();
+          await queryLoop;
+        },
       };
       send(transport, { type: 'session_id', sessionId, clientMsgId: selected.commandId });
       send(transport, {
@@ -6758,7 +6773,7 @@ export async function startOwnedLocalResponsesCommand(
       });
       if (!running) {
         running = true;
-        void runQueryLoop(query!, clientId, registry, controller, eventStore, undefined, {
+        queryLoop = runQueryLoop(query!, clientId, registry, controller, eventStore, undefined, {
           connRegistry: _connRegistry ?? undefined,
           initialClientMsgId: commandId,
           onTurnEnd: (ownerClientId) => _onSessionChange?.(ownerClientId, 'turn_end'),

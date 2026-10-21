@@ -59,11 +59,12 @@ export function createConversationJoiningApplicationOwner(options: {
         repositoryWorkspaceId: setup.repositoryWorkspaceId,
         permissionMode: setup.permissionMode,
       });
+      const selectedMessageIds = selectionIntent.shape.messageIds.parse(setup.messageIds);
       const selection = selectionIntent.parse({
         requestId: request.requestId,
         sourceConversationId,
         mode: setup.context,
-        messageIds: setup.messageIds,
+        messageIds: setup.context === 'selected' ? selectedMessageIds : [],
         artifacts: setup.artifacts,
         purpose: setup.purpose,
         joiningBrief: request.joiningBrief,
@@ -72,17 +73,35 @@ export function createConversationJoiningApplicationOwner(options: {
         request.previousSnapshot === undefined
           ? undefined
           : CollaborationSnapshotReferenceSchema.parse(request.previousSnapshot);
+      const previousSource =
+        request.previousSource === undefined
+          ? undefined
+          : CollaborationApplicationReviewInputSchema.shape.selection
+              .pick({ boundary: true, expectedMembershipRevision: true })
+              .parse(request.previousSource);
+      if (previousSource && !previousSnapshot) throw unavailable();
       const [source, view] = await Promise.all([
         api.getDurableSessionTranscript(sourceConversationId, signal),
         api.collaborations.view(collaborationId, signal),
       ]);
       assertCurrent(signal);
-      const messageIds = new Set(source.messages.map((message) => message.messageId));
+      const boundary = previousSource?.boundary ?? source.boundary;
+      const membershipRevision =
+        previousSource?.expectedMembershipRevision ?? view.membershipRevision;
+      // The boundary is an event cursor; trailing metadata need not introduce a
+      // visible message. Its anchor must still be the last message in that prefix.
+      const prefix = source.messages.filter((message) => message.sequence <= boundary.sequence);
+      const messageIds = new Set(prefix.map((message) => message.messageId));
       if (
         source.sourceConversationId !== sourceConversationId ||
         view.collaborationId !== collaborationId ||
         !view.participantSessionIds.includes(sourceConversationId) ||
         view.unavailableParticipantSessionIds.includes(sourceConversationId) ||
+        view.membershipRevision !== membershipRevision ||
+        boundary.sequence > source.boundary.sequence ||
+        (boundary.messageId === null
+          ? boundary.sequence !== 0
+          : prefix.at(-1)?.messageId !== boundary.messageId) ||
         new Set(selection.messageIds).size !== selection.messageIds.length ||
         selection.messageIds.some((id) => !messageIds.has(id))
       )
@@ -90,8 +109,8 @@ export function createConversationJoiningApplicationOwner(options: {
       return CollaborationApplicationReviewInputSchema.parse({
         selection: {
           ...selection,
-          boundary: source.boundary,
-          expectedMembershipRevision: view.membershipRevision,
+          boundary,
+          expectedMembershipRevision: membershipRevision,
         },
         target,
         ...(previousSnapshot === undefined ? {} : { previousSnapshot }),

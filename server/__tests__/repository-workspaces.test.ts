@@ -410,3 +410,39 @@ it('retains the original claim when the descriptor-anchored copier refuses execu
   });
   f.service.close();
 });
+
+it('reads source repository intent from the actual claim without source files, writes, or a replacement claim', async () => {
+  const f = await fixture();
+  try {
+    const preview = await f.service.preview(
+      binding,
+      'connection',
+      'example/repo',
+      new AbortController().signal,
+    );
+    const database = join(f.root, 'private', 'workspaces.db');
+    expect(() =>
+      RepositoryWorkspaces.readConversationRepositoryIntent(database, 'conversation', preview.id),
+    ).toThrow();
+    await f.service.prepare(preview.id, binding, new AbortController().signal);
+    const claimed = await f.service.claim(preview.id, binding, 'conversation', f.taskRoot, false);
+    f.authorize.mockClear();
+    await rm(claimed.directory!, { recursive: true, force: true });
+    await rm(join(f.root, 'private', 'sources'), { recursive: true, force: true });
+    expect(
+      RepositoryWorkspaces.readConversationRepositoryIntent(database, 'conversation', claimed.id),
+    ).toEqual({ repository: 'example/repo' });
+    expect(() =>
+      RepositoryWorkspaces.readConversationRepositoryIntent(database, 'foreign', claimed.id),
+    ).toThrow();
+    const missing = join(f.root, 'missing.db');
+    expect(() =>
+      RepositoryWorkspaces.readConversationRepositoryIntent(missing, 'conversation', claimed.id),
+    ).toThrow();
+    await expect(access(missing)).rejects.toThrow();
+    expect(f.prepare).toHaveBeenCalledTimes(1);
+    expect(f.authorize).not.toHaveBeenCalled();
+  } finally {
+    f.service.close();
+  }
+});

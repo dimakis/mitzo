@@ -1,0 +1,17 @@
+diff --git a/codex-rs/core/src/session/configured_settings_update_tests.rs b/codex-rs/core/src/session/configured_settings_update_tests.rs
+index 04502d9..474578d 100644
+--- a/codex-rs/core/src/session/configured_settings_update_tests.rs
++++ b/codex-rs/core/src/session/configured_settings_update_tests.rs
+@@ -100,11 +100,11 @@ async fn fixture_with_auto_review(
+             workspace_roots: vec![config.cwd.clone().into()],
+             config: codex_protocol::protocol::EnvironmentConfigState::Pending,
+         }],
+-        config: Arc::new(config),
+         step,
+         name: None,
+         version: None,
+         plugins: parts.disabled_plugin_ids,
++        config: Arc::new(config),
+     };
+     Ok((home, data))
+ }

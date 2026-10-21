@@ -6,12 +6,14 @@ import {
   CollaborationSettingsSchema,
   CollaborationSnapshotMessageSchema,
   CollaborationSnapshotSelectionSchema,
+  CollaborationInlineArtifactPinSchema,
 } from './collaboration-conversation.js';
 
 const selection = CollaborationSnapshotSelectionSchema.shape;
 const id = CollaborationSnapshotMessageSchema.shape.messageId;
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
-const artifactPin = selection.artifacts.element;
+// Forwarding retains its existing explicit kinds and historical wire shape.
+const artifactPin = CollaborationInlineArtifactPinSchema;
 const target = z.strictObject({
   collaborationId: SessionCollaborationSchema.shape.collaborationId,
   expectedMembershipRevision: selection.expectedMembershipRevision,

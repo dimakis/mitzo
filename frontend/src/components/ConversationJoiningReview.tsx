@@ -1,6 +1,10 @@
 import type { ConversationAgent } from './ConversationAgents';
 import type { useConversationJoiningReview } from '../hooks/useConversationJoiningReview';
 import { UiIcon } from './UiIcon';
+import {
+  conversationArtifactKey,
+  sameConversationArtifact,
+} from '../lib/conversation-joining-artifacts';
 
 export function ConversationJoiningReview({
   flow,
@@ -14,8 +18,13 @@ export function ConversationJoiningReview({
   const reviewed = flow.review;
   const snapshot = reviewed?.snapshot;
   const name = flow.setup?.name || 'Agent';
-  const knownPolicies = agents.every((a) => a.policy);
+  const knownPolicies = agents.length > 0 && agents.every((a) => a.policy);
   const responders = agents.filter((a) => a.policy?.replies).map((a) => a.name);
+  const replySummary = responders.length
+    ? `${responders.join(', ')} reply${knownPolicies ? '' : ' · Other reply settings unavailable'}`
+    : knownPolicies
+      ? 'No default replies'
+      : 'Reply settings unavailable';
   return (
     <>
       <p className="conversation-agents-explanation">
@@ -63,22 +72,28 @@ export function ConversationJoiningReview({
               </div>
             )}
             {snapshot.artifacts.map((artifact) => {
-              const label = reviewed.artifactLabels?.find(
-                (a) =>
-                  a.artifactId === artifact.artifactId &&
-                  a.revision === artifact.revision &&
-                  a.sha256 === artifact.sha256,
+              const label = reviewed.artifactLabels?.find((a) =>
+                sameConversationArtifact(a, artifact),
               );
+              const retained = 'kind' in artifact ? artifact : null;
+              const title = retained?.title ?? label?.title;
+              const filename = retained?.filename ?? label?.filename;
               return (
                 <div
                   className="conversation-joining-context"
-                  key={`${artifact.artifactId}:${artifact.revision}`}
+                  key={conversationArtifactKey(artifact)}
                 >
-                  <strong>{label?.title}</strong>
+                  <strong>{title}</strong>
                   <small>
                     Saved version {artifact.revision}
-                    {label?.filename ? ` · ${label.filename}` : ''}
+                    {filename ? ` · ${filename}` : ''}
                   </small>
+                  {retained && (
+                    <small>
+                      Source chat {retained.provenance.sessionId}
+                      {retained.provenance.sourcePath ? ` · ${retained.provenance.sourcePath}` : ''}
+                    </small>
+                  )}
                 </div>
               );
             })}
@@ -108,14 +123,17 @@ export function ConversationJoiningReview({
             onClick={onAgents}
           >
             <UiIcon name="eye" />
-            <span>
-              {knownPolicies
-                ? `Shared discussion · ${responders.length ? `${responders.join(', ')} reply` : 'No default replies'}`
-                : 'Agents'}
-            </span>
+            <span>Shared discussion · {replySummary}</span>
             <UiIcon name="forward" />
           </button>
-          {snapshot.capacity.status !== 'ready' && <p role="status">{snapshot.capacity.reason}</p>}
+          {snapshot.capacity.status !== 'ready' && (
+            <p role="status">
+              {snapshot.capacity.status === 'unverified' &&
+              snapshot.capacity.reason === 'No exact ordinary capacity adapter is registered.'
+                ? 'Joining is unavailable until capacity can be checked.'
+                : snapshot.capacity.reason}
+            </p>
+          )}
         </>
       )}
       {flow.pending && (

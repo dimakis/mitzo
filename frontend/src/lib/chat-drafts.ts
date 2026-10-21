@@ -153,6 +153,26 @@ export function saveChatDraft(draft: ChatDraft): boolean {
 }
 export function deleteChatDraft(id: string, options: { preserveText?: boolean } = {}): boolean {
   try {
+    const source = readDraftBinding(draftBindingKey(id));
+    const target = source ? readDraftBinding(sessionBindingKey(source.sessionId)) : null;
+    if (
+      source?.version === 2 &&
+      source.state === 'upgraded' &&
+      target?.version === 2 &&
+      target.draftId === id &&
+      target.sessionId === source.sessionId &&
+      target.state === 'upgraded'
+    ) {
+      // Retain a known explicit deletion/consumption transition before removal.
+      // Missing rich bytes alone never authorize replacement of an upgrade ID.
+      const retired = JSON.stringify({ ...target, state: 'retired' });
+      localStorage.setItem(sessionBindingKey(source.sessionId), retired);
+      if (
+        localStorage.getItem(sessionBindingKey(source.sessionId)) !== retired ||
+        readDraftBinding(draftBindingKey(id))?.sessionId !== source.sessionId
+      )
+        return false;
+    }
     localStorage.removeItem(PREFIX + id);
     if (!options.preserveText) localStorage.removeItem(chatDraftTextKey(id));
     changed();
@@ -224,11 +244,37 @@ export function newChatPathWithDraft(text: string): string {
   return `/chat?draft=${encodeURIComponent(draft.id)}`;
 }
 
-const DraftSessionBindingSchema = z.strictObject({
+const AllocationDraftSessionBindingSchema = z.strictObject({
   version: z.literal(1),
   draftId: z.string().min(1),
   sessionId: z.string().min(1),
 });
+// The existing session binding also journals an explicit legacy-editor upgrade.
+// Legacy bytes stay retained as a shadow; they are never compare-and-deleted.
+const upgradeBinding = {
+  version: z.literal(2),
+  draftId: z.uuid(),
+  sessionId: z.string().min(1),
+  legacyText: z.string().nullable(),
+  legacyEdited: z.boolean(),
+};
+const UpgradeDraftSessionBindingSchema = z
+  .discriminatedUnion('state', [
+    z.strictObject({
+      ...upgradeBinding,
+      state: z.literal('pending_upgrade'),
+      draft: ChatDraftSchema,
+    }),
+    z.strictObject({ ...upgradeBinding, state: z.enum(['upgraded', 'retired']) }),
+  ])
+  .superRefine((value, context) => {
+    if (value.state === 'pending_upgrade' && value.draft.id !== value.draftId)
+      context.addIssue({ code: 'custom', message: 'Draft upgrade identity conflicts' });
+  });
+const DraftSessionBindingSchema = z.union([
+  AllocationDraftSessionBindingSchema,
+  UpgradeDraftSessionBindingSchema,
+]);
 const sessionBindingKey = (sessionId: string) =>
   `mitzo-chat-draft-session:${encodeURIComponent(sessionId)}`;
 const draftBindingKey = (draftId: string) =>
@@ -250,8 +296,10 @@ export function bindChatDraftToSession(
     if (!draft)
       return localStorage.getItem(chatDraftStorageKey(draftId)) === null ? 'empty' : 'failed';
     const target = readDraftBinding(sessionBindingKey(sessionId));
+    if (target?.version === 2) return 'existing';
     if (target && target.draftId !== draftId && getChatDraft(target.draftId)) return 'existing';
     const source = readDraftBinding(draftBindingKey(draftId));
+    if (source?.version === 2) return 'existing';
     if (source && source.sessionId !== sessionId) return 'existing';
     const value = DraftSessionBindingSchema.parse({ version: 1, draftId, sessionId });
     const encoded = JSON.stringify(value);
@@ -272,13 +320,289 @@ export function bindChatDraftToSession(
 /** The ordinary composer continues using the same saved rich-draft owner. */
 export function getSessionChatDraft(sessionId: string): ChatDraft | null {
   try {
-    if (localStorage.getItem(`mitzo-draft-${sessionId}`) !== null) return null;
     const target = readDraftBinding(sessionBindingKey(sessionId));
     if (!target || target.sessionId !== sessionId) return null;
     const source = readDraftBinding(draftBindingKey(target.draftId));
     if (!source || source.draftId !== target.draftId || source.sessionId !== sessionId) return null;
+    const legacy = localStorage.getItem(`mitzo-draft-${sessionId}`);
+    if (target.version === 2) {
+      if (
+        target.state !== 'upgraded' ||
+        source.version !== 2 ||
+        source.state !== 'upgraded' ||
+        source.legacyText !== target.legacyText
+      )
+        return null;
+    } else if (source.version !== 1 || legacy !== null) return null;
     return getChatDraft(target.draftId);
   } catch {
     return null;
+  }
+}
+
+/** A consumed upgraded draft must not resurrect its retained legacy shadow.
+ * A later explicit legacy edit invalidates the shadow marker, even for equal text. */
+export function isRetiredLegacyChatDraft(sessionId: string): boolean {
+  try {
+    const target = readDraftBinding(sessionBindingKey(sessionId));
+    const source = target ? readDraftBinding(draftBindingKey(target.draftId)) : null;
+    return (
+      target?.version === 2 &&
+      target.sessionId === sessionId &&
+      (target.state === 'upgraded' || target.state === 'retired') &&
+      !target.legacyEdited &&
+      source?.version === 2 &&
+      source.state === 'upgraded' &&
+      !source.legacyEdited &&
+      source.sessionId === sessionId &&
+      source.draftId === target.draftId &&
+      source.legacyText === target.legacyText &&
+      localStorage.getItem(`mitzo-draft-${sessionId}`) === target.legacyText
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Existing plain-text owner writes announce a late edit before changing bytes.
+ * This invalidates upgrade attachment; neither the rich nor legacy bytes are lost. */
+export function writeLegacyChatDraft(
+  sessionId: string,
+  text: string,
+  preserveEmpty = false,
+  edited = true,
+): void {
+  const key = `mitzo-draft-${sessionId}`;
+  let target: z.infer<typeof DraftSessionBindingSchema> | null = null;
+  try {
+    target = readDraftBinding(sessionBindingKey(sessionId));
+  } catch {
+    /* Preserve corrupt metadata and the editable legacy bytes separately. */
+  }
+  if (edited && target?.version === 2 && !target.legacyEdited)
+    localStorage.setItem(
+      sessionBindingKey(sessionId),
+      JSON.stringify({ ...target, legacyEdited: true }),
+    );
+  if (edited && target?.version === 2) {
+    const assignmentKey = draftBindingKey(target.draftId);
+    let assignment: z.infer<typeof DraftSessionBindingSchema> | null = null;
+    try {
+      assignment = readDraftBinding(assignmentKey);
+    } catch {
+      // Preserve damaged assignment metadata and the editable legacy bytes.
+      // Publication cannot accept an unmatched/unreadable assignment record.
+    }
+    if (
+      assignment?.version === 2 &&
+      assignment.state === 'upgraded' &&
+      assignment.sessionId === sessionId &&
+      assignment.draftId === target.draftId &&
+      assignment.legacyText === target.legacyText &&
+      !assignment.legacyEdited
+    )
+      localStorage.setItem(assignmentKey, JSON.stringify({ ...assignment, legacyEdited: true }));
+  }
+  // Both markers precede the bytes. Upgrade publishes assignment then session,
+  // with an exact session check in between. A concurrent edit therefore survives
+  // in at least one existing slot even if the final session write overwrites it.
+  if (text || preserveEmpty) localStorage.setItem(key, text);
+  else localStorage.removeItem(key);
+  if (target?.version === 2) changed();
+}
+
+export type SessionChatDraftUpgradeResult =
+  | { state: 'upgraded'; draft: ChatDraft }
+  | { state: 'existing' | 'conflict' | 'failed'; draftId?: string };
+const draftContent = (draft: ChatDraft) => JSON.stringify({ ...draft, updatedAt: 0 });
+
+/** Explicit Defaults/@ action only, never an allocation. Web Locks serializes
+ * upgrades in this existing owner across tabs. Missing locking refuses migration.
+ * The same binding retains original ID/content before rich writes; legacy bytes
+ * remain recoverable and a late legacy write invalidates attachment instead of
+ * being deleted. Unknown/partial writes recover only this retained original. */
+export async function upgradeSessionChatDraft(options: {
+  sessionId: string;
+  expectedLegacyText: string | null;
+  content: ChatDraftContent;
+  settings: ChatDraft['settings'];
+  isCurrent(): boolean;
+}): Promise<SessionChatDraftUpgradeResult> {
+  const { sessionId, isCurrent } = options;
+  const input = structuredClone({
+    content: options.content,
+    settings: options.settings,
+    legacyText: options.expectedLegacyText,
+  });
+  let retainedId: string | undefined;
+  try {
+    z.string().min(1).parse(sessionId);
+    if (!navigator.locks?.request) return { state: 'failed' };
+    return await navigator.locks.request(
+      sessionBindingKey(sessionId),
+      { mode: 'exclusive' },
+      () => {
+        const key = sessionBindingKey(sessionId),
+          legacyKey = `mitzo-draft-${sessionId}`;
+        let expected = localStorage.getItem(key);
+        const check = () => {
+          if (!isCurrent() || localStorage.getItem(key) !== expected)
+            throw new Error('Draft upgrade owner changed');
+        };
+        check();
+        const prior =
+          expected === null ? null : DraftSessionBindingSchema.parse(JSON.parse(expected));
+        if (prior && prior.sessionId !== sessionId)
+          return { state: 'conflict' as const, draftId: prior.draftId };
+        const retired = prior?.version === 2 && prior.state === 'retired';
+        if (retired && localStorage.getItem(chatDraftStorageKey(prior.draftId)) !== null)
+          return { state: 'existing' as const, draftId: prior.draftId };
+        if (prior && !retired && (prior.version !== 2 || prior.state !== 'pending_upgrade')) {
+          const existing = getSessionChatDraft(sessionId);
+          if (prior.version === 2 && existing && hasConcurrentLegacyChatDraft(sessionId))
+            return { state: 'conflict' as const, draftId: prior.draftId };
+          if (
+            prior.version === 2 &&
+            existing &&
+            draftContent(existing) ===
+              draftContent(
+                ChatDraftSchema.parse({ ...existing, ...input.content, settings: input.settings }),
+              )
+          ) {
+            changed();
+            return { state: 'upgraded' as const, draft: existing };
+          }
+          return { state: 'existing' as const, draftId: prior.draftId };
+        }
+        let pending;
+        if (prior && prior.version === 2 && prior.state === 'pending_upgrade') {
+          pending = prior;
+          retainedId = prior.draftId;
+          const current = ChatDraftSchema.parse({
+            ...prior.draft,
+            ...input.content,
+            settings: input.settings,
+          });
+          if (
+            prior.sessionId !== sessionId ||
+            prior.legacyEdited ||
+            prior.legacyText !== input.legacyText ||
+            draftContent(current) !== draftContent(prior.draft)
+          )
+            return { state: 'conflict' as const, draftId: prior.draftId };
+        } else {
+          if (localStorage.getItem(legacyKey) !== input.legacyText)
+            return { state: 'conflict' as const };
+          const draft = ChatDraftSchema.parse({
+            ...createChatDraft(),
+            ...input.content,
+            settings: input.settings,
+          });
+          retainedId = draft.id;
+          pending = UpgradeDraftSessionBindingSchema.parse({
+            version: 2,
+            state: 'pending_upgrade',
+            sessionId,
+            draftId: draft.id,
+            draft,
+            legacyText: input.legacyText,
+            legacyEdited: false,
+          });
+          check();
+          expected = JSON.stringify(pending);
+          localStorage.setItem(key, expected);
+          check();
+        }
+        if (pending.state !== 'pending_upgrade') throw new Error('Draft upgrade unavailable');
+        const sourceKey = draftBindingKey(pending.draftId);
+        const sourceRaw = localStorage.getItem(sourceKey);
+        const source =
+          sourceRaw === null ? null : DraftSessionBindingSchema.parse(JSON.parse(sourceRaw));
+        if (
+          source &&
+          (source.version !== 2 ||
+            source.sessionId !== sessionId ||
+            source.draftId !== pending.draftId ||
+            source.state !== 'upgraded' ||
+            source.legacyEdited ||
+            source.legacyText !== pending.legacyText)
+        )
+          return { state: 'conflict' as const, draftId: pending.draftId };
+        const richKey = chatDraftStorageKey(pending.draftId);
+        const rich = localStorage.getItem(richKey);
+        if (
+          rich !== null &&
+          draftContent(ChatDraftSchema.parse(JSON.parse(rich))) !== draftContent(pending.draft)
+        )
+          return { state: 'conflict' as const, draftId: pending.draftId };
+        check();
+        if (localStorage.getItem(legacyKey) !== pending.legacyText)
+          return { state: 'conflict' as const, draftId: pending.draftId };
+        if (rich === null && !saveChatDraft(pending.draft))
+          throw new Error('Draft could not be retained');
+        check();
+        const committed = {
+          version: 2 as const,
+          state: 'upgraded' as const,
+          sessionId,
+          draftId: pending.draftId,
+          legacyText: pending.legacyText,
+          legacyEdited: false,
+        };
+        const encoded = JSON.stringify(committed);
+        if (
+          localStorage.getItem(sourceKey) !== sourceRaw ||
+          localStorage.getItem(legacyKey) !== pending.legacyText ||
+          draftContent(ChatDraftSchema.parse(JSON.parse(localStorage.getItem(richKey)!))) !==
+            draftContent(pending.draft)
+        )
+          return { state: 'conflict' as const, draftId: pending.draftId };
+        check();
+        localStorage.setItem(sourceKey, encoded);
+        check();
+        if (
+          localStorage.getItem(sourceKey) !== encoded ||
+          localStorage.getItem(legacyKey) !== pending.legacyText
+        )
+          return { state: 'conflict' as const, draftId: pending.draftId };
+        localStorage.setItem(key, encoded);
+        expected = encoded;
+        check();
+        if (localStorage.getItem(sourceKey) !== encoded) {
+          changed();
+          return { state: 'conflict' as const, draftId: pending.draftId };
+        }
+        const draft = getSessionChatDraft(sessionId);
+        if (!draft || draft.id !== pending.draftId)
+          throw new Error('Draft binding could not be checked');
+        changed();
+        return { state: 'upgraded' as const, draft };
+      },
+    );
+  } catch {
+    return { state: 'failed', ...(retainedId ? { draftId: retainedId } : {}) };
+  }
+}
+
+/** A confirmed rich editor keeps its own identity when an older editor writes.
+ * Surface the conflict without switching editors or deleting either version. */
+export function hasConcurrentLegacyChatDraft(sessionId: string): boolean {
+  try {
+    const target = readDraftBinding(sessionBindingKey(sessionId));
+    const assignment = target ? readDraftBinding(draftBindingKey(target.draftId)) : null;
+    return (
+      target?.version === 2 &&
+      target.state === 'upgraded' &&
+      (target.legacyEdited ||
+        (assignment?.version === 2 &&
+          assignment.state === 'upgraded' &&
+          assignment.sessionId === sessionId &&
+          assignment.draftId === target.draftId &&
+          assignment.legacyText === target.legacyText &&
+          assignment.legacyEdited) ||
+        localStorage.getItem(`mitzo-draft-${sessionId}`) !== target.legacyText)
+    );
+  } catch {
+    return true;
   }
 }

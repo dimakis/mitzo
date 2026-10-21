@@ -1,0 +1,1158 @@
+diff --git a/codex-rs/app-server-protocol/src/lib.rs b/codex-rs/app-server-protocol/src/lib.rs
+index eb2b76d..4724f96 100644
+--- a/codex-rs/app-server-protocol/src/lib.rs
++++ b/codex-rs/app-server-protocol/src/lib.rs
+@@ -22,6 +22,7 @@ pub use precomputed_exports::generate_ts;
+ pub use precomputed_exports::generate_ts_with_options;
+ pub use precomputed_exports::generate_types;
+ pub use protocol::common::*;
++pub use protocol::deserialize_double_option;
+ pub use protocol::event_mapping::*;
+ pub use protocol::item_builders::*;
+ pub use protocol::thread_history::*;
+diff --git a/codex-rs/app-server-protocol/src/protocol/mod.rs b/codex-rs/app-server-protocol/src/protocol/mod.rs
+index 4becfaa..71ffc45 100644
+--- a/codex-rs/app-server-protocol/src/protocol/mod.rs
++++ b/codex-rs/app-server-protocol/src/protocol/mod.rs
+@@ -6,6 +6,7 @@ pub mod event_mapping;
+ pub mod item_builders;
+ mod mappers;
+ mod serde_helpers;
++pub use serde_helpers::deserialize_double_option;
+ pub mod thread_history;
+ pub mod thread_history_projection;
+ mod turn_items_view;
+diff --git a/codex-rs/app-server/src/request_processors.rs b/codex-rs/app-server/src/request_processors.rs
+index b9f5b19..44bf150 100644
+--- a/codex-rs/app-server/src/request_processors.rs
++++ b/codex-rs/app-server/src/request_processors.rs
+@@ -597,6 +597,7 @@ pub(crate) use thread_processor::ThreadRequestProcessor;
+ pub(crate) use thread_processor::ThreadResumeTarget;
+ pub(crate) use thread_queue_processor::ThreadQueueRequestProcessor;
+ pub(crate) use turn_processor::TurnRequestProcessor;
++pub(crate) use turn_processor::turn_command_data::OriginalTurnCommandBody;
+ pub(crate) use turn_processor::turn_settings_data::{
+     SettingsSource, ThreadSettingsBuildParams, build_environment_override,
+     build_thread_settings_overrides,
+diff --git a/codex-rs/app-server/src/request_processors/client_info_data.rs b/codex-rs/app-server/src/request_processors/client_info_data.rs
+index 5bc59cd..64e9b47 100644
+--- a/codex-rs/app-server/src/request_processors/client_info_data.rs
++++ b/codex-rs/app-server/src/request_processors/client_info_data.rs
+@@ -14,6 +14,10 @@ impl AppServerClientInfo {
+         Self { name, version }
+     }
+ 
++    pub(crate) fn raw_metadata(&self) -> (Option<String>, Option<String>) {
++        (self.name.clone(), self.version.clone())
++    }
++
+     fn resolve(self) -> (Option<String>, Option<String>, bool) {
+         let auto_deny =
+             xcode_26_4_mcp_elicitations_auto_deny(self.name.as_deref(), self.version.as_deref());
+diff --git a/codex-rs/app-server/src/request_processors/fresh_command_ingress.rs b/codex-rs/app-server/src/request_processors/fresh_command_ingress.rs
+new file mode 100644
+index 0000000..0b2fbb5
+--- /dev/null
++++ b/codex-rs/app-server/src/request_processors/fresh_command_ingress.rs
+@@ -0,0 +1,222 @@
++//! Private request/prepare INPUT pipeline. No registered RPC, capability, public
++//! preparation response, Session, queue, count or Ready is supplied here.
++use super::*;
++use crate::config_manager::selected_start_config::{
++    OriginalFirstCommandStart, SelectedConfiguredStart,
++};
++
++#[derive(serde::Deserialize)]
++#[serde(rename_all = "snake_case")]
++enum InputScope {
++    ReviewContext,
++    Command,
++}
++#[derive(serde::Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++struct CommandInput {
++    ordinary_command_id: String,
++    exact_turn_input: OriginalTurnCommandBody,
++}
++#[derive(serde::Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub(super) struct RequestPrepareInput {
++    operation_id: String,
++    scope: InputScope,
++    ordinary_selection: ThreadStartParams,
++    captured_source_pins: serde_json::Value,
++    reviewed_context_identity: serde_json::Value,
++    command: Option<CommandInput>,
++    max_output_tokens: u64,
++}
++impl RequestPrepareInput {
++    fn decode(value: serde_json::Value) -> Result<Self, JSONRPCErrorError> {
++        let input: Self =
++            serde_json::from_value(value).map_err(|e| invalid_request(e.to_string()))?;
++        match (&input.scope, &input.command) {
++            (InputScope::Command, Some(command)) if !command.ordinary_command_id.is_empty() => {}
++            (InputScope::ReviewContext, None) => {}
++            _ => {
++                return Err(invalid_request(
++                    "command scope requires an ordinaryCommandId and exactTurnInput; review_context is commandless",
++                ));
++            }
++        }
++        Ok(input)
++    }
++}
++
++pub(super) enum RequestInputPreparation {
++    ReviewContext {
++        input: RequestPrepareInput,
++        client_info: AppServerClientInfo,
++        client_mcp_extensions: ClientMcpExtensions,
++        request_trace: Option<W3cTraceContext>,
++    },
++    Command {
++        operation_id: String,
++        captured_source_pins: serde_json::Value,
++        reviewed_context_identity: serde_json::Value,
++        max_output_tokens: u64,
++        experimental_raw_events: bool,
++        dynamic_tool_count: usize,
++        selected: SelectedConfiguredStart,
++    },
++}
++impl ThreadRequestProcessor {
++    /// Called by this processor's private preparation pipeline. Binding strings
++    /// remain DATA; actual initialized owners below supply native source custody.
++    pub(super) async fn prepare_request_input(
++        &self,
++        value: serde_json::Value,
++        client_info: AppServerClientInfo,
++        client_mcp_extensions: ClientMcpExtensions,
++        request_trace: Option<W3cTraceContext>,
++    ) -> Result<RequestInputPreparation, JSONRPCErrorError> {
++        let input = RequestPrepareInput::decode(value)?;
++        if matches!(&input.scope, InputScope::ReviewContext) {
++            return Ok(RequestInputPreparation::ReviewContext {
++                input,
++                client_info,
++                client_mcp_extensions,
++                request_trace,
++            });
++        }
++        let RequestPrepareInput {
++            operation_id,
++            scope: _,
++            ordinary_selection,
++            captured_source_pins,
++            reviewed_context_identity,
++            command,
++            max_output_tokens,
++        } = input;
++        let command = command.ok_or_else(|| invalid_request("command missing"))?;
++        let ThreadStartParams {
++            model,
++            model_provider,
++            allow_provider_model_fallback,
++            service_tier,
++            cwd,
++            runtime_workspace_roots,
++            approval_policy,
++            approvals_reviewer,
++            sandbox,
++            permissions,
++            config,
++            service_name,
++            base_instructions,
++            developer_instructions,
++            dynamic_tools,
++            selected_capability_roots,
++            mock_experimental_field: _,
++            experimental_raw_events,
++            personality,
++            multi_agent_mode: _,
++            ephemeral,
++            history_mode,
++            session_start_source,
++            thread_source,
++            project_id,
++            daybreak_enabled,
++            environments,
++        } = ordinary_selection;
++        if project_id.is_some() || daybreak_enabled.is_some() {
++            return Err(invalid_request(
++                "selected input requires unsupported project/daybreak metadata staging",
++            ));
++        }
++        if matches!(
++            history_mode,
++            Some(codex_app_server_protocol::ThreadHistoryMode::Paginated)
++        ) && !self.thread_store.supports_paginated_history_lists()
++        {
++            return Err(invalid_request(
++                "paginated threads require thread/turns/list and thread/items/list support",
++            ));
++        }
++        if sandbox.is_some() && permissions.is_some() {
++            return Err(invalid_request(
++                "`permissions` cannot be combined with `sandbox`",
++            ));
++        }
++        let roots = runtime_workspace_roots.map(resolve_runtime_workspace_roots);
++        let environments =
++            resolve_turn_environment_selections(self.thread_manager.as_ref(), environments)?;
++        let mut overrides = self.build_thread_config_overrides(
++            model,
++            model_provider,
++            service_tier,
++            cwd,
++            roots,
++            approval_policy,
++            approvals_reviewer,
++            sandbox,
++            permissions,
++            base_instructions,
++            developer_instructions,
++            personality,
++        );
++        overrides.ephemeral = ephemeral;
++        let source = self
++            .config_manager
++            .load_selected_start_config(config, overrides)
++            .await
++            .map_err(|e| config_load_error(&e))?;
++        let (dynamic_tool_count, options) =
++            first_command_options::OriginalFirstCommandOptions::prepare(
++                source.config().clone(),
++                self.thread_manager.as_ref(),
++                environments,
++                dynamic_tools,
++                history_mode.map(Into::into),
++                self.thread_store.as_ref(),
++                selected_capability_roots.unwrap_or_default(),
++            )?;
++        let options = options.finish(
++            allow_provider_model_fallback,
++            session_start_source,
++            thread_source.map(Into::into),
++            service_name,
++            request_trace.clone(),
++            client_mcp_extensions,
++        );
++        let original = OriginalFirstCommandStart::new(
++            options,
++            self.thread_manager.reserve_thread_start(),
++            Arc::clone(&self.installed),
++            client_info,
++        );
++        let mut selected = source
++            .capture_first_command(self.thread_manager.as_ref(), original)
++            .await
++            .map_err(|e| config_load_error(&e))?;
++        selected
++            .capture_startup(self.thread_manager.as_ref())
++            .await
++            .map_err(|e| config_load_error(&e))?;
++        selected
++            .capture_startup_api_mcp(self.thread_manager.as_ref())
++            .map_err(|e| config_load_error(&e))?;
++        selected
++            .capture_command(
++                self.thread_manager.as_ref(),
++                command.ordinary_command_id,
++                command.exact_turn_input,
++                request_trace,
++            )
++            .await?;
++        Ok(RequestInputPreparation::Command {
++            operation_id,
++            captured_source_pins,
++            reviewed_context_identity,
++            max_output_tokens,
++            experimental_raw_events,
++            dynamic_tool_count,
++            selected,
++        })
++    }
++}
++
++#[cfg(test)]
++#[path = "fresh_command_ingress_tests.rs"]
++mod tests;
+diff --git a/codex-rs/app-server/src/request_processors/fresh_command_ingress_tests.rs b/codex-rs/app-server/src/request_processors/fresh_command_ingress_tests.rs
+new file mode 100644
+index 0000000..3ee4634
+--- /dev/null
++++ b/codex-rs/app-server/src/request_processors/fresh_command_ingress_tests.rs
+@@ -0,0 +1,37 @@
++use super::*;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++
++#[test]
++fn prepare_decoder_keeps_scope_selection_and_command_presence_distinct() {
++    let base = json!({"operationId":"op-data", "scope":"command", "ordinarySelection":{},
++        "capturedSourcePins":{"ordered":[2,1]}, "reviewedContextIdentity":{"review":"data"},
++        "command":{"ordinaryCommandId":"ordinary-data", "exactTurnInput":{"input":[],"serviceTier":null}},
++        "maxOutputTokens":128});
++    let decoded = RequestPrepareInput::decode(base.clone()).unwrap();
++    assert_eq!(decoded.operation_id, "op-data");
++    assert_eq!(decoded.ordinary_selection, ThreadStartParams::default());
++    assert_eq!(decoded.max_output_tokens, 128);
++    assert_eq!(decoded.captured_source_pins, json!({"ordered":[2,1]}));
++    assert_eq!(decoded.reviewed_context_identity, json!({"review":"data"}));
++    for mutate in [0, 1, 2, 3] {
++        let mut value = base.clone();
++        match mutate {
++            0 => {
++                value.as_object_mut().unwrap().remove("command");
++            }
++            1 => value["command"]["ordinaryCommandId"] = json!(""),
++            2 => value["scope"] = json!("review_context"),
++            3 => value["command"]["exactTurnInput"]["threadId"] = json!("forbidden-route"),
++            _ => unreachable!(),
++        }
++        assert!(RequestPrepareInput::decode(value).is_err());
++    }
++    let mut review = base;
++    review["scope"] = json!("review_context");
++    review.as_object_mut().unwrap().remove("command");
++    assert!(matches!(
++        RequestPrepareInput::decode(review).unwrap().scope,
++        InputScope::ReviewContext
++    ));
++}
+diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
+index 2897ded..5d432f2 100644
+--- a/codex-rs/app-server/src/request_processors/thread_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
+@@ -1,3 +1,6 @@
++#[path = "fresh_command_ingress.rs"]
++mod fresh_command_ingress;
++
+ #[path = "first_command_options.rs"]
+ mod first_command_options;
+ 
+diff --git a/codex-rs/app-server/src/request_processors/turn_command_data.rs b/codex-rs/app-server/src/request_processors/turn_command_data.rs
+index 64b03e2..da22008 100644
+--- a/codex-rs/app-server/src/request_processors/turn_command_data.rs
++++ b/codex-rs/app-server/src/request_processors/turn_command_data.rs
+@@ -7,9 +7,11 @@ pub(super) struct OriginalTurnCommandData {
+     params: TurnStartParams,
+ }
+ 
+-/// Exact parsed non-route DATA, minted by the original exhaustive legacy split.
+-/// No Clone/Serialize/default/fresh constructor or command authority is supplied.
+-struct OriginalTurnCommandBody {
++/// Exact parsed non-route DATA from the original legacy split or strict private
++/// route-free decoding. No Clone/Serialize/default or command authority is supplied.
++#[derive(serde::Deserialize)]
++#[serde(rename_all = "camelCase", deny_unknown_fields)]
++pub(crate) struct OriginalTurnCommandBody {
+     disabled_plugin_ids: Option<Vec<String>>,
+     client_user_message_id: Option<String>,
+     input: Vec<V2UserInput>,
+@@ -25,6 +27,10 @@ struct OriginalTurnCommandBody {
+     sandbox_policy: Option<codex_app_server_protocol::SandboxPolicy>,
+     permissions: Option<String>,
+     model: Option<String>,
++    #[serde(
++        default,
++        deserialize_with = "codex_app_server_protocol::deserialize_double_option"
++    )]
+     service_tier: Option<Option<String>>,
+     service_tier_for_turn: Option<String>,
+     effort: Option<ReasoningEffort>,
+@@ -36,9 +42,9 @@ struct OriginalTurnCommandBody {
+     cyber_access_program: Option<codex_app_server_protocol::CyberAccessProgram>,
+ }
+ 
+-pub(super) struct TurnCommandEnvironments {
+-    pub(super) runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
+-    pub(super) environments: Option<Vec<TurnEnvironmentParams>>,
++pub(crate) struct TurnCommandEnvironments {
++    pub(crate) runtime_workspace_roots: Option<Vec<AbsolutePathBuf>>,
++    pub(crate) environments: Option<Vec<TurnEnvironmentParams>>,
+ }
+ 
+ pub(super) struct TurnCommandInputData {
+@@ -46,7 +52,7 @@ pub(super) struct TurnCommandInputData {
+     body: TurnBodyInputData,
+ }
+ 
+-struct TurnBodyInputData {
++pub(crate) struct TurnBodyInputData {
+     input: Vec<V2UserInput>,
+     tool_output: Option<Box<codex_app_server_protocol::TurnToolOutput>>,
+     client_user_message_id: Option<String>,
+@@ -55,19 +61,19 @@ struct TurnBodyInputData {
+     submission: TurnBodySubmission,
+ }
+ 
+-pub(super) struct TurnCommandSettings {
+-    pub(super) cwd: Option<PathBuf>,
+-    pub(super) disabled_plugin_ids: Option<Vec<String>>,
+-    pub(super) approval_policy: Option<codex_app_server_protocol::AskForApproval>,
+-    pub(super) approvals_reviewer: Option<codex_app_server_protocol::ApprovalsReviewer>,
+-    pub(super) sandbox_policy: Option<codex_app_server_protocol::SandboxPolicy>,
+-    pub(super) permissions: Option<String>,
+-    pub(super) model: Option<String>,
+-    pub(super) service_tier: Option<Option<String>>,
+-    pub(super) effort: Option<ReasoningEffort>,
+-    pub(super) summary: Option<ReasoningSummary>,
+-    pub(super) collaboration_mode: Option<CollaborationMode>,
+-    pub(super) personality: Option<Personality>,
++pub(crate) struct TurnCommandSettings {
++    pub(crate) cwd: Option<PathBuf>,
++    pub(crate) disabled_plugin_ids: Option<Vec<String>>,
++    pub(crate) approval_policy: Option<codex_app_server_protocol::AskForApproval>,
++    pub(crate) approvals_reviewer: Option<codex_app_server_protocol::ApprovalsReviewer>,
++    pub(crate) sandbox_policy: Option<codex_app_server_protocol::SandboxPolicy>,
++    pub(crate) permissions: Option<String>,
++    pub(crate) model: Option<String>,
++    pub(crate) service_tier: Option<Option<String>>,
++    pub(crate) effort: Option<ReasoningEffort>,
++    pub(crate) summary: Option<ReasoningSummary>,
++    pub(crate) collaboration_mode: Option<CollaborationMode>,
++    pub(crate) personality: Option<Personality>,
+ }
+ 
+ pub(super) struct TurnCommandSubmission {
+@@ -82,7 +88,7 @@ pub(super) struct TurnCommandSubmission {
+     responsesapi_client_metadata: Option<HashMap<String, String>>,
+ }
+ 
+-struct TurnBodySubmission {
++pub(crate) struct TurnBodySubmission {
+     _ignored_multi_agent_mode: Option<codex_protocol::config_types::MultiAgentMode>,
+     turn_trigger: Option<String>,
+     output_schema: Option<serde_json::Value>,
+@@ -99,12 +105,12 @@ pub(super) struct ConvertedTurnCommand {
+     pub(super) submission: TurnCommandSubmission,
+ }
+ 
+-struct ConvertedTurnBody {
+-    additional_context: BTreeMap<String, CoreAdditionalContextEntry>,
+-    turn_has_input: bool,
+-    input: TurnInput,
+-    settings: TurnCommandSettings,
+-    submission: TurnBodySubmission,
++pub(crate) struct ConvertedTurnBody {
++    pub(crate) additional_context: BTreeMap<String, CoreAdditionalContextEntry>,
++    pub(crate) turn_has_input: bool,
++    pub(crate) input: TurnInput,
++    pub(crate) settings: TurnCommandSettings,
++    pub(crate) submission: TurnBodySubmission,
+ }
+ 
+ impl OriginalTurnCommandData {
+@@ -118,41 +124,11 @@ impl OriginalTurnCommandData {
+     }
+ 
+     pub(super) fn validate_tool_output(&self) -> Result<(), JSONRPCErrorError> {
+-        if let Some(tool_output) = &self.params.tool_output {
+-            if !self.params.input.is_empty() {
+-                return Err(invalid_request(
+-                    "`toolOutput` cannot be combined with nonempty `input`",
+-                ));
+-            }
+-            if tool_output.name.is_empty() {
+-                return Err(invalid_request("`toolOutput.name` must not be empty"));
+-            }
+-        }
+-        Ok(())
++        validate_tool_output(&self.params.input, self.params.tool_output.as_deref())
+     }
+ 
+     pub(super) fn input_text_char_count(&self) -> usize {
+-        self.params
+-            .input
+-            .iter()
+-            .map(V2UserInput::text_char_count)
+-            .sum::<usize>()
+-            + self
+-                .params
+-                .tool_output
+-                .as_ref()
+-                .map_or(0, |output| match &output.output {
+-                    FunctionCallOutputBody::Text(text) => text.chars().count(),
+-                    FunctionCallOutputBody::ContentItems(items) => items
+-                        .iter()
+-                        .map(|item| match item {
+-                            FunctionCallOutputContentItem::InputText { text } => {
+-                                text.chars().count()
+-                            }
+-                            _ => 0,
+-                        })
+-                        .sum(),
+-                })
++        input_text_char_count(&self.params.input, self.params.tool_output.as_deref())
+     }
+ 
+     fn into_body(self) -> (String, OriginalTurnCommandBody) {
+@@ -224,7 +200,40 @@ impl OriginalTurnCommandData {
+ }
+ 
+ impl OriginalTurnCommandBody {
+-    fn into_environment_stage(self) -> (TurnCommandEnvironments, TurnBodyInputData) {
++    pub(crate) fn into_selected_input(
++        self,
++        manager: &ThreadManager,
++    ) -> Result<
++        (
++            Option<AbsolutePathBuf>,
++            Option<Vec<AbsolutePathBuf>>,
++            Option<Vec<codex_protocol::protocol::TurnEnvironmentSelection>>,
++            ConvertedTurnBody,
++        ),
++        JSONRPCErrorError,
++    > {
++        self.validate()?;
++        let (environment, input) = self.into_environment_stage();
++        let roots = environment
++            .runtime_workspace_roots
++            .map(resolve_runtime_workspace_roots);
++        let environments = resolve_turn_environment_selections(manager, environment.environments)?;
++        let mut converted = input.into_core_input()?;
++        let cwd = resolve_request_cwd(converted.settings.cwd.take())?;
++        Ok((cwd, roots, environments, converted))
++    }
++
++    pub(crate) fn validate(&self) -> Result<(), JSONRPCErrorError> {
++        validate_user_input_image_urls(&self.input)?;
++        validate_tool_output(&self.input, self.tool_output.as_deref())?;
++        let count = input_text_char_count(&self.input, self.tool_output.as_deref());
++        if count > MAX_USER_INPUT_TEXT_CHARS {
++            return Err(TurnRequestProcessor::input_too_large_error(count));
++        }
++        Ok(())
++    }
++
++    pub(crate) fn into_environment_stage(self) -> (TurnCommandEnvironments, TurnBodyInputData) {
+         let OriginalTurnCommandBody {
+             disabled_plugin_ids,
+             client_user_message_id,
+@@ -326,7 +335,7 @@ impl TurnCommandInputData {
+ impl TurnBodyInputData {
+     /// Ordinary context/input conversion stays after environment selection and
+     /// before cwd/permission/settings work. File paths/IDs are not materialized.
+-    fn into_core_input(self) -> Result<ConvertedTurnBody, JSONRPCErrorError> {
++    pub(crate) fn into_core_input(self) -> Result<ConvertedTurnBody, JSONRPCErrorError> {
+         let additional_context = map_additional_context(self.additional_context);
+         let turn_has_input = !self.input.is_empty();
+         let input = if let Some(tool_output) = self.tool_output {
+@@ -388,6 +397,23 @@ impl TurnCommandSubmission {
+ }
+ 
+ impl TurnBodySubmission {
++    pub(crate) fn into_unconfigured_request(
++        mut self,
++        input: TurnInput,
++        context: BTreeMap<String, CoreAdditionalContextEntry>,
++        trace: Option<W3cTraceContext>,
++    ) -> (
++        TurnInputRequest,
++        Option<codex_protocol::config_types::MultiAgentMode>,
++    ) {
++        let ignored = self._ignored_multi_agent_mode.take();
++        (
++            self.into_request(input, Default::default(), context)
++                .with_trace(trace),
++            ignored,
++        )
++    }
++
+     /// Moves exactly these already-normalized DATA fields. Live owner-produced
+     /// settings are supplied at their ordinary point; trace remains caller-owned.
+     fn into_request(
+@@ -418,6 +444,45 @@ impl TurnBodySubmission {
+     }
+ }
+ 
++fn validate_tool_output(
++    input: &[V2UserInput],
++    tool_output: Option<&codex_app_server_protocol::TurnToolOutput>,
++) -> Result<(), JSONRPCErrorError> {
++    if let Some(tool_output) = tool_output {
++        if !input.is_empty() {
++            return Err(invalid_request(
++                "`toolOutput` cannot be combined with nonempty `input`",
++            ));
++        }
++        if tool_output.name.is_empty() {
++            return Err(invalid_request("`toolOutput.name` must not be empty"));
++        }
++    }
++    Ok(())
++}
++
++fn input_text_char_count(
++    input: &[V2UserInput],
++    tool_output: Option<&codex_app_server_protocol::TurnToolOutput>,
++) -> usize {
++    input
++        .iter()
++        .map(V2UserInput::text_char_count)
++        .sum::<usize>()
++        + tool_output
++            .as_ref()
++            .map_or(0, |output| match &output.output {
++                FunctionCallOutputBody::Text(text) => text.chars().count(),
++                FunctionCallOutputBody::ContentItems(items) => items
++                    .iter()
++                    .map(|item| match item {
++                        FunctionCallOutputContentItem::InputText { text } => text.chars().count(),
++                        _ => 0,
++                    })
++                    .sum(),
++            })
++}
++
+ #[cfg(test)]
+ #[path = "turn_command_data_tests.rs"]
+ mod tests;
+diff --git a/codex-rs/app-server/src/request_processors/turn_command_data_tests.rs b/codex-rs/app-server/src/request_processors/turn_command_data_tests.rs
+index 894cd9b..77cbd1d 100644
+--- a/codex-rs/app-server/src/request_processors/turn_command_data_tests.rs
++++ b/codex-rs/app-server/src/request_processors/turn_command_data_tests.rs
+@@ -586,3 +586,86 @@ fn route_independent_body_and_original_legacy_wrapper_preserve_complete_request_
+         assert_eq!(body_roundtrip(params.clone()), params);
+     }
+ }
++
++#[test]
++fn fresh_decode_preserves_all_original_body_fields_and_double_option_tier() {
++    let project = |b: OriginalTurnCommandBody| {
++        let OriginalTurnCommandBody {
++            disabled_plugin_ids,
++            client_user_message_id,
++            input,
++            turn_trigger,
++            tool_output,
++            responsesapi_client_metadata,
++            additional_context,
++            environments,
++            cwd,
++            runtime_workspace_roots,
++            approval_policy,
++            approvals_reviewer,
++            sandbox_policy,
++            permissions,
++            model,
++            service_tier,
++            service_tier_for_turn,
++            effort,
++            summary,
++            personality,
++            output_schema,
++            collaboration_mode,
++            multi_agent_mode,
++            cyber_access_program,
++        } = b;
++        (
++            (
++                disabled_plugin_ids,
++                client_user_message_id,
++                input,
++                turn_trigger,
++                tool_output,
++                responsesapi_client_metadata,
++                additional_context,
++                environments,
++            ),
++            (
++                cwd,
++                runtime_workspace_roots,
++                approval_policy,
++                approvals_reviewer,
++                sandbox_policy,
++                permissions,
++                model,
++                service_tier,
++            ),
++            (
++                service_tier_for_turn,
++                effort,
++                summary,
++                personality,
++                output_schema,
++                collaboration_mode,
++                multi_agent_mode,
++                cyber_access_program,
++            ),
++        )
++    };
++    for tier in [None, Some(None), Some(Some(String::new()))] {
++        for reply in [false, true] {
++            let mut params = complete_body_params("actual-legacy-selector");
++            params.service_tier = tier.clone();
++            if reply {
++                params.input.clear();
++                params.tool_output = Some(Box::new(codex_app_server_protocol::TurnToolOutput {
++                    name: "exact-original-reply".into(),
++                    namespace: Some("original-namespace".into()),
++                    output: FunctionCallOutputBody::Text("reply\nbytes 🦀é".into()),
++                }));
++            }
++            let mut value = serde_json::to_value(&params).unwrap();
++            value.as_object_mut().unwrap().remove("threadId");
++            let fresh: OriginalTurnCommandBody = serde_json::from_value(value).unwrap();
++            let (_, legacy) = OriginalTurnCommandData::new(params).into_body();
++            assert_eq!(project(fresh), project(legacy));
++        }
++    }
++}
+diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
+index b8d46a7..1551e99 100644
+--- a/codex-rs/app-server/src/request_processors/turn_processor.rs
++++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
+@@ -1,5 +1,5 @@
+ #[path = "turn_command_data.rs"]
+-mod turn_command_data;
++pub(super) mod turn_command_data;
+ #[path = "turn_settings_data.rs"]
+ pub(super) mod turn_settings_data;
+ use turn_settings_data::{SettingsSource, ThreadEnvironmentOverride, ThreadSettingsBuildParams};
+diff --git a/codex-rs/app-server/src/selected_start_config.rs b/codex-rs/app-server/src/selected_start_config.rs
+index 54af115..78d303c 100644
+--- a/codex-rs/app-server/src/selected_start_config.rs
++++ b/codex-rs/app-server/src/selected_start_config.rs
+@@ -320,6 +320,83 @@ impl SelectedConfiguredStart {
+     pub(crate) fn start(&self) -> &SelectedStartInputs {
+         &self.start
+     }
++    pub(crate) async fn capture_command(
++        &mut self,
++        manager: &ThreadManager,
++        ordinary_id: String,
++        body: crate::request_processors::OriginalTurnCommandBody,
++        trace: Option<codex_protocol::protocol::W3cTraceContext>,
++    ) -> Result<(), codex_app_server_protocol::JSONRPCErrorError> {
++        let result = async {
++            self.renew(manager)
++                .await
++                .map_err(|e| crate::error_code::internal_error(e.to_string()))?;
++            let (name, version) = self
++                .client_info
++                .as_ref()
++                .ok_or_else(|| crate::error_code::internal_error("original client-info missing"))?
++                .raw_metadata();
++            let installed = self.installed.as_ref().ok_or_else(|| {
++                crate::error_code::internal_error("original installed composition missing")
++            })?;
++            installed
++                .observe(
++                    manager,
++                    self.start.mcp_sources().ok_or_else(|| {
++                        crate::error_code::internal_error("original API sources missing")
++                    })?,
++                )
++                .map_err(|e| crate::error_code::internal_error(format!("{e:?}")))?;
++            let (cwd, roots, environments, converted) = body.into_selected_input(manager)?;
++            let s = converted.settings;
++            self.capture_settings(
++                manager,
++                cwd,
++                roots,
++                environments,
++                crate::request_processors::ThreadSettingsBuildParams {
++                    method: "request/prepare",
++                    disabled_plugin_ids: s.disabled_plugin_ids,
++                    environment_override: Default::default(),
++                    approval_policy: s.approval_policy,
++                    approvals_reviewer: s.approvals_reviewer,
++                    sandbox_policy: s.sandbox_policy,
++                    permissions: s.permissions,
++                    model: s.model,
++                    service_tier: s.service_tier,
++                    effort: s.effort,
++                    summary: s.summary,
++                    collaboration_mode: s.collaboration_mode,
++                    personality: s.personality,
++                },
++            )
++            .await?;
++            let (request, ignored) = converted.submission.into_unconfigured_request(
++                converted.input,
++                converted.additional_context,
++                trace,
++            );
++            manager
++                .pair_selected_start_command(
++                    &mut self.start,
++                    ordinary_id,
++                    request,
++                    ignored,
++                    name,
++                    version,
++                )
++                .map_err(|e| crate::error_code::internal_error(e.to_string()))?;
++            self.renew(manager)
++                .await
++                .map_err(|e| crate::error_code::internal_error(e.to_string()))
++        }
++        .await;
++        if result.is_err() {
++            self.source.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
++
+     /// Source-only settings candidate. Resolved DATA arguments do not identify
+     /// an intended command or authorize environment use/ordinary dispatch.
+     pub(crate) async fn capture_settings(
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index ea30da0..52f3d3c 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -608,3 +608,100 @@ async fn initiating_client_info_moves_with_original_options_reservation_and_inst
+         );
+     }
+ }
++
++#[tokio::test]
++async fn parsed_fresh_command_pairs_once_and_foreign_or_missing_sources_refuse_without_start() {
++    let home = tempfile::tempdir().unwrap();
++    let configs = manager(home.path());
++    for foreign in [false, true] {
++        let source = configs
++            .load_selected_start_config(
++                None,
++                ConfigOverrides {
++                    cwd: Some(home.path().to_path_buf()),
++                    model: Some("gpt-6-luna".into()),
++                    ..Default::default()
++                },
++            )
++            .await
++            .unwrap();
++        let config = source.config().clone();
++        let store = Arc::new(InMemoryThreadStore::default());
++        let (threads, installed, _auth) =
++            thread_manager_with_models(&config, Arc::clone(&store), |auth| {
++                Arc::new(
++                    codex_models_manager::manager::OpenAiModelsManager::new_without_cache(
++                        Arc::new(NoStartupEndpoint),
++                        Some(Arc::clone(auth)),
++                    ),
++                )
++            });
++        let command = OriginalFirstCommandStart::new(
++            StartThreadOptions::new(config.clone()),
++            threads.reserve_thread_start(),
++            installed,
++            crate::request_processors::AppServerClientInfo::capture(
++                Some("Xcode".into()),
++                Some(String::new()),
++            ),
++        );
++        let mut selected = source
++            .capture_first_command(&threads, command)
++            .await
++            .unwrap();
++        selected.capture_startup(&threads).await.unwrap();
++        selected.capture_startup_api_mcp(&threads).unwrap();
++        let (other, _installed, _auth) =
++            thread_manager(&config, Arc::new(InMemoryThreadStore::default()));
++        let active = if foreign { &other } else { &threads };
++        let body = serde_json::from_value(
++            serde_json::json!({"input":[],"serviceTier":null,"serviceTierForTurn":"priority"}),
++        )
++        .unwrap();
++        let result = selected
++            .capture_command(active, "ordinary-data".into(), body, None)
++            .await;
++        assert_eq!(result.is_err(), foreign);
++        if !foreign {
++            assert_eq!(
++                selected.client_info.as_ref().unwrap().raw_for_test(),
++                (Some("Xcode"), Some(""))
++            );
++            let body = serde_json::from_value(serde_json::json!({"input":[]})).unwrap();
++            assert!(
++                selected
++                    .capture_command(&threads, "second".into(), body, None)
++                    .await
++                    .is_err()
++            );
++        }
++        assert!(selected.adopt_startup(&threads).await.is_err());
++        assert!(threads.list_thread_ids().await.is_empty());
++        assert_eq!(
++            store.calls().await,
++            codex_thread_store::InMemoryThreadStoreCalls::default()
++        );
++    }
++    let source = configs
++        .load_selected_start_config(
++            None,
++            ConfigOverrides {
++                cwd: Some(home.path().to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap();
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, _installed, _auth) = thread_manager(source.config(), Arc::clone(&store));
++    let options = StartThreadOptions::new(source.config().clone());
++    let mut selected = source.capture(&threads, options).await.unwrap();
++    let body = serde_json::from_value(serde_json::json!({"input":[]})).unwrap();
++    assert!(
++        selected
++            .capture_command(&threads, "missing-original".into(), body, None)
++            .await
++            .is_err()
++    );
++    assert!(selected.adopt(&threads).is_err());
++}
+diff --git a/codex-rs/core/src/session/selected_settings_candidate.rs b/codex-rs/core/src/session/selected_settings_candidate.rs
+index f1c7ede..52db257 100644
+--- a/codex-rs/core/src/session/selected_settings_candidate.rs
++++ b/codex-rs/core/src/session/selected_settings_candidate.rs
+@@ -8,8 +8,44 @@ pub(crate) struct SelectedSettingsCandidate {
+     source: Arc<Config>,
+     overrides: ThreadSettingsOverrides,
+     data: ConfiguredSettingsCandidateData,
++    command: Option<OriginalSelectedCommand>,
++}
++struct OriginalSelectedCommand {
++    ordinary_id: String,
++    request: Box<codex_protocol::turn_input::TurnInputRequest>,
++    ignored_multi_agent_mode: Option<codex_protocol::config_types::MultiAgentMode>,
+ }
+ impl SelectedSettingsCandidate {
++    pub(crate) fn pair_command(
++        &mut self,
++        ordinary_id: String,
++        mut request: codex_protocol::turn_input::TurnInputRequest,
++        ignored_multi_agent_mode: Option<codex_protocol::config_types::MultiAgentMode>,
++        name: Option<String>,
++        version: Option<String>,
++    ) -> io::Result<()> {
++        if self.command.is_some() || ordinary_id.is_empty() {
++            return Err(io::Error::other(
++                "selected intended command missing or already paired",
++            ));
++        }
++        // Only THIS candidate's original normalized settings form the request.
++        if request.thread_settings != ThreadSettingsOverrides::default() {
++            return Err(io::Error::other(
++                "independent command settings are not accepted",
++            ));
++        }
++        request.thread_settings = self.overrides.clone();
++        self.data.name = name;
++        self.data.version = version;
++        self.command = Some(OriginalSelectedCommand {
++            ordinary_id,
++            request: Box::new(request),
++            ignored_multi_agent_mode,
++        });
++        Ok(())
++    }
++
+     pub(crate) fn validate(&self, startup: &OriginalStartupSelection) -> io::Result<()> {
+         if !Arc::ptr_eq(&self.source, &startup.owner.effective) {
+             return Err(io::Error::other(
+@@ -27,6 +63,7 @@ impl OriginalStartupSelection {
+             source: Arc::clone(&self.owner.effective),
+             overrides: ThreadSettingsOverrides::default(),
+             data: self.stages.baseline.selected_settings_data()?,
++            command: None,
+         })
+     }
+     pub(crate) fn settings_candidate(
+@@ -52,6 +89,7 @@ impl OriginalStartupSelection {
+             source: Arc::clone(&self.owner.effective),
+             overrides,
+             data: next,
++            command: None,
+         })
+     }
+ }
+diff --git a/codex-rs/core/src/session/selected_settings_candidate_tests.rs b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+index 2b7ee04..922d724 100644
+--- a/codex-rs/core/src/session/selected_settings_candidate_tests.rs
++++ b/codex-rs/core/src/session/selected_settings_candidate_tests.rs
+@@ -90,3 +90,129 @@ async fn selected_candidate_checks_proposed_permissions_before_step_constraints(
+     );
+     Ok(())
+ }
++
++#[tokio::test]
++async fn paired_command_uses_native_normalized_settings_and_same_prepared_data_once()
++-> anyhow::Result<()> {
++    let (_home, options, auth, models, _endpoint) = super::super::tests::fixture().await?;
++    let startup =
++        OriginalStartupSelection::capture(&options, &SessionSource::Exec, None, &auth, &models)
++            .await?;
++    let overrides = ThreadSettingsOverrides {
++        service_tier: Some(None),
++        ..Default::default()
++    };
++    let mut candidate = startup.settings_candidate(overrides.clone())?;
++    let unchanged = candidate.data.clone();
++    let independent = codex_protocol::turn_input::TurnInputRequest::user_input(Vec::new())
++        .with_thread_settings(ThreadSettingsOverrides {
++            model: Some("independent-settings-must-refuse".into()),
++            ..Default::default()
++        });
++    assert!(
++        candidate
++            .pair_command("independent".into(), independent, None, None, None)
++            .is_err()
++    );
++    assert_eq!(candidate.data, unchanged);
++    assert!(candidate.command.is_none());
++    let mut expected = candidate.data.clone();
++    expected.name = Some("Xcode".into());
++    expected.version = Some(String::new());
++    let request = codex_protocol::turn_input::TurnInputRequest::user_input(Vec::new())
++        .on_start(codex_protocol::turn_input::TurnStartOptions {
++            turn_trigger: Some("composer".into()),
++            final_output_json_schema: Some(serde_json::json!({"type":"object"})),
++            service_tier: Some("priority".into()),
++            ..Default::default()
++        })
++        .with_responses_metadata(Some(std::collections::HashMap::from([(
++            "caller".into(),
++            "retained".into(),
++        )])));
++    let request = request
++        .with_additional_context(std::collections::BTreeMap::from([(
++            "source".into(),
++            codex_protocol::protocol::AdditionalContextEntry {
++                value: "application bytes".into(),
++                kind: codex_protocol::protocol::AdditionalContextKind::Application,
++            },
++        )]))
++        .with_trace(Some(codex_protocol::protocol::W3cTraceContext {
++            traceparent: Some("00-00000000000000000000000000000001-0000000000000001-01".into()),
++            tracestate: Some("owner=source".into()),
++        }));
++    let original = request.clone();
++    let ignored = Some(codex_protocol::config_types::MultiAgentMode::Custom(
++        "ignored original option".into(),
++    ));
++    candidate.pair_command(
++        "ordinary-data".into(),
++        request,
++        ignored.clone(),
++        Some("Xcode".into()),
++        Some(String::new()),
++    )?;
++    assert_eq!(candidate.data, expected);
++    let retained = candidate.command.as_ref().unwrap();
++    assert_eq!(retained.ordinary_id, "ordinary-data");
++    assert_eq!(retained.ignored_multi_agent_mode, ignored);
++    assert_eq!(retained.request.input, original.input);
++    assert_eq!(retained.request.thread_settings, overrides);
++    let codex_protocol::turn_input::TurnStartOptions {
++        turn_trigger,
++        final_output_json_schema,
++        service_tier,
++        parent_turn_id,
++        root_turn_id,
++        cyber_access_program,
++    } = &retained.request.start;
++    assert_eq!(
++        (
++            turn_trigger,
++            final_output_json_schema,
++            service_tier,
++            parent_turn_id,
++            root_turn_id,
++            cyber_access_program
++        ),
++        (
++            &original.start.turn_trigger,
++            &original.start.final_output_json_schema,
++            &original.start.service_tier,
++            &original.start.parent_turn_id,
++            &original.start.root_turn_id,
++            &original.start.cyber_access_program
++        )
++    );
++    assert_eq!(
++        (
++            &retained.request.additional_context,
++            &retained.request.responsesapi_client_metadata,
++            &retained.request.trace
++        ),
++        (
++            &original.additional_context,
++            &original.responsesapi_client_metadata,
++            &original.trace
++        )
++    );
++    assert!(
++        candidate
++            .pair_command("second".into(), original, None, None, None)
++            .is_err()
++    );
++    let mut empty = startup.settings_candidate_without_overrides()?;
++    assert!(
++        empty
++            .pair_command(
++                String::new(),
++                codex_protocol::turn_input::TurnInputRequest::user_input(Vec::new()),
++                None,
++                None,
++                None
++            )
++            .is_err()
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/thread_manager/selected_start.rs b/codex-rs/core/src/thread_manager/selected_start.rs
+index b25387e..afc49a1 100644
+--- a/codex-rs/core/src/thread_manager/selected_start.rs
++++ b/codex-rs/core/src/thread_manager/selected_start.rs
+@@ -213,6 +213,48 @@ impl ThreadManager {
+     ) -> io::Result<()> {
+         self.capture_selected_settings(selected, SelectedSettingsInput::Unchanged)
+     }
++    /// Pairs complete original command DATA with the candidate already normalized
++    /// by this same native source. No queue, Session or adoption right is created.
++    pub fn pair_selected_start_command(
++        &self,
++        selected: &mut SelectedStartInputs,
++        ordinary_id: String,
++        request: codex_protocol::turn_input::TurnInputRequest,
++        ignored_multi_agent_mode: Option<codex_protocol::config_types::MultiAgentMode>,
++        name: Option<String>,
++        version: Option<String>,
++    ) -> io::Result<()> {
++        let result = (|| {
++            self.with_current_selected_start(selected, || ())?;
++            let startup = selected
++                .allocation
++                .as_ref()
++                .and_then(|a| a.inputs.startup())
++                .ok_or_else(|| io::Error::other("original startup selection missing"))?;
++            selected
++                .settings
++                .as_ref()
++                .ok_or_else(|| io::Error::other("selected candidate missing"))?
++                .validate(startup)?;
++            selected
++                .settings
++                .as_mut()
++                .ok_or_else(|| io::Error::other("selected candidate missing"))?
++                .pair_command(
++                    ordinary_id,
++                    request,
++                    ignored_multi_agent_mode,
++                    name,
++                    version,
++                )?;
++            self.with_current_selected_start(selected, || ())
++        })();
++        if result.is_err() {
++            selected.invalidated.store(true, Ordering::Release);
++        }
++        result
++    }
++
+     fn capture_selected_settings(
+         &self,
+         selected: &mut SelectedStartInputs,
