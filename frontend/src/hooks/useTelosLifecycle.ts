@@ -43,6 +43,17 @@ function restore(id: string, scope: string): Pending | null {
     throw Error('Retained lifecycle request identity changed');
   return { scope, command, status: 'uncertain' };
 }
+/** Route recovery admission only: reuse the exact scoped journal parser. This
+ * neither supplies an item DTO nor submits/changes a retained command. */
+export function hasTelosLifecycleRecovery(itemId: string): boolean {
+  const scope = verifiedScope();
+  if (!scope) return false;
+  try {
+    return restore(itemId, scope) !== null;
+  } catch {
+    return false;
+  }
+}
 /** The server owns lifecycle. This hook retains only an exact explicit-retry
  * envelope; neither mounting, refresh nor reconnect submits a mutation. */
 export function useTelosLifecycle(

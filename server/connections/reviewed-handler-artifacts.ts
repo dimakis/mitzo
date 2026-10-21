@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.482-telos-record-read-contention';
+  'v1.0.483-telos-deleted-route-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/WorkspaceActionMenu.tsx':
     'fc661a29840de978d76a068169cd7f022fdbbdb9967b494898de94cafc303207',
   '../../frontend/src/hooks/useTelosLifecycle.ts':
-    '85fb3e31ef542cac96d40e4640c6d0aa336765bdb657ffc3f6755b14ceec23bd',
+    'eb028787db69de5f0fea8fb635ecfb360d59b7b45b51e369b0ed34f4fd89dd04',
   '../../frontend/src/lib/telos-collection-view.ts':
     '46f03c12ebbb7fe53faf17adc7923ad8fb42eac9a8f89c0805ebdc9e96496b21',
   '../../frontend/src/lib/telos-outcome-sort.ts':
@@ -308,7 +308,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/todo.ts':
     '40ce25d2ee7d5bb6f235d440cf3b5f6baa8f5760c92d4f0856276c6748468cbf',
   '../../frontend/src/pages/TodoDetailView.tsx':
-    'a3e4845ebba6aaee299735c02729daa645e9a9a1d5bbe1162ca9aae7c3895e2e',
+    'd3ac477bdb5261ff0b1e22a8f3a7fd073d06064016188c207c24c7697b9b41b2',
   '../../frontend/src/hooks/TelosSourceNavigation.tsx':
     'dac7bb547165c32a1c14f023a34ed371de281c9fab1c9ab41a93f522f6d60598',
   '../../frontend/src/components/WorkOutputs.tsx':
