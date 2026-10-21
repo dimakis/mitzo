@@ -32,6 +32,16 @@ local API dispatch, restart or credential-renewal ownership. The recent Local AP
 command-networking work improves the existing Responses route; it is not a Codex
 migration.
 
+Local workspace parity is a separate requirement. The older host chat path uses
+`createSessionWorktrees()` for configured local repositories. The newer repository
+import path retains an independent Git checkout, and an ordinary workspace without
+a selected repository is a private directory. These are different workspace
+contracts. Local Codex must also support an existing repository on the Mac with
+the familiar isolated worktree/branch and original-workspace continuation. Choosing
+API or ChatGPT authentication must not require importing that local repository
+through GitHub or change its workspace ownership. Qualify this through the existing
+worktree and allocation owners; authentication support alone does not establish it.
+
 The recommendation remains to use Codex for all **new OpenAI agent conversations**,
 retiring the duplicate OpenAI agent loop after the local dispatch and retained-history
 slices pass. First prove selected API billing, Library/tool/MCP/context behavior,
