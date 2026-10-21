@@ -169,3 +169,36 @@ export async function cancelConnectionSetup(id: string, revision: number, csrf: 
     )
   ).setup;
 }
+
+export async function getSecretRelay(id: string) {
+  return (
+    await request<{ relay: import('../types/secret-relay').SecretRelay }>(
+      `/relays/${encodeURIComponent(id)}`,
+    )
+  ).relay;
+}
+export async function completeSecretRelay(
+  id: string,
+  revision: number,
+  secret: string,
+  csrf: string,
+) {
+  return (
+    await request<{ relay: import('../types/secret-relay').SecretRelay }>(
+      `/relays/${encodeURIComponent(id)}/complete`,
+      'POST',
+      { revision, secret },
+      csrf,
+    )
+  ).relay;
+}
+export async function cancelSecretRelay(id: string, revision: number, csrf: string) {
+  return (
+    await request<{ relay: import('../types/secret-relay').SecretRelay }>(
+      `/relays/${encodeURIComponent(id)}/cancel`,
+      'POST',
+      { revision },
+      csrf,
+    )
+  ).relay;
+}

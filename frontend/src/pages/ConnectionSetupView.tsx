@@ -1,8 +1,12 @@
+import type { SecretRelay } from '../types/secret-relay';
 import { UiIcon } from '../components/UiIcon';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   cancelConnectionSetup,
+  getSecretRelay,
+  completeSecretRelay,
+  cancelSecretRelay,
   completeConnectionSetup,
   getConnectionSetup,
   getCachedCredentialAuthorization,
@@ -57,9 +61,9 @@ function DocumentationReference({ url }: { url: string }) {
 }
 
 /** A chat-prepared connection: the user supplies a credential, never protocol configuration. */
-export function ConnectionSetupView() {
+export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boolean }) {
   const { setupId = '' } = useParams();
-  const [setup, setSetup] = useState<ConnectionSetup>();
+  const [setup, setSetup] = useState<ConnectionSetup | SecretRelay>();
   const [error, setError] = useState('');
   const [secret, setSecret] = useState('');
   const [passphrase, setPassphrase] = useState('');
@@ -84,9 +88,9 @@ export function ConnectionSetupView() {
       routeGeneration.current === route &&
       requestGeneration.current === request;
     try {
-      const next = await getConnectionSetup(setupId);
+      const next = await (secretRelay ? getSecretRelay : getConnectionSetup)(setupId);
       if (current()) {
-        if (next.error || ['ready', 'cancelled', 'expired'].includes(next.status))
+        if (next.error || ['ready', 'cancelled', 'expired', 'unconfirmed'].includes(next.status))
           submissionError.current = '';
         setSetup(next);
         setError(next.error || (next.status === 'pending' ? submissionError.current : ''));
@@ -100,7 +104,7 @@ export function ConnectionSetupView() {
         );
       throw reason;
     }
-  }, [setupId]);
+  }, [setupId, secretRelay]);
   useEffect(() => {
     routeGeneration.current += 1;
     alive.current = true;
@@ -130,7 +134,7 @@ export function ConnectionSetupView() {
     return () => clearTimeout(timer);
   }, [authorization]);
   useEffect(() => {
-    if (!setup || ['ready', 'cancelled', 'expired'].includes(setup.status)) return;
+    if (!setup || ['ready', 'cancelled', 'expired', 'unconfirmed'].includes(setup.status)) return;
     const timer = setTimeout(
       () => {
         setSecret('');
@@ -186,8 +190,17 @@ export function ConnectionSetupView() {
       setAuthorization(auth);
       mutationStarted = true;
       const next = cancel
-        ? await cancelConnectionSetup(setup.id, setup.revision, auth.csrf)
-        : await completeConnectionSetup(setup.id, setup.revision, credential, auth.csrf);
+        ? await (secretRelay ? cancelSecretRelay : cancelConnectionSetup)(
+            setup.id,
+            setup.revision,
+            auth.csrf,
+          )
+        : await (secretRelay ? completeSecretRelay : completeConnectionSetup)(
+            setup.id,
+            setup.revision,
+            credential,
+            auth.csrf,
+          );
       if (current()) {
         setSetup(next);
         setError(next.error ?? '');
@@ -209,15 +222,19 @@ export function ConnectionSetupView() {
       if (alive.current && routeGeneration.current === route) setBusy(false);
     }
   };
+  const relay = setup && 'targets' in setup ? setup : undefined;
+  const connectionSetup = setup && 'connection' in setup ? setup : undefined;
+  const label = relay?.label ?? connectionSetup?.connection.label ?? '';
+  const credentialLabel = relay ? 'Password or token' : connectionSetup?.credential.label;
   const back = setup ? `/chat/${encodeURIComponent(setup.sessionId)}` : '/connections-access';
-  const terminal = setup && ['ready', 'cancelled', 'expired'].includes(setup.status);
+  const terminal = setup && ['ready', 'cancelled', 'expired', 'unconfirmed'].includes(setup.status);
   const expired = setup?.status === 'expired';
   const ready = setup?.status === 'ready';
   const needsUnlock = !authorization || authorization.expiresAt <= Date.now();
-  const helpUrl = setup?.credential.helpUrl;
+  const helpUrl = connectionSetup?.credential.helpUrl;
   const safeHelpUrl = documentationUrl(helpUrl);
   const trustedHomeAssistantHelp =
-    setup?.profile === 'home-assistant' &&
+    connectionSetup?.profile === 'home-assistant' &&
     safeHelpUrl === 'https://www.home-assistant.io/docs/authentication/';
   return (
     <main className="workspace-page connection-setup-page">
@@ -231,14 +248,20 @@ export function ConnectionSetupView() {
         </p>
         <h1 id="connection-setup-heading">
           {ready
-            ? `${setup.connection.label} is connected`
+            ? relay
+              ? `${label} saved securely`
+              : `${label} is connected`
             : expired
               ? 'This setup has expired'
               : setup?.status === 'cancelled'
                 ? 'Setup cancelled'
-                : setup
-                  ? `Connect ${setup.connection.label}`
-                  : 'Connect your service'}
+                : setup?.status === 'unconfirmed'
+                  ? 'Check secret storage'
+                  : setup
+                    ? relay
+                      ? `Add ${label}`
+                      : `Connect ${label}`
+                    : 'Connect your service'}
         </h1>
         {!setup ? (
           <>
@@ -249,13 +272,17 @@ export function ConnectionSetupView() {
         ) : terminal ? (
           <>
             <p>
-              {ready
-                ? setup.delivery === 'pending'
-                  ? 'Your key is saved privately and the connection is verified. Return to chat; if the task is waiting, tell your assistant the connection is ready.'
-                  : 'Your key is saved privately and the connection is verified. Continue your original task in chat.'
-                : expired
-                  ? 'Return to your chat and ask the assistant to prepare this connection again.'
-                  : 'Return to your chat whenever you want to continue.'}
+              {setup.status === 'unconfirmed'
+                ? 'The Gateway save could not be confirmed. Do not enter the value again. Return to chat and review Gateway status with your operator.'
+                : ready
+                  ? relay
+                    ? 'Your value is stored privately in OpenShell. Mitzo will continue the original task when your chat is available.'
+                    : setup.delivery === 'pending'
+                      ? 'Your key is saved privately and the connection is verified. Return to chat; if the task is waiting, tell your assistant the connection is ready.'
+                      : 'Your key is saved privately and the connection is verified. Continue your original task in chat.'
+                  : expired
+                    ? 'Return to your chat and ask the assistant to prepare this connection again.'
+                    : 'Return to your chat whenever you want to continue.'}
             </p>
             <Link className="workspace-primary connection-setup-return" to={back}>
               Return to chat
@@ -264,22 +291,63 @@ export function ConnectionSetupView() {
         ) : (
           <>
             <p className="connection-setup-intro">
-              Your assistant has prepared the connection. Add your key to finish.
+              {relay
+                ? 'Review where Mitzo may send this value, then enter it privately. Saving allows your assistant to continue with these exact writes.'
+                : 'Your assistant has prepared the connection. Add your key to finish.'}
             </p>
-            <dl className="connection-setup-summary">
-              <div>
-                <dt>Service address</dt>
-                <dd>{setup.connection.endpoint}</dd>
-              </div>
-              <div>
-                <dt>Available access</dt>
-                <dd>{setupAccessLabel(setup)}</dd>
-              </div>
-            </dl>
-            <p className="connection-setup-privacy">
-              Your key stays out of chat. Each chat requests permission before using this
-              connection.
-            </p>
+            {relay ? (
+              <>
+                {relay.targets.map((target, index) => (
+                  <section key={index} aria-label={`Destination ${index + 1}`}>
+                    <h2>{target.label}</h2>
+                    <dl className="connection-setup-summary">
+                      <div>
+                        <dt>Service address</dt>
+                        <dd>{target.endpoint}</dd>
+                      </div>
+                      <div>
+                        <dt>Action</dt>
+                        <dd>
+                          {target.method} {target.path}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Secret fields</dt>
+                        <dd>{target.fields.join(', ')}</dd>
+                      </div>
+                    </dl>
+                    <details>
+                      <summary>Review request template</summary>
+                      <pre>{target.body}</pre>
+                    </details>
+                  </section>
+                ))}
+                <p className="connection-setup-privacy">
+                  OpenShell stores your value. Mitzo applies it privately to these fields; your
+                  assistant receives only status. Access ends when this request expires or you
+                  revoke it.
+                </p>
+              </>
+            ) : (
+              connectionSetup && (
+                <>
+                  <dl className="connection-setup-summary">
+                    <div>
+                      <dt>Service address</dt>
+                      <dd>{connectionSetup.connection.endpoint}</dd>
+                    </div>
+                    <div>
+                      <dt>Available access</dt>
+                      <dd>{setupAccessLabel(connectionSetup)}</dd>
+                    </div>
+                  </dl>
+                  <p className="connection-setup-privacy">
+                    Your key stays out of chat. Each chat requests permission before using this
+                    connection.
+                  </p>
+                </>
+              )
+            )}
             {error && (
               <p className="connections-notice" role="alert">
                 {error}
@@ -303,7 +371,7 @@ export function ConnectionSetupView() {
                 }}
               >
                 <label className="connections-field">
-                  {setup.credential.label}
+                  {credentialLabel}
                   <input
                     type="password"
                     name="service-credential"
@@ -316,7 +384,11 @@ export function ConnectionSetupView() {
                   />
                 </label>
                 <div className="connection-setup-guidance">
-                  <p>{setup.credential.instructions}</p>
+                  <p>
+                    {relay
+                      ? 'Enter the value once. It will fill each approved secret field. Never send it in chat.'
+                      : connectionSetup?.credential.instructions}
+                  </p>
                   {safeHelpUrl &&
                     (trustedHomeAssistantHelp ? (
                       <a href={safeHelpUrl} target="_blank" rel="noopener noreferrer">
@@ -342,7 +414,7 @@ export function ConnectionSetupView() {
                       value={passphrase}
                       onChange={(event) => setPassphrase(event.target.value)}
                     />
-                    <span>Authorize saving this key.</span>
+                    <span>Authorize saving this {relay ? 'value' : 'key'}.</span>
                   </label>
                 )}
                 <div className="connection-setup-actions">
@@ -356,8 +428,12 @@ export function ConnectionSetupView() {
                     }
                   >
                     {busy || setup.status === 'verifying'
-                      ? 'Verifying connection…'
-                      : `Connect ${setup.connection.label}`}
+                      ? relay
+                        ? 'Saving securely…'
+                        : 'Verifying connection…'
+                      : relay
+                        ? 'Save securely and continue'
+                        : `Connect ${label}`}
                   </button>
                   <button
                     type="button"

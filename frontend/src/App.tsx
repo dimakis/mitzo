@@ -287,6 +287,10 @@ export function App() {
                             title="Attention"
                             description="The items that need a decision or a closer look."
                           />
+                          <Route
+                            path="/connections/secrets/:setupId"
+                            element={<ConnectionSetupView secretRelay />}
+                          />
                           <AttentionFeed />
                         </main>
                       </PageRoute>
