@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.474-local-api-network-approval';
+  'v1.0.475-local-api-network-approval';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -668,7 +668,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '3e511081210d3ccd59755d28eb9a4d74c91bdac8a4c21a2dd3882080f89e072e',
   '../query-loop.ts': 'c4b8d036dfd418981cb6e4643143d6b4928645e529ba1bf79fdaaf3840df698c',
-  '../account-profiles.ts': 'e8b8e659ba11b9d3d28abbb47542929d103dde5c1f2f347d1b6361c547cec759',
+  '../account-profiles.ts': '1504fc67d31fe464701829ed732fe5e2b925f6f4fc54ec3223fccbdbc0128403',
   '../ordinary-turn-lifecycle.ts':
     'a138e83ba1a2ec8ceaef967858fb926d5de83658d21f555f32c98174afd4064b',
   '../ordinary-contributor-guidance.ts':
@@ -706,7 +706,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': 'ac75d9b0ca808ea14c0f07f3ff6ff020bc9899d1b246cd900a386d4c93af3481',
+  '../app.ts': '4bd9d04cf5e88cd2e2fecbedb638d4545d5f19f837de0a6cf23f3db5f8178e21',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -826,7 +826,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openai-key-operation-store.ts':
     '53aa481b64f0b7cbb6055d3d0bd569bb4dc4cd55cf6807748e99a63cc66f20ed',
   '../openai-enrollment-models.ts':
-    '11a318042fbd8f7aecc09563c80456bfff424813a3d12a05d01bc768a0358263',
+    'e36785249c67f6010bb394ab3856395d1bf341a73a84a88049a86c2ed83d6ed0',
   '../openai-account-enrollment.ts':
     'ade50acdf50e214b62f2c4068565995c1b949d18f96533e0d1d081ab83f4dfe0',
   '../openai-account-enrollment-keychain.ts':
