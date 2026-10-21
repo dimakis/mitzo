@@ -567,3 +567,129 @@ it('retains the same ready preparation across a supported model edit and exposes
   expect(api.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0);
   expect(api.fetch.mock.calls.some(([url]) => String(url).includes(`/${preview.id}?`))).toBe(true);
 });
+
+const runtimeChoice = (location: 'local' | 'openshell') => ({
+  runOn: location,
+  runtime: {
+    account: { accountId: 'account', provider: 'openai' as const, profileRevision: 'r1' },
+    harness: location === 'local' ? ('responses' as const) : ('codex' as const),
+    targetId: location === 'local' ? 'mac' : 'shell',
+  },
+});
+function mockRepositoryFlow(losePrepare = false) {
+  api.fetch.mockImplementation(async (url: string) => {
+    if (url.includes('/catalog'))
+      return new Response(
+        JSON.stringify({
+          available: true,
+          repositories: [{ connectionId: 'github', label: 'GitHub', repository: 'example/repo' }],
+        }),
+      );
+    if (url.endsWith('/preview')) return new Response(JSON.stringify(preview));
+    if (url.endsWith('/prepare') && losePrepare) throw Error('response lost');
+    return new Response(JSON.stringify({ ...preview, state: 'ready' }));
+  });
+}
+it('invalidates an unprepared preview when the selected execution runtime changes', async () => {
+  mockRepositoryFlow();
+  const onChange = vi.fn();
+  const { rerender } = render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      ordinaryRuntime={runtimeChoice('openshell')}
+      onChange={onChange}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('GitHub repository'), 'github:example/repo');
+  await user.click(screen.getByRole('button', { name: 'Preview repository' }));
+  await screen.findByRole('button', { name: 'Prepare repository' });
+  rerender(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      ordinaryRuntime={runtimeChoice('local')}
+      onChange={onChange}
+    />,
+  );
+  await vi.waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Prepare repository' })).toBeNull(),
+  );
+  await user.click(screen.getByRole('button', { name: 'Preview repository' }));
+  const requests = api.fetch.mock.calls.filter(([url]) => url.endsWith('/preview'));
+  expect(requests).toHaveLength(2);
+  expect(JSON.parse(requests[1][1].body).ordinaryRuntime).toEqual(runtimeChoice('local'));
+});
+it('recovers the same preparation after its response was lost without preparing twice', async () => {
+  mockRepositoryFlow(true);
+  const onChange = vi.fn();
+  render(
+    <RepositoryChatPicker accountId="account" model="model" draftScoped onChange={onChange} />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('GitHub repository'), 'github:example/repo');
+  await user.click(screen.getByRole('button', { name: 'Preview repository' }));
+  await user.click(await screen.findByRole('button', { name: 'Prepare repository' }));
+  await screen.findByRole('alert');
+  await user.click(screen.getByRole('button', { name: 'Refresh preparation status' }));
+  await screen.findByText(/Ready for your first prompt/);
+  expect(onChange).toHaveBeenLastCalledWith({ repositoryWorkspaceId: preview.id, blocked: false });
+  expect(api.fetch.mock.calls.filter(([url]) => url.endsWith('/prepare'))).toHaveLength(1);
+  expect(
+    api.fetch.mock.calls.some(
+      ([url, options]) =>
+        url === `/api/repository-workspaces/${preview.id}?accountId=account&model=model` &&
+        !options.method,
+    ),
+  ).toBe(true);
+});
+
+it('does not unblock a recovered source prepared for another execution runtime', async () => {
+  mockRepositoryFlow(true);
+  const onChange = vi.fn();
+  const { rerender } = render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      draftScoped
+      ordinaryRuntime={runtimeChoice('openshell')}
+      onChange={onChange}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('GitHub repository'), 'github:example/repo');
+  await user.click(screen.getByRole('button', { name: 'Preview repository' }));
+  await user.click(await screen.findByRole('button', { name: 'Prepare repository' }));
+  await screen.findByRole('alert');
+  rerender(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      draftScoped
+      ordinaryRuntime={runtimeChoice('local')}
+      onChange={onChange}
+    />,
+  );
+  api.fetch.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        ...preview,
+        state: 'ready',
+        ordinaryRuntime: {
+          version: 2,
+          account: runtimeChoice('openshell').runtime.account,
+          harness: { implementation: 'codex' },
+          execution: { location: 'openshell', targetId: 'shell', targetRevision: 'r1' },
+        },
+      }),
+    ),
+  );
+  await user.click(screen.getByRole('button', { name: 'Refresh preparation status' }));
+  await screen.findByText(/original execution choices/);
+  expect(onChange.mock.calls.at(-1)[0].blocked).toBe(true);
+  expect(screen.queryByText(/Ready for your first prompt/)).toBeNull();
+});

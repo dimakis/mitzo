@@ -77,12 +77,44 @@ export function RepositoryChatPicker({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [retainedConversationId, setRetainedConversationId] = useState<string | null>(null);
+  const refreshButton = useRef<HTMLButtonElement>(null);
+  const restoreRefreshFocus = useRef(false);
+  useEffect(() => {
+    if (busy || !restoreRefreshFocus.current) return;
+    restoreRefreshFocus.current = false;
+    if (document.activeElement === document.body) refreshButton.current?.focus();
+  }, [busy]);
   const callback = useRef(onChange);
   callback.current = onChange;
   const operation = useRef<AbortController | null>(null);
   const restoration = useRef<AbortController | null>(null);
   const storageKey = repositoryDraftKey(accountId, model);
   const [restorationAttempt, setRestorationAttempt] = useState(0);
+  const runtimeKey = JSON.stringify(ordinaryRuntime ?? null);
+  const previousRuntime = useRef(runtimeKey);
+  useEffect(() => {
+    if (previousRuntime.current === runtimeKey) return;
+    previousRuntime.current = runtimeKey;
+    // A preview has not acquired source yet. It must be made again for the
+    // current runtime; never prepare the old environment's preview.
+    operation.current?.abort();
+    setBusy(false);
+    if (pendingPreparationId || (workspace && workspace.state !== 'preview')) {
+      setError(
+        'This preparation belongs to the original execution choices. Restore those choices or remove the preparation.',
+      );
+      callback.current({
+        blocked: true,
+        ...(draftScoped && pendingPreparationId
+          ? { repositoryWorkspaceId: pendingPreparationId }
+          : {}),
+      });
+    } else {
+      setWorkspace(null);
+      setError('');
+      callback.current(selected ? { blocked: true } : null);
+    }
+  }, [runtimeKey, pendingPreparationId, workspace, selected, draftScoped]);
   useEffect(() => {
     const controller = new AbortController();
     restoration.current = controller;
@@ -231,6 +263,59 @@ export function RepositoryChatPicker({
       if (!controller.signal.aborted) setBusy(false);
     }
   }
+  const refreshPreparation = async () => {
+    const id = pendingId ?? workspace?.id;
+    if (!id || busy) return;
+    const controller = new AbortController();
+    operation.current?.abort();
+    operation.current = controller;
+    setBusy(true);
+    setError('');
+    callback.current({ blocked: true, ...(draftScoped ? { repositoryWorkspaceId: id } : {}) });
+    try {
+      const query = new URLSearchParams({ accountId, model });
+      const response = await apiFetch(
+        `/api/repository-workspaces/${encodeURIComponent(id)}?${query}`,
+        {
+          signal: controller.signal,
+        },
+      );
+      if (!response.ok)
+        throw Error('Repository preparation status is unavailable. Retry before preparing again.');
+      const result = workspaceSchema.parse(await response.json());
+      if (controller.signal.aborted) return;
+      if (result.id !== id) throw Error('Repository preparation identity changed.');
+      const bound = result.ordinaryRuntime;
+      if (
+        ordinaryRuntime &&
+        (!bound ||
+          bound.execution.location !== ordinaryRuntime.runOn ||
+          bound.execution.targetId !== ordinaryRuntime.runtime.targetId ||
+          bound.harness.implementation !== ordinaryRuntime.runtime.harness ||
+          bound.account.accountId !== ordinaryRuntime.runtime.account.accountId ||
+          bound.account.provider !== ordinaryRuntime.runtime.account.provider ||
+          bound.account.profileRevision !== ordinaryRuntime.runtime.account.profileRevision)
+      )
+        throw Error(
+          'This preparation belongs to the original execution choices. Restore those choices or remove the preparation.',
+        );
+      setWorkspace(result);
+      callback.current(
+        result.state === 'ready' && catalog?.available
+          ? { repositoryWorkspaceId: id, blocked: false, ordinaryRuntime: result.ordinaryRuntime }
+          : { blocked: true, ...(draftScoped ? { repositoryWorkspaceId: id } : {}) },
+      );
+    } catch (failure) {
+      if (!controller.signal.aborted)
+        setError(
+          failure instanceof Error
+            ? failure.message
+            : 'Repository preparation status is unavailable.',
+        );
+    } finally {
+      if (!controller.signal.aborted) setBusy(false);
+    }
+  };
   const changeSource = (value: string) => {
     setSelected(value);
     setWorkspace(null);
@@ -396,7 +481,7 @@ export function RepositoryChatPicker({
                   </p>
                   <button
                     type="button"
-                    disabled={busy}
+                    disabled={busy || !!pendingId}
                     onClick={() => void requestWorkspace('prepare')}
                   >
                     Prepare repository
@@ -415,11 +500,16 @@ export function RepositoryChatPicker({
           )}
           {busy && <p role="status">Preparing repository…</p>}
           {error && <p role="alert">{error}</p>}
-          {initialPreparationId && (
+          {(initialPreparationId || pendingId || (workspace && workspace.state !== 'preview')) && (
             <button
               type="button"
               disabled={busy}
-              onClick={() => setRestorationAttempt((value) => value + 1)}
+              ref={refreshButton}
+              onClick={(event) => {
+                restoreRefreshFocus.current = document.activeElement === event.currentTarget;
+                if (!catalog) setRestorationAttempt((value) => value + 1);
+                else void refreshPreparation();
+              }}
             >
               Refresh preparation status
             </button>
