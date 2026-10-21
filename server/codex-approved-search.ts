@@ -1,12 +1,44 @@
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { z } from 'zod';
-import type { CodexLifecycleTransport } from './codex-app-server-client.js';
+import {
+  CodexRequestError,
+  CodexTransportError,
+  type CodexLifecycleTransport,
+} from './codex-app-server-client.js';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { SEARCH_INSTRUCTIONS } from './web-search-adapters.js';
 import { WebAccessError } from './request-web-access.js';
 import { webSearchFailure } from './web-search-errors.js';
 
 const searchFailure = (detail: string) => webSearchFailure('native Codex', detail);
+// Inspect only protocol discriminants, never return model/provider messages.
+function turnFailure(error: unknown): string {
+  const info = z.object({ codexErrorInfo: z.unknown() }).safeParse(error);
+  const code = info.success ? info.data.codexErrorInfo : undefined;
+  const kind =
+    typeof code === 'string'
+      ? code
+      : code && typeof code === 'object'
+        ? Object.keys(code)[0]
+        : undefined;
+  switch (kind) {
+    case 'unauthorized':
+      return 'authentication failed';
+    case 'usageLimitExceeded':
+      return 'rate or quota limit was reached';
+    case 'contextWindowExceeded':
+      return 'context limit was reached';
+    case 'httpConnectionFailed':
+    case 'responseStreamConnectionFailed':
+    case 'responseStreamDisconnected':
+      return 'provider connection failed';
+    case 'serverOverloaded':
+      return 'service was unavailable';
+    default:
+      return 'turn did not complete';
+  }
+}
+type Terminal = { id: string; status: string; failure: string };
 interface Rpc {
   initialize(): Promise<void>;
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
@@ -37,9 +69,9 @@ export async function searchCodex(
   let phase = 'transport initialization failed';
   let threadId: string | undefined;
   const turns = new Map<string, { searched: boolean; text: string[] }>();
-  let finish!: (value: { id: string; status: string }) => void;
+  let finish!: (value: Terminal) => void;
   let fail!: (error: Error) => void;
-  const completed = new Promise<{ id: string; status: string }>((resolve, reject) => {
+  const completed = new Promise<Terminal>((resolve, reject) => {
     finish = resolve;
     fail = reject;
   });
@@ -52,8 +84,10 @@ export async function searchCodex(
     onNotification: (method, params) => {
       if (!threadId || params.threadId !== threadId) return;
       if (method === 'turn/completed') {
-        const turn = z.object({ id: z.string(), status: z.string() }).safeParse(params.turn);
-        if (turn.success) finish(turn.data);
+        const turn = z
+          .object({ id: z.string(), status: z.string(), error: z.unknown().optional() })
+          .safeParse(params.turn);
+        if (turn.success) finish({ ...turn.data, failure: turnFailure(turn.data.error) });
       }
       if (method !== 'item/completed' || typeof params.turnId !== 'string') return;
       const item = z
@@ -108,7 +142,14 @@ export async function searchCodex(
       ),
       ...codexRuntimeOverrides(configuration.config, options.workspaceId),
       web_search: 'live',
-      'features.code_mode_host': false,
+      // Responses-Lite/code-mode-only models reach standalone web.run through
+      // this dispatcher. Disabling it removes their only usable search tool.
+      'features.code_mode_host': true,
+      // The inspected OpenShell route is a custom Codex provider, so Codex does
+      // not infer standalone-search support as it does for built-in OpenAI.
+      ...(options.modelProvider === 'openshell'
+        ? { 'model_providers.openshell.supports_standalone_web_search': true }
+        : {}),
       ...(options.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
     };
     phase = 'thread could not be started';
@@ -126,6 +167,7 @@ export async function searchCodex(
             cwd: options.cwd,
             config,
             dynamicTools: [],
+            allowProviderModelFallback: false,
             approvalPolicy: 'never',
             sandbox: 'read-only',
             developerInstructions: SEARCH_INSTRUCTIONS,
@@ -150,9 +192,12 @@ export async function searchCodex(
     phase = 'turn did not complete';
     const terminal = await completed;
     const turn = turns.get(start.turn.id);
-    if (terminal.id !== start.turn.id || terminal.status !== 'completed')
-      throw searchFailure('turn did not complete');
-    if (!turn?.searched) throw searchFailure('returned no completed search receipt');
+    if (terminal.id !== start.turn.id) throw searchFailure('turn identity changed');
+    if (terminal.status !== 'completed') throw searchFailure(terminal.failure);
+    if (!turn?.searched)
+      throw searchFailure(
+        'returned no completed search receipt; the selected runtime did not execute a usable search. Do not repeat the same request blindly. Check runtime search capability; an approved website fetch is a separate recovery option',
+      );
     if (!turn.text.length) throw searchFailure('returned no answer');
     signal.throwIfAborted();
     const answer = turn.text.join('\n');
@@ -161,6 +206,21 @@ export async function searchCodex(
   } catch (error) {
     if (signal.aborted) throw searchFailure('was interrupted');
     if (error instanceof WebAccessError) throw error;
+    if (error instanceof CodexRequestError) {
+      const reasons: Partial<Record<CodexRequestError['category'], string>> = {
+        authentication: 'authentication failed',
+        rate_limit: 'rate or quota limit was reached',
+        provider_transport: 'provider connection failed',
+        invalid_request: 'request was rejected by the runtime',
+        context_limit: 'context limit was reached',
+      };
+      const detail = reasons[error.category];
+      if (detail) throw searchFailure(detail);
+    }
+    if (error instanceof CodexTransportError)
+      throw searchFailure(
+        error.category === 'timeout' ? 'runtime request timed out' : 'runtime transport failed',
+      );
     // Raw RPC/provider errors can include credentials or private account data.
     throw searchFailure(phase);
   } finally {
