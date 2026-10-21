@@ -42,6 +42,17 @@ export class OrdinaryLocalWorkspaceOwner<K extends LocalWorkspaceKind = 'reposit
       )
         throw unavailable();
     }
+    if (this.kind === 'repository' && value.state === 'claimed') {
+      const record = this.workspace.getForConversation(r.conversationId);
+      if (
+        !record ||
+        record.id !== value.id ||
+        record.directory !== value.directory ||
+        !isDeepStrictEqual(record.binding, value.binding)
+      )
+        throw unavailable();
+      return record as LocalWorkspaceRecord<K>;
+    }
     return value as LocalWorkspaceRecord<K>;
   }
   assertCurrentSync(cwd: string): void {

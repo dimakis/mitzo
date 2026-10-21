@@ -362,7 +362,7 @@ export class AccountProfiles {
   }
 
   ordinaryLocalCodexInventory() {
-    return this.ordinaryLocalCodexAccounts().map((account) => {
+    const subscriptions = this.ordinaryLocalCodexAccounts().map((account) => {
       const profile = this.profiles.find((candidate) => candidate.id === account.accountId)!;
       const discovered = cachedModels(JSON.stringify(profile));
       const { accountId, provider, profileRevision, planType } = account;
@@ -378,6 +378,15 @@ export class AccountProfiles {
         },
       };
     });
+    return this.options.codexEnabled
+      ? [
+          ...subscriptions,
+          ...this.ordinaryLocalResponsesInventory().map((account) => ({
+            ...account,
+            planType: 'api' as const,
+          })),
+        ]
+      : subscriptions;
   }
 
   /** Local API configuration projection; enrollment custody remains the owning gate. */
