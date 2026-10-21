@@ -86,8 +86,8 @@ async function boundedCatalog(response: Response, signal: AbortSignal): Promise<
   return JSON.parse(new TextDecoder().decode(body));
 }
 
-/** Metadata GET only. The separate attended validation performs the single Luna inference check. */
-export async function discoverOpenAIEnrollmentModels(
+/** Metadata GET only; availability is account-owned and supported capabilities are code-owned. */
+export async function discoverOpenAIModels(
   value: string,
   signal: AbortSignal,
   request: typeof fetch = fetch,
@@ -105,7 +105,20 @@ export async function discoverOpenAIEnrollmentModels(
     const catalog = ModelsResponse.parse(await boundedCatalog(response, signal));
     const available = new Set(catalog.data.map((model) => model.id));
     const models = REVIEWED_OPENAI_ENROLLMENT_MODELS.filter((model) => available.has(model.id));
-    return OpenAIEnrollmentModelsSchema.parse(structuredClone(models));
+    return z.array(CatalogModel).min(1).parse(structuredClone(models));
+  } catch {
+    throw new Error('OpenAI model discovery failed');
+  }
+}
+
+/** Enrollment additionally requires Luna for its separate attended inference validation. */
+export async function discoverOpenAIEnrollmentModels(
+  value: string,
+  signal: AbortSignal,
+  request: typeof fetch = fetch,
+): Promise<CatalogModel[]> {
+  try {
+    return OpenAIEnrollmentModelsSchema.parse(await discoverOpenAIModels(value, signal, request));
   } catch {
     throw new Error('OpenAI model discovery failed');
   }
