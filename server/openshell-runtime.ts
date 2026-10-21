@@ -165,7 +165,12 @@ export type OpenShellEnsurePhase =
   | 'account-provider-check'
   | 'sandbox-current'
   | 'sandbox-legacy'
-  | 'connections';
+  | 'connections'
+  | 'sandbox-create'
+  | 'seed-upload'
+  | 'sandbox-ready'
+  | 'connections-postcreate'
+  | 'provider-reconciliation';
 export type OpenShellMountJsonOperation =
   'podman-ps' | 'podman-inspect' | 'native-identity' | 'native-ssh-probe';
 export type OpenShellRuntimeObservation = Readonly<
@@ -794,6 +799,24 @@ async function knowledgePhase<T>(
   }
 }
 
+/** Keep these source/freeze phases synchronous; private native errors stay redacted. */
+function synchronousKnowledgePhase<T>(
+  phase: 'verify_host' | 'freeze_upload',
+  operation: () => T,
+): T {
+  const span = tracer.startSpan(`knowledge.${phase}`);
+  try {
+    const result = operation();
+    span.setStatus({ code: SpanStatusCode.OK });
+    return result;
+  } catch (error) {
+    span.setStatus({ code: SpanStatusCode.ERROR });
+    throw error;
+  } finally {
+    span.end();
+  }
+}
+
 /** Resolve one immutable publication and verify it before a new ordinary seed upload. */
 export function verifiedOpenShellSeed(
   config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest'>,
@@ -823,7 +846,15 @@ export function verifiedOpenShellSeed(
 export function prepareOpenShellSeed(
   config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest'>,
 ): { seed: string; cleanup: () => void } {
-  const selected = verifiedOpenShellSeed(config);
+  return freezeVerifiedOpenShellSeed(config, verifiedOpenShellSeed(config));
+}
+
+/** Internal only: callers attest this source in the same synchronous operation.
+ * The private frozen copy is independently verified before it can be returned. */
+function freezeVerifiedOpenShellSeed(
+  config: Pick<OpenShellRuntimeConfig, 'seed' | 'image' | 'seedStackManifest'>,
+  selected: string,
+): { seed: string; cleanup: () => void } {
   if (!config.seedStackManifest) return { seed: selected, cleanup: () => undefined };
   const privateRoot = join(codexPrivateDirectory(), 'knowledge-uploads');
   mkdirSync(privateRoot, { recursive: true, mode: 0o700 });
@@ -914,14 +945,27 @@ export async function preparePublishedOpenShellSeed(
   // Capacity callers must budget the actual immutable selection before the
   // host snapshot allocation, then pass that same snapshot to ensure().
   const selectedConfig = { ...config, seed: selection?.seed ?? config.seed };
-  const selectedSeed = await knowledgePhase('verify_host', () =>
-    verifiedOpenShellSeed(selectedConfig),
-  );
-  await beforeFreeze?.(selectedSeed);
-  signal.throwIfAborted();
-  const prepared = await knowledgePhase('freeze_upload', () =>
-    prepareOpenShellSeed({ ...selectedConfig, seed: selectedSeed }),
-  );
+  let prepared: ReturnType<typeof prepareOpenShellSeed>;
+  if (beforeFreeze) {
+    const selectedSeed = await knowledgePhase('verify_host', () =>
+      verifiedOpenShellSeed(selectedConfig),
+    );
+    await beforeFreeze(selectedSeed);
+    signal.throwIfAborted();
+    // Capacity admission can yield and the source can change in the meantime.
+    prepared = await knowledgePhase('freeze_upload', () =>
+      prepareOpenShellSeed({ ...selectedConfig, seed: selectedSeed }),
+    );
+  } else {
+    // Attest, capture metadata, copy and verify the frozen result without yielding.
+    // The exact publication pin is checked below, even for concurrent host writes.
+    const selectedSeed = synchronousKnowledgePhase('verify_host', () =>
+      verifiedOpenShellSeed(selectedConfig),
+    );
+    prepared = synchronousKnowledgePhase('freeze_upload', () =>
+      freezeVerifiedOpenShellSeed(selectedConfig, selectedSeed),
+    );
+  }
   if (selection) {
     try {
       const baselineBytes = readFileSync(join(prepared.seed, '..', 'baseline.json'));
@@ -1976,8 +2020,8 @@ export class OpenShellRuntimeManager {
     signal: AbortSignal,
   ): T {
     const observer = this.config.observeRuntime;
-    if (!observer) return operation();
-    const started = performance.now();
+    const span = tracer.startSpan(`openshell.ensure.${phase}`);
+    const started = observer ? performance.now() : 0;
     observeRuntime(observer, {
       kind: 'ensure-phase',
       phase,
@@ -1987,6 +2031,7 @@ export class OpenShellRuntimeManager {
     });
     try {
       const value = operation();
+      span.setStatus({ code: SpanStatusCode.OK });
       observeRuntime(observer, {
         kind: 'ensure-phase',
         phase,
@@ -1996,6 +2041,7 @@ export class OpenShellRuntimeManager {
       });
       return value;
     } catch (error) {
+      span.setStatus({ code: SpanStatusCode.ERROR });
       observeRuntime(observer, {
         kind: 'ensure-phase',
         phase,
@@ -2004,16 +2050,18 @@ export class OpenShellRuntimeManager {
         error: signal.aborted ? 'aborted' : 'unknown',
       });
       throw error;
+    } finally {
+      span.end();
     }
   }
-  private observeEnsure<T>(
+  private async observeEnsure<T>(
     phase: OpenShellEnsurePhase,
     operation: () => Promise<T>,
     signal: AbortSignal,
   ): Promise<T> {
     const observer = this.config.observeRuntime;
-    if (!observer) return operation();
-    const started = performance.now();
+    const span = tracer.startSpan(`openshell.ensure.${phase}`);
+    const started = observer ? performance.now() : 0;
     observeRuntime(observer, {
       kind: 'ensure-phase',
       phase,
@@ -2021,10 +2069,19 @@ export class OpenShellRuntimeManager {
       elapsedMs: 0,
       error: 'none',
     });
-    let pending: Promise<T>;
     try {
-      pending = operation();
+      const value = await operation();
+      span.setStatus({ code: SpanStatusCode.OK });
+      observeRuntime(observer, {
+        kind: 'ensure-phase',
+        phase,
+        stage: 'fulfilled',
+        elapsedMs: elapsedObservation(started),
+        error: 'none',
+      });
+      return value;
     } catch (error) {
+      span.setStatus({ code: SpanStatusCode.ERROR });
       observeRuntime(observer, {
         kind: 'ensure-phase',
         phase,
@@ -2033,29 +2090,9 @@ export class OpenShellRuntimeManager {
         error: signal.aborted ? 'aborted' : 'unknown',
       });
       throw error;
+    } finally {
+      span.end();
     }
-    return pending.then(
-      (value) => {
-        observeRuntime(observer, {
-          kind: 'ensure-phase',
-          phase,
-          stage: 'fulfilled',
-          elapsedMs: elapsedObservation(started),
-          error: 'none',
-        });
-        return value;
-      },
-      (error) => {
-        observeRuntime(observer, {
-          kind: 'ensure-phase',
-          phase,
-          stage: 'rejected',
-          elapsedMs: elapsedObservation(started),
-          error: signal.aborted ? 'aborted' : 'unknown',
-        });
-        throw error;
-      },
-    );
   }
 
   async ensure(
@@ -2203,19 +2240,14 @@ export class OpenShellRuntimeManager {
           (provider) => this.config.grantableServiceProviders.includes(provider),
         )
       : [...(inheritedMigrationGrants ?? [])];
-    if (this.config.observeRuntime) {
-      await this.observeEnsure(
-        'connections',
-        async () => {
-          if (sandbox)
-            await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
-          else await this.config.verifyConnections?.(name, signal, approvedGrantableProviders);
-        },
-        signal,
-      );
-    } else if (sandbox)
-      await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
-    else await this.config.verifyConnections?.(name, signal, approvedGrantableProviders);
+    await this.observeEnsure(
+      'connections',
+      async () => {
+        if (sandbox) await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
+        else await this.config.verifyConnections?.(name, signal, approvedGrantableProviders);
+      },
+      signal,
+    );
     if (!sandbox) {
       const preparedSeed: Awaited<ReturnType<typeof preparePublishedOpenShellSeed>> = artifactConfig
         ? { seed: this.config.seed, cleanup: () => undefined }
@@ -2295,7 +2327,11 @@ export class OpenShellRuntimeManager {
         this.config.beforeSandboxCreate?.();
         this.config.onSandboxCreationPhase?.('create');
         try {
-          const output = await this.run(args, signal);
+          const output = await this.observeEnsure(
+            'sandbox-create',
+            () => this.run(args, signal),
+            signal,
+          );
           createdByThisCall = true;
           if (phasedCreate) {
             const receipt = Sandbox.parse(JSON.parse(output));
@@ -2321,8 +2357,20 @@ export class OpenShellRuntimeManager {
               const beforeUpload = await this.get(name, signal);
               if (beforeUpload?.id !== receipt.id || beforeUpload.phase !== 'Ready')
                 throw new Error('Created sandbox identity changed before seed upload');
-              await this.run(
-                ['sandbox', ...this.base(), 'upload', name, selectedSeed, '/sandbox/workspaces'],
+              await this.observeEnsure(
+                'seed-upload',
+                () =>
+                  this.run(
+                    [
+                      'sandbox',
+                      ...this.base(),
+                      'upload',
+                      name,
+                      selectedSeed,
+                      '/sandbox/workspaces',
+                    ],
+                    signal,
+                  ),
                 signal,
               );
               const afterUpload = await this.get(name, signal);
@@ -2337,20 +2385,36 @@ export class OpenShellRuntimeManager {
           )
             throw error;
         }
-        sandbox = await this.waitForReady(name, owner, signal);
+        sandbox = await this.observeEnsure(
+          'sandbox-ready',
+          () => this.waitForReady(name, owner, signal),
+          signal,
+        );
       } finally {
         preparedSeed.cleanup();
       }
     } else if (sandbox.phase === 'Stopped') {
       await this.run(['sandbox', ...this.base(), 'start', name], signal);
-      sandbox = await this.waitForReady(name, owner, signal);
+      sandbox = await this.observeEnsure(
+        'sandbox-ready',
+        () => this.waitForReady(name, owner, signal),
+        signal,
+      );
     } else if (sandbox.phase !== 'Ready') {
-      sandbox = await this.waitForReady(name, owner, signal);
+      sandbox = await this.observeEnsure(
+        'sandbox-ready',
+        () => this.waitForReady(name, owner, signal),
+        signal,
+      );
     }
     if (terminalSandboxId) this.config.onSandboxCreationPhase?.('provider');
     if (terminalSandboxId && sandbox?.id !== terminalSandboxId)
       throw new Error('Created sandbox identity changed before configuration');
-    await this.verifyManagedConnections(name, signal, approvedGrantableProviders);
+    await this.observeEnsure(
+      'connections-postcreate',
+      () => this.verifyManagedConnections(name, signal, approvedGrantableProviders),
+      signal,
+    );
     if (sandbox && sandbox.phase === 'Ready' && sandbox.labels?.['mitzo.conversation'] === owner) {
       {
         this.config.verifyAccountProviderUnion?.();
@@ -2427,7 +2491,11 @@ export class OpenShellRuntimeManager {
             granted,
             ...(detach.length ? { pendingDetach: detach } : {}),
           });
-        await this.reconcileServiceProviders(name, owner, attach, detach, signal);
+        await this.observeEnsure(
+          'provider-reconciliation',
+          () => this.reconcileServiceProviders(name, owner, attach, detach, signal),
+          signal,
+        );
         this.config.verifyAccountProviderUnion?.();
         if (this.config.accountProviderBindings) {
           const confirmed = new Set(await this.attachedProviders(name, signal));
@@ -2778,22 +2846,28 @@ export class OpenShellRuntimeManager {
       const current = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
       if (current.phase !== 'Ready' || current.name !== runtime.sandboxName)
         throw new Error('Knowledge sandbox is not Ready');
-      const contract = await knowledgePhase('verify_runtime', () =>
-        this.verifyKnowledgeRuntime(runtime, signal),
-      );
       const remoteRoot = `/sandbox/workspaces/knowledge/knowledge-${manifestSha256}`;
       const cacheProbe = openShellSshArgvProcessSpec(runtime, [
         '/bin/sh',
         '-c',
         knowledgeCacheProbeCommand(remoteRoot, manifestSha256),
       ]);
-      const cache = z
-        .strictObject({ valid: z.boolean(), present: z.boolean() })
-        .parse(
-          JSON.parse(
-            await knowledgePhase('verify_cache', () => this.runSsh(cacheProbe.args, signal)),
-          ),
-        );
+      // Both checks only read this already-owned physical sandbox. Settle both
+      // before leaving lifecycle custody, including failure and cancellation.
+      const [runtimeCheck, cacheCheck] = await Promise.allSettled([
+        knowledgePhase('verify_runtime', () => this.verifyKnowledgeRuntime(runtime, signal)),
+        knowledgePhase('verify_cache', async () =>
+          z
+            .strictObject({ valid: z.boolean(), present: z.boolean() })
+            .parse(JSON.parse(await this.runSsh(cacheProbe.args, signal))),
+        ),
+      ]);
+      // Preserve serial failure precedence; no cache mutation starts before this.
+      if (runtimeCheck.status === 'rejected') throw runtimeCheck.reason;
+      if (cacheCheck.status === 'rejected') throw cacheCheck.reason;
+      signal.throwIfAborted();
+      const contract = runtimeCheck.value;
+      const cache = cacheCheck.value;
       if (cache.valid && !cache.present)
         throw new Error('Invalid knowledge cache verification response');
       if (!cache.valid) {
