@@ -1,3 +1,6 @@
+import { TelosItemLifecycle } from '../components/TelosItemLifecycle';
+import type { TelosWorkLifecycleView } from '@mitzo/protocol';
+import { readTelosCollectionView, telosCollectionPath } from '../lib/telos-collection-view';
 import { TelosItemWorkspace } from '../components/TelosItemWorkspace';
 import { useTelosRecords } from '../hooks/useTelosRecords';
 import { TelosItemSources } from '../components/TelosItemSources';
@@ -5,7 +8,7 @@ import { TelosItemRoleEntries } from '../components/TelosItemRoleEntries';
 import { useStageChatLaunch } from '../hooks/useStageChatLaunch';
 import { UiIcon } from '../components/UiIcon';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { findInTree, useTodoData, useLatestTodoPriority } from '../hooks/useTodoData';
 import { TodoPrioritySelect } from '../components/TodoPrioritySelect';
 import { createTodoPrioritySaveState } from '../lib/todo-priority-save-state';
@@ -34,6 +37,18 @@ function urgencyLabel(urgency: number): string {
 
 export function TodoDetailView() {
   const navigate = useNavigate();
+  const leaving = useRef(false);
+  const location = useLocation();
+  const [dataView, setDataView] = useState(() => readTelosCollectionView(location.state));
+  const onLifecycleCurrent = useCallback((view: TelosWorkLifecycleView) => {
+    setDataView(
+      view.effectiveDisposition === 'archived'
+        ? 'archive'
+        : view.effectiveDisposition === 'trashed'
+          ? 'trash'
+          : 'active',
+    );
+  }, []);
   const { id } = useParams<{ id: string }>();
   const prioritySaveState = useMemo(() => createTodoPrioritySaveState(id), [id]);
   const {
@@ -43,9 +58,8 @@ export function TodoDetailView() {
     error,
     refresh,
     setPriority: updatePriority,
-  } = useTodoData(undefined, id);
+  } = useTodoData(undefined, id, dataView);
   const setPendingSession = useStageChatLaunch();
-  const location = useLocation();
   const historyKey = 'telos.item.history.' + id;
   const navigationHistory = (location.state as { telosHistory?: unknown } | null)?.telosHistory;
   // Artifact selectors and Files own URL navigation; S7 owns its item trail.
@@ -102,7 +116,15 @@ export function TodoDetailView() {
   const record = primary.records.find((value) => value.itemId === id);
 
   useEffect(() => {
-    if (!loading && !refreshing && !error && !item && !canonical.loading && !record)
+    if (
+      !leaving.current &&
+      !loading &&
+      !refreshing &&
+      !error &&
+      !item &&
+      !canonical.loading &&
+      !record
+    )
       navigate('/todos', { replace: true });
   }, [loading, refreshing, error, item, navigate, canonical.loading, record]);
 
@@ -137,24 +159,8 @@ export function TodoDetailView() {
               canonical.refresh();
             }}
             records={canonical.records}
-            onBack={() => {
-              const history = itemHistory();
-              const homeReturn = !history.length ? readTelosHomeReturn(location.state) : null;
-              if (homeReturn) {
-                navigate(homeReturn.path, { state: homeReturn.state });
-                return;
-              }
-              navigate(
-                history.length
-                  ? `/todos/${encodeURIComponent(history[history.length - 1])}`
-                  : '/todos',
-                {
-                  state: history.length
-                    ? popTelosItemHistory(location.state, history)
-                    : { ...location.state, telosHistory: [] },
-                },
-              );
-            }}
+            onBack={handleBack}
+            onLifecycleCurrent={onLifecycleCurrent}
             onOpen={(itemId, view) => {
               if (view) {
                 try {
@@ -229,6 +235,7 @@ export function TodoDetailView() {
   }
 
   function handleBack() {
+    leaving.current = true;
     const history = itemHistory();
     if (history.length) {
       navigate(`/todos/${encodeURIComponent(history[history.length - 1])}`, {
@@ -241,10 +248,10 @@ export function TodoDetailView() {
       navigate(homeReturn.path, { state: homeReturn.state });
       return;
     }
-    const state = location.state as { activeProfile?: string; scrollTop?: number } | null;
-    navigate('/todos', {
-      state: { activeProfile: state?.activeProfile, scrollTop: state?.scrollTop },
-    });
+    const state = { ...location.state };
+    delete state.item;
+    delete state.telosHistorySnapshots;
+    navigate(telosCollectionPath(readTelosCollectionView(location.state)), { state });
   }
 
   function handleSourceClick(url: string) {
@@ -332,6 +339,24 @@ export function TodoDetailView() {
       {promoteError && <div className="todo-detail-error">{promoteError}</div>}
 
       <div className="todo-detail-scroll">
+        <TelosItemLifecycle
+          key={item.id}
+          itemId={item.id}
+          title={item.summary}
+          kind={null}
+          parentId={item.parentId}
+          refreshKey={canonical.refreshKey}
+          onCurrentState={onLifecycleCurrent}
+          onDeleted={handleBack}
+          onOpen={(itemId) =>
+            navigate(`/todos/${encodeURIComponent(itemId)}`, {
+              state: {
+                ...appendTelosItemHistory(location.state, itemHistory(), item.id, item),
+                item: undefined,
+              },
+            })
+          }
+        />
         {canonical.unavailable.includes(item.id) && (
           <p role="alert">Outcome workspace unavailable. Showing original Telos fields.</p>
         )}
