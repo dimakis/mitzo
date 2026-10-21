@@ -44,6 +44,8 @@ export interface SymposiumContextItem {
 export interface ChatAreaProps {
   compactions?: ContextCompaction[];
   sessionId?: string;
+  /** Only ordinary conversation identities may discover durable Telos origins. */
+  discoverTelosOrigins?: boolean;
   messages: FinishedMessage[];
   current: StreamingMessage | null;
   currentByMessage?: Record<string, StreamingMessage>;
@@ -139,6 +141,7 @@ function turnKey(messageId: string, provenance?: SymposiumProvenance): string {
 export function ChatArea({
   compactions = [],
   sessionId,
+  discoverTelosOrigins = true,
   messages,
   current,
   currentByMessage = {},
@@ -167,9 +170,9 @@ export function ChatArea({
     if (source?.status !== 'ready' || source.conversationId !== sessionId) return false;
     return matchesTelosSourceBoundary(message, source.packet!);
   };
-  const createdItems = useTelosCreatedItems(sessionId);
+  const createdItems = useTelosCreatedItems(discoverTelosOrigins ? sessionId : undefined);
   function createdItemCards(message: FinishedMessage) {
-    if (!sessionId) return null;
+    if (!discoverTelosOrigins || !sessionId) return null;
     // The explicit inspected snapshot stays with its own validation owner;
     // ordinary discovery must not override a pending or unavailable inspection.
     const items = createdItems.filter(

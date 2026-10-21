@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.465-telos-confirmed-origin-navigation';
+  'v1.0.466-telos-selected-lead-tools-and-origin-scope';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -385,7 +385,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/index.ts':
     '0cf62447cb182a9943c919aeaba30c149ccf033bd97cdcebc5f7dc3aea652727',
   '../../frontend/src/components/CollaborationTranscript.tsx':
-    'b5e8ce8cfb9b27a572a81976652364f9fb6e9b4dd25f08d30dfe99d177c7f683',
+    '8ee161094085371f18635afe511b37c9020bc6a87d76cf1103e77280bea941ab',
   '../../frontend/src/components/CollaborationTranscript.css':
     'e617da58d37e75e41c4f165ff976675017d4bd650c8949a6b0f2f4fe1634c392',
   '../../frontend/src/hooks/useConversationPresentation.ts':
@@ -413,7 +413,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '1f5a4b6bd080363af3a1f77ea246be04894cb9893b0f021353d723658a9f10a7',
   '../../frontend/src/components/AgentToolsEditor.tsx':
     '185739f065ba2ad81534a2b171239d086010447fe03e3669d920dcd13804b5b1',
-  '../agent-tool-catalog.ts': 'f6b9f883fce3d8d370cfdfd0b1c41c2aaeaa69195651f0a234ca9d21f0b912f9',
+  '../agent-tool-catalog.ts': 'c04824826a52a68d440a7fc6e1cbaad0df9fad0b78a7e623bde323508716937e',
   '../agent-tool-selection.ts': '6ef32b850ba81b4eadd6aded850988e2f29ecc4e5cf64692456447c53ba84105',
   '../../packages/protocol/src/agent-tools.ts':
     'a25c3fcd8a885db213c6528fe9e07fd11da6744304420b4f3affd2e354d1af82',
@@ -478,7 +478,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TokenBar.tsx':
     '25c80275d287086e2e893a12634435470b38358cc17969d4905e1b4bddcdf354',
   '../../frontend/src/components/ChatArea.tsx':
-    '6ffcf4eaf5a56e2dad37c50f3e8dc6300fa0ef067b128b2e4e5c7091483f03be',
+    'c7ef551a9d8e3d5598b80573f806eb588137e29e47f23bf1894b7e73602a252f',
   '../../frontend/src/components/SlashPicker.tsx':
     'f4df78552197d0add98192e11e6d1014f9067c9686837132d954989c4a31bac3',
   '../../frontend/src/hooks/useCompactionHistory.ts':

@@ -47,7 +47,7 @@
     "id": "mitzo:AskUserQuestion",
     "version": 1,
     "name": "AskUserQuestion",
-    "description": "Ask structured questions in Mitzo and wait for the user\u2019s answers. Questions do not authorize tool execution.",
+    "description": "Ask structured questions in Mitzo and wait for the user’s answers. Questions do not authorize tool execution.",
     "source": "Workspace",
     "required": true,
     "behavior": "interaction",
@@ -212,7 +212,7 @@
     "id": "mitzo:ListRepositories",
     "version": 1,
     "name": "ListRepositories",
-    "description": "Discover repositories authorized for this chat\u2019s current AI account. Returns repository names and connection labels, without credentials or filesystem paths.",
+    "description": "Discover repositories authorized for this chat’s current AI account. Returns repository names and connection labels, without credentials or filesystem paths.",
     "source": "Repositories",
     "required": false,
     "behavior": "read",
@@ -322,7 +322,7 @@
     "id": "mitzo:SaveKnowledgeDraft",
     "version": 1,
     "name": "SaveKnowledgeDraft",
-    "description": "Save proposed updates to existing accepted documents in Knowledge \u2192 Drafts. First use ReadKnowledge to identify and read the intended document and exact accepted revision. Clarify ambiguous destinations; do not substitute an observations note. Supply complete revised text and preserve existing material. Retry with the same requestId and payload. Link the returned Library location and name the exact documents and current receipt status. Draft saved, sent for review, accepted, published and adopted by a chat are distinct states; claim only what the receipt proves. This tool only saves a visible draft. The user sends it for review in Knowledge; this tool does not submit review, merge, publish or refresh other chats. A local file or commit cannot substitute for a Library receipt. If saving fails, explain that no Library update was confirmed and preserve local work.",
+    "description": "Save proposed updates to existing accepted documents in Knowledge → Drafts. First use ReadKnowledge to identify and read the intended document and exact accepted revision. Clarify ambiguous destinations; do not substitute an observations note. Supply complete revised text and preserve existing material. Retry with the same requestId and payload. Link the returned Library location and name the exact documents and current receipt status. Draft saved, sent for review, accepted, published and adopted by a chat are distinct states; claim only what the receipt proves. This tool only saves a visible draft. The user sends it for review in Knowledge; this tool does not submit review, merge, publish or refresh other chats. A local file or commit cannot substitute for a Library receipt. If saving fails, explain that no Library update was confirmed and preserve local work.",
     "source": "Knowledge",
     "required": false,
     "behavior": "write",
@@ -436,8 +436,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, this conversation’s current retained lead role and original tool approval. Allocates only the exact reviewed child; selection grants no lead role or model execution."
   },
   {
     "id": "mitzo:TelosWorkControl",
@@ -447,7 +447,7 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, a current retained lead or worker role and original request-only tool approval. The existing coordinator and scope checks still control every operation; selection grants no role or hold authority."
   }
 ]

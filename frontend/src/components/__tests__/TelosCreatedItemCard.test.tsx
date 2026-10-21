@@ -63,10 +63,12 @@ function setup() {
 }
 function Surface({
   sessionId = 'origin',
+  discoverTelosOrigins = true,
   inspected = null,
   extra,
 }: {
   sessionId?: string;
+  discoverTelosOrigins?: boolean;
   inspected?: SourceNavigation | null;
   extra?: ReactNode;
 }) {
@@ -76,6 +78,7 @@ function Surface({
         <textarea aria-label="Unsent draft" defaultValue="Keep original draft" />
         <ChatArea
           sessionId={sessionId}
+          discoverTelosOrigins={discoverTelosOrigins}
           messages={messages}
           current={null}
           running={false}
@@ -119,6 +122,20 @@ it('discovers multiple durable origins in an ordinary chat at their own exact ex
   expect(
     await screen.findByRole('link', { name: /Exact created outcome.*Created from this exchange/ }),
   ).toBeTruthy();
+});
+it('does not attach a matching ordinary creation to an aggregate transcript identity', async () => {
+  setup();
+  render(
+    <Surface
+      discoverTelosOrigins={false}
+      inspected={{ ...request, status: 'ready', packet: packet() }}
+    />,
+  );
+  await act(async () => {});
+  expect(TelosWorkApiClient.prototype.links).not.toHaveBeenCalled();
+  expect(TelosWorkApiClient.prototype.readSource).not.toHaveBeenCalled();
+  expect(screen.queryByText('Created from this exchange')).toBeNull();
+  expect(screen.getByText('Original agreed')).toBeTruthy();
 });
 it('uses the exact inspected creation once and does not override pending or unavailable source proof with ordinary discovery', async () => {
   setup();

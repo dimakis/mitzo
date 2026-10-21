@@ -150,6 +150,23 @@ for (const theme of ['dark', 'light'])
       animations: 'disabled',
     });
     await removeTask.click();
+    for (const name of ['TelosStartSlice', 'TelosWorkControl']) {
+      await page.getByRole('button', { name: 'Add tools', exact: true }).click();
+      await search.fill(name);
+      const add = page.getByRole('button', { name: `Add ${name}`, exact: true });
+      await expect(add).toBeEnabled();
+      await add.click();
+      await search.press('Escape');
+      const removeNative = page.getByRole('button', { name: `Remove ${name}`, exact: true });
+      await expect(removeNative).toBeVisible();
+      if (isMobile) expect((await removeNative.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      await removeNative.scrollIntoViewIfNeeded();
+      await page.screenshot({
+        path: info.outputPath(`native-${name}-${theme}.png`),
+        animations: 'disabled',
+      });
+      await removeNative.click();
+    }
     await page.getByRole('button', { name: 'Add tools', exact: true }).click();
     await search.fill('ConnectionRequest');
     await expect(page.getByText(/No active service connection/)).toBeVisible();

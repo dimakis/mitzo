@@ -1305,6 +1305,8 @@ immediately through the shared source-save notification; the notification itself
 supplies no creation card or access authority. The caption states the recorded selection mode and
 message count. Durable event sequences are not presented as message ordinals or
 a contiguous range for sparse selections.
+Shared collaboration transcripts do not discover ordinary origins using their
+aggregate ID; their existing per-message author/source scope stays intact.
 
 The selected tree path reveals ancestors as canonical records hydrate. Each newly
 arriving ancestor opens once; normal refreshes preserve manual Collapse and
