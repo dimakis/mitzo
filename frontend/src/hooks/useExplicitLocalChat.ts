@@ -372,7 +372,9 @@ export function useExplicitLocalChat(
     selectedLocal ||
     !!saved ||
     !!selectedIntent.execution.targetId ||
-    (!!selectedIntent.account && (!!selectedIntent.accountReference || !!retained?.selection));
+    (!!selectedIntent.account &&
+      ((!preferenceScope.current.fresh && !!selectedIntent.accountReference) ||
+        !!retained?.selection));
   const visible =
     bound ||
     metadataUnavailable ||

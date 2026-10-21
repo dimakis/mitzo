@@ -208,11 +208,19 @@ it.each([null, { accountId: 'legacy', model: 'retained-model', reasoningEffort: 
   },
 );
 
-it.each([false, true])(
-  'a browser preference alone does not enroll runtime setup, while a saved runtime choice stays blocked: %s',
-  async (retainedRuntime) => {
+it.each([
+  [false, false],
+  [false, true],
+  [true, false],
+  [true, true],
+])(
+  'a browser preference alone does not enroll runtime setup, while a saved runtime choice stays blocked: retained %s, default identity %s',
+  async (retainedRuntime, defaultIdentity) => {
     const account = { accountId: 'personal', model: 'luna-fixture' };
-    setDefaultAccountModel(account);
+    setDefaultAccountModel(
+      account,
+      defaultIdentity ? localInventoryFixture().accounts[0].account : null,
+    );
     vi.mocked(apiFetch).mockImplementation(
       async () => new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 }),
     );
