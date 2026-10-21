@@ -39,8 +39,10 @@ export const TelosWorkControlViewSchema = z.strictObject({
   version: z.literal(1),
   controlId: id,
   coordinatorItemId: id,
-  coordinatorConversationId: id,
-  priorityItemId: id,
+  coordinatorConversationId: id.nullable(),
+  priorityItemId: id.nullable(),
+  // Absence on older coordinator receipts retains their original meaning.
+  origin: z.literal('operator_pause').optional(),
   scope: TelosWorkControlScopeSchema,
   stage: z.enum(['requested', 'acknowledged', 'applied', 'released']),
   publicationRevalidation: z.enum(['not_applicable', 'required']),

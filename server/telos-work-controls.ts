@@ -15,7 +15,8 @@ import { TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
 interface Control {
   controlId: string;
   input: ReturnType<typeof TelosWorkControlRequestSchema.parse>;
-  coordinatorConversationId: string;
+  coordinatorConversationId: string | null;
+  operatorPause?: true;
   released: boolean;
 }
 type Evidence = TelosWorkControlView['history'][number];
@@ -105,12 +106,18 @@ export class TelosWorkControls {
     if (!roots.length) denied('Control recipient is not in an exact attached outcome');
     for (const id of roots) {
       const target = this.work(id);
+      if (c.operatorPause && id === c.input.coordinatorItemId) continue;
       if (
         target.parentId !== c.input.coordinatorItemId ||
         !['outcome', 'coordinator'].includes(target.kind ?? '')
       )
         conflict('Control target is no longer an exact attached outcome');
     }
+  }
+  private rootAttached(c: Control, root: string): boolean {
+    return c.operatorPause
+      ? root === c.input.coordinatorItemId
+      : this.work(root).parentId === c.input.coordinatorItemId;
   }
   private history(id: string): Evidence[] {
     return (
@@ -147,7 +154,7 @@ export class TelosWorkControls {
           ? ('acknowledged' as const)
           : ('requested' as const);
     const targets = c.input.targetItemIds.flatMap((root) => {
-      if (this.work(root).parentId !== c.input.coordinatorItemId)
+      if (!this.rootAttached(c, root))
         return [
           {
             itemId: root,
@@ -212,7 +219,8 @@ export class TelosWorkControls {
       controlId: c.controlId,
       coordinatorItemId: c.input.coordinatorItemId,
       coordinatorConversationId: c.coordinatorConversationId,
-      priorityItemId: c.input.priorityItemId,
+      priorityItemId: c.operatorPause ? null : c.input.priorityItemId,
+      ...(c.operatorPause ? { origin: 'operator_pause' } : {}),
       scope: c.input.scope,
       stage: c.released
         ? 'released'
@@ -238,6 +246,7 @@ export class TelosWorkControls {
       if (
         actor.kind === 'conversation' &&
         this.available(actor.id) &&
+        !c.operatorPause &&
         coordinator?.conversation.conversationId === actor.id
       ) {
         this.attached(c);
@@ -323,6 +332,35 @@ export class TelosWorkControls {
       })
       .immediate();
   }
+  /** Called only by the operator lifecycle transaction. There is no manufactured
+   * coordinator, priority choice, recipient ACK or applied safe-point receipt. */
+  requestOperatorPause(
+    itemId: string,
+    requestId: string,
+    scope: TelosWorkControlScope,
+    actor: TelosWorkActor,
+  ): TelosWorkControlView {
+    if (actor.kind !== 'operator' || !actor.id.trim()) denied('Interactive operator required');
+    if (this.work(itemId).kind === 'work_item') conflict('Pause selects an outcome or coordinator');
+    const c: Control = {
+      controlId: randomUUID(),
+      input: {
+        requestId,
+        coordinatorItemId: itemId,
+        priorityItemId: itemId,
+        targetItemIds: [itemId],
+        scope,
+      },
+      coordinatorConversationId: null,
+      operatorPause: true,
+      released: false,
+    };
+    const view = this.project(c);
+    this.db
+      .prepare('INSERT INTO telos_work_controls VALUES(?,?,?)')
+      .run(c.controlId, itemId, JSON.stringify(c));
+    return view;
+  }
   acknowledge(raw: unknown, actor: TelosWorkActor): TelosWorkControlView {
     const input = TelosWorkControlAcknowledgementSchema.parse(raw);
     return this.db
@@ -366,7 +404,10 @@ export class TelosWorkControls {
     return this.db
       .transaction(() => {
         const c = this.load(input.controlId);
-        this.coordinator(c.input.coordinatorItemId, actor);
+        if (c.operatorPause) {
+          if (actor.kind !== 'operator' || !actor.id.trim())
+            denied('Interactive operator required to resume');
+        } else this.coordinator(c.input.coordinatorItemId, actor);
         return this.replay(actor, input.requestId, { operation: 'release', input }, () => {
           c.released = true;
           this.db
@@ -514,8 +555,7 @@ export class TelosWorkControls {
         if (c.input.scope !== scope) continue;
         const covered = c.input.targetItemIds.some(
           (root) =>
-            this.work(root).parentId === c.input.coordinatorItemId &&
-            this.descendants(root).some((w) => w.itemId === itemId),
+            this.rootAttached(c, root) && this.descendants(root).some((w) => w.itemId === itemId),
         );
         if (!covered) continue;
         if (!c.released) denied(`Scoped ${scope} hold remains requested`);
