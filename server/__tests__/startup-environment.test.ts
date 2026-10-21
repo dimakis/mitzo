@@ -19,6 +19,9 @@ it('boots with authentication, workspace and tracing settings supplied only by t
         'AUTH_SECRET=startup-fixture-secret-long-enough-for-hs256',
         `REPO_PATH=${JSON.stringify(workspace)}`,
         'MITZO_OPENSHELL_ENABLED=0',
+        'LOG_LEVEL=debug',
+        'NTFY_TOPIC=startup-offline-only',
+        'BASE_URL=https://offline.example.invalid',
         'MITZO_BIND_HOST=127.0.0.1',
         'PORT=4199',
         'OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318',
@@ -42,20 +45,47 @@ it('boots with authentication, workspace and tracing settings supplied only by t
           import(${JSON.stringify(new URL('../constants.ts', import.meta.url).href)}),
           import(${JSON.stringify(createRequire(import.meta.url).resolve('@opentelemetry/api'))}),
           import(${JSON.stringify(new URL('../chat.ts', import.meta.url).href)}),
-        ]).then(([constants, { trace }, chat]) => {
+          import(${JSON.stringify(new URL('../../packages/harness/src/notify.ts', import.meta.url).href)}),
+          import(${JSON.stringify(new URL('../logger.ts', import.meta.url).href)}),
+          import(${JSON.stringify(new URL('../../packages/harness/src/logger.ts', import.meta.url).href)}),
+        ]).then(([constants, { trace }, chat, notifications, serverLogger, harnessLogger]) => {
           const span = trace.getTracer('startup-fixture').startSpan('dotenv-configuration');
           const ready = process.env.AUTH_PASSPHRASE === 'startup-fixture-passphrase'
             && process.env.AUTH_SECRET === 'startup-fixture-secret-long-enough-for-hs256'
             && process.env.REPO_PATH === ${JSON.stringify(workspace)}
             && chat.BASE_REPO === ${JSON.stringify(workspace)}
             && constants.TRACE_CONTENT_MAX_CHARS === 1234
+            && notifications.isConfigured()
             && span.isRecording();
+          serverLogger.createLogger('startup-fixture').debug('STARTUP_SERVER_LOGGER_READY');
+          harnessLogger.createLogger('startup-fixture').debug('STARTUP_HARNESS_LOGGER_READY');
           process.stdout.write('STARTUP_ENV_READY=' + ready + '\\n');
           process.exit(ready ? 0 : 71);
         }).catch((error) => { console.error(error); process.exit(72); });
         return this;
       };
     `,
+    );
+    const sourceConfig = join(root, 'source-tsconfig.json');
+    const repository = fileURLToPath(new URL('../../', import.meta.url));
+    writeFileSync(
+      sourceConfig,
+      JSON.stringify({
+        compilerOptions: {
+          baseUrl: repository,
+          paths: {
+            '@mitzo/protocol': [join(repository, 'packages/protocol/src/index.ts')],
+            '@mitzo/protocol/event-store': [
+              join(repository, 'packages/protocol/src/event-store.ts'),
+            ],
+            '@mitzo/protocol/database-backup': [
+              join(repository, 'packages/protocol/src/database-backup.ts'),
+            ],
+            '@mitzo/harness': [join(repository, 'packages/harness/src/index.ts')],
+            '@mitzo/client': [join(repository, 'packages/client/src/index.ts')],
+          },
+        },
+      }),
     );
     const result = spawnSync(
       process.execPath,
@@ -68,13 +98,21 @@ it('boots with authentication, workspace and tracing settings supplied only by t
       ],
       {
         cwd: root,
-        env: { PATH: process.env.PATH, HOME: root, TMPDIR: tmpdir(), NODE_ENV: 'test' },
+        env: {
+          PATH: process.env.PATH,
+          HOME: root,
+          TMPDIR: tmpdir(),
+          NODE_ENV: 'test',
+          TSX_TSCONFIG_PATH: sourceConfig,
+        },
         encoding: 'utf8',
         timeout: 20000,
       },
     );
     expect(result.status, result.stdout + result.stderr).toBe(0);
     expect(result.stdout).toContain('STARTUP_ENV_READY=true');
+    expect(result.stdout).toContain('STARTUP_SERVER_LOGGER_READY');
+    expect(result.stdout).toContain('STARTUP_HARNESS_LOGGER_READY');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

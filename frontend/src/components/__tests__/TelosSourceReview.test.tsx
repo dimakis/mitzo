@@ -11,6 +11,7 @@ import {
 import { MemoryRouter } from 'react-router-dom';
 import type { ReactElement } from 'react';
 import { PermissionBanner } from '../PermissionBanner';
+import { subscribeTelosSourceSaves } from '../../lib/telos-source-updates';
 
 const render = (ui: ReactElement) => baseRender(ui, { wrapper: MemoryRouter });
 
@@ -116,6 +117,116 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+
+it.each([false, true])(
+  'announces a late confirmed receipt after banner removal only in the same login (auth lost: %s)',
+  async (authLost) => {
+    let finish!: (value: unknown) => void;
+    api.approveSourcePermission.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const notified = vi.fn();
+    const unsubscribe = subscribeTelosSourceSaves(notified);
+    try {
+      const banner = render(<PermissionBanner {...props} />);
+      await selectAndPreview();
+      fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+      await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
+      banner.unmount();
+      if (authLost) act(() => window.dispatchEvent(new Event('mitzo:auth-lost')));
+      await act(async () =>
+        finish({
+          permId: review.permId,
+          sessionId: review.sessionId,
+          receipt: { work: { itemId: 'studio' } },
+          sourceSnapshotId: 'snapshot-one',
+        }),
+      );
+      expect(notified).toHaveBeenCalledTimes(authLost ? 0 : 1);
+      if (!authLost)
+        expect(notified).toHaveBeenCalledWith({
+          conversationId: review.sessionId,
+          itemId: 'studio',
+        });
+    } finally {
+      unsubscribe();
+    }
+  },
+);
+
+it('announces a shared pending approval receipt once across banner replacement', async () => {
+  let finish!: (value: unknown) => void;
+  api.approveSourcePermission.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const notified = vi.fn();
+  const unsubscribe = subscribeTelosSourceSaves(notified);
+  try {
+    const first = render(<PermissionBanner {...props} />);
+    await selectAndPreview();
+    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
+    const originalInput = api.approveSourcePermission.mock.calls[0][1];
+    first.unmount();
+    render(<PermissionBanner {...props} />);
+    await screen.findByText('Reviewed source');
+    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    expect(api.approveSourcePermission).toHaveBeenCalledTimes(1);
+    await act(async () =>
+      finish({
+        permId: review.permId,
+        sessionId: review.sessionId,
+        receipt: { work: { itemId: 'studio' } },
+        sourceSnapshotId: 'snapshot-one',
+      }),
+    );
+    await screen.findByRole('link', { name: 'Open saved item' });
+    expect(api.approveSourcePermission.mock.calls[0][1]).toEqual(originalInput);
+    expect(notified).toHaveBeenCalledTimes(1);
+  } finally {
+    unsubscribe();
+  }
+});
+
+it.each(['permId', 'sessionId'] as const)(
+  'never announces a late receipt for a different %s after banner removal',
+  async (field) => {
+    let finish!: (value: unknown) => void;
+    api.approveSourcePermission.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const notified = vi.fn();
+    const unsubscribe = subscribeTelosSourceSaves(notified);
+    try {
+      const banner = render(<PermissionBanner {...props} />);
+      await selectAndPreview();
+      fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+      await waitFor(() => expect(api.approveSourcePermission).toHaveBeenCalledTimes(1));
+      banner.unmount();
+      await act(async () =>
+        finish({
+          permId: review.permId,
+          sessionId: review.sessionId,
+          receipt: { work: { itemId: 'studio' } },
+          sourceSnapshotId: 'snapshot-one',
+          [field]: 'different-owner',
+        }),
+      );
+      expect(notified).not.toHaveBeenCalled();
+    } finally {
+      unsubscribe();
+    }
+  },
+);
 
 async function selectAndPreview() {
   fireEvent.click(await screen.findByRole('checkbox', { name: /The agreed studio brief/ }));

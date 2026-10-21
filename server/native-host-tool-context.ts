@@ -1,0 +1,219 @@
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
+import { checkSkillPolicy, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
+import type { AccountBinding, AgentContextSnapshot, AgentLibraryVersion } from '@mitzo/protocol';
+import {
+  captureAgentLibraryAuthorization,
+  captureAgentLibraryOperation,
+} from './agent-library-transport.js';
+import { hasPersistentRevocationAuthority } from './auth.js';
+import { agentToolAllowed } from './agent-tool-selection.js';
+import { CodexConversation, type CodexConversationOptions } from './codex-conversation.js';
+import type { CodexConversationStore } from './codex-conversation-store.js';
+import type { EventStore } from './event-store.js';
+import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
+import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
+import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
+import type { NativeMainPublicationCall } from './telos-main-publication-host.js';
+import { MainPublicationAccountSchema } from './telos-main-publication-contract.js';
+
+type NativeCall = Parameters<CodexConversationOptions['executeTool']>[3];
+export interface NativeHostToolContext extends NativeMainPublicationCall {
+  readonly callId: string;
+  readonly turnId: string;
+  readonly toolName: string;
+  readonly requestHash: string;
+  readonly profile: AgentLibraryVersion | undefined;
+  readonly agentContext: AgentContextSnapshot | undefined;
+  /** Original admitted root data. A file read still needs its own byte/identity witness. */
+  readonly workspace: Readonly<{ kind: 'ordinary' | 'repository'; id: string; directory: string }>;
+  assertCurrent(): Promise<void>;
+  dispose(): void;
+}
+
+function unavailable(): never {
+  throw Error('Original signed native host tool scope is unavailable');
+}
+/** A void TypeScript annotation cannot exclude async or value-returning callbacks. */
+function assertSynchronous(assertion: () => unknown): void {
+  const result = assertion();
+  if (result === undefined) return;
+  // Drain a rejected async assertion without treating its eventual value as proof.
+  void Promise.resolve(result).catch(() => {});
+  unavailable();
+}
+function freezeData<T>(value: T): T {
+  if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) freezeData(item);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/** Called inside the original CodexChat verified native callback, before parsing
+ * tool intent. No request route accepts these owners or manufactures this scope.
+ * The existing native callback/claim and admitted host remain the authority.
+ */
+export function captureNativeHostToolContext(owners: {
+  events: EventStore;
+  native: CodexConversationStore;
+  registry: SessionRegistry;
+  session: ManagedSession;
+  conversationId: string;
+  binding: AccountBinding;
+  runtime: CodexConversation;
+  runtimeId: string;
+  currentRuntime(): CodexConversation | undefined;
+  admission: OwnedLocalCodexChatAdmission;
+  assertAgentContextAuthorization(): void;
+  profile: AgentLibraryVersion | undefined;
+  agentContext: AgentContextSnapshot | undefined;
+  workspace: NativeHostToolContext['workspace'];
+  toolName: string;
+  input: Parameters<CodexConversationOptions['executeTool']>[1];
+  call: NativeCall;
+  signal: AbortSignal;
+}): NativeHostToolContext {
+  if (
+    !(owners.runtime instanceof CodexConversation) ||
+    !(owners.admission instanceof OwnedLocalCodexChatAdmission) ||
+    !owners.runtimeId.trim() ||
+    !Object.isFrozen(owners.call) ||
+    typeof owners.call.assertCurrentSync !== 'function'
+  )
+    unavailable();
+  const assertNativeCallCurrent = owners.call.assertCurrentSync.bind(owners.call);
+  assertSynchronous(assertNativeCallCurrent);
+  const original = owners.registry.findBySessionId(owners.conversationId);
+  if (!original || original.session !== owners.session) unavailable();
+  const driver = original.session.ordinaryRuntimeOwner;
+  const connectionId = original.session.ownerConnectionId ?? original.clientId.split(':')[0];
+  const authorization = captureAgentLibraryAuthorization(connectionId);
+  const operation = captureAgentLibraryOperation(connectionId);
+  const lifetime = new AbortController();
+  let closed = false;
+  try {
+    const signal = AbortSignal.any([
+      lifetime.signal,
+      owners.signal,
+      operation.signal,
+      owners.session.abortController.signal,
+    ]);
+    const binding = freezeData(structuredClone(owners.binding));
+    const accountBinding = freezeData(
+      MainPublicationAccountSchema.parse({
+        accountId: binding.accountId,
+        provider: binding.provider,
+        model: binding.model,
+        profileRevision: binding.profileRevision,
+      }),
+    );
+    const profile = freezeData(structuredClone(owners.profile));
+    const agentContext = freezeData(structuredClone(owners.agentContext));
+    const workspace = freezeData(structuredClone(owners.workspace));
+    const role = freezeData(
+      structuredClone(resolveTelosWorkRoleContext(owners.events, owners.conversationId, binding)),
+    );
+    const requestHash = createHash('sha256').update(JSON.stringify(owners.input)).digest('hex');
+    const identity = { turnId: owners.call.turnId, toolName: owners.toolName, requestHash };
+    const custody = owners.native.readHostCustody(owners.conversationId, binding);
+    const pending = owners.native.pendingNativeHostTool(
+      owners.conversationId,
+      binding,
+      owners.call.callId,
+      identity,
+    );
+    if (!custody || custody.authSessionId !== authorization.auth.id || !pending) unavailable();
+    const assertCurrentSync = () => {
+      if (closed) unavailable();
+      signal.throwIfAborted();
+      authorization.assertCurrent();
+      operation.assertCurrent();
+      assertSynchronous(assertNativeCallCurrent);
+      assertSynchronous(() => owners.admission.assertCurrentSync());
+      assertSynchronous(owners.assertAgentContextAuthorization);
+      const current = owners.registry.findBySessionId(owners.conversationId);
+      const meta = owners.events.getSession(owners.conversationId);
+      const route = owners.events.getSessionRuntimeBinding(owners.conversationId);
+
+      if (
+        !hasPersistentRevocationAuthority() ||
+        owners.currentRuntime() !== owners.runtime ||
+        current?.clientId !== original.clientId ||
+        current.session !== original.session ||
+        current.session.ordinaryRuntimeOwner !== driver ||
+        driver?.authSessionId !== authorization.auth.id ||
+        owners.registry.isClosingOut(current.clientId) ||
+        owners.registry.isUserClose(current.clientId) ||
+        !meta ||
+        !isAvailableTelosWorkConversation(meta) ||
+        route?.version !== 2 ||
+        route.harness.implementation !== 'codex' ||
+        route.execution.location !== 'local' ||
+        !isDeepStrictEqual(current.session.accountBinding, binding) ||
+        !isDeepStrictEqual(meta?.accountBinding, binding) ||
+        !isDeepStrictEqual(meta?.agentProfile ?? undefined, profile) ||
+        !isDeepStrictEqual(meta?.agentContext ?? undefined, agentContext) ||
+        current.session.cwd !== workspace.directory ||
+        (workspace.kind === 'ordinary'
+          ? meta.ordinaryWorkspaceId !== workspace.id || meta.repositoryWorkspaceId != null
+          : meta.repositoryWorkspaceId !== workspace.id || meta.ordinaryWorkspaceId != null) ||
+        !agentToolAllowed(current.session, owners.toolName) ||
+        checkSkillPolicy(owners.registry, current.clientId, owners.toolName) === 'deny' ||
+        createHash('sha256').update(JSON.stringify(owners.input)).digest('hex') !== requestHash ||
+        !isDeepStrictEqual(
+          owners.native.readHostCustody(owners.conversationId, binding),
+          custody,
+        ) ||
+        !isDeepStrictEqual(
+          owners.native.pendingNativeHostTool(
+            owners.conversationId,
+            binding,
+            owners.call.callId,
+            identity,
+          ),
+          pending,
+        ) ||
+        !isDeepStrictEqual(
+          resolveTelosWorkRoleContext(owners.events, owners.conversationId, binding),
+          role,
+        )
+      )
+        unavailable();
+    };
+    assertCurrentSync();
+    return Object.freeze({
+      operatorId: authorization.auth.id,
+      conversationId: owners.conversationId,
+      clientId: original.clientId,
+      session: original.session,
+      accountBinding,
+      runtimeId: owners.runtimeId,
+      selectedRole: role,
+      callId: owners.call.callId,
+      turnId: owners.call.turnId,
+      toolName: owners.toolName,
+      requestHash,
+      profile,
+      agentContext,
+      workspace,
+      signal,
+      assertCurrentSync,
+      async assertCurrent() {
+        assertCurrentSync();
+        await owners.admission.assertCurrent();
+        assertCurrentSync();
+      },
+      dispose() {
+        if (closed) return;
+        closed = true;
+        lifetime.abort(Error('Native host tool scope ended'));
+        operation.dispose();
+      },
+    });
+  } catch (error) {
+    lifetime.abort();
+    operation.dispose();
+    throw error;
+  }
+}

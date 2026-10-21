@@ -474,6 +474,9 @@ export function parseServerMessage(
           displayName: msg.displayName as string | undefined,
           tier: msg.tier as ToolTier | undefined,
           approvalScope: msg.approvalScope as 'session' | 'conversation' | 'request' | undefined,
+          ...(typeof msg.allowSessionGrant === 'boolean'
+            ? { allowSessionGrant: msg.allowSessionGrant }
+            : {}),
           ...(msg.reviewKind === 'telos_source' ? { reviewKind: 'telos_source' as const } : {}),
           ...(msg.recoveryOnly === true ? { recoveryOnly: true as const } : {}),
           ...(typeof msg.sessionGrantDescription === 'string'

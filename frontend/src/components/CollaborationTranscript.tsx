@@ -9,6 +9,7 @@ import './CollaborationTranscript.css';
 type Props = Omit<
   ChatAreaProps,
   | 'sessionId'
+  | 'discoverTelosOrigins'
   | 'messages'
   | 'current'
   | 'running'
@@ -68,6 +69,7 @@ export function CollaborationTranscript({
   return (
     <ChatArea
       {...chat}
+      discoverTelosOrigins={false}
       sessionId={view.collaborationId}
       messageSessionId={(id) => messages.get(id)?.source?.conversationId}
       messages={conversationMessages(view)}

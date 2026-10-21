@@ -141,12 +141,14 @@ export function RequestDetail({
           <p>{request.description}</p>
           <pre className="notification-command">{request.toolInput}</pre>
           <p className="workspace-muted">
-            {request.sessionGrantDescription ||
+            {(request.allowSessionGrant !== false && request.sessionGrantDescription) ||
               (request.approvalScope === 'conversation'
                 ? 'This request concerns conversation access. Review its scope in the session.'
-                : sessionSearch
-                  ? 'Allow once, or allow searches on this account and model until the session ends. Website access stays separate.'
-                  : 'Allow once covers this request. Allow for session keeps this approval until the session ends.')}
+                : request.allowSessionGrant === false
+                  ? 'Allow once covers this request.'
+                  : sessionSearch
+                    ? 'Allow once, or allow searches on this account and model until the session ends. Website access stays separate.'
+                    : 'Allow once covers this request. Allow for session keeps this approval until the session ends.')}
           </p>
         </>
       )}
@@ -166,7 +168,7 @@ export function RequestDetail({
                   {request?.questions ? 'Send answer' : 'Allow once'}
                 </button>
               )}
-              {request && !request.questions && (
+              {request && !request.questions && request.allowSessionGrant !== false && (
                 <button
                   className="notification-button"
                   disabled={busy}

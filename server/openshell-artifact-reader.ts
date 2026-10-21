@@ -1,4 +1,7 @@
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
+import { z } from 'zod';
 import { posix } from 'node:path';
 import { openShellSshArgvProcessSpec } from './codex-app-server-client.js';
 import type { OpenShellRuntime } from './openshell-runtime.js';
@@ -21,13 +24,17 @@ export type ArtifactCommandRunner = (
 
 /** Code-owned helper: descriptor-relative no-follow reads, never a shell command. */
 export const OPEN_SHELL_ARTIFACT_HELPER = String.raw`
-import os, sys, stat, json, base64, errno
+import os, sys, stat, json, base64, errno, hashlib
 LIMIT = 5 * 1024 * 1024
 class Refusal(Exception): pass
 def refuse(reason): raise Refusal(reason)
 def private(parts):
  return any(p in ('.codex','.ssh','.aws','.cursor','.docker','.kube','.mitzo','.claude','.claude.json','.config','.git','.netrc','.npmrc','.pypirc','.git-credentials','auth.json','credentials.json') or p.startswith('.env') or p.startswith('credential') for p in parts)
-def read(root, requested):
+def stamp(info):
+ return [str(info.st_dev),str(info.st_ino),str(info.st_uid),str(info.st_mode)]
+def file_stamp(info):
+ return stamp(info)+[str(info.st_size),str(info.st_mtime_ns),str(info.st_ctime_ns),str(info.st_nlink)]
+def read(root, requested, witnessed=False):
  if not root.startswith('/') or root != os.path.normpath(root): refuse('forbidden')
  if not requested or '\\' in requested or any(ord(c)<32 or ord(c)==127 for c in requested): refuse('forbidden')
  if '..' in requested.split('/'): refuse('forbidden')
@@ -39,8 +46,11 @@ def read(root, requested):
  try:
   directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
   fd = os.open('/', directory_flags); fds.append(fd)
-  for part in root.strip('/').split('/') + parts[:-1]:
+  root_parts=root.strip('/').split('/')
+  root_info=os.fstat(fd)
+  for index,part in enumerate(root_parts + parts[:-1]):
    fd = os.open(part, directory_flags, dir_fd=fd); fds.append(fd)
+   if index+1==len(root_parts): root_info=os.fstat(fd)
   fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd); fds.append(fd)
   before = os.fstat(fd)
   if not stat.S_ISREG(before.st_mode): refuse('not_file')
@@ -54,11 +64,23 @@ def read(root, requested):
    if total>LIMIT: refuse('too_large')
   after=os.fstat(fd)
   if (before.st_ino,before.st_size,before.st_mtime_ns,before.st_ctime_ns,before.st_nlink) != (after.st_ino,after.st_size,after.st_mtime_ns,after.st_ctime_ns,after.st_nlink) or total != after.st_size: refuse('unavailable')
-  return {'path':full,'data':base64.b64encode(b''.join(chunks)).decode('ascii')}
+  data=b''.join(chunks)
+  result={'path':full,'data':base64.b64encode(data).decode('ascii')}
+  if witnessed:
+   # Rewalk the actual namespace after reading, not just the held descriptors.
+   check=os.open('/',directory_flags); fds.append(check)
+   check_root=os.fstat(check)
+   for index,part in enumerate(root_parts + parts[:-1]):
+    check=os.open(part,directory_flags,dir_fd=check); fds.append(check)
+    if index+1==len(root_parts): check_root=os.fstat(check)
+   check=os.open(parts[-1],os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=check); fds.append(check)
+   if stamp(check_root)!=stamp(root_info) or file_stamp(os.fstat(check))!=file_stamp(after): refuse('unavailable')
+   result['witness']={'root':stamp(root_info),'file':file_stamp(after),'sha256':hashlib.sha256(data).hexdigest()}
+  return result
  finally:
   for fd in reversed(fds): os.close(fd)
 try:
- result=read(sys.argv[1],sys.argv[2])
+ result=read(sys.argv[1],sys.argv[2],len(sys.argv)>3 and sys.argv[3]=='witness')
 except Refusal as error: result={'error':str(error)}
 except FileNotFoundError: result={'error':'not_found'}
 except OSError as error: result={'error':'forbidden' if error.errno in (errno.ELOOP,errno.ENOTDIR,errno.EACCES,errno.EPERM) else 'unavailable'}
@@ -83,6 +105,97 @@ const command: ArtifactCommandRunner = (program, args, env, signal) =>
       },
     );
   });
+
+const stampPart = z.string().regex(/^\d+$/).max(32);
+const localObservation = z.strictObject({
+  path: z.string().max(4096),
+  data: z.string().max(Math.ceil(MAX_BYTES / 3) * 4),
+  witness: z.strictObject({
+    root: z.tuple([stampPart, stampPart, stampPart, stampPart]),
+    file: z.tuple([
+      stampPart,
+      stampPart,
+      stampPart,
+      stampPart,
+      stampPart,
+      stampPart,
+      stampPart,
+      stampPart,
+    ]),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+});
+
+/** Private Local composition of the existing bounded reader. Root data must
+ * come from the actual admitted owner; this function grants no path authority.
+ * The returned final custody renewal performs no supplied authority callbacks. */
+export async function captureLocalArtifactFile(
+  root: string,
+  requestedPath: string,
+  assertHostCurrentSync: () => void,
+  signal = AbortSignal.timeout(30_000),
+  run: ArtifactCommandRunner = command,
+) {
+  const unavailable = () =>
+    new OpenShellArtifactReadError(409, 'Original workspace file changed or is unavailable');
+  if (
+    !posix.isAbsolute(root) ||
+    posix.normalize(root) !== root ||
+    root.length > 4096 ||
+    requestedPath.length > 4096
+  )
+    throw unavailable();
+  const expected = posix.resolve(root, requestedPath);
+  const args = ['-I', '-c', OPEN_SHELL_ARTIFACT_HELPER, root, requestedPath, 'witness'];
+  const assertHost = () => {
+    signal.throwIfAborted();
+    const result: unknown = assertHostCurrentSync();
+    if (result !== undefined) {
+      void Promise.resolve(result).catch(() => {});
+      throw unavailable();
+    }
+  };
+  const parse = (stdout: string) => {
+    const parsed = localObservation.safeParse(JSON.parse(stdout));
+    if (!parsed.success || parsed.data.path !== expected || !expected.startsWith(root + '/'))
+      throw unavailable();
+    const bytes = Buffer.from(parsed.data.data, 'base64');
+    if (
+      bytes.length > MAX_BYTES ||
+      bytes.toString('base64') !== parsed.data.data ||
+      createHash('sha256').update(bytes).digest('hex') !== parsed.data.witness.sha256
+    )
+      throw unavailable();
+    return { bytes, witness: parsed.data.witness };
+  };
+  assertHost();
+  const stdout = await run('python3', args, process.env, signal);
+  assertHost();
+  const original = parse(stdout);
+  const bytes = Buffer.from(original.bytes);
+  const sha256 = original.witness.sha256;
+  const assertCurrentSync = () => {
+    signal.throwIfAborted();
+    if (createHash('sha256').update(bytes).digest('hex') !== sha256) throw unavailable();
+    let current: ReturnType<typeof parse>;
+    try {
+      current = parse(
+        execFileSync('python3', args, {
+          encoding: 'utf8',
+          timeout: 15_000,
+          maxBuffer: Math.ceil((MAX_BYTES * 4) / 3) + 65536,
+        }),
+      );
+    } catch {
+      throw unavailable();
+    }
+    if (!isDeepStrictEqual(current.witness, original.witness)) throw unavailable();
+  };
+  // A final host callback cannot silently replace the file observed by the
+  // asynchronous reader. Later owners repeat this witness after their callbacks.
+  assertCurrentSync();
+  return Object.freeze({ path: expected, bytes, sha256, assertCurrentSync });
+}
 
 /** Read only from an already available sandbox selected by persisted server authority. */
 export async function readOpenShellArtifact(

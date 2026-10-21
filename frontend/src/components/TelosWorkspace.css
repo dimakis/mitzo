@@ -63,6 +63,11 @@
   color: var(--color-accent);
   border-color: var(--color-accent);
 }
+/* Include the decorated child's margin in the animated height. The boundary
+   itself must reach zero flow space before its retained exit unmounts. */
+.telos-category-presence.motion-presence[data-motion='disclosure'] {
+  display: flow-root;
+}
 .telos-category-browser {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);

@@ -97,6 +97,13 @@ for (const theme of ['dark', 'light'] as const)
           body: await readFile(resolve('frontend/public', path.slice(1))),
           contentType: path.endsWith('.svg') ? 'image/svg+xml' : 'image/png',
         });
+      if (path === '/api/telos/work/links') {
+        expect(route.request().method()).toBe('POST');
+        const body = route.request().postDataJSON();
+        expect(['ordinary-bound', 'other-chat']).toContain(body.conversationId);
+        expect(body).toEqual({ namespace: 'mitzo', conversationId: body.conversationId });
+        return route.fulfill({ json: [] });
+      }
       if (path === '/api/chat/runtime/capabilities') return route.fulfill({ json: inventory });
       if (path.startsWith('/api/ordinary/workspaces/commands/')) {
         const body = OrdinaryWorkspaceFirstCommandSchema.parse(route.request().postDataJSON());

@@ -19,12 +19,19 @@ export function ToolGroup({ tools, sessionId }: Props) {
   const statuses = tools.map(getToolStatus);
   const doneCount = statuses.filter((status) => status.done).length;
   const failedCount = statuses.filter((status) => status.done && status.hasError).length;
-  const runningCount = tools.length - doneCount;
+  const runningCount = statuses.filter((status) => status.running).length;
+  const interruptedCount = statuses.filter((status) => status.interrupted).length;
   const summary =
     runningCount > 0
       ? `${doneCount}/${tools.length} complete · ${runningCount} running`
       : `${tools.length} tool call${tools.length === 1 ? '' : 's'}`;
-  const statusSummary = failedCount > 0 ? `${summary} · ${failedCount} failed` : summary;
+  const statusSummary = [
+    summary,
+    interruptedCount > 0 ? `${interruptedCount} interrupted` : '',
+    failedCount > 0 ? `${failedCount} failed` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <div className="tool-group">
@@ -40,7 +47,7 @@ export function ToolGroup({ tools, sessionId }: Props) {
           {tools.slice(0, 8).map((t, i) => (
             <span
               key={t.blockId || i}
-              className={`tool-pill-dot ${statuses[i].done ? (statuses[i].hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
+              className={`tool-pill-dot ${statuses[i].interrupted ? 'tool-pill-dot--interrupted' : statuses[i].done ? (statuses[i].hasError ? 'tool-pill-dot--error' : 'tool-pill-dot--done') : 'tool-pill-dot--pending'}`}
             />
           ))}
           {tools.length > 8 && <span className="tool-group-dots-more">+{tools.length - 8}</span>}
