@@ -10,6 +10,7 @@ import {
 import { apiFetch } from '../lib/api-fetch';
 import { createBrowserId } from '../lib/browser-crypto';
 import { eventBus } from '../lib/event-bus-singleton';
+import { subscribeTodoLifecycleUpdates } from '../lib/todo-lifecycle-events';
 
 const api = new TelosWorkApiClient(apiFetch);
 type Mutation = Extract<TelosWorkControlCommand, { operation: 'request' | 'release' }>;
@@ -72,6 +73,7 @@ export function useTelosWorkControls(itemId: string, refreshKey: string | number
   useEffect(() => {
     const refresh = () => setRevision((value) => value + 1);
     const off = eventBus.on('todo_update', refresh);
+    const lifecycle = subscribeTodoLifecycleUpdates(refresh);
     const connected = eventBus.onConnectionChange((value) => {
       if (value) refresh();
     });
@@ -81,6 +83,7 @@ export function useTelosWorkControls(itemId: string, refreshKey: string | number
     document.addEventListener('visibilitychange', resume);
     return () => {
       off();
+      lifecycle();
       connected();
       document.removeEventListener('visibilitychange', resume);
     };

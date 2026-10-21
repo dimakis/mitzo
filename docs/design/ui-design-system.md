@@ -2009,3 +2009,14 @@ Pending chat-type qualification renders only pure progress/error feedback beside
 the disabled input; it does not mount the ordinary queue or send owner early.
 Outline warnings use the semantic warning foreground on a transparent background;
 filled controls retain their existing paired foreground contrast checks.
+
+## Telos lifecycle actions
+
+The [Telos lifecycle workspace controls](telos-lifecycle-ui.md) reuse the quiet
+shared action menu, `HomeDialog`, semantic danger controls and existing motion.
+The item row follows the retained heading; the tree's native sort selector uses
+shared type, surface, radius and control-height tokens. Original order, hierarchy,
+priority, unknown dates, navigation context and owner-reported pause stages remain
+explicit. Destructive reviews close when authentication changes; uncertain requests
+retain their original verified login/server scope. Source-level fixture evidence
+and pending matching-source App/browser qualification are recorded separately.
