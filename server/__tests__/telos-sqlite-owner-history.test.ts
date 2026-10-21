@@ -92,8 +92,7 @@ it('loss and same-content replacement latch across restoration and cold construc
   renameSync(saved, files.canonical);
   expect(() => owner.assertCurrent()).toThrow();
   owner.close();
-  const cold = open(files);
-  expect(() => cold.assertCurrent()).toThrow();
+  expect(() => open(files).assertCurrent()).toThrow();
 });
 it('copied birth records and matching schema do not adopt different physical files', () => {
   const files = fixture();
@@ -135,9 +134,7 @@ it('observed missing main at a cold constructor remains denied after its restora
   createFreshTelosDatabaseFiles(files);
   const saved = files.tasks + '.saved';
   renameSync(files.tasks, saved);
-  const lost = open(files);
-  expect(() => lost.assertCurrent()).toThrow();
-  lost.close();
+  expect(() => open(files).assertCurrent()).toThrow();
   renameSync(saved, files.tasks);
   expect(() => open(files).assertCurrent()).toThrow();
 });
@@ -162,9 +159,7 @@ it('latches authenticated exclusion-file replacement before a cold owner can be 
   const exclusion = join(roots[0], '.telos-file-owners/exclusion');
   renameSync(exclusion, exclusion + '.saved');
   writeFileSync(exclusion, '', { mode: 0o600, flag: 'wx' });
-  const replaced = open(files);
-  expect(() => replaced.assertCurrent()).toThrow();
-  replaced.close();
+  expect(() => open(files).assertCurrent()).toThrow();
   rmSync(exclusion);
   renameSync(exclusion + '.saved', exclusion);
   expect(() => open(files).assertCurrent()).toThrow();
@@ -191,4 +186,14 @@ it('denies unsupported rollback-journal authority without invalidating ordinary 
   supported.database.prepare('SELECT * FROM evidence').all();
   supported.seal();
   expect(() => supported.assertCurrent()).not.toThrow();
+});
+
+it('latches observed missing exclusion before restoration and cold reopening', () => {
+  const files = fixture();
+  createFreshTelosDatabaseFiles(files);
+  const exclusion = join(roots[0], '.telos-file-owners/exclusion');
+  renameSync(exclusion, exclusion + '.saved');
+  expect(() => open(files).assertCurrent()).toThrow();
+  renameSync(exclusion + '.saved', exclusion);
+  expect(() => open(files).assertCurrent()).toThrow();
 });

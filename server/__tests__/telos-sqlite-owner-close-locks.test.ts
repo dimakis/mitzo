@@ -101,7 +101,7 @@ it('rejects a worker family before its error cleanup can drop a retained canonic
       worker.once('message', resolve);
       worker.once('error', reject);
     });
-    expect(result).toBe('closed');
+    expect(result).toEqual({ error: 'Owner leases require the process main thread' });
     const probe = spawnSync(
       process.execPath,
       [

@@ -6,6 +6,7 @@ import {
   closeSync,
   fstatSync,
   lstatSync,
+  statSync,
   mkdirSync,
   writeFileSync,
   fsyncSync,
@@ -175,10 +176,6 @@ class Family {
     let authenticated = false;
     try {
       if (exists(join(this.root, 'invalid'))) deny();
-      // Reject other environments/duplicate module owners BEFORE opening any
-      // auxiliary descriptor whose close could drop this process's SQLite locks.
-      this.lease = openLease(join(this.root, 'exclusion'));
-      lockLease(this.lease, 0);
       const dir = capture(this.root, true);
       this.anchors.push(dir);
       const key = capture(join(this.root, 'key'), false, true);
@@ -202,6 +199,11 @@ class Family {
       authenticated = true;
       const birth = JSON.parse(envelope.payload);
       if (birth.version !== 1 || !same(dir.id, birth.directory) || !same(key.id, birth.key)) deny();
+      // Metadata can be captured without affecting SQLite locks. Authenticate it
+      // before exclusion acquisition, but reject other environments before ANY DB
+      // or sidecar descriptor is opened and later closed during error cleanup.
+      this.lease = openLease(join(this.root, 'exclusion'));
+      lockLease(this.lease, 0);
       try {
         for (const role of roles) {
           const anchor = capture(files[role]);
@@ -287,6 +289,7 @@ export interface TelosOwnedDatabase {
   seal(): void;
   assertCurrent(): void;
   acquireDeletionExclusion(): () => void;
+  invalidate(): void;
   close(): void;
 }
 /** Capture BEFORE opening SQLite. Never accepts an already opened connection. */
@@ -298,11 +301,24 @@ export function openTelosOwnedDatabase(
 ): TelosOwnedDatabase {
   const files = selected(input);
   let family: Family | undefined;
-  // Ordinary legacy operation stays available; ownership is independently denied.
-  try {
-    if (resolve(filename) === files[role]) family = retain(files);
-  } catch {
-    /* fail closed for deletion */
+  // Unknown legacy roots keep ordinary operation. A known retained family must
+  // NEVER create an untracked SQLite handle after admission failure: its later
+  // lifetime could outlast the last managed owner and lose process-owned locks.
+  if (activeFamily) {
+    let physical: Identity | undefined;
+    try {
+      physical = identity(statSync(filename, { bigint: true }));
+    } catch {
+      /* absent path */
+    }
+    const aliasesRetained =
+      physical && roles.some((member) => same(activeFamily!.mains[member]!.id, physical!));
+    if (aliasesRetained && (resolve(filename) !== files[role] || !activeFamily.matches(files)))
+      deny();
+  }
+  if (resolve(filename) === files[role] && exists(directory(files))) {
+    family = retain(files);
+    if (!family) deny();
   }
   const anchor = family?.mains[role];
   let database: Database.Database;
@@ -373,6 +389,9 @@ export function openTelosOwnedDatabase(
       }
     },
     assertCurrent,
+    invalidate() {
+      family?.invalidate();
+    },
     acquireDeletionExclusion() {
       assertCurrent();
       if (!family || family.exclusive || !family.lease) deny();
