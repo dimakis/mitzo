@@ -144,7 +144,7 @@ it('withholds repository presentation while metadata refresh is pending or fails
 });
 
 it.each(['', 'agentProfile=agent&profileRevision=1'])(
-  'seeds fresh runtime intent from browser defaults without confirming account identity: %s',
+  'resolves a fresh saved default to its current account identity without a second confirmation: %s',
   async (search) => {
     const account = { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'high' };
     setDefaultAccountModel(account);
@@ -155,8 +155,11 @@ it.each(['', 'agentProfile=agent&profileRevision=1'])(
     expect(result.current.intent.account).toEqual(account);
     expect(result.current.intent.accountReference ?? null).toBeNull();
     await waitFor(() => expect(result.current.inventory).not.toBeNull());
-    expect(result.current.accountNeedsConfirmation).toBe(true);
-    expect(result.current.reason).toContain('account identity is unconfirmed');
+    expect(result.current.accountNeedsConfirmation).toBe(false);
+    expect(result.current.intent.accountReference).toEqual(
+      localInventoryFixture().accounts[0].account,
+    );
+    expect(result.current.reason ?? '').not.toContain('account identity is unconfirmed');
     expect(result.current.intent.execution.targetId).toBeNull();
   },
 );
@@ -802,4 +805,39 @@ it('requires explicit Account replacement if an early choice lacked trusted iden
   act(() => result.current.update(result.current.intent, true));
   expect(result.current.intent.accountReference).toEqual(data.accounts[0].account);
   expect(result.current.intent.execution.targetId).toBe('mac');
+});
+
+it('retains the default account identity across fresh chats and rejects later provider or revision drift', async () => {
+  const first = localInventoryFixture();
+  setDefaultAccountModel({ accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'high' });
+  vi.mocked(apiFetch).mockImplementation(async () => Response.json(first));
+  const initial = renderHook(() => useExplicitLocalChat('first-preference', null, null, true));
+  await waitFor(() =>
+    expect(initial.result.current.intent.accountReference).toEqual(first.accounts[0].account),
+  );
+  initial.unmount();
+  const current = renderHook(() => useExplicitLocalChat('second-preference', null, null, true));
+  expect(current.result.current.intent.accountReference).toEqual(first.accounts[0].account);
+  await waitFor(() => expect(current.result.current.inventory).not.toBeNull());
+  expect(current.result.current.accountNeedsConfirmation).toBe(false);
+  current.unmount();
+  const changed = {
+    ...first,
+    accounts: first.accounts.map((entry) => ({
+      ...entry,
+      account: { ...entry.account, profileRevision: 'changed-r2' },
+    })),
+  };
+  vi.mocked(apiFetch).mockImplementation(async () => Response.json(changed));
+  const stale = renderHook(() => useExplicitLocalChat('changed-preference', null, null, true));
+  await waitFor(() => expect(stale.result.current.inventory).not.toBeNull());
+  expect(stale.result.current.intent.accountReference).toEqual(first.accounts[0].account);
+  expect(stale.result.current.accountNeedsConfirmation).toBe(true);
+  act(() =>
+    stale.result.current.update({
+      ...stale.result.current.intent,
+      execution: { location: 'local', targetId: null },
+    }),
+  );
+  expect(stale.result.current.reason).toContain('configuration changed');
 });

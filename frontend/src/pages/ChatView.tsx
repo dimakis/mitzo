@@ -960,6 +960,7 @@ export function ChatView() {
             ? {
                 accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
+                accountReference: localRuntime.intent.accountReference ?? null,
                 onRefresh: localRuntime.refresh,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>

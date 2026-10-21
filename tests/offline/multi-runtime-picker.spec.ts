@@ -186,7 +186,7 @@ for (const appearance of ['dark', 'light'] as const) {
   });
 }
 
-test('Runtime defaults: save, fresh New chat, explicit confirmation, clear and retained draft', async ({
+test('Runtime defaults: save, fresh New chat without repeated confirmation, clear and retained draft', async ({
   page,
 }) => {
   const fixture = await offlinePicker(page, 'dark');
@@ -215,12 +215,13 @@ test('Runtime defaults: save, fresh New chat, explicit confirmation, clear and r
     .click();
   await expect(input).toHaveValue('');
   await settingsHome(page);
-  await expect(settingRow(page, 'Account')).toContainText('Confirm account: API billing');
+  await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', 'api');
+  await expect(settingRow(page, 'Account')).not.toContainText('Confirm account');
   await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'shell-model');
   await expect(settingRow(page, 'Thinking')).toHaveAttribute('data-value', 'high');
-  await input.fill('New draft still needs account confirmation');
+  await input.fill('New draft retains the same account without confirmation');
   await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeDisabled();
-  await chooseSetting(page, 'Account', 'api');
+  await expect(page.getByText(/selected account identity is unconfirmed/)).toHaveCount(0);
   await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', 'api');
   await expect(settingRow(page, 'Account')).not.toContainText('Confirm account');
   await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'shell-model');

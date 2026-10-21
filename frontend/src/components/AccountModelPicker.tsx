@@ -1,3 +1,4 @@
+import type { SessionRuntimeBindingV1 } from '@mitzo/protocol';
 import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
 import { AdviserSubscriptions } from './AdviserSubscriptions';
@@ -168,6 +169,7 @@ export function AccountModelPicker(
       onChange(selection: AccountSelection): void;
       onAccountChange?(selection: AccountSelection): void;
       accountNeedsConfirmation?: boolean;
+      accountReference?: SessionRuntimeBindingV1['account'] | null;
       onRefresh?(): void;
     };
   },
@@ -962,6 +964,7 @@ function ControlledAccountModelPicker({
   lockAccount,
   onAccountChange,
   accountNeedsConfirmation = false,
+  accountReference,
   onRefresh,
   canSaveDefault = false,
   presentation = 'default',
@@ -972,6 +975,7 @@ function ControlledAccountModelPicker({
   onChange(selection: AccountSelection): void;
   onAccountChange?(selection: AccountSelection): void;
   accountNeedsConfirmation?: boolean;
+  accountReference?: SessionRuntimeBindingV1['account'] | null;
   onRefresh?(): void;
   canSaveDefault?: boolean;
   disabled?: boolean;
@@ -1110,7 +1114,7 @@ function ControlledAccountModelPicker({
                 }
                 onClick={() => {
                   if (!selection) return;
-                  setDefaultAccountModel(selection);
+                  setDefaultAccountModel(selection, accountReference);
                   setSavedDefault(selection);
                 }}
               >
