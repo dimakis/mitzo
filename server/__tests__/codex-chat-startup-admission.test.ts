@@ -550,3 +550,127 @@ it.each(['missing', 'replaced'] as const)(
     }
   },
 );
+
+it('overlaps the read-only task inventory with knowledge adoption inside the same lifecycle fence', async () => {
+  const f = fixture();
+  let startKnowledge!: () => void;
+  let finishKnowledge!: () => void;
+  let finishInventory!: () => void;
+  const knowledgeStarted = new Promise<void>((resolve) => (startKnowledge = resolve));
+  const knowledgeGate = new Promise<void>((resolve) => (finishKnowledge = resolve));
+  const inventoryGate = new Promise<void>((resolve) => (finishInventory = resolve));
+  const adopt = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'adoptKnowledge')
+    .mockImplementation(async (_conversation, _runtime, signal) => {
+      startKnowledge();
+      await knowledgeGate;
+      signal.throwIfAborted();
+      return undefined;
+    });
+  const inventory = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'inspectTaskCapabilities')
+    .mockImplementation(async (_runtime, signal) => {
+      await inventoryGate;
+      signal.throwIfAborted();
+      return { mgmtCli: true, meetingPrep: false, gws: false };
+    });
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  let competitorEntered = false;
+  const opening = openCodexChat(f.options);
+  void opening.catch(() => {});
+  let competing: Promise<void> | undefined;
+  try {
+    await bounded(knowledgeStarted);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(inventory).toHaveBeenCalledOnce();
+    expect(f.requests).not.toContain('turn/start');
+    competing = sharedOpenShellLifecycleCoordinator.admit(f.id, async () => {
+      competitorEntered = true;
+    });
+    finishKnowledge();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(competitorEntered).toBe(false);
+    expect(f.requests).not.toContain('turn/start');
+    finishInventory();
+    chat = await bounded(opening);
+    await competing;
+    expect(competitorEntered).toBe(true);
+    expect(f.requests.filter((method) => method === 'turn/start')).toHaveLength(1);
+  } finally {
+    finishKnowledge();
+    finishInventory();
+    chat ??= await opening.catch(() => undefined);
+    chat?.close();
+    await competing;
+    await sharedOpenShellLifecycleCoordinator.admit(f.id, async () => {});
+    adopt.mockRestore();
+    inventory.mockRestore();
+  }
+});
+
+it.each(['knowledge', 'inventory'] as const)(
+  'holds lifecycle ownership until both preparations settle after %s failure',
+  async (failed) => {
+    const f = fixture();
+    let knowledgeStarted!: () => void;
+    let inventoryStarted!: () => void;
+    let finishKnowledge!: () => void;
+    let finishInventory!: () => void;
+    const knowledgeEntry = new Promise<void>((resolve) => (knowledgeStarted = resolve));
+    const inventoryEntry = new Promise<void>((resolve) => (inventoryStarted = resolve));
+    const knowledgeGate = new Promise<void>((resolve) => (finishKnowledge = resolve));
+    const inventoryGate = new Promise<void>((resolve) => (finishInventory = resolve));
+    const failure = new Error(`${failed} preparation failed`);
+    const adopt = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'adoptKnowledge')
+      .mockImplementation(async () => {
+        knowledgeStarted();
+        await knowledgeGate;
+        if (failed === 'knowledge') throw failure;
+        return undefined;
+      });
+    const inventory = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'inspectTaskCapabilities')
+      .mockImplementation(async () => {
+        inventoryStarted();
+        await inventoryGate;
+        if (failed === 'inventory') throw failure;
+        return undefined;
+      });
+    let settled = false;
+    let competitorEntered = false;
+    const opening = openCodexChat(f.options);
+    void opening.then(
+      () => (settled = true),
+      () => (settled = true),
+    );
+    let competing: Promise<void> | undefined;
+    try {
+      await bounded(Promise.all([knowledgeEntry, inventoryEntry]));
+      competing = sharedOpenShellLifecycleCoordinator.admit(f.id, async () => {
+        competitorEntered = true;
+      });
+      (failed === 'knowledge' ? finishKnowledge : finishInventory)();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(settled).toBe(false);
+      expect(competitorEntered).toBe(false);
+      expect(f.requests).not.toContain('turn/start');
+      (failed === 'knowledge' ? finishInventory : finishKnowledge)();
+      await expect(bounded(opening)).rejects.toThrow(failure.message);
+      await competing;
+      expect(competitorEntered).toBe(true);
+      expect(f.requests).not.toContain('turn/start');
+      expect(getCodexConversationStore().commands(f.id, binding)).toMatchObject([
+        { id: f.options.messageId, status: 'failed' },
+      ]);
+    } finally {
+      finishKnowledge();
+      finishInventory();
+      (await opening.catch(() => undefined))?.close();
+      await competing;
+      await sharedOpenShellLifecycleCoordinator.admit(f.id, async () => {});
+      adopt.mockRestore();
+      inventory.mockRestore();
+    }
+  },
+);

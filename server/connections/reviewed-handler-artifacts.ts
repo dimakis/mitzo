@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.469-notification-perf';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.470-command-admission';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -896,7 +896,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../task-runtime-guidance.ts': '6e308de61b1579d0cb47a1873b5723c1dda792d8284fcc5abf10752544eb7fec',
   '../knowledge-view.ts': '0582477ca1248067b1c10a97509f0a518343a8aa388f669d8297ef45e87b8559',
   '../openshell-runtime.ts': '3bb6af48164c23b647dffe9f26dcbbb80c7769f55ce7f57fb5a4d3e334752c24',
-  '../codex-chat-session.ts': 'c919c1002da29f427c423cb00cfaf6ecbefc95a8182f1da3986a5e322037d1ad',
+  '../codex-admission-preparation.ts':
+    '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
+  '../codex-chat-session.ts': '1a77bae1206b5e282a37b17efa088e86ebbdc740d40376ebb71a306d7011bdd8',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

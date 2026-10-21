@@ -1,3 +1,8 @@
+import {
+  admissionPhase,
+  admissionLifecycle,
+  prepareKnowledgeAndCapabilities,
+} from './codex-admission-preparation.js';
 import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
 import { captureNativeHostToolContext } from './native-host-tool-context.js';
 import { getTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
@@ -1055,19 +1060,21 @@ async function openCodexChatBound(
       managedOpenShell?.sandboxId &&
       configuredRuntime
     ) {
-      const selected = await prepareRetainedRuntimeMigration({
-        conversationId: options.conversationId,
-        binding: options.binding,
-        store: store(),
-        source: {
-          runtime: { ...managedOpenShell, sandboxId: managedOpenShell.sandboxId },
-          route: selectedOpenShellAccountRoute(options),
-        },
-        config: configuredRuntime,
-        manager: runtimeManager,
-        privateDirectory: codexPrivateDirectory(),
-        signal,
-      });
+      const selected = await admissionPhase('retained_migration', () =>
+        prepareRetainedRuntimeMigration({
+          conversationId: options.conversationId,
+          binding: options.binding,
+          store: store(),
+          source: {
+            runtime: { ...managedOpenShell!, sandboxId: managedOpenShell!.sandboxId! },
+            route: selectedOpenShellAccountRoute(options),
+          },
+          config: configuredRuntime,
+          manager: runtimeManager!,
+          privateDirectory: codexPrivateDirectory(),
+          signal,
+        }),
+      );
       managedOpenShell = selected.runtime;
       runtimeManager = runtimeManager!.forSandbox(selected.runtime.sandboxName);
       const migration = store().readRuntimeMigration(options.conversationId, options.binding);
@@ -1120,19 +1127,25 @@ async function openCodexChatBound(
         ...onDemandConnections.map((connection) => connection.gatewayProviderName),
       ]
     : [];
-  const prepareProviderEnvironment = async () => {
-    if (!runtimeManager || !managedOpenShell || !openShellClient) return;
-    const observation = await runtimeManager.observeContract(
-      options.conversationId,
-      managedOpenShell,
-      signal,
+  const admitRuntime = <T>(work: () => Promise<T>) =>
+    admissionLifecycle(
+      (admitted) => sharedOpenShellLifecycleCoordinator.admit(options.conversationId, admitted),
+      work,
     );
-    if (options.ownedOpenShell)
-      await runtimeManager.verifyKnowledgeRuntime(managedOpenShell, signal);
-    Object.assign(openShellClient, {
-      requiredProviderEnvironment: observation.requiredServiceEnvironment,
+  const prepareProviderEnvironment = () =>
+    admissionPhase('provider_environment', async () => {
+      if (!runtimeManager || !managedOpenShell || !openShellClient) return;
+      const observation = await runtimeManager.observeContract(
+        options.conversationId,
+        managedOpenShell,
+        signal,
+      );
+      if (options.ownedOpenShell)
+        await runtimeManager.verifyKnowledgeRuntime(managedOpenShell, signal);
+      Object.assign(openShellClient, {
+        requiredProviderEnvironment: observation.requiredServiceEnvironment,
+      });
     });
-  };
   try {
     await prepareProviderEnvironment();
   } catch (error) {
@@ -1333,7 +1346,7 @@ async function openCodexChatBound(
     if (!runtimeManager || !managedOpenShell) return;
     if (!managedOpenShell.sandboxId) throw new Error('OpenShell resource identity is unavailable');
     const artifact = {
-      runtime: { ...managedOpenShell, sandboxId: managedOpenShell.sandboxId },
+      runtime: { ...managedOpenShell!, sandboxId: managedOpenShell!.sandboxId! },
       route: selectedOpenShellAccountRoute(
         options.ownedOpenShell ? { ...options, model: options.binding.model } : options,
       ),
@@ -1916,16 +1929,18 @@ async function openCodexChatBound(
     ...(runtimeManager
       ? {
           prepareSystemPrompt: async (signal: AbortSignal, turn?: { commandId: string }) =>
-            sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+            admitRuntime(async () => {
               await options.ownedOpenShell?.assertCurrent();
               pendingKnowledge = undefined;
               pendingAdditionalContext = undefined;
               pendingAgentContextSha256 = undefined;
               if (agentContext?.sandbox) {
-                const scope = await runtimeManager!.verifyAgentContextRuntime(
-                  options.conversationId,
-                  managedOpenShell!,
-                  signal,
+                const scope = await admissionPhase('agent_context', () =>
+                  runtimeManager!.verifyAgentContextRuntime(
+                    options.conversationId,
+                    managedOpenShell!,
+                    signal,
+                  ),
                 );
                 if (
                   contextDigest({
@@ -1935,18 +1950,18 @@ async function openCodexChatBound(
                 )
                   throw Error('Saved sandbox agent context runtime changed; start a new chat');
               }
-              const selected = await runtimeManager!.adoptKnowledge(
-                options.conversationId,
-                managedOpenShell!,
-                signal,
-                agentContext?.source === 'packs'
-                  ? { ...agentContext.context, scope: 'sandbox' as const }
-                  : undefined,
-                turn?.commandId,
-              );
-              const capabilities = await runtimeManager!.inspectTaskCapabilities(
-                managedOpenShell!,
-                signal,
+              const [selected, capabilities] = await prepareKnowledgeAndCapabilities(
+                () =>
+                  runtimeManager!.adoptKnowledge(
+                    options.conversationId,
+                    managedOpenShell!,
+                    signal,
+                    agentContext?.source === 'packs'
+                      ? { ...agentContext.context, scope: 'sandbox' as const }
+                      : undefined,
+                    turn?.commandId,
+                  ),
+                () => runtimeManager!.inspectTaskCapabilities(managedOpenShell!, signal),
               );
               await options.ownedOpenShell?.assertCurrent();
               pendingKnowledge = selected?.adoption;
@@ -2020,29 +2035,31 @@ async function openCodexChatBound(
               : undefined,
           beforeRuntimeAdmission: async (closeOwnedTransport: () => Promise<void>) => {
             if (options.ownedOpenShell)
-              return sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+              return admitRuntime(async () => {
                 await options.ownedOpenShell!.assertCurrent();
                 await prepareProviderEnvironment();
                 return false;
               });
             if (!managedOpenShell?.sandboxId || !configuredRuntime) return false;
-            return sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+            return admitRuntime(async () => {
               const previousId = managedOpenShell!.sandboxId;
               const previousEnvironment = openShellClient?.requiredProviderEnvironment ?? [];
-              const selected = await prepareRetainedRuntimeMigration({
-                conversationId: options.conversationId,
-                binding: options.binding,
-                store: privateStorage,
-                source: {
-                  runtime: { ...managedOpenShell!, sandboxId: managedOpenShell!.sandboxId! },
-                  route: selectedOpenShellAccountRoute(options),
-                },
-                config: configuredRuntime,
-                manager: runtimeManager!,
-                privateDirectory: codexPrivateDirectory(),
-                signal,
-                closeOwnedTransport,
-              });
+              const selected = await admissionPhase('retained_migration', () =>
+                prepareRetainedRuntimeMigration({
+                  conversationId: options.conversationId,
+                  binding: options.binding,
+                  store: privateStorage,
+                  source: {
+                    runtime: { ...managedOpenShell!, sandboxId: managedOpenShell!.sandboxId! },
+                    route: selectedOpenShellAccountRoute(options),
+                  },
+                  config: configuredRuntime,
+                  manager: runtimeManager!,
+                  privateDirectory: codexPrivateDirectory(),
+                  signal,
+                  closeOwnedTransport,
+                }),
+              );
               Object.assign(managedOpenShell!, selected.runtime);
               if (openShellClient) Object.assign(openShellClient, selected.runtime);
               runtimeManager = runtimeManager!.forSandbox(selected.runtime.sandboxName);
@@ -2067,13 +2084,13 @@ async function openCodexChatBound(
           },
           beforeReconnect: async () => {
             if (options.ownedOpenShell) {
-              await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+              await admitRuntime(async () => {
                 await options.ownedOpenShell!.assertCurrent();
                 await prepareProviderEnvironment();
               });
               return;
             }
-            await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+            await admitRuntime(async () => {
               const retained = options.repositoryWorkspace
                 ? privateStorage.readArtifactRuntime(options.conversationId, options.binding)
                 : undefined;
@@ -2092,19 +2109,21 @@ async function openCodexChatBound(
                   : undefined,
               );
               if (recovered.sandboxId && configuredRuntime) {
-                const selected = await prepareRetainedRuntimeMigration({
-                  conversationId: options.conversationId,
-                  binding: options.binding,
-                  store: privateStorage,
-                  source: {
-                    runtime: { ...recovered, sandboxId: recovered.sandboxId },
-                    route: selectedOpenShellAccountRoute(options),
-                  },
-                  config: configuredRuntime,
-                  manager: runtimeManager!,
-                  privateDirectory: codexPrivateDirectory(),
-                  signal,
-                });
+                const selected = await admissionPhase('retained_migration', () =>
+                  prepareRetainedRuntimeMigration({
+                    conversationId: options.conversationId,
+                    binding: options.binding,
+                    store: privateStorage,
+                    source: {
+                      runtime: { ...recovered, sandboxId: recovered.sandboxId! },
+                      route: selectedOpenShellAccountRoute(options),
+                    },
+                    config: configuredRuntime,
+                    manager: runtimeManager!,
+                    privateDirectory: codexPrivateDirectory(),
+                    signal,
+                  }),
+                );
                 recovered = selected.runtime;
                 runtimeManager = runtimeManager!.forSandbox(selected.runtime.sandboxName);
                 const migration = privateStorage.readRuntimeMigration(
