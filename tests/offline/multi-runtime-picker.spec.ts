@@ -20,11 +20,18 @@ async function offlinePicker(
   options: {
     inventory?: ReturnType<typeof multiRuntimeInventoryFixture>;
     getFixtures?: Record<string, unknown>;
+    holdCapabilities?: boolean;
   } = {},
 ) {
   const inventory = options.inventory ?? multiRuntimeInventoryFixture();
   const forbidden: string[] = [];
   const errors: string[] = [];
+  let releaseCapabilities: () => void = () => undefined;
+  const capabilitiesReady = options.holdCapabilities
+    ? new Promise<void>((resolve) => {
+        releaseCapabilities = resolve;
+      })
+    : Promise.resolve();
   page.on('pageerror', (error) => errors.push(error.message));
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: appearance });
   await page.addInitScript((theme) => {
@@ -63,6 +70,7 @@ async function offlinePicker(
       return route.abort();
     }
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/chat/runtime/capabilities') await capabilitiesReady;
       if (route.request().method() !== 'GET') {
         if (
           ![
@@ -119,7 +127,7 @@ async function offlinePicker(
       return route.fulfill({ status: 404, body: '' });
     }
   });
-  return { forbidden, errors };
+  return { forbidden, errors, releaseCapabilities };
 }
 
 async function openAgentSettings(page: Page) {
@@ -643,6 +651,7 @@ for (const appearance of ['light', 'dark'] as const) {
     };
     const fixture = await offlinePicker(page, appearance, {
       inventory,
+      holdCapabilities: true,
       getFixtures: {
         '/api/repository-workspaces/catalog': { available: true, repositories: [] },
         [`/api/repository-workspaces/${workspaceId}`]: {
@@ -691,6 +700,11 @@ for (const appearance of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`/chat?draft=${draftId}&agentProfile=agent&profileRevision=1`);
     await page.addStyleTag({ content: 'html { font-size: 20px; }' });
+    // Force restoration to finish first on every browser, instead of relying
+    // on WebKit's request ordering to exercise late runtime hydration.
+    await openChatSetting(page, 'repository');
+    await expect(page.getByText(/Ready for your first prompt/)).toBeVisible();
+    fixture.releaseCapabilities();
     await openAgentSettings(page);
     const account = settingRow(page, 'Account');
     const model = settingRow(page, 'Model');
