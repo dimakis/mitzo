@@ -144,3 +144,47 @@ it('requires its original callback frame and refuses borrowed/reentrant authorit
   f.tasks.getDatabase().exec('ROLLBACK');
   expect(f.work.readLifecycle('leaf', f.actor).disposition).toBe('trashed');
 });
+
+it('refuses a replacement canonical transaction after the original callback writer was committed', () => {
+  const f = fixture();
+  expect(() =>
+    f.work.executeLifecycle(f.command('delete_permanently'), f.actor, (id) => {
+      f.work.retainLifecycleDeletionFence(id, f.files.canonical, f.events, f.tasks, () => {});
+      f.db.exec('COMMIT;BEGIN IMMEDIATE');
+    }),
+  ).toThrow();
+  expect(f.work.readLifecycle('leaf', f.actor).disposition).toBe('trashed');
+});
+
+it('retains the committed receipt when reference cleanup fails after canonical commit', () => {
+  const f = fixture();
+  const db = f.tasks.getDatabase();
+  const realExec = db.exec.bind(db);
+  const exec = vi.spyOn(db, 'exec').mockImplementation((sql) => {
+    if (sql === 'ROLLBACK') throw new Error('Injected actual reference rollback cleanup failure');
+    return realExec(sql);
+  });
+  const warning = vi.spyOn(process, 'emitWarning').mockImplementation(() => {});
+  try {
+    const input = f.command('delete_permanently');
+    const receipt = f.work.executeLifecycle(input, f.actor, (id) =>
+      f.work.retainLifecycleDeletionFence(id, f.files.canonical, f.events, f.tasks, () => {}),
+    );
+    expect(receipt.operation).toBe('delete_permanently');
+    expect(f.db.prepare("SELECT id FROM items WHERE id='leaf'").get()).toBeUndefined();
+    expect(
+      JSON.parse(
+        (
+          f.db
+            .prepare('SELECT receipt FROM telos_work_lifecycle_commands WHERE request_id=?')
+            .get(input.requestId) as { receipt: string }
+        ).receipt,
+      ),
+    ).toEqual(receipt);
+    expect(warning).toHaveBeenCalledOnce();
+  } finally {
+    exec.mockRestore();
+    warning.mockRestore();
+    if (db.inTransaction) realExec('ROLLBACK');
+  }
+});

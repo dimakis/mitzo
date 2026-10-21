@@ -124,3 +124,63 @@ it('rejects a worker family before its error cleanup can drop a retained canonic
     first.database.exec('ROLLBACK');
   }
 });
+
+it('cannot leave an untracked worker writer alive after the last managed family closes', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'telos-inverse-worker-locks-'));
+  roots.push(root);
+  const files = {
+    canonical: join(root, 'canonical.db'),
+    events: join(root, 'events.db'),
+    tasks: join(root, 'tasks.db'),
+  };
+  createFreshTelosDatabaseFiles(files);
+  const first = openTelosOwnedDatabase('canonical', files.canonical, {}, files);
+  owners.push(first);
+  first.database.exec('CREATE TABLE evidence(value TEXT)');
+  first.seal();
+  const worker = new Worker(
+    `
+    const { parentPort, workerData } = require('node:worker_threads');
+    require(workerData.tsx).register();
+    const { openTelosOwnedDatabase } = require(workerData.ownerModule);
+    try {
+      const owner = openTelosOwnedDatabase('canonical',workerData.files.canonical,{timeout:0},workerData.files);
+      owner.seal(); owner.database.exec('BEGIN IMMEDIATE');
+      parentPort.postMessage('UNTRACKED_WRITER');
+      parentPort.on('message',()=>{owner.database.exec('ROLLBACK');owner.close();process.exit(0);});
+    } catch (error) { parentPort.postMessage({denied:error.code}); }
+  `,
+    {
+      eval: true,
+      resourceLimits: { maxOldGenerationSizeMb: 64 },
+      workerData: {
+        tsx: require.resolve('tsx/cjs/api'),
+        ownerModule: new URL('../../packages/protocol/src/telos-sqlite-owners.ts', import.meta.url)
+          .pathname,
+        files,
+      },
+    },
+  );
+  try {
+    const result = await new Promise<unknown>((resolve, reject) => {
+      worker.once('message', resolve);
+      worker.once('error', reject);
+    });
+    first.close();
+    const probe = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `const Database=require(process.argv[1]);const db=new Database(process.argv[2],{timeout:0});try{db.exec("INSERT INTO evidence VALUES ('inverse writer')");}catch(e){process.stdout.write(String(e.code));process.exitCode=23;}finally{db.close();}`,
+        sqlite,
+        files.canonical,
+      ],
+      { encoding: 'utf8', timeout: 5000, env: process.env },
+    );
+    if (result === 'UNTRACKED_WRITER') expect(probe.status).toBe(23);
+    else expect(probe.status).toBe(0);
+    expect(result).toEqual({ denied: 'MITZO_OWNER_UNSUPPORTED' });
+  } finally {
+    await worker.terminate();
+  }
+});

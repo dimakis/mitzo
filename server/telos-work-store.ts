@@ -2,6 +2,7 @@ import type { EventStore } from './event-store.js';
 import type { TaskStore } from './task-store.js';
 import {
   openTelosOwnedDatabase,
+  retainTelosDeletionWriterMarker,
   type TelosOwnedDatabase,
 } from '@mitzo/protocol/telos-sqlite-owners';
 import {
@@ -107,6 +108,12 @@ function invalid(message: string): never {
   throw new TelosWorkError('invalid', message);
 }
 
+type LifecycleDeletionInvocation = {
+  invalidated: boolean;
+  writer?: ReturnType<typeof retainTelosDeletionWriterMarker>;
+  fence?: { assertCurrent(): void; close(): void };
+};
+
 type TelosWorkStorePolicy = {
   ordinaryConversation(id: string): boolean;
   sourceConversation?(id: string): boolean;
@@ -120,9 +127,14 @@ export class TelosWorkStore {
   private db: Database.Database;
   #telosOwner: TelosOwnedDatabase;
   #openedCanonicalName: string;
-  #deletionFrame: { itemId: string; invalidated: boolean } | undefined;
-  #lifecycleInvocation:
-    { invalidated: boolean; fence?: { assertCurrent(): void; close(): void } } | undefined;
+  #deletionFrame:
+    | {
+        itemId: string;
+        invalidated: boolean;
+        writer: ReturnType<typeof retainTelosDeletionWriterMarker>;
+      }
+    | undefined;
+  #lifecycleInvocation: LifecycleDeletionInvocation | undefined;
   /** Observe initialized canonical authority without acquiring a schema writer.
    * Used by running-turn guards, including inside another owner's commit fence.
    * SQLite enforces read-only access; missing schema remains unavailable.
@@ -275,7 +287,7 @@ export class TelosWorkStore {
       if (this.#deletionFrame) this.#deletionFrame.invalidated = true;
       conflict('Original writable lifecycle deletion frame required');
     }
-    const invocation: { invalidated: boolean; fence?: { assertCurrent(): void; close(): void } } = {
+    const invocation: LifecycleDeletionInvocation = {
       invalidated: false,
     };
     this.#lifecycleInvocation = invocation;
@@ -293,7 +305,9 @@ export class TelosWorkStore {
                 !this.db.inTransaction
               )
                 conflict('Original writable lifecycle deletion frame required');
-              this.#deletionFrame = { itemId, invalidated: false };
+              const writer = retainTelosDeletionWriterMarker(this.db);
+              invocation.writer = writer;
+              this.#deletionFrame = { itemId, invalidated: false, writer };
               try {
                 const result = assertQuiescent(itemId);
                 this.assertLifecycleDeletionWriter(itemId, this.#openedCanonicalName);
@@ -306,6 +320,7 @@ export class TelosWorkStore {
         () => {
           if (invocation.invalidated)
             conflict('Original writable lifecycle deletion frame required');
+          invocation.writer?.assertCurrent();
           invocation.fence?.assertCurrent();
         },
       );
@@ -401,6 +416,14 @@ export class TelosWorkStore {
       resolve(this.db.name) !== this.#openedCanonicalName
     )
       conflict('Original writable lifecycle deletion frame required');
+    try {
+      frame.writer.assertCurrent();
+    } catch {
+      frame.invalidated = true;
+      if (this.#lifecycleInvocation) this.#lifecycleInvocation.invalidated = true;
+      this.#telosOwner.invalidate();
+      conflict('Original writable lifecycle deletion frame required');
+    }
   }
   assertLifecycleActive(itemId: string) {
     this.lifecycle().assertActive(itemId);

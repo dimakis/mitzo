@@ -6,6 +6,7 @@ import {
   closeSync,
   fstatSync,
   lstatSync,
+  readdirSync,
   statSync,
   mkdirSync,
   writeFileSync,
@@ -14,7 +15,7 @@ import {
   writeSync,
   type BigIntStats,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   openLease,
@@ -42,7 +43,13 @@ function selected(files: TelosDatabaseFiles): TelosDatabaseFiles {
   const familyPaths = Object.values(result).flatMap((path) =>
     ['', ...sidecars].map((suffix) => path + suffix),
   );
-  if (new Set(familyPaths).size !== familyPaths.length) deny();
+  if (
+    new Set(familyPaths).size !== familyPaths.length ||
+    Object.values(result).some((file) =>
+      Object.values(result).some((other) => other !== file && other.startsWith(file + '-')),
+    )
+  )
+    deny();
   return result;
 }
 export function selectedTelosDatabaseFiles(): TelosDatabaseFiles {
@@ -95,8 +102,16 @@ export function createFreshTelosDatabaseFiles(input: TelosDatabaseFiles): void {
   const ownerDirectory = directory(files);
   if (exists(ownerDirectory)) deny();
   // lstat includes broken symlinks. Check every member before creating any main.
-  for (const file of Object.values(files))
+  for (const file of Object.values(files)) {
     for (const suffix of ['', ...sidecars]) if (exists(file + suffix)) deny();
+    // Include orphaned super-journals and unknown family suffixes; never try to
+    // recover/adopt an earlier SQLite file family during NEW-file creation.
+    if (
+      exists(dirname(file)) &&
+      readdirSync(dirname(file)).some((name) => name.startsWith(basename(file) + '-'))
+    )
+      deny();
+  }
   for (const file of Object.values(files)) mkdirSync(dirname(file), { recursive: true });
   mkdirSync(ownerDirectory, { mode: 0o700 });
   const key = randomBytes(32);
@@ -173,7 +188,6 @@ class Family {
   readonly sidecarSets: Partial<Record<Role, Array<Anchor | { path: string }>>> = {};
   constructor(readonly files: TelosDatabaseFiles) {
     this.root = directory(files);
-    let authenticated = false;
     try {
       if (exists(join(this.root, 'invalid'))) deny();
       const dir = capture(this.root, true);
@@ -196,7 +210,6 @@ class Family {
         deny();
       const expected = createHmac('sha256', key.contents!).update(envelope.payload).digest();
       if (!timingSafeEqual(expected, Buffer.from(envelope.mac, 'hex'))) deny();
-      authenticated = true;
       const birth = JSON.parse(envelope.payload);
       if (birth.version !== 1 || !same(dir.id, birth.directory) || !same(key.id, birth.key)) deny();
       // Metadata can be captured without affecting SQLite locks. Authenticate it
@@ -222,7 +235,7 @@ class Family {
         error instanceof Error &&
         'code' in error &&
         (error.code === 'MITZO_OWNER_BUSY' || error.code === 'MITZO_OWNER_UNSUPPORTED');
-      if (authenticated && !transient) this.invalidate();
+      if (!transient) this.invalidate();
       this.dispose();
       throw error;
     }
@@ -435,6 +448,36 @@ export function openTelosOwnedDatabase(
   });
 }
 
+/** A private native SQLite savepoint proves the ORIGINAL writer still exists.
+ * This is transaction retention only; it supplies no file-family authority. */
+export function retainTelosDeletionWriterMarker(db: Database.Database) {
+  if (!db.open || db.readonly || !db.inTransaction) deny();
+  const name = `mitzo_telos_writer_${randomBytes(24).toString('hex')}`;
+  db.exec(`SAVEPOINT ${name}`);
+  let lost = false;
+  return Object.freeze({
+    assertCurrent() {
+      if (lost || !db.open || !db.inTransaction) deny();
+      try {
+        db.exec(`RELEASE SAVEPOINT ${name}; SAVEPOINT ${name}`);
+      } catch {
+        lost = true;
+        deny();
+      }
+    },
+    release() {
+      if (lost || !db.open || !db.inTransaction) deny();
+      try {
+        db.exec(`RELEASE SAVEPOINT ${name}`);
+        lost = true;
+      } catch {
+        lost = true;
+        deny();
+      }
+    },
+  });
+}
+
 export interface TelosDeletionReferenceScope {
   assertCurrent(): void;
   close(): void;
@@ -449,17 +492,32 @@ export function beginTelosDeletionReferenceScope(
   const db = owner.database;
   if (db.readonly || db.inTransaction) deny();
   db.exec('BEGIN IMMEDIATE');
+  const marker = retainTelosDeletionWriterMarker(db);
   let closed = false;
   const scope = Object.freeze({
     assertCurrent() {
       if (closed || !db.open || !db.inTransaction) deny();
+      try {
+        marker.assertCurrent();
+      } catch (error) {
+        owner.invalidate();
+        throw error;
+      }
       owner.assertCurrent();
       readCompleteReferences();
     },
     close() {
       if (closed) return;
       closed = true;
-      if (db.open && db.inTransaction) db.exec('ROLLBACK');
+      if (db.open && db.inTransaction) {
+        try {
+          marker.release();
+        } catch (error) {
+          owner.invalidate();
+          throw error;
+        }
+        db.exec('ROLLBACK');
+      }
     },
   });
   try {

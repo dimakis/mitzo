@@ -1,20 +1,21 @@
 # Retained owners for permanent Telos deletion
 
-This is the proposed concrete host contract, based on accepted `3f6c6aea`.
-It does not enable the callback, qualify an existing data root or claim an App
-acceptance result. Archive, recoverable Trash and Restore remain independent.
+This change implements the concrete host contract on accepted `3f6c6aea`.
+The actual App enables permanent deletion only for a fresh family created by
+`createFreshTelosDatabaseFiles`, opened by the actual owners and continuously
+retained through deletion. Existing or unknown data roots remain unqualified.
+Archive, recoverable Trash and Restore retain their existing behavior.
 
 ## Authority comes from the actual file creation and owner lifetimes
 
-The missing authority is retained ownership of the three selected physical
+The required authority is retained ownership of the three selected physical
 files: canonical Telos, the actual chat EventStore and the actual App TaskStore.
 The existing constructors cannot retrospectively establish that history.
 
-Add a host-only creation operation for these exact selected paths. It must
-create all three files exclusively, capture their real descriptors and physical
-identities before any SQLite connection opens, and retain an authenticated birth
+The host-only creation operation for these exact selected paths creates all three files exclusively, captures their real descriptors and physical
+identities before any SQLite connection opens, and retains an authenticated birth
 record under a newly created private owner directory. It refuses if any selected
-file or earlier owner record already exists. It is an actual new-file operation,
+file, sidecar, super-journal, overlapping family path or earlier owner record already exists. It is an actual new-file operation,
 not an enrollment of existing data, a schema migration or an availability flag.
 The canonical Python owner still initializes and owns the canonical schema.
 
@@ -54,7 +55,14 @@ lock, and deletion requires a successful exclusive conversion. Another retained
 process, a failed conversion or an unsupported platform denies deletion.
 
 The existing actual owners acquire their captures at construction and invalidate
-them on close. Their SQLite objects are never swapped after capture. Ordinary
+them on close. Their SQLite objects are never swapped after capture. All actual canonical
+connection owners (Work, Item, Artifact and SourceApproval), EventStore and
+TaskStore share the same fixed-family descriptor lifetime. Auxiliary descriptors
+close only after the final managed SQLite connection for that role closes.
+Unsupported environments and failed retained-family admission reject before
+opening SQLite; they cannot leave an untracked connection behind. WAL is the
+supported deletion mode, established by the existing canonical owner. The helper
+observes that mode and never changes a read-only owner into a writer. Ordinary
 reads on legacy roots remain available; this contract does not introduce a
 schema writer into the corrected read-only paths.
 
@@ -71,7 +79,10 @@ Inside the original Store's existing fresh deletion callback, the host:
    family and actual installed chat owners.
 2. Obtains the real owner exclusion fence.
 3. Starts its own immediate read scopes on the actual EventStore and TaskStore;
-   pre-existing transactions are rejected rather than borrowed.
+   pre-existing transactions are rejected rather than borrowed. Private
+   SQLite savepoints verify the original transactions remain present; a committed
+   and restarted transaction cannot replace them. These markers supply transaction
+   retention only, separately from physical file authority.
 4. Reads every retained role/task binding through the complete existing readers.
    Missing, malformed, referenced or unsupported state denies deletion.
 5. Registers an opaque, original-invocation-bound fence with the original Store.
@@ -97,8 +108,7 @@ replacement and restoration, closed owners, changed canonical selection, changed
 chat installation including change-back, borrowed transactions, independent
 writers, revoked auth and reentrancy. Failed checks preserve the item and data.
 
-Once the real retained-owner mechanism is present, keep App's current missing
-callback for a genuine HTTP RED: a correctly owned private unreferenced trashed
+The retained genuine HTTP RED used App's missing callback: a correctly owned private unreferenced trashed
 leaf still receives refusal. Install the real callback for GREEN, verify the
 actual removal, intentionally lose the committed response, restart the private
 App with the same data/auth and recover the identical receipt after a real record 404. Existing/unknown/lost families stay denied. Core owns focused server checks;

@@ -2443,7 +2443,13 @@ app.use(createOrdinaryWorkspacePreparationRouter());
 
 app.use(
   createTelosWorkRouter({
-    dbPath: telosDatabasePath,
+    dbPath: () => {
+      const selected = telosDatabasePath();
+      // Observe selection before constructing the request Store: a missing or
+      // rejected alternative cannot hide a change and later revive this App.
+      if (selected !== lifecycleCanonicalSelection) lifecycleSelectionInvalidated = true;
+      return selected;
+    },
     assertLifecycleQuiescent: (itemId, original) => {
       try {
         original.retainLifecycleDeletionFence(

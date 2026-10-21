@@ -104,3 +104,18 @@ it('replacement observed by the real constructor owner cannot be restored into a
   renameSync(files.tasks + '.saved', files.tasks);
   expect(() => tasks.beginTelosDeletionReferenceScope('unreferenced')).toThrow();
 });
+
+it('cannot borrow a replacement transaction after its own writer was committed', () => {
+  const { tasks } = fixture();
+  const scope = tasks.beginTelosDeletionReferenceScope('unreferenced');
+  const db = tasks.getDatabase();
+  db.exec('COMMIT;BEGIN IMMEDIATE');
+  try {
+    expect(() => scope.assertCurrent()).toThrow();
+    expect(() => scope.close()).toThrow();
+    expect(db.inTransaction).toBe(true);
+  } finally {
+    if (db.inTransaction) db.exec('ROLLBACK');
+    scope.close();
+  }
+});

@@ -197,3 +197,25 @@ it('latches observed missing exclusion before restoration and cold reopening', (
   renameSync(exclusion + '.saved', exclusion);
   expect(() => open(files).assertCurrent()).toThrow();
 });
+
+it.each(['key', 'birth.json'])(
+  'latches observed missing owner metadata %s before restoration',
+  (name) => {
+    const files = fixture();
+    createFreshTelosDatabaseFiles(files);
+    const path = join(roots[0], '.telos-file-owners', name);
+    renameSync(path, path + '.saved');
+    expect(() => open(files).assertCurrent()).toThrow();
+    renameSync(path + '.saved', path);
+    expect(() => open(files).assertCurrent()).toThrow();
+  },
+);
+
+it('refuses orphaned SQLite super-journal names before any main creation', () => {
+  const files = fixture();
+  const journal = files.canonical + '-mjA1B2C39FF';
+  writeFileSync(journal, 'retained super journal');
+  expect(() => createFreshTelosDatabaseFiles(files)).toThrow();
+  for (const file of Object.values(files)) expect(existsSync(file)).toBe(false);
+  expect(readFileSync(journal, 'utf8')).toBe('retained super journal');
+});
