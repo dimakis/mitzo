@@ -13,6 +13,8 @@ import {
   type FrozenHostCodexLoginLease,
 } from './frozen-host-codex-login.js';
 import { readCodexModels } from './model-catalog.js';
+import { FrozenHostCodexApiLogin } from './frozen-host-codex-api-login.js';
+import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import type {
   OrdinaryLocalCodexAdmissionExpectation,
   OrdinaryLocalCodexBootstrapAuthority,
@@ -21,7 +23,7 @@ import type {
 import {
   HostCodexCustodySchema,
   type HostCodexCustody,
-  type HostCodexLoginCustody,
+  type HostCodexAuthenticationCustody,
   type HostCodexExecutableCustody,
 } from './host-codex-custody.js';
 import { join } from 'node:path';
@@ -41,7 +43,10 @@ export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease
   privateHome: string;
   executableSha256: string;
   assertModelSelectionCurrentSync?(model: string, thinking: string | null): void;
-  custodySnapshot?(): { login: HostCodexLoginCustody; executable: HostCodexExecutableCustody };
+  custodySnapshot?(): {
+    login: HostCodexAuthenticationCustody;
+    executable: HostCodexExecutableCustody;
+  };
 }
 type Expected = OrdinaryLocalCodexAdmissionExpectation & { bootstrapId?: string };
 const unavailable = () => new Error('Host Codex bootstrap unavailable');
@@ -81,6 +86,12 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         privateHome: string,
         executable: FrozenHostCodexExecutable,
       ) => FrozenHostCodexClient;
+      launchApi?: (
+        privateHome: string,
+        executable: FrozenHostCodexExecutable,
+        binding: AccountBinding,
+        retained: boolean,
+      ) => Promise<FrozenHostCodexClient>;
     },
   ) {}
   currentLease(): FrozenHostCodexBootstrapLease | undefined {
@@ -93,15 +104,17 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       ? profiles.resumeRouting(this.#routingBinding!)
       : profiles.resolve(expected.binding.account.accountId, expected.selection.model);
     if (
-      current.provider !== 'openai-codex' ||
+      current.provider !== expected.binding.account.provider ||
+      !['openai', 'openai-codex'].includes(current.provider) ||
       current.profileRevision !== expected.binding.account.profileRevision ||
-      !profiles
-        .ordinaryLocalCodexAccounts()
-        .some(
-          (account) =>
-            account.accountId === current.accountId &&
-            account.profileRevision === current.profileRevision,
-        )
+      (current.provider === 'openai-codex' &&
+        !profiles
+          .ordinaryLocalCodexAccounts()
+          .some(
+            (account) =>
+              account.accountId === current.accountId &&
+              account.profileRevision === current.profileRevision,
+          ))
     )
       throw unavailable();
     if (!historical)
@@ -110,7 +123,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         expected.selection.model,
         expected.selection.thinking,
       );
-    return historical ? profiles.codexRoutingProfile(current) : profiles.codexProfile(current);
+    return profiles.localCodexProfile(current, !!historical);
   }
   private selections(expected: Expected): Array<{ model: string; thinking: string | null }> {
     return [
@@ -177,7 +190,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         this.#attempted ||
         expected.binding.harness.implementation !== 'codex' ||
         expected.binding.execution.location !== 'local' ||
-        expected.binding.account.provider !== 'openai-codex'
+        !['openai-codex', 'openai'].includes(expected.binding.account.provider)
       )
         throw unavailable();
       const observed = await this.observe(expected);
@@ -210,24 +223,47 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       const retained = this.owners.retainedCustody
         ? HostCodexCustodySchema.parse(this.owners.retainedCustody)
         : undefined;
+      const api = expected.binding.account.provider === 'openai';
+      const retainedApi = retained && 'kind' in retained.login && retained.login.kind === 'api-key';
+      if (retained && !!retainedApi !== api) throw unavailable();
       if (
         retained &&
         (retained.login.privateHome !==
           join(
             this.owners.privateRoot ?? codexPrivateDirectory(),
-            `host-login-${retained.bootstrapId}`,
+            `${api ? 'host-api' : 'host-login'}-${retained.bootstrapId}`,
           ) ||
           retained.executable.path !== join(retained.login.privateHome, 'codex-runtime') ||
           retained.executable.source !== observed.executablePath)
       )
         throw unavailable();
-      const login = retained
-        ? FrozenHostCodexLogin.reopen(ownedProfile, retained.login, this.owners.signal)
-        : FrozenHostCodexLogin.capture(ownedProfile, {
-            privateRoot: this.owners.privateRoot,
-            signal: this.owners.signal,
-            bootstrapId: expected.bootstrapId,
-          });
+      const authBinding =
+        this.owners.retainedAccountBinding ??
+        this.owners.loadProfiles().resolve(expected.binding.account.accountId, ownedProfile.model);
+      const keyAuthority = api
+        ? openAIAccountKeyAuthority(authBinding, this.owners.loadProfiles())
+        : undefined;
+      const login = api
+        ? retained
+          ? await FrozenHostCodexApiLogin.reopen(
+              authBinding,
+              retained.login,
+              keyAuthority!,
+              this.owners.signal,
+            )
+          : await FrozenHostCodexApiLogin.capture(authBinding, {
+              privateRoot: this.owners.privateRoot,
+              bootstrapId: expected.bootstrapId,
+              authority: keyAuthority!,
+              signal: this.owners.signal,
+            })
+        : retained
+          ? FrozenHostCodexLogin.reopen(ownedProfile, retained.login, this.owners.signal)
+          : FrozenHostCodexLogin.capture(ownedProfile, {
+              privateRoot: this.owners.privateRoot,
+              signal: this.owners.signal,
+              bootstrapId: expected.bootstrapId,
+            });
       const executable = retained
         ? FrozenHostCodexExecutable.reopen(retained.executable)
         : FrozenHostCodexExecutable.capture(observed.executablePath, login.privateHome);
@@ -241,10 +277,41 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             this.owners.lifecycle,
             selected,
           ));
-      loginLease = await login.connect((home) => {
-        this.assertSync(expected, undefined, executable);
-        return launch(home, executable);
-      });
+      loginLease =
+        login instanceof FrozenHostCodexApiLogin
+          ? await login.connect(async (home) => {
+              this.assertSync(expected, undefined, executable);
+              if (this.owners.launchApi)
+                return this.owners.launchApi(home, executable, authBinding, !!retained);
+              if (!this.owners.lifecycle) throw unavailable();
+              if (retained)
+                return CodexAppServerClient.launchIsolatedApiResume(
+                  home,
+                  this.owners.baseEnv,
+                  this.owners.lifecycle,
+                  executable,
+                );
+              const result = await CodexAppServerClient.launchIsolatedApi({
+                privateHome: home,
+                executable,
+                binding: authBinding,
+                signal: this.owners.signal,
+                lifecycle: this.owners.lifecycle,
+                base: this.owners.baseEnv,
+                resolveKey: (binding, signal) =>
+                  keyAuthority!.resolveKey(binding.accountId, signal),
+                assertCurrent: async () => {
+                  this.assertSync(expected, undefined, executable);
+                  await keyAuthority!.assertReady(this.owners.signal);
+                  this.assertSync(expected, undefined, executable);
+                },
+              });
+              return result.client;
+            })
+          : await login.connect((home) => {
+              this.assertSync(expected, undefined, executable);
+              return launch(home, executable);
+            });
       const ownedLogin = loginLease;
       this.#routingBinding = structuredClone(ownedLogin.binding);
       const assertCurrentSync = () => {

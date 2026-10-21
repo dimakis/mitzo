@@ -1018,6 +1018,20 @@ export class AccountProfiles {
     this.resume(binding);
     return this.projectCodexProfile(binding);
   }
+  /** Shared local Codex engine; API billing retains its existing credential owner. */
+  localCodexProfile(binding: AccountBinding, historical = false): CodexAccountProfile {
+    if (binding.provider !== 'openai')
+      return historical ? this.codexRoutingProfile(binding) : this.codexProfile(binding);
+    if (historical) this.apiRoutingProfile(binding);
+    else this.apiProfile(binding);
+    return {
+      accountId: binding.accountId,
+      accountLabel: binding.accountLabel,
+      email: 'api',
+      planType: 'api',
+      model: binding.model,
+    };
+  }
   /** Physical/native routing only; callers must validate the actual command model separately. */
   codexRoutingProfile(binding: AccountBinding): CodexAccountProfile {
     this.resumeRouting(binding);
