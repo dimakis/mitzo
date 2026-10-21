@@ -201,6 +201,9 @@ export function ChatView() {
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew || localRuntime.preparedFirst;
+  const defaultLocalRepository =
+    localRuntime.intent.execution.location === 'local' &&
+    localRuntime.inventory?.defaultLocalRepository === true;
   const refreshedFirstCommand = useRef<string | null>(null);
   const { preparedFirst, refresh: refreshRuntimeMetadata } = localRuntime;
   useEffect(() => {
@@ -779,8 +782,8 @@ export function ChatView() {
         !localFirstCommand ||
         localRuntime.reason ||
         (localCommand && localCommand.state !== 'consumed') ||
-        !repositorySelection?.repositoryWorkspaceId ||
-        repositorySelection.blocked ||
+        (!defaultLocalRepository && !repositorySelection?.repositoryWorkspaceId) ||
+        repositorySelection?.blocked ||
         ctxBlocks?.length ||
         launching ||
         missingDraftReason ||
@@ -789,7 +792,7 @@ export function ChatView() {
         return false;
       const command = buildLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
         clientMsgId: createBrowserId(),
-        repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId,
+        repositoryWorkspaceId: repositorySelection?.repositoryWorkspaceId,
         mode,
         text,
         sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
@@ -807,7 +810,7 @@ export function ChatView() {
               'The conversation opened, but its Agent Library return link could not be saved. Keep this conversation open.',
             );
           }
-          if (accountSelection?.accountId)
+          if (accountSelection?.accountId && repositorySelection?.repositoryWorkspaceId)
             consumeRepositoryDraft(
               repositoryDraftKey(accountSelection.accountId, accountSelection.model),
               repositorySelection.repositoryWorkspaceId!,
@@ -960,6 +963,7 @@ export function ChatView() {
             ? {
                 accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
+                accountReference: localRuntime.intent.accountReference ?? null,
                 onRefresh: localRuntime.refresh,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>
@@ -1096,6 +1100,13 @@ export function ChatView() {
         accountId={repositoryAccountSelection.accountId}
         model={repositoryAccountSelection.model}
         draftScoped={draftEnabled}
+        preparationNote={
+          draftEnabled && repositorySelection?.repositoryWorkspaceId
+            ? preparedModelEditable
+              ? 'The prepared checkout keeps its account and environment. Model and thinking apply to the first message.'
+              : 'Remove the repository preparation to change account or model.'
+            : undefined
+        }
         ordinaryRuntime={
           explicitNew &&
           localRuntime.intent.accountReference &&
@@ -1582,13 +1593,6 @@ export function ChatView() {
               <RepositoryChatDraftNotice handoff={repositoryHandoff} />
               {missingDraftReason && <div role="alert">{missingDraftReason}</div>}
               {repositoryAccountReason && <div role="alert">{repositoryAccountReason}</div>}
-              {draftEnabled && repositorySelection?.repositoryWorkspaceId && (
-                <p role="status">
-                  {preparedModelEditable
-                    ? 'The prepared checkout keeps its account and environment. Model and thinking apply to the first message.'
-                    : 'Remove the repository preparation to change account or model.'}
-                </p>
-              )}
               {newChatDraft.settingsError && (
                 <div role="alert">Draft settings could not be saved on this device.</div>
               )}
@@ -1689,11 +1693,12 @@ export function ChatView() {
                               images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
                             },
                           ).reason
-                      : localFirstCommand && repositorySelection?.repositoryWorkspaceId
+                      : localFirstCommand &&
+                          (repositorySelection?.repositoryWorkspaceId || defaultLocalRepository)
                         ? (text, images) =>
                             prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
                               clientMsgId: createBrowserId(),
-                              repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId!,
+                              repositoryWorkspaceId: repositorySelection?.repositoryWorkspaceId,
                               mode,
                               text,
                               sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
@@ -1747,7 +1752,9 @@ export function ChatView() {
                   (localFirstCommand && (!localTransportAvailable || !connected)
                     ? 'Execution connection is unavailable. Reconnect before sending.'
                     : undefined) ??
-                  (explicitNew && !repositorySelection?.repositoryWorkspaceId
+                  (explicitNew &&
+                  !defaultLocalRepository &&
+                  !repositorySelection?.repositoryWorkspaceId
                     ? 'Prepare a repository before sending the command.'
                     : undefined) ??
                   (launchDeliveryPending

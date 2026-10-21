@@ -2017,6 +2017,42 @@ the disabled input; it does not mount the ordinary queue or send owner early.
 Outline warnings use the semantic warning foreground on a transparent background;
 filled controls retain their existing paired foreground contrast checks.
 
+## Repository settings editor
+
+The ordinary Repository editor uses the current Chat settings sheet's surface,
+padding and scrolling owner. Its settings variant removes the nested repository
+card and duplicate heading, uses the shared secondary controls and semantic
+type/spacing/radius tokens, and puts branch/commit metadata in the existing native
+Checkout details disclosure. Pending preparation shows the original repository,
+its status and read-only refresh action without repeating source-selection or
+prepare controls. The main approved settings rows and ledger revision are retained.
+
+Local Mac offers the repositories already configured on the host through the same
+editor. Use repository fetches upstream main and selects the local checkout; no
+GitHub connection, source preview or import step is shown. The existing workspace
+owner creates a linked worktree for the command and retains it for continuation.
+The editor displays the repository's name and keeps branch/commit details in the
+shared disclosure. This workspace behavior is independent of the account provider.
+Selecting a repository is optional for a new local chat: first send uses the
+configured default checkout and creates its isolated worktree. Clearing a local
+selection therefore says Use default repository. The composer validates this
+path before a repository is selected; OpenShell still requires its sandbox source.
+
+The all-intercept repository-preparation-recovery browser fixture renders the real
+responsive chat route, MobileShell/DesktopShell, settings, picker and composer. It
+covers 320px mobile WebKit/Chromium and 1280px desktop Chromium, dark Mint/System
+and light Teal/Georgia, fresh defaults without repeated account confirmation,
+runtime-change invalidation, lost-response recovery, keyboard focus, reachable
+44px actions and retained draft text. Its local-settings-default and
+local-repository captures are retained by the existing Local first-command CI
+artifact upload. These are offline application renders, not live provider evidence.
+The existing-local captures additionally cover ChatGPT, OpenAI API, Claude Vertex
+and Gemini selections in the same real mobile/desktop routes and themes.
+The same fixture verifies first send without a selected repository for all four
+accounts and preserves the draft when the intercepted send loses its response.
+Inspected final captures: [local phone](assets/local-repository-mobile-dark.png)
+and [local desktop](assets/local-repository-desktop-light.png).
+
 ## Telos lifecycle actions
 
 The [Telos lifecycle workspace controls](telos-lifecycle-ui.md) reuse the quiet

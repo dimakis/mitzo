@@ -55,7 +55,7 @@ it.each([
     ...localCommand,
     runtime: {
       ...localCommand.runtime,
-      account: { ...localCommand.runtime.account, provider: 'openai' },
+      account: { ...localCommand.runtime.account, provider: 'google-vertex' },
     },
   },
 ])('rejects caller authority and incompatible first-command shape', (value) => {

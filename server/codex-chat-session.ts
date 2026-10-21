@@ -914,7 +914,11 @@ async function openCodexChatBound(
     throw new Error('Legacy shared OpenShell sandboxes are disabled in production.');
   const accountProvider = options.profile.sandboxProvider;
   const openShellRequested = !!configuredRuntime || !!openShellName;
-  if (!openShellRequested && !options.profile.credentialRef)
+  const ownedApiLogin =
+    options.ownedLocal &&
+    options.binding.provider === 'openai' &&
+    options.profile.planType === 'api';
+  if (!openShellRequested && !options.profile.credentialRef && !ownedApiLogin)
     throw new Error('ChatGPT host execution requires an explicit login binding.');
   const brokeredSubscription =
     options.profile.planType !== 'api' &&

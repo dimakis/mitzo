@@ -9,7 +9,10 @@ import {
 import { hasPersistentRevocationAuthority, isAuthSessionCurrent } from './auth.js';
 import { createOrdinaryWorkspacePreparationRouter } from './ordinary-workspace-router.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
-import { getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
+import {
+  getOrdinaryWorkspaces,
+  getLocalRepositoryWorkspaces,
+} from './repository-workspace-runtime.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { OrdinaryWorkspaceSettingsSchema } from '@mitzo/protocol';
 import { readSandboxOwnershipReview } from './sandbox-ownership-review.js';
@@ -3106,6 +3109,14 @@ app.use(
   createRepositoryWorkspaceRouter({
     resolveBinding: repositoryWorkspaceBinding,
     catalog: repositoryWorkspaceCatalog,
+    selectLocal: (binding, repositoryId, runtime, signal, requestId) =>
+      getLocalRepositoryWorkspaces().selectLocalRepository(
+        binding,
+        repositoryId,
+        runtime,
+        signal,
+        requestId,
+      ),
     chatPreparation: (id) => {
       const service = getRepositoryWorkspaces(true);
       const record = service.get(id);
