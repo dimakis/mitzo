@@ -75,7 +75,7 @@ export function useExplicitLocalChat(
           ? getDefaultAccountModel()
           : savedAccount,
     });
-    const reference = sessionId ? null : getDefaultAccountReference();
+    const reference = sessionId || savedAccount !== undefined ? null : getDefaultAccountReference();
     const preferredIntent = preferred.success ? preferred.data : createChatRuntimeSelection();
     const initial = saved ?? {
       ...preferredIntent,
@@ -89,9 +89,9 @@ export function useExplicitLocalChat(
       ? retainChatRuntimeSelection(initial, initial.account, chatAgentProfileFromSearch(search))!
       : initial;
   }, [saved, savedAccount, search, sessionId]);
-  const preferenceScope = useRef({ draftId, fresh: !saved });
+  const preferenceScope = useRef({ draftId, fresh: !saved && savedAccount === undefined });
   if (preferenceScope.current.draftId !== draftId)
-    preferenceScope.current = { draftId, fresh: !saved };
+    preferenceScope.current = { draftId, fresh: !saved && savedAccount === undefined };
   const [choice, setChoice] = useState(() => ({ draftId, intent: seed() }));
   const intent = retained?.selection ?? (choice.draftId === draftId ? choice.intent : seed());
   const latestIntent = useRef(intent);

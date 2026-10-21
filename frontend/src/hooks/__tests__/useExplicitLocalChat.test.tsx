@@ -861,3 +861,17 @@ it('resolves the same saved default after New chat changes the draft identity wi
   expect(result.current.accountNeedsConfirmation).toBe(false);
   expect(result.current.intent.accountReference).toEqual(account.account);
 });
+
+it('does not borrow the current default identity to confirm a legacy restored draft without runtime metadata', async () => {
+  const inventory = localInventoryFixture();
+  const selection = { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' };
+  setDefaultAccountModel(selection, inventory.accounts[0].account);
+  vi.mocked(apiFetch).mockImplementation(async () => Response.json(inventory));
+  const { result } = renderHook(() =>
+    useExplicitLocalChat('legacy-selection-only', undefined, null, true, '', selection),
+  );
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.intent.account).toEqual(selection);
+  expect(result.current.intent.accountReference ?? null).toBeNull();
+  expect(result.current.accountNeedsConfirmation).toBe(true);
+});

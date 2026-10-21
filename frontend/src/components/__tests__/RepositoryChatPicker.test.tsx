@@ -690,6 +690,6 @@ it('does not unblock a recovered source prepared for another execution runtime',
   );
   await user.click(screen.getByRole('button', { name: 'Refresh preparation status' }));
   await screen.findByText(/original execution choices/);
-  expect(onChange.mock.calls.at(-1)[0].blocked).toBe(true);
+  expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ blocked: true }));
   expect(screen.queryByText(/Ready for your first prompt/)).toBeNull();
 });
