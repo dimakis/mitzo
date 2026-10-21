@@ -21,3 +21,9 @@ Fixed `codex.startup.*` spans cover existing startup error phases. Fixed `opensh
 PR #986 independently changes provider-environment retry readiness and new warm-claim knowledge selection. Its fixed ten-second retry was not observed in this sample. This change does not adopt or duplicate that PR, change the supervisor, retry an active turn or migrate credentials.
 
 Validation uses synthetic offline fixtures and CI. No model call, test prompt, staging operation, production restart or deployment is part of this change. A separate authorized deployment and naturally occurring trace comparison are needed to measure the combined effect and select the next bottleneck.
+
+## Historical Task Board preservation
+
+Legacy deletion review may lack a durable client identity. A nonterminal Task Board task assigned to a disconnected client must then block cleanup as ambiguous unless a live conversation mapping or durable delegated-worker binding proves it belongs elsewhere. Blocked and pending-review tasks survive registry removal and are not reclaimed by the active-task orphan sweep. Protection is read again at confirmation, before lifecycle enrollment, checkpointing, stop or deletion; task ownership is never rewritten to qualify cleanup.
+
+This deliberately can retain an ownerless sandbox because of an unresolved task that actually belongs elsewhere. Resolve the task's ownership or terminal disposition before retrying cleanup. Known unrelated ownership, terminal tasks and unassigned work remain outside that sandbox's custody; direct or durable evidence for the current conversation still blocks even if another binding conflicts.
