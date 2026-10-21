@@ -233,17 +233,15 @@ export class TelosWorkLifecycle {
             )
             .run(input.itemId, JSON.stringify(state));
         }
-        this.db
-          .prepare('INSERT INTO telos_work_lifecycle_history(item_id,data) VALUES(?,?)')
-          .run(
-            input.itemId,
-            JSON.stringify({
-              requestId: input.requestId,
-              operation: input.operation,
-              actorId,
-              at: new Date().toISOString(),
-            }),
-          );
+        this.db.prepare('INSERT INTO telos_work_lifecycle_history(item_id,data) VALUES(?,?)').run(
+          input.itemId,
+          JSON.stringify({
+            requestId: input.requestId,
+            operation: input.operation,
+            actorId,
+            at: new Date().toISOString(),
+          }),
+        );
         const receipt = TelosWorkLifecycleReceiptSchema.parse({
           requestId: input.requestId,
           itemId: input.itemId,
@@ -300,10 +298,12 @@ export class TelosWorkLifecycle {
         )
           conflict('Permanent deletion refuses retained item references');
         if (
-          /TEXT/i.test(column.type) &&
+          /TEXT|BLOB/i.test(column.type) &&
           this.db
-            .prepare(`SELECT 1 FROM ${quote(name)} WHERE instr(${quote(column.name)},?)>0 LIMIT 1`)
-            .get(JSON.stringify(itemId))
+            .prepare(
+              `SELECT 1 FROM ${quote(name)} WHERE instr(CAST(${quote(column.name)} AS TEXT),?)>0 LIMIT 1`,
+            )
+            .get(itemId)
         )
           conflict('Permanent deletion refuses retained source, work or receipt references');
       }
@@ -312,7 +312,7 @@ export class TelosWorkLifecycle {
     if (
       rows.some((row) =>
         Object.values(row as Record<string, unknown>).some(
-          (v) => typeof v === 'string' && v.includes(JSON.stringify(itemId)),
+          (v) => typeof v === 'string' && v.includes(itemId),
         ),
       )
     )

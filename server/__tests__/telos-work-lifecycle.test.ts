@@ -290,3 +290,136 @@ it('protects hidden hierarchy and deleted identities against writes by another c
   );
   expect(() => f.add('empty')).toThrow(/identity/i);
 });
+
+it('resume preserves independent coordinator holds and priority work', () => {
+  const f = fixture();
+  f.add('coordinator');
+  f.add('outcome', 'coordinator');
+  f.add('priority', 'coordinator');
+  for (const [itemId, kind] of [
+    ['coordinator', 'coordinator'],
+    ['outcome', 'outcome'],
+    ['priority', 'outcome'],
+  ])
+    f.command(itemId, { operation: 'classify', kind });
+  f.command('coordinator', {
+    operation: 'link',
+    role: 'lead',
+    conversation: { namespace: 'mitzo', conversationId: 'coordinator-chat' },
+  });
+  f.command('coordinator', {
+    operation: 'assign',
+    role: 'lead',
+    conversationId: 'coordinator-chat',
+    expectedAssignmentRevision: 0,
+  });
+  const independent = f.work.requestControl(
+    {
+      requestId: 'independent',
+      coordinatorItemId: 'coordinator',
+      priorityItemId: 'priority',
+      targetItemIds: ['outcome'],
+      scope: 'new_worker_dispatch',
+    },
+    f.actor,
+  );
+  f.lifecycle('outcome', 'pause');
+  f.lifecycle('outcome', 'resume');
+  expect(f.work.readControl(independent.controlId, f.actor).stage).toBe('requested');
+  expect(() => f.work.assertControlAction('outcome', 'new_worker_dispatch')).toThrow(/hold/i);
+  expect(() => f.work.assertControlAction('priority', 'new_worker_dispatch')).not.toThrow();
+});
+
+it('rejects stale recipients after replacement during pause without rewriting historical ACKs', () => {
+  const f = fixture();
+  f.add('outcome');
+  f.command('outcome', { operation: 'classify', kind: 'outcome' });
+  const assign = (id: string, revision: number) => {
+    f.command('outcome', {
+      operation: 'link',
+      role: 'lead',
+      conversation: { namespace: 'mitzo', conversationId: id },
+    });
+    f.command('outcome', {
+      operation: 'assign',
+      role: 'lead',
+      conversationId: id,
+      expectedAssignmentRevision: revision,
+    });
+  };
+  assign('old-lead', 0);
+  const control = f.lifecycle('outcome', 'pause').lifecycle!.pause.controls[0];
+  f.work.acknowledgeControl(
+    { requestId: 'ack', controlId: control.controlId, itemId: 'outcome', assignmentRevision: 1 },
+    { kind: 'conversation', id: 'old-lead' },
+  );
+  assign('new-lead', 1);
+  expect(f.work.readControl(control.controlId, f.actor).targets[0]).toMatchObject({
+    leadConversationId: 'new-lead',
+    stage: 'requested',
+    assignmentRevision: 2,
+  });
+  expect(() =>
+    f.work.acknowledgeControl(
+      {
+        requestId: 'stale',
+        controlId: control.controlId,
+        itemId: 'outcome',
+        assignmentRevision: 1,
+      },
+      { kind: 'conversation', id: 'old-lead' },
+    ),
+  ).toThrow(/recipient/i);
+  expect(f.work.readControl(control.controlId, f.actor).history[0].conversationId).toBe('old-lead');
+});
+
+it('observes another database owner and rejects a command admitted before ancestor trash', () => {
+  const f = fixture();
+  f.add('child', 'studio');
+  const before = f.work.read('child', f.actor).revision;
+  const other = new TelosWorkStore(f.canonical.dbPath, { ordinaryConversation: () => true });
+  closes.push(() => other.close());
+  other.executeLifecycle(
+    {
+      itemId: 'studio',
+      requestId: 'other-owner',
+      expectedRevision: other.read('studio', f.actor).revision,
+      operation: 'trash',
+    },
+    f.actor,
+  );
+  expect(() =>
+    f.work.execute(
+      {
+        itemId: 'child',
+        requestId: 'before',
+        expectedRevision: before,
+        operation: 'classify',
+        kind: 'outcome',
+      },
+      f.actor,
+    ),
+  ).toThrow(/revision/i);
+  expect(() => f.work.assertControlAction('child', 'safe_point')).toThrow(/trashed/i);
+  expect(f.work.read('child', f.actor).kind).toBeNull();
+});
+
+it('refuses unknown extension references and asynchronous quiescence claims before destructive writes', () => {
+  const f = fixture();
+  f.add('empty');
+  f.lifecycle('empty', 'trash');
+  const input = {
+    itemId: 'empty',
+    requestId: 'purge',
+    expectedRevision: f.work.read('empty', f.actor).revision,
+    operation: 'delete_permanently',
+    confirmation: { itemId: 'empty', phrase: 'DELETE PERMANENTLY' },
+  };
+  expect(() => f.work.executeLifecycle(input, f.actor, async () => {})).toThrow(/synchronous/i);
+  f.canonical.db.exec('CREATE TABLE future_refs(id TEXT PRIMARY KEY,resource TEXT NOT NULL)');
+  f.canonical.db
+    .prepare('INSERT INTO future_refs VALUES(?,?)')
+    .run('reference', 'telos://items/empty');
+  expect(() => f.work.executeLifecycle(input, f.actor, () => {})).toThrow(/reference/i);
+  expect(f.work.readLifecycle('empty', f.actor).disposition).toBe('trashed');
+});
