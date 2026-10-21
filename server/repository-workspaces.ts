@@ -19,6 +19,12 @@ import {
 } from './ordinary-repository-preparation.js';
 import { isGitBranchName } from './git-branch.js';
 import { copyRepositoryTaskCheckout } from './repository-task-copy.js';
+import { createWorktreeAsync } from './worktree.js';
+import {
+  captureLocalRepository,
+  assertLocalRepository,
+  type LocalRepositorySource,
+} from './local-repository-worktree.js';
 import {
   snapshotRepositoryTaskCheckout,
   validateRepositoryTaskCheckout,
@@ -73,6 +79,7 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   directory?: string;
   sandbox?: boolean;
   taskIdentity?: RepositoryTaskCheckout;
+  localSource?: LocalRepositorySource;
   ordinaryPreparation?: OrdinaryRepositoryPreparation;
   ordinaryFirstReservation?: {
     conversationId: string;
@@ -245,6 +252,8 @@ export async function repositorySourceDigest(directory: string): Promise<string>
 }
 
 interface Dependencies {
+  /** Host configuration only. Request JSON selects an ID, never a filesystem path. */
+  localRepositories?(): Readonly<Record<string, string>>;
   ordinaryPreparation?: {
     capture(
       binding: AccountBinding,
@@ -690,7 +699,10 @@ export class RepositoryWorkspaces {
       throw new Error(
         'Repository workspace preparation did not complete; preserve its original claim',
       );
-    return { ...record, ...(!record.sourceReleased ? { seed: this.source(record) } : {}) };
+    return {
+      ...record,
+      ...(!record.localSource && !record.sourceReleased ? { seed: this.source(record) } : {}),
+    };
   }
   async validateHostTask(conversationId: string, directory: string) {
     return this.runOperation(async () => {
@@ -869,6 +881,7 @@ export class RepositoryWorkspaces {
     return JSON.parse(row.record) as RepositoryWorkspace;
   }
   private source(record: RepositoryWorkspace) {
+    if (record.localSource) return record.localSource.path;
     return join(this.directory, record.id, 'mgmt');
   }
   async releaseSource(id: string, binding: AccountBinding, conversationId: string) {
@@ -916,6 +929,15 @@ export class RepositoryWorkspaces {
     if (!isDeepStrictEqual(record.binding, binding))
       throw new Error('Repository preparation belongs to another account selection');
     if (record.ordinaryPreparation) await this.assertOrdinaryPreparation(record, binding, signal);
+    if (record.localSource) {
+      assertLocalRepository(
+        record.localSource,
+        this.deps.localRepositories?.()[record.localSource.repositoryId],
+        record.baseOid,
+      );
+      signal.throwIfAborted();
+      return;
+    }
     const current = await this.deps.authorize(
       binding,
       record.connectionId,
@@ -1003,6 +1025,80 @@ export class RepositoryWorkspaces {
       throw new Error('Prepared runtime target changed');
     await this.assertOrdinaryPreparation(record, expected.binding, signal, true);
     this.assertUnchangedHostRecord(record);
+  }
+  /** Select an existing Mac checkout. No remote authorization, download or copy. */
+  async selectLocalRepository(
+    binding: AccountBinding,
+    repositoryId: string,
+    selection: OrdinaryRepositoryRuntimeSelection,
+    signal: AbortSignal,
+    requestId = randomUUID(),
+  ) {
+    return this.runOperation(async () => {
+      const id = z.uuid().parse(requestId);
+      binding = AccountBindingSchema.parse(structuredClone(binding));
+      selection = OrdinaryRepositoryRuntimeSelectionSchema.parse(structuredClone(selection));
+      if (selection.runOn !== 'local') throw Error('Local repositories require the Mac host');
+      const configured = this.deps.localRepositories?.();
+      const path =
+        configured && Object.hasOwn(configured, repositoryId)
+          ? configured[repositoryId]
+          : undefined;
+      if (!path || !/^[A-Za-z0-9._-]+$/.test(repositoryId))
+        throw Error('Choose a configured local repository');
+      const fingerprint = ordinaryPreparationFingerprint({
+        binding,
+        repositoryId,
+        path,
+        selection,
+      });
+      const retained = this.db.prepare('SELECT id FROM repository_workspaces WHERE id=?').get(id);
+      if (retained) {
+        const record = this.get(id);
+        if (!record.localSource || record.previewIntentFingerprint !== fingerprint)
+          throw Error('Original local repository selection changed');
+        await this.authorize(record, binding, signal);
+        this.assertUnchangedHostRecord(record);
+        return publicRepositoryWorkspace(record);
+      }
+      signal.throwIfAborted();
+      const source = captureLocalRepository(repositoryId, path);
+      const proof = OrdinaryRepositoryPreparationSchema.parse(
+        await this.deps.ordinaryPreparation?.capture(binding, selection, signal),
+      );
+      if (
+        !isDeepStrictEqual(proof.originalBinding, binding) ||
+        proof.runtimeBinding.execution.location !== 'local' ||
+        !isDeepStrictEqual(proof.runtimeBinding.account, selection.runtime.account) ||
+        proof.runtimeBinding.harness.implementation !== selection.runtime.harness ||
+        proof.runtimeBinding.execution.targetId !== selection.runtime.targetId
+      )
+        throw Error('Original local repository runtime required');
+      const record: RepositoryWorkspace = {
+        ...source,
+        id,
+        repository: `local/${repositoryId.toLowerCase()}`,
+        connectionId: 'local',
+        connectionRevision: 0,
+        binding,
+        featureBranch: `mitzo/repo-${id}`,
+        state: 'ready',
+        createdAt: Date.now(),
+        previewIntentFingerprint: fingerprint,
+        sourceDigest: ordinaryPreparationFingerprint(source),
+        ordinaryPreparation: { ...proof, sourceIdentity: source.localSource.root },
+      };
+      await this.authorize(record, binding, signal);
+      signal.throwIfAborted();
+      this.db
+        .prepare(
+          'INSERT INTO repository_workspaces(id,record,conversation_id) VALUES(?,?,NULL) ON CONFLICT(id) DO NOTHING',
+        )
+        .run(id, JSON.stringify(record));
+      const current = this.getHostRecord(id);
+      if (!isDeepStrictEqual(record, current)) throw Error('Local repository selection changed');
+      return publicRepositoryWorkspace(current);
+    });
   }
   async preview(
     binding: AccountBinding,
@@ -1236,7 +1332,9 @@ export class RepositoryWorkspaces {
     });
     if (
       descriptor.directory !==
-        join(descriptor.hostReservation.taskRoot, `repo-${descriptor.id}`, 'mgmt') ||
+        (record.localSource
+          ? join(descriptor.hostReservation.taskRoot, `repo-${descriptor.id}`)
+          : join(descriptor.hostReservation.taskRoot, `repo-${descriptor.id}`, 'mgmt')) ||
       descriptor.featureBranch !== `mitzo/repo-${descriptor.id}` ||
       canonicalRepositorySelection(descriptor.repository) !== descriptor.repository ||
       (descriptor.state !== 'claimed' &&
@@ -1313,6 +1411,15 @@ export class RepositoryWorkspaces {
   }
   private async assertHostSource(record: RepositoryWorkspace, signal: AbortSignal) {
     signal.throwIfAborted();
+    if (record.localSource) {
+      assertLocalRepository(
+        record.localSource,
+        this.deps.localRepositories?.()[record.localSource.repositoryId],
+        record.baseOid,
+      );
+      this.assertUnchangedHostRecord(record);
+      return;
+    }
     if ((await repositorySourceDigest(this.source(record))) !== record.sourceDigest)
       throw new Error('Prepared repository source changed');
     signal.throwIfAborted();
@@ -1320,6 +1427,7 @@ export class RepositoryWorkspaces {
   }
   private async verifyHostSource(record: RepositoryWorkspace, signal: AbortSignal) {
     await this.assertHostSource(record, signal);
+    if (record.localSource) return;
     await this.deps.verify?.(structuredClone(record), this.source(record));
     signal.throwIfAborted();
     this.assertUnchangedHostRecord(record);
@@ -1412,7 +1520,9 @@ export class RepositoryWorkspaces {
             }
           : {}),
         conversationId: expected.conversationId,
-        directory: join(expected.taskRoot, `repo-${record.id}`, 'mgmt'),
+        directory: record.localSource
+          ? join(expected.taskRoot, `repo-${record.id}`)
+          : join(expected.taskRoot, `repo-${record.id}`, 'mgmt'),
         sandbox: false,
         hostReservation: marker,
       };
@@ -1537,7 +1647,10 @@ export class RepositoryWorkspaces {
         await this.validateHostTask(expected.conversationId, descriptor.directory);
         signal.throwIfAborted();
         this.assertUnchangedHostRecord(record);
-        return { ...record, ...(!record.sourceReleased ? { seed: this.source(record) } : {}) };
+        return {
+          ...record,
+          ...(!record.localSource && !record.sourceReleased ? { seed: this.source(record) } : {}),
+        };
       }
       await this.verifyHostSource(record, signal);
       await this.authorizeHostRecord(record, expected.binding, signal);
@@ -1565,24 +1678,38 @@ export class RepositoryWorkspaces {
       await this.assertHostRoot(descriptor.hostReservation);
       this.assertUnchangedHostRecord(claiming);
       signal.throwIfAborted();
-      await mkdir(join(expected.taskRoot, `repo-${record.id}`), { mode: 0o700 });
+      if (!record.localSource)
+        await mkdir(join(expected.taskRoot, `repo-${record.id}`), { mode: 0o700 });
       await this.assertHostRoot(descriptor.hostReservation);
       this.assertUnchangedHostRecord(claiming);
       signal.throwIfAborted();
-      await copyRepositoryTaskCheckout(this.source(record), descriptor.directory, signal);
-      if ((await repositorySourceDigest(descriptor.directory)) !== record.sourceDigest)
+      if (record.localSource) {
+        await createWorktreeAsync(`repo-${record.id}`, record.localSource.path, {
+          dir: expected.taskRoot,
+          branch: record.featureBranch,
+          startPoint: record.baseOid,
+        });
+      } else await copyRepositoryTaskCheckout(this.source(record), descriptor.directory, signal);
+      if (
+        !record.localSource &&
+        (await repositorySourceDigest(descriptor.directory)) !== record.sourceDigest
+      )
         throw new Error('Task repository copy changed');
       this.assertUnchangedHostRecord(claiming);
       const taskIdentity = await snapshotRepositoryTaskCheckout(
         descriptor.directory,
         record.featureBranch,
+        record.localSource,
       );
       this.assertUnchangedHostRecord(claiming);
       await this.authorizeHostRecord(claiming, expected.binding, signal);
       await this.assertHostRoot(descriptor.hostReservation);
       // Initial readiness requires the exact copied source, unlike later retained
       // retries where legitimate edits are preserved. No callback may replace it.
-      if ((await repositorySourceDigest(descriptor.directory)) !== record.sourceDigest)
+      if (
+        !record.localSource &&
+        (await repositorySourceDigest(descriptor.directory)) !== record.sourceDigest
+      )
         throw new Error('Task repository copy changed before claim completion');
       await validateRepositoryTaskCheckout(descriptor.directory, taskIdentity);
       signal.throwIfAborted();
@@ -1605,7 +1732,7 @@ export class RepositoryWorkspaces {
           if (result.changes !== 1) throw new Error('Host task claim completion changed');
         })
         .immediate();
-      return { ...claimed, seed: this.source(claimed) };
+      return { ...claimed, ...(!claimed.localSource ? { seed: this.source(claimed) } : {}) };
     });
   }
   async claim(

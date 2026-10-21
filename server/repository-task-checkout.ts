@@ -2,6 +2,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { lstat, readFile, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
+import {
+  inspectLocalRepositoryWorktree,
+  type LocalRepositorySource,
+} from './local-repository-worktree.js';
 
 const run = promisify(execFile);
 
@@ -15,11 +19,14 @@ export interface RepositoryTaskCheckout {
   featureBranch: string;
   root: DirectoryIdentity;
   git: DirectoryIdentity;
+  localSource?: LocalRepositorySource;
+  linkedGit?: { directory: string; identity: DirectoryIdentity };
 }
 
 export async function snapshotRepositoryTaskCheckout(
   directory: string,
   featureBranch: string,
+  localSource?: LocalRepositorySource,
 ): Promise<RepositoryTaskCheckout> {
   if (!/^mitzo\/[A-Za-z0-9._/-]+$/.test(featureBranch) || featureBranch.includes('..'))
     throw new Error('Invalid repository task branch');
@@ -28,11 +35,32 @@ export async function snapshotRepositoryTaskCheckout(
   const git = await lstat(gitDirectory);
   if (
     !root.isDirectory() ||
-    !git.isDirectory() ||
+    (localSource ? !git.isFile() : !git.isDirectory()) ||
     (await realpath(directory)) !== directory ||
     (await realpath(gitDirectory)) !== gitDirectory
   )
     throw new Error('Retained repository task identity changed');
+  if (localSource) {
+    const linkedDirectory = inspectLocalRepositoryWorktree(directory, localSource, featureBranch);
+    const linked = await lstat(linkedDirectory);
+    const afterRoot = await lstat(directory),
+      afterGit = await lstat(gitDirectory);
+    if (
+      afterRoot.dev !== root.dev ||
+      afterRoot.ino !== root.ino ||
+      afterGit.dev !== git.dev ||
+      afterGit.ino !== git.ino
+    )
+      throw new Error('Retained local worktree identity changed');
+    return {
+      directory,
+      featureBranch,
+      root: { dev: root.dev, ino: root.ino },
+      git: { dev: git.dev, ino: git.ino },
+      localSource: structuredClone(localSource),
+      linkedGit: { directory: linkedDirectory, identity: { dev: linked.dev, ino: linked.ino } },
+    };
+  }
   const head = join(gitDirectory, 'HEAD');
   const ref = join(gitDirectory, 'refs', 'heads', featureBranch);
   for (const path of [head, ref, join(gitDirectory, 'packed-refs')]) {
@@ -109,12 +137,17 @@ export async function validateRepositoryTaskCheckout(
 ): Promise<RepositoryTaskCheckout> {
   if (!expected || expected.directory !== directory)
     throw new Error('Standalone commits and resumes require a verified repository task');
-  const current = await snapshotRepositoryTaskCheckout(directory, expected.featureBranch);
+  const current = await snapshotRepositoryTaskCheckout(
+    directory,
+    expected.featureBranch,
+    expected.localSource,
+  );
   if (
     current.root.dev !== expected.root.dev ||
     current.root.ino !== expected.root.ino ||
     current.git.dev !== expected.git.dev ||
-    current.git.ino !== expected.git.ino
+    current.git.ino !== expected.git.ino ||
+    JSON.stringify(current.linkedGit) !== JSON.stringify(expected.linkedGit)
   )
     throw new Error('Retained repository task identity changed');
   return current;
