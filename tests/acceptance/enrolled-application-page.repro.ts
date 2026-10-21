@@ -212,6 +212,14 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
     vi.stubEnv('MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE', targetPath);
     const source = await enrolledRepositorySourceFixture(f, cleanup);
     await mkdir(join(f.root, '.claude', 'repository-tasks'), { recursive: true, mode: 0o700 });
+    // The actual ChatArea also reads canonical Telos creation links. Supply its
+    // genuine disposable database, using the accepted owner DDL and migrations,
+    // before importing the app; never inherit a host/default Telos database.
+    const { createTelosCanonicalData } =
+      await import('../../server/__tests__/fixtures/telos-canonical-advisor');
+    const canonical = createTelosCanonicalData();
+    cleanup.push(() => canonical.close());
+    vi.stubEnv('TELOS_DB_PATH', canonical.dbPath);
     const application = await import('../../server/app');
     const chat = await import('../../server/chat');
     const nativeHistory = await import('../../server/responses-chat-session');
@@ -415,6 +423,16 @@ it('uses a genuine enrolled ordinary SOURCE and actual page Add Review edit refr
       () => expect(chat.eventStore.getSession(sessionId)?.executionPhase).toBe('TERMINAL'),
       { timeout: 10000 },
     );
+    const sourceLinks = await http.request('POST', '/api/telos/work/links', {
+      headers: { cookie },
+      body: { namespace: 'mitzo', conversationId: sessionId },
+    });
+    await writeFile(
+      join(evidence, 'source-telos-links-http.json'),
+      JSON.stringify({ status: sourceLinks.status, body: sourceLinks.body }, null, 2),
+    );
+    expect(sourceLinks.status).toBe(200);
+    expect(sourceLinks.body).toEqual([]);
     expect(providerRequests).toHaveLength(1);
     const enrollmentValidationPosts = f.calls.requests.filter((request) =>
       request.startsWith('POST '),
