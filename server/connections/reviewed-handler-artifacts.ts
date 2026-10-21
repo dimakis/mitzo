@@ -145,7 +145,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '72fff2292ec104451c3e18ca896f4eb1648ad8be3d472b9fc5c303bd8be7b199',
   '../knowledge-prewarming.ts': 'd37faec60aa617052fc5db01466aee767e494b3f23ed23529754503d8d33dcdc',
   '../knowledge-store-config.ts':
-    '690c67fa1c47ca08da5362b201b571619c74557d8d6d7f1da87d7a7c9ac8a54d',
+    '329b896ece883b389a84cdfef858283fae8c428c24af8b8f76c2a03910218415',
   '../knowledge-publication-bridge.ts':
     'b4c40483f852a4c0f17dd5fbf9463353a6695bccbdb71adfe94f6b5be5187d94',
   '../../frontend/src/components/AdviserSubscriptions.tsx':
