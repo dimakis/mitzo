@@ -346,6 +346,31 @@ it('upgrades the already-enrolled own-row-only delete trigger before another can
   ]);
 });
 
+it.each(['{}', '{"disposition":null}'])(
+  'retains raw descendants and unknown ancestor lifecycle data %s instead of authorizing a cascade',
+  (raw) => {
+    const f = fixture();
+    f.add('child', 'studio');
+    f.add('grandchild', 'child');
+    f.canonical.db
+      .prepare('INSERT INTO telos_work_lifecycle(item_id,data) VALUES(?,?)')
+      .run('studio', raw);
+    const items = f.canonical.db.prepare('SELECT * FROM items ORDER BY id').all();
+    const history = f.canonical.db.prepare('SELECT * FROM history ORDER BY id').all();
+    expect(() => f.canonical.db.prepare("DELETE FROM items WHERE id='child'").run()).toThrow(
+      /lifecycle/i,
+    );
+    expect(() => f.canonical.db.prepare("DELETE FROM items WHERE id='grandchild'").run()).toThrow(
+      /lifecycle/i,
+    );
+    expect(f.canonical.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(items);
+    expect(f.canonical.db.prepare('SELECT * FROM history ORDER BY id').all()).toEqual(history);
+    expect(
+      f.canonical.db.prepare("SELECT data FROM telos_work_lifecycle WHERE item_id='studio'").get(),
+    ).toEqual({ data: raw });
+  },
+);
+
 it('resume preserves independent coordinator holds and priority work', () => {
   const f = fixture();
   f.add('coordinator');

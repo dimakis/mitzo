@@ -22,7 +22,7 @@ export function initializeTelosWorkSchema(db: Database.Database) {
     CREATE TRIGGER telos_work_lifecycle_delete_guard BEFORE DELETE ON items WHEN
       EXISTS(SELECT 1 FROM telos_work_lifecycle WHERE item_id=OLD.id AND purging=0) OR EXISTS(
         WITH RECURSIVE ancestors(id) AS (SELECT OLD.parent_id UNION SELECT i.parent_id FROM items i JOIN ancestors a ON i.id=a.id WHERE i.parent_id IS NOT NULL)
-        SELECT 1 FROM ancestors a JOIN telos_work_lifecycle l ON l.item_id=a.id WHERE json_extract(l.data,'$.disposition')!='active'
+        SELECT 1 FROM ancestors a JOIN telos_work_lifecycle l ON l.item_id=a.id WHERE json_extract(l.data,'$.disposition') IS NOT 'active'
       ) BEGIN SELECT RAISE(ABORT,'Use confirmed Telos lifecycle deletion'); END;
     CREATE TRIGGER IF NOT EXISTS telos_work_lifecycle_no_reuse BEFORE INSERT ON items WHEN EXISTS(SELECT 1 FROM telos_work_lifecycle_history WHERE item_id=NEW.id AND json_extract(data,'$.operation')='delete_permanently') BEGIN SELECT RAISE(ABORT,'Deleted Telos identity cannot be reused'); END;
     CREATE TRIGGER IF NOT EXISTS telos_work_lifecycle_insert_guard BEFORE INSERT ON items WHEN EXISTS(
