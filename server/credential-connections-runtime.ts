@@ -1,3 +1,4 @@
+import { attachSecretRelay } from './secret-relay-runtime.js';
 import { closeSync, constants, lstatSync, mkdirSync, openSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 import { homedir } from 'node:os';
@@ -75,20 +76,24 @@ export function createCredentialConnectionsRuntime(
     store.close();
     throw error;
   }
-  return {
+  const service = new CredentialConnections(
     store,
-    service: new CredentialConnections(
-      store,
-      new MacKeychainVault(
-        config.helper,
-        config.requirement,
-        undefined,
-        undefined,
-        new KeychainController(undefined, config.namespace),
-      ),
-      sendConnectionRequest,
+    new MacKeychainVault(
+      config.helper,
+      config.requirement,
+      undefined,
+      undefined,
+      new KeychainController(undefined, config.namespace),
     ),
-  };
+    sendConnectionRequest,
+  );
+  try {
+    attachSecretRelay(service, store, process.env);
+  } catch (error) {
+    store.close();
+    throw error;
+  }
+  return { store, service };
 }
 
 /** Fence every ancestor against replacement by another OS user. Root-owned
