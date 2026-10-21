@@ -316,6 +316,21 @@ jobs:
           python3 scripts/test-codex-metadata-resume.py \
             --codex "$RUNTIME_DIR/codex-x86_64-unknown-linux-musl"
 
+      - name: Verify pinned Codex search tools with an offline provider
+        id: codex-search
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: --max-old-space-size=1024
+        run: |
+          VERSION=$(cat docs/spikes/openshell-codex/runtime-codex-version)
+          RUNTIME_DIR="$RUNNER_TEMP/codex-resume-contract"
+          gh release download "rust-v$VERSION" --repo openai/codex \
+            --pattern codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz --dir "$RUNTIME_DIR"
+          tar -xzf "$RUNTIME_DIR/codex-code-mode-host-x86_64-unknown-linux-musl.tar.gz" -C "$RUNTIME_DIR"
+          mv "$RUNTIME_DIR/codex-code-mode-host-x86_64-unknown-linux-musl" "$RUNTIME_DIR/codex-code-mode-host"
+          MITZO_CODEX_OFFLINE_EXECUTABLE="$RUNTIME_DIR/codex-x86_64-unknown-linux-musl" \
+            npx vitest run server/__tests__/codex-approved-search.offline.test.ts --maxWorkers=1
+
       - name: Verify reviewed daily quote catalogue
         id: quotes
         run: npm run quotes:check
@@ -424,6 +439,7 @@ jobs:
         if: always()
         run: |
           if [ "${{ steps.codex-resume.outcome }}" = "failure" ] || \
+             [ "${{ steps.codex-search.outcome }}" = "failure" ] || \
              [ "${{ steps.lint.outcome }}" = "failure" ] || \
              [ "${{ steps.quotes.outcome }}" = "failure" ] || \
              [ "${{ steps.format.outcome }}" = "failure" ] || \

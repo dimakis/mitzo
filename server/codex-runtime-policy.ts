@@ -1,4 +1,17 @@
 import { z } from 'zod';
+
+/** Tool plumbing only: callers must resolve consent before applying live search. */
+export function codexSearchToolConfig(modelProvider: string): Record<string, unknown> {
+  return {
+    // Responses-Lite models reach standalone web.run through this dispatcher.
+    'features.code_mode_host': true,
+    // Codex does not infer this for the inspected custom OpenShell provider.
+    ...(modelProvider === 'openshell'
+      ? { 'model_providers.openshell.supports_standalone_web_search': true }
+      : {}),
+  };
+}
+
 /** Constrained app-server configuration. Mitzo supplies executable tools dynamically.
  * Native skills readers remain available; restricted skill ceilings are rejected by the controller.
  */

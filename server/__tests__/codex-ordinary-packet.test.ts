@@ -181,3 +181,28 @@ it.each(['live', 'disabled'] as const)(
     expect(options.config.web_search).toBe(webSearch);
   },
 );
+
+it.each(['live', 'disabled'] as const)(
+  'declares standalone OpenShell search capability only under %s effective consent',
+  (webSearch) => {
+    const options = codexThreadOptions({
+      model: 'gpt-6-luna',
+      modelProvider: 'openshell',
+      cwd: '/workspace',
+      runtimeConfig: { web_search: 'live' },
+      webSearch,
+      systemPrompt: '',
+    });
+    expect(options.config.web_search).toBe(webSearch);
+    if (webSearch === 'live') {
+      expect(options.config).toMatchObject({
+        'features.code_mode_host': true,
+        'model_providers.openshell.supports_standalone_web_search': true,
+      });
+    } else {
+      expect(options.config).not.toHaveProperty(
+        'model_providers.openshell.supports_standalone_web_search',
+      );
+    }
+  },
+);

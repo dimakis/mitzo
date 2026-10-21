@@ -92,7 +92,7 @@ describe('approved Codex search on the bound runtime', () => {
       config: {
         web_search: 'live',
         'features.shell_tool': false,
-        'features.code_mode_host': false,
+        'features.code_mode_host': true,
         'mcp_servers.inherited.enabled': false,
       },
     });
@@ -281,4 +281,78 @@ it('preserves a safe native failure reason without leaking provider exceptions',
   expect(result.content).toContain('account verification failed');
   expect(result.content).not.toContain('private-account-token-provider-body');
   expect(f.request.mock.calls.some(([method]) => method === 'thread/start')).toBe(false);
+});
+
+it('keeps standalone search reachable for code-mode-only models on the bound OpenShell provider', async () => {
+  const f = fixture();
+  await searchCodex('IBM quote', new AbortController().signal, {
+    createClient: f.createClient,
+    verify: f.verify,
+    model: 'gpt-6.1-sol',
+    modelProvider: 'openshell',
+    cwd: '/workspace',
+  });
+  const params = f.request.mock.calls.find(([method]) => method === 'thread/start')![1];
+  expect(params).toMatchObject({
+    allowProviderModelFallback: false,
+    config: {
+      'features.code_mode_host': true,
+      'model_providers.openshell.supports_standalone_web_search': true,
+      'features.shell_tool': false,
+      'features.unified_exec': false,
+      'features.apps': false,
+      'features.plugins': false,
+      'features.multi_agent': false,
+    },
+    dynamicTools: [],
+  });
+});
+
+it('tells the parent how to recover when the search child never used its tool', async () => {
+  const f = fixture('completed', false, 'Live web search is unavailable. See https://example.com');
+  await expect(
+    searchCodex('IBM quote', new AbortController().signal, {
+      createClient: f.createClient,
+      verify: f.verify,
+      model: 'selected-model',
+      modelProvider: 'openshell',
+      cwd: '/workspace',
+    }),
+  ).rejects.toThrow(/no completed search receipt.*runtime.*Do not repeat/i);
+  expect(f.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(1);
+});
+
+it.each([
+  ['httpConnectionFailed', 'provider connection failed'],
+  ['unauthorized', 'authentication failed'],
+  ['usageLimitExceeded', 'rate or quota limit was reached'],
+  ['contextWindowExceeded', 'context limit was reached'],
+  ['private-provider-body', 'turn did not complete'],
+])('retains safe native turn failure classification for %s', async (code, detail) => {
+  const f = fixture();
+  const original = f.request.getMockImplementation()!;
+  f.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start') {
+      f.callbacks().onNotification('turn/completed', {
+        threadId: 'search-thread',
+        turn: {
+          id: 'search-turn',
+          status: 'failed',
+          error: { codexErrorInfo: code, message: 'private-provider-body credential-value' },
+        },
+      });
+      return { turn: { id: 'search-turn' } };
+    }
+    return original(method, params);
+  });
+  const failure = await searchCodex('q', new AbortController().signal, {
+    createClient: f.createClient,
+    verify: f.verify,
+    model: 'model',
+    modelProvider: 'openshell',
+    cwd: '/tmp',
+  }).catch((error: Error) => error.message);
+  expect(failure).toContain(detail);
+  expect(failure).not.toContain('private-provider-body');
+  expect(failure).not.toContain('credential-value');
 });

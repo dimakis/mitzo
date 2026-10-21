@@ -2,9 +2,19 @@ import { parse, defaultTreeAdapter as tree, type DefaultTreeAdapterTypes } from 
 import { WebAccessError } from './request-web-access.js';
 import { githubReadSummary } from './github-read-summary.js';
 
-// Transport resource guard, distinct from model output or readable-article budgets.
-export const MAX_WEB_DOWNLOAD_BYTES = 2 * 1024 * 1024;
-export const WEB_DOWNLOAD_LIMIT_ERROR = 'Approved read exceeded the 2 MB download safety limit.';
+// Script-heavy sites can carry much more markup than readable source material.
+// Bound transport and extracted content independently; never silently truncate.
+export const MAX_WEB_DOWNLOAD_BYTES = 8 * 1024 * 1024;
+export const MAX_WEB_CONTENT_BYTES = 2 * 1024 * 1024;
+export const WEB_DOWNLOAD_LIMIT_ERROR =
+  'Approved read exceeded the 8 MB download safety limit. Use a smaller source URL or web search.';
+function boundedContent(content: string): string {
+  if (Buffer.byteLength(content) > MAX_WEB_CONTENT_BYTES)
+    throw new WebAccessError(
+      'Approved read exceeded the 2 MB readable content safety limit. Use a smaller source URL or web search.',
+    );
+  return content;
+}
 const omitted = new Set([
   'head',
   'script',
@@ -46,9 +56,9 @@ export function webPageContent(
   view?: 'summary' | 'full',
 ): string {
   if (view !== 'full' && /^application\/json(?:;|$)/i.test(contentType))
-    return githubReadSummary(body, sourceUrl, linkHeader);
+    return boundedContent(githubReadSummary(body, sourceUrl, linkHeader));
   // XML, including XHTML, retains its original self-closing and namespace semantics.
-  if (!/^text\/html(?:;|$)/i.test(contentType)) return body;
+  if (!/^text\/html(?:;|$)/i.test(contentType)) return boundedContent(body);
   const document = parse(body);
   let root: Node = document;
   let foundMain = false;
@@ -165,5 +175,7 @@ export function webPageContent(
     throw new WebAccessError(
       'The website returned no readable content. It may require JavaScript or an interactive browser.',
     );
-  return (references ? `URL references resolve against: ${base.href}\n\n` : '') + content;
+  return boundedContent(
+    (references ? `URL references resolve against: ${base.href}\n\n` : '') + content,
+  );
 }

@@ -49,7 +49,7 @@ describe('public website HTTPS transport', () => {
     expect(callback).toHaveBeenCalledWith(null, '93.184.216.34', 4);
   });
   it('destroys the wire request when the streaming body exceeds the bound', async () => {
-    wire.responseBytes = 2097153;
+    wire.responseBytes = 8388609;
     await expect(
       fetchPublicPage('https://example.com/', new AbortController().signal),
     ).rejects.toThrow();

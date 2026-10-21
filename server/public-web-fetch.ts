@@ -49,7 +49,7 @@ function send(url: URL, address: Address, signal: AbortSignal): Promise<Page> {
         agent: false,
         signal,
         headers: {
-          Accept: 'text/html, text/plain, application/json, application/xml',
+          Accept: 'text/html, text/plain, text/csv, application/json, application/xml',
           'Accept-Encoding': 'identity',
           'User-Agent': 'Mitzo-Public-Read/1.0',
         },
@@ -123,7 +123,9 @@ export async function fetchPublicPage(
       const encoding = response.headers['content-encoding'];
       if (
         typeof type !== 'string' ||
-        !/^(text\/(?:html|plain|xml)|application\/(?:json|xml|xhtml\+xml))(?:;|$)/i.test(type) ||
+        !/^(text\/(?:html|plain|xml|csv|tab-separated-values)|application\/(?:json|xml|xhtml\+xml))(?:;|$)/i.test(
+          type,
+        ) ||
         (encoding && encoding !== 'identity')
       )
         throw new WebAccessError('Approved read returned an unsupported format or compression.');

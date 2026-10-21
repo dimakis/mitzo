@@ -58,7 +58,7 @@ function read(
         signal,
         family: address.family,
         headers: {
-          Accept: 'text/html, text/plain, application/json, application/xml',
+          Accept: 'text/html, text/plain, text/csv, application/json, application/xml',
           'Accept-Encoding': 'identity',
           'User-Agent': 'Mitzo-Approved-Read/1.0',
         },

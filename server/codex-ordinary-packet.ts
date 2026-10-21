@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { WebSearchAccess } from './web-search-policy.js';
 import { codexResearchInstructions } from './research-instructions.js';
+import { codexSearchToolConfig } from './codex-runtime-policy.js';
 
 /** These are the ordinary owner's resolved host RPC parameters, not the expanded
  * native model prompt. Native instructions, discovered project documents, native
@@ -27,6 +28,7 @@ export function codexThreadOptions(input: {
       model_reasoning_summary: 'auto',
       ...input.runtimeConfig,
       web_search: input.webSearch,
+      ...(input.webSearch === 'live' ? codexSearchToolConfig(input.modelProvider) : {}),
       ...(input.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
     },
     approvalPolicy: 'never',
