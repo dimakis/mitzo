@@ -759,6 +759,50 @@ describe('chat-rest-handler', () => {
     expect(eventStore.getSendCommand('msg-rejected')?.error).toBe('queue unavailable');
   });
 
+  it('does not fail the current receipt or duplicate a durable error from an older command', async () => {
+    const sessionId = 'old-recovery-error';
+    const oldCommand = {
+      type: 'send' as const,
+      sessionId,
+      prompt: 'older request',
+      clientMsgId: 'older-command',
+    };
+    const nextCommand = { ...oldCommand, prompt: 'newer request', clientMsgId: 'newer-command' };
+    eventStore.upsertSession({ sessionId });
+    eventStore.insertSendCommand(oldCommand.clientMsgId, sessionId, oldCommand);
+    const error = {
+      v: 2,
+      type: 'error',
+      sessionId,
+      clientMsgId: oldCommand.clientMsgId,
+      error: 'Message saved. Earlier recovery failed.',
+    };
+    eventStore.failSendCommand(oldCommand.clientMsgId, error.error);
+    const seq = eventStore.append(sessionId, 'error', error);
+    vi.mocked(handleSendV2).mockImplementationOnce(async (_id, transport, msg) => {
+      transport.send({ ...error, seq });
+      transport.send({
+        type: 'user_message',
+        sessionId,
+        messageId: msg.clientMsgId,
+        text: msg.prompt,
+      });
+    });
+    const response = await request(testServer)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send(nextCommand);
+    expect(response.status).toBe(202);
+    expect(response.body).toMatchObject({ retained: true, clientMsgId: nextCommand.clientMsgId });
+    await vi.waitFor(() =>
+      expect(eventStore.getSendCommand(nextCommand.clientMsgId)?.error).toBeNull(),
+    );
+    expect(eventStore.getSendCommand(oldCommand.clientMsgId)?.error).toBe(error.error);
+    expect(
+      eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'error'),
+    ).toHaveLength(1);
+  });
+
   it('reports send admission conflicts as stable client errors', async () => {
     vi.mocked(handleSendV2).mockRejectedValueOnce(
       new ExecutionAdmissionError(
