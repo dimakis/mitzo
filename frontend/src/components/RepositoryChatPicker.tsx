@@ -177,21 +177,23 @@ export function RepositoryChatPicker({
     ]);
     // An existing receipt owns its source. Inventory arriving or a Run on
     // change must not clear it or hide its recovery controls.
-    if (restoredScope.current === scope && restoredWorkspace.current) return;
+    const preserveWorkspace = restoredScope.current === scope && !!restoredWorkspace.current;
     restoredScope.current = scope;
     const controller = new AbortController();
     restoration.current = controller;
     const saved =
       initialPreparationId ?? (draftScoped ? null : savedRepositoryDraft(accountId, model));
-    setWorkspace(null);
-    setCatalog(null);
-    setError('');
-    setBusy(false);
-    setPendingPreparationId(saved);
-    callback.current(
-      saved ? { blocked: true, ...(draftScoped ? { repositoryWorkspaceId: saved } : {}) } : null,
-    );
-    if (saved) setOpened(true);
+    if (!preserveWorkspace) {
+      setWorkspace(null);
+      setCatalog(null);
+      setError('');
+      setBusy(false);
+      setPendingPreparationId(saved);
+      callback.current(
+        saved ? { blocked: true, ...(draftScoped ? { repositoryWorkspaceId: saved } : {}) } : null,
+      );
+      if (saved) setOpened(true);
+    }
     const query = new URLSearchParams({ accountId, model });
     if (runOn) query.set('runOn', runOn);
     void Promise.resolve(
@@ -202,7 +204,7 @@ export function RepositoryChatPicker({
         const data = catalogSchema.parse(await response.json());
         if (controller.signal.aborted) return;
         setCatalog(data);
-        if (!saved) return;
+        if (!saved || preserveWorkspace) return;
         if (!data.available && !initialPreparationId)
           throw new Error('Repository onboarding unavailable');
         const restored = await apiFetch(
@@ -237,7 +239,7 @@ export function RepositoryChatPicker({
         );
       })
       .catch(() => {
-        if (!controller.signal.aborted && saved)
+        if (!controller.signal.aborted && saved && !preserveWorkspace)
           setError(
             'Repository preparation unavailable. Discard it below before choosing another repository.',
           );

@@ -950,6 +950,60 @@ it('retains a ready checkout when its matching runtime inventory arrives after r
   expect(api.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0);
 });
 
+it('refreshes the local catalog when runtime inventory arrives after a saved checkout', async () => {
+  const choice = runtimeChoice('local');
+  const ordinaryRuntime = {
+    version: 2,
+    account: choice.runtime.account,
+    harness: { implementation: choice.runtime.harness },
+    execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+  };
+  api.fetch.mockImplementation(async (url: string, options?: RequestInit) => {
+    if (options?.method === 'DELETE') return new Response(null, { status: 204 });
+    if (url.includes('/catalog'))
+      return Response.json({
+        available: true,
+        ...(url.includes('runOn=local') ? { location: 'local' } : {}),
+        repositories: [
+          {
+            connectionId: 'local',
+            repositoryId: 'primary',
+            repository: 'local/primary',
+            label: 'Mitzo',
+          },
+        ],
+      });
+    return Response.json({
+      ...preview,
+      repository: 'local/primary',
+      state: 'ready',
+      ordinaryRuntime,
+    });
+  });
+  const onChange = vi.fn();
+  const props = {
+    accountId: 'account',
+    model: 'model',
+    draftScoped: true,
+    initialPreparationId: preview.id,
+    onChange,
+  };
+  const { rerender } = render(<RepositoryChatPicker {...props} />);
+  await screen.findByText(/Ready for your first prompt/);
+  rerender(<RepositoryChatPicker {...props} ordinaryRuntime={choice} />);
+  await screen.findByRole('button', { name: 'Use default repository' });
+  expect(screen.getByText('Mitzo')).toBeTruthy();
+  expect(onChange).toHaveBeenLastCalledWith({
+    repositoryWorkspaceId: preview.id,
+    blocked: false,
+    ordinaryRuntime,
+  });
+  expect(
+    api.fetch.mock.calls.filter(([url]) => url.includes('/catalog') && url.includes('runOn=local')),
+  ).toHaveLength(1);
+  expect(api.fetch.mock.calls.filter(([url]) => !url.includes('/catalog'))).toHaveLength(1);
+});
+
 it('does not release a restored checkout belonging to another selected runtime', async () => {
   const original = runtimeChoice('openshell');
   api.fetch.mockImplementation(
