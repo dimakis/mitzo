@@ -67,6 +67,9 @@ The operator must first trash the exact item and separately confirm deletion at
 its current revision. The backend refuses children and retained relationships,
 sources, artifacts, sessions, work, control/publication records, source identity,
 goal context and references in extension tables. Unknown references stay retained.
+Only exact owned metadata/history table names are exempted. Extension names that
+share their prefix remain checked, and reference scans cover actual column
+storage regardless of declared type, including JSON, untyped and generated columns.
 It does not infer disposable relationships or cascade through a graph.
 
 In addition, the existing host must synchronously verify quiescence through
@@ -86,7 +89,11 @@ Core owns the shared application route change. Its existing successful
 `TodoListResponse` parser output feeds the pure
 `projectTelosLifecycleTree(canonical, lifecycle, view = 'active')` helper.
 For the default active view, the already-authenticated canonical list uses
-`work.lifecycleVisibilityForCanonicalList(originalParsedItemIds)`. This bounded,
+`collectTelosCanonicalItemIds(canonical)` followed by
+`work.lifecycleVisibilityForCanonicalList(originalParsedItemIds)`. The pure
+collector shares the projection's existing node parser, duplicate checks and
+5,000-node/1,000-depth bounds, retaining original tree order without mutation or
+another application-side parser. This bounded,
 read-only host seam returns only `itemId` and `effectiveDisposition` for requested
 existing IDs. It grants no authority, queries no history/control/assignment tables,
 and has no public HTTP or native-tool route. It works with the initialized

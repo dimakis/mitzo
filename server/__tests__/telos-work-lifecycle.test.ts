@@ -441,3 +441,42 @@ it('requires explicit operator-pause origin for null coordinator/priority identi
       .success,
   ).toBe(false);
 });
+
+it.each([
+  ['extension_json', 'reference JSON', '{"outcome":"empty"}'],
+  ['extension_untyped', 'reference', 'telos://items/empty'],
+  ['telos_work_lifecycle_extension', 'reference TEXT', 'telos://items/empty'],
+  [
+    'extension_generated',
+    "payload TEXT, reference TEXT GENERATED ALWAYS AS ('em' || 'pty') STORED",
+    'retained payload',
+  ],
+])(
+  'refuses unknown references in %s before quiescence or deletion and retains raw extension data',
+  (table, columns, value) => {
+    const f = fixture();
+    f.add('empty');
+    f.lifecycle('empty', 'trash');
+    f.canonical.db.exec(`CREATE TABLE ${table}(${columns})`);
+    const inputColumn = table === 'extension_generated' ? 'payload' : 'reference';
+    f.canonical.db.prepare(`INSERT INTO ${table}(${inputColumn}) VALUES(?)`).run(value);
+    const before = f.canonical.db.prepare(`SELECT * FROM ${table}`).all();
+    const quiescence = vi.fn(() => {});
+    expect(() =>
+      f.work.executeLifecycle(
+        {
+          itemId: 'empty',
+          requestId: 'purge-extension',
+          expectedRevision: f.work.read('empty', f.actor).revision,
+          operation: 'delete_permanently',
+          confirmation: { itemId: 'empty', phrase: 'DELETE PERMANENTLY' },
+        },
+        f.actor,
+        quiescence,
+      ),
+    ).toThrow(/reference/i);
+    expect(quiescence).not.toHaveBeenCalled();
+    expect(f.canonical.db.prepare(`SELECT * FROM ${table}`).all()).toEqual(before);
+    expect(f.work.readLifecycle('empty', f.actor).disposition).toBe('trashed');
+  },
+);

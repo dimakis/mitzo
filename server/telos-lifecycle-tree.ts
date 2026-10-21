@@ -22,6 +22,30 @@ type Node = z.output<typeof node>;
 const conflict = (message: string): never => {
   throw new TelosWorkError('conflict', message);
 };
+function canonicalNodeReader() {
+  const seen = new Set<string>();
+  return (raw: unknown, depth: number): Node => {
+    if (depth > 1000 || seen.size >= 5000) conflict('Lifecycle tree exceeds bounded selection');
+    const value = node.parse(raw);
+    if (seen.has(value.id)) conflict('Duplicate canonical lifecycle identity');
+    seen.add(value.id);
+    return value;
+  };
+}
+
+/** Collect only identities from the original successful canonical parse, using
+ * the same node parser, duplicate checks and bounds as presentation projection. */
+export function collectTelosCanonicalItemIds(canonical: CanonicalList): string[] {
+  const read = canonicalNodeReader();
+  const ids: string[] = [];
+  const visit = (raw: unknown, depth: number) => {
+    const value = read(raw, depth);
+    ids.push(value.id);
+    for (const child of value.children) visit(child, depth + 1);
+  };
+  for (const item of canonical.items) visit(item, 0);
+  return ids;
+}
 
 /** Pure presentation projection of the ORIGINAL TodoListResponse parser output.
  * For default active, the already-authenticated caller supplies same-database
@@ -47,12 +71,9 @@ export function projectTelosLifecycleTree(
     known.add(row.itemId);
     if (row.effectiveDisposition === selected) visible.add(row.itemId);
   }
-  const seen = new Set<string>();
+  const read = canonicalNodeReader();
   const visit = (raw: unknown, depth: number): Node[] => {
-    if (depth > 1000 || seen.size >= 5000) conflict('Lifecycle tree exceeds bounded selection');
-    const value = node.parse(raw);
-    if (seen.has(value.id)) conflict('Duplicate canonical lifecycle identity');
-    seen.add(value.id);
+    const value = read(raw, depth);
     const children = value.children.flatMap((child) => visit(child, depth + 1));
     if (!visible.has(value.id)) return children;
     return [

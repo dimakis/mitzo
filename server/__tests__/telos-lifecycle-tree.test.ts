@@ -1,7 +1,10 @@
 import { afterEach, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { TodoListResponse } from '../api-schemas.js';
-import { projectTelosLifecycleTree } from '../telos-lifecycle-tree.js';
+import {
+  collectTelosCanonicalItemIds,
+  projectTelosLifecycleTree,
+} from '../telos-lifecycle-tree.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 import { TelosWorkStore } from '../telos-work-store.js';
 
@@ -177,4 +180,54 @@ it('bounds canonical-list visibility to the supplied identities and refuses dupl
       Array.from({ length: 5001 }, (_, i) => `item-${i}`),
     ),
   ).toThrow();
+});
+
+it('collects original parsed canonical IDs in tree order without mutation or another parser', () => {
+  const f = fixture();
+  const before = JSON.stringify(f.canonical);
+  expect(collectTelosCanonicalItemIds(f.canonical)).toEqual([
+    'studio',
+    'child',
+    'grandchild',
+    'sibling',
+  ]);
+  expect(JSON.stringify(f.canonical)).toBe(before);
+  const visibility = f.f.work.lifecycleVisibilityForCanonicalList(
+    collectTelosCanonicalItemIds(f.canonical),
+  );
+  expect(projectTelosLifecycleTree(f.canonical, visibility)).toEqual(f.canonical);
+});
+
+it('refuses malformed or duplicated canonical identities during collection using existing tree rules', () => {
+  const f = fixture();
+  expect(() =>
+    collectTelosCanonicalItemIds({ ...f.canonical, items: [{ id: 'broken', children: [] }] }),
+  ).toThrow();
+  expect(() =>
+    collectTelosCanonicalItemIds({
+      ...f.canonical,
+      items: [...f.canonical.items, ...f.canonical.items],
+    }),
+  ).toThrow(/duplicate/i);
+});
+
+it('enforces the same 5000-node and 1000-depth bounds for canonical collection and projection', () => {
+  const f = fixture();
+  const original = f.canonical.items[0] as Record<string, unknown>;
+  const flat = (count: number) => ({
+    ...f.canonical,
+    items: Array.from({ length: count }, (_, i) => ({
+      ...original,
+      id: `item-${i}`,
+      children: [],
+    })),
+  });
+  expect(collectTelosCanonicalItemIds(flat(5000))).toHaveLength(5000);
+  expect(() => collectTelosCanonicalItemIds(flat(5001))).toThrow(/bounded/i);
+  expect(() => projectTelosLifecycleTree(flat(5001), [])).toThrow(/bounded/i);
+  let chain: Record<string, unknown> = { ...original, id: 'depth-1001', children: [] };
+  for (let i = 1000; i >= 0; i--) chain = { ...original, id: `depth-${i}`, children: [chain] };
+  const deep = { ...f.canonical, items: [chain] };
+  expect(() => collectTelosCanonicalItemIds(deep)).toThrow(/bounded/i);
+  expect(() => projectTelosLifecycleTree(deep, [])).toThrow(/bounded/i);
 });

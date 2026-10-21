@@ -28,6 +28,13 @@ const initial = (): State => ({
 });
 const digest = (input: unknown) => createHash('sha256').update(JSON.stringify(input)).digest('hex');
 const quote = (name: string) => '"' + name.replaceAll('"', '""') + '"';
+const deletionOwnedTables = new Set([
+  'items',
+  'history',
+  'telos_work_lifecycle',
+  'telos_work_lifecycle_commands',
+  'telos_work_lifecycle_history',
+]);
 function conflict(message: string): never {
   throw new TelosWorkError('conflict', message);
 }
@@ -289,8 +296,7 @@ export class TelosWorkLifecycle {
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
       .all() as { name: string }[];
     for (const { name } of tables) {
-      if (name.startsWith('telos_work_lifecycle') || name === 'history' || name === 'items')
-        continue;
+      if (deletionOwnedTables.has(name)) continue;
       const fks = this.db.prepare(`PRAGMA foreign_key_list(${quote(name)})`).all() as {
         table: string;
         from: string;
@@ -303,9 +309,11 @@ export class TelosWorkLifecycle {
             .get(itemId)
         )
           conflict('Permanent deletion refuses retained item references');
-      const columns = this.db.prepare(`PRAGMA table_info(${quote(name)})`).all() as {
+      // SQLite storage is dynamic: declared JSON/empty/numeric affinities may
+      // hold text references. Include generated/hidden columns as well, and
+      // exempt only the exact metadata tables owned by this deletion protocol.
+      const columns = this.db.prepare(`PRAGMA table_xinfo(${quote(name)})`).all() as {
         name: string;
-        type: string;
       }[];
       for (const column of columns) {
         if (
@@ -316,7 +324,6 @@ export class TelosWorkLifecycle {
         )
           conflict('Permanent deletion refuses retained item references');
         if (
-          /TEXT|BLOB/i.test(column.type) &&
           this.db
             .prepare(
               `SELECT 1 FROM ${quote(name)} WHERE instr(CAST(${quote(column.name)} AS TEXT),?)>0 LIMIT 1`,
