@@ -45,6 +45,9 @@ export interface OpenShellLifecycleRecord {
   identity?: OpenShellLifecycleIdentity | null;
   /** Explicit operator consent for automated retention deletion. */
   retentionConsent?: boolean;
+  /** Historical ownership qualification is process-local until release. Persist
+   * this fence so retries/restarts cannot inherit ordinary cleanup authority. */
+  legacyDeletionPending?: boolean;
 }
 export interface OpenShellLifecycleIdentity {
   threadId: string;
@@ -157,6 +160,7 @@ interface Row {
   failure: string | null;
   identity?: string | null;
   retention_consent?: number;
+  legacy_deletion_pending?: number;
 }
 function fromRow(row: Row): OpenShellLifecycleRecord {
   return {
@@ -178,6 +182,7 @@ function fromRow(row: Row): OpenShellLifecycleRecord {
     failure: row.failure,
     identity: row.identity ? (JSON.parse(row.identity) as OpenShellLifecycleIdentity) : null,
     retentionConsent: !!row.retention_consent,
+    legacyDeletionPending: !!row.legacy_deletion_pending,
   };
 }
 
@@ -214,6 +219,10 @@ export class OpenShellLifecycleStore {
       this.db.exec(
         'ALTER TABLE openshell_lifecycle ADD COLUMN retention_consent INTEGER NOT NULL DEFAULT 0',
       );
+    if (!names.has('legacy_deletion_pending'))
+      this.db.exec(
+        'ALTER TABLE openshell_lifecycle ADD COLUMN legacy_deletion_pending INTEGER NOT NULL DEFAULT 0',
+      );
   }
   get(conversationId: string): OpenShellLifecycleRecord | null {
     const row = this.db
@@ -234,11 +243,11 @@ export class OpenShellLifecycleStore {
     const changed = this.db
       .prepare(
         `INSERT INTO openshell_lifecycle
-        (conversation_id,workspace,gateway,gateway_endpoint,sandbox_name,physical_sandbox_id,account_provider,owner_client_id,phase,generation,last_activity_at,idle_since,stopped_at,checkpoint,failure,stopped_resource_version,identity,retention_consent)
-        VALUES (@conversationId,@workspace,@gateway,@gatewayEndpoint,@sandboxName,@physicalSandboxId,@accountProvider,@ownerClientId,@phase,@generation,@lastActivityAt,@idleSince,@stoppedAt,@checkpoint,@failure,@stoppedResourceVersion,@identity,@retentionConsent)
+        (conversation_id,workspace,gateway,gateway_endpoint,sandbox_name,physical_sandbox_id,account_provider,owner_client_id,phase,generation,last_activity_at,idle_since,stopped_at,checkpoint,failure,stopped_resource_version,identity,retention_consent,legacy_deletion_pending)
+        VALUES (@conversationId,@workspace,@gateway,@gatewayEndpoint,@sandboxName,@physicalSandboxId,@accountProvider,@ownerClientId,@phase,@generation,@lastActivityAt,@idleSince,@stoppedAt,@checkpoint,@failure,@stoppedResourceVersion,@identity,@retentionConsent,@legacyDeletionPending)
         ON CONFLICT(conversation_id) DO UPDATE SET workspace=excluded.workspace,gateway=excluded.gateway,sandbox_name=excluded.sandbox_name,
         gateway_endpoint=excluded.gateway_endpoint,physical_sandbox_id=excluded.physical_sandbox_id,account_provider=excluded.account_provider,owner_client_id=excluded.owner_client_id,phase=excluded.phase,generation=excluded.generation,last_activity_at=excluded.last_activity_at,
-        idle_since=excluded.idle_since,stopped_at=excluded.stopped_at,checkpoint=excluded.checkpoint,failure=excluded.failure,stopped_resource_version=excluded.stopped_resource_version,identity=excluded.identity,retention_consent=excluded.retention_consent`,
+        idle_since=excluded.idle_since,stopped_at=excluded.stopped_at,checkpoint=excluded.checkpoint,failure=excluded.failure,stopped_resource_version=excluded.stopped_resource_version,identity=excluded.identity,retention_consent=excluded.retention_consent,legacy_deletion_pending=excluded.legacy_deletion_pending`,
       )
       .run({
         ...record,
@@ -248,6 +257,13 @@ export class OpenShellLifecycleStore {
         stoppedResourceVersion: record.stoppedResourceVersion ?? null,
         identity: record.identity ? JSON.stringify(record.identity) : null,
         retentionConsent: record.retentionConsent ? 1 : 0,
+        // Older registration/recovery writers may omit this field. Only a
+        // verified terminal deletion can discard the additional qualification.
+        legacyDeletionPending:
+          record.phase !== 'deleted' &&
+          (record.legacyDeletionPending || existing?.legacyDeletionPending)
+            ? 1
+            : 0,
       });
     if (!changed.changes) throw new Error('OpenShell lifecycle update failed');
   }
