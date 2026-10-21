@@ -667,6 +667,10 @@ function createOwnedCodexEntryRouter(
           )
             throw Error(unavailable);
         }
+        const retainedRepository =
+          !ordinary && repositoryWorkspaceId
+            ? getRepositoryWorkspaces(true).get(repositoryWorkspaceId)
+            : undefined;
         const reservation = {
           id: ordinaryWorkspace ? ordinaryWorkspace.id : repositoryWorkspaceId!,
           binding: ordinaryWorkspace
@@ -677,8 +681,10 @@ function createOwnedCodexEntryRouter(
           conversationId: sessionId,
           taskRoot: ordinaryWorkspace
             ? ordinaryWorkspace.hostReservation.taskRoot
-            : (preparedRepositoryRecord?.hostReservation?.taskRoot ??
-              join(BASE_REPO, '.claude', 'repository-tasks')),
+            : (retainedRepository?.hostReservation?.taskRoot ??
+              (retainedRepository?.localSource
+                ? join(retainedRepository.localSource.path, '.claude', 'worktrees')
+                : join(BASE_REPO, '.claude', 'repository-tasks'))),
           ...(ordinaryWorkspace
             ? { commandFingerprint: ordinaryWorkspace.preparationFingerprint }
             : !continuation

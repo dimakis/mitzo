@@ -1032,7 +1032,7 @@ export class RepositoryWorkspaces {
     repositoryId: string,
     selection: OrdinaryRepositoryRuntimeSelection,
     signal: AbortSignal,
-    requestId = randomUUID(),
+    requestId: string = randomUUID(),
     startPoint?: string,
   ) {
     return this.runOperation(async () => {
@@ -1502,6 +1502,10 @@ export class RepositoryWorkspaces {
       )
         throw new Error('Prepared repository already reserved');
       await this.firstBinding(record, expected, signal);
+      if (record.localSource) {
+        await this.authorizeHostRecord(record, record.binding, signal);
+        await mkdir(expected.taskRoot, { recursive: true, mode: 0o700 });
+      }
       const marker: HostTaskReservationMarker = {
         version: 1,
         taskRoot: expected.taskRoot,
