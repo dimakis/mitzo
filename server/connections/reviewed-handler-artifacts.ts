@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.494-telos-readonly-get-base-integration';
+  'v1.0.495-chat-defaults-repository-settings';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -545,11 +545,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/client-store.ts':
     'e678599c740e0d6c854913d24f769e0ad7e18058341e53e77e0e37479e1ff558',
   '../../frontend/src/components/AccountModelPicker.tsx':
-    '9eceb83413e6ae50d00b1aaf4f3fd9547f3289a2ead0acae764df25c3de8c3e3',
+    '27141b9b6ac9b5d6f6adb36864c89907d7673876320ddbf8565db0510201f19a',
   '../../frontend/src/components/ChatAgentProfilePicker.tsx':
     '7efa0466b67598cf458c3e91b12042f56189747914a85d1040146b2bf6ae7155',
   '../../frontend/src/components/ChatExecutionPicker.tsx':
     '09e817e4b6a0b2447c97f8dbad2b1aa9537d0b8958d87819dd5ca7600d219ff6',
+  '../../frontend/src/lib/account-preference.ts':
+    '36e668e6435fcc51a648713233a98cc020f05275246f444551140fdc46f3f74c',
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
@@ -573,7 +575,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
     '32660ff240dd5f62c2a8ab976941553a84b7f3809ed3455ffe4e64ccfcd2613d',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
-    'ece346ec2c992809822a61bfb3ba7a14a89afd14b5bf358425563fd23df11376',
+    '0fb9b22a7c75a5fde5d106843c4115fc88159dd39dde83c5b916c17eb84f0989',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '4791a0f7870378d7353134e2a93972f1f7b5ef8197f20cfdc7304d0fd8adfb75',
   '../../frontend/src/lib/launch-draft-delivery.ts':
@@ -595,9 +597,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '89c3593476f8ee0e99ab1ad1f8b0879626e731a8581cf755f5090624cb8ceedd',
   '../../frontend/src/pages/ChatView.tsx':
-    '4edcd063d58c5058c9908068aee6a912e44f6a1e4ff2ecb64c8d36a58a306634',
+    '9b38a55e43cd446ca4822cfee3709982a7441dffbe0074befbd0041008bc1494',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'fef4ee0df2d132782ca0ee954a8b35274a870cfbc2a8b2c8e0f5af9a99d106a8',
+    '57a64f12963304e7be462e1db5b39be2ca10c3e9caa25c94dccd927545adfc2d',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -1069,7 +1071,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-repository-preparation-authority.ts':
     'cdc69081e652ecc0f8928282849cdaccf5528060d3cbb450779793eadd0065ea',
   '../../frontend/src/components/RepositoryChatPicker.tsx':
-    '9cda6bc42392508104fdf72971a8d9351a6f710130128c6b6e6146fe2033b172',
+    'd94165decd9ed8b84965a129f5892adbbda4d5b3931f802cd8e70487f8f965fe',
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':
     '21b62231f1f15b14e874be59d01bd23316f4b7ee516d514500d7599c7c653fde',
   '../../frontend/src/lib/repository-chat-preparation.ts':
@@ -1077,7 +1079,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-command-historical-ack.ts':
     '06fe3d509676e6d59a685b3ab89395a51751ad082b06ada02312a872b7aee7ed',
   '../../frontend/src/components/RepositoryChatPicker.css':
-    '7153c59ed0581a3f69d46a3cd0a0a1f895340d7d6d34d2a360f5380b65f601b1',
+    '900f02aff92df6eb1ad5ad7e3abfb56ae268a3dc20f28798d5170a8c61044928',
   '../../frontend/src/components/AgentSettingsPicker.css':
     'bd30b16df165a784f34285058165f6e4cb6dd07839da21fe258be8410303d408',
   '../../frontend/src/components/AgentSettingsPicker.tsx':
