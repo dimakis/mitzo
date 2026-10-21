@@ -432,6 +432,8 @@ for (const workspaceChoice of ['select', 'default'] as const) {
       });
       for (const accountId of ['personal', 'api', 'vertex', 'gemini']) {
         await page.goto(`/chat?offlineAccount=${accountId}`);
+        await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
+        expect(errors).toEqual([]);
         await settingsHome(page);
         await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', accountId!);
         await openChatSetting(page, 'execution');

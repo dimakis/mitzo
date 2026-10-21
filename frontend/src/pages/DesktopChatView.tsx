@@ -1660,7 +1660,7 @@ export function DesktopChatView() {
                                   {
                                     clientMsgId: createBrowserId(),
                                     repositoryWorkspaceId:
-                                      repositorySelection.repositoryWorkspaceId!,
+                                      repositorySelection?.repositoryWorkspaceId,
                                     mode,
                                     text,
                                     sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
