@@ -292,6 +292,60 @@ it('protects hidden hierarchy and deleted identities against writes by another c
   expect(() => f.add('empty')).toThrow(/identity/i);
 });
 
+it.each(['archive', 'trash'] as const)(
+  'retains descendants without lifecycle rows beneath a root after %s when another canonical writer attempts a cascading DELETE',
+  (operation) => {
+    const f = fixture();
+    f.add('child', 'studio');
+    f.add('grandchild', 'child');
+    f.add('unrelated');
+    f.lifecycle('studio', operation);
+    expect(
+      f.canonical.db
+        .prepare("SELECT item_id FROM telos_work_lifecycle WHERE item_id IN ('child','grandchild')")
+        .all(),
+    ).toEqual([]);
+    const before = f.canonical.db.prepare('SELECT * FROM items ORDER BY id').all();
+    const history = f.canonical.db.prepare('SELECT * FROM history ORDER BY id').all();
+    expect(() => f.canonical.db.prepare("DELETE FROM items WHERE id='grandchild'").run()).toThrow(
+      /lifecycle/i,
+    );
+    expect(() => f.canonical.db.prepare("DELETE FROM items WHERE id='child'").run()).toThrow(
+      /lifecycle/i,
+    );
+    expect(f.canonical.db.prepare('SELECT * FROM items ORDER BY id').all()).toEqual(before);
+    expect(f.canonical.db.prepare('SELECT * FROM history ORDER BY id').all()).toEqual(history);
+    expect(f.work.read('grandchild', f.actor).parentId).toBe('child');
+    expect(f.canonical.db.prepare("DELETE FROM items WHERE id='unrelated'").run().changes).toBe(1);
+    f.lifecycle('studio', operation === 'archive' ? 'unarchive' : 'restore');
+    expect(f.canonical.db.prepare("DELETE FROM items WHERE id='child'").run().changes).toBe(1);
+    expect(
+      f.canonical.db.prepare("SELECT id FROM items WHERE id IN ('child','grandchild')").all(),
+    ).toEqual([]);
+  },
+);
+
+it('upgrades the already-enrolled own-row-only delete trigger before another canonical writer can erase inherited descendants', () => {
+  const f = fixture();
+  f.add('child', 'studio');
+  f.add('grandchild', 'child');
+  f.lifecycle('studio', 'trash');
+  f.canonical.db.exec(`DROP TRIGGER telos_work_lifecycle_delete_guard;
+    CREATE TRIGGER telos_work_lifecycle_delete_guard BEFORE DELETE ON items WHEN EXISTS(SELECT 1 FROM telos_work_lifecycle WHERE item_id=OLD.id AND purging=0) BEGIN SELECT RAISE(ABORT,'Use confirmed Telos lifecycle deletion'); END;`);
+  f.restart();
+  expect(() => f.canonical.db.prepare("DELETE FROM items WHERE id='child'").run()).toThrow(
+    /lifecycle/i,
+  );
+  expect(
+    f.canonical.db
+      .prepare("SELECT id,parent_id FROM items WHERE id IN ('child','grandchild') ORDER BY id")
+      .all(),
+  ).toEqual([
+    { id: 'child', parent_id: 'studio' },
+    { id: 'grandchild', parent_id: 'child' },
+  ]);
+});
+
 it('resume preserves independent coordinator holds and priority work', () => {
   const f = fixture();
   f.add('coordinator');
