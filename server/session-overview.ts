@@ -110,31 +110,31 @@ export class SessionOverviewEmitter {
    */
   private scheduleIdleTransition(): void {
     if (this.idleTransitionTimer) clearTimeout(this.idleTransitionTimer);
+    this.idleTransitionTimer = null;
 
     const now = Date.now();
-    let earliest = DONE_TIMEOUT_MS;
+    let nextDeadline: number | undefined;
     for (const touchedAt of this.lastEventTimes.values()) {
-      const remaining = DONE_TIMEOUT_MS - (now - touchedAt);
-      if (remaining < earliest) earliest = remaining;
+      const deadline = touchedAt + DONE_TIMEOUT_MS;
+      // Keep expired timestamps for state derivation, but never rearm them.
+      // A zero-delay loop would repeatedly scan attention sessions after idle.
+      if (deadline <= now) continue;
+      if (nextDeadline === undefined || deadline < nextDeadline) nextDeadline = deadline;
     }
-    // Clamp to at least 0 (session already past timeout)
-    const delay = Math.max(0, earliest);
+    if (nextDeadline === undefined) return;
 
     this.idleTransitionTimer = setTimeout(() => {
       this.idleTransitionTimer = null;
       this.scheduleBroadcast();
-      // Re-schedule if there are still sessions that haven't timed out yet
-      if (this.lastEventTimes.size > 0) {
-        this.scheduleIdleTransition();
-      }
-    }, delay);
+      this.scheduleIdleTransition();
+    }, nextDeadline - now);
   }
 
   /**
    * Clean up tracking for a removed session.
    */
   forget(clientId: string, sessionId?: string): void {
-    this.lastEventTimes.delete(clientId);
+    if (this.lastEventTimes.delete(clientId)) this.scheduleIdleTransition();
     if (sessionId) {
       this.speakerCache.delete(sessionId);
     }
