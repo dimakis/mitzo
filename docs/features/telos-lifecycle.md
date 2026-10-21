@@ -123,3 +123,5 @@ Operator-pause receipts retain nullable operator-origin identity without inventi
 a coordinator or priority item. Permanent deletion still has no configured shared
 App quiescence callback and therefore fails closed. These private composition
 changes are not production deployment or complete lifecycle UI acceptance.
+
+The EventStore exposes a denial-only retained-role reference check over every role-context event, including hidden, inactive and orphaned conversations. It decodes JSON and refuses malformed, changed, closed or borrowed-transaction custody. This read returns no conversation content and does not establish host quiescence or the provenance of the current canonical/EventStore/TaskStore cohort. Permanent deletion remains unavailable until the actual App binds and verifies those owners and its retained admission journals.
