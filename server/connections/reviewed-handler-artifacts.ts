@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.499-local-repository-selection';
+  'v1.0.500-shared-local-upstream-base';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -876,9 +876,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':
     'b9a6ef89472b001cb8cd8f8bc04c3b31d514980d9a5154cd6ad48c5b30d42c09',
-  '../worktree.ts': 'e3fd6d93d33cb5403786c5a7da16dd229d8ba03ad06e8c3abaf6309c64adb34a',
+  '../worktree.ts': 'e5b247359f3e080a59f4cfe6c60bfd19eb1076b8cf06002929becd50d66aa96f',
   '../local-repository-worktree.ts':
-    '7595284bb7e16ef7234c7d81c433e0d167efabd3d28119ff73e1d3527f9dbefd',
+    'e0b81be7a0fc8002eab0c05da3bb76d4b4ceb8c9aa2b79d88ed9d72a5176bb35',
   '../repository-task-checkout.ts':
     'b0b651d3b866577188d51b45cc414d45039e941b29cf7ad7f103237a0dc3e1f5',
   '../workspace-runtime-private-paths.ts':
