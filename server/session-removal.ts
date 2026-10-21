@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { RequestHandler } from 'express';
-import type { OpenShellLifecycleService } from './openshell-lifecycle-service.js';
+import type { LifecyclePreview, OpenShellLifecycleService } from './openshell-lifecycle-service.js';
 
 /** Positive remote evidence or unresolved legacy Codex routing requires ownership
  * review. Working directories alone cannot establish execution location. */
@@ -41,6 +41,7 @@ export function createSessionRemovalRouter(deps: {
   authorize: RequestHandler;
   lifecycle(): OpenShellLifecycleService | null;
   hasSandbox(id: string): boolean;
+  previewLegacy?(id: string, signal: AbortSignal): Promise<LifecyclePreview>;
   hide(id: string): void;
   changed(id: string): void;
 }) {
@@ -62,6 +63,8 @@ export function createSessionRemovalRouter(deps: {
         return res.json({
           sandbox: await deps.lifecycle()!.preview(id, AbortSignal.timeout(120_000), 'delete'),
         });
+      if (!record && deps.hasSandbox(id) && deps.previewLegacy)
+        return res.json({ sandbox: await deps.previewLegacy(id, AbortSignal.timeout(120_000)) });
       return res.json({
         sandbox: null,
         blockedReason: !record && deps.hasSandbox(id) ? unavailable : null,
@@ -79,19 +82,20 @@ export function createSessionRemovalRouter(deps: {
     try {
       if (req.query.archive !== '1') {
         const record = managed(id);
-        if (record && record.state !== 'deleted') {
+        if ((record && record.state !== 'deleted') || (!record && deps.hasSandbox(id))) {
           const token = req.body?.cleanupToken;
           if (typeof token !== 'string' || !token)
             return res
               .status(409)
               .json({ error: 'Review sandbox deletion before removing this chat.' });
-          const result = await deps.lifecycle()!.confirm(token, AbortSignal.timeout(120_000), id);
+          const service = deps.lifecycle();
+          if (!service) return res.status(409).json({ error: unavailable });
+          const result = await service.confirm(token, AbortSignal.timeout(120_000), id);
           if (result !== 'deleted')
             return res
               .status(409)
               .json({ error: 'Sandbox release is incomplete. The chat has been retained.' });
-        } else if (!record && deps.hasSandbox(id))
-          return res.status(409).json({ error: unavailable });
+        }
       }
       deps.hide(id);
       deps.changed(id);
