@@ -56,6 +56,7 @@ describe('MobileShell navigation', () => {
     '/sessions',
     '/inbox',
     '/todos',
+    '/todos/example',
     '/more',
     '/mockups',
     '/sandboxes',
@@ -68,7 +69,7 @@ describe('MobileShell navigation', () => {
     expect(container.querySelector('.mobile-workspace-masthead')?.contains(brand)).toBe(true);
     expect(container.querySelector('.mobile-workspace-body')).toBeTruthy();
   });
-  it.each(['/login', '/chat/example', '/todos/example'])(
+  it.each(['/login', '/chat/example'])(
     'leaves focused views to their own navigation on %s',
     (path) => {
       renderAt(path);

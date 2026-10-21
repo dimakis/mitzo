@@ -1,3 +1,9 @@
+import {
+  knownCreationTime,
+  sortTelosSiblings,
+  telosSortOptions,
+  type TelosOutcomeSort,
+} from '../lib/telos-outcome-sort';
 import { todoPriority } from '../lib/todo-utils';
 import { useMemo, useState, useRef } from 'react';
 import type { TelosWorkItem } from '@mitzo/protocol';
@@ -12,6 +18,8 @@ interface NavigationState {
   category: string;
   pins: string[];
   expanded: string[];
+  collapsed: string[];
+  sort: TelosOutcomeSort;
   filter: string;
 }
 const defaults: NavigationState = {
@@ -19,6 +27,8 @@ const defaults: NavigationState = {
   category: 'All',
   pins: ['Job', 'Personal projects', 'Mitzo'],
   expanded: [],
+  collapsed: [],
+  sort: 'default',
   filter: 'All outcomes',
 };
 function restore(key: string): NavigationState {
@@ -34,11 +44,19 @@ function restore(key: string): NavigationState {
       value.expanded.every((p: unknown) => typeof p === 'string') &&
       ['All outcomes', 'Coordinators'].includes(value.filter)
     )
-      return value;
+      return {
+        ...value,
+        sort: telosSortOptions.some(([sort]) => sort === value.sort) ? value.sort : 'default',
+        collapsed:
+          Array.isArray(value.collapsed) &&
+          value.collapsed.every((id: unknown) => typeof id === 'string')
+            ? value.collapsed
+            : [],
+      };
   } catch {
     /* Device preferences are optional. */
   }
-  return { ...defaults, pins: [...defaults.pins], expanded: [] };
+  return { ...defaults, pins: [...defaults.pins], expanded: [], collapsed: [] };
 }
 /** Presentation over accepted records. No kind/assignment inference or mutations. */
 export function TelosOutcomesTree({
@@ -88,7 +106,11 @@ export function TelosOutcomesTree({
     });
     if (added.length || revealed.storageKey !== storageKey) {
       const current = revealed.storageKey === storageKey ? state : restore(storageKey);
-      setState({ ...current, expanded: [...new Set([...current.expanded, ...added])] });
+      setState({
+        ...current,
+        expanded: [...new Set([...current.expanded, ...added])],
+        collapsed: current.collapsed.filter((id) => !added.includes(id)),
+      });
     }
   }
   const [browse, setBrowse] = useState(false);
@@ -99,7 +121,11 @@ export function TelosOutcomesTree({
   }
   const [storageError, setStorageError] = useState(false);
   function update(patch: Partial<NavigationState>) {
-    const next = { ...state, ...patch };
+    const changesContext = ['query', 'category', 'filter'].some(
+      (key) =>
+        key in patch && patch[key as keyof NavigationState] !== state[key as keyof NavigationState],
+    );
+    const next = { ...state, ...(changesContext ? { collapsed: [] } : {}), ...patch };
     setState(next);
     try {
       localStorage.setItem(storageKey, JSON.stringify(next));
@@ -111,8 +137,11 @@ export function TelosOutcomesTree({
   const ids = useMemo(() => new Set(records.map((r) => r.itemId)), [records]);
   const categories = [...new Set(records.flatMap((r) => r.categories))].sort();
   const children = (parent: string | null) =>
-    records.filter((r) =>
-      parent === null ? !r.parentId || !ids.has(r.parentId) : r.parentId === parent,
+    sortTelosSiblings(
+      records.filter((r) =>
+        parent === null ? !r.parentId || !ids.has(r.parentId) : r.parentId === parent,
+      ),
+      state.sort,
     );
   const needle = state.query.trim().toLocaleLowerCase();
   function matches(record: TelosWorkItem) {
@@ -135,10 +164,11 @@ export function TelosOutcomesTree({
           .map((record) => {
             const kids = children(record.itemId);
             const expanded =
-              state.expanded.includes(record.itemId) ||
-              Boolean(needle) ||
-              state.category !== 'All' ||
-              state.filter !== 'All outcomes';
+              !state.collapsed.includes(record.itemId) &&
+              (state.expanded.includes(record.itemId) ||
+                Boolean(needle) ||
+                state.category !== 'All' ||
+                state.filter !== 'All outcomes');
             return (
               <li key={record.itemId}>
                 <div
@@ -152,6 +182,9 @@ export function TelosOutcomesTree({
                       aria-label={`${expanded ? 'Collapse' : 'Expand'} ${record.summary}`}
                       onClick={() =>
                         update({
+                          collapsed: expanded
+                            ? [...state.collapsed, record.itemId]
+                            : state.collapsed.filter((id) => id !== record.itemId),
                           expanded: expanded
                             ? state.expanded.filter((id) => id !== record.itemId)
                             : [...state.expanded, record.itemId],
@@ -181,6 +214,8 @@ export function TelosOutcomesTree({
                     </button>
                     <div className="telos-node-meta">
                       <span>{telosKindLabel(record.kind)}</span>
+                      {['newest', 'oldest'].includes(state.sort) &&
+                        knownCreationTime(record) === null && <span>Creation date unknown</span>}
                       {kids.length > 0 && (
                         <span>
                           {kids.length} {kids.length === 1 ? 'child' : 'children'}
@@ -309,10 +344,24 @@ export function TelosOutcomesTree({
             onChange={(e) => update({ query: e.target.value })}
           />
         </label>
-        <button onClick={() => update({ expanded: records.map((r) => r.itemId) })}>
+        <select
+          className="telos-sort"
+          aria-label="Sort outcomes"
+          value={state.sort}
+          onChange={(event) => update({ sort: event.target.value as TelosOutcomeSort })}
+        >
+          {telosSortOptions.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <button onClick={() => update({ expanded: records.map((r) => r.itemId), collapsed: [] })}>
           Expand all
         </button>
-        <button onClick={() => update({ expanded: [] })}>Collapse all</button>
+        <button onClick={() => update({ expanded: [], collapsed: records.map((r) => r.itemId) })}>
+          Collapse all
+        </button>
       </div>
       {storageError && (
         <p role="alert">Navigation preferences could not be saved on this device.</p>
@@ -323,12 +372,11 @@ export function TelosOutcomesTree({
           <span>Coordinator → Outcome → Work item</span>
         </div>
       )}
-      {loading ? (
-        <p role="status">Loading outcomes…</p>
-      ) : error ? (
+      {loading && <p role="status">Loading outcomes…</p>}
+      {error ? (
         <p role="alert">{error}</p>
       ) : records.length === 0 ? (
-        <p>No outcomes yet.</p>
+        !loading && <p>No outcomes yet.</p>
       ) : !children(null).some((r) => visible(r)) ? (
         <p role="status">No matching outcomes</p>
       ) : (

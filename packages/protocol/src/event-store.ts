@@ -92,6 +92,8 @@ import {
 } from './symposium-lifecycle-owner.js';
 import { artifactReaderReference } from './symposium-artifact-reader-proof.js';
 import { z } from 'zod';
+import { TelosWorkRoleContextSelectionSchema } from './telos-work-role-context.js';
+import { TelosWorkIdSchema } from './telos-work-api.js';
 import {
   artifactAdmissionDigest,
   artifactAdmissionReference,
@@ -2503,6 +2505,59 @@ export class EventStore {
       'SELECT * FROM events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT ?',
     ).all(sessionId, type, Math.max(1, Math.min(1024, limit))) as EventRow[];
     return rows.map(rowToEvent);
+  }
+
+  /** Denial-only retained reference check for the host's permanent-delete fence.
+   * Read every role row, including orphaned/hidden/inactive conversations, without
+   * a session join or history cap. Unreadable custody never establishes absence.
+   * This does not prove quiescence, store provenance or admission-journal coverage.
+   */
+  assertNoRetainedTelosWorkReferences(itemId: string): void {
+    TelosWorkIdSchema.parse(itemId);
+    if (!this.db?.open || this.db.inTransaction)
+      throw new Error('Retained Telos role custody unavailable');
+    const schema = z.strictObject({
+      version: z.literal(1),
+      sessionId: z.string().min(1),
+      binding: AccountBindingSchema.omit({ accountLabel: true }),
+      selection: TelosWorkRoleContextSelectionSchema,
+      guidance: z.string(),
+    });
+    const seen = new Map<string, string>();
+    const rows = this.db
+      .prepare(
+        "SELECT session_id,payload FROM events WHERE type='telos_work_role_context' ORDER BY seq",
+      )
+      .iterate() as Iterable<{ session_id: string; payload: string }>;
+    for (const row of rows) {
+      let payload: z.infer<typeof schema>;
+      try {
+        payload = schema.parse(JSON.parse(row.payload));
+        const hash = createHash('sha256').update(row.payload).digest('hex');
+        if (
+          payload.sessionId !== row.session_id ||
+          (seen.has(row.session_id) && seen.get(row.session_id) !== hash) ||
+          createHash('sha256').update(payload.selection.brief.text).digest('hex') !==
+            payload.selection.brief.sha256
+        )
+          throw new Error('Changed retained role');
+        seen.set(row.session_id, hash);
+      } catch {
+        throw new Error('Retained Telos role custody unavailable');
+      }
+      // Decode JSON before comparing: quoted, backslash and Unicode-escaped IDs
+      // retain their original meaning. Textual references also conservatively deny.
+      const pending: unknown[] = [payload];
+      while (pending.length) {
+        const value = pending.pop();
+        if (typeof value === 'string' && value.includes(itemId))
+          throw new Error('Permanent deletion refuses retained Telos role references');
+        if (Array.isArray(value)) {
+          for (const child of value) pending.push(child);
+        } else if (value !== null && typeof value === 'object')
+          for (const [key, child] of Object.entries(value)) pending.push(key, child);
+      }
+    }
   }
 
   /** Private exact driver provenance only; never hydrate unrelated provider/session history.

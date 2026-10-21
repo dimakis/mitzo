@@ -6,6 +6,7 @@ export function validateStaticConfig(
 export function verifyAccountBindings(
   accounts: Array<Record<string, unknown>>,
   providers: Array<Record<string, unknown>>,
+  options?: { hostCodexEnabled?: boolean },
 ): void;
 
 export function hasExactGlobalSetting(

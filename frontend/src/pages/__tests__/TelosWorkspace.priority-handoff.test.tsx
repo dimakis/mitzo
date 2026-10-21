@@ -11,7 +11,9 @@ vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: Record<string, unknown>) => unknown) =>
     select({ newSession: vi.fn(), setPendingSession: vi.fn() }),
 }));
-vi.mock('../../lib/event-bus-singleton', () => ({ eventBus: { on: () => () => {} } }));
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: { on: () => () => {}, onConnectionChange: () => () => {} },
+}));
 vi.mock('../../components/TelosItemRoleEntries', () => ({ TelosItemRoleEntries: () => null }));
 vi.mock('../../components/TelosItemSources', () => ({ TelosItemSources: () => null }));
 vi.mock('../../components/WorkOutputs', () => ({ WorkOutputs: () => null }));
