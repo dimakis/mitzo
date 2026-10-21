@@ -36,6 +36,76 @@ function helper(root: string, path: string) {
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 
 describe('workspace artifact helper', () => {
+  it('reads workspace files when the sandbox denies reading the filesystem root', () => {
+    const root = workspace();
+    // Landlock permits the workspace but denies opening / for directory reads.
+    // Emulate Linux O_PATH on macOS so this policy regression runs on both hosts.
+    const policy = String.raw`
+real_open = os.open
+emulated_path = not hasattr(os, 'O_PATH')
+if emulated_path: os.O_PATH = 0x200000
+def policy_open(path, flags, mode=0o777, *, dir_fd=None):
+ if path == '/' and not flags & os.O_PATH:
+  raise PermissionError(errno.EACCES, 'Sandbox denies reading /')
+ return real_open(path, flags & ~os.O_PATH if emulated_path else flags, mode, dir_fd=dir_fd)
+os.open = policy_open
+`;
+    const script = OPEN_SHELL_ARTIFACT_HELPER.replace(
+      'LIMIT = 5 * 1024 * 1024',
+      policy + '\nLIMIT = 5 * 1024 * 1024',
+    );
+    for (const [path, witness] of [
+      ['outputs/report.md', ''],
+      [`${root}/outputs/report.md`, 'witness'],
+    ]) {
+      const result = JSON.parse(
+        execFileSync('/usr/bin/python3', ['-I', '-c', script, root, path, witness], {
+          encoding: 'utf8',
+        }),
+      );
+      expect(result).toMatchObject({ path: `${root}/outputs/report.md`, data: 'AAGA/w==' });
+      if (witness) expect(result.witness.sha256).toMatch(/^[a-f0-9]{64}$/);
+    }
+  });
+  it.skipIf(process.platform !== 'linux')(
+    'reads under a real Landlock workspace grant without read access to ancestors',
+    () => {
+      const root = workspace();
+      const policy = String.raw`
+import ctypes
+libc = ctypes.CDLL(None, use_errno=True)
+class Ruleset(ctypes.Structure): _fields_ = [('access', ctypes.c_uint64)]
+class Beneath(ctypes.Structure):
+ _pack_ = 1
+ _fields_ = [('access', ctypes.c_uint64), ('parent_fd', ctypes.c_int)]
+access = (1 << 2) | (1 << 3) # READ_FILE | READ_DIR
+ruleset = Ruleset(access)
+fd = libc.syscall(444, ctypes.byref(ruleset), ctypes.sizeof(ruleset), 0)
+if fd < 0: raise OSError(ctypes.get_errno(), 'landlock_create_ruleset')
+parent = os.open(sys.argv[1], os.O_PATH | os.O_DIRECTORY)
+rule = Beneath(access, parent)
+if libc.syscall(445, fd, 1, ctypes.byref(rule), 0): raise OSError(ctypes.get_errno(), 'landlock_add_rule')
+if libc.prctl(38, 1, 0, 0, 0): raise OSError(ctypes.get_errno(), 'PR_SET_NO_NEW_PRIVS')
+if libc.syscall(446, fd, 0): raise OSError(ctypes.get_errno(), 'landlock_restrict_self')
+os.close(parent); os.close(fd)
+`;
+      const script = OPEN_SHELL_ARTIFACT_HELPER.replace(
+        'LIMIT = 5 * 1024 * 1024',
+        policy + '\nLIMIT = 5 * 1024 * 1024',
+      );
+      const result = JSON.parse(
+        execFileSync(
+          '/usr/bin/python3',
+          ['-I', '-c', script, root, 'outputs/report.md', 'witness'],
+          {
+            encoding: 'utf8',
+          },
+        ),
+      );
+      expect(result).toMatchObject({ path: `${root}/outputs/report.md`, data: 'AAGA/w==' });
+      expect(result.witness.sha256).toMatch(/^[a-f0-9]{64}$/);
+    },
+  );
   it('returns exact bytes and normalized absolute path for relative and absolute requests', () => {
     const root = workspace();
     for (const path of ['./outputs/report.md', `${root}/outputs/report.md`]) {
