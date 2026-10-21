@@ -180,7 +180,7 @@ it('can leave a lost local selection whose metadata was never created', async ()
   await user.selectOptions(screen.getByLabelText('Local repository'), 'local:local/primary');
   await user.click(screen.getByRole('button', { name: 'Use repository' }));
   await screen.findByText(/Refresh its status to continue/);
-  await user.click(screen.getByRole('button', { name: 'Continue without repository' }));
+  await user.click(screen.getByRole('button', { name: 'Use default repository' }));
   expect(onChange).toHaveBeenLastCalledWith(null);
 });
 it('does not consume another saved receipt when leaving an explicit claimed handoff', async () => {

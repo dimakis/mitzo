@@ -669,7 +669,7 @@ export function RepositoryChatPicker({
             disabled={busy}
             onClick={() => void cancel()}
           >
-            Continue without repository
+            {localRepository ? 'Use default repository' : 'Continue without repository'}
           </button>
         </>
       )}
