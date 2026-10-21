@@ -43,7 +43,7 @@ async function mount(page: Page, light: boolean) {
     import {MemoryRouter,Routes,Route} from 'react-router-dom';
     import {ConnectionSetupView} from './frontend/src/pages/ConnectionSetupView';
     import {ConnectionSetupCard} from './frontend/src/components/ConnectionSetupCard';
-    import './frontend/src/styles/global.css'; import './frontend/src/styles/workspace.css'; import './frontend/src/styles/connections-setup.css';
+    import './frontend/src/styles/tokens.css'; import './frontend/src/styles/global.css'; import './frontend/src/styles/workspace.css'; import './frontend/src/styles/connections-setup.css';
     const relay=${JSON.stringify(relay)};
     createRoot(document.getElementById('root')).render(<MemoryRouter initialEntries={['/chat/original-chat']}><Routes>
       <Route path='/chat/:id' element={<main className='workspace-page'><h1>Repair heating telemetry</h1><ConnectionSetupCard sessionId='original-chat' block={{blockId:'relay',blockType:'tool_use',done:true,content:'',toolName:'PrepareSecretRelay',toolResult:JSON.stringify({relay})}}/></main>}/>
@@ -101,6 +101,11 @@ for (const light of [false, true])
       height: 900,
     });
     const captures = await mount(page, light);
+    expect(
+      await page.evaluate(() =>
+        getComputedStyle(document.body).getPropertyValue('--font-ui').trim(),
+      ),
+    ).not.toBe('');
     await page.getByRole('link', { name: 'Add password or token' }).click();
     await expect(page.getByRole('heading', { name: 'Add MQTT password' })).toBeVisible();
     await expect(
@@ -117,6 +122,13 @@ for (const light of [false, true])
     );
     await page.screenshot({ path: info.outputPath('private-relay.png'), fullPage: true });
     const password = page.getByLabel('Password or token', { exact: true });
+    await password.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: info.outputPath('private-relay-entry.png') });
+    expect(
+      await page
+        .getByRole('button', { name: 'Save securely and continue' })
+        .evaluate((el) => el.getBoundingClientRect().height),
+    ).toBeGreaterThanOrEqual(44);
     await password.fill('synthetic-secret');
     await page.getByLabel('Mitzo passphrase', { exact: true }).fill('synthetic-unlock');
     await page.getByRole('button', { name: 'Save securely and continue' }).click();

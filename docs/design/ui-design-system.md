@@ -1973,3 +1973,19 @@ Pending chat-type qualification renders only pure progress/error feedback beside
 the disabled input; it does not mount the ordinary queue or send owner early.
 Outline warnings use the semantic warning foreground on a transparent background;
 filled controls retain their existing paired foreground contrast checks.
+
+## Private secret relay setup
+
+Private relay requests reuse the existing connection setup card, focused page,
+authorization and return-to-chat flow. Destination summaries retain the quiet
+connection surface; request templates are native keyboard disclosures. New styles
+use shared spacing, type, monospace and control-height tokens. The entry stays
+masked, clears after submission/route changes, and never enters browser storage.
+Ready requests expose a labelled revoke action. LAN HTTP disclosure appears before
+entry. No approved Chat settings surface or reference is changed.
+
+The all-intercept relay fixture covers mobile WebKit/Chromium and desktop Chromium,
+light/dark themes, alternate accent/font, 320px wrapping, disclosure focus, scrolling,
+44px actions, private submission and revocation. See
+[the feature evidence](../features/private-secret-relay.md#offline-verification-and-design-evidence)
+for inspected captures and the limits of local checks.
