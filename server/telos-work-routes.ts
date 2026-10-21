@@ -50,7 +50,7 @@ export function createTelosWorkRouter(options: {
   assertRoleAssignment?(itemId: string, role: 'lead' | 'worker', conversationId: string): void;
   /** Denial-only real host fence, called synchronously under the Telos writer
    * transaction. Missing/unknown/busy host state refuses permanent deletion. */
-  assertLifecycleQuiescent?(itemId: string): void;
+  assertLifecycleQuiescent?(itemId: string, original: TelosWorkStore): void;
 }) {
   const router = Router();
   router.use(['/api/telos/work', '/api/internal/telos/work'], (_req, res, next) => {
@@ -180,7 +180,7 @@ export function createTelosWorkRouter(options: {
           authority,
           options.assertLifecycleQuiescent
             ? (itemId) => {
-                const result = options.assertLifecycleQuiescent!(itemId);
+                const result = options.assertLifecycleQuiescent!(itemId, store);
                 if (!isAuthSessionCurrent(res.locals.authSession as AuthSession))
                   throw new TelosWorkError(
                     'unauthorized',

@@ -3,6 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import type { Server } from 'node:http';
 import { createTelosWorkRouter } from '../telos-work-routes.js';
+import { TelosWorkStore } from '../telos-work-store.js';
 import { revokeAuthSession } from '../auth.js';
 import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
@@ -23,7 +24,9 @@ async function fixture() {
     id: `lifecycle-operator-${Math.random()}`,
     expiresAt: Date.now() + 60000,
   };
-  const assertLifecycleQuiescent = vi.fn(() => {});
+  const assertLifecycleQuiescent = vi.fn<(itemId: string, original: TelosWorkStore) => void>(
+    () => {},
+  );
   const app = express();
   app.use(express.json());
   app.use(
@@ -49,11 +52,11 @@ async function fixture() {
     request(server).post('/api/telos/work/lifecycle').set('x-operator', 'interactive').send(body);
   const read = () =>
     request(server).get('/api/telos/work/items/studio/lifecycle').set('x-operator', 'interactive');
-  const input = (operation = 'trash') => ({
+  const input = (operation = 'trash', itemId = 'studio') => ({
     operation,
-    itemId: 'studio',
+    itemId,
     requestId: `req-${Math.random()}`,
-    expectedRevision: canonical.work.read('studio', canonical.actor).revision,
+    expectedRevision: canonical.work.read(itemId, canonical.actor).revision,
   });
   return { canonical, authorization, assertLifecycleQuiescent, server, post, read, input };
 }
@@ -142,4 +145,73 @@ it('has no JSON path to host quiescence and requires separate explicit permanent
   ).toBe(400);
   expect(f.assertLifecycleQuiescent).not.toHaveBeenCalled();
   expect((await f.read()).body.disposition).toBe('trashed');
+});
+
+it('passes the original per-request writable Store into the real guarded HTTP callback and expires it after response', async () => {
+  const f = await fixture();
+  f.canonical.db
+    .prepare(
+      "INSERT INTO items(id,summary,profile,first_seen,last_seen,created_at,updated_at) VALUES('empty','Empty','manual',?,?,?,?)",
+    )
+    .run(f.canonical.stamp, f.canonical.stamp, f.canonical.stamp, f.canonical.stamp);
+  const execute = TelosWorkStore.prototype.executeLifecycle;
+  const executing: TelosWorkStore[] = [];
+  const spy = vi.spyOn(TelosWorkStore.prototype, 'executeLifecycle').mockImplementation(function (
+    this: TelosWorkStore,
+    ...args: Parameters<TelosWorkStore['executeLifecycle']>
+  ) {
+    executing.push(this);
+    return execute.apply(this, args);
+  });
+  let original: TelosWorkStore | undefined;
+  try {
+    expect((await f.post(f.input('trash', 'empty'))).status).toBe(200);
+    f.assertLifecycleQuiescent.mockImplementation((id, owner) => {
+      expect(owner).toBe(executing.at(-1));
+      expect(owner).toBeInstanceOf(TelosWorkStore);
+      owner.assertLifecycleDeletionWriter(id, f.canonical.dbPath);
+      original = owner;
+    });
+    const input = {
+      ...f.input('delete_permanently', 'empty'),
+      confirmation: { itemId: 'empty', phrase: 'DELETE PERMANENTLY' },
+    };
+    const result = await f.post(input);
+    expect(result.status).toBe(200);
+    expect(result.body.lifecycle).toBeNull();
+    expect(f.assertLifecycleQuiescent).toHaveBeenCalledExactlyOnceWith('empty', original);
+    expect(() => original!.assertLifecycleDeletionWriter('empty', f.canonical.dbPath)).toThrow(
+      /deletion.*frame/i,
+    );
+    expect((await f.post(input)).body).toEqual(result.body);
+    expect(f.assertLifecycleQuiescent).toHaveBeenCalledTimes(1);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it('retains the trashed record and expires the original HTTP owner when its host callback refuses', async () => {
+  const f = await fixture();
+  f.canonical.db
+    .prepare(
+      "INSERT INTO items(id,summary,profile,first_seen,last_seen,created_at,updated_at) VALUES('empty','Empty','manual',?,?,?,?)",
+    )
+    .run(f.canonical.stamp, f.canonical.stamp, f.canonical.stamp, f.canonical.stamp);
+  expect((await f.post(f.input('trash', 'empty'))).status).toBe(200);
+  let original: TelosWorkStore | undefined;
+  f.assertLifecycleQuiescent.mockImplementation((id, owner) => {
+    original = owner;
+    owner.assertLifecycleDeletionWriter(id, f.canonical.dbPath);
+    throw new Error('host refusal');
+  });
+  const response = await f.post({
+    ...f.input('delete_permanently', 'empty'),
+    confirmation: { itemId: 'empty', phrase: 'DELETE PERMANENTLY' },
+  });
+  expect(response.status).toBe(503);
+  expect(response.body).toEqual({ code: 'unavailable', error: 'Telos work service unavailable' });
+  expect(f.canonical.work.readLifecycle('empty', f.canonical.actor).disposition).toBe('trashed');
+  expect(() => original!.assertLifecycleDeletionWriter('empty', f.canonical.dbPath)).toThrow(
+    /deletion.*frame/i,
+  );
 });

@@ -581,3 +581,198 @@ it('allows only the original confirmed unreferenced leaf when unrelated JSON has
     }),
   ).toEqual(receipt);
 });
+
+function deletionInput(f: ReturnType<typeof fixture>, itemId = 'empty') {
+  return {
+    requestId: `delete-${itemId}`,
+    itemId,
+    operation: 'delete_permanently',
+    expectedRevision: f.work.read(itemId, f.actor).revision,
+    confirmation: { itemId, phrase: 'DELETE PERMANENTLY' },
+  };
+}
+
+it('permits only the original writable owner during its exact synchronous deletion frame, never before, after or on replay', () => {
+  const f = fixture();
+  f.add('empty');
+  f.lifecycle('empty', 'trash');
+  const input = deletionInput(f);
+  const check = f.work.assertLifecycleDeletionWriter.bind(f.work, 'empty', f.canonical.dbPath);
+  expect(check).toThrow(/deletion.*frame/i);
+  const verify = vi.fn(() => {
+    expect(check).not.toThrow();
+  });
+  const receipt = f.work.executeLifecycle(input, f.actor, verify);
+  expect(verify).toHaveBeenCalledExactlyOnceWith('empty');
+  expect(check).toThrow(/deletion.*frame/i);
+  expect(
+    f.work.executeLifecycle(input, f.actor, () => {
+      throw new Error('must not replay callback');
+    }),
+  ).toEqual(receipt);
+  expect(check).toThrow(/deletion.*frame/i);
+});
+
+it('rejects another writable/read-only/closed owner and path/item mismatches inside the original callback', () => {
+  const f = fixture();
+  f.add('empty');
+  f.lifecycle('empty', 'trash');
+  const other = new TelosWorkStore(f.canonical.dbPath, { ordinaryConversation: () => true });
+  const readonly = TelosWorkStore.openReadOnly(f.canonical.dbPath, {
+    ordinaryConversation: () => true,
+  });
+  const closed = new TelosWorkStore(f.canonical.dbPath, { ordinaryConversation: () => true });
+  closed.close();
+  closes.push(
+    () => other.close(),
+    () => readonly.close(),
+  );
+  f.work.executeLifecycle(deletionInput(f), f.actor, () => {
+    for (const owner of [other, readonly, closed])
+      expect(() => owner.assertLifecycleDeletionWriter('empty', f.canonical.dbPath)).toThrow(
+        /deletion.*frame/i,
+      );
+    expect(() => f.work.assertLifecycleDeletionWriter('different', f.canonical.dbPath)).toThrow(
+      /deletion.*frame/i,
+    );
+    expect(() =>
+      f.work.assertLifecycleDeletionWriter('empty', `${f.canonical.dbPath}.different`),
+    ).toThrow(/deletion.*frame/i);
+    expect(() => f.work.assertLifecycleDeletionWriter('empty', 'telos.db')).toThrow(
+      /deletion.*frame/i,
+    );
+    expect(() => f.work.assertLifecycleDeletionWriter('empty', f.canonical.dbPath)).not.toThrow();
+  });
+});
+
+it('rejects deletion from a pre-existing immediate transaction without running the host check', () => {
+  const f = fixture();
+  f.add('empty');
+  f.lifecycle('empty', 'trash');
+  f.add('other');
+  const input = deletionInput(f);
+  const verify = vi.fn(() => {});
+  f.work.execute(
+    {
+      itemId: 'other',
+      requestId: 'outer',
+      expectedRevision: f.work.read('other', f.actor).revision,
+      operation: 'classify',
+      kind: 'outcome',
+    },
+    f.actor,
+    () => {
+      expect(() => f.work.executeLifecycle(input, f.actor, verify)).toThrow(/deletion.*frame/i);
+    },
+  );
+  expect(verify).not.toHaveBeenCalled();
+  expect(f.work.readLifecycle('empty', f.actor).disposition).toBe('trashed');
+});
+
+it('rejects deletion from a deferred read transaction instead of treating inTransaction as a writer proof', () => {
+  const f = fixture();
+  f.add('empty');
+  f.lifecycle('empty', 'trash');
+  f.command('studio', {
+    operation: 'link',
+    role: 'advisor',
+    conversation: { namespace: 'mitzo', conversationId: 'planning' },
+  });
+  const input = deletionInput(f);
+  const verify = vi.fn(() => {});
+  let attempted = false;
+  const reader = new TelosWorkStore(f.canonical.dbPath, {
+    ordinaryConversation: () => {
+      if (!attempted) {
+        attempted = true;
+        expect(() => reader.executeLifecycle(input, f.actor, verify)).toThrow(/deletion.*frame/i);
+      }
+      return true;
+    },
+  });
+  closes.push(() => reader.close());
+  reader.read('studio', f.actor);
+  expect(attempted).toBe(true);
+  expect(verify).not.toHaveBeenCalled();
+  expect(f.work.readLifecycle('empty', f.actor).disposition).toBe('trashed');
+});
+
+it.each(['throw', 'nonvoid', 'promise', 'rejecting-promise'] as const)(
+  'expires the original deletion frame on %s and preserves the item',
+  async (mode) => {
+    const f = fixture();
+    f.add('empty');
+    f.lifecycle('empty', 'trash');
+    const check = () => f.work.assertLifecycleDeletionWriter('empty', f.canonical.dbPath);
+    let continuation: Promise<void> | undefined;
+    expect(() =>
+      f.work.executeLifecycle(deletionInput(f), f.actor, () => {
+        check();
+        if (mode === 'throw') throw new Error('host refusal');
+        if (mode === 'nonvoid') return true;
+        if (mode === 'rejecting-promise') {
+          continuation = Promise.reject(new Error('private rejected callback'));
+          return continuation;
+        }
+        continuation = Promise.resolve().then(() => {
+          expect(check).toThrow(/deletion.*frame/i);
+        });
+        return continuation;
+      }),
+    ).toThrow(mode === 'throw' ? /host refusal/ : /synchronous/i);
+    if (mode === 'rejecting-promise')
+      await expect(continuation).rejects.toThrow(/private rejected/);
+    else await continuation;
+    expect(check).toThrow(/deletion.*frame/i);
+    expect(f.work.readLifecycle('empty', f.actor).disposition).toBe('trashed');
+  },
+);
+
+it('refuses a reentrant deletion callback and does not let a caught nested attempt retain the outer frame', () => {
+  const f = fixture();
+  for (const id of ['empty', 'nested']) {
+    f.add(id);
+    f.lifecycle(id, 'trash');
+  }
+  const outer = deletionInput(f);
+  const nested = deletionInput(f, 'nested');
+  const verify = vi.fn(() => {});
+  expect(() =>
+    f.work.executeLifecycle(outer, f.actor, () => {
+      f.work.assertLifecycleDeletionWriter('empty', f.canonical.dbPath);
+      expect(() => f.work.executeLifecycle(nested, f.actor, verify)).toThrow(/deletion.*frame/i);
+    }),
+  ).toThrow(/deletion.*frame/i);
+  expect(verify).not.toHaveBeenCalled();
+  for (const id of ['empty', 'nested'])
+    expect(f.work.readLifecycle(id, f.actor).disposition).toBe('trashed');
+});
+
+it('preserves nested ordinary lifecycle operations outside a deletion callback', () => {
+  const f = fixture();
+  f.add('empty');
+  f.add('other');
+  const archive = {
+    requestId: 'nested-archive',
+    itemId: 'empty',
+    operation: 'archive',
+    expectedRevision: f.work.read('empty', f.actor).revision,
+  };
+  f.work.execute(
+    {
+      itemId: 'other',
+      requestId: 'outer',
+      operation: 'classify',
+      kind: 'outcome',
+      expectedRevision: f.work.read('other', f.actor).revision,
+    },
+    f.actor,
+    () => {
+      expect(f.work.executeLifecycle(archive, f.actor).lifecycle?.disposition).toBe('archived');
+    },
+  );
+  expect(f.work.readLifecycle('empty', f.actor).disposition).toBe('archived');
+  expect(() => f.work.assertLifecycleDeletionWriter('empty', f.canonical.dbPath)).toThrow(
+    /deletion.*frame/i,
+  );
+});
