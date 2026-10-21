@@ -3,6 +3,7 @@ import { TelosWorkApiClient, TelosWorkApiError } from '@mitzo/client';
 import type { TelosWorkItem } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
+import { subscribeTodoLifecycleUpdates } from '../lib/todo-lifecycle-events';
 import { subscribeTodoPriorityUpdates, type ConfirmedTodoPriority } from '../lib/todo-priority';
 const api = new TelosWorkApiClient(apiFetch);
 // Carry an acknowledged write across navigation until a record read confirms it.
@@ -35,6 +36,7 @@ export function useTelosRecords(ids: string[], refreshKey: string | number = 0) 
       if (document.visibilityState === 'visible') invalidate();
     };
     const unsubscribe = eventBus.on('todo_update', invalidate);
+    const lifecycle = subscribeTodoLifecycleUpdates(invalidate);
     const unsubscribePriority = subscribeTodoPriorityUpdates((change) => {
       pending.current.set(change.id, change);
       invalidate();
@@ -51,6 +53,7 @@ export function useTelosRecords(ids: string[], refreshKey: string | number = 0) 
     document.addEventListener('visibilitychange', onResume);
     return () => {
       unsubscribe();
+      lifecycle();
       unsubscribePriority();
       document.removeEventListener('visibilitychange', onResume);
     };

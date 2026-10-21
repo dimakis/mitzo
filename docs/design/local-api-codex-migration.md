@@ -11,7 +11,7 @@ Dimitri approved this direction on 17 October 2026. Telos migration item
 
 ## Source audit, 21 October 2026
 
-The migration is incomplete on accepted main `afc86b36`. This is a source audit,
+The migration is incomplete on accepted main `3f6c6aea`. This is a source audit,
 not an observation of the activated release or a measurement of account usage.
 
 | Ordinary conversation                               | Current implementation                                                  | Retirement consequence                                                                                              |

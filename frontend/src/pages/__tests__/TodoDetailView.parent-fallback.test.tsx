@@ -11,7 +11,9 @@ vi.mock('../../lib/api-fetch', async (original) => ({
   ...(await original<typeof import('../../lib/api-fetch')>()),
   apiFetch: vi.fn(),
 }));
-vi.mock('../../lib/event-bus-singleton', () => ({ eventBus: { on: () => () => {} } }));
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: { on: () => () => {}, onConnectionChange: () => () => {} },
+}));
 vi.mock('../../hooks/useStageChatLaunch', () => ({ useStageChatLaunch: () => vi.fn() }));
 vi.mock('../../components/HomePinButton', () => ({ HomePinButton: () => null }));
 vi.mock('../../components/TelosItemRoleEntries', () => ({

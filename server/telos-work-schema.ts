@@ -11,6 +11,28 @@ export function initializeTelosWorkSchema(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS telos_work_control_evidence(seq INTEGER PRIMARY KEY,control_id TEXT NOT NULL REFERENCES telos_work_controls(control_id),data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS telos_work_control_revalidations(control_id TEXT NOT NULL REFERENCES telos_work_controls(control_id),item_id TEXT NOT NULL REFERENCES items(id),main_commit TEXT NOT NULL,work_revision TEXT NOT NULL,evidence_ref TEXT NOT NULL,PRIMARY KEY(control_id,item_id,main_commit,work_revision,evidence_ref));
     CREATE TABLE IF NOT EXISTS telos_work_control_commands(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,fingerprint TEXT NOT NULL,receipt TEXT NOT NULL,PRIMARY KEY(actor_id,request_id));
+    CREATE TABLE IF NOT EXISTS telos_work_lifecycle(item_id TEXT PRIMARY KEY REFERENCES items(id),data TEXT NOT NULL,purging INTEGER NOT NULL DEFAULT 0 CHECK(purging IN (0,1)));
+    CREATE TABLE IF NOT EXISTS telos_work_lifecycle_commands(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,fingerprint TEXT NOT NULL,receipt TEXT NOT NULL,PRIMARY KEY(actor_id,request_id));
+    CREATE TABLE IF NOT EXISTS telos_work_lifecycle_history(seq INTEGER PRIMARY KEY,item_id TEXT NOT NULL,data TEXT NOT NULL);
+    CREATE TRIGGER IF NOT EXISTS telos_work_lifecycle_history_no_update BEFORE UPDATE ON telos_work_lifecycle_history BEGIN SELECT RAISE(ABORT,'Lifecycle history is retained'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_lifecycle_history_no_delete BEFORE DELETE ON telos_work_lifecycle_history BEGIN SELECT RAISE(ABORT,'Lifecycle history is retained'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_lifecycle_commands_no_update BEFORE UPDATE ON telos_work_lifecycle_commands BEGIN SELECT RAISE(ABORT,'Lifecycle receipts are retained'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_lifecycle_commands_no_delete BEFORE DELETE ON telos_work_lifecycle_commands BEGIN SELECT RAISE(ABORT,'Lifecycle receipts are retained'); END;
+    DROP TRIGGER IF EXISTS telos_work_lifecycle_delete_guard;
+    CREATE TRIGGER telos_work_lifecycle_delete_guard BEFORE DELETE ON items WHEN
+      EXISTS(SELECT 1 FROM telos_work_lifecycle WHERE item_id=OLD.id AND purging=0) OR EXISTS(
+        WITH RECURSIVE ancestors(id) AS (SELECT OLD.parent_id UNION SELECT i.parent_id FROM items i JOIN ancestors a ON i.id=a.id WHERE i.parent_id IS NOT NULL)
+        SELECT 1 FROM ancestors a JOIN telos_work_lifecycle l ON l.item_id=a.id WHERE json_extract(l.data,'$.disposition') IS NOT 'active'
+      ) BEGIN SELECT RAISE(ABORT,'Use confirmed Telos lifecycle deletion'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_lifecycle_no_reuse BEFORE INSERT ON items WHEN EXISTS(SELECT 1 FROM telos_work_lifecycle_history WHERE item_id=NEW.id AND json_extract(data,'$.operation')='delete_permanently') BEGIN SELECT RAISE(ABORT,'Deleted Telos identity cannot be reused'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_lifecycle_insert_guard BEFORE INSERT ON items WHEN EXISTS(
+      WITH RECURSIVE ancestors(id) AS (SELECT NEW.parent_id UNION SELECT i.parent_id FROM items i JOIN ancestors a ON i.id=a.id WHERE i.parent_id IS NOT NULL)
+      SELECT 1 FROM ancestors a JOIN telos_work_lifecycle l ON l.item_id=a.id WHERE json_extract(l.data,'$.disposition')!='active'
+    ) BEGIN SELECT RAISE(ABORT,'Restore lifecycle root before adding children'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_lifecycle_reparent_guard BEFORE UPDATE OF parent_id ON items WHEN OLD.parent_id IS NOT NEW.parent_id AND EXISTS(
+      WITH RECURSIVE ancestors(id) AS (SELECT OLD.id UNION SELECT NEW.parent_id UNION SELECT i.parent_id FROM items i JOIN ancestors a ON i.id=a.id WHERE i.parent_id IS NOT NULL)
+      SELECT 1 FROM ancestors a JOIN telos_work_lifecycle l ON l.item_id=a.id WHERE json_extract(l.data,'$.disposition')!='active'
+    ) BEGIN SELECT RAISE(ABORT,'Restore lifecycle root before moving work'); END;
     CREATE TABLE IF NOT EXISTS telos_work_main_publications(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,item_id TEXT NOT NULL REFERENCES items(id),fingerprint TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(actor_id,request_id));
     CREATE TABLE IF NOT EXISTS telos_work_main_publication_acknowledgements(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,merge_commit TEXT NOT NULL,approval_receipt_id TEXT NOT NULL,PRIMARY KEY(actor_id,request_id,merge_commit),FOREIGN KEY(actor_id,request_id) REFERENCES telos_work_main_publications(actor_id,request_id));
     CREATE TRIGGER IF NOT EXISTS telos_work_main_publication_ack_owner BEFORE INSERT ON telos_work_main_publication_acknowledgements WHEN NOT EXISTS (

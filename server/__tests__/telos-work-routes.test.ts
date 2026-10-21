@@ -12,6 +12,7 @@ import type { Server } from 'node:http';
 import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { createTelosWorkFixtures } from './fixtures/telos-work-fixtures.js';
 import { TelosWorkError } from '../telos-work-store.js';
+import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -62,6 +63,116 @@ async function setup(overrides: Partial<Parameters<typeof createTelosWorkRouter>
   return { app: server, read, command, dbPath };
 }
 describe('authorized Telos work API', () => {
+  it('reads committed canonical records without acquiring the retained writer after initialization', async () => {
+    const canonical = createTelosCanonicalData();
+    const writer = new Database(canonical.dbPath);
+    try {
+      const expected = canonical.work.readRecord('studio', canonical.actor);
+      const f = await setup({ dbPath: () => canonical.dbPath });
+      writer.exec('BEGIN IMMEDIATE');
+      writer.prepare("UPDATE items SET summary='Uncommitted writer value' WHERE id='studio'").run();
+      const response = await request(f.app)
+        .get('/api/telos/work/items/studio/record')
+        .set('x-operator', 'authenticated');
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(expected);
+      expect(writer.inTransaction).toBe(true);
+      expect(writer.prepare("SELECT summary FROM items WHERE id='studio'").get()).toEqual({
+        summary: 'Uncommitted writer value',
+      });
+    } finally {
+      if (writer.inTransaction) writer.exec('ROLLBACK');
+      writer.close();
+      canonical.close();
+    }
+  }, 15000);
+
+  it('preserves full extension initialization for a cold record read', async () => {
+    const f = await setup();
+    const response = await request(f.app)
+      .get('/api/telos/work/items/item/record')
+      .set('x-operator', 'authenticated');
+    expect(response.status).toBe(200);
+    const db = new Database(f.dbPath());
+    try {
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='telos_work_assignments'",
+          )
+          .get(),
+      ).toBeDefined();
+      expect(
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND name='telos_work_main_publications_terminal'",
+          )
+          .get(),
+      ).toBeDefined();
+    } finally {
+      db.close();
+    }
+  });
+
+  it.each(['telos_work_kinds', 'telos_work_attempts', 'telos_work_delegation_requests'])(
+    'initializes an older record layout missing %s through the unchanged schema owner',
+    async (table) => {
+      const f = await setup();
+      const read = () =>
+        request(f.app).get('/api/telos/work/items/item/record').set('x-operator', 'authenticated');
+      const original = await read();
+      const db = new Database(f.dbPath());
+      try {
+        db.exec(`DROP TABLE ${table}`);
+        const response = await read();
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual(original.body);
+        expect(
+          db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table),
+        ).toBeDefined();
+      } finally {
+        db.close();
+      }
+    },
+  );
+
+  it('retains record authentication, ID failures and strict incompatible-data error bodies', async () => {
+    const f = await setup();
+    expect((await request(f.app).get('/api/telos/work/items/item/record')).status).toBe(403);
+    expect(
+      (
+        await request(f.app)
+          .get('/api/telos/work/items/invalid%20id/record')
+          .set('x-operator', 'authenticated')
+      ).body,
+    ).toEqual({ code: 'invalid', error: 'Invalid work item ID' });
+    expect(f.dbPath).not.toHaveBeenCalled();
+    expect(
+      (
+        await request(f.app)
+          .get('/api/telos/work/items/missing/record')
+          .set('x-operator', 'authenticated')
+      ).status,
+    ).toBe(404);
+    const db = new Database(f.dbPath());
+    try {
+      db.prepare("UPDATE items SET acceptance_criteria='[7]' WHERE id='item'").run();
+      const response = await request(f.app)
+        .get('/api/telos/work/items/item/record')
+        .set('x-operator', 'authenticated');
+      expect(response.status).toBe(503);
+      expect(response.body).toEqual({
+        code: 'unavailable',
+        error: 'Telos work service unavailable',
+      });
+      expect(db.prepare("SELECT acceptance_criteria FROM items WHERE id='item'").get()).toEqual({
+        acceptance_criteria: '[7]',
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   const receipt = {
     version: 1,
     state: 'chat_ready',

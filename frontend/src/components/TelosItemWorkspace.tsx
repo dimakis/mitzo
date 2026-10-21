@@ -1,3 +1,5 @@
+import { TelosItemLifecycle } from './TelosItemLifecycle';
+import type { TelosWorkLifecycleView } from '@mitzo/protocol';
 import { TodoPrioritySelect } from './TodoPrioritySelect';
 import type { TodoPrioritySaveState } from '../lib/todo-priority-save-state';
 import { todoPriority } from '../lib/todo-utils';
@@ -40,6 +42,7 @@ export function TelosItemWorkspace({
   relatedState = 'ready',
   onRefresh,
   prioritySaveState,
+  onLifecycleCurrent,
 }: {
   record: TelosWorkItem;
   records: TelosWorkItem[];
@@ -49,6 +52,7 @@ export function TelosItemWorkspace({
   relatedState?: 'loading' | 'unavailable' | 'ready';
   onRefresh?(): void;
   prioritySaveState?: TodoPrioritySaveState;
+  onLifecycleCurrent?(view: TelosWorkLifecycleView): void;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -198,6 +202,16 @@ export function TelosItemWorkspace({
           onChange={(priority) => setTodoPriority(record.itemId, priority)}
         />
       </header>
+      <TelosItemLifecycle
+        itemId={record.itemId}
+        title={record.summary}
+        kind={record.kind}
+        parentId={record.parentId}
+        refreshKey={refreshKey}
+        onOpen={onOpen}
+        onDeleted={onBack}
+        onCurrentState={onLifecycleCurrent}
+      />
       <nav className="telos-tabs" aria-label="Item views">
         {tabs.map((value) => (
           <button key={value} aria-pressed={value === current} onClick={() => select(value)}>
