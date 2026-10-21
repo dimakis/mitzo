@@ -137,3 +137,17 @@ describe('private secret relay', () => {
     expect(apply).not.toHaveBeenCalled();
   });
 });
+
+it('redacts later reads of the destination using persisted references', async () => {
+  const { service, input } = fixture();
+  const draft = service.prepare('chat', input);
+  await service.complete(draft.id, 1, 'private-fixture', signal(), () => true);
+  const result = await service.redactResponse(
+    'chat',
+    'api',
+    '{"password":"private-fixture","ok":true}',
+    signal(),
+  );
+  expect(result).not.toContain('private-fixture');
+  expect(JSON.parse(result).ok).toBe(true);
+});

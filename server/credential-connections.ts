@@ -568,7 +568,10 @@ export class CredentialConnections {
         combined,
       );
       check();
-      const redacted = redactCredentialResponse(body, secret, headers);
+      let redacted = redactCredentialResponse(body, secret, headers);
+      if (this.relay) redacted = await this.relay.redactResponse(session, id, redacted, combined);
+      combined.throwIfAborted();
+      check();
       if (Buffer.byteLength(redacted) > MAX_WEBSOCKET_RESPONSE_BYTES)
         throw new Error('Response too large');
       return redacted;
@@ -664,6 +667,9 @@ export class CredentialConnections {
       let redacted = redactCredentialResponse(body, secret, {
         Authorization: `Bearer ${secret}`,
       });
+      if (this.relay) redacted = await this.relay.redactResponse(session, id, redacted, combined);
+      combined.throwIfAborted();
+      check();
       if (request.operation === 'read' && redacted !== body) {
         const response = JSON.parse(redacted);
         redacted = JSON.stringify({
@@ -794,7 +800,10 @@ export class CredentialConnections {
       if (response.status === 403) throw new ConnectionRequestError('access_denied');
       if (response.status === 429 || response.status >= 500)
         throw new ConnectionRequestError('service_unavailable');
-      const body = redactCredentialResponse(response.body, secret, headers);
+      let body = redactCredentialResponse(response.body, secret, headers);
+      if (this.relay) body = await this.relay.redactResponse(session, id, body, combined);
+      combined.throwIfAborted();
+      check();
       return { status: response.status, body };
     } catch (error) {
       if (error instanceof Error && error.name === 'KeychainUnavailableError') throw error;

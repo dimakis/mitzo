@@ -1,3 +1,4 @@
+import { redactCredentialResponse } from './credential-redaction.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -226,6 +227,26 @@ export class SecretRelays {
     for (const [key, controller] of this.active) if (key.startsWith(`${id}:`)) controller.abort();
     this.store.putRelay({ ...relay, status: 'cancelled', revision: relay.revision + 1 });
     return this.browserStatus(id);
+  }
+  async redactResponse(_session: string, connectionId: string, body: string, signal: AbortSignal) {
+    const endpoint = this.connection(connectionId).endpoint;
+    const relays = this.store
+      .listRelays()
+      .filter(
+        (r) =>
+          r.targets.some((t) => t.connectionId === connectionId || t.endpoint === endpoint) &&
+          (r.vaultRef || ['verifying', 'unconfirmed'].includes(r.status)),
+      );
+    try {
+      for (const relay of relays) {
+        if (!relay.vaultRef) throw new Error();
+        body = redactCredentialResponse(body, await this.vault.read(relay.vaultRef, signal), {});
+      }
+      signal.throwIfAborted();
+      return body;
+    } catch {
+      throw new Error('Response withheld because private relay redaction is unavailable');
+    }
   }
   pendingReady() {
     return this.store
