@@ -10,6 +10,8 @@ import {
   TelosOrdinaryWorkDelegationInputSchema,
   TelosWorkDelegationReceiptSchema,
   TelosStartSliceInputSchema,
+  TelosWorkLifecycleCommandSchema,
+  TelosWorkLifecycleListSchema,
 } from '@mitzo/protocol';
 import { TelosWorkStore, TelosWorkError, type TelosWorkActor } from './telos-work-store.js';
 import { isAuthSessionCurrent, registerAuthSession, type AuthSession } from './auth.js';
@@ -46,6 +48,9 @@ export function createTelosWorkRouter(options: {
   ordinaryDelegateSlice?(request: TelosWorkRoleRequest): Promise<unknown>;
   delegateSlice?(request: TelosWorkRoleRequest): Promise<unknown>;
   assertRoleAssignment?(itemId: string, role: 'lead' | 'worker', conversationId: string): void;
+  /** Denial-only real host fence, called synchronously under the Telos writer
+   * transaction. Missing/unknown/busy host state refuses permanent deletion. */
+  assertLifecycleQuiescent?(itemId: string): void;
 }) {
   const router = Router();
   router.use(['/api/telos/work', '/api/internal/telos/work'], (_req, res, next) => {
@@ -122,6 +127,69 @@ export function createTelosWorkRouter(options: {
       }
     }
   };
+  const lifecycleActor = (res: Response) => {
+    const authority = actor(res);
+    if (!authority) return;
+    const auth = res.locals.authSession as AuthSession;
+    if (!isAuthSessionCurrent(auth)) {
+      res
+        .status(403)
+        .json({ code: 'unauthorized', error: 'Current interactive operator required' });
+      return;
+    }
+    return authority;
+  };
+  router.get('/api/telos/work/items/:itemId/lifecycle', options.operatorAuth, (req, res) => {
+    const authority = lifecycleActor(res);
+    if (!authority) return;
+    const id = TelosWorkIdSchema.safeParse(req.params.itemId);
+    if (!id.success) {
+      res.status(400).json({ code: 'invalid', error: 'Invalid work item ID' });
+      return;
+    }
+    run(res, (store) => store.readLifecycle(id.data, authority));
+  });
+  router.get('/api/telos/work/lifecycle', options.operatorAuth, (req, res) => {
+    const authority = lifecycleActor(res);
+    if (!authority) return;
+    const view = TelosWorkLifecycleListSchema.safeParse(req.query.view ?? 'active');
+    if (!view.success) {
+      res.status(400).json({ code: 'invalid', error: 'Invalid lifecycle view' });
+      return;
+    }
+    run(res, (store) => store.listLifecycle(view.data, authority));
+  });
+  router.post(
+    '/api/telos/work/lifecycle',
+    options.operatorAuth,
+    requireSameOriginJson,
+    (req, res) => {
+      const authority = lifecycleActor(res);
+      if (!authority) return;
+      const input = TelosWorkLifecycleCommandSchema.safeParse(req.body);
+      if (!input.success) {
+        res.status(400).json({ code: 'invalid', error: 'Invalid lifecycle command' });
+        return;
+      }
+      run(res, (store) =>
+        store.executeLifecycle(
+          input.data,
+          authority,
+          options.assertLifecycleQuiescent
+            ? (itemId) => {
+                const result = options.assertLifecycleQuiescent!(itemId);
+                if (!isAuthSessionCurrent(res.locals.authSession as AuthSession))
+                  throw new TelosWorkError(
+                    'unauthorized',
+                    'Operator authorization expired or was revoked',
+                  );
+                return result;
+              }
+            : undefined,
+        ),
+      );
+    },
+  );
   router.post(
     '/api/telos/work/controls',
     options.operatorAuth,
