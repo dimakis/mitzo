@@ -5,6 +5,7 @@ const channel = vi.hoisted(() => ({
   id: null as string | null,
   send: vi.fn(),
   cursors: new Map<string, number>(),
+  acknowledgeSnapshot: vi.fn(),
 }));
 vi.mock('../sse-connection.js', () => ({
   SseConnection: class {
@@ -25,6 +26,10 @@ vi.mock('../sse-connection.js', () => ({
     trackSeq() {}
     commitTranscriptCursor(id: string, cursor: number) {
       channel.cursors.set(id, cursor);
+    }
+    acknowledgeReconnectSnapshot(sessionId: string, cursor: number, offerId?: string) {
+      channel.cursors.set(sessionId, cursor);
+      channel.acknowledgeSnapshot(sessionId, cursor, offerId);
     }
     getTrackedSessions() {
       return [];
@@ -68,6 +73,7 @@ function setup(
   channel.id = null;
   channel.send.mockReset();
   channel.cursors.clear();
+  channel.acknowledgeSnapshot.mockReset();
   const fetch = vi.fn().mockImplementation((path: string) =>
     Promise.resolve(
       path === '/local/send'
@@ -1384,3 +1390,262 @@ it('keeps an older command failure after its existing output and before the newe
   ]);
   expect(transcript[1].blocks).toContainEqual(expect.objectContaining({ content: 'Older output' }));
 });
+
+it.each(['older', 'current'] as const)(
+  'deduplicates a live %s retained-command failure during valid-cursor history merge',
+  async (position) => {
+    const { store, fetch } = setup();
+    const sessionId = `stable-retained-error-${position}`;
+    const error = 'Message saved. Codex recovery could not finish.';
+    channel.listener({ type: 'session_id', sessionId });
+    channel.listener({
+      type: 'user_message',
+      sessionId,
+      seq: 1,
+      messageId: 'command-a',
+      text: 'A',
+    });
+    if (position === 'older') {
+      channel.listener({
+        type: 'user_message',
+        sessionId,
+        seq: 2,
+        messageId: 'command-b',
+        text: 'B',
+      });
+      channel.listener({
+        type: '_send_accepted',
+        sessionId,
+        clientMsgId: 'command-b',
+        retained: true,
+      });
+    }
+    const seq = position === 'older' ? 3 : 2;
+    expect(
+      channel.listener({
+        v: 2,
+        type: 'error',
+        sessionId,
+        seq,
+        prevSessionSeq: seq - 1,
+        clientMsgId: 'command-a',
+        retainedCommandFailure: true,
+        error,
+      }),
+    ).toBe(true);
+    const history = [
+      {
+        messageId: 'command-a',
+        role: 'user',
+        timestamp: 1000,
+        startedSeq: 1,
+        blocks: [{ blockId: 'user-a', blockType: 'text', content: 'A' }],
+      },
+      {
+        messageId: `runtime-error-${seq}`,
+        role: 'assistant',
+        timestamp: 1001,
+        startedSeq: seq,
+        blocks: [
+          {
+            blockId: `runtime-error-text-${seq}`,
+            blockType: 'text',
+            content: `**Error:** ${error}`,
+          },
+        ],
+      },
+      ...(position === 'older'
+        ? [
+            {
+              messageId: 'command-b',
+              role: 'user',
+              timestamp: 1002,
+              startedSeq: 2,
+              blocks: [{ blockId: 'user-b', blockType: 'text', content: 'B' }],
+            },
+          ]
+        : []),
+    ];
+    fetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify(
+            url.includes(`messages?throughSeq=${seq}`)
+              ? { messages: history, cursor: seq, current: null }
+              : [],
+          ),
+        ),
+      ),
+    );
+    channel.listener({
+      type: 'session_reconnect_snapshot',
+      sessionId,
+      cursor: seq,
+      cursorValid: true,
+      offerId: 'stable-replay',
+      state: position === 'older' ? 'running' : 'idle',
+    });
+    await vi.waitFor(() =>
+      expect(channel.acknowledgeSnapshot).toHaveBeenCalledWith(sessionId, seq, 'stable-replay'),
+    );
+    expect(
+      fetch.mock.calls.some(
+        ([url]) => url === `/api/sessions/${sessionId}/messages?throughSeq=${seq}`,
+      ),
+    ).toBe(true);
+    const transcript = store.getState().messages.messages;
+    const failures = transcript.filter((message) =>
+      message.blocks.some((block) => block.content === `**Error:** ${error}`),
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      messageId: `runtime-error-${seq}`,
+      startedSeq: seq,
+      blocks: [
+        { blockId: `runtime-error-text-${seq}`, blockType: 'text', content: `**Error:** ${error}` },
+      ],
+    });
+    expect(transcript.map((message) => message.messageId)).toEqual(
+      history.map((message) => message.messageId),
+    );
+    if (position === 'older') {
+      channel.listener({
+        type: '_send_accepted',
+        sessionId,
+        clientMsgId: 'command-b',
+        retained: true,
+      });
+      expect(store.getState().sendStatus).toBe('Preparing response…');
+      expect(store.getState().messages.running).toBe(true);
+    } else expect(store.getState().messages.running).toBe(false);
+    expect(channel.acknowledgeSnapshot).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([
+  { name: 'unmarked', patch: { retainedCommandFailure: undefined } },
+  { name: 'unknown command', patch: { clientMsgId: 'unknown' } },
+  { name: 'fractional sequence', patch: { seq: 2.5 } },
+  { name: 'unsafe sequence', patch: { seq: Number.MAX_SAFE_INTEGER + 1 } },
+  { name: 'wrong version', patch: { v: 1 } },
+  { name: 'unclassified text', patch: { error: 'Generic runtime error' } },
+])('keeps $name errors on their existing live-message identity path', ({ patch }) => {
+  const { store } = setup();
+  const sessionId = 'generic-error-identity';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({
+    type: 'user_message',
+    sessionId,
+    seq: 1,
+    messageId: 'known',
+    text: 'Known prompt',
+  });
+  channel.listener({
+    v: 2,
+    type: 'error',
+    sessionId,
+    seq: 2,
+    clientMsgId: 'known',
+    retainedCommandFailure: true,
+    error: 'Message saved. Recovery failed.',
+    ...patch,
+  });
+  expect(store.getState().messages.messages.at(-1)?.messageId).toMatch(/^err-/);
+});
+
+it.each(['older', 'current'] as const)(
+  'applies a live %s retained failure once when it arrives during a bounded history fetch',
+  async (position) => {
+    const { store, fetch } = setup();
+    const sessionId = `retained-error-suffix-${position}`;
+    const error = 'Message saved. Recovery failed during replay.';
+    channel.listener({ type: 'session_id', sessionId });
+    channel.listener({ type: 'user_message', sessionId, seq: 1, messageId: 'suffix-a', text: 'A' });
+    const history = [
+      {
+        messageId: 'suffix-a',
+        role: 'user',
+        timestamp: 1000,
+        startedSeq: 1,
+        blocks: [{ blockId: 'user-a', blockType: 'text', content: 'A' }],
+      },
+    ];
+    if (position === 'older') {
+      channel.listener({
+        type: 'user_message',
+        sessionId,
+        seq: 2,
+        messageId: 'suffix-b',
+        text: 'B',
+      });
+      channel.listener({
+        type: '_send_accepted',
+        sessionId,
+        clientMsgId: 'suffix-b',
+        retained: true,
+      });
+      history.push({
+        messageId: 'suffix-b',
+        role: 'user',
+        timestamp: 1001,
+        startedSeq: 2,
+        blocks: [{ blockId: 'user-b', blockType: 'text', content: 'B' }],
+      });
+    }
+    const cursor = position === 'older' ? 2 : 1;
+    let finish!: () => void;
+    fetch.mockImplementation((url: string) =>
+      url.includes(`messages?throughSeq=${cursor}`)
+        ? new Promise<Response>((resolve) => {
+            finish = () =>
+              resolve(new Response(JSON.stringify({ messages: history, cursor, current: null })));
+          })
+        : Promise.resolve(new Response('[]')),
+    );
+    channel.listener({
+      type: 'session_reconnect_snapshot',
+      sessionId,
+      cursor,
+      cursorValid: true,
+      offerId: 'held-history',
+      state: position === 'older' ? 'running' : 'idle',
+    });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    const seq = cursor + 1;
+    channel.listener({
+      v: 2,
+      type: 'error',
+      sessionId,
+      seq,
+      prevSessionSeq: cursor,
+      clientMsgId: 'suffix-a',
+      retainedCommandFailure: true,
+      error,
+    });
+    finish();
+    await vi.waitFor(() =>
+      expect(channel.acknowledgeSnapshot).toHaveBeenCalledWith(sessionId, cursor, 'held-history'),
+    );
+    const transcript = store.getState().messages.messages;
+    expect(
+      transcript.filter((message) =>
+        message.blocks.some((block) => block.content === `**Error:** ${error}`),
+      ),
+    ).toHaveLength(1);
+    expect(transcript.map((message) => message.messageId)).toEqual([
+      'suffix-a',
+      `runtime-error-${seq}`,
+      ...(position === 'older' ? ['suffix-b'] : []),
+    ]);
+    expect(store.getState().messages.running).toBe(position === 'older');
+    if (position === 'older') {
+      channel.listener({
+        type: '_send_accepted',
+        sessionId,
+        clientMsgId: 'suffix-b',
+        retained: true,
+      });
+      expect(store.getState().sendStatus).toBe('Preparing response…');
+    }
+  },
+);

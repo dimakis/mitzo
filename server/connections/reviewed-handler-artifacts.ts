@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.426-idle-send-replay';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.427-idle-error-identity';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -636,7 +636,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
   '../../packages/client/src/store.ts':
-    'd54feb98a181b50e09f6134dbfb315e009b2ec82979fc4275a55ef15325ab2d3',
+    '306c66c168775fccf60a44889fa7d1d79ea1cbf6ff81ede22b69889494aee178',
   '../../packages/harness/src/permission-handler.ts':
     '180a1d3465818e4e53e8184c2ab7ca5fc53b0a267461e9a2fc0291a8a9b09011',
   '../../packages/harness/src/permissions.ts':
@@ -921,7 +921,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/protocol-parser.ts':
     'c93b923af1f98e9b526d507e09c34b7806750e06890795b5cfbb6167127ee355',
   '../../packages/client/src/slices/messages.ts':
-    '193fff84ad92a5935ea7c5cc82307f9908b21b2543da764b6b69b119aa29ed9b',
+    '894549e714bc874145b621f0716be2e9b0f954d36152e3a7fe7dd3db8b3944e5',
   '../../packages/harness/src/providers/responses-session.ts':
     '8e2db677e8648488c25f50aa74604fd734b694f230ab137436481fb62aacaa74',
   '../../packages/harness/src/providers/session-types.ts':

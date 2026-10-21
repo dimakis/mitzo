@@ -187,8 +187,8 @@ type MessagesCoreAction =
   // Reattach snapshot
   | { type: 'MESSAGE_SNAPSHOT'; messageId: string; startedSeq?: number; blocks: FinishedBlock[] }
   // Session / UI lifecycle
-  | { type: 'ERROR'; error: string }
-  | { type: 'CONTROL_REJECTED'; error: string; clientMsgId?: string }
+  | { type: 'ERROR'; error: string; retainedFailureSeq?: number }
+  | { type: 'CONTROL_REJECTED'; error: string; clientMsgId?: string; retainedFailureSeq?: number }
   | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean; wtId?: string }
   | {
       type: 'USER_SEND';
@@ -835,6 +835,12 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
 
     case 'CONTROL_REJECTED':
     case 'ERROR': {
+      const retainedSeq =
+        typeof action.retainedFailureSeq === 'number' &&
+        Number.isSafeInteger(action.retainedFailureSeq) &&
+        action.retainedFailureSeq > 0
+          ? action.retainedFailureSeq
+          : undefined;
       let insertion = state.messages.length;
       if (action.type === 'CONTROL_REJECTED' && action.clientMsgId) {
         const owner = state.messages.findIndex(
@@ -852,12 +858,19 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         messages: [
           ...state.messages.slice(0, insertion),
           {
-            messageId: `err-${Date.now()}`,
+            // Match the host transcript projection so a valid-cursor merge
+            // recognizes the live failure instead of appending a second copy.
+            messageId:
+              retainedSeq === undefined ? `err-${Date.now()}` : `runtime-error-${retainedSeq}`,
             role: 'assistant',
             timestamp: Date.now(),
+            ...(retainedSeq === undefined ? {} : { startedSeq: retainedSeq }),
             blocks: [
               {
-                blockId: `err-${Date.now()}`,
+                blockId:
+                  retainedSeq === undefined
+                    ? `err-${Date.now()}`
+                    : `runtime-error-text-${retainedSeq}`,
                 blockType: 'text',
                 content: `**Error:** ${action.error}`,
               },
