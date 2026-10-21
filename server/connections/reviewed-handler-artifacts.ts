@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.503-local-worktree-startup';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.504-api-codex-login-custody';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -637,6 +637,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '2cbc9994f11738234789a56cac5143254e7d08b819fba217e12e15dc3b79b9e3',
   '../ordinary-local-codex-owned-runtime.ts':
     '56935fc386d88f4871431423e073a2100175b648aa0badc44dfb69ea234be709',
+  '../frozen-host-codex-api-login.ts':
+    '144220cda2f5a597eb085ba9c4708d427c51df20dfc2b7b9ae796fc098711ec2',
   '../frozen-host-codex-login.ts':
     'eba897dd3a1d86f6e2567d737980fb74a963a610aade76862222542bd2f81805',
   '../frozen-host-codex-executable.ts':
@@ -998,7 +1000,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '497a2c4bbb4ca61892e392b11fe554bb88d5302921eef7305f88e74d03c206cc',
   '../../packages/protocol/src/ordinary-openshell-admission.ts':
     'd55a6266b2d5b4df95b9ab2e92526032de1ea6f080921f5adc4d182fced38f3f',
-  '../host-codex-custody.ts': '684485006e92b26780a32b7f76d3bcd5086ab7492bc43508414d278278d4a9a3',
+  '../host-codex-custody.ts': '5bd70aa7ffd8a00ebb29055e890df1e2842cd324d710c869b2766aea4a61a132',
   '../interactive-auth-core.ts': 'c91026beae6b68449c50067ebaea0046fd0c551607719ec1c04b6e4ef5e5d114',
   '../openshell-codex-custody.ts':
     '879381e2a91161c01c257888cc6760203e505fc43f84ee9e9d84558ea60f695b',
