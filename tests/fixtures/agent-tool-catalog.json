@@ -1,5 +1,49 @@
 [
   {
+    "id": "mitzo:TaskStatus",
+    "version": 1,
+    "name": "TaskStatus",
+    "description": "Inspect only this exact delegated task and its progress.",
+    "source": "Task Board",
+    "required": false,
+    "behavior": "read",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
+  },
+  {
+    "id": "mitzo:TaskComplete",
+    "version": 1,
+    "name": "TaskComplete",
+    "description": "Save the exact delegated task result and summary for pending_review. This is not verified outcome completion, acceptance, merge or deployment.",
+    "source": "Task Board",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
+  },
+  {
+    "id": "mitzo:TaskBlock",
+    "version": 1,
+    "name": "TaskBlock",
+    "description": "Record a blocker on this exact delegated task with its reason.",
+    "source": "Task Board",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
+  },
+  {
+    "id": "mitzo:TaskArtifact",
+    "version": 1,
+    "name": "TaskArtifact",
+    "description": "Retain an attributed structured evidence reference on this exact delegated task.",
+    "source": "Task Board",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
+  },
+  {
     "id": "mitzo:AskUserQuestion",
     "version": 1,
     "name": "AskUserQuestion",
@@ -297,6 +341,17 @@
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
+    "id": "mitzo:RequestGithubMainPublication",
+    "version": 1,
+    "name": "RequestGithubMainPublication",
+    "description": "Request an exact reviewed GitHub PR squash merge for your current Telos work. Approval binds repository, PR, source head, squash and current work authority; main may advance under current normal remote CI/review/strict up-to-date protections. Requires a separately configured selected merge capability and one-use operator approval. Holds and currentness are checked at effect admission. Changed source requires fresh approval. Retain requestId after uncertainty; retry observes the original operation without repeating its merge.",
+    "source": "Telos",
+    "required": false,
+    "behavior": "write",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires a current Telos lead or worker role, an explicitly selected native tool, separately configured account-bound merge capability and one-use operator approval."
+  },
+  {
     "id": "mitzo:TelosCreateOutcome",
     "version": 1,
     "name": "TelosCreateOutcome",
@@ -304,8 +359,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosAdoptSource",
@@ -315,8 +370,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosGetItem",
@@ -348,8 +403,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosFindArtifacts",
@@ -370,8 +425,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "read",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
     "id": "mitzo:TelosStartSlice",
@@ -381,8 +436,8 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, this conversation’s current retained lead role and original tool approval. Allocates only the exact reviewed child; selection grants no lead role or model execution."
   },
   {
     "id": "mitzo:TelosWorkControl",
@@ -392,7 +447,7 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [],
-    "requirement": "Explicit profile selection is not supported on this native OpenShell route."
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires explicit native tool selection, a current retained lead or worker role and original request-only tool approval. The existing coordinator and scope checks still control every operation; selection grants no role or hold authority."
   }
 ]

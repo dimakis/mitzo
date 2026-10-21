@@ -1,6 +1,7 @@
 import { databaseBackupWatermark, backupOwnedDatabase } from '@mitzo/protocol/database-backup';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import { extname } from 'node:path';
 import {
@@ -334,6 +335,69 @@ export class TelosArtifactStore {
               now,
             );
         return remember(metadata(this.row(id, revision)));
+      })
+      .immediate();
+  }
+  /** Private owned-native composition only. The supplied scope is real host
+   * authority, never JSON. This method owns the actual outer commit; a borrowed
+   * active work transaction must retain its own final commit fence instead. */
+  saveGuarded(
+    input: Parameters<TelosArtifactStore['save']>[0],
+    assertScopeCurrent: () => void,
+  ): TelosArtifactMetadata {
+    if (this.db.inTransaction)
+      throw new Error('Guarded artifact save requires the actual outer commit owner');
+    const detached = { ...input, bytes: Buffer.from(input.bytes) };
+    const assertCurrent = () => {
+      const result: unknown = assertScopeCurrent();
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => {});
+        throw new Error('Synchronous artifact authority required');
+      }
+    };
+    const policy = () => {
+      if (!this.userUploadAllowed(detached.itemId))
+        throw Object.assign(new Error('Private item material is unavailable'), { status: 403 });
+    };
+    const links = this.db.prepare('SELECT * FROM links WHERE id=?');
+    const requests = this.db.prepare(
+      'SELECT * FROM telos_artifact_save_requests WHERE session_id=? AND request_id=?',
+    );
+    const inputs = this.db.prepare(
+      'SELECT * FROM telos_artifact_request_inputs WHERE session_id=? AND request_id=?',
+    );
+    return this.db
+      .transaction(() => {
+        assertCurrent();
+        policy();
+        const saved = this.save(detached);
+        const link = links.get(`artifact-${saved.id}`);
+        const request = requests.get(detached.sessionId, detached.requestId ?? null);
+        const requestInput = inputs.get(detached.sessionId, detached.requestId ?? null);
+        assertCurrent();
+        // Finish with callback-free real policy/byte/receipt observations. A late
+        // scope callback cannot corrupt staged rows while retaining their digest.
+        policy();
+        const { bytes, ...current } = this.readBoundedRevision(
+          saved.id,
+          saved.revision,
+          MAX_TELOS_ARTIFACT_BYTES,
+        );
+        if (
+          !isDeepStrictEqual(current, saved) ||
+          createHash('sha256').update(bytes).digest('hex') !== saved.sha256 ||
+          !isDeepStrictEqual(links.get(`artifact-${saved.id}`), link) ||
+          !isDeepStrictEqual(
+            requests.get(detached.sessionId, detached.requestId ?? null),
+            request,
+          ) ||
+          !isDeepStrictEqual(
+            inputs.get(detached.sessionId, detached.requestId ?? null),
+            requestInput,
+          )
+        )
+          throw new Error('Guarded artifact custody changed');
+        return saved;
       })
       .immediate();
   }

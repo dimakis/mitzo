@@ -1,5 +1,6 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { closeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { startKnowledgePrewarming } from './knowledge-prewarming.js';
 import { startWarmPoolHost } from './openshell-warm-pool-host.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
@@ -1366,6 +1367,7 @@ const drainOwnedSymposium = createSymposiumShutdown({
 async function shutdown(signal: string) {
   if (shuttingDown) return;
   shuttingDown = true;
+  closeTelosMainPublicationRuntime();
   stopRuntimePerformanceMonitor?.();
   log.info(`${signal} received — shutting down gracefully`);
 

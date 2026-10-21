@@ -160,6 +160,40 @@ describe('replayEventsToTranscript — bounded in-flight restore', () => {
     return { seq, sessionId: 'sess-1', type, payload, createdAt: seq };
   }
 
+  it('projects unanswered tools only at the original terminal prefix and preserves a real late reply', () => {
+    const events = [
+      evt(1, 'message_start', { messageId: 'native' }),
+      evt(2, 'block_start', { messageId: 'native', blockId: 'call', blockType: 'tool_use' }),
+      evt(3, 'block_end', {
+        messageId: 'native',
+        blockId: 'call',
+        blockType: 'tool_use',
+        toolId: 'call',
+        toolName: 'TelosCreateOutcome',
+      }),
+      evt(4, 'message_end', { messageId: 'native' }),
+    ];
+    const original = replayEventsToMessages(events)[0].blocks[0];
+    expect(original).not.toHaveProperty('toolInterrupted');
+    events.push(evt(5, 'session_end', { sessionId: 'sess-1' }));
+    expect(replayEventsToMessages(events)[0].blocks[0]).toEqual({
+      ...original,
+      toolInterrupted: true,
+    });
+    expect(replayEventsToTranscript(events).messages[0].blocks[0]).toHaveProperty(
+      'toolInterrupted',
+      true,
+    );
+    events.push(
+      evt(6, 'tool_result', { messageId: 'native', toolId: 'call', result: '', isError: false }),
+    );
+    const late = replayEventsToMessages(events)[0].blocks[0];
+    expect(late.toolResult).toBe('');
+    expect(late.toolError).toBe(false);
+    expect(late).not.toHaveProperty('toolInterrupted');
+    expect(events[4].payload).toEqual({ sessionId: 'sess-1' });
+  });
+
   it('restores interleaved seat turns with reused block IDs and immutable provenance', () => {
     const provenance = (seatId: string) => ({
       seatId,

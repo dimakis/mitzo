@@ -1,3 +1,4 @@
+import { agentToolRouteLabel } from '../lib/agent-tool-routes';
 import { useId } from 'react';
 import {
   agentProfileLabel,
@@ -116,7 +117,7 @@ export function ToolLibraryCatalog({
                     Required
                   </span>
                 )}
-                {!tool.routes.includes('local-api') && (
+                {!agentToolRouteLabel(tool.routes) && (
                   <span>
                     <UiIcon name="unavailable" size={16} />
                     Selection unavailable
@@ -149,11 +150,7 @@ export function ToolLibraryCatalog({
                     </div>
                     <div>
                       <dt>Availability</dt>
-                      <dd>
-                        {tool.routes.includes('local-api')
-                          ? 'Local OpenAI Responses and Gemini/Vertex API chats'
-                          : tool.requirement}
-                      </dd>
+                      <dd>{agentToolRouteLabel(tool.routes) ?? tool.requirement}</dd>
                     </div>
                     <div>
                       <dt>Permissions</dt>

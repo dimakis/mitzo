@@ -17,6 +17,7 @@ interface Props {
   displayName?: string;
   tier?: ToolTier;
   approvalScope?: 'session' | 'conversation' | 'request';
+  allowSessionGrant?: boolean;
   sessionGrantDescription?: string;
   responseError?: string;
   expiresAt?: number;
@@ -48,6 +49,7 @@ export function PermissionBanner({
   displayName,
   tier,
   approvalScope,
+  allowSessionGrant,
   responseError,
   sessionGrantDescription,
   questions,
@@ -240,16 +242,18 @@ export function PermissionBanner({
                 ? 'Retry only the same reviewed save. Dismiss keeps any saved item and its retained source.'
                 : reviewingSource
                   ? 'This saves only the reviewed source selection.'
-                  : sessionGrantDescription ||
+                  : (allowSessionGrant !== false && sessionGrantDescription) ||
                     (approvalScope === 'conversation'
                       ? 'This integration remains available to this conversation across reconnects and Mitzo restarts, until its sandbox is deleted or access is revoked.'
-                      : approvalScope === 'request'
-                        ? 'Allow once covers the displayed request. Allow for session keeps this approval until the session ends.'
-                        : sessionSearch
-                          ? 'Allow searches on this account and model until the session ends. Website access stays separate.'
-                          : server
-                            ? `Session allowance covers all ${server} tools.`
-                            : 'Session allowance covers this tool until the task ends.')}
+                      : allowSessionGrant === false
+                        ? 'Allow once covers the displayed request.'
+                        : approvalScope === 'request'
+                          ? 'Allow once covers the displayed request. Allow for session keeps this approval until the session ends.'
+                          : sessionSearch
+                            ? 'Allow searches on this account and model until the session ends. Website access stays separate.'
+                            : server
+                              ? `Session allowance covers all ${server} tools.`
+                              : 'Session allowance covers this tool until the task ends.')}
             </p>
             {(toolInput || reviewingSource) && (
               <details key={permId} className="perm-banner-details" open>
@@ -265,7 +269,7 @@ export function PermissionBanner({
         )}
       </div>
       <div
-        className={`perm-banner-actions${questions ? ' perm-banner-actions--questions' : ''}${reviewingSource ? ' perm-banner-actions--source' : ''}`}
+        className={`perm-banner-actions${questions ? ' perm-banner-actions--questions' : ''}${reviewingSource || (allowSessionGrant === false && !questions) ? ' perm-banner-actions--source' : ''}`}
       >
         {(submitting || sourceReview.saving) && (
           <p className="perm-banner-scope perm-banner-submitting" role="status">
@@ -311,7 +315,7 @@ export function PermissionBanner({
                   ? 'Grant'
                   : 'Once'}
             </button>
-            {!reviewingSource && (
+            {!reviewingSource && allowSessionGrant !== false && (
               <button
                 className="perm-banner-btn perm-banner-btn--always"
                 aria-label={sessionSearch ? 'Allow searches for this session' : 'Allow for session'}

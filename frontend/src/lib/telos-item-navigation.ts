@@ -1,3 +1,5 @@
+import type { TodoItem } from '../types/todo';
+
 export function parseItemHistory(value: unknown): string[] {
   return Array.isArray(value) && value.every((id) => typeof id === 'string') ? value : [];
 }
@@ -18,6 +20,45 @@ function stateObject(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+/** Display snapshots accompany explicit trail positions, never access or work authority. */
+function itemHistorySnapshots(state: unknown, history: string[]): (TodoItem | undefined)[] {
+  const value = stateObject(state)?.telosHistorySnapshots;
+  const snapshots = Array.isArray(value) ? value : [];
+  return history.map((id, index) => {
+    const item = stateObject(snapshots[index]);
+    return item?.id === id ? (item as unknown as TodoItem) : undefined;
+  });
+}
+
+export function appendTelosItemHistory(
+  state: unknown,
+  history: string[],
+  itemId: string,
+  item: TodoItem | undefined,
+) {
+  return {
+    ...stateObject(state),
+    telosHistory: [...history, itemId],
+    telosHistorySnapshots: [
+      ...itemHistorySnapshots(state, history),
+      item?.id === itemId ? item : undefined,
+    ],
+  };
+}
+
+export function popTelosItemHistory(state: unknown, history: string[]) {
+  const snapshots = itemHistorySnapshots(state, history);
+  const remaining = history.slice(0, -1);
+  const next: Record<string, unknown> = {
+    ...stateObject(state),
+    item: snapshots[history.length - 1],
+    telosHistory: remaining,
+  };
+  if (remaining.length) next.telosHistorySnapshots = snapshots.slice(0, -1);
+  else delete next.telosHistorySnapshots;
+  return next;
 }
 
 /** A Home pin starts a fresh item trail and retains its exact entry context. */

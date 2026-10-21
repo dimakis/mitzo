@@ -1,3 +1,4 @@
+import { initializeTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { resolveTelosWorkCommandScope } from './telos-work-command-scope.js';
 import { ordinaryWorkspacePreparedCommandStatus } from './ordinary-workspace-prepared-command.js';
 import { requireSameOriginJson } from './connections-router.js';
@@ -2081,7 +2082,12 @@ app.post('/api/internal/task-tools/artifact', (req, res) => {
 });
 
 const telosDatabasePath = () =>
-  process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db');
+  resolve(process.env.TELOS_DB_PATH || join(BASE_REPO, 'command_center', 'data', 'smart_todo.db'));
+initializeTelosMainPublicationRuntime({
+  registry,
+  events: eventStore,
+  databasePath: telosDatabasePath,
+});
 
 /** Compose ordinary role setup with the existing profile, preparation and runtime
  * owners. This is independent of Symposium joining and grants no first command. */
@@ -2471,7 +2477,7 @@ app.use(
     operatorAuth: operatorAuthMiddleware,
     ordinaryConversation: (id) => isAvailableTelosWorkConversation(eventStore.getSession(id)),
     sourceConversation: (id) => isAvailableTelosSourceConversation(eventStore.getSession(id)),
-    createOutcome: (input) =>
+    createOutcome: (input, assertCurrentSync) =>
       createCanonicalTelosOutcome(
         {
           script: TODO_SCRIPT,
@@ -2484,6 +2490,7 @@ app.use(
             }),
         },
         input,
+        assertCurrentSync,
       ),
   }),
 );

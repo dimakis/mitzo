@@ -1011,6 +1011,12 @@ CI without increasing the local limit. No production or staging changes were mad
 
 ## Agent tool selection
 
+The editor and Tool library project the catalog’s supported local API and local
+Codex routes consistently. Codex-only tools can be selected; unknown or unsupported
+routes remain disabled. Task tools still require a current delegated task and the
+existing runtime and permission checks. This changes compatibility text and existing
+Add-button availability, with the same rows, controls, tokens and motion.
+
 Agent Library keeps its advisor above the editor. The Tools tab and Tool library
 view reuse the existing collection heading, tabs, form controls and grouped quiet
 rows. The inline picker uses MotionPresence, labelled search and Add/Remove
@@ -1286,6 +1292,31 @@ Source navigation fences late responses on chat/item changes and leaves the
 ordinary transcript, composer, Resources, settings and history intact. Offline
 source browser fixtures cover narrow mobile and desktop, light/dark appearance,
 alternate accent/font, source anchoring and the return link.
+
+The originating transcript also shows one reciprocal created-item link at each
+retained creation's exact message/provenance boundary. Ordinary chat discovery
+reads canonical origin associations and their immutable source packets with four
+bounded readers; it does not choose a latest global item or label adopted sources
+as creations. The explicit inspected snapshot retains its own loading/unavailable
+fence. The inline link uses the existing receipt row, UiIcon, semantic tokens and
+44px control; its title is the retained creation summary and its target is the
+canonical item identity. Confirmed same-chat source saves invalidate these reads
+immediately through the shared source-save notification; the notification itself
+supplies no creation card or access authority. The caption states the recorded selection mode and
+message count. Durable event sequences are not presented as message ordinals or
+a contiguous range for sparse selections.
+Shared collaboration transcripts do not discover ordinary origins using their
+aggregate ID; their existing per-message author/source scope stays intact.
+
+The selected tree path reveals ancestors as canonical records hydrate. Each newly
+arriving ancestor opens once; normal refreshes preserve manual Collapse and
+Collapse all. Reopening the chat tree reveals the selected path again, with the
+original same-chat composer/draft and shared focus/motion retained. Focused
+component/design/type checks and intercepted mobile WebKit/desktop Chromium
+light/dark Mint/System and Teal/Georgia captures cover these changes. These are
+synthetic component fixtures; matching official-build actual application retakes
+and full combined CI remain separate acceptance evidence. Approved references,
+ledger revisions, palette, typography and geometry are unchanged.
 
 ## Frozen Symposium joining review (16 October 2026)
 

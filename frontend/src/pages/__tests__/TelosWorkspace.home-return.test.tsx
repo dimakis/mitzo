@@ -284,11 +284,15 @@ for (const mode of ['pending', 'unavailable'] as const)
     expect(childRead).toHaveBeenCalledOnce();
     expect(path()).toBe('/todos/fixture-studio-slice');
     expect(screen.getByRole('heading', { name: 'Task' })).toBeTruthy();
-    expect(state()).toEqual({ ...parentState, telosHistory: ['fixture-studio'] });
+    expect(state()).toEqual({
+      ...parentState,
+      telosHistory: ['fixture-studio'],
+      telosHistorySnapshots: [legacy(records[0].itemId)],
+    });
     await back();
     await screen.findByRole('heading', { name: records[0].summary });
     expect(path()).toBe('/todos/fixture-studio');
-    expect(state()).toEqual(parentState);
+    expect(state()).toEqual({ ...parentState, item: legacy(records[0].itemId) });
     expect(JSON.parse(sessionStorage.getItem('telos.item.history.fixture-studio')!)).toEqual([]);
     if (mode === 'pending') {
       await act(async () => {

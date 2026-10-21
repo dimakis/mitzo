@@ -24,6 +24,8 @@ export interface RetainedTelosSourceApproval {
   operation: TelosSourcePermissionOperation;
   receipt: TelosSourcePermissionReceipt | null;
   preview: TelosSourcePreview;
+  /** Private, irreversible refusal constraint captured from the original pending owner. */
+  requiresLiveNativeCall?: true;
 }
 interface Row {
   data: string;
@@ -55,6 +57,8 @@ export class TelosSourceApprovalStore {
     if (createHash('sha256').update(row.data).digest('hex') !== row.data_sha256)
       throw Error('Retained source approval integrity unavailable');
     const data = JSON.parse(row.data) as RetainedTelosSourceApproval;
+    if ('requiresLiveNativeCall' in data && data.requiresLiveNativeCall !== true)
+      throw Error('Retained native source provenance unavailable');
     data.input = TelosSourcePermissionApproveRequestSchema.parse(data.input);
     data.operation = TelosSourcePermissionOperationSchema.parse(data.operation);
     data.preview = TelosSourcePreviewSchema.parse(data.preview);
@@ -103,6 +107,7 @@ export class TelosSourceApprovalStore {
     input: TelosSourcePermissionApproveRequest,
     operation: TelosSourcePermissionOperation,
     preview: TelosSourcePreview,
+    requiresLiveNativeCall?: true,
   ) {
     return this.db
       .transaction(() => {
@@ -116,6 +121,7 @@ export class TelosSourceApprovalStore {
           operation: structuredClone(operation),
           receipt: null,
           preview: structuredClone(preview),
+          ...(requiresLiveNativeCall === true ? { requiresLiveNativeCall: true as const } : {}),
         };
         const data = JSON.stringify(retained);
         this.db
@@ -184,6 +190,38 @@ export class TelosSourceApprovalStore {
       .all(sessionId, actorId) as Row[];
     if (rows.length > 100) throw Error('Too many retained source recoveries');
     return rows.map((row) => this.decode(row)!);
+  }
+  /** Exact completed original review only; not discovery, latest, or a new consent grant.
+   * The caller must still check its current native operator and actual source owner. */
+  approvedArtifactSelection(
+    sessionId: string,
+    operatorId: string,
+    artifactId: string,
+    revision: number,
+  ) {
+    if (!operatorId.trim()) throw Error('Current source operator unavailable');
+    const rows = this.db
+      .prepare(
+        'SELECT * FROM telos_work_source_approvals WHERE session_id=? AND actor_id=? AND receipt IS NOT NULL LIMIT 101',
+      )
+      .all(sessionId, 'operator:' + operatorId) as Row[];
+    if (rows.length > 100) throw Error('Too many retained source approvals');
+    return rows.flatMap((row) => {
+      const record = this.decode(row)!;
+      const receipt = record.receipt!;
+      const source = receipt.receipt.work.sources.find(
+        (source) => source.snapshotId === receipt.sourceSnapshotId,
+      );
+      if (
+        !source ||
+        source.itemId !== receipt.receipt.work.itemId ||
+        source.artifacts.at(-1)?.sha256 !== record.input.previewSha256
+      )
+        throw Error('Original source receipt selection unavailable');
+      return source.artifacts
+        .filter((pin) => pin.artifactId === artifactId && pin.revision === revision)
+        .map((pin) => ({ itemId: source.itemId, pin, source }));
+    });
   }
   retrieved(id: string) {
     this.db
