@@ -121,9 +121,15 @@ export function mgmtKnowledgeAdapter(config: AdapterConfig, sourceUrl: string) {
           maxBuffer: 1024 * 1024,
         })
       ).stdout.trim();
+    // Porcelain v2 reports the oid, detached head and dirty entries together.
+    // Revalidate on every admission, including cache hits, with one fewer fork.
+    const releaseStatus = (await git('status', '--porcelain=v2', '--branch')).split('\n');
     if (
-      (await git('rev-parse', 'HEAD')) !== config.releaseCommit ||
-      (await git('status', '--porcelain')) ||
+      releaseStatus.length !== 2 ||
+      !releaseStatus.includes(`# branch.oid ${config.releaseCommit}`) ||
+      !releaseStatus.includes('# branch.head (detached)') ||
+      // An attached branch can literally be named '(detached)'. Preserve the
+      // independent symbolic-branch check instead of trusting that status label.
       (await git('branch', '--show-current'))
     )
       throw new Error('Knowledge adapter requires its clean pinned detached release');
