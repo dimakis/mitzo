@@ -1,3 +1,4 @@
+import type { StoredSecretRelay, SecretRelays } from './secret-relay.js';
 import { ConnectionRequestError, connectionRequestError } from './connection-request-error.js';
 import { CredentialConnectionSetups, type ConnectionSetup } from './credential-setup.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -81,7 +82,8 @@ export class CredentialConnectionStore {
     this.db
       .exec(`CREATE TABLE IF NOT EXISTS credential_connections (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS credential_connection_grants (session_id TEXT NOT NULL, connection_id TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(session_id, connection_id));
-      CREATE TABLE IF NOT EXISTS credential_connection_setups (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS credential_connection_setups (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS secret_relays (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);`);
   }
   get(id: string): CredentialConnection | undefined {
     const row = this.db
@@ -161,6 +163,21 @@ export class CredentialConnectionStore {
       this.db.prepare('SELECT metadata FROM credential_connection_setups').all() as {
         metadata: string;
       }[]
+    ).map((row) => JSON.parse(row.metadata));
+  }
+  getRelay(id: string): StoredSecretRelay | undefined {
+    const row = this.db.prepare('SELECT metadata FROM secret_relays WHERE id=?').get(id) as
+      { metadata: string } | undefined;
+    return row ? JSON.parse(row.metadata) : undefined;
+  }
+  putRelay(relay: StoredSecretRelay) {
+    this.db
+      .prepare('INSERT OR REPLACE INTO secret_relays VALUES (?, ?)')
+      .run(relay.id, JSON.stringify(relay));
+  }
+  listRelays(): StoredSecretRelay[] {
+    return (
+      this.db.prepare('SELECT metadata FROM secret_relays').all() as { metadata: string }[]
     ).map((row) => JSON.parse(row.metadata));
   }
   close() {
@@ -265,6 +282,7 @@ function credentialHeaders(
 
 export class CredentialConnections {
   readonly setups: CredentialConnectionSetups;
+  relay?: SecretRelays;
   private dashboardWrites = new Set<string>();
   private active = new Map<string, Set<AbortController>>();
   constructor(
