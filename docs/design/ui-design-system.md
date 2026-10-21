@@ -1757,6 +1757,14 @@ pending reads, including the accepted Home/parent/Milestones return contract. Fa
 API status/code or validation/identity category and explicit retry; available
 original fields remain navigable alongside ready records. These diagnostics do
 not establish the cause of a production failure.
+When all canonical reads fail, the original cards remain the primary content.
+A compact control row pairs a visible unavailable summary and retry; it includes
+a failure count only when individual failed records are known. The native
+disclosure starts collapsed; exact IDs/status/codes remain
+available inside. Partial failures keep their failed original titles and diagnostics
+upfront. Text retries use the shared labelled secondary action, whose width follows
+the label, rather than the collection's square refresh-icon control. This keeps
+original item actions reachable while preserving error visibility and recovery.
 Search/category/filter context reveals matching paths initially; explicit collapse,
 expand and collapse-all choices override that reveal and persist with the context.
 Changing the context clears those collapse overrides.
