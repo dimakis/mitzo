@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { AccountProfiles } from '../account-profiles.js';
 import { credentials } from '../credentials.js';
+import { KeychainRotationCredentials } from '../keychain-rotation-credentials.js';
 
 let sequence = 0;
 const profile = () => ({
@@ -15,6 +16,7 @@ const catalog = (...ids: string[]) =>
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 it('refreshes existing API accounts from their own key, caches across profile reloads, and honors forced refresh', async () => {
@@ -138,4 +140,48 @@ it('bounds the metadata response, deduplicates simultaneous refreshes, and resto
   expect(request).toHaveBeenCalledTimes(2);
   expect(profiles.catalog()[0].modelDiscovery.stale).toBe(false);
   expect(profiles.catalog()[0].models.map((model) => model.id)).toEqual(['gpt-6-luna']);
+});
+
+it('uses the configured signed Keychain helper for protected and enrolled keys', async () => {
+  vi.stubEnv('MITZO_KEYCHAIN_HELPER', '/synthetic/signed-helper');
+  const raw = vi
+    .spyOn(credentials, 'resolve')
+    .mockRejectedValue(new Error('raw Keychain read forbidden'));
+  const signed = vi.spyOn(KeychainRotationCredentials.prototype, 'read').mockResolvedValue({
+    value: 'SYNTHETIC_SIGNED_KEY',
+    version: null,
+    managed: false,
+  });
+  const request = vi.fn<typeof fetch>().mockResolvedValue(catalog('gpt-6-luna', 'gpt-6.1-sol'));
+  vi.stubGlobal('fetch', request);
+  const configured = profile();
+  const profiles = new AccountProfiles([configured]);
+  await profiles.refresh();
+  expect(signed).toHaveBeenCalledWith(configured.credentialRef, expect.any(AbortSignal));
+  expect(raw).not.toHaveBeenCalled();
+  expect(request).toHaveBeenCalledWith(
+    'https://api.openai.com/v1/models',
+    expect.objectContaining({
+      headers: { Authorization: 'Bearer SYNTHETIC_SIGNED_KEY' },
+    }),
+  );
+  expect(profiles.catalog()[0].models.map((model) => model.id)).toEqual([
+    'gpt-6.1-sol',
+    'gpt-6-luna',
+  ]);
+});
+
+it('never falls back to an interpreter credential read when the signed helper fails', async () => {
+  vi.stubEnv('MITZO_KEYCHAIN_HELPER', '/synthetic/signed-helper');
+  vi.spyOn(KeychainRotationCredentials.prototype, 'read').mockRejectedValue(new Error('locked'));
+  const raw = vi.spyOn(credentials, 'resolve').mockResolvedValue('SYNTHETIC_UNAUTHORIZED_FALLBACK');
+  const request = vi.fn<typeof fetch>();
+  vi.stubGlobal('fetch', request);
+  const configured = profile();
+  const profiles = new AccountProfiles([configured]);
+  await profiles.refresh();
+  expect(raw).not.toHaveBeenCalled();
+  expect(request).not.toHaveBeenCalled();
+  expect(profiles.catalog()[0].models).toEqual(configured.models);
+  expect(profiles.catalog()[0].modelDiscovery.stale).toBe(true);
 });

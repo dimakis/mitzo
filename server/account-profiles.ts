@@ -3,6 +3,7 @@ import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema, credentials } from './credentials.js';
 import { discoverOpenAIModels } from './openai-enrollment-models.js';
+import { KeychainRotationCredentials } from './keychain-rotation-credentials.js';
 import { CodexAppServerClient } from './codex-app-server-client.js';
 import { OrdinaryLocalCodexHostRuntime } from './ordinary-local-codex-host-runtime.js';
 import { verifyCodexAccount } from './codex-account.js';
@@ -742,7 +743,11 @@ export class AccountProfiles {
     );
     try {
       const key = await withDiscoveryDeadline(
-        () => credentials.resolve(profile.credentialRef),
+        async () =>
+          process.env.MITZO_KEYCHAIN_HELPER
+            ? (await new KeychainRotationCredentials().read(profile.credentialRef, deadline.signal))
+                .value
+            : credentials.resolve(profile.credentialRef),
         deadline.signal,
       );
       const models = await withDiscoveryDeadline(
