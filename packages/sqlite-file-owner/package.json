@@ -1,0 +1,8 @@
+{
+  "name": "@mitzo/sqlite-file-owner",
+  "version": "1.0.0",
+  "private": true,
+  "main": "index.cjs",
+  "types": "index.d.ts",
+  "gypfile": true
+}
