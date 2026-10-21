@@ -35,6 +35,36 @@ it('reviews sandbox release without changing the session', async () => {
   expect(f.preview).toHaveBeenCalledWith('c', expect.any(AbortSignal), 'delete');
   expect(f.hide).not.toHaveBeenCalled();
 });
+it('offers a legacy deletion review and consumes its token before hiding the chat', async () => {
+  const previewLegacy = vi.fn(async () => ({
+    token: 'legacy-review',
+    action: 'stop_and_delete',
+    blockers: [],
+  }));
+  const confirm = vi.fn(async () => 'deleted');
+  const hide = vi.fn();
+  const app = express();
+  app.use(express.json());
+  app.use(
+    '/api/sessions',
+    createSessionRemovalRouter({
+      authorize: (_req, _res, next) => next(),
+      lifecycle: () => ({ inventory: () => [], confirm }) as unknown as OpenShellLifecycleService,
+      hasSandbox: () => true,
+      previewLegacy: previewLegacy as never,
+      hide,
+      changed: vi.fn(),
+    }),
+  );
+  const preview = await request(app).get('/api/sessions/c/deletion-preview').expect(200);
+  expect(preview.body.sandbox?.token).toBe('legacy-review');
+  expect(previewLegacy).toHaveBeenCalledWith('c', expect.any(AbortSignal));
+  expect(hide).not.toHaveBeenCalled();
+  await request(app).delete('/api/sessions/c').expect(409);
+  await request(app).delete('/api/sessions/c').send({ cleanupToken: 'legacy-review' }).expect(200);
+  expect(confirm).toHaveBeenCalledWith('legacy-review', expect.any(AbortSignal), 'c');
+  expect(hide).toHaveBeenCalledWith('c');
+});
 it('does not apply removal authorization to unrelated session readers', async () => {
   const app = express();
   app.use(

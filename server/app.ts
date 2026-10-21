@@ -15,7 +15,10 @@ import { OrdinaryWorkspaceSettingsSchema } from '@mitzo/protocol';
 import { readSandboxOwnershipReview } from './sandbox-ownership-review.js';
 import { createSessionRemovalRouter, sessionNeedsSandboxReview } from './session-removal.js';
 import { summarizeSandboxInventory } from './sandbox-inventory.js';
-import { readOpenShellSandboxInventory } from './openshell-lifecycle-controller.js';
+import {
+  readOpenShellSandboxInventory,
+  previewLegacyOpenShellDeletion,
+} from './openshell-lifecycle-controller.js';
 import { getApiToolCatalog } from './api-tool-runtime.js';
 import { getToolBuilderStore } from './tool-builder-runtime.js';
 import { createTelosOutcomeHandler } from './telos-outcome-handler.js';
@@ -3332,6 +3335,8 @@ app.use(
   createSessionRemovalRouter({
     authorize: operatorAuthMiddleware,
     lifecycle: () => openShellLifecycleService,
+    previewLegacy: (id, signal) =>
+      previewLegacyOpenShellDeletion(id, eventStore, getCodexConversationStore(), signal),
     hasSandbox: (id) => {
       const meta = eventStore.getSession(id);
       return sessionNeedsSandboxReview(meta, {
@@ -3474,7 +3479,8 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       modelSelection = { model: retainedModel, reasoningEffort: retainedThinking, models: [] };
     try {
       const profiles = loadAccountProfiles();
-      await profiles.refresh(req.query.refresh === '1');
+      const refresh = req.query.refresh === '1';
+      await profiles.refresh(refresh, { discoverApi: refresh });
       const profile = profiles
         .catalog()
         .find((account) => account.id === meta.accountBinding!.accountId);
