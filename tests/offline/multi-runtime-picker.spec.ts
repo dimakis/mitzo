@@ -217,6 +217,7 @@ test('Runtime defaults: save, fresh New chat without repeated confirmation, clea
   await settingsHome(page);
   await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', 'api');
   await expect(settingRow(page, 'Account')).not.toContainText('Confirm account');
+  await expect(settingRow(page, 'Model')).not.toContainText('Unavailable');
   await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'shell-model');
   await expect(settingRow(page, 'Thinking')).toHaveAttribute('data-value', 'high');
   await input.fill('New draft retains the same account without confirmation');

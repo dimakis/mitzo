@@ -213,7 +213,7 @@ export function useExplicitLocalChat(
         }
       });
     return () => controller.abort();
-  }, [enabled, sessionId, attempt]);
+  }, [draftId, enabled, sessionId, attempt]);
   useEffect(() => {
     if (!sessionId) return;
     setMetaFailure(null);

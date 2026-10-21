@@ -841,3 +841,23 @@ it('retains the default account identity across fresh chats and rejects later pr
   );
   expect(stale.result.current.reason).toContain('configuration changed');
 });
+
+it('resolves the same saved default after New chat changes the draft identity without remounting', async () => {
+  const { multiRuntimeInventoryFixture } =
+    await import('../../test-utils/multi-runtime-inventory-fixture');
+  const inventory = multiRuntimeInventoryFixture();
+  const account = inventory.accounts.find((entry) => entry.account.accountId === 'api')!;
+  setDefaultAccountModel(
+    { accountId: 'api', model: 'shell-model', reasoningEffort: 'high' },
+    account.account,
+  );
+  vi.mocked(apiFetch).mockImplementation(async () => Response.json(inventory));
+  const { result, rerender } = renderHook(({ id }) => useExplicitLocalChat(id, null, null, true), {
+    initialProps: { id: 'first-new-chat' },
+  });
+  await waitFor(() => expect(result.current.intent.execution.targetId).toBe('shell'));
+  rerender({ id: 'second-new-chat' });
+  await waitFor(() => expect(result.current.intent.execution.targetId).toBe('shell'));
+  expect(result.current.accountNeedsConfirmation).toBe(false);
+  expect(result.current.intent.accountReference).toEqual(account.account);
+});

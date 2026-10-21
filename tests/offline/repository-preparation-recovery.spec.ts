@@ -231,5 +231,20 @@ for (const theme of ['dark', 'light']) {
       path: info.outputPath(`local-repository-ready-${theme}.png`),
       fullPage: true,
     });
+    await page.getByRole('button', { name: 'Done', exact: true }).click();
+    await page
+      .getByRole('button', { name: /^New chat$/i })
+      .first()
+      .click();
+    await expect(input).toHaveValue('');
+    await settingsHome(page);
+    await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', 'api');
+    await expect(settingRow(page, 'Account')).not.toContainText('Confirm');
+    await expect(settingRow(page, 'Model')).not.toContainText('Unavailable');
+    await expect(settingRow(page, 'Model')).toHaveAttribute('data-value', 'shell-model');
+    await expect(page.getByText(/account identity is unconfirmed/)).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath(`local-settings-new-${theme}.png`) });
+    expect(errors).toEqual([]);
+    expect(unexpected).toEqual([]);
   });
 }
