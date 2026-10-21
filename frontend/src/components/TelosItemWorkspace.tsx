@@ -185,7 +185,7 @@ export function TelosItemWorkspace({
         <button aria-label="Back" onClick={onBack}>
           <UiIcon name="back" size={20} />
         </button>
-        <div>
+        <div className="telos-item-title">
           {parent && <button onClick={() => onOpen(parent.itemId)}>{parent.summary}</button>}
           <h1>{record.summary}</h1>
           <span className="telos-node-meta">
@@ -207,7 +207,7 @@ export function TelosItemWorkspace({
       </nav>
       {error && <p role="alert">{error}</p>}
       <div className="telos-dashboard">
-        <div>
+        <div className="telos-workspace-content">
           {current === 'Chat' ? (
             <TelosItemChatTab
               key={record.itemId}
@@ -227,11 +227,13 @@ export function TelosItemWorkspace({
               ) : (
                 <section>
                   <h2>{record.kind === 'work_item' ? 'This work item' : 'This item'}</h2>
-                  <p>{record.intent}</p>
+                  <p>{record.intent || 'Not recorded'}</p>
                 </section>
               )}
-              <h2>Plans, documents & outputs</h2>
-              {materials}
+              <section className="telos-materials-section">
+                <h2>Plans, documents & outputs</h2>
+                {materials}
+              </section>
             </>
           )}
         </div>

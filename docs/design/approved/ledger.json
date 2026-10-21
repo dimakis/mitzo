@@ -101,7 +101,7 @@
     },
     {
       "id": "telos-priority-scale",
-      "activeRevision": "priority-scale-focused-contract-2026-10-18",
+      "activeRevision": "priority-scale-canonical-loading-2026-10-21",
       "revisions": [
         {
           "id": "priority-scale-2026-10-17",
@@ -221,6 +221,72 @@
             }
           ],
           "reason": "Allow already approved S7 navigation/layout expectations while retaining exact priority ordering and confirmed-value consistency safeguards."
+        },
+        {
+          "id": "priority-scale-canonical-loading-2026-10-21",
+          "approvedBy": "Dimitri (explicit loading defect-correction request)",
+          "approvedOn": "2026-10-21",
+          "approval": {
+            "thread": "01a15661-1bbe-70b0-acfa-fab139a1980c",
+            "quote": "the old telos screen loads first before the new one loads, it takes much longer for the correct new ui to load on mobile.",
+            "scope": "U20261021-LOAD: remove the initial legacy-screen flash. Amend only the protected ordering fixture to await a deterministic failed canonical read before its original grouping/urgency assertions. Preserve every original priority expectation and its order, item data, priority values, grouping, urgency, selector, reference and navigation behavior.",
+            "canonicalAmendment": {
+              "artifact": "672886e33b396144e4a2d1a588bfc7aa@1",
+              "sha256": "a222892ae68b38c23e90a80507d9a0788031b2cf084d616a7c9d5e5736a102f8"
+            },
+            "scopedAdjudication": {
+              "artifact": "60241aaa7eae87370dd0c770d79a6f5e@1",
+              "sha256": "a14830f78c172ee58750da55fe051faab7c8ccd1288311b2101d5ba1c45ecc99"
+            }
+          },
+          "references": [
+            {
+              "path": "docs/design/approved/telos-priority-scale/priority-scale.svg",
+              "sha256": "2bc9fb6bda585f4f66c8f7eab3f8dfdfa7881d6ab52da8b86831de8de2bb62a1"
+            }
+          ],
+          "invariants": [
+            "Priority is an integer from 1 to 10, with larger numbers displayed as higher priority.",
+            "The item header contains one labelled Priority selector showing the selected value out of 10.",
+            "The existing Work tree shows the same value as a compact P<n> badge.",
+            "The surrounding Telos layout, navigation, content and controls remain unchanged.",
+            "The priority amendment preserves existing grouping, urgency sorting and navigation."
+          ],
+          "sources": [
+            "frontend/src/pages/TodoDetailView.tsx",
+            "frontend/src/components/TodoCard.tsx",
+            "frontend/src/hooks/useTodoData.ts",
+            "frontend/src/types/todo.ts",
+            "frontend/src/styles/global.css",
+            "server/api-schemas.ts",
+            "server/app.ts",
+            "frontend/src/components/TodoPrioritySelect.tsx",
+            "frontend/src/lib/todo-utils.ts"
+          ],
+          "checks": [
+            "frontend/src/pages/__tests__/TodoDetailView.test.tsx",
+            "frontend/src/components/__tests__/TodoCard.test.tsx",
+            "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+            "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+            "frontend/src/hooks/__tests__/useTodoData.test.ts",
+            "server/__tests__/todo-priority-schema.test.ts",
+            "tests/offline/telos-priority.spec.ts"
+          ],
+          "protectedChecks": [
+            {
+              "path": "frontend/src/components/__tests__/TodoPrioritySelect.test.tsx",
+              "sha256": "c1ab0bd0174975e67a3af37692e06c9851aa694295b54281b6d6c9e4c741382a"
+            },
+            {
+              "path": "frontend/src/pages/__tests__/TodoPriorityOrdering.test.tsx",
+              "sha256": "e05b65a34d4f4edb88e80c3fc059a006811dd6852b8b66819b7dee536c7fd824"
+            },
+            {
+              "path": "tests/offline/telos-priority.spec.ts",
+              "sha256": "a69a0647dfa64f4b4504a5693c3e435c4981cd4612bfd2d761fae6e5d0011894"
+            }
+          ],
+          "reason": "The old synchronous fixture observed legacy sections during canonical loading, conflicting with the explicit request to remove that flash. Only its deterministic read failure and async settlement timing change; the settled priority contract remains verbatim."
         }
       ]
     },

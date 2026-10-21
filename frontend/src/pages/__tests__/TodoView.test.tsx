@@ -1,8 +1,25 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import {
+  cleanup,
+  render as renderNow,
+  act,
+  screen,
+  fireEvent,
+  waitFor,
+} from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { TodoView, TodoCreateForm } from '../TodoView';
+
+// Original-record assertions run after canonical discovery settles. Pending
+// canonical presentation is covered separately by the readiness/hydration tests.
+async function render(...args: Parameters<typeof renderNow>) {
+  let view!: ReturnType<typeof renderNow>;
+  await act(async () => {
+    view = renderNow(...args);
+  });
+  return view;
+}
 
 const mockNavigate = vi.fn();
 vi.mock('react-router-dom', async () => {
@@ -26,7 +43,7 @@ beforeEach(() => {
 });
 
 describe('TodoView', () => {
-  it('shows loading state', () => {
+  it('shows loading state', async () => {
     mockUseTodoData.mockReturnValue({
       loading: true,
       items: [],
@@ -37,7 +54,7 @@ describe('TodoView', () => {
       refresh: vi.fn(),
     });
 
-    render(
+    await render(
       <MemoryRouter>
         <TodoView />
       </MemoryRouter>,
@@ -46,7 +63,7 @@ describe('TodoView', () => {
     expect(screen.getByText('Loading outcomes…')).toBeTruthy();
   });
 
-  it('shows empty state when no items', () => {
+  it('shows empty state when no items', async () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
       items: [],
@@ -57,7 +74,7 @@ describe('TodoView', () => {
       refresh: vi.fn(),
     });
 
-    render(
+    await render(
       <MemoryRouter>
         <TodoView />
       </MemoryRouter>,
@@ -66,7 +83,7 @@ describe('TodoView', () => {
     expect(screen.getByText('No outcomes yet.')).toBeTruthy();
   });
 
-  it('shows a load error instead of the empty state', () => {
+  it('shows a load error instead of the empty state', async () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
       error: 'Unable to load Telos items',
@@ -79,7 +96,7 @@ describe('TodoView', () => {
       refresh: vi.fn(),
     });
 
-    render(
+    await render(
       <MemoryRouter>
         <TodoView />
       </MemoryRouter>,
@@ -89,7 +106,7 @@ describe('TodoView', () => {
     expect(screen.queryByText('No outcomes yet.')).toBeNull();
   });
 
-  it('renders items and profile filters', () => {
+  it('renders items and profile filters', async () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
       items: [
@@ -126,7 +143,7 @@ describe('TodoView', () => {
       refresh: vi.fn(),
     });
 
-    render(
+    await render(
       <MemoryRouter>
         <TodoView />
       </MemoryRouter>,
@@ -138,7 +155,7 @@ describe('TodoView', () => {
     expect(screen.getByText('work')).toBeTruthy();
   });
 
-  it('retains legacy profile filtering when workspace records are unavailable', () => {
+  it('retains legacy profile filtering when workspace records are unavailable', async () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
       items: [
@@ -174,7 +191,7 @@ describe('TodoView', () => {
       refresh: vi.fn(),
     });
 
-    const { container } = render(
+    const { container } = await render(
       <MemoryRouter>
         <TodoView />
       </MemoryRouter>,
@@ -187,7 +204,7 @@ describe('TodoView', () => {
     expect(mockUseTodoData).toHaveBeenLastCalledWith('centaur');
   });
 
-  it('navigates to detail view on item tap', () => {
+  it('navigates to detail view on item tap', async () => {
     const item = {
       id: 'abc',
       summary: 'Fix bug',
@@ -224,7 +241,7 @@ describe('TodoView', () => {
       refresh: vi.fn(),
     });
 
-    const { container } = render(
+    const { container } = await render(
       <MemoryRouter>
         <TodoView />
       </MemoryRouter>,
@@ -240,7 +257,7 @@ describe('TodoView', () => {
     });
   });
 
-  it('presents Telos outcomes as one clear heading and leaves branding to the shell', () => {
+  it('presents Telos outcomes as one clear heading and leaves branding to the shell', async () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
       items: [],
@@ -251,7 +268,7 @@ describe('TodoView', () => {
       refresh: vi.fn(),
     });
 
-    const { container } = render(
+    const { container } = await render(
       <MemoryRouter>
         <TodoView />
       </MemoryRouter>,
@@ -262,7 +279,7 @@ describe('TodoView', () => {
     expect(container.querySelector('.mitzo-logo')).toBeNull();
   });
 
-  it('searches outcome text and context', () => {
+  it('searches outcome text and context', async () => {
     const makeItem = (id: string, summary: string, intent: string, path: string) => ({
       id,
       summary,
@@ -302,7 +319,7 @@ describe('TodoView', () => {
       create: vi.fn(),
       refresh: vi.fn(),
     });
-    render(
+    await render(
       <MemoryRouter>
         <TodoView />
       </MemoryRouter>,
@@ -316,7 +333,7 @@ describe('TodoView', () => {
     expect(screen.queryByText('Billing')).toBeNull();
   });
 
-  it('searches every context and link field', () => {
+  it('searches every context and link field', async () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
       error: null,
@@ -361,7 +378,7 @@ describe('TodoView', () => {
       create: vi.fn(),
       refresh: vi.fn(),
     });
-    render(
+    await render(
       <MemoryRouter>
         <TodoView />
       </MemoryRouter>,
@@ -399,7 +416,7 @@ describe('TodoView', () => {
       createOutcome,
       refresh: vi.fn(),
     });
-    render(
+    await render(
       <MemoryRouter>
         <TodoCreateForm
           profiles={['work']}
@@ -440,7 +457,7 @@ describe('TodoView', () => {
   });
 });
 
-it('preserves the approved grouping and urgency order when numeric priorities differ', () => {
+it('preserves the approved grouping and urgency order when numeric priorities differ', async () => {
   const makeItem = (id: string, priority: number, starred: boolean, urgency: number) => ({
     id,
     summary: id,
@@ -481,7 +498,7 @@ it('preserves the approved grouping and urgency order when numeric priorities di
     create: vi.fn(),
     refresh: vi.fn(),
   });
-  const { container } = render(
+  const { container } = await render(
     <MemoryRouter>
       <TodoView />
     </MemoryRouter>,
