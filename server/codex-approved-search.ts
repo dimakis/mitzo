@@ -5,7 +5,7 @@ import {
   CodexTransportError,
   type CodexLifecycleTransport,
 } from './codex-app-server-client.js';
-import { codexRuntimeOverrides } from './codex-runtime-policy.js';
+import { codexRuntimeOverrides, codexSearchToolConfig } from './codex-runtime-policy.js';
 import { SEARCH_INSTRUCTIONS } from './web-search-adapters.js';
 import { WebAccessError } from './request-web-access.js';
 import { webSearchFailure } from './web-search-errors.js';
@@ -142,14 +142,7 @@ export async function searchCodex(
       ),
       ...codexRuntimeOverrides(configuration.config, options.workspaceId),
       web_search: 'live',
-      // Responses-Lite/code-mode-only models reach standalone web.run through
-      // this dispatcher. Disabling it removes their only usable search tool.
-      'features.code_mode_host': true,
-      // The inspected OpenShell route is a custom Codex provider, so Codex does
-      // not infer standalone-search support as it does for built-in OpenAI.
-      ...(options.modelProvider === 'openshell'
-        ? { 'model_providers.openshell.supports_standalone_web_search': true }
-        : {}),
+      ...codexSearchToolConfig(options.modelProvider),
       ...(options.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
     };
     phase = 'thread could not be started';

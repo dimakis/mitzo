@@ -1,5 +1,49 @@
 # Request web access
 
+## Search capability regression, 21 October 2026
+
+The IBM-share conversation `070358bf-34ea-4faa-afb0-0c1546171311` recorded two
+approved native search failures on the selected Work OpenAI API route with
+`gpt-6.1-sol`. Read-only inspection of the two saved search-child transcripts
+showed no search calls: the child reported that live search was unavailable.
+This establishes a missing tool surface, rather than a provider outage or denied
+consent. Subsequent CNBC download-limit, Stooq HTTP 404 and Google Finance
+unsupported-device responses were separate website outcomes.
+
+Codex 0.160.0 marks this model family as Responses-Lite/code-mode-only. Hosted
+Responses tools are omitted for that path. Standalone `web.run` therefore needs
+the code-mode dispatcher and, on Mitzo's custom `openshell` provider, an explicit
+`supports_standalone_web_search` declaration. The separate approved-search
+adapter disabled the dispatcher and the provider did not declare support.
+Shared `codexSearchToolConfig` now supplies both for approved search children and
+consented main-thread search. Disabled main-thread consent remains disabled;
+search children still require their independent exact-query approval and verify
+the selected route. No account/model substitution or automatic retry is added.
+
+`codex-approved-search.offline.test.ts` launches the exact pinned binary with a
+disposable HOME/CODEX_HOME, dummy credentials, and a loopback fake provider. It
+inspects the actual model request for `web.run` and the absence of executable
+shell tools. The regression failed before the configuration fix and passed after
+it. CI runs this contract with the matching code-mode helper. It verifies tool
+exposure, not acceptance by a live search endpoint. Unit tests retain successful
+receipts, cancellation, account verification, failed turns and fixed safe error
+reasons. A missing receipt now tells the parent to inspect runtime capability and
+avoid repeating the same request blindly.
+
+Agent guidance starts with search for current facts and source discovery. A known
+public HTTPS URL can be fetched in one approval/read call; `request_access` is an
+optional repeated-origin grant or the required route for HTTP/private/custom-port
+access. A grant, login wall, JavaScript challenge or unsupported-device page is
+not evidence of successful source retrieval. Quote research must establish the
+source timestamp and currency before calculating. Third-party HTTP failures still
+require a usable alternative source; the adapter does not manufacture quote data.
+
+This evidence uses offline providers and synthetic website responses. No real
+model calls, staging operations, production mutation or deployment were performed.
+Activation requires a separately authorized production deployment. Any later live
+acceptance needs a separately selected target and explicit supported Luna account
+and model.
+
 ## Main-thread Codex research
 
 Ordinary Codex chats can use native provider-hosted web search in their own thread
@@ -94,16 +138,16 @@ The user receives the exact origin, resolved destination addresses and a 15-minu
 
 Each read resolves and pins the destination again. An unapproved address stops the read and requires renewed access. A redirect to another origin pauses the current tool call and presents an explicit destination approval with that origin and its resolved addresses. Approval continues the read under the destination grant; it never widens the source grant. The original grant must remain valid throughout the read, including during destination approval. Denial, revocation, expiry, account/model changes or cancellation stop continuation. Redirect chains are bounded to three destination approvals. Pending name resolution and reads cancel with the session. Reads accept bounded text responses only. Grants are held by the live session, are not shared between accounts, and disappear when the live session is replaced or the process restarts; reconnecting a transport to the same live session does not expand them. To revoke an origin, call the same tool with `operation: "revoke_access"`, the URL and a reason.
 
-| Route                           | Search execution                                                                                                                                                                                                                                        |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ChatGPT/Codex host or OpenShell | A separate search-only thread through the same bound transport and verified account. Parent consent/thread configuration stays unchanged. Native execution, inherited MCPs, and host tools are disabled. A completed native search receipt is required. |
-| OpenAI API                      | One Responses request with `web_search` selected, the explicit key/model, `store: false`, and source citations.                                                                                                                                         |
-| Gemini/Vertex                   | One search-only `generateContent` request with `googleSearch`, the explicit project/region/token/model, grounding sources, and search suggestions. Grounding is kept separate from function calls.                                                      |
-| Claude SDK                      | A separate request with the same account environment and selected model, only `WebSearch`, no project settings, no persistent session, and a bounded turn count.                                                                                        |
+| Route                           | Search execution                                                                                                                                                                                                                                                                                                |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ChatGPT/Codex host or OpenShell | A separate search-only thread through the same bound transport and verified account. Parent consent/thread configuration stays unchanged. Native shell, inherited MCPs, and host tools are disabled; the code-mode dispatcher keeps standalone search reachable. A completed native search receipt is required. |
+| OpenAI API                      | One Responses request with `web_search` selected, the explicit key/model, `store: false`, and source citations.                                                                                                                                                                                                 |
+| Gemini/Vertex                   | One search-only `generateContent` request with `googleSearch`, the explicit project/region/token/model, grounding sources, and search suggestions. Grounding is kept separate from function calls.                                                                                                              |
+| Claude SDK                      | A separate request with the same account environment and selected model, only `WebSearch`, no project settings, no persistent session, and a bounded turn count.                                                                                                                                                |
 
 Google grounding and its unchanged search suggestion HTML appear together outside collapsed tool groups. The suggestion iframe permits links to open a browser, but cannot run scripts or share the application's origin. Other search results include clickable source links for the agent to cite.
 
-Without a session origin grant, `fetch` requests retain the credential-free HTTPS GET flow to one public origin. It uses no authentication, cookies, proxy configuration, or pooled sockets. Every DNS answer must be public under the reviewed IANA address policy; the selected address and family are pinned to the TLS connection. Certificate verification is required. Same-origin redirects are rechecked, with a three-redirect limit. Another origin needs another request. Reads expire after 20 seconds and accept at most 2 MiB of uncompressed text/HTML/JSON/XML as a transport resource guard. HTML is returned as inert readable text with source links; scripts, styles and navigation markup are omitted. Readable article text has no separate truncation threshold. Relative destinations honor the first valid HTML base URL. Repeated destinations are deduplicated; generated URL expansion stays proportional to the input, using compact URL references and a stated base when needed. XHTML and other XML retain their original source and XML semantics. The Symposium Vertex host bus and MCP reader allow 32 MiB encoded replies to cover the 2 MiB download, readable link metadata and JSON escaping. Existing model-request, setup, filesystem and claim guards remain unchanged. They do not execute JavaScript, sign in, submit forms, fetch private networks, or grant shell networking. An HTTP refusal is reported separately from denied permission.
+Without a session origin grant, `fetch` requests retain the credential-free HTTPS GET flow to one public origin. It uses no authentication, cookies, proxy configuration, or pooled sockets. Every DNS answer must be public under the reviewed IANA address policy; the selected address and family are pinned to the TLS connection. Certificate verification is required. Same-origin redirects are rechecked, with a three-redirect limit. Another origin needs another request. Reads expire after 20 seconds and accept at most 8 MiB of uncompressed text/HTML/JSON/XML/CSV as a transport resource guard. Extracted content has a separate 2 MiB safety bound so script-heavy pages can be reduced to small useful sources without widening model/tool replies. HTML is returned as inert readable text with source links; scripts, styles and navigation markup are omitted. Neither bound silently truncates source text: exceeding it returns a fixed error directing the agent to a smaller source URL or web search. Relative destinations honor the first valid HTML base URL. Repeated destinations are deduplicated; generated URL expansion stays proportional to the input, using compact URL references and a stated base when needed. XHTML and other XML retain their original source and XML semantics. The Symposium Vertex host bus and MCP reader allow 32 MiB encoded replies to cover the bounded readable output, source metadata and JSON escaping. Existing model-request, setup, filesystem and claim guards remain unchanged. They do not execute JavaScript, sign in, submit forms, fetch private networks, or grant shell networking. An HTTP refusal is reported separately from denied permission.
 
 Ordinary chats use the shared session approval flow. Admitted Symposium seats also expose `RequestWebAccess` with `request_access`, `fetch` and `revoke_access` (provider-hosted search is not exposed by this seat surface). Their approval cards appear in the Symposium conversation and show the selected seat account/model, URL, exact origin and resolved addresses. An authenticated user approves the immutable request hash; cancellation, a changed attempt/route, expiry or revocation prevents reads. Seat grants last at most 15 minutes and end with the executing claim. At most three website approval cards can be outstanding per seat; orphaned pending approvals cannot be restored after owner restart.
 
@@ -144,7 +188,7 @@ older generic results cannot establish which provider failure occurred.
 
 Native Codex (host/OpenShell/Personal) searches use a separate adapter from direct OpenAI API searches. The pinned 0.160.0 [WebSearchItem](https://github.com/openai/codex/blob/rust-v0.160.0/codex-rs/app-server-protocol/schema/typescript/WebSearchItem.ts) has `id`, `query`, `action` and nullable `results`, with no `status` field. A matching `item/completed` notification supplies completion evidence; Mitzo still requires a completed matching turn and an answer with source URLs. Explicit failure status/error extensions are rejected. The adapter has no application duration cutoff and closes on caller cancellation. Initialization, account verification, configuration, route changes, turn failure, missing receipts and missing sources return fixed safe reasons; RPC/provider exception text is never exposed. No account/model fallback or automatic retry occurs.
 
-The 14 October OpenShell conversation `a1c5a15f-5dd6-4b86-9e71-992808086486` recorded two approved search failures at 16:57 UTC and a GitHub read failing at the old 128 KiB limit. Its generic historical errors do not establish the native provider outcome. The configured production source `c125be291ffa` predates the accepted page/API fix in PR #931; merging a fix does not activate it in an existing release. Verification must distinguish accepted source, deployed source and actual runtime adoption. Canonical staging must pass its custody check before live acceptance, and any model test must use an explicitly selected supported Luna account/model. Native protocol fixtures now reproduce the status mismatch through the shared approval boundary.
+The 14 October OpenShell conversation `a1c5a15f-5dd6-4b86-9e71-992808086486` recorded two approved search failures at 16:57 UTC and a GitHub read failing at the old 128 KiB limit. Its generic historical errors do not establish the native provider outcome. The configured production source `c125be291ffa` predates the accepted page/API fix in PR #931; merging a fix does not activate it in an existing release. Verification must distinguish accepted source, deployed source and actual runtime adoption. Canonical staging is stood down; any live acceptance requires a separately selected and authorized target, and any model test must use an explicitly selected supported Luna account/model. Native protocol fixtures now reproduce the status mismatch through the shared approval boundary.
 
 The API, Gemini/Vertex, native Codex and Claude SDK adapters share a safe provider-error boundary. Gemini distinguishes HTTP failures, output exhaustion and missing grounding receipts while retaining Google Search Suggestions. Claude SDK result validation checks both subtype and `is_error` plus terminal completion; a success subtype with a failed final API request is not usable search output. Every adapter retains the exact selected model and credentials. Completed results are checked against the current permission/account/runtime authority before publication. Public and granted website reads recheck the original runtime owner after pending network I/O, as well as session/grant identity; retiring an SDK query or withdrawing its original authority with unchanged registry metadata withholds the page. Both website-read paths reject empty HTML shells as unreadable instead of recording successful source retrieval.
 
