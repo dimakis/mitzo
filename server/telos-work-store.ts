@@ -18,6 +18,7 @@ import {
 } from '@mitzo/protocol';
 import Database from 'better-sqlite3';
 import { TelosWorkControls } from './telos-work-controls.js';
+import { TelosWorkLifecycle } from './telos-work-lifecycle.js';
 import type { TelosWorkControlScope } from '@mitzo/protocol';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -190,6 +191,30 @@ export class TelosWorkStore {
       this.policy.ordinaryConversation,
     );
   }
+  private lifecycle() {
+    return new TelosWorkLifecycle(this.db, (id) => this.snapshot(id), this.controls());
+  }
+  readLifecycle(itemId: string, actor: TelosWorkActor) {
+    return this.lifecycle().read(itemId, actor);
+  }
+  listLifecycle(view: unknown, actor: TelosWorkActor) {
+    return this.lifecycle().list(view, actor);
+  }
+  /** Internal read projection for the original, already-authenticated canonical
+   * list only. It supplies visibility labels, never lifecycle/operator authority. */
+  lifecycleVisibilityForCanonicalList(itemIds: readonly string[]) {
+    return this.lifecycle().visibilityForCanonicalList(itemIds);
+  }
+  executeLifecycle(
+    raw: unknown,
+    actor: TelosWorkActor,
+    assertQuiescent?: (itemId: string) => void,
+  ) {
+    return this.lifecycle().execute(raw, actor, assertQuiescent);
+  }
+  assertLifecycleActive(itemId: string) {
+    this.lifecycle().assertActive(itemId);
+  }
   controlInbox(itemId: string, actor: TelosWorkActor) {
     return this.controls().inbox(itemId, actor);
   }
@@ -206,6 +231,7 @@ export class TelosWorkStore {
     return this.controls().release(raw, actor);
   }
   assertControlAction(itemId: string, scope: TelosWorkControlScope, mainCommit?: string) {
+    this.assertLifecycleActive(itemId);
     this.controls().assertAction(itemId, scope, mainCommit);
   }
   enforceControlAction(
@@ -214,6 +240,7 @@ export class TelosWorkStore {
     conversationId: string,
     mainCommit?: string,
   ) {
+    this.assertLifecycleActive(itemId);
     this.controls().enforceAction(itemId, scope, conversationId, mainCommit);
   }
   recordControlAppliedForHost(
@@ -587,6 +614,8 @@ export class TelosWorkStore {
             conflict('Role setup identity reused with different input or operator');
           return { rejection: rejected.reason };
         }
+        this.assertLifecycleActive(input.itemId);
+        if (input.role === 'worker') this.assertControlAction(input.itemId, 'new_worker_dispatch');
         const reason =
           this.snapshot(input.itemId).revision !== input.expectedRevision
             ? 'work_revision'
@@ -828,7 +857,12 @@ export class TelosWorkStore {
     // Presentation-only history does not revise work tokens or rewrite cached receipts.
     return TelosWorkViewSchema.parse({
       ...facts,
-      revision: hash([row, facts]),
+      revision: (() => {
+        const lifecycle = this.lifecycle()
+          .revisionFacts(itemId)
+          .filter((entry) => entry.state.generation > 0);
+        return hash(lifecycle.length ? [row, facts, lifecycle] : [row, facts]);
+      })(),
       assignmentHistory: this.assignmentReadHistory(itemId, links, assignments),
     });
   }
@@ -1129,6 +1163,9 @@ export class TelosWorkStore {
         }
         if (this.snapshot(input.itemId).revision !== input.expectedRevision)
           conflict('Work revision conflict; read current work before retrying');
+        this.assertLifecycleActive(input.itemId);
+        if (input.operation === 'reparent' && input.parentId !== null)
+          this.assertLifecycleActive(input.parentId);
         // Host-only denial port, never command JSON or a grant. Exact completed
         // receipts remain recoverable before authority for a new apply is read.
         assertBeforeApply?.();
@@ -1445,6 +1482,7 @@ export class TelosWorkStore {
       )
       .get(intent.attemptId);
     if (!receipt) {
+      this.assertLifecycleActive(input.childItemId);
       this.assertControlAction(input.leadItemId, 'new_worker_dispatch');
       for (const pin of intent.recordRevisions) {
         if (hash(this.item(pin.itemId)) !== pin.sha256)
@@ -1842,6 +1880,7 @@ export class TelosWorkStore {
     this.db.transaction(() => {
       const attempt = this.executionTaskBinding(executionTaskId, workerConversationId, true);
       if (!attempt) throw new TelosWorkError('unauthorized', 'Exact delegated worker required');
+      this.assertLifecycleActive(attempt.childItemId);
       const row = this.db
         .prepare('SELECT intent FROM telos_work_delegation_requests WHERE attempt_id=? LIMIT 1')
         .get(attempt.attemptId) as { intent: string } | undefined;

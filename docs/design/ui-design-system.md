@@ -1671,6 +1671,15 @@ large text, keyboard activation and reduced motion. Inspected captures show
 [desktop activity](assets/research-activity-desktop-light.png). These isolated
 renders use intercepted traffic and no backend, credentials or model calls.
 
+Operator-origin pause receipts use the existing control card, stage labels and
+recorded evidence. They explicitly say “Requested by operator”; null coordinator
+conversation and priority identities do not become placeholder names or record
+requests. These cards retain actual requested/acknowledged/applied/released stages
+and publication revalidation warnings. Their root-wide Resume action belongs to
+the lifecycle controls; an individual card does not expose the coordinator-only
+“Release held leads” action for an operator pause. Existing coordinator cards keep
+their priority, conversation and release behavior.
+
 ## Telos outcomes and item workspace (S7)
 
 The approved r1 Telos tree remains pinned by artifact identity and SHA-256 in

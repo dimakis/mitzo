@@ -18,6 +18,7 @@ import * as commands from '../protected-sdk-command.js';
 import { EventStore } from '../event-store.js';
 import type { TelosOutcomeCreation, TelosOutcomeProposal } from '@mitzo/protocol';
 import { randomUUID } from 'node:crypto';
+import { createTelosCanonicalData } from './fixtures/telos-canonical-advisor.js';
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
 const TODO_SCRIPT = join(TEST_REPO, 'command_center', 'todo_api.py');
@@ -368,7 +369,19 @@ describe('todo routes', () => {
 });
 
 describe('todo list execution', () => {
+  const canonicalFixtures: ReturnType<typeof createTelosCanonicalData>[] = [];
+  const canonicalFixture = () => {
+    const f = createTelosCanonicalData();
+    canonicalFixtures.push(f);
+    vi.stubEnv('TELOS_DB_PATH', f.dbPath);
+    return f;
+  };
   afterEach(() => {
+    canonicalFixtures
+      .splice(0)
+      .reverse()
+      .forEach((f) => f.close());
+    vi.unstubAllEnvs();
     try {
       unlinkSync(TODO_SCRIPT);
     } catch {
@@ -377,6 +390,12 @@ describe('todo list execution', () => {
   });
 
   it('GET /api/todos — accepts output larger than the Node default buffer', async () => {
+    const fixture = canonicalFixture();
+    fixture.db
+      .prepare(
+        `INSERT INTO items(id,summary,profile,first_seen,last_seen,created_at,updated_at) VALUES('large-item','Large item','work',?,?,?,?)`,
+      )
+      .run(fixture.stamp, fixture.stamp, fixture.stamp, fixture.stamp);
     const largeOutputScript = `
 import json
 item = {
@@ -399,6 +418,111 @@ print(json.dumps({"profiles": ["work"], "items": [item]}))
     expect(res.body.profiles).toEqual(['work']);
     expect(res.body.items).toHaveLength(1);
     expect(res.body.items[0].summary).toHaveLength(1100000);
+  });
+
+  it('GET /api/todos — validates lifecycle views and keeps archive/trash behind interactive authority', async () => {
+    writeFileSync(TODO_SCRIPT, 'raise RuntimeError("must not execute")\n');
+    for (const view of ['all', ['active', 'trash']]) {
+      const response = await request(app)
+        .get('/api/todos')
+        .query({ view })
+        .set('Cookie', authCookie);
+      expect(response.status).toBe(400);
+      expect(response.body.code).toBe('invalid');
+    }
+    for (const view of ['archive', 'trash']) {
+      const response = await request(app)
+        .get('/api/todos')
+        .query({ view })
+        .set('X-Internal-Token', INTERNAL_TOKEN);
+      expect(response.status).toBe(403);
+      expect(response.body.error).toContain('Interactive operator');
+    }
+  });
+
+  it('GET /api/todos — composes actual selected canonical database lifecycle, hierarchy and internal active reads', async () => {
+    const f = canonicalFixture();
+    f.db
+      .prepare(
+        `INSERT INTO items(id,parent_id,summary,profile,first_seen,last_seen,created_at,updated_at)
+      VALUES('list-child','studio','Child work','manual',?,?,?,?)`,
+      )
+      .run(f.stamp, f.stamp, f.stamp, f.stamp);
+    const child = {
+      id: 'list-child',
+      parentId: 'studio',
+      summary: 'Child work',
+      profile: 'manual',
+      urgency: 0.3,
+      status: 'active',
+      ageDays: 5,
+      sources: [],
+      contextHints: {},
+      priority: 3,
+      children: [],
+      childCount: 0,
+      completedChildCount: 0,
+    };
+    const canonical = {
+      profiles: ['manual'],
+      items: [
+        {
+          ...child,
+          id: 'studio',
+          parentId: null,
+          summary: 'Home studio',
+          priority: 8,
+          children: [child],
+          childCount: 1,
+        },
+      ],
+    };
+    writeFileSync(
+      TODO_SCRIPT,
+      `import os,sys\nassert os.environ['TELOS_DB_PATH'] == ${JSON.stringify(f.dbPath)}\nassert sys.argv[1:] == ['--list']\nprint(${JSON.stringify(JSON.stringify(canonical))})\n`,
+    );
+    const list = async (view?: string, internal = false) => {
+      const read = request(app).get('/api/todos');
+      if (view) read.query({ view });
+      const result = await read.set(
+        internal ? 'X-Internal-Token' : 'Cookie',
+        internal ? INTERNAL_TOKEN : authCookie,
+      );
+      expect(result.status, JSON.stringify(result.body)).toBe(200);
+      return result.body;
+    };
+    const operation = async (operation: 'archive' | 'trash' | 'restore' | 'unarchive') => {
+      const current = await request(app)
+        .get('/api/telos/work/items/studio/lifecycle')
+        .set('Cookie', authCookie);
+      expect(current.status).toBe(200);
+      const result = await request(app)
+        .post('/api/telos/work/lifecycle')
+        .set('Cookie', authCookie)
+        .send({
+          itemId: 'studio',
+          requestId: randomUUID(),
+          expectedRevision: current.body.revision,
+          operation,
+        });
+      expect(result.status, JSON.stringify(result.body)).toBe(200);
+    };
+    const active = await list(undefined, true);
+    expect(active.items[0].priority).toBe(8);
+    expect(active.items[0].children[0].id).toBe('list-child');
+    await operation('archive');
+    expect((await list(undefined, true)).items).toEqual([]);
+    const archive = await list('archive');
+    expect(archive.items[0].id).toBe('studio');
+    expect(archive.items[0].children[0].priority).toBe(3);
+    await operation('trash');
+    expect((await list('archive')).items).toEqual([]);
+    expect((await list('trash')).items[0].children[0].id).toBe('list-child');
+    await operation('restore');
+    expect((await list()).items).toEqual([]);
+    expect((await list('archive')).items[0].id).toBe('studio');
+    await operation('unarchive');
+    expect((await list()).items[0].children[0].id).toBe('list-child');
   });
 
   it('GET /api/todos — reports execution failures instead of an empty list', async () => {

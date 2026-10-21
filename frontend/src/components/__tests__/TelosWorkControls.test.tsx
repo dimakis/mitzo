@@ -2,7 +2,11 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { TelosWorkApiClient } from '@mitzo/client';
-import { TelosWorkViewSchema, type TelosWorkControlView } from '@mitzo/protocol';
+import {
+  TelosWorkViewSchema,
+  TelosWorkControlViewSchema,
+  type TelosWorkControlView,
+} from '@mitzo/protocol';
 import { createTelosWorkFixtures } from '../../test-utils/telos-work-fixtures';
 import { TelosWorkControls } from '../TelosWorkControls';
 import { TelosChatFrame } from '../TelosChatFrame';
@@ -307,4 +311,62 @@ it('requests the exact attached scope when an unrelated Job record is unavailabl
       scope: 'publication',
     }),
   );
+});
+
+it.each(['requested', 'acknowledged', 'applied', 'released'] as const)(
+  'renders an actual operator-origin %s receipt without inventing priority or issuing a null record read',
+  async (stage) => {
+    const operator = TelosWorkControlViewSchema.parse({
+      ...receipt(stage, 'publication'),
+      origin: 'operator_pause',
+      coordinatorConversationId: null,
+      priorityItemId: null,
+    });
+    const control = vi.spyOn(TelosWorkApiClient.prototype, 'control').mockResolvedValue([operator]);
+    render(<TelosWorkControls data={data} conversationId="coordinator-chat" />);
+    const card = await screen.findByRole('article', {
+      name: 'Operator pause receipt: Publishing to shared main',
+    });
+    expect(card.textContent).toContain('Requested by operator');
+    expect(card.textContent).not.toContain('Highest priority');
+    expect(card.textContent).not.toContain('Work title unavailable');
+    expect(TelosWorkApiClient.prototype.readRecord).not.toHaveBeenCalledWith(
+      null,
+      expect.anything(),
+    );
+    expect(TelosWorkApiClient.prototype.readRecord).not.toHaveBeenCalledWith(
+      'null',
+      expect.anything(),
+    );
+    const titles = {
+      requested: 'Hold requested · acknowledgements pending',
+      acknowledged: 'Acknowledged · application pending',
+      applied: 'Hold applied',
+      released: 'Hold released · revalidation required',
+    };
+    expect(screen.getByRole('heading', { name: titles[stage] })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Release held leads' })).toBeNull();
+    expect(control.mock.calls.map(([command]) => command.operation)).toEqual(['inbox']);
+    if (stage === 'requested') expect(card.textContent).not.toContain('Hold applied');
+    if (stage === 'released')
+      expect(card.textContent).toContain('Current-main revalidation is required');
+  },
+);
+
+it('does not send a null priority identity to the real canonical record owner for an operator pause', async () => {
+  const operator = TelosWorkControlViewSchema.parse({
+    ...receipt(),
+    origin: 'operator_pause',
+    coordinatorConversationId: null,
+    priorityItemId: null,
+  });
+  vi.spyOn(TelosWorkApiClient.prototype, 'control').mockResolvedValue([operator]);
+  render(<TelosWorkControls data={data} conversationId="coordinator-chat" />);
+  await screen.findByText('Hold requested · acknowledgements pending');
+  await waitFor(() => expect(TelosWorkApiClient.prototype.readRecord).toHaveBeenCalled());
+  expect(
+    vi
+      .mocked(TelosWorkApiClient.prototype.readRecord)
+      .mock.calls.every(([id]) => typeof id === 'string' && id !== 'null'),
+  ).toBe(true);
 });

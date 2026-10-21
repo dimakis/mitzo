@@ -129,6 +129,8 @@ import { OPEN_SHELL_ARTIFACT_HELPER } from './openshell-artifact-reader.js';
 import { createTelosArtifactRouter, telosArtifactSaveJson } from './telos-artifact-routes.js';
 import { createTelosItemRouter } from './telos-item-routes.js';
 import { createTelosWorkRouter, type TelosWorkRoleRequest } from './telos-work-routes.js';
+import { projectCanonicalTelosLifecycleList } from './telos-lifecycle-list.js';
+import { TelosWorkLifecycleListSchema } from '@mitzo/protocol';
 import { createTelosWorkRoleHost } from './telos-work-role-host.js';
 import { createTelosWorkDelegationHost } from './telos-work-delegation-host.js';
 import type { TelosWorkDelegationScope } from './telos-work-delegation.js';
@@ -4990,42 +4992,72 @@ const TODO_TIMEOUT_MS = 30_000;
 // Keep the subprocess bounded while leaving headroom above the current production payload.
 const TODO_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
-app.get('/api/todos', async (req, res) => {
-  const profile = req.query.profile as string | undefined;
-  const refresh = req.query.refresh === 'true';
+app.get(
+  '/api/todos',
+  (req, res, next) => {
+    const view = TelosWorkLifecycleListSchema.safeParse(req.query.view ?? 'active');
+    if (!view.success)
+      return res.status(400).json({ code: 'invalid', error: 'Invalid lifecycle view' });
+    return view.data === 'active' ? next() : operatorAuthMiddleware(req, res, next);
+  },
+  async (req, res) => {
+    const profile = req.query.profile as string | undefined;
+    const refresh = req.query.refresh === 'true';
+    const databasePath = telosDatabasePath();
+    const view = TelosWorkLifecycleListSchema.parse(req.query.view ?? 'active');
 
-  if (!existsSync(TODO_SCRIPT)) {
-    log.warn('todo script not found', { path: TODO_SCRIPT });
-    res.status(503).json({ error: 'Todo service unavailable' });
-    return;
-  }
-
-  try {
-    const args = [TODO_SCRIPT];
-    if (refresh && profile) {
-      args.push('--refresh', '--profile', profile);
-    } else {
-      args.push('--list');
-      if (profile) args.push('--profile', profile);
-    }
-
-    const { stdout } = await execFileAsync('python3', args, {
-      timeout: TODO_TIMEOUT_MS,
-      maxBuffer: TODO_MAX_BUFFER_BYTES,
-    });
-    const parsed = TodoListResponse.safeParse(JSON.parse(stdout));
-    if (!parsed.success) {
-      log.warn('todo API returned unexpected shape', { error: parsed.error.message });
-      res.status(502).json({ error: 'Todo service unavailable' });
+    if (!existsSync(TODO_SCRIPT)) {
+      log.warn('todo script not found', { path: TODO_SCRIPT });
+      res.status(503).json({ error: 'Todo service unavailable' });
       return;
     }
-    res.json(parsed.data);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    log.warn('todo API failed', { error: message });
-    res.status(502).json({ error: 'Todo service unavailable' });
-  }
-});
+
+    try {
+      const args = [TODO_SCRIPT];
+      if (refresh && profile) {
+        args.push('--refresh', '--profile', profile);
+      } else {
+        args.push('--list');
+        if (profile) args.push('--profile', profile);
+      }
+
+      const { stdout } = await execFileAsync('python3', args, {
+        timeout: TODO_TIMEOUT_MS,
+        maxBuffer: TODO_MAX_BUFFER_BYTES,
+        env: { ...process.env, TELOS_DB_PATH: databasePath },
+      });
+      const parsed = TodoListResponse.safeParse(JSON.parse(stdout));
+      if (!parsed.success) {
+        log.warn('todo API returned unexpected shape', { error: parsed.error.message });
+        res.status(502).json({ error: 'Todo service unavailable' });
+        return;
+      }
+      res.json(
+        projectCanonicalTelosLifecycleList({
+          canonical: parsed.data,
+          databasePath,
+          view,
+          operator: res.locals.authSession as AuthSession | undefined,
+          policy: {
+            ordinaryConversation: (id) =>
+              isAvailableTelosWorkConversation(eventStore.getSession(id)),
+            sourceConversation: (id) =>
+              isAvailableTelosSourceConversation(eventStore.getSession(id)),
+          },
+        }),
+      );
+    } catch (err: unknown) {
+      if (err instanceof TelosWorkError) {
+        const status = { invalid: 400, unauthorized: 403, conflict: 409, not_found: 404 }[err.code];
+        res.status(status).json({ code: err.code, error: err.message });
+        return;
+      }
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      log.warn('todo API failed', { error: message });
+      res.status(502).json({ error: 'Todo service unavailable' });
+    }
+  },
+);
 
 app.post('/api/todos', async (req, res) => {
   const body = TodoCreateBody.safeParse(req.body);

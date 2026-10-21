@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.473-telos-ui-corrections';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.476-telos-lifecycle-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,17 +23,22 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../telos-work-lifecycle.ts': 'a0b7a8fc6fbeec80c9839fb3ad0736a4275e6539fca54317063d95ce384fe75b',
+  '../telos-lifecycle-tree.ts': '4ab02f364793bdfe4dfb64ac66c152d390584c1ce6cd7630cab3af76ed4f6215',
+  '../telos-lifecycle-list.ts': 'a385bdc60d05fdab5044613dcb0d54116a7258ee6015b1cca5370c9a85b745e0',
+  '../../packages/protocol/src/telos-work-lifecycle.ts':
+    '67db5a5abc859f37eee84a9b3213a41afe4825ddd32f57977492ee67ebb38af6',
   '../../packages/protocol/src/agent-communication-store.ts':
     '7a611a0953117b064f89e966c5520dc70598e6856e707ce735e8419acfbb4753',
   '../../packages/protocol/src/agent-communication.ts':
     '0db8d30742b3ab664708b6a91b5eba2b033979c37c729cad77e598e0418c2409',
   '../../packages/protocol/src/telos-work-controls.ts':
-    '5ed0945a92524675e6be14c772cc44949842e3d60430fa7f40cca479cead87be',
+    '1bb5a4acaed5acbe070830a87251929961aaa64e3ec149abd21502e32b0c41b4',
   '../agent-communication-tools.ts':
     '13fdcf3e970907991afec89547d29746ce3d73cae424448993d89f8ae709b0b7',
   '../telos-work-control-tools.ts':
     '716f889418970118c872d70c8718f4d268077fedc299f002b72446c205ef3b7d',
-  '../telos-work-controls.ts': '2fc2b2894eca7ab3457734acdc44772bd6de406d3b322939a488e762f0c92c29',
+  '../telos-work-controls.ts': '684ebfd505612cd01074773b468bd11439909b85da8562ae2c167c0207bddf97',
   '../../frontend/src/components/ChatStatusMessage.css':
     '1d0b6c7958295038207dfb7d2bd310e0be2e897b25f81094569003bee210ee53',
   '../../frontend/src/components/ChatStatusMessage.tsx':
@@ -324,11 +330,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8747b800cf069cad636dc5ae6e92a347e55b59c9f01fe64af84587e047af1567',
   '../telos-work-conversation.ts':
     '6abc340f3236812d9e9875e8a60944590575d991e95ccaf3f2b61aff323c5175',
-  '../telos-work-routes.ts': '341ca2354c075caf18b79865d8cc520d3ac36284d9b47bfb216f90c651427677',
+  '../telos-work-routes.ts': '679ef85d0628f2f80a64382da976c806ba2559dda3e823aff074879b4081cac1',
   '../../packages/client/src/telos-work-api.ts':
     '3e51db24e9269fda0aaeaaf1087ff1b3a388692c98d463792941fdeff0761692',
-  '../telos-work-schema.ts': 'e9b33d372356ca81d1bbe558d9c3abbfd60dfc8b6123893b9304287076c97d45',
-  '../telos-work-store.ts': '67cd4bda85bbcf3b5ee7343a23743d6bffe1068cda2d12870b30204c02800e05',
+  '../telos-work-schema.ts': 'ab822eccef4a296d6ffb94045b1e21d20baabbd4a306c3677e1be9e3e46b995e',
+  '../telos-work-store.ts': '5f6f711df6292475d2a087bebdcb2edf33e87cfa7198bed272f80c991eb89373',
   '../../packages/protocol/src/telos-work-api.ts':
     'dfed9673113e8f532a253b57ea1696508e339bbfdd83ab98fb2e791a69daf27f',
   '../tool-input-error.ts': '3fa8bc111278d03dd33014cadc8535069c49a12ce636cbbc33126b76190bd3dd',
@@ -705,7 +711,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6be98645eb9b4467c30f5dacb3e8eee7a9c3f08cb6fc820edc872f789ef217c8',
   '../runtime-readiness.ts': 'ea27d8706c0ae6594b78b22436060eded2848b0cd9713e42fa51597928be3766',
   '../session-access.ts': 'feeeea5ffcf16bb1c4542191a74d5eebde2ea2dbcac7cf0e5315d05e2249b1dc',
-  '../app.ts': 'ac75d9b0ca808ea14c0f07f3ff6ff020bc9899d1b246cd900a386d4c93af3481',
+  '../app.ts': '873ebfa8a606b86a9bd7a67b06182a3bc1f840dc63cb1bca760dd037558eb498',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
@@ -929,7 +935,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '66b14b31ebae4889522bb259c0863a6e05da4cdf613cf372dea355640eb1f154',
+    'a649cd5e8e782c1e690dab55152b1fa49fd385fe54ad23898cff8892662a7827',
   '../../packages/protocol/src/telos-work.ts':
     '7597f5477d2cf377474f6b0f08ee69b2c6045e1e7ba89911cd281b5d9f2b0043',
   '../agent-context-authority.ts':
@@ -1228,7 +1234,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/TelosChatList.tsx':
     '488b027baa3f9fe8dd8ca6126966004ff2a560b1a8a06a570b685e476e93defe',
   '../../frontend/src/components/TelosWorkControls.tsx':
-    '6f1568aa0156c091bdc999d9384bdd03aeba17bafde40575294c92c5f29868dd',
+    '4caf0cc099bd2a29dcf0b6e3a6e17c55823e0e5765b738a5306c859686641d44',
   '../../frontend/src/hooks/useTelosChatDetails.ts':
     'f1b2e94eb37468ed215e2c4f9045f67c8d6acda4e8814c66d7938b38e51232d3',
   '../../frontend/src/hooks/useTelosChatRoute.ts':
