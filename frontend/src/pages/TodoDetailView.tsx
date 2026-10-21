@@ -1,3 +1,4 @@
+import { hasTelosLifecycleRecovery } from '../hooks/useTelosLifecycle';
 import { TelosItemLifecycle } from '../components/TelosItemLifecycle';
 import type { TelosWorkLifecycleView } from '@mitzo/protocol';
 import { readTelosCollectionView, telosCollectionPath } from '../lib/telos-collection-view';
@@ -114,10 +115,12 @@ export function TodoDetailView() {
     refresh: primary.refresh,
   };
   const record = primary.records.find((value) => value.itemId === id);
+  const recoveryPending = !!id && !record && !item && hasTelosLifecycleRecovery(id);
 
   useEffect(() => {
     if (
       !leaving.current &&
+      !recoveryPending &&
       !loading &&
       !refreshing &&
       !error &&
@@ -126,7 +129,7 @@ export function TodoDetailView() {
       !record
     )
       navigate('/todos', { replace: true });
-  }, [loading, refreshing, error, item, navigate, canonical.loading, record]);
+  }, [loading, refreshing, error, item, navigate, canonical.loading, record, recoveryPending]);
 
   if (record)
     return (
@@ -176,6 +179,33 @@ export function TodoDetailView() {
                 },
               });
             }}
+          />
+        </div>
+      </div>
+    );
+
+  if (recoveryPending && id)
+    return (
+      <div className="todo-detail-page telos-canonical-page">
+        <PageHeader title="Item recovery" onBack={handleBack} />
+        <div className="todo-detail-scroll">
+          <p>The item is unavailable. Its retained lifecycle request can still be reviewed.</p>
+          <TelosItemLifecycle
+            key={id}
+            itemId={id}
+            title={'Item ' + id}
+            kind={null}
+            refreshKey={canonical.refreshKey}
+            onCurrentState={onLifecycleCurrent}
+            onDeleted={handleBack}
+            onOpen={(itemId) =>
+              navigate(`/todos/${encodeURIComponent(itemId)}`, {
+                state: {
+                  ...appendTelosItemHistory(location.state, itemHistory(), id, undefined),
+                  item: undefined,
+                },
+              })
+            }
           />
         </div>
       </div>

@@ -2,7 +2,11 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import type { TelosWorkItem, TelosWorkLifecycleCommand } from '@mitzo/protocol';
+import type {
+  TelosWorkItem,
+  TelosWorkLifecycleCommand,
+  TelosWorkLifecycleReceipt,
+} from '@mitzo/protocol';
 import { TodoWorkspace } from '../TodoWorkspace';
 import { createTelosWorkFixtures } from '../../test-utils/telos-work-fixtures';
 import { createTelosLifecycleFixture } from '../../test-utils/telos-lifecycle-fixtures';
@@ -31,6 +35,8 @@ let lifecycle: ReturnType<typeof createTelosLifecycleFixture>;
 let canonicalUnavailable: boolean;
 let writes: TelosWorkLifecycleCommand[];
 let requests: string[];
+let loseDeletionReceipt: boolean;
+let deletionReceipt: TelosWorkLifecycleReceipt | null;
 function legacy(record: TelosWorkItem): TodoItem {
   const children = records.filter((row) => row.parentId === record.itemId).map(legacy);
   return {
@@ -119,6 +125,10 @@ beforeEach(() => {
   canonicalUnavailable = false;
   writes = [];
   requests = [];
+  loseDeletionReceipt = false;
+  deletionReceipt = null;
+  auth.id = 'fixture-operator';
+  auth.base = '';
   HTMLDialogElement.prototype.showModal = function () {
     this.setAttribute('open', '');
   };
@@ -148,13 +158,19 @@ beforeEach(() => {
       const command = JSON.parse(String(init.body)) as TelosWorkLifecycleCommand;
       writes.push(command);
       if (command.operation === 'delete_permanently') {
+        if (deletionReceipt) return Response.json(deletionReceipt);
         records = records.filter((record) => record.itemId !== command.itemId);
-        return Response.json({
+        deletionReceipt = {
           requestId: command.requestId,
           itemId: command.itemId,
           operation: command.operation,
           lifecycle: null,
-        });
+        };
+        if (loseDeletionReceipt) {
+          loseDeletionReceipt = false;
+          throw new TypeError('Receipt lost after committed deletion');
+        }
+        return Response.json(deletionReceipt);
       }
       const disposition =
         command.operation === 'archive'
@@ -174,12 +190,18 @@ beforeEach(() => {
       });
     }
     const match = url.pathname.match(/^\/api\/telos\/work\/items\/([^/]+)\/(record|lifecycle)$/);
-    if (match?.[2] === 'lifecycle') return Response.json({ ...lifecycle, itemId: match[1] });
+    if (match?.[2] === 'lifecycle')
+      return records.some((record) => record.itemId === match[1])
+        ? Response.json({ ...lifecycle, itemId: match[1] })
+        : Response.json({ code: 'not_found', error: 'Item no longer exists' }, { status: 404 });
     if (match?.[2] === 'record') {
       const record = records.find((row) => row.itemId === match[1]);
       return record && !canonicalUnavailable
         ? Response.json(record)
-        : Response.json({ error: 'Unavailable', code: 'fixture_unavailable' }, { status: 503 });
+        : Response.json(
+            { error: 'Unavailable', code: record ? 'fixture_unavailable' : 'not_found' },
+            { status: record ? 503 : 404 },
+          );
     }
     if (url.pathname === '/api/home/preferences')
       return Response.json({
@@ -286,4 +308,131 @@ it('keeps original-snapshot controls and Back available when canonical detail is
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
   await waitFor(() => expect(route()).toBe('/todos?view=archive'));
   expect(navState().opaque).toBe('original snapshot');
+});
+
+async function loseReceiptAndReloadContext(target: 'collection' | 'parent' | 'home') {
+  lifecycle = createTelosLifecycleFixture('running', 'trashed');
+  records = [records[0], { ...records[0], itemId: 'parent', summary: 'Retained parent' }];
+  loseDeletionReceipt = true;
+  const context = {
+    telosCollectionView: 'trash',
+    telosHistory: target === 'parent' ? ['parent'] : [],
+    opaque: { files: { returnPath: '/files?path=retained.md', artifactRevision: 3 } },
+    ...(target === 'home'
+      ? {
+          telosItemReturn: {
+            path: '/?view=Today#saved',
+            state: { homeQuery: 'Original home query' },
+          },
+        }
+      : {}),
+  };
+  mount(target === 'collection' ? '/todos?view=trash' : '/todos/selected', context);
+  if (target === 'collection')
+    fireEvent.click(await screen.findByRole('button', { name: 'Original retained outcome' }));
+  await screen.findByRole('heading', { name: 'Original retained outcome' });
+  expect(navState().item).toBeUndefined();
+  await deleteItem();
+  await within(screen.getByRole('dialog')).findByRole('alert');
+  expect(writes).toHaveLength(1);
+  expect(records.some((record) => record.itemId === 'selected')).toBe(false);
+  expect(sessionStorage.length).toBeGreaterThan(0);
+  const retainedState = navState();
+  cleanup();
+  // Simulate the full reload's empty in-memory list cache without clearing the
+  // tab's journal or changing the fixture's server-verified operator identity.
+  window.dispatchEvent(new Event('mitzo:auth-restored'));
+  return retainedState;
+}
+for (const target of ['collection', 'parent', 'home'] as const)
+  it(`recovers a committed deletion's lost receipt after reloading a missing canonical item without an original snapshot, retaining ${target} return`, async () => {
+    const retainedState = await loseReceiptAndReloadContext(target);
+    const original = structuredClone(writes[0]);
+    mount('/todos/selected', retainedState);
+    const retry = await screen.findByRole('button', { name: 'Retry original request' });
+    await waitFor(() =>
+      expect(
+        requests.filter((path) => path === '/api/telos/work/items/selected/lifecycle').length,
+      ).toBeGreaterThanOrEqual(3),
+    );
+    expect(route()).toBe('/todos/selected');
+    expect(writes).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Original retained outcome' })).toBeNull();
+    fireEvent.click(retry);
+    const dialog = screen.getByRole('dialog');
+    expect((within(dialog).getByRole('textbox') as HTMLInputElement).value).toBe('');
+    const confirm = within(dialog).getByRole('button', {
+      name: 'Delete permanently',
+    }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(within(dialog).getByRole('textbox'), {
+      target: { value: 'delete permanently' },
+    });
+    expect(confirm.disabled).toBe(true);
+    expect(writes).toHaveLength(1);
+    fireEvent.change(within(dialog).getByRole('textbox'), {
+      target: { value: 'DELETE PERMANENTLY' },
+    });
+    fireEvent.click(confirm);
+    await waitFor(() =>
+      expect(route()).toBe(
+        target === 'collection'
+          ? '/todos?view=trash'
+          : target === 'parent'
+            ? '/todos/parent'
+            : '/?view=Today',
+      ),
+    );
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toEqual(original);
+    if (target === 'home') expect(navState()).toEqual({ homeQuery: 'Original home query' });
+    else expect(navState().opaque).toEqual(retainedState.opaque);
+    const scopedKey =
+      'telos.lifecycle.pending.' +
+      encodeURIComponent(JSON.stringify(['', 'fixture-operator'])) +
+      '.selected';
+    expect(sessionStorage.getItem(scopedKey)).toBeNull();
+  });
+for (const different of ['operator', 'server'] as const)
+  it(`does not expose or replay the missing item's retained deletion under another ${different}`, async () => {
+    const retainedState = await loseReceiptAndReloadContext('collection');
+    if (different === 'operator') auth.id = 'another-operator';
+    else auth.base = 'https://another-fixture.invalid';
+    mount('/todos/selected', retainedState);
+    await waitFor(() => expect(route()).toBe('/todos'));
+    expect(screen.queryByRole('button', { name: 'Retry original request' })).toBeNull();
+    expect(writes).toHaveLength(1);
+    const scopedKey =
+      'telos.lifecycle.pending.' +
+      encodeURIComponent(JSON.stringify(['', 'fixture-operator'])) +
+      '.selected';
+    expect(JSON.parse(sessionStorage.getItem(scopedKey)!)).toEqual(writes[0]);
+  });
+it('keeps Back reachable from missing-item recovery without replaying or clearing the retained request', async () => {
+  const retainedState = await loseReceiptAndReloadContext('collection');
+  const original = structuredClone(writes[0]);
+  mount('/todos/selected', retainedState);
+  await screen.findByRole('button', { name: 'Retry original request' });
+  fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+  await waitFor(() => expect(route()).toBe('/todos?view=trash'));
+  expect(navState().opaque).toEqual(retainedState.opaque);
+  expect(writes).toEqual([original]);
+  const scopedKey =
+    'telos.lifecycle.pending.' +
+    encodeURIComponent(JSON.stringify(['', 'fixture-operator'])) +
+    '.selected';
+  expect(JSON.parse(sessionStorage.getItem(scopedKey)!)).toEqual(original);
+});
+it('does not suppress the ordinary missing-item redirect for an invalid retained command', async () => {
+  const retainedState = await loseReceiptAndReloadContext('collection');
+  const scopedKey =
+    'telos.lifecycle.pending.' +
+    encodeURIComponent(JSON.stringify(['', 'fixture-operator'])) +
+    '.selected';
+  sessionStorage.setItem(scopedKey, JSON.stringify({ ...writes[0], itemId: 'other-item' }));
+  mount('/todos/selected', retainedState);
+  await waitFor(() => expect(route()).toBe('/todos'));
+  expect(screen.queryByRole('button', { name: 'Retry original request' })).toBeNull();
+  expect(writes).toHaveLength(1);
+  expect(JSON.parse(sessionStorage.getItem(scopedKey)!)).toMatchObject({ itemId: 'other-item' });
 });
