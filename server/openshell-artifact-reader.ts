@@ -45,11 +45,15 @@ def read(root, requested, witnessed=False):
  fds = []
  try:
   directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-  fd = os.open('/', directory_flags); fds.append(fd)
+  # O_PATH traverses ancestors without requesting directory enumeration rights.
+  # Landlock grants the workspace, not read access to the filesystem root.
+  ancestor_flags = getattr(os, 'O_PATH', os.O_RDONLY) | os.O_DIRECTORY | os.O_NOFOLLOW
+  fd = os.open('/', ancestor_flags); fds.append(fd)
   root_parts=root.strip('/').split('/')
   root_info=os.fstat(fd)
   for index,part in enumerate(root_parts + parts[:-1]):
-   fd = os.open(part, directory_flags, dir_fd=fd); fds.append(fd)
+   flags = ancestor_flags if index+1<len(root_parts) else directory_flags
+   fd = os.open(part, flags, dir_fd=fd); fds.append(fd)
    if index+1==len(root_parts): root_info=os.fstat(fd)
   fd = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd); fds.append(fd)
   before = os.fstat(fd)
@@ -68,10 +72,11 @@ def read(root, requested, witnessed=False):
   result={'path':full,'data':base64.b64encode(data).decode('ascii')}
   if witnessed:
    # Rewalk the actual namespace after reading, not just the held descriptors.
-   check=os.open('/',directory_flags); fds.append(check)
+   check=os.open('/',ancestor_flags); fds.append(check)
    check_root=os.fstat(check)
    for index,part in enumerate(root_parts + parts[:-1]):
-    check=os.open(part,directory_flags,dir_fd=check); fds.append(check)
+    flags=ancestor_flags if index+1<len(root_parts) else directory_flags
+    check=os.open(part,flags,dir_fd=check); fds.append(check)
     if index+1==len(root_parts): check_root=os.fstat(check)
    check=os.open(parts[-1],os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=check); fds.append(check)
    if stamp(check_root)!=stamp(root_info) or file_stamp(os.fstat(check))!=file_stamp(after): refuse('unavailable')
