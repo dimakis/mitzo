@@ -166,6 +166,11 @@ it('runs successive user turns with a private credential and closes its input qu
   expect(JSON.stringify(events)).not.toContain('private-test-key');
   expect(calls.options[0].apiKey).toBe('private-test-key');
   expect(calls.options[0].getApiKey).toBe(getApiKey);
+  expect(calls.options[0].systemPrompt).toContain('Execution location: Local host');
+  expect(calls.options[0].systemPrompt).toContain(`Operating system: ${process.platform}`);
+  expect(calls.options[0].systemPrompt).toContain(`Architecture: ${process.arch}`);
+  expect(calls.options[0].systemPrompt).toContain('Working directory: "/tmp"');
+  expect(calls.options[0].systemPrompt).toContain('Writable workspace roots: ["/tmp"]');
   expect(calls.options[0].tools).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ name: 'AskUserQuestion' }),
@@ -232,6 +237,100 @@ it('does not start an API runner when a project startup hook fails', async () =>
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it.each([
+  [true, true],
+  [true, false],
+  [false, true],
+] as const)(
+  'limits host command networking to explicit enrolled API sessions (enabled=%s, owned=%s)',
+  async (enabled, owned) => {
+    vi.stubEnv('MITZO_ORDINARY_LOCAL_RESPONSES_NETWORK_ENABLED', enabled ? '1' : '0');
+    const native = await import('../native-tool-executor.js');
+    const execute = vi.spyOn(native, 'createNativeToolExecutor').mockReturnValue(async (block) => ({
+      type: 'tool_result',
+      tool_use_id: block.id,
+      content: 'offline command',
+    }));
+    const registry = new SessionRegistry();
+    registry.register('network-client', {
+      transport: { send: () => {}, isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId: 'network-app',
+      cwd: '/tmp',
+      sessionAllowList: new Set(),
+    });
+    registry
+      .get('network-client')!
+      .worktreePaths.set('mitzo', { path: '/tmp/mitzo-worktree', wtId: 'fixture' });
+    const input = new AsyncQueue<{ message: { content: string } }>();
+    input.close();
+    let chat: Awaited<ReturnType<typeof openResponsesChat>> | undefined;
+    try {
+      chat = await openResponsesChat({
+        conversationId: 'network-app',
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'offline',
+          profileRevision: 'fixture',
+        },
+        apiKey: 'synthetic-private-key',
+        session: registry.get('network-client')!,
+        registry,
+        input,
+        systemPrompt: 'profile',
+        env: { PATH: '/usr/bin:/bin' },
+        mcpServers: {},
+        store: {} as never,
+        ...(owned
+          ? {
+              commandAuthority: {
+                assertEffect: vi.fn(async () => {}),
+                assertPrepare: vi.fn(),
+                assertStart: vi.fn(),
+              },
+              assertStartupCurrent: vi.fn(),
+            }
+          : {}),
+      });
+      const runner = calls.options.at(-1)!;
+      const prompt = runner.systemPrompt as string;
+      const allowed = enabled && owned;
+      expect(prompt).toContain('Writable workspace roots: ["/tmp/mitzo-worktree"]');
+      expect(prompt).toContain(
+        allowed
+          ? 'Bash networking: follows Mitzo command approvals'
+          : 'Bash networking: unavailable',
+      );
+      expect(prompt).not.toContain('synthetic-private-key');
+      const bash = (runner.tools as Array<{ name: string; description: string }>).find(
+        (t) => t.name === 'Bash',
+      )!;
+      expect(bash.description).toContain(
+        allowed
+          ? 'Network access follows Mitzo command approvals'
+          : 'Network and credentials are unavailable',
+      );
+      await (runner.executeTool as (block: unknown, signal: AbortSignal) => Promise<unknown>)(
+        { type: 'tool_use', id: 'network-call', name: 'Bash', input: { command: 'npm install' } },
+        new AbortController().signal,
+      );
+      expect(execute).toHaveBeenCalledWith(
+        'network-client',
+        registry,
+        expect.objectContaining({ networkAccess: allowed ? 'approved-command' : undefined }),
+      );
+    } finally {
+      chat?.close();
+      registry.dispose();
+      execute.mockRestore();
+      vi.unstubAllEnvs();
+    }
+  },
+);
 
 it('maps native OpenAI failures to the shared sanitized provider envelope', async () => {
   const registry = new SessionRegistry();
@@ -1722,7 +1821,8 @@ it('gives API chats a Jira connection route even when workspace context recommen
     expect(options.systemPrompt).toContain(
       'Shared ./mgmt jira guidance applies to the OpenShell transport',
     );
-    expect(options.systemPrompt).toContain('API Bash has no network or credentials');
+    expect(options.systemPrompt).toContain('Bash networking: unavailable');
+    expect(options.systemPrompt).toContain('API Bash never receives connection credentials');
     expect((options.tools as Array<{ name: string }>).map((tool) => tool.name)).toEqual(
       expect.arrayContaining([
         'ListConnections',

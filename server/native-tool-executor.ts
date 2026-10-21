@@ -124,6 +124,8 @@ export interface NativeToolOptions {
   assertRuntimeCurrentAsync?: () => Promise<void>;
   /** Explicit child environment. The executor never inherits process.env or API credentials. */
   env: Record<string, string>;
+  /** Server-owned, explicitly enabled host route. Requires the network-aware Bash grant. */
+  networkAccess?: 'approved-command';
   forcePrompt?: boolean;
   timeoutMs?: number;
   maxOutputBytes?: number;
@@ -136,6 +138,7 @@ export function createNativeToolExecutor(
   registry: SessionRegistry,
   options: NativeToolOptions,
 ) {
+  const networkAccess = options.networkAccess;
   const canUseTool = buildPermissionHandler(clientId, registry, {
     onDemandCreate: options.onDemandCreate,
   });
@@ -280,12 +283,25 @@ export function createNativeToolExecutor(
         );
       }
       if (block.name === 'Bash' && 'command' in parsed.data) {
-        const input = { command: parsed.data.command };
+        const input = {
+          command: parsed.data.command,
+          ...(networkAccess ? { networkAccess } : {}),
+        };
         const approvalMode = effectivePermissionMode(session);
         const permission = await canUseTool('Bash', input, {
           signal,
           toolUseID: block.id,
           forcePrompt: options.forcePrompt || parsed.data.require_approval === true,
+          ...(networkAccess === 'approved-command'
+            ? {
+                title: 'Run command with network access',
+                description:
+                  'Runs on the local host in this conversation’s Git workspace with network access, including local test servers. Connection credentials remain private to Mitzo.',
+                sessionGrantKey: 'host-network-bash-v1',
+                sessionGrantDescription:
+                  'Bash commands with network access and local test servers in this conversation’s Git workspace.',
+              }
+            : {}),
         });
         signal.throwIfAborted();
         if (permission.behavior !== 'allow') return result(permission.message, true);
@@ -332,6 +348,7 @@ export function createNativeToolExecutor(
           writableRoots,
           deniedRoots: await Promise.all(deniedRoots.map(canonicalPath)),
           env: options.env,
+          networkAccess,
           signal,
           timeoutMs: options.timeoutMs,
           maxOutputBytes: options.maxOutputBytes,

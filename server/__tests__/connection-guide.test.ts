@@ -4,10 +4,12 @@ import { connectionGuide } from '../connection-guide.js';
 import { CONNECTION_TOOL_INSTRUCTIONS } from '../session-credential-tools.js';
 
 describe('runtime-owned connection guidance', () => {
-  it('routes API-account Jira reads through approved connections instead of a networkless CLI', () => {
+  it('keeps API-account Jira credentials in approved connections regardless of shell networking', () => {
     const guide = connectionGuide('use', credentialConnectionToolDefinitions);
     expect(guide.instructions).toContain('ConnectionRequest');
     expect(guide.instructions).toContain('search/jql');
+    expect(guide.instructions).toContain('Bash never receives connection credentials');
+    expect(guide.instructions).not.toContain('Bash has no network');
     expect(connectionGuide('connect', credentialConnectionToolDefinitions).instructions).toContain(
       'profile "jira"',
     );
