@@ -1,4 +1,7 @@
 import { sameOpenShellRouteAuthority } from './openshell-route-authority.js';
+import { readLegacySandboxDeletionRecord } from './legacy-sandbox-deletion.js';
+import type { CodexConversationStore } from './codex-conversation-store.js';
+import type { EventStore } from './event-store.js';
 import type { RuntimeMigration } from './openshell-runtime-migration.js';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
@@ -592,6 +595,26 @@ export async function restoreOpenShellLifecycleIfNeeded(
 
 export function lifecycleService() {
   return configured?.service;
+}
+
+export function previewLegacyOpenShellDeletion(
+  id: string,
+  events: Pick<EventStore, 'getSession' | 'listRetainedSymposiumSandboxOwners'>,
+  native: CodexConversationStore,
+  signal: AbortSignal,
+) {
+  const controller = configured;
+  if (!controller) throw new Error('OpenShell lifecycle controller is unavailable');
+  return controller.service.previewLegacyDeletion(() => {
+    if (configured !== controller) throw new Error('OpenShell lifecycle controller changed');
+    return readLegacySandboxDeletionRecord(
+      id,
+      events,
+      native,
+      controller.config,
+      controller.policyDigest,
+    );
+  }, signal);
 }
 
 /** Synchronous queue admission marks activity before provider work is started.
