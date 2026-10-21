@@ -3474,7 +3474,8 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       modelSelection = { model: retainedModel, reasoningEffort: retainedThinking, models: [] };
     try {
       const profiles = loadAccountProfiles();
-      await profiles.refresh(req.query.refresh === '1');
+      const refresh = req.query.refresh === '1';
+      await profiles.refresh(refresh, { discoverApi: refresh });
       const profile = profiles
         .catalog()
         .find((account) => account.id === meta.accountBinding!.accountId);
