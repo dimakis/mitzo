@@ -156,6 +156,7 @@
       .session-list-page,
       .inbox-page,
       .todo-page,
+      .todo-detail-page,
       .cal-page,
       .task-board-page,
       .viewer-page
@@ -174,6 +175,11 @@
   .mobile-workspace-body
     :is(.inbox-page, .todo-page, .session-list-page, .cal-page, .task-board-page, .viewer-page) {
     padding-bottom: 0;
+  }
+  .mobile-workspace-body .todo-detail-page {
+    display: flex;
+    flex-direction: column;
+    padding: 0;
   }
   .mobile-workspace-body .mitzo-logo {
     display: none;

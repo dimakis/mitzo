@@ -242,3 +242,33 @@ it('preserves real child work for an unclassified legacy parent without assignin
   expect(open).toHaveBeenCalledWith(records[1].itemId);
   expect(parent.kind).toBeNull();
 });
+
+it('keeps a long unclassified item title complete and groups empty intent separately from materials', () => {
+  const record = {
+    ...records[1],
+    kind: null,
+    intent: '',
+    summary:
+      'Merge a very long revision and verify every retained document and source without losing the original title or its identity',
+  };
+  render(
+    <MemoryRouter>
+      <TelosItemWorkspace
+        record={record}
+        records={[record]}
+        refreshKey={0}
+        onOpen={vi.fn()}
+        onBack={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  const heading = screen.getByRole('heading', { name: record.summary, level: 1 });
+  expect(heading.textContent).toBe(record.summary);
+  const intent = screen.getByRole('heading', { name: 'This item' }).closest('section');
+  const materials = screen
+    .getByRole('heading', { name: 'Plans, documents & outputs' })
+    .closest('section');
+  expect(intent).not.toBe(materials);
+  expect(within(intent!).getByText('Not recorded')).toBeTruthy();
+  expect(within(materials!).getByText('Retained output revisions')).toBeTruthy();
+});

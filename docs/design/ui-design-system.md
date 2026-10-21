@@ -1749,6 +1749,33 @@ enlarged text. The boundary leaves room for both reading columns plus gutters;
 viewport width alone cannot establish that room. Controls are checked against their
 main-column bounds so clipped overflow cannot hide an overlap.
 
+The October 21 corrective increment keeps the outcomes shell during initial
+record discovery, publishes ready records while sibling reads remain pending and
+retains the mounted workspace during refresh. Detail navigation without an original
+snapshot uses a loading frame; a retained original snapshot stays usable during
+pending reads, including the accepted Home/parent/Milestones return contract. Failed reads retain their item IDs,
+API status/code or validation/identity category and explicit retry; available
+original fields remain navigable alongside ready records. These diagnostics do
+not establish the cause of a production failure.
+When all canonical reads fail, the original cards remain the primary content.
+A compact control row pairs a visible unavailable summary and retry; it includes
+a failure count only when individual failed records are known. The native
+disclosure starts collapsed; exact IDs/status/codes remain
+available inside. Partial failures keep their failed original titles and diagnostics
+upfront. Text retries use the shared labelled secondary action, whose width follows
+the label, rather than the collection's square refresh-icon control. This keeps
+original item actions reachable while preserving error visibility and recovery.
+Search/category/filter context reveals matching paths initially; explicit collapse,
+expand and collapse-all choices override that reveal and persist with the context.
+Changing the context clears those collapse overrides.
+The user-requested mobile item masthead now uses `MobileShell`'s existing branding,
+top safe area and tab clearance. Its detail body stays inside that shell's available
+height. Long titles retain the chosen UI font, wrap at the shared title scale and
+have explicit line height. Overview sections have scoped shared type/spacing;
+missing intent reads “Not recorded” rather than leaving two adjacent headings.
+Focused component/read-owner tests cover state and semantics; S9 owns independent
+actual-App/mobile geometry verification against the final official bundle.
+
 The brief's 20rem column is structural reading geometry. Search wraps before the
 actions at phone widths and uses five shared control heights as its preferred
 basis. Output actions move below the copy so full hashes cannot squeeze titles.

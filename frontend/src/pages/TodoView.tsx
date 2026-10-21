@@ -336,9 +336,11 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
   const sections = useMemo(() => groupIntoSections(filteredItems, sort), [filteredItems, sort]);
 
   const recordIds: string[] = [];
+  const recordOriginals = new Map<string, TodoItem>();
   function collectIds(values: TodoItem[]) {
     for (const item of values) {
       recordIds.push(item.id);
+      recordOriginals.set(item.id, item);
       collectIds(item.children);
     }
   }
@@ -417,7 +419,11 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     setCreating({ parentId });
   }
 
-  if (canonical.records.length > 0 || (discovery.items.length === 0 && items.length === 0))
+  if (
+    canonical.initializing ||
+    canonical.records.length > 0 ||
+    (discovery.items.length === 0 && items.length === 0)
+  )
     return (
       <div className="todo-page telos-canonical-page">
         <div className="todo-collection-heading">
@@ -457,14 +463,41 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
             <p role="alert">{discovery.error} Displayed records may be stale.</p>
           )}
           {canonical.unavailable.length > 0 && (
-            <p role="alert">
-              Some outcomes are unavailable. Refresh to retry. ({canonical.unavailable.length})
-            </p>
+            <div role="alert" className="telos-unavailable-records">
+              <p>Some outcomes are unavailable. ({canonical.unavailable.length})</p>
+              <ul>
+                {canonical.failures.map((failure) => {
+                  const original = recordOriginals.get(failure.itemId);
+                  return (
+                    <li key={failure.itemId}>
+                      {original ? (
+                        <button className="telos-node-title" onClick={() => handleTap(original)}>
+                          {original.summary}
+                        </button>
+                      ) : (
+                        <span>{failure.itemId}</span>
+                      )}
+                      <span>
+                        {' '}
+                        · {failure.itemId} · {failure.status ? `HTTP ${failure.status} · ` : ''}
+                        {failure.code}.{' '}
+                        {original
+                          ? 'Original fields remain available.'
+                          : 'Original fields unavailable.'}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+              <button className="home-secondary" onClick={refreshWorkspace}>
+                Retry unavailable outcomes
+              </button>
+            </div>
           )}
           <TelosOutcomesTree
             records={canonical.records}
             refreshKey={canonical.refreshKey}
-            loading={discovery.loading}
+            loading={discovery.loading || canonical.loading}
             error={discovery.error && canonical.records.length === 0 ? discovery.error : undefined}
             selectedId={selectedId}
             onOpen={(id, view) => {
@@ -515,9 +548,37 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
       <div className="todo-scroll" ref={scrollRef}>
         {planningError && <p role="alert">{planningError}</p>}
         {(canonical.unavailable.length > 0 || discovery.error) && (
-          <p role="alert">
-            Outcome workspace records unavailable. Original Telos fields remain available below.
-          </p>
+          <div role="alert" className="telos-unavailable-records">
+            <div className="home-inline-actions">
+              <details>
+                <summary className="home-text-action">
+                  {canonical.unavailable.length > 0
+                    ? `${canonical.unavailable.length} records unavailable`
+                    : 'Outcome records unavailable'}
+                </summary>
+                <p>
+                  Outcome workspace records unavailable. Original Telos fields remain available
+                  below.
+                </p>
+                {discovery.error && <p>{discovery.error}</p>}
+                <ul>
+                  {canonical.failures.map((failure) => (
+                    <li key={failure.itemId}>
+                      {failure.itemId} · {failure.status ? `HTTP ${failure.status} · ` : ''}
+                      {failure.code}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+              <button
+                className="home-secondary"
+                aria-label="Retry unavailable outcomes"
+                onClick={refreshWorkspace}
+              >
+                Retry
+              </button>
+            </div>
+          </div>
         )}
         <div className="todo-toolbar">
           <label className="todo-search">

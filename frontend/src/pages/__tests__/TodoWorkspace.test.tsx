@@ -97,12 +97,13 @@ afterEach(() => {
 describe('TELOS workspace', () => {
   it('opens one focused item workspace on desktop and restores the list filter on Back', async () => {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'work' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'work' }));
     fireEvent.click(screen.getByRole('button', { name: 'Ship desktop work' }));
     expect(screen.getByText('Inspect current pages')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Review desktop work' })).toBeNull();
     expect(screen.getByLabelText('Route').textContent).toBe('/todos/first');
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await screen.findByRole('button', { name: 'work' });
     expect(screen.getByRole('button', { name: 'work' }).className).toContain('--active');
   });
   it('loads a bookmarked item without an extra desktop collection pane', async () => {
@@ -111,10 +112,10 @@ describe('TELOS workspace', () => {
     expect(await screen.findByText('No saved outputs yet.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Review desktop work' })).toBeNull();
   });
-  it('keeps mobile detail as a focused page', () => {
+  it('keeps mobile detail as a focused page', async () => {
     state.desktop = false;
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Ship desktop work' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Ship desktop work' }));
     expect(screen.getByText('Inspect current pages')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Review desktop work' })).toBeNull();
   });
