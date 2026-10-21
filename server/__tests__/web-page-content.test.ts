@@ -177,14 +177,12 @@ it.each(['public', 'approved'] as const)(
   'extracts a small quote from script-heavy HTML above 2 MiB on the %s path',
   async (path) => {
     const body = `<html><head><script>${'x'.repeat(3 * 1024 * 1024)}</script></head><body><main><h1>IBM quote</h1><p>USD 100.00, fixture timestamp.</p><a href="/quote">Source</a></main></body></html>`;
-    const read = vi
-      .fn()
-      .mockResolvedValue({
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-        type: 'text/html',
-        body,
-      });
+    const read = vi.fn().mockResolvedValue({
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+      type: 'text/html',
+      body,
+    });
     const output =
       path === 'public'
         ? await fetchPublicPage(target.url, new AbortController().signal, {
