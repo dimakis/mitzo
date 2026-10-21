@@ -227,6 +227,8 @@ export class SecretRelays {
     try {
       const vaultRef = await this.vault.save(id, value, combined);
       const current = this.get(id);
+      current.vaultRef = vaultRef;
+      this.store.putRelay(current);
       combined.throwIfAborted();
       if (!allowed() || current.status !== 'verifying') throw new Error();
       relay.targets.forEach((t) => this.checkedTarget(t));

@@ -4,7 +4,7 @@ import { WebSocketConfigSchema } from './credential-websocket.js';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import type { AuthSession } from './auth.js';
+import { isAuthSessionCurrent, type AuthSession } from './auth.js';
 import {
   recentAppReauthorizationHandlers,
   recentAuthorizationExpiry,
@@ -80,20 +80,35 @@ export function createCredentialConnectionsRouter(
     try {
       if (!service.relay) throw new Error();
       const csrf = req.header('x-csrf-token') ?? '';
-      const expiresAt = recentAuthorizationExpiry(res, csrf) ?? 0;
       const draft = service.relay.browserStatus(req.params.id);
-      const allowed = () => expiresAt > Date.now() && (options.canCompleteRelay?.(draft) ?? false);
+      const allowed = () =>
+        isAuthSessionCurrent(res.locals.authSession as AuthSession) &&
+        (recentAuthorizationExpiry(res, csrf) ?? 0) > Date.now() &&
+        (options.canCompleteRelay?.(draft) ?? false);
       if (!allowed())
         return res
           .status(409)
           .json({ error: 'Return to the originating chat before completing this request.' });
-      let relay = await service.relay.complete(
-        draft.id,
-        body.data.revision,
-        body.data.secret,
-        AbortSignal.timeout(30000),
-        allowed,
-      );
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      const closed = () => {
+        if (!res.writableEnded) abort();
+      };
+      req.once('aborted', abort);
+      res.once('close', closed);
+      let relay: SecretRelay;
+      try {
+        relay = await service.relay.complete(
+          draft.id,
+          body.data.revision,
+          body.data.secret,
+          AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),
+          allowed,
+        );
+      } finally {
+        req.removeListener('aborted', abort);
+        res.removeListener('close', closed);
+      }
       if (options.onRelayReady) {
         try {
           if (await options.onRelayReady(relay)) service.relay.markDelivered(relay.id);
@@ -104,11 +119,9 @@ export function createCredentialConnectionsRouter(
       }
       return res.json({ relay });
     } catch {
-      return res
-        .status(422)
-        .json({
-          error: 'Secret save could not be confirmed. Check request status before continuing.',
-        });
+      return res.status(422).json({
+        error: 'Secret save could not be confirmed. Check request status before continuing.',
+      });
     }
   });
   router.post('/relays/:id/cancel', (req, res) => {
