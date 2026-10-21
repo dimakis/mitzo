@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, realpathSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
@@ -119,6 +119,39 @@ it('uses an existing local repository without GitHub or import, and resumes the 
   expect(f.deps.authorize).not.toHaveBeenCalled();
   expect(f.deps.inspect).not.toHaveBeenCalled();
   expect(f.deps.prepare).not.toHaveBeenCalled();
+});
+
+it('shares only configured runtime directories with the local worktree', async () => {
+  const f = await fixture();
+  mkdirSync(join(f.repo, 'node_modules'));
+  mkdirSync(join(f.repo, 'unshared'));
+  writeFileSync(join(f.repo, '.mitzo.json'), JSON.stringify({ runtimeSymlinks: ['node_modules'] }));
+  const service = f.reopen();
+  const ready = await service.selectLocalRepository(
+    binding,
+    'primary',
+    {
+      runOn: 'local',
+      runtime: { account: f.runtime.account, harness: 'responses', targetId: 'mac' },
+    },
+    AbortSignal.timeout(10000),
+  );
+  const reservation = {
+    id: ready.id,
+    binding,
+    conversationId: 'runtime-directories',
+    taskRoot: f.taskRoot,
+    runtimeBinding: f.runtime,
+    commandFingerprint: 'b'.repeat(64),
+    signal: AbortSignal.timeout(10000),
+  };
+  await service.reserveHostTask(reservation);
+  const claimed = await service.claimReservedHostTask(reservation);
+  expect(readlinkSync(join(claimed.directory!, 'node_modules'))).toBe(join(f.repo, 'node_modules'));
+  expect(() => readlinkSync(join(claimed.directory!, 'unshared'))).toThrow();
+  await new OrdinaryLocalWorkspaceOwner(service, 'repository', reservation).validate(
+    claimed.directory!,
+  );
 });
 
 it('refuses arbitrary paths, sandbox targets and a changed configured repository', async () => {

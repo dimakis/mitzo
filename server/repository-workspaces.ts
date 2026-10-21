@@ -19,7 +19,8 @@ import {
 } from './ordinary-repository-preparation.js';
 import { isGitBranchName } from './git-branch.js';
 import { copyRepositoryTaskCheckout } from './repository-task-copy.js';
-import { createWorktreeAsync } from './worktree.js';
+import { createWorktreeAsync, symlinkRuntimeDirs } from './worktree.js';
+import { loadRepoConfig } from './repo-config.js';
 import {
   captureLocalRepository,
   assertLocalRepository,
@@ -1695,6 +1696,11 @@ export class RepositoryWorkspaces {
           branch: record.featureBranch,
           startPoint: record.baseOid,
         });
+        symlinkRuntimeDirs(
+          record.localSource.path,
+          descriptor.directory,
+          loadRepoConfig(record.localSource.path).runtimeSymlinks,
+        );
       } else await copyRepositoryTaskCheckout(this.source(record), descriptor.directory, signal);
       if (
         !record.localSource &&

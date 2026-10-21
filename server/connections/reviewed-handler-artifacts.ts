@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.508-automatic-local-worktree-start';
+  'v1.0.509-local-runtime-directories';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -896,7 +896,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '4c29712dd8c80db92f6872815848aac37858a4d59b8861700aefc8c8c97e185a',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
-  '../repository-workspaces.ts': '3f2d792767e6f498892dd2a29e3d7c6a8f19525cf7988ec3973742008ce995ff',
+  '../repository-workspaces.ts': '26cebe118255d53ce43eabbddee6f6b4e9e9f28a6e2f91097377596e42ad0cc0',
   '../../packages/protocol/src/session-metadata-store.ts':
     'fe9caaac077de634f0e76e8c203323a8075461815d973cbf5c431347f7844c09',
   '../../packages/protocol/src/event-store.ts':
