@@ -39,6 +39,27 @@ const catalogSchema = z.object({
   ),
 });
 type Catalog = z.infer<typeof catalogSchema>;
+type RuntimeChoice = {
+  runOn: 'local' | 'openshell';
+  runtime: {
+    account: SessionRuntimeBindingV2['account'];
+    harness: SessionRuntimeBindingV2['harness']['implementation'];
+    targetId: string;
+  };
+};
+function matchesRuntime(bound: SessionRuntimeBindingV2 | undefined, choice: RuntimeChoice) {
+  return (
+    !!bound &&
+    bound.execution.location === choice.runOn &&
+    bound.execution.targetId === choice.runtime.targetId &&
+    bound.harness.implementation === choice.runtime.harness &&
+    bound.account.accountId === choice.runtime.account.accountId &&
+    bound.account.provider === choice.runtime.account.provider &&
+    bound.account.profileRevision === choice.runtime.account.profileRevision
+  );
+}
+const runtimeMismatch =
+  'This preparation belongs to the original execution choices. Restore those choices or remove the preparation.';
 export function RepositoryChatPicker({
   accountId,
   model,
@@ -57,14 +78,7 @@ export function RepositoryChatPicker({
   /** Ordinary saved drafts never borrow another draft’s per-account preparation. */
   draftScoped?: boolean;
   preparationNote?: string;
-  ordinaryRuntime?: {
-    runOn: 'local' | 'openshell';
-    runtime: {
-      account: SessionRuntimeBindingV2['account'];
-      harness: SessionRuntimeBindingV2['harness']['implementation'];
-      targetId: string;
-    };
-  };
+  ordinaryRuntime?: RuntimeChoice;
 }) {
   const quick = useQuickSettings();
   const inSettings = !!quick && presentation === 'settings';
@@ -95,6 +109,8 @@ export function RepositoryChatPicker({
   const restoration = useRef<AbortController | null>(null);
   const storageKey = repositoryDraftKey(accountId, model);
   const [restorationAttempt, setRestorationAttempt] = useState(0);
+  const runtimeIntent = useRef(ordinaryRuntime);
+  runtimeIntent.current = ordinaryRuntime;
   const runtimeKey = JSON.stringify(ordinaryRuntime ?? null);
   const previousRuntime = useRef(runtimeKey);
   useEffect(() => {
@@ -105,9 +121,23 @@ export function RepositoryChatPicker({
     operation.current?.abort();
     setBusy(false);
     if (pendingPreparationId || (workspace && workspace.state !== 'preview')) {
-      setError(
-        'This preparation belongs to the original execution choices. Restore those choices or remove the preparation.',
-      );
+      // Inventory can arrive after a retained checkout. Qualify its actual
+      // binding rather than mistaking that hydration for a host change.
+      if (
+        workspace?.state === 'ready' &&
+        catalog?.available &&
+        ordinaryRuntime &&
+        matchesRuntime(workspace.ordinaryRuntime, ordinaryRuntime)
+      ) {
+        setError('');
+        callback.current({
+          repositoryWorkspaceId: workspace.id,
+          blocked: false,
+          ordinaryRuntime: workspace.ordinaryRuntime,
+        });
+        return;
+      }
+      setError(runtimeMismatch);
       callback.current({
         blocked: true,
         ...(draftScoped && pendingPreparationId
@@ -119,7 +149,15 @@ export function RepositoryChatPicker({
       setError('');
       callback.current(selected ? { blocked: true } : null);
     }
-  }, [runtimeKey, pendingPreparationId, workspace, selected, draftScoped]);
+  }, [
+    runtimeKey,
+    pendingPreparationId,
+    workspace,
+    selected,
+    draftScoped,
+    catalog,
+    ordinaryRuntime,
+  ]);
   useEffect(() => {
     const controller = new AbortController();
     restoration.current = controller;
@@ -164,8 +202,11 @@ export function RepositoryChatPicker({
         if (ready.id !== saved) throw new Error('Repository preparation identity changed');
         setWorkspace(ready);
         setOpened(true);
+        const currentRuntime = runtimeIntent.current;
+        const matches = !currentRuntime || matchesRuntime(ready.ordinaryRuntime, currentRuntime);
+        if (!matches) setError(runtimeMismatch);
         callback.current(
-          ready.state === 'ready' && data.available
+          ready.state === 'ready' && data.available && matches
             ? {
                 repositoryWorkspaceId: ready.id,
                 blocked: false,
@@ -298,20 +339,9 @@ export function RepositoryChatPicker({
       const result = workspaceSchema.parse(await response.json());
       if (controller.signal.aborted) return;
       if (result.id !== id) throw Error('Repository preparation identity changed.');
-      const bound = result.ordinaryRuntime;
-      if (
-        ordinaryRuntime &&
-        (!bound ||
-          bound.execution.location !== ordinaryRuntime.runOn ||
-          bound.execution.targetId !== ordinaryRuntime.runtime.targetId ||
-          bound.harness.implementation !== ordinaryRuntime.runtime.harness ||
-          bound.account.accountId !== ordinaryRuntime.runtime.account.accountId ||
-          bound.account.provider !== ordinaryRuntime.runtime.account.provider ||
-          bound.account.profileRevision !== ordinaryRuntime.runtime.account.profileRevision)
-      )
-        throw Error(
-          'This preparation belongs to the original execution choices. Restore those choices or remove the preparation.',
-        );
+      const currentRuntime = runtimeIntent.current;
+      if (currentRuntime && !matchesRuntime(result.ordinaryRuntime, currentRuntime))
+        throw Error(runtimeMismatch);
       setWorkspace(result);
       callback.current(
         result.state === 'ready' && catalog?.available

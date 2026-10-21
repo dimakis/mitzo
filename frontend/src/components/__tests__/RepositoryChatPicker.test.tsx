@@ -693,3 +693,94 @@ it('does not unblock a recovered source prepared for another execution runtime',
   expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ blocked: true }));
   expect(screen.queryByText(/Ready for your first prompt/)).toBeNull();
 });
+
+it('retains a ready checkout when its matching runtime inventory arrives after restoration', async () => {
+  const choice = runtimeChoice('local');
+  const ordinaryRuntime = {
+    version: 2 as const,
+    account: choice.runtime.account,
+    harness: { implementation: choice.runtime.harness },
+    execution: { location: choice.runOn, targetId: choice.runtime.targetId, targetRevision: 'r1' },
+  };
+  api.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes('/catalog')
+            ? { available: true, repositories: [] }
+            : { ...preview, state: 'ready', ordinaryRuntime },
+        ),
+      ),
+  );
+  const onChange = vi.fn();
+  const props = {
+    accountId: 'account',
+    model: 'model',
+    draftScoped: true,
+    initialPreparationId: preview.id,
+    onChange,
+  };
+  const { rerender } = render(<RepositoryChatPicker {...props} />);
+  await screen.findByText(/Ready for your first prompt/);
+  rerender(<RepositoryChatPicker {...props} ordinaryRuntime={choice} />);
+  expect(onChange).toHaveBeenLastCalledWith({
+    repositoryWorkspaceId: preview.id,
+    blocked: false,
+    ordinaryRuntime,
+  });
+  expect(screen.queryByRole('alert')).toBeNull();
+  rerender(<RepositoryChatPicker {...props} ordinaryRuntime={runtimeChoice('openshell')} />);
+  expect(onChange).toHaveBeenLastCalledWith({ repositoryWorkspaceId: preview.id, blocked: true });
+  await screen.findByText(/original execution choices/);
+  rerender(<RepositoryChatPicker {...props} ordinaryRuntime={choice} />);
+  expect(onChange).toHaveBeenLastCalledWith({
+    repositoryWorkspaceId: preview.id,
+    blocked: false,
+    ordinaryRuntime,
+  });
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(api.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0);
+});
+
+it('does not release a restored checkout belonging to another selected runtime', async () => {
+  const original = runtimeChoice('openshell');
+  api.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes('/catalog')
+            ? { available: true, repositories: [] }
+            : {
+                ...preview,
+                state: 'ready',
+                ordinaryRuntime: {
+                  version: 2,
+                  account: original.runtime.account,
+                  harness: { implementation: original.runtime.harness },
+                  execution: {
+                    location: original.runOn,
+                    targetId: original.runtime.targetId,
+                    targetRevision: 'r1',
+                  },
+                },
+              },
+        ),
+      ),
+  );
+  const onChange = vi.fn();
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      draftScoped
+      initialPreparationId={preview.id}
+      ordinaryRuntime={runtimeChoice('local')}
+      onChange={onChange}
+    />,
+  );
+  await vi.waitFor(() => expect(api.fetch.mock.calls).toHaveLength(2));
+  await vi.waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ blocked: true, repositoryWorkspaceId: preview.id }),
+  );
+  await screen.findByText(/original execution choices/);
+});
