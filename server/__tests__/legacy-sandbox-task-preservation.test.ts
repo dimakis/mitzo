@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { readLegacySandboxDeletionRecord } from '../legacy-sandbox-deletion.js';
+import type { SessionMeta } from '../event-store.js';
+import type { CodexConversationStore } from '../codex-conversation-store.js';
 import { createOpenShellLifecycleProductionAdapter } from '../openshell-lifecycle-production.js';
 import { OpenShellLifecycleService } from '../openshell-lifecycle-service.js';
 import { OpenShellLifecycleStore, openShellLifecyclePolicy } from '../openshell-lifecycle.js';
@@ -31,8 +33,9 @@ function fixture() {
     appServerCommand: '/sandbox/run-mitzo-app-server' as const,
   };
   const route = { kind: 'api' as const, provider: 'saved-provider', model: 'offline' };
+  const meta = { accountBinding: binding, updatedAt: 100, sessionType: 'chat' } as SessionMeta;
   const events = {
-    getSession: () => ({ accountBinding: binding, updatedAt: 100, sessionType: 'chat' }),
+    getSession: () => meta,
     listRetainedSymposiumSandboxOwners: () => [],
   };
   const native = {
@@ -57,7 +60,7 @@ function fixture() {
     readLegacySandboxDeletionRecord(
       'c',
       events,
-      native,
+      native as unknown as CodexConversationStore,
       {
         ...runtime,
         image: 'capture-image',
