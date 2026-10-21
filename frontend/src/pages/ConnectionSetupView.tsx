@@ -134,13 +134,20 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
     return () => clearTimeout(timer);
   }, [authorization]);
   useEffect(() => {
-    if (!setup || ['ready', 'cancelled', 'expired', 'unconfirmed'].includes(setup.status)) return;
+    if (
+      !setup ||
+      ['cancelled', 'expired', 'unconfirmed'].includes(setup.status) ||
+      (setup.status === 'ready' && !('targets' in setup))
+    )
+      return;
     const timer = setTimeout(
       () => {
         setSecret('');
         setPassphrase('');
         setSetup((current) =>
-          current && !['ready', 'cancelled'].includes(current.status)
+          current &&
+          current.status !== 'cancelled' &&
+          (current.status !== 'ready' || 'targets' in current)
             ? { ...current, status: 'expired' }
             : current,
         );
@@ -165,7 +172,13 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
   }, [setup, load]);
   const mutate = async (cancel = false) => {
     const route = routeGeneration.current;
-    if (!setup || inFlight.current === route || uncertain || setup.status !== 'pending') return;
+    if (
+      !setup ||
+      inFlight.current === route ||
+      uncertain ||
+      (setup.status !== 'pending' && !(cancel && secretRelay && setup.status === 'ready'))
+    )
+      return;
     const request = ++requestGeneration.current;
     const current = () =>
       alive.current &&
@@ -284,6 +297,35 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
                     ? 'Return to your chat and ask the assistant to prepare this connection again.'
                     : 'Return to your chat whenever you want to continue.'}
             </p>
+            {ready && relay && (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void mutate(true);
+                }}
+              >
+                {error && <p role="alert">{error}</p>}
+                {needsUnlock && (
+                  <label className="connections-field">
+                    Mitzo passphrase
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                      value={passphrase}
+                      onChange={(event) => setPassphrase(event.target.value)}
+                    />
+                  </label>
+                )}
+                <button
+                  type="submit"
+                  className="workspace-text-link"
+                  disabled={busy || (needsUnlock && !passphrase)}
+                >
+                  Revoke relay access
+                </button>
+              </form>
+            )}
             <Link className="workspace-primary connection-setup-return" to={back}>
               Return to chat
             </Link>
@@ -298,7 +340,11 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
             {relay ? (
               <>
                 {relay.targets.map((target, index) => (
-                  <section key={index} aria-label={`Destination ${index + 1}`}>
+                  <section
+                    className="secret-relay-destination"
+                    key={index}
+                    aria-label={`Destination ${index + 1}`}
+                  >
                     <h2>{target.label}</h2>
                     {target.lanEndpoint && (
                       <p role="note">

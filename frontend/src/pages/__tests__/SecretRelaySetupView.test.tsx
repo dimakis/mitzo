@@ -63,3 +63,34 @@ it('reviews exact destinations, submits privately and clears the input before co
   const back = await screen.findByRole('link', { name: 'Return to chat' });
   expect(back.getAttribute('href')).toBe('/chat/chat');
 });
+
+it('allows revoking ready relay access without re-entering the value', async () => {
+  const relay = {
+    id: 'ready',
+    sessionId: 'chat',
+    revision: 3,
+    status: 'ready' as const,
+    delivery: 'delivered' as const,
+    expiresAt: Date.now() + 60000,
+    label: 'MQTT password',
+    setupUrl: '/connections/secrets/ready',
+    outcomes: [],
+    targets: [],
+  };
+  vi.mocked(api.getSecretRelay).mockResolvedValue(relay);
+  vi.mocked(api.cancelSecretRelay).mockResolvedValue({
+    ...relay,
+    status: 'cancelled',
+    revision: 4,
+  });
+  render(
+    <MemoryRouter initialEntries={['/connections/secrets/ready']}>
+      <Routes>
+        <Route path="/connections/secrets/:setupId" element={<ConnectionSetupView secretRelay />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'Revoke relay access' }));
+  await waitFor(() => expect(api.cancelSecretRelay).toHaveBeenCalledWith('ready', 3, 'csrf'));
+  expect(screen.queryByLabelText('Password or token')).toBeNull();
+});

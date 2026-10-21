@@ -47,11 +47,13 @@ export function ConnectionSetupCard({
                     ? 'Review the destinations and enter your value privately to continue.'
                     : 'Your assistant has prepared everything. Add your key securely to continue.'}
       </p>
-      {!ready && !expired && setup.status !== 'cancelled' && (
+      {(!ready || relay) && !expired && setup.status !== 'cancelled' && (
         <Link className="workspace-primary" to={setup.setupUrl}>
-          {setup.status === 'verifying' || unconfirmed
-            ? 'View setup status'
-            : `Add ${setup.credential.label}`}
+          {ready && relay
+            ? 'Review or revoke'
+            : setup.status === 'verifying' || unconfirmed
+              ? 'View setup status'
+              : `Add ${setup.credential.label}`}
         </Link>
       )}
     </section>

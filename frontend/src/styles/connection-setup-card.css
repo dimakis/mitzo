@@ -303,3 +303,22 @@
 .connection-setup-documentation-review {
   margin-top: 12px;
 }
+
+.secret-relay-destination {
+  margin-block: var(--space-5);
+}
+.secret-relay-destination h2 {
+  font-size: var(--text-lg);
+  overflow-wrap: anywhere;
+}
+.secret-relay-destination summary {
+  min-height: var(--control-height);
+  align-content: center;
+  cursor: pointer;
+}
+.secret-relay-destination pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
