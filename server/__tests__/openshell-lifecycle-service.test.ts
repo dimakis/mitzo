@@ -155,6 +155,70 @@ it('keeps failed legacy checkpoint work fenced and never stops or deletes it', a
   expect(adapters.delete).not.toHaveBeenCalled();
 });
 
+it.each(['throw', 'blocked', 'outcome'])(
+  'fences legacy ownership after a post-stop %s failure, including fresh retries',
+  async (failure) => {
+    const { service, store, record, adapters, sandbox } = setup('retained', false);
+    let next = structuredClone(record);
+    const preview = await service.previewLegacyDeletion(() => next, AbortSignal.timeout(1000));
+    adapters.protect.mockImplementation(async () => {
+      if (sandbox.phase === 'Stopped') {
+        if (failure === 'throw') throw Error('Post-stop review unavailable');
+        if (failure === 'blocked') return { blockers: ['active_session'] };
+      }
+      return { blockers: [] };
+    });
+    if (failure === 'outcome')
+      adapters.onOutcome = () => {
+        throw Error('Outcome unavailable');
+      };
+    await expect(service.confirm(preview.token, AbortSignal.timeout(1000), 'c')).rejects.toThrow();
+    expect(store.get('c')).toMatchObject({
+      phase: 'failed',
+      checkpoint: expect.any(Object),
+      legacyDeletionPending: true,
+    });
+    next = { ...next, physicalSandboxId: 'another-owner' };
+    adapters.protect.mockResolvedValue({ blockers: [] });
+    const retry = await service.preview('c', AbortSignal.timeout(1000), 'delete');
+    expect(retry.action).toBe('none');
+    await expect(service.confirm(retry.token, AbortSignal.timeout(1000), 'c')).rejects.toThrow();
+    expect(adapters.delete).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['retained', 'stopped'] as const)(
+  'preserves legacy deletion qualification across a restart in %s state',
+  async (phase) => {
+    const { service, store, record, adapters } = setup(phase, false);
+    store.upsert({ ...record, legacyDeletionPending: true });
+    // A later writer which predates the new field cannot silently clear it.
+    store.upsert({ ...record, generation: 2 });
+    expect(store.get('c')?.legacyDeletionPending).toBe(true);
+    const root = mkdtempSync(join(tmpdir(), 'legacy-crash-'));
+    roots.push(root);
+    const path = join(root, 'restart.db');
+    const copy = new OpenShellLifecycleStore(path);
+    copy.upsert(store.get('c')!);
+    copy.close();
+    const restarted = new OpenShellLifecycleStore(path);
+    const resumed = new OpenShellLifecycleService(
+      restarted,
+      openShellLifecyclePolicy({ MITZO_OPENSHELL_LIFECYCLE_ENABLED: '1' }),
+      adapters,
+    );
+    const retry = await resumed.preview('c', AbortSignal.timeout(1000), 'delete');
+    expect(retry.action).toBe('none');
+    expect(retry.blockers).toContain('ambiguous_ownership');
+    await resumed.reconcile(AbortSignal.timeout(1000));
+    expect(adapters.checkpoint).not.toHaveBeenCalled();
+    expect(adapters.stop).not.toHaveBeenCalled();
+    expect(adapters.delete).not.toHaveBeenCalled();
+    restarted.close();
+    expect((await service.preview('c', AbortSignal.timeout(1000), 'delete')).action).toBe('none');
+  },
+);
+
 it.each(['during-protection', 'during-checkpoint', 'after-stop'])(
   'rechecks legacy ownership %s before destructive work',
   async (stage) => {

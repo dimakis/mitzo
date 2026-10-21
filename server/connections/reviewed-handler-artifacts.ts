@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.473-legacy-chat-deletion';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.474-legacy-deletion-fence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../openshell-lifecycle.ts': '062e16df43e36c8cba19b5115f8277b4c19cdab3b779dd91cec12578fdb628b2',
   '../legacy-sandbox-deletion.ts':
     '2b102f1158a5c785d0b504c9a40c30284d6b58d579d06b0fba216c6e74aabf1c',
   '../../packages/protocol/src/agent-communication-store.ts':
@@ -405,7 +406,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-warm-pool-host.ts':
     '9760df035a16060ed3720ed621ca2d933643dcd3914936f4e54e52a3daf49578',
   '../openshell-lifecycle-service.ts':
-    '35d00513cacefefd98f5d90604fafcb91fe53539e5dff3d253a01db7449211c2',
+    '37b50d33f9bd20dafdaf11a27f4134db9e127adfaa7728ceaf5786ac14b1091a',
   '../../frontend/src/pages/SandboxesView.tsx':
     'd9804cbbcf7e42c58f64a37f401101ed347ca8286c8776d82f8220dbd348b95e',
   '../../frontend/src/pages/SandboxesView.css':

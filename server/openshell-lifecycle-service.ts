@@ -78,8 +78,10 @@ function blockersFor(
   record: OpenShellLifecycleRecord,
   sandbox: LifecycleSandbox | undefined,
   protection: LifecycleProtection,
+  legacyQualified = false,
 ): LifecycleBlocker[] {
   const blockers = [...protection.blockers];
+  if (record.legacyDeletionPending && !legacyQualified) blockers.push('ambiguous_ownership');
   if (!sandbox) blockers.push('inventory_unavailable');
   else if (
     sandbox.phase === 'Error' ||
@@ -175,10 +177,14 @@ export class OpenShellLifecycleService {
   recoverStartup() {
     this.store.reconcileInterrupted();
   }
-  private async state(record: OpenShellLifecycleRecord, signal: AbortSignal) {
+  private async state(
+    record: OpenShellLifecycleRecord,
+    signal: AbortSignal,
+    legacyQualified = false,
+  ) {
     const sandbox = await this.adapters.inspect(record, signal);
     const protection = await this.adapters.protect(record, signal);
-    return { sandbox, blockers: blockersFor(record, sandbox, protection) };
+    return { sandbox, blockers: blockersFor(record, sandbox, protection, legacyQualified) };
   }
   async preview(
     conversationId: string,
@@ -206,9 +212,10 @@ export class OpenShellLifecycleService {
     record: OpenShellLifecycleRecord,
     signal: AbortSignal,
     intent: 'policy' | 'delete',
+    legacyQualified = false,
   ): Promise<LifecyclePreview> {
     const conversationId = record.conversationId;
-    const { sandbox, blockers } = await this.state(record, signal);
+    const { sandbox, blockers } = await this.state(record, signal, legacyQualified);
     // A historical stopped sandbox has no verified archive. Reviewing it must
     // never start it or authorize deletion without capturing its contents.
     if (record.phase === 'retained' && sandbox?.phase === 'Stopped' && !record.checkpoint)
@@ -302,7 +309,7 @@ export class OpenShellLifecycleService {
     const explicitDeletion = preview.intent === 'delete';
     if (preview.action === 'delete' && !explicitDeletion && !this.consented(record))
       throw new Error('OpenShell lifecycle consent is required');
-    const { sandbox, blockers } = await this.state(record, signal);
+    const { sandbox, blockers } = await this.state(record, signal, !!verifyLegacy);
     verifyLegacy?.();
     if (!sandbox || sandbox.id !== preview.sandboxId || blockers.length)
       throw new Error('OpenShell lifecycle preservation check failed');
@@ -313,7 +320,7 @@ export class OpenShellLifecycleService {
         // first write. Never replace concurrently registered management state.
         if (this.store.get(record.conversationId))
           throw new Error('Legacy sandbox ownership changed; review deletion again');
-        this.store.upsert(record);
+        this.store.upsert({ ...record, legacyDeletionPending: true });
       }
       const checkpointing = this.store.transition(
         record.conversationId,
@@ -337,7 +344,7 @@ export class OpenShellLifecycleService {
           !(await this.adapters.verifyCheckpoint?.(checkpointed, sandbox, signal))
         )
           throw new Error('OpenShell checkpoint is unavailable');
-        const afterCheckpoint = await this.state(checkpointed, signal);
+        const afterCheckpoint = await this.state(checkpointed, signal, !!verifyLegacy);
         verifyLegacy?.();
         // Ready resource versions are observation counters, so a second
         // inspect can advance one without a workspace mutation. `mutate()`
@@ -357,6 +364,7 @@ export class OpenShellLifecycleService {
         );
         if (!stopping) throw new Error('OpenShell lifecycle generation changed');
         transient = stopping;
+        let stoppedGeneration: number | undefined;
         try {
           const activityGeneration = sharedOpenShellLifecycleCoordinator.activityGeneration(
             record.conversationId,
@@ -384,9 +392,12 @@ export class OpenShellLifecycleService {
             stoppedResourceVersion: stopped.resourceVersion,
           } as const;
           this.store.upsert(stoppedRecord);
+          stoppedGeneration = stoppedRecord.generation;
           this.adapters.onOutcome?.(stoppedRecord, 'stopped');
           if (preview.action === 'stop_and_delete') {
-            const deletion = await this.preview(record.conversationId, signal, 'delete');
+            const deletion = verifyLegacy
+              ? await this.previewRecord(stoppedRecord, signal, 'delete', true)
+              : await this.preview(record.conversationId, signal, 'delete');
             if (deletion.action !== 'delete')
               throw new Error('Sandbox stopped; deletion is blocked. Refresh to review.');
             // Keep the same mutation fence across capture, stop and deletion.
@@ -394,6 +405,12 @@ export class OpenShellLifecycleService {
           }
           return 'stopped';
         } catch (error) {
+          if (verifyLegacy && stoppedGeneration !== undefined)
+            this.store.failStoppedCheckpoint(
+              record.conversationId,
+              stoppedGeneration,
+              error instanceof Error ? error.message : 'Legacy deletion continuation failed',
+            );
           this.markFailed(stopping, error);
           throw error;
         }
@@ -426,7 +443,7 @@ export class OpenShellLifecycleService {
       this.store.failStoppedCheckpoint(record.conversationId, record.generation, error.message);
       throw error;
     }
-    const beforeDelete = await this.state(record, signal);
+    const beforeDelete = await this.state(record, signal, !!verifyLegacy);
     verifyLegacy?.();
     if (
       !beforeDelete.sandbox ||
