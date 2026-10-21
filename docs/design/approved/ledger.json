@@ -110,7 +110,7 @@
           "approval": {
             "thread": "01a14b56-e8c7-7e21-aafb-e9b5b63ae917",
             "quote": "Fine. That works. Implement this and only this.",
-            "scope": "Replace the binary priority affordance with a 1–10 selector in the existing item header and show the selected value as a compact P<n> badge in the existing Work tree. Preserve the rest of the approved Telos interface."
+            "scope": "Replace the binary priority affordance with a 1\u201310 selector in the existing item header and show the selected value as a compact P<n> badge in the existing Work tree. Preserve the rest of the approved Telos interface."
           },
           "references": [
             {
