@@ -1,0 +1,439 @@
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index 01a4676..ab4b437 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -240,6 +240,9 @@ pub(crate) mod native_allocation;
+ mod reasoning_effort;
+ pub(crate) mod source_frame;
+ mod submission;
++
++#[path = "turn_input_submission.rs"]
++mod turn_input_submission;
+ pub(crate) use reasoning_effort::RequestEffortUsage;
+ pub(crate) use submission::Submission;
+ mod input_queue;
+@@ -1040,25 +1043,12 @@ impl SessionIo {
+     /// session loop exits before replying, the caller gets `InternalAgentDied`.
+     pub(crate) async fn submit_turn_input(
+         &self,
+-        mut request: TurnInputRequest,
++        request: TurnInputRequest,
+         mode: TurnInputMode,
+     ) -> CodexResult<TurnInputSubmission> {
+-        let id = new_submission_id();
+-        let (reply_tx, reply_rx) = oneshot::channel();
+-        let trace = request.trace.take();
+-        self.submit_with_id(Submission {
+-            id,
+-            op: Op::TurnInput {
+-                request: Box::new(request),
+-                mode,
+-                reply: reply_tx,
+-            },
+-            trace,
+-            parent_turn_id: None,
+-            root_turn_id: None,
+-            residency_guard: None,
+-        })
+-        .await?;
++        let pending = turn_input_submission::OriginalTurnInputSubmission::capture(request, mode);
++        let (submission, reply_rx) = pending.into_submission();
++        self.submit_with_id(submission).await?;
+         reply_rx.await.unwrap_or(Err(CodexErr::InternalAgentDied))
+     }
+ 
+diff --git a/codex-rs/core/src/session/turn_input_submission.rs b/codex-rs/core/src/session/turn_input_submission.rs
+new file mode 100644
+index 0000000..5a9ff14
+--- /dev/null
++++ b/codex-rs/core/src/session/turn_input_submission.rs
+@@ -0,0 +1,62 @@
++//! ORIGINAL ordered turn-input submission DATA. A generated Core queue ID and
++//! one-shot reply custody are not native-thread, selected-command or admission authority.
++use super::*;
++
++pub(super) struct OriginalTurnInputSubmission {
++    id: String,
++    request: TurnInputRequest,
++    mode: TurnInputMode,
++    reply_tx: oneshot::Sender<CodexResult<TurnInputSubmission>>,
++    reply_rx: oneshot::Receiver<CodexResult<TurnInputSubmission>>,
++    trace: Option<W3cTraceContext>,
++}
++impl OriginalTurnInputSubmission {
++    pub(super) fn capture(mut request: TurnInputRequest, mode: TurnInputMode) -> Self {
++        let id = new_submission_id();
++        let (reply_tx, reply_rx) = oneshot::channel();
++        let trace = request.trace.take();
++        Self {
++            id,
++            request,
++            mode,
++            reply_tx,
++            reply_rx,
++            trace,
++        }
++    }
++
++    pub(super) fn into_submission(
++        self,
++    ) -> (
++        Submission,
++        oneshot::Receiver<CodexResult<TurnInputSubmission>>,
++    ) {
++        let Self {
++            id,
++            request,
++            mode,
++            reply_tx,
++            reply_rx,
++            trace,
++        } = self;
++        (
++            Submission {
++                id,
++                op: Op::TurnInput {
++                    request: Box::new(request),
++                    mode,
++                    reply: reply_tx,
++                },
++                trace,
++                parent_turn_id: None,
++                root_turn_id: None,
++                residency_guard: None,
++            },
++            reply_rx,
++        )
++    }
++}
++
++#[cfg(test)]
++#[path = "turn_input_submission_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/turn_input_submission_tests.rs b/codex-rs/core/src/session/turn_input_submission_tests.rs
+new file mode 100644
+index 0000000..0512b12
+--- /dev/null
++++ b/codex-rs/core/src/session/turn_input_submission_tests.rs
+@@ -0,0 +1,321 @@
++use super::*;
++use codex_protocol::error::CodexErrorDetails;
++use codex_protocol::models::{FunctionCallOutputBody, FunctionCallOutputPayload, ResponseItem};
++use codex_protocol::protocol::{AdditionalContextEntry, AdditionalContextKind};
++use codex_protocol::turn_input::{CyberAccessProgram, NotSubmittedReason, TurnInput};
++use codex_protocol::user_input::UserInput;
++use pretty_assertions::assert_eq;
++use std::collections::{BTreeMap, HashMap, HashSet};
++
++// These exhaustive projections compare every original field because request and
++// start options intentionally lack PartialEq. No Session or model is constructed.
++type RequestProjection = (
++    TurnInput,
++    ThreadSettingsOverrides,
++    (
++        Option<String>,
++        Option<serde_json::Value>,
++        Option<String>,
++        Option<String>,
++        Option<String>,
++        Option<CyberAccessProgram>,
++    ),
++    BTreeMap<String, AdditionalContextEntry>,
++    Option<HashMap<String, String>>,
++    Option<W3cTraceContext>,
++);
++fn project(request: TurnInputRequest) -> RequestProjection {
++    let TurnInputRequest {
++        input,
++        thread_settings,
++        start,
++        additional_context,
++        responsesapi_client_metadata,
++        trace,
++    } = request;
++    let TurnStartOptions {
++        turn_trigger,
++        final_output_json_schema,
++        service_tier,
++        parent_turn_id,
++        root_turn_id,
++        cyber_access_program,
++    } = start;
++    (
++        input,
++        thread_settings,
++        (
++            turn_trigger,
++            final_output_json_schema,
++            service_tier,
++            parent_turn_id,
++            root_turn_id,
++            cyber_access_program,
++        ),
++        additional_context,
++        responsesapi_client_metadata,
++        trace,
++    )
++}
++fn request(input: TurnInput, trace: Option<W3cTraceContext>) -> TurnInputRequest {
++    TurnInputRequest::new(input)
++        .with_thread_settings(ThreadSettingsOverrides {
++            model: Some("selected-model-data".into()),
++            effort: Some(None),
++            service_tier: Some(None),
++            disabled_plugin_ids: Some(Vec::new()),
++            runtime_workspace_roots: Some(Vec::new()),
++            ..Default::default()
++        })
++        .on_start(TurnStartOptions {
++            turn_trigger: Some("original-composer".into()),
++            final_output_json_schema: Some(
++                serde_json::json!({"type":"object", "properties":{"exact":{"type":"string"}}}),
++            ),
++            service_tier: Some("priority".into()),
++            parent_turn_id: Some("retained-parent".into()),
++            root_turn_id: Some("retained-root".into()),
++            cyber_access_program: Some(CyberAccessProgram::DaybreakBlue),
++        })
++        .with_additional_context(BTreeMap::from([
++            (
++                "application".into(),
++                AdditionalContextEntry {
++                    value: "app bytes\n🦀".into(),
++                    kind: AdditionalContextKind::Application,
++                },
++            ),
++            (
++                "untrusted".into(),
++                AdditionalContextEntry {
++                    value: "untrusted bytes".into(),
++                    kind: AdditionalContextKind::Untrusted,
++                },
++            ),
++        ]))
++        .with_responses_metadata(Some(HashMap::from([(
++            "opaque".into(),
++            "retained bytes".into(),
++        )])))
++        .with_trace(trace)
++}
++fn inputs() -> Vec<TurnInput> {
++    vec![
++        TurnInput::UserInput {
++            content: vec![
++                UserInput::Text {
++                    text: "prompt\nbytes 🦀é".into(),
++                    text_elements: Vec::new(),
++                },
++                UserInput::Mention {
++                    name: "source".into(),
++                    path: "app://retained".into(),
++                },
++            ],
++            client_id: Some("original-client-id".into()),
++        },
++        TurnInput::ResponseItem(ResponseItem::FunctionCallOutput {
++            id: Some("original-item".into()),
++            call_id: Some("original-call".into()),
++            name: Some("original-tool".into()),
++            namespace: Some("original-namespace".into()),
++            output: FunctionCallOutputPayload {
++                body: FunctionCallOutputBody::Text("reply\nbytes 🦀é".into()),
++                success: Some(false),
++            },
++            internal_chat_message_metadata_passthrough: None,
++        }),
++    ]
++}
++fn input_storage(input: &TurnInput) -> usize {
++    match input {
++        TurnInput::UserInput { content, .. } => content.as_ptr() as usize,
++        TurnInput::ResponseItem(ResponseItem::FunctionCallOutput { output, .. }) => {
++            let FunctionCallOutputBody::Text(text) = &output.body else {
++                panic!("text fixture")
++            };
++            text.as_ptr() as usize
++        }
++        _ => panic!("unexpected fixture input"),
++    }
++}
++
++#[test]
++fn whole_request_all_modes_and_trace_move_once_into_original_core_submission() {
++    let mut ids = HashSet::new();
++    let modes = [
++        TurnInputMode::StartOrSteer,
++        TurnInputMode::StartIfIdle,
++        TurnInputMode::ContinueIfIdle {
++            expected_previous_turn_id: "actual-previous-data".into(),
++        },
++        TurnInputMode::Steer {
++            expected_turn_id: "actual-active-data".into(),
++        },
++    ];
++    for input in inputs() {
++        for mode in &modes {
++            for trace in [
++                None,
++                Some(W3cTraceContext {
++                    traceparent: Some(
++                        "00-00000000000000000000000000000001-0000000000000001-01".into(),
++                    ),
++                    tracestate: Some("owner=original".into()),
++                }),
++            ] {
++                let original = request(input.clone(), trace.clone());
++                for (metadata, persistent_tier) in [
++                    (None, None),
++                    (Some(HashMap::new()), Some(None)),
++                    (
++                        original.responsesapi_client_metadata.clone(),
++                        Some(Some("flex".into())),
++                    ),
++                ] {
++                    let mut request = original.clone();
++                    request.responsesapi_client_metadata = metadata;
++                    request.thread_settings.service_tier = persistent_tier;
++                    let mut expected = request.clone();
++                    expected.trace = None;
++                    let storage = input_storage(&request.input);
++                    let metadata_storage = request
++                        .responsesapi_client_metadata
++                        .as_ref()
++                        .and_then(|metadata| metadata.get("opaque"))
++                        .map(|value| value.as_ptr());
++                    let owner = OriginalTurnInputSubmission::capture(request, mode.clone());
++                    let original_id = owner.id.clone();
++                    assert_eq!(Uuid::parse_str(&original_id).unwrap().get_version_num(), 7);
++                    assert!(ids.insert(original_id.clone()));
++                    assert_eq!(input_storage(&owner.request.input), storage);
++                    let (submission, _waiter) = owner.into_submission();
++                    let Submission {
++                        id,
++                        op,
++                        trace: actual_trace,
++                        parent_turn_id,
++                        root_turn_id,
++                        residency_guard,
++                    } = submission;
++                    assert_eq!(id, original_id);
++                    assert_eq!(actual_trace, trace);
++                    // Outer queue ancestry/residency retains original None; start
++                    // lineage remains inside the exact typed request instead.
++                    assert!(parent_turn_id.is_none());
++                    assert!(root_turn_id.is_none());
++                    assert!(residency_guard.is_none());
++                    let Op::TurnInput {
++                        request,
++                        mode: actual_mode,
++                        reply: _reply,
++                    } = op
++                    else {
++                        panic!("original TurnInput envelope")
++                    };
++                    assert_eq!(actual_mode, *mode);
++                    assert_eq!(input_storage(&request.input), storage);
++                    assert_eq!(
++                        request
++                            .responsesapi_client_metadata
++                            .as_ref()
++                            .and_then(|metadata| metadata.get("opaque"))
++                            .map(|value| value.as_ptr()),
++                        metadata_storage
++                    );
++                    assert_eq!(project(*request), project(expected));
++                }
++            }
++        }
++    }
++}
++
++#[tokio::test]
++async fn original_oneshot_preserves_routing_decisions_and_error_payloads() {
++    for decision in 0..3 {
++        let owner = OriginalTurnInputSubmission::capture(
++            request(inputs().remove(0), /*trace*/ None),
++            TurnInputMode::StartOrSteer,
++        );
++        let (submission, waiter) = owner.into_submission();
++        let expected = match decision {
++            0 => TurnInputSubmission::Started {
++                turn_id: submission.id.clone(),
++            },
++            1 => TurnInputSubmission::Steered {
++                turn_id: submission.id.clone(),
++            },
++            2 => TurnInputSubmission::NotSubmitted {
++                reason: NotSubmittedReason::NotIdle,
++            },
++            _ => unreachable!(),
++        };
++        let Op::TurnInput { reply, .. } = submission.op else {
++            panic!("original envelope")
++        };
++        reply.send(Ok(expected.clone())).unwrap();
++        assert_eq!(
++            waiter
++                .await
++                .unwrap_or(Err(CodexErr::InternalAgentDied))
++                .unwrap(),
++            expected
++        );
++    }
++    let (submission, waiter) = OriginalTurnInputSubmission::capture(
++        request(inputs().remove(1), /*trace*/ None),
++        TurnInputMode::StartIfIdle,
++    )
++    .into_submission();
++    let Op::TurnInput { reply, .. } = submission.op else {
++        panic!("original envelope")
++    };
++    reply
++        .send(Err(CodexErr::InvalidRequest(
++            "original routing refusal".into(),
++        )))
++        .unwrap();
++    let error = waiter
++        .await
++        .unwrap_or(Err(CodexErr::InternalAgentDied))
++        .unwrap_err();
++    assert!(
++        matches!(error.details(), CodexErrorDetails::InvalidRequest(message)
++        if message == "original routing refusal")
++    );
++}
++
++#[tokio::test]
++async fn dropping_same_original_submission_closes_waiter_and_waiter_loss_does_not_replay() {
++    let (submission, waiter) = OriginalTurnInputSubmission::capture(
++        request(inputs().remove(0), /*trace*/ None),
++        TurnInputMode::StartIfIdle,
++    )
++    .into_submission();
++    drop(submission);
++    let error = waiter
++        .await
++        .unwrap_or(Err(CodexErr::InternalAgentDied))
++        .unwrap_err();
++    assert!(matches!(
++        error.details(),
++        CodexErrorDetails::InternalAgentDied
++    ));
++
++    let (submission, waiter) = OriginalTurnInputSubmission::capture(
++        request(inputs().remove(1), /*trace*/ None),
++        TurnInputMode::StartOrSteer,
++    )
++    .into_submission();
++    let expected = TurnInputSubmission::Started {
++        turn_id: submission.id.clone(),
++    };
++    drop(waiter);
++    let Op::TurnInput { reply, .. } = submission.op else {
++        panic!("original envelope")
++    };
++    // Same one-shot sender returns the unchanged unsent result. No queue,
++    // Session, retry API, replay owner or reconstructed channel exists here.
++    let unsent = reply.send(Ok(expected.clone())).unwrap_err();
++    assert_eq!(unsent.unwrap(), expected);
++}

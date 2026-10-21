@@ -1,0 +1,532 @@
+diff --git a/codex-rs/app-server/src/request_processors.rs b/codex-rs/app-server/src/request_processors.rs
+index 11b9fd5..b9f5b19 100644
+--- a/codex-rs/app-server/src/request_processors.rs
++++ b/codex-rs/app-server/src/request_processors.rs
+@@ -536,6 +536,7 @@ mod account_processor;
+ mod apps_processor;
+ mod bedrock_auth;
+ mod catalog_processor;
++mod client_info_data;
+ mod command_exec_processor;
+ mod config_processor;
+ mod diagnostics;
+@@ -562,6 +563,8 @@ mod thread_attachments;
+ mod thread_enrichment;
+ mod thread_fork_goal;
+ mod thread_input;
++pub(crate) use client_info_data::AppServerClientInfo;
++
+ mod thread_processor;
+ mod thread_queue_processor;
+ mod thread_sections;
+diff --git a/codex-rs/app-server/src/request_processors/client_info_data.rs b/codex-rs/app-server/src/request_processors/client_info_data.rs
+new file mode 100644
+index 0000000..5bc59cd
+--- /dev/null
++++ b/codex-rs/app-server/src/request_processors/client_info_data.rs
+@@ -0,0 +1,50 @@
++//! Raw initiating app-server metadata, moved until the original setter stage.
++use crate::error_code::internal_error;
++use codex_app_server_protocol::JSONRPCErrorError;
++use codex_core::CodexThread;
++
++/// Move-only DATA. Capture neither resolves compatibility nor changes a thread.
++pub(crate) struct AppServerClientInfo {
++    name: Option<String>,
++    version: Option<String>,
++}
++
++impl AppServerClientInfo {
++    pub(crate) fn capture(name: Option<String>, version: Option<String>) -> Self {
++        Self { name, version }
++    }
++
++    fn resolve(self) -> (Option<String>, Option<String>, bool) {
++        let auto_deny =
++            xcode_26_4_mcp_elicitations_auto_deny(self.name.as_deref(), self.version.as_deref());
++        (self.name, self.version, auto_deny)
++    }
++
++    pub(crate) async fn apply(self, thread: &CodexThread) -> Result<(), JSONRPCErrorError> {
++        let (app_server_client_name, app_server_client_version, mcp_elicitations_auto_deny) =
++            self.resolve();
++        thread
++            .set_app_server_client_info(
++                app_server_client_name,
++                app_server_client_version,
++                mcp_elicitations_auto_deny,
++            )
++            .await
++            .map_err(|err| internal_error(format!("failed to set app server client info: {err}")))
++    }
++}
++
++fn xcode_26_4_mcp_elicitations_auto_deny(
++    client_name: Option<&str>,
++    client_version: Option<&str>,
++) -> bool {
++    // Xcode 26.4 shipped before app-server MCP elicitation requests were
++    // client-visible. Keep elicitations auto-denied for that client line.
++    // TODO: Remove this compatibility hack once Xcode 26.4 ages out.
++    client_name == Some("Xcode")
++        && client_version.is_some_and(|version| version.starts_with("26.4"))
++}
++
++#[cfg(test)]
++#[path = "client_info_data_tests.rs"]
++mod tests;
+diff --git a/codex-rs/app-server/src/request_processors/client_info_data_tests.rs b/codex-rs/app-server/src/request_processors/client_info_data_tests.rs
+new file mode 100644
+index 0000000..47906f7
+--- /dev/null
++++ b/codex-rs/app-server/src/request_processors/client_info_data_tests.rs
+@@ -0,0 +1,73 @@
++use super::*;
++use pretty_assertions::assert_eq;
++
++// Test-only access remains in the dedicated test module.
++impl AppServerClientInfo {
++    pub(crate) fn raw_for_test(&self) -> (Option<&str>, Option<&str>) {
++        (self.name.as_deref(), self.version.as_deref())
++    }
++    pub(crate) fn buffers_for_test(&self) -> (Option<*const u8>, Option<*const u8>) {
++        (
++            self.name.as_ref().map(|value| value.as_ptr()),
++            self.version.as_ref().map(|value| value.as_ptr()),
++        )
++    }
++}
++
++#[test]
++fn raw_metadata_preserves_absence_empty_content_and_owned_buffers_until_resolution() {
++    for (name, version) in [
++        (None, None),
++        (Some(""), Some("")),
++        (Some("Xcode"), None),
++        (None, Some("26.4")),
++        (Some(" Xcode\n"), Some("26.4 beta\n")),
++    ] {
++        let name = name.map(str::to_owned);
++        let version = version.map(str::to_owned);
++        let buffers = (
++            name.as_ref().map(|value| value.as_ptr()),
++            version.as_ref().map(|value| value.as_ptr()),
++        );
++        let expected = (name.clone(), version.clone());
++        let data = AppServerClientInfo::capture(name, version);
++        assert_eq!(data.buffers_for_test(), buffers);
++        assert_eq!(
++            data.raw_for_test(),
++            (expected.0.as_deref(), expected.1.as_deref())
++        );
++        let (name, version, _) = data.resolve();
++        assert_eq!((name, version), expected);
++    }
++}
++
++#[test]
++fn original_xcode_prefix_and_case_boundaries_are_resolved_without_normalization() {
++    for (name, version, expected) in [
++        (None, None, false),
++        (Some("Xcode"), None, false),
++        (None, Some("26.4"), false),
++        (Some("Xcode"), Some(""), false),
++        (Some("Xcode"), Some("26.3.9"), false),
++        (Some("Xcode"), Some("26.4"), true),
++        (Some("Xcode"), Some("26.4.0"), true),
++        (Some("Xcode"), Some("26.40"), true),
++        (Some("Xcode"), Some("26.4 beta"), true),
++        (Some("Xcode"), Some("26.5"), false),
++        (Some("xcode"), Some("26.4"), false),
++        (Some(" Xcode"), Some("26.4"), false),
++        (Some("Xcode"), Some(" 26.4"), false),
++        (Some(""), Some("26.4"), false),
++    ] {
++        let data =
++            AppServerClientInfo::capture(name.map(str::to_owned), version.map(str::to_owned));
++        assert_eq!(
++            data.resolve(),
++            (
++                name.map(str::to_owned),
++                version.map(str::to_owned),
++                expected
++            )
++        );
++    }
++}
+diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
+index 8d50307..2897ded 100644
+--- a/codex-rs/app-server/src/request_processors/thread_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
+@@ -1025,18 +1025,9 @@ impl ThreadRequestProcessor {
+         app_server_client_name: Option<String>,
+         app_server_client_version: Option<String>,
+     ) -> Result<(), JSONRPCErrorError> {
+-        let mcp_elicitations_auto_deny = xcode_26_4_mcp_elicitations_auto_deny(
+-            app_server_client_name.as_deref(),
+-            app_server_client_version.as_deref(),
+-        );
+-        thread
+-            .set_app_server_client_info(
+-                app_server_client_name,
+-                app_server_client_version,
+-                mcp_elicitations_auto_deny,
+-            )
++        AppServerClientInfo::capture(app_server_client_name, app_server_client_version)
++            .apply(thread)
+             .await
+-            .map_err(|err| internal_error(format!("failed to set app server client info: {err}")))
+     }
+ 
+     async fn finalize_thread_teardown(&self, thread_id: ThreadId) {
+@@ -1471,6 +1462,7 @@ impl ThreadRequestProcessor {
+                 ),
+                 reservation,
+                 installed,
++                AppServerClientInfo::capture(app_server_client_name, app_server_client_version),
+             )
+             .start_ordinary(listener_task_context.thread_manager.as_ref())
+             .instrument(tracing::info_span!(
+@@ -1479,12 +1471,15 @@ impl ThreadRequestProcessor {
+                 thread_start.dynamic_tool_count = dynamic_tool_count,
+             ))
+             .await;
+-        let NewThread {
+-            thread_id,
+-            thread,
+-            session_configured,
+-            ..
+-        } = match new_thread {
++        let (
++            NewThread {
++                thread_id,
++                thread,
++                session_configured,
++                ..
++            },
++            client_info,
++        ) = match new_thread {
+             Ok(new_thread) => new_thread,
+             Err(err) => {
+                 listener_task_context
+@@ -1508,12 +1503,7 @@ impl ThreadRequestProcessor {
+             Some("ready"),
+         );
+ 
+-        Self::set_app_server_client_info(
+-            thread.as_ref(),
+-            app_server_client_name,
+-            app_server_client_version,
+-        )
+-        .await?;
++        client_info.apply(thread.as_ref()).await?;
+ 
+         let instruction_sources = thread.legacy_instruction_sources().await;
+         let config_snapshot = thread
+@@ -5530,17 +5520,6 @@ impl ThreadRequestProcessor {
+     }
+ }
+ 
+-fn xcode_26_4_mcp_elicitations_auto_deny(
+-    client_name: Option<&str>,
+-    client_version: Option<&str>,
+-) -> bool {
+-    // Xcode 26.4 shipped before app-server MCP elicitation requests were
+-    // client-visible. Keep elicitations auto-denied for that client line.
+-    // TODO: Remove this compatibility hack once Xcode 26.4 ages out.
+-    client_name == Some("Xcode")
+-        && client_version.is_some_and(|version| version.starts_with("26.4"))
+-}
+-
+ const THREAD_TURNS_DEFAULT_LIMIT: usize = 25;
+ const THREAD_TURNS_MAX_LIMIT: usize = 100;
+ const THREAD_ITEMS_DEFAULT_LIMIT: usize = 25;
+diff --git a/codex-rs/app-server/src/request_processors/turn_processor.rs b/codex-rs/app-server/src/request_processors/turn_processor.rs
+index cf43b3a..b8d46a7 100644
+--- a/codex-rs/app-server/src/request_processors/turn_processor.rs
++++ b/codex-rs/app-server/src/request_processors/turn_processor.rs
+@@ -748,18 +748,9 @@ impl TurnRequestProcessor {
+         app_server_client_name: Option<String>,
+         app_server_client_version: Option<String>,
+     ) -> Result<(), JSONRPCErrorError> {
+-        let mcp_elicitations_auto_deny = xcode_26_4_mcp_elicitations_auto_deny(
+-            app_server_client_name.as_deref(),
+-            app_server_client_version.as_deref(),
+-        );
+-        thread
+-            .set_app_server_client_info(
+-                app_server_client_name,
+-                app_server_client_version,
+-                mcp_elicitations_auto_deny,
+-            )
++        AppServerClientInfo::capture(app_server_client_name, app_server_client_version)
++            .apply(thread)
+             .await
+-            .map_err(|err| internal_error(format!("failed to set app server client info: {err}")))
+     }
+ 
+     async fn turn_steer_inner(
+@@ -1429,14 +1420,3 @@ impl TurnRequestProcessor {
+         .await
+     }
+ }
+-
+-fn xcode_26_4_mcp_elicitations_auto_deny(
+-    client_name: Option<&str>,
+-    client_version: Option<&str>,
+-) -> bool {
+-    // Xcode 26.4 shipped before app-server MCP elicitation requests were
+-    // client-visible. Keep elicitations auto-denied for that client line.
+-    // TODO: Remove this compatibility hack once Xcode 26.4 ages out.
+-    client_name == Some("Xcode")
+-        && client_version.is_some_and(|version| version.starts_with("26.4"))
+-}
+diff --git a/codex-rs/app-server/src/request_processors/turn_settings_data_tests.rs b/codex-rs/app-server/src/request_processors/turn_settings_data_tests.rs
+index 8a05271..a5f6782 100644
+--- a/codex-rs/app-server/src/request_processors/turn_settings_data_tests.rs
++++ b/codex-rs/app-server/src/request_processors/turn_settings_data_tests.rs
+@@ -291,6 +291,9 @@ async fn selected_settings_named_permission_failure_and_candidate_one_use_refuse
+                 StartThreadOptions::new(raw.clone()),
+                 threads.reserve_thread_start(),
+                 Arc::clone(&installed),
++                crate::request_processors::AppServerClientInfo::capture(
++                    /*name*/ None, /*version*/ None,
++                ),
+             ),
+         )
+         .await
+@@ -327,6 +330,9 @@ async fn selected_settings_named_permission_failure_and_candidate_one_use_refuse
+                 StartThreadOptions::new(raw),
+                 threads.reserve_thread_start(),
+                 Arc::clone(&installed),
++                crate::request_processors::AppServerClientInfo::capture(
++                    /*name*/ None, /*version*/ None,
++                ),
+             ),
+         )
+         .await
+@@ -359,6 +365,9 @@ async fn selected_settings_named_permission_failure_and_candidate_one_use_refuse
+                 StartThreadOptions::new(config.clone()),
+                 threads.reserve_thread_start(),
+                 Arc::clone(&installed),
++                crate::request_processors::AppServerClientInfo::capture(
++                    /*name*/ None, /*version*/ None,
++                ),
+             ),
+         )
+         .await
+diff --git a/codex-rs/app-server/src/selected_start_config.rs b/codex-rs/app-server/src/selected_start_config.rs
+index 5438239..54af115 100644
+--- a/codex-rs/app-server/src/selected_start_config.rs
++++ b/codex-rs/app-server/src/selected_start_config.rs
+@@ -32,17 +32,20 @@ pub(crate) struct OriginalFirstCommandStart {
+     options: StartThreadOptions,
+     reservation: codex_core::NativeStartReservation,
+     installed: Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++    client_info: crate::request_processors::AppServerClientInfo,
+ }
+ impl OriginalFirstCommandStart {
+     pub(crate) fn new(
+         options: StartThreadOptions,
+         reservation: codex_core::NativeStartReservation,
+         installed: Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++        client_info: crate::request_processors::AppServerClientInfo,
+     ) -> Self {
+         Self {
+             options,
+             reservation,
+             installed,
++            client_info,
+         }
+     }
+     pub(crate) fn into_parts(
+@@ -51,16 +54,26 @@ impl OriginalFirstCommandStart {
+         StartThreadOptions,
+         codex_core::NativeStartReservation,
+         Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++        crate::request_processors::AppServerClientInfo,
+     ) {
+-        (self.options, self.reservation, self.installed)
++        (
++            self.options,
++            self.reservation,
++            self.installed,
++            self.client_info,
++        )
+     }
+     pub(crate) async fn start_ordinary(
+         self,
+         manager: &ThreadManager,
+-    ) -> codex_protocol::error::Result<codex_core::NewThread> {
++    ) -> codex_protocol::error::Result<(
++        codex_core::NewThread,
++        crate::request_processors::AppServerClientInfo,
++    )> {
+         manager
+             .start_reserved_thread(self.options, self.reservation)
+             .await
++            .map(|thread| (thread, self.client_info))
+     }
+ }
+ 
+@@ -86,6 +99,8 @@ pub(crate) struct SelectedConfiguredStart {
+     start: SelectedStartInputs,
+     installed:
+         Option<std::sync::Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>>,
++    // Retained until a genuine selected metadata consumer is integrated.
++    client_info: Option<crate::request_processors::AppServerClientInfo>,
+ }
+ 
+ impl ConfigManager {
+@@ -257,7 +272,7 @@ impl SelectedStartConfig {
+         manager: &ThreadManager,
+         command: OriginalFirstCommandStart,
+     ) -> io::Result<SelectedConfiguredStart> {
+-        let (mut options, reservation, installed) = command.into_parts();
++        let (mut options, reservation, installed, client_info) = command.into_parts();
+         if options.config != self.config {
+             return Err(io::Error::other("selected first-command config changed"));
+         }
+@@ -270,6 +285,7 @@ impl SelectedStartConfig {
+             source: self,
+             start,
+             installed: Some(installed),
++            client_info: Some(client_info),
+         })
+     }
+ 
+@@ -295,6 +311,7 @@ impl SelectedStartConfig {
+             source: self,
+             start,
+             installed: None,
++            client_info: None,
+         })
+     }
+ }
+diff --git a/codex-rs/app-server/src/selected_start_config_tests.rs b/codex-rs/app-server/src/selected_start_config_tests.rs
+index b9b69e5..ea30da0 100644
+--- a/codex-rs/app-server/src/selected_start_config_tests.rs
++++ b/codex-rs/app-server/src/selected_start_config_tests.rs
+@@ -225,7 +225,14 @@ async fn original_first_command_source_constructs_and_adopts_same_reserved_clien
+     let store = Arc::new(InMemoryThreadStore::default());
+     let (threads, installed, auth) = thread_manager(&config, Arc::clone(&store));
+     let token = threads.reserve_thread_start();
+-    let command = OriginalFirstCommandStart::new(StartThreadOptions::new(config), token, installed);
++    let command = OriginalFirstCommandStart::new(
++        StartThreadOptions::new(config),
++        token,
++        installed,
++        crate::request_processors::AppServerClientInfo::capture(
++            /*name*/ None, /*version*/ None,
++        ),
++    );
+     let mut selected = source
+         .capture_first_command(&threads, command)
+         .await
+@@ -271,6 +278,9 @@ async fn original_publisher_change_after_client_construction_prevents_adoption()
+         StartThreadOptions::new(source.config().clone()),
+         threads.reserve_thread_start(),
+         installed,
++        crate::request_processors::AppServerClientInfo::capture(
++            /*name*/ None, /*version*/ None,
++        ),
+     );
+     let mut selected = source
+         .capture_first_command(&threads, command)
+@@ -359,6 +369,9 @@ async fn installed_first_command_startup_preserves_raw_owner_and_effective_input
+         StartThreadOptions::new(raw.clone()),
+         threads.reserve_thread_start(),
+         installed,
++        crate::request_processors::AppServerClientInfo::capture(
++            /*name*/ None, /*version*/ None,
++        ),
+     );
+     let mut selected = source
+         .capture_first_command(&threads, command)
+@@ -512,3 +525,86 @@ async fn owned_selected_source_keeps_same_writer_clone_publication_and_refuses_a
+         codex_thread_store::InMemoryThreadStoreCalls::default()
+     );
+ }
++
++#[tokio::test]
++async fn initiating_client_info_moves_with_original_options_reservation_and_installed_owner() {
++    for (name, version) in [
++        (None, None),
++        (Some(""), Some("")),
++        (Some("Xcode"), Some("26.4.1")),
++    ] {
++        let home = tempfile::tempdir().unwrap();
++        let configs = manager(home.path());
++        let source = configs
++            .load_selected_start_config(
++                /*request*/ None,
++                ConfigOverrides {
++                    cwd: Some(home.path().to_path_buf()),
++                    ..Default::default()
++                },
++            )
++            .await
++            .unwrap();
++        let config = source.config().clone();
++        let store = Arc::new(InMemoryThreadStore::default());
++        let (threads, installed, _auth) = thread_manager(&config, Arc::clone(&store));
++        let reservation = threads.reserve_thread_start();
++        let native_id = reservation.thread_id();
++        let info = crate::request_processors::AppServerClientInfo::capture(
++            name.map(str::to_owned),
++            version.map(str::to_owned),
++        );
++        let buffers = info.buffers_for_test();
++        let mut options = StartThreadOptions::new(config.clone());
++        options.metrics_service_name = Some("client-info-fixture".to_owned());
++        let service_buffer = options.metrics_service_name.as_ref().unwrap().as_ptr();
++        let command =
++            OriginalFirstCommandStart::new(options, reservation, Arc::clone(&installed), info);
++        let (options, reservation, actual_installed, info) = command.into_parts();
++        assert_eq!(reservation.thread_id(), native_id);
++        assert_eq!(options.config, config);
++        assert_eq!(
++            options.metrics_service_name.as_deref(),
++            Some("client-info-fixture")
++        );
++        assert_eq!(
++            options.metrics_service_name.as_ref().unwrap().as_ptr(),
++            service_buffer
++        );
++        assert!(Arc::ptr_eq(&actual_installed, &installed));
++        assert_eq!(info.buffers_for_test(), buffers);
++        let selected = source
++            .capture_first_command(
++                &threads,
++                OriginalFirstCommandStart::new(options, reservation, actual_installed, info),
++            )
++            .await
++            .unwrap();
++        assert_eq!(selected.start.start_options().unwrap().config, config);
++        let retained_options = selected.start.start_options().unwrap();
++        assert_eq!(
++            retained_options.metrics_service_name.as_deref(),
++            Some("client-info-fixture")
++        );
++        assert_eq!(
++            retained_options
++                .metrics_service_name
++                .as_ref()
++                .unwrap()
++                .as_ptr(),
++            service_buffer
++        );
++        assert!(Arc::ptr_eq(
++            selected.installed.as_ref().unwrap(),
++            &installed
++        ));
++        let retained = selected.client_info.as_ref().unwrap();
++        assert_eq!(retained.raw_for_test(), (name, version));
++        assert_eq!(retained.buffers_for_test(), buffers);
++        assert!(threads.list_thread_ids().await.is_empty());
++        assert_eq!(
++            store.calls().await,
++            codex_thread_store::InMemoryThreadStoreCalls::default()
++        );
++    }
++}

@@ -1,0 +1,585 @@
+diff --git a/codex-rs/app-server/src/request_processors/first_command_options.rs b/codex-rs/app-server/src/request_processors/first_command_options.rs
+new file mode 100644
+index 0000000..0987037
+--- /dev/null
++++ b/codex-rs/app-server/src/request_processors/first_command_options.rs
+@@ -0,0 +1,104 @@
++//! Original ordinary first-command OPTIONS DATA, split at the real metadata /
++//! reservation / creating-connection effect boundary. No start/admission authority.
++use super::*;
++
++pub(super) struct OriginalFirstCommandOptions {
++    start_options: StartThreadOptions,
++    environments: Vec<TurnEnvironmentSelection>,
++    dynamic_tools: Vec<DynamicToolSpec>,
++    history_mode: Option<ThreadHistoryMode>,
++    thread_extension_init: ExtensionDataInit,
++}
++
++impl OriginalFirstCommandOptions {
++    pub(super) fn prepare(
++        config: Config,
++        thread_manager: &ThreadManager,
++        environment_selections: Option<Vec<TurnEnvironmentSelection>>,
++        dynamic_tools: Option<Vec<DynamicToolSpec>>,
++        history_mode: Option<ThreadHistoryMode>,
++        thread_store: &dyn ThreadStore,
++        selected_capability_roots: Vec<SelectedCapabilityRoot>,
++    ) -> Result<(usize, Self), JSONRPCErrorError> {
++        let environments = environment_selections.unwrap_or_else(|| {
++            thread_manager.default_environment_selections(&config.cwd, &config.workspace_roots)
++        });
++        let dynamic_tools = dynamic_tools.unwrap_or_default();
++        if !dynamic_tools.is_empty() {
++            validate_dynamic_tools(&dynamic_tools).map_err(invalid_request)?;
++        }
++        // Count callable functions rather than top-level namespace containers.
++        let dynamic_tool_count: usize = dynamic_tools
++            .iter()
++            .map(|tool| match tool {
++                DynamicToolSpec::Function(_) => 1,
++                DynamicToolSpec::Namespace(namespace) => namespace.tools.len(),
++            })
++            .sum();
++        let history_mode = history_mode.or_else(|| {
++            (!config.ephemeral && thread_store.supports_paginated_history_lists())
++                .then_some(ThreadHistoryMode::Paginated)
++        });
++        let mut thread_extension_init = ExtensionDataInit::new();
++        if !selected_capability_roots.is_empty() {
++            thread_extension_init.insert(selected_capability_roots);
++        }
++        let start_options = StartThreadOptions::new(config);
++        Ok((
++            dynamic_tool_count,
++            Self {
++                start_options,
++                environments,
++                dynamic_tools,
++                history_mode,
++                thread_extension_init,
++            },
++        ))
++    }
++
++    pub(super) fn is_ephemeral(&self) -> bool {
++        self.start_options.config.ephemeral
++    }
++
++    // Called after the ordinary creating-connection registration. Late fields
++    // retain their original evaluation point, including Startup versus Clear.
++    pub(super) fn finish(
++        self,
++        allow_provider_model_fallback: bool,
++        session_start_source: Option<codex_app_server_protocol::ThreadStartSource>,
++        thread_source: Option<codex_protocol::protocol::ThreadSource>,
++        service_name: Option<String>,
++        request_trace: Option<W3cTraceContext>,
++        client_mcp_extensions: ClientMcpExtensions,
++    ) -> StartThreadOptions {
++        let Self {
++            start_options,
++            environments,
++            dynamic_tools,
++            history_mode,
++            thread_extension_init,
++        } = self;
++        StartThreadOptions {
++            allow_provider_model_fallback,
++            initial_history: match session_start_source
++                .unwrap_or(codex_app_server_protocol::ThreadStartSource::Startup)
++            {
++                codex_app_server_protocol::ThreadStartSource::Startup => InitialHistory::New,
++                codex_app_server_protocol::ThreadStartSource::Clear => InitialHistory::Cleared,
++            },
++            history_mode,
++            thread_source,
++            dynamic_tools,
++            metrics_service_name: service_name,
++            parent_trace: request_trace,
++            environments: Some(environments),
++            thread_extension_init,
++            client_mcp_extensions,
++            ..start_options
++        }
++    }
++}
++
++#[cfg(test)]
++#[path = "first_command_options_tests.rs"]
++mod tests;
+diff --git a/codex-rs/app-server/src/request_processors/first_command_options_tests.rs b/codex-rs/app-server/src/request_processors/first_command_options_tests.rs
+new file mode 100644
+index 0000000..6357c83
+--- /dev/null
++++ b/codex-rs/app-server/src/request_processors/first_command_options_tests.rs
+@@ -0,0 +1,379 @@
++use super::*;
++use codex_arg0::Arg0DispatchPaths;
++use codex_config::CloudConfigBundleLoader;
++use codex_config::LoaderOverrides;
++use codex_core::CodexAppsToolsCache;
++use codex_core::passthrough_image_store;
++use codex_exec_server::EnvironmentManager;
++use codex_home::CodexHomeUserInstructionsProvider;
++use codex_login::AuthManager;
++use codex_login::CodexAuth;
++use codex_models_manager::manager::StaticModelsManager;
++use codex_protocol::openai_models::ModelsResponse;
++use codex_protocol::protocol::SessionSource;
++use codex_thread_store::InMemoryThreadStore;
++use pretty_assertions::assert_eq;
++use std::sync::Arc;
++
++fn manager(home: &std::path::Path) -> ConfigManager {
++    // Fixture filesystem sources replace host external effects; ordinary
++    // package/user/project/managed layers and default feature flags remain on.
++    ConfigManager::new(
++        home.to_path_buf(),
++        Vec::new(),
++        LoaderOverrides::with_managed_config_path_for_tests(home.join("managed.toml")),
++        /*strict_config*/ false,
++        CloudConfigBundleLoader::default(),
++        Arg0DispatchPaths::default(),
++        Arc::new(codex_config::NoopThreadConfigLoader),
++    )
++}
++
++fn thread_manager(
++    config: &Config,
++    store: Arc<InMemoryThreadStore>,
++) -> (
++    Arc<ThreadManager>,
++    Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++    Arc<AuthManager>,
++) {
++    thread_manager_with_models(config, store, |auth| {
++        Arc::new(StaticModelsManager::new(
++            Some(Arc::clone(auth)),
++            ModelsResponse { models: Vec::new() },
++        ))
++    })
++}
++
++fn thread_manager_with_models(
++    config: &Config,
++    store: Arc<InMemoryThreadStore>,
++    make_models: impl FnOnce(&Arc<AuthManager>) -> codex_models_manager::manager::SharedModelsManager,
++) -> (
++    Arc<ThreadManager>,
++    Arc<crate::extensions::registry_provenance::InstalledThreadExtensions>,
++    Arc<AuthManager>,
++) {
++    let auth = AuthManager::from_auth_for_testing(CodexAuth::from_api_key("synthetic-offline"));
++    let models = make_models(&auth);
++    let environment = Arc::new(EnvironmentManager::default_for_tests());
++    let (outgoing_tx, _outgoing_rx) = tokio::sync::mpsc::channel(4);
++    let outgoing = Arc::new(crate::outgoing_message::OutgoingMessageSender::new(
++        outgoing_tx,
++        codex_analytics::AnalyticsEventsClient::disabled(),
++    ));
++    let thread_states = crate::thread_state::ThreadStateManager::new();
++    let attestation = crate::attestation::app_server_attestation_provider(
++        Arc::clone(&outgoing),
++        thread_states.clone(),
++    );
++    let sink = crate::extensions::app_server_extension_event_sink(outgoing, thread_states);
++    let mut installed = None;
++    let threads = Arc::new_cyclic(|owner| {
++        let composition = crate::extensions::installed_thread_extensions(
++            crate::extensions::ThreadExtensionDependencies {
++                event_sink: Arc::clone(&sink),
++                auth_manager: Arc::clone(&auth),
++                state_db: None,
++                analytics_events_client: codex_analytics::AnalyticsEventsClient::disabled(),
++                thread_manager: owner.clone(),
++                goal_service: Arc::new(codex_goal_extension::GoalService::new()),
++                environment_manager: Arc::clone(&environment),
++                executor_skill_provider: Arc::new(
++                    codex_skills_extension::ExecutorSkillProvider::new_with_restriction_product(
++                        Arc::clone(&environment),
++                        SessionSource::Exec.restriction_product(),
++                    ),
++                ),
++                git_attribution_base_url: config.chatgpt_base_url.clone(),
++                http_client_factory: config.http_client_factory(),
++                queue_service: None,
++                turn_start_admission: Some(Arc::new(
++                    crate::turn_admission::TurnAdmission::default(),
++                )),
++            },
++        );
++        let registry = composition.registry();
++        installed = Some(Arc::new(composition));
++        ThreadManager::new(
++            config,
++            Arc::clone(&auth),
++            Arc::clone(&models),
++            CodexAppsToolsCache::default(),
++            SessionSource::Exec,
++            Arc::clone(&environment),
++            registry,
++            Arc::new(CodexHomeUserInstructionsProvider::new(
++                config.codex_home.clone(),
++            )),
++            /*analytics_events_client*/ None,
++            passthrough_image_store(),
++            store,
++            /*agent_graph_store*/ None,
++            "offline-selected-start".to_string(),
++            Some(Arc::clone(&attestation)),
++            /*external_time_provider*/ None,
++        )
++    });
++    (threads, installed.unwrap(), auth)
++}
++
++// Original ordinary DATA projections; no Session/start/provider is exercised.
++type OptionsProjection = (
++    Config,
++    bool,
++    &'static str,
++    Option<ThreadHistoryMode>,
++    Option<codex_protocol::protocol::ThreadSource>,
++    Vec<DynamicToolSpec>,
++    Option<String>,
++    Option<W3cTraceContext>,
++    Option<Vec<TurnEnvironmentSelection>>,
++    Option<Vec<SelectedCapabilityRoot>>,
++    ClientMcpExtensions,
++);
++
++fn project(options: StartThreadOptions) -> OptionsProjection {
++    let StartThreadOptions {
++        config,
++        thread_instructions_provider,
++        allow_provider_model_fallback,
++        initial_history,
++        internal_parent,
++        history_mode,
++        session_source,
++        thread_source,
++        dynamic_tools,
++        metrics_service_name,
++        parent_trace,
++        environments,
++        inherited_environments,
++        user_instructions,
++        thread_extension_init,
++        client_mcp_extensions,
++        reserved_thread_id,
++        disabled_plugin_ids,
++    } = options;
++    assert!(thread_instructions_provider.is_none());
++    assert!(internal_parent.is_none());
++    assert!(session_source.is_none());
++    assert!(inherited_environments.is_none());
++    assert!(user_instructions.is_none());
++    assert!(reserved_thread_id.is_none());
++    assert!(disabled_plugin_ids.is_none());
++    let history = match initial_history {
++        InitialHistory::New => "new",
++        InitialHistory::Cleared => "cleared",
++        InitialHistory::Resumed(_) | InitialHistory::Forked(_) => {
++            panic!("unexpected ordinary first-command history")
++        }
++    };
++    (
++        config,
++        allow_provider_model_fallback,
++        history,
++        history_mode,
++        thread_source,
++        dynamic_tools,
++        metrics_service_name,
++        parent_trace,
++        environments,
++        thread_extension_init
++            .get::<Vec<SelectedCapabilityRoot>>()
++            .map(|roots| (*roots).clone()),
++        client_mcp_extensions,
++    )
++}
++
++async fn fixture_config(home: &std::path::Path) -> Config {
++    manager(home)
++        .load_with_overrides(
++            /*request*/ None,
++            ConfigOverrides {
++                cwd: Some(home.to_path_buf()),
++                ..Default::default()
++            },
++        )
++        .await
++        .unwrap()
++}
++
++#[tokio::test]
++async fn original_default_and_explicit_options_preserve_whole_data_without_starting() {
++    let home = tempfile::tempdir().unwrap();
++    let config = fixture_config(home.path()).await;
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, _installed, _auth) = thread_manager(&config, Arc::clone(&store));
++    let expected_environments =
++        threads.default_environment_selections(&config.cwd, &config.workspace_roots);
++    for explicit in [false, true] {
++        let selections = explicit.then(Vec::new);
++        let expected = if explicit {
++            Vec::new()
++        } else {
++            expected_environments.clone()
++        };
++        let (count, stage) = OriginalFirstCommandOptions::prepare(
++            config.clone(),
++            &threads,
++            selections,
++            /*dynamic_tools*/ None,
++            /*history_mode*/ None,
++            store.as_ref(),
++            Vec::new(),
++        )
++        .unwrap();
++        assert_eq!(count, 0);
++        assert_eq!(stage.is_ephemeral(), config.ephemeral);
++        let options = stage.finish(
++            /*allow_provider_model_fallback*/ false,
++            /*session_start_source*/ None,
++            /*thread_source*/ None,
++            /*service_name*/ None,
++            /*request_trace*/ None,
++            ClientMcpExtensions::default(),
++        );
++        assert_eq!(
++            project(options),
++            (
++                config.clone(),
++                false,
++                "new",
++                None,
++                None,
++                Vec::new(),
++                None,
++                None,
++                Some(expected),
++                None,
++                ClientMcpExtensions::default()
++            )
++        );
++    }
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++}
++
++#[tokio::test]
++async fn original_explicit_history_roots_dynamic_mcp_trace_and_source_survive_stages() {
++    let home = tempfile::tempdir().unwrap();
++    let config = fixture_config(home.path()).await;
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, _installed, _auth) = thread_manager(&config, Arc::clone(&store));
++    let environments = threads.default_environment_selections(&config.cwd, &config.workspace_roots);
++    let roots: Vec<SelectedCapabilityRoot> = serde_json::from_value(serde_json::json!([{
++        "id": "selected-original-root", "location": {
++            "type": "environment", "environmentId": "local", "path": home.path()
++        }
++    }]))
++    .unwrap();
++    let tools: Vec<DynamicToolSpec> = serde_json::from_value(serde_json::json!([
++        {"type":"function", "name":"outside", "description":"direct", "inputSchema":{"type":"object"}},
++        {"type":"namespace", "name":"selected", "description":"ordered", "tools":[
++            {"type":"function", "name":"first", "description":"one", "inputSchema":{"type":"object"}},
++            {"type":"function", "name":"second", "description":"two", "inputSchema":{"type":"object"}}
++        ]}
++    ])).unwrap();
++    let trace = Some(W3cTraceContext {
++        traceparent: Some("00-00000000000000000000000000000001-0000000000000001-01".into()),
++        tracestate: Some("owner=original".into()),
++    });
++    let mcp = ClientMcpExtensions::new([(
++        "original-extension".into(),
++        serde_json::json!({"ordered":[2,1]}),
++    )]);
++    for (source, expected_history) in [
++        (codex_app_server_protocol::ThreadStartSource::Startup, "new"),
++        (
++            codex_app_server_protocol::ThreadStartSource::Clear,
++            "cleared",
++        ),
++    ] {
++        let (count, stage) = OriginalFirstCommandOptions::prepare(
++            config.clone(),
++            &threads,
++            Some(environments.clone()),
++            Some(tools.clone()),
++            Some(ThreadHistoryMode::Paginated),
++            store.as_ref(),
++            roots.clone(),
++        )
++        .unwrap();
++        assert_eq!(count, 3);
++        // Data acquired before original metadata/reservation/connection effects is retained;
++        // late source/trace/MCP fields are supplied only at the original final stage.
++        let retained_init = stage
++            .thread_extension_init
++            .get::<Vec<SelectedCapabilityRoot>>()
++            .unwrap();
++        let options = stage.finish(
++            /*allow_provider_model_fallback*/ true,
++            Some(source),
++            Some(codex_protocol::protocol::ThreadSource::User),
++            Some("original-metrics".into()),
++            trace.clone(),
++            mcp.clone(),
++        );
++        assert!(Arc::ptr_eq(
++            &retained_init,
++            &options
++                .thread_extension_init
++                .get::<Vec<SelectedCapabilityRoot>>()
++                .unwrap()
++        ));
++        assert_eq!(
++            project(options),
++            (
++                config.clone(),
++                true,
++                expected_history,
++                Some(ThreadHistoryMode::Paginated),
++                Some(codex_protocol::protocol::ThreadSource::User),
++                tools.clone(),
++                Some("original-metrics".into()),
++                trace.clone(),
++                Some(environments.clone()),
++                Some(roots.clone()),
++                mcp.clone()
++            )
++        );
++    }
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++}
++
++#[tokio::test]
++async fn invalid_dynamic_tools_refuse_in_original_pre_metadata_stage() {
++    let home = tempfile::tempdir().unwrap();
++    let config = fixture_config(home.path()).await;
++    let store = Arc::new(InMemoryThreadStore::default());
++    let (threads, _installed, _auth) = thread_manager(&config, Arc::clone(&store));
++    let tools: Vec<DynamicToolSpec> = serde_json::from_value(serde_json::json!([
++        {"type":"function", "name":"bad", "description":"invalid", "inputSchema":{"type":"null"}}
++    ]))
++    .unwrap();
++    let expected = invalid_request(validate_dynamic_tools(&tools).unwrap_err());
++    let error = OriginalFirstCommandOptions::prepare(
++        config,
++        &threads,
++        /*environment_selections*/ None,
++        Some(tools),
++        /*history_mode*/ None,
++        store.as_ref(),
++        Vec::new(),
++    )
++    .err()
++    .expect("original validation must refuse");
++    assert_eq!(error, expected);
++    assert!(threads.list_thread_ids().await.is_empty());
++    assert_eq!(
++        store.calls().await,
++        codex_thread_store::InMemoryThreadStoreCalls::default()
++    );
++}
+diff --git a/codex-rs/app-server/src/request_processors/thread_processor.rs b/codex-rs/app-server/src/request_processors/thread_processor.rs
+index 3378283..8d50307 100644
+--- a/codex-rs/app-server/src/request_processors/thread_processor.rs
++++ b/codex-rs/app-server/src/request_processors/thread_processor.rs
+@@ -1,3 +1,6 @@
++#[path = "first_command_options.rs"]
++mod first_command_options;
++
+ #[path = "daemon_continuation.rs"]
+ mod daemon_continuation;
+ 
+@@ -1419,33 +1422,17 @@ impl ThreadRequestProcessor {
+             }
+         }
+ 
+-        let environments = environment_selections.unwrap_or_else(|| {
+-            listener_task_context
+-                .thread_manager
+-                .default_environment_selections(&config.cwd, &config.workspace_roots)
+-        });
+-        let dynamic_tools = dynamic_tools.unwrap_or_default();
+-        if !dynamic_tools.is_empty() {
+-            validate_dynamic_tools(&dynamic_tools).map_err(invalid_request)?;
+-        }
+-        // Count callable functions rather than top-level namespace containers.
+-        let dynamic_tool_count: usize = dynamic_tools
+-            .iter()
+-            .map(|tool| match tool {
+-                DynamicToolSpec::Function(_) => 1,
+-                DynamicToolSpec::Namespace(namespace) => namespace.tools.len(),
+-            })
+-            .sum();
+-        let history_mode = history_mode.or_else(|| {
+-            (!config.ephemeral && thread_store.supports_paginated_history_lists())
+-                .then_some(ThreadHistoryMode::Paginated)
+-        });
+-        let mut thread_extension_init = ExtensionDataInit::new();
+-        if !selected_capability_roots.is_empty() {
+-            thread_extension_init.insert(selected_capability_roots);
+-        }
+-        let start_options = StartThreadOptions::new(config);
+-        let reservation = if start_options.config.ephemeral {
++        let (dynamic_tool_count, first_command_options) =
++            first_command_options::OriginalFirstCommandOptions::prepare(
++                config,
++                listener_task_context.thread_manager.as_ref(),
++                environment_selections,
++                dynamic_tools,
++                history_mode,
++                thread_store.as_ref(),
++                selected_capability_roots,
++            )?;
++        let reservation = if first_command_options.is_ephemeral() {
+             None
+         } else {
+             stage_reserved_first_command_metadata(
+@@ -1474,28 +1461,14 @@ impl ThreadRequestProcessor {
+         let create_thread_started_at = std::time::Instant::now();
+         let new_thread =
+             crate::config_manager::selected_start_config::OriginalFirstCommandStart::new(
+-                StartThreadOptions {
++                first_command_options.finish(
+                     allow_provider_model_fallback,
+-                    initial_history: match session_start_source
+-                        .unwrap_or(codex_app_server_protocol::ThreadStartSource::Startup)
+-                    {
+-                        codex_app_server_protocol::ThreadStartSource::Startup => {
+-                            InitialHistory::New
+-                        }
+-                        codex_app_server_protocol::ThreadStartSource::Clear => {
+-                            InitialHistory::Cleared
+-                        }
+-                    },
+-                    history_mode,
++                    session_start_source,
+                     thread_source,
+-                    dynamic_tools,
+-                    metrics_service_name: service_name,
+-                    parent_trace: request_trace,
+-                    environments: Some(environments),
+-                    thread_extension_init,
++                    service_name,
++                    request_trace,
+                     client_mcp_extensions,
+-                    ..start_options
+-                },
++                ),
+                 reservation,
+                 installed,
+             )

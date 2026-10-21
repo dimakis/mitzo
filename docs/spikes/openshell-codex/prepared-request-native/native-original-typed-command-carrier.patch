@@ -1,0 +1,1008 @@
+diff --git a/codex-rs/core/src/codex_delegate.rs b/codex-rs/core/src/codex_delegate.rs
+index 27d557d..b11b001 100644
+--- a/codex-rs/core/src/codex_delegate.rs
++++ b/codex-rs/core/src/codex_delegate.rs
+@@ -260,7 +260,7 @@ pub(crate) async fn run_codex_thread_one_shot(
+                 let _ = ops_tx
+                     .send(Submission {
+                         id: "shutdown".to_string(),
+-                        op: Op::Shutdown {},
++                        op: Op::Shutdown {}.into(),
+                         trace: None,
+                         parent_turn_id: None,
+                         root_turn_id: None,
+diff --git a/codex-rs/core/src/codex_delegate_tests.rs b/codex-rs/core/src/codex_delegate_tests.rs
+index f8762c9..0579f8f 100644
+--- a/codex-rs/core/src/codex_delegate_tests.rs
++++ b/codex-rs/core/src/codex_delegate_tests.rs
+@@ -117,7 +117,7 @@ async fn forward_events_filters_private_events_before_blocked_send_is_cancelled(
+ 
+     let mut ops = Vec::new();
+     while let Ok(sub) = rx_sub.try_recv() {
+-        ops.push(sub.op);
++        ops.push(sub.op.into_protocol_for_test());
+     }
+     assert!(
+         ops.iter().any(|op| matches!(op, Op::Interrupt)),
+@@ -146,7 +146,7 @@ async fn forward_ops_preserves_submission_trace_context() {
+ 
+     let submission = Submission {
+         id: "sub-1".to_string(),
+-        op: Op::Interrupt,
++        op: Op::Interrupt.into(),
+         trace: Some(codex_protocol::protocol::W3cTraceContext {
+             traceparent: Some(
+                 "00-1234567890abcdef1234567890abcdef-1234567890abcdef-01".to_string(),
+@@ -165,7 +165,10 @@ async fn forward_ops_preserves_submission_trace_context() {
+         .expect("forward_ops hung")
+         .expect("forwarded submission missing");
+     assert_eq!("sub-1", forwarded.id);
+-    assert!(matches!(forwarded.op, Op::Interrupt));
++    assert!(matches!(
++        forwarded.op.into_protocol_for_test(),
++        Op::Interrupt
++    ));
+     assert_eq!(
+         forwarded.trace,
+         Some(codex_protocol::protocol::W3cTraceContext {
+diff --git a/codex-rs/core/src/codex_thread.rs b/codex-rs/core/src/codex_thread.rs
+index 316af05..be3fcfd 100644
+--- a/codex-rs/core/src/codex_thread.rs
++++ b/codex-rs/core/src/codex_thread.rs
+@@ -481,7 +481,7 @@ impl CodexThread {
+             .tx_sub
+             .send(Submission {
+                 id: new_submission_id(),
+-                op: Op::SuspendTurnAndShutdown { reply },
++                op: Op::SuspendTurnAndShutdown { reply }.into(),
+                 trace: current_span_w3c_trace_context(),
+                 parent_turn_id: None,
+                 root_turn_id: None,
+diff --git a/codex-rs/core/src/guardian/review_session_tests.rs b/codex-rs/core/src/guardian/review_session_tests.rs
+index 0a2eaf9..463efca 100644
+--- a/codex-rs/core/src/guardian/review_session_tests.rs
++++ b/codex-rs/core/src/guardian/review_session_tests.rs
+@@ -97,7 +97,7 @@ async fn run_review_preserves_evidence_during_parent_compaction() {
+     let ((outcome, _), submitted_text) = tokio::join!(manager.review(prepared), async {
+         let submission = rx_sub.recv().await.unwrap();
+         let id = submission.id;
+-        let Op::TurnInput { request, reply, .. } = submission.op else {
++        let Op::TurnInput { request, reply, .. } = submission.op.into_protocol_for_test() else {
+             panic!("expected reviewer prompt");
+         };
+         let codex_protocol::turn_input::TurnInput::UserInput { content, .. } = request.input else {
+@@ -719,7 +719,7 @@ async fn run_review_on_reused_session_waits_for_submitted_turn() {
+     });
+     let submission = rx_sub.recv().await.expect("guardian submission");
+     let id = submission.id;
+-    let Op::TurnInput { reply, .. } = submission.op else {
++    let Op::TurnInput { reply, .. } = submission.op.into_protocol_for_test() else {
+         panic!("expected turn-input submission");
+     };
+     reply
+@@ -783,7 +783,7 @@ async fn run_review_removes_trunk_when_event_stream_is_broken() {
+         tokio::spawn(async move { run_guardian_review_session(manager_for_review, params).await });
+     let submission = rx_sub.recv().await.expect("guardian submission");
+     let id = submission.id;
+-    let Op::TurnInput { reply, .. } = submission.op else {
++    let Op::TurnInput { reply, .. } = submission.op.into_protocol_for_test() else {
+         panic!("expected turn-input submission");
+     };
+     reply
+@@ -940,7 +940,10 @@ async fn wait_for_guardian_review_timeout_drains_expected_turn_after_stale_termi
+     let tx_interrupt_event = tx_event.clone();
+     let interrupt_response = tokio::spawn(async move {
+         let submission = rx_sub.recv().await.expect("interrupt submission");
+-        assert!(matches!(submission.op, Op::Interrupt));
++        assert!(matches!(
++            submission.op.into_protocol_for_test(),
++            Op::Interrupt
++        ));
+         tx_interrupt_event
+             .send(turn_aborted_event("current-turn"))
+             .await
+@@ -979,7 +982,10 @@ async fn wait_for_guardian_review_cancel_drains_expected_turn_after_stale_termin
+     let tx_interrupt_event = tx_event.clone();
+     let interrupt_response = tokio::spawn(async move {
+         let submission = rx_sub.recv().await.expect("interrupt submission");
+-        assert!(matches!(submission.op, Op::Interrupt));
++        assert!(matches!(
++            submission.op.into_protocol_for_test(),
++            Op::Interrupt
++        ));
+         tx_interrupt_event
+             .send(turn_aborted_event("current-turn"))
+             .await
+diff --git a/codex-rs/core/src/session/handlers.rs b/codex-rs/core/src/session/handlers.rs
+index 94c4702..bf82419 100644
+--- a/codex-rs/core/src/session/handlers.rs
++++ b/codex-rs/core/src/session/handlers.rs
+@@ -425,7 +425,10 @@ pub(super) async fn submission_loop(
+     // To break out of this loop, send Op::Shutdown.
+     let mut shutdown_received = false;
+     while let Ok(sub) = rx_sub.recv().await {
+-        if matches!(sub.op, Op::ResolveElicitation { .. }) {
++        if matches!(
++            sub.op,
++            super::submission::SubmissionOp::Protocol(Op::ResolveElicitation { .. })
++        ) {
+             debug!(submission_id = %sub.id, operation = sub.op.kind(), "Submission");
+         } else {
+             debug!(?sub, "Submission");
+@@ -433,209 +436,232 @@ pub(super) async fn submission_loop(
+         let dispatch_span = submission_dispatch_span(&sub);
+         let should_exit = async {
+             match sub.op {
+-                Op::Interrupt => {
+-                    interrupt(&sess).await;
++                super::submission::SubmissionOp::TurnInput(command) => {
++                    command.handle(&sess, sub.id.clone()).await;
+                     false
+                 }
+-                Op::InterruptIfNoPendingInput { turn_id, reply } => {
+-                    sess.interrupt_turn_if_no_pending_input(&turn_id, reply)
++                super::submission::SubmissionOp::Protocol(op) => match op {
++                    Op::Interrupt => {
++                        interrupt(&sess).await;
++                        false
++                    }
++                    Op::InterruptIfNoPendingInput { turn_id, reply } => {
++                        sess.interrupt_turn_if_no_pending_input(&turn_id, reply)
++                            .await;
++                        false
++                    }
++                    Op::CleanBackgroundTerminals => {
++                        clean_background_terminals(&sess).await;
++                        false
++                    }
++                    Op::RealtimeConversationStart(params) => {
++                        if let Err(err) =
++                            handle_realtime_conversation_start(&sess, sub.id.clone(), params).await
++                        {
++                            sess.send_event_raw(Event {
++                                id: sub.id.clone(),
++                                msg: EventMsg::Error(ErrorEvent {
++                                    misalignment: None,
++                                    message: err.to_string(),
++                                    codex_error_info: Some(CodexErrorInfo::Other),
++                                }),
++                            })
++                            .await;
++                        }
++                        false
++                    }
++                    Op::RealtimeConversationAudio(params) => {
++                        handle_realtime_conversation_audio(&sess, sub.id.clone(), params).await;
++                        false
++                    }
++                    Op::RealtimeConversationText(params) => {
++                        handle_realtime_conversation_text(&sess, sub.id.clone(), params).await;
++                        false
++                    }
++                    Op::RealtimeConversationSpeech(params) => {
++                        handle_realtime_conversation_speech(&sess, sub.id.clone(), params).await;
++                        false
++                    }
++                    Op::RealtimeConversationClose => {
++                        handle_realtime_conversation_close(&sess, sub.id.clone()).await;
++                        false
++                    }
++                    Op::RealtimeConversationListVoices => {
++                        realtime_conversation_list_voices(&sess, sub.id.clone()).await;
++                        false
++                    }
++                    Op::TurnInput {
++                        request,
++                        mode,
++                        reply,
++                    } => {
++                        let result =
++                            turn_input::handle(&sess, *request, mode, sub.id.clone()).await;
++                        let _ = reply.send(result);
++                        false
++                    }
++                    Op::RecoverTurn {
++                        thread_settings,
++                        start_options,
++                        reply,
++                    } => {
++                        let result = turn_input::handle_recovery(
++                            &sess,
++                            thread_settings,
++                            start_options,
++                            sub.id.clone(),
++                        )
+                         .await;
+-                    false
+-                }
+-                Op::CleanBackgroundTerminals => {
+-                    clean_background_terminals(&sess).await;
+-                    false
+-                }
+-                Op::RealtimeConversationStart(params) => {
+-                    if let Err(err) =
+-                        handle_realtime_conversation_start(&sess, sub.id.clone(), params).await
+-                    {
+-                        sess.send_event_raw(Event {
+-                            id: sub.id.clone(),
+-                            msg: EventMsg::Error(ErrorEvent {
+-                                misalignment: None,
+-                                message: err.to_string(),
+-                                codex_error_info: Some(CodexErrorInfo::Other),
+-                            }),
+-                        })
++                        let _ = reply.send(result);
++                        false
++                    }
++                    Op::SuspendTurnAndShutdown { reply } => {
++                        let result = super::turn_suspension::suspend_turn_and_shutdown(
++                            &sess,
++                            sub.id.clone(),
++                        )
+                         .await;
++                        // Exit only after history is durable and its writer has closed; an error
++                        // must leave responsibility for the thread with the current worker.
++                        let should_exit = matches!(
++                            &result,
++                            Ok(codex_protocol::turn_input::SuspendTurnOutcome::Suspended { .. })
++                        );
++                        let _ = reply.send(result);
++                        should_exit
+                     }
+-                    false
+-                }
+-                Op::RealtimeConversationAudio(params) => {
+-                    handle_realtime_conversation_audio(&sess, sub.id.clone(), params).await;
+-                    false
+-                }
+-                Op::RealtimeConversationText(params) => {
+-                    handle_realtime_conversation_text(&sess, sub.id.clone(), params).await;
+-                    false
+-                }
+-                Op::RealtimeConversationSpeech(params) => {
+-                    handle_realtime_conversation_speech(&sess, sub.id.clone(), params).await;
+-                    false
+-                }
+-                Op::RealtimeConversationClose => {
+-                    handle_realtime_conversation_close(&sess, sub.id.clone()).await;
+-                    false
+-                }
+-                Op::RealtimeConversationListVoices => {
+-                    realtime_conversation_list_voices(&sess, sub.id.clone()).await;
+-                    false
+-                }
+-                Op::TurnInput {
+-                    request,
+-                    mode,
+-                    reply,
+-                } => {
+-                    let result = turn_input::handle(&sess, *request, mode, sub.id.clone()).await;
+-                    let _ = reply.send(result);
+-                    false
+-                }
+-                Op::RecoverTurn {
+-                    thread_settings,
+-                    start_options,
+-                    reply,
+-                } => {
+-                    let result = turn_input::handle_recovery(
+-                        &sess,
++                    Op::ThreadSettings {
+                         thread_settings,
+-                        start_options,
+-                        sub.id.clone(),
+-                    )
+-                    .await;
+-                    let _ = reply.send(result);
+-                    false
+-                }
+-                Op::SuspendTurnAndShutdown { reply } => {
+-                    let result =
+-                        super::turn_suspension::suspend_turn_and_shutdown(&sess, sub.id.clone())
+-                            .await;
+-                    // Exit only after history is durable and its writer has closed; an error
+-                    // must leave responsibility for the thread with the current worker.
+-                    let should_exit = matches!(
+-                        &result,
+-                        Ok(codex_protocol::turn_input::SuspendTurnOutcome::Suspended { .. })
+-                    );
+-                    let _ = reply.send(result);
+-                    should_exit
+-                }
+-                Op::ThreadSettings {
+-                    thread_settings,
+-                    reply,
+-                } => {
+-                    let _settings_guard = thread_settings::acquire_persistence_lock(&sess).await;
+-                    match thread_settings::update(&sess, thread_settings).await {
+-                        Ok(snapshot) => {
+-                            // Reply first: the caller may hold a lock its event consumer needs.
+-                            if let Some(reply) = reply {
+-                                let _ = reply.send(Ok(()));
++                        reply,
++                    } => {
++                        let _settings_guard =
++                            thread_settings::acquire_persistence_lock(&sess).await;
++                        match thread_settings::update(&sess, thread_settings).await {
++                            Ok(snapshot) => {
++                                // Reply first: the caller may hold a lock its event consumer needs.
++                                if let Some(reply) = reply {
++                                    let _ = reply.send(Ok(()));
++                                }
++                                thread_settings::emit_applied(&sess, sub.id.clone(), snapshot)
++                                    .await;
+                             }
+-                            thread_settings::emit_applied(&sess, sub.id.clone(), snapshot).await;
+-                        }
+-                        Err(error) => {
+-                            let message = format!("invalid thread settings override: {error}");
+-                            if let Some(reply) = reply {
+-                                let _ = reply.send(Err(CodexErr::InvalidRequest(message)));
+-                            } else {
+-                                sess.send_event_raw(Event {
+-                                    id: sub.id.clone(),
+-                                    msg: EventMsg::Error(ErrorEvent {
+-                                        misalignment: None,
+-                                        message,
+-                                        codex_error_info: Some(CodexErrorInfo::BadRequest),
+-                                    }),
+-                                })
+-                                .await;
++                            Err(error) => {
++                                let message = format!("invalid thread settings override: {error}");
++                                if let Some(reply) = reply {
++                                    let _ = reply.send(Err(CodexErr::InvalidRequest(message)));
++                                } else {
++                                    sess.send_event_raw(Event {
++                                        id: sub.id.clone(),
++                                        msg: EventMsg::Error(ErrorEvent {
++                                            misalignment: None,
++                                            message,
++                                            codex_error_info: Some(CodexErrorInfo::BadRequest),
++                                        }),
++                                    })
++                                    .await;
++                                }
+                             }
+                         }
++                        false
+                     }
+-                    false
+-                }
+-                Op::TurnSettings {
+-                    turn_id,
+-                    update,
+-                    reply,
+-                } => {
+-                    let outcome = sess.apply_turn_settings(&turn_id, update).await;
+-                    let _ = reply.send(outcome);
+-                    false
+-                }
+-                Op::InterAgentCommunication {
+-                    communication,
+-                    start_options,
+-                } => {
+-                    inter_agent_communication(&sess, sub.id.clone(), communication, start_options)
++                    Op::TurnSettings {
++                        turn_id,
++                        update,
++                        reply,
++                    } => {
++                        let outcome = sess.apply_turn_settings(&turn_id, update).await;
++                        let _ = reply.send(outcome);
++                        false
++                    }
++                    Op::InterAgentCommunication {
++                        communication,
++                        start_options,
++                    } => {
++                        inter_agent_communication(
++                            &sess,
++                            sub.id.clone(),
++                            communication,
++                            start_options,
++                        )
+                         .await;
+-                    false
+-                }
+-                Op::ExecApproval {
+-                    id: approval_id,
+-                    turn_id,
+-                    decision,
+-                } => {
+-                    exec_approval(&sess, approval_id, turn_id, decision).await;
+-                    false
+-                }
+-                Op::PatchApproval { id, decision } => {
+-                    patch_approval(&sess, id, decision).await;
+-                    false
+-                }
+-                Op::UserInputAnswer { id, response } => {
+-                    request_user_input_response(&sess, id, response).await;
+-                    false
+-                }
+-                Op::RequestPermissionsResponse { id, response } => {
+-                    request_permissions_response(&sess, id, response).await;
+-                    false
+-                }
+-                Op::DynamicToolResponse { id, response } => {
+-                    dynamic_tool_response(&sess, id, response).await;
+-                    false
+-                }
+-                Op::RefreshMcpServers => {
+-                    refresh_mcp_servers(&sess);
+-                    false
+-                }
+-                Op::ReloadUserConfig => {
+-                    reload_user_config(&sess).await;
+-                    false
+-                }
+-                Op::Compact => {
+-                    compact(&sess, sub.id.clone()).await;
+-                    false
+-                }
+-                Op::SetThreadMemoryMode { mode } => {
+-                    set_thread_memory_mode(&sess, sub.id.clone(), mode).await;
+-                    false
+-                }
+-                Op::RunUserShellCommand {
+-                    command,
+-                    timeout_ms,
+-                } => {
+-                    run_user_shell_command(&sess, sub.id.clone(), command, timeout_ms).await;
+-                    false
+-                }
+-                Op::ResolveElicitation {
+-                    server_name,
+-                    request_id,
+-                    decision,
+-                    content,
+-                    meta,
+-                } => {
+-                    resolve_elicitation(&sess, server_name, request_id, decision, content, meta)
++                        false
++                    }
++                    Op::ExecApproval {
++                        id: approval_id,
++                        turn_id,
++                        decision,
++                    } => {
++                        exec_approval(&sess, approval_id, turn_id, decision).await;
++                        false
++                    }
++                    Op::PatchApproval { id, decision } => {
++                        patch_approval(&sess, id, decision).await;
++                        false
++                    }
++                    Op::UserInputAnswer { id, response } => {
++                        request_user_input_response(&sess, id, response).await;
++                        false
++                    }
++                    Op::RequestPermissionsResponse { id, response } => {
++                        request_permissions_response(&sess, id, response).await;
++                        false
++                    }
++                    Op::DynamicToolResponse { id, response } => {
++                        dynamic_tool_response(&sess, id, response).await;
++                        false
++                    }
++                    Op::RefreshMcpServers => {
++                        refresh_mcp_servers(&sess);
++                        false
++                    }
++                    Op::ReloadUserConfig => {
++                        reload_user_config(&sess).await;
++                        false
++                    }
++                    Op::Compact => {
++                        compact(&sess, sub.id.clone()).await;
++                        false
++                    }
++                    Op::SetThreadMemoryMode { mode } => {
++                        set_thread_memory_mode(&sess, sub.id.clone(), mode).await;
++                        false
++                    }
++                    Op::RunUserShellCommand {
++                        command,
++                        timeout_ms,
++                    } => {
++                        run_user_shell_command(&sess, sub.id.clone(), command, timeout_ms).await;
++                        false
++                    }
++                    Op::ResolveElicitation {
++                        server_name,
++                        request_id,
++                        decision,
++                        content,
++                        meta,
++                    } => {
++                        resolve_elicitation(
++                            &sess,
++                            server_name,
++                            request_id,
++                            decision,
++                            content,
++                            meta,
++                        )
+                         .await;
+-                    false
+-                }
+-                Op::Shutdown => shutdown(&sess, sub.id.clone()).await,
+-                Op::Review { review_request } => {
+-                    review(&sess, &config, sub.id.clone(), review_request).await;
+-                    false
+-                }
+-                Op::ApproveGuardianDeniedAction { event } => {
+-                    approve_guardian_denied_action(&sess, event).await;
+-                    false
+-                }
+-                _ => false, // Ignore unknown ops; enum is non_exhaustive to allow extensions.
++                        false
++                    }
++                    Op::Shutdown => shutdown(&sess, sub.id.clone()).await,
++                    Op::Review { review_request } => {
++                        review(&sess, &config, sub.id.clone(), review_request).await;
++                        false
++                    }
++                    Op::ApproveGuardianDeniedAction { event } => {
++                        approve_guardian_denied_action(&sess, event).await;
++                        false
++                    }
++                    _ => false, // Ignore unknown ops; enum is non_exhaustive to allow extensions.
++                },
+             }
+         }
+         .instrument(dispatch_span)
+@@ -691,7 +717,7 @@ pub(super) fn submission_dispatch_span(sub: &Submission) -> tracing::Span {
+     let op_name = sub.op.kind();
+     let span_name = format!("op.dispatch.{op_name}");
+     let dispatch_span = match &sub.op {
+-        Op::RealtimeConversationAudio(_) => {
++        super::submission::SubmissionOp::Protocol(Op::RealtimeConversationAudio(_)) => {
+             debug_span!(
+                 "submission_dispatch",
+                 otel.name = span_name.as_str(),
+diff --git a/codex-rs/core/src/session/mod.rs b/codex-rs/core/src/session/mod.rs
+index ab4b437..183fc44 100644
+--- a/codex-rs/core/src/session/mod.rs
++++ b/codex-rs/core/src/session/mod.rs
+@@ -1015,7 +1015,7 @@ impl SessionIo {
+         let id = new_submission_id();
+         let sub = Submission {
+             id: id.clone(),
+-            op,
++            op: op.into(),
+             trace,
+             parent_turn_id,
+             root_turn_id,
+@@ -1066,7 +1066,8 @@ impl SessionIo {
+                 thread_settings,
+                 start_options,
+                 reply: reply_tx,
+-            },
++            }
++            .into(),
+             trace,
+             parent_turn_id: None,
+             root_turn_id: None,
+diff --git a/codex-rs/core/src/session/step_activation_tests.rs b/codex-rs/core/src/session/step_activation_tests.rs
+index 8ab26dc..b60bfa6 100644
+--- a/codex-rs/core/src/session/step_activation_tests.rs
++++ b/codex-rs/core/src/session/step_activation_tests.rs
+@@ -493,7 +493,8 @@ fn settings_submission(
+                 turn_id: turn_id.to_string(),
+                 update,
+                 reply,
+-            },
++            }
++            .into(),
+             trace: None,
+             parent_turn_id: None,
+             root_turn_id: None,
+diff --git a/codex-rs/core/src/session/submission.rs b/codex-rs/core/src/session/submission.rs
+index 9bd9162..8002e4b 100644
+--- a/codex-rs/core/src/session/submission.rs
++++ b/codex-rs/core/src/session/submission.rs
+@@ -8,7 +8,7 @@ use tokio::sync::OwnedRwLockReadGuard;
+ #[expect(dead_code, reason = "Turn ancestry is retained in Debug diagnostics.")]
+ pub(crate) struct Submission {
+     pub id: String,
+-    pub op: Op,
++    pub op: SubmissionOp,
+     /// Optional W3C trace carrier propagated across async submission handoffs.
+     pub trace: Option<W3cTraceContext>,
+     pub parent_turn_id: Option<String>,
+@@ -16,3 +16,32 @@ pub(crate) struct Submission {
+     /// Keeps a V2 recipient resident until this submission is handled or dropped.
+     pub residency_guard: Option<OwnedRwLockReadGuard<()>>,
+ }
++
++/// Private Core queue operation. Public protocol operations retain their exact
++/// payload; ordinary turn input keeps its move-only original command until its handler.
++pub(crate) enum SubmissionOp {
++    Protocol(Op),
++    TurnInput(super::turn_input_submission::OriginalTurnInputCommand),
++}
++impl From<Op> for SubmissionOp {
++    fn from(op: Op) -> Self {
++        Self::Protocol(op)
++    }
++}
++impl SubmissionOp {
++    pub(crate) fn kind(&self) -> &'static str {
++        match self {
++            Self::Protocol(op) => op.kind(),
++            // Exact existing protocol Op::TurnInput kind, not a new kind/schema.
++            Self::TurnInput(_) => "turn_input",
++        }
++    }
++}
++impl std::fmt::Debug for SubmissionOp {
++    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        match self {
++            Self::Protocol(op) => std::fmt::Debug::fmt(op, formatter),
++            Self::TurnInput(command) => std::fmt::Debug::fmt(command, formatter),
++        }
++    }
++}
+diff --git a/codex-rs/core/src/session/tests.rs b/codex-rs/core/src/session/tests.rs
+index e467f8f..e5ed7dc 100644
+--- a/codex-rs/core/src/session/tests.rs
++++ b/codex-rs/core/src/session/tests.rs
+@@ -5905,7 +5905,8 @@ async fn standalone_settings_invalidate_continuation_before_delivering_acceptanc
+             op: Op::ThreadSettings {
+                 thread_settings: codex_protocol::protocol::ThreadSettingsOverrides::default(),
+                 reply: Some(reply),
+-            },
++            }
++            .into(),
+             trace: None,
+             parent_turn_id: None,
+             root_turn_id: None,
+@@ -7964,7 +7965,7 @@ fn submission_dispatch_span_prefers_submission_trace_context() {
+     let dispatch_span = ambient_span.in_scope(|| {
+         submission_dispatch_span(&Submission {
+             id: "sub-1".into(),
+-            op: Op::Interrupt,
++            op: Op::Interrupt.into(),
+             parent_turn_id: None,
+             root_turn_id: None,
+             residency_guard: None,
+@@ -7993,7 +7994,8 @@ fn submission_dispatch_span_uses_debug_for_realtime_audio() {
+                 samples_per_channel: Some(160),
+                 item_id: None,
+             },
+-        }),
++        })
++        .into(),
+         parent_turn_id: None,
+         root_turn_id: None,
+         residency_guard: None,
+@@ -8351,7 +8353,7 @@ async fn spawn_task_turn_span_inherits_dispatch_trace_context() {
+ 
+     let dispatch_span = submission_dispatch_span(&Submission {
+         id: "sub-1".into(),
+-        op: Op::Interrupt,
++        op: Op::Interrupt.into(),
+         parent_turn_id: None,
+         root_turn_id: None,
+         residency_guard: None,
+@@ -8692,7 +8694,7 @@ async fn shutdown_and_wait_allows_multiple_waiters() {
+     let (_tx_event, rx_event) = async_channel::unbounded();
+     let session_loop_handle = tokio::spawn(async move {
+         let shutdown = rx_sub.recv().await.expect("shutdown submission");
+-        assert!(matches!(shutdown.op, Op::Shutdown));
++        assert!(matches!(shutdown.op.into_protocol_for_test(), Op::Shutdown));
+         tokio::time::sleep(StdDuration::from_millis(50)).await;
+     });
+     let io = Arc::new(SessionIo {
+diff --git a/codex-rs/core/src/session/turn_input_submission.rs b/codex-rs/core/src/session/turn_input_submission.rs
+index 5a9ff14..cd050bc 100644
+--- a/codex-rs/core/src/session/turn_input_submission.rs
++++ b/codex-rs/core/src/session/turn_input_submission.rs
+@@ -42,11 +42,11 @@ impl OriginalTurnInputSubmission {
+         (
+             Submission {
+                 id,
+-                op: Op::TurnInput {
++                op: super::submission::SubmissionOp::TurnInput(OriginalTurnInputCommand {
+                     request: Box::new(request),
+                     mode,
+                     reply: reply_tx,
+-                },
++                }),
+                 trace,
+                 parent_turn_id: None,
+                 root_turn_id: None,
+@@ -57,6 +57,36 @@ impl OriginalTurnInputSubmission {
+     }
+ }
+ 
++/// Move-only original request/mode/reply custody. Only the original envelope
++/// constructor makes one; production consumes it at the actual handler, never into Op.
++pub(crate) struct OriginalTurnInputCommand {
++    request: Box<TurnInputRequest>,
++    mode: TurnInputMode,
++    reply: oneshot::Sender<CodexResult<TurnInputSubmission>>,
++}
++impl OriginalTurnInputCommand {
++    pub(super) async fn handle(self, sess: &Arc<super::session::Session>, sub_id: String) {
++        let Self {
++            request,
++            mode,
++            reply,
++        } = self;
++        let result = super::turn_input::handle(sess, *request, mode, sub_id).await;
++        let _ = reply.send(result);
++    }
++}
++impl std::fmt::Debug for OriginalTurnInputCommand {
++    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        // Match the existing Op::TurnInput Debug field names and ordering.
++        formatter
++            .debug_struct("TurnInput")
++            .field("request", &self.request)
++            .field("mode", &self.mode)
++            .field("reply", &self.reply)
++            .finish()
++    }
++}
++
+ #[cfg(test)]
+ #[path = "turn_input_submission_tests.rs"]
+ mod tests;
+diff --git a/codex-rs/core/src/session/turn_input_submission_tests.rs b/codex-rs/core/src/session/turn_input_submission_tests.rs
+index 0512b12..dd7a645 100644
+--- a/codex-rs/core/src/session/turn_input_submission_tests.rs
++++ b/codex-rs/core/src/session/turn_input_submission_tests.rs
+@@ -209,7 +209,7 @@ fn whole_request_all_modes_and_trace_move_once_into_original_core_submission() {
+                         request,
+                         mode: actual_mode,
+                         reply: _reply,
+-                    } = op
++                    } = op.into_protocol_for_test()
+                     else {
+                         panic!("original TurnInput envelope")
+                     };
+@@ -250,7 +250,7 @@ async fn original_oneshot_preserves_routing_decisions_and_error_payloads() {
+             },
+             _ => unreachable!(),
+         };
+-        let Op::TurnInput { reply, .. } = submission.op else {
++        let Op::TurnInput { reply, .. } = submission.op.into_protocol_for_test() else {
+             panic!("original envelope")
+         };
+         reply.send(Ok(expected.clone())).unwrap();
+@@ -267,7 +267,7 @@ async fn original_oneshot_preserves_routing_decisions_and_error_payloads() {
+         TurnInputMode::StartIfIdle,
+     )
+     .into_submission();
+-    let Op::TurnInput { reply, .. } = submission.op else {
++    let Op::TurnInput { reply, .. } = submission.op.into_protocol_for_test() else {
+         panic!("original envelope")
+     };
+     reply
+@@ -311,7 +311,7 @@ async fn dropping_same_original_submission_closes_waiter_and_waiter_loss_does_no
+         turn_id: submission.id.clone(),
+     };
+     drop(waiter);
+-    let Op::TurnInput { reply, .. } = submission.op else {
++    let Op::TurnInput { reply, .. } = submission.op.into_protocol_for_test() else {
+         panic!("original envelope")
+     };
+     // Same one-shot sender returns the unchanged unsent result. No queue,
+@@ -319,3 +319,214 @@ async fn dropping_same_original_submission_closes_waiter_and_waiter_loss_does_no
+     let unsent = reply.send(Ok(expected.clone())).unwrap_err();
+     assert_eq!(unsent.unwrap(), expected);
+ }
++
++// Test-only exact adapter preserves every old protocol-op assertion; production
++// never flattens a typed command into Op or reconstructs an opaque owner.
++impl super::super::submission::SubmissionOp {
++    pub(crate) fn into_protocol_for_test(self) -> Op {
++        match self {
++            Self::Protocol(op) => op,
++            Self::TurnInput(command) => {
++                let OriginalTurnInputCommand {
++                    request,
++                    mode,
++                    reply,
++                } = command;
++                Op::TurnInput {
++                    request,
++                    mode,
++                    reply,
++                }
++            }
++        }
++    }
++}
++
++#[tokio::test]
++async fn same_opaque_command_and_complete_request_cross_actual_core_channel_once() {
++    use super::super::submission::SubmissionOp;
++    for mode in [
++        TurnInputMode::StartOrSteer,
++        TurnInputMode::StartIfIdle,
++        TurnInputMode::ContinueIfIdle {
++            expected_previous_turn_id: "previous".into(),
++        },
++        TurnInputMode::Steer {
++            expected_turn_id: "active".into(),
++        },
++    ] {
++        for input in inputs() {
++            let original = request(
++                input,
++                Some(W3cTraceContext {
++                    traceparent: Some(
++                        "00-00000000000000000000000000000001-0000000000000001-01".into(),
++                    ),
++                    tracestate: Some("owner=original".into()),
++                }),
++            );
++            let mut expected = original.clone();
++            expected.trace = None;
++            let (mut submission, waiter) =
++                OriginalTurnInputSubmission::capture(original, mode.clone()).into_submission();
++            let id = submission.id.clone();
++            let trace = submission.trace.clone();
++            let SubmissionOp::TurnInput(command) = &submission.op else {
++                panic!("typed producer")
++            };
++            let box_storage = command.request.as_ref() as *const TurnInputRequest;
++            let input_bytes = input_storage(&command.request.input);
++            assert_eq!(submission.op.kind(), "turn_input");
++            // Original queue metadata/residency travels with the same Submission.
++            let residency = Arc::new(tokio::sync::RwLock::new(()));
++            submission.residency_guard = Some(Arc::clone(&residency).read_owned().await);
++            submission.parent_turn_id = Some("queue-parent".into());
++            submission.root_turn_id = Some("queue-root".into());
++            let (tx, rx) = async_channel::bounded::<Submission>(1);
++            tx.send(submission).await.unwrap();
++            let received = rx.recv().await.unwrap();
++            assert!(rx.try_recv().is_err());
++            assert_eq!((&received.id, &received.trace), (&id, &trace));
++            assert_eq!(
++                (
++                    received.parent_turn_id.as_deref(),
++                    received.root_turn_id.as_deref()
++                ),
++                (Some("queue-parent"), Some("queue-root"))
++            );
++            assert!(residency.try_write().is_err());
++            let SubmissionOp::TurnInput(command) = received.op else {
++                panic!("typed queue carrier")
++            };
++            assert_eq!(
++                command.request.as_ref() as *const TurnInputRequest,
++                box_storage
++            );
++            assert_eq!(input_storage(&command.request.input), input_bytes);
++            let OriginalTurnInputCommand {
++                request,
++                mode: actual_mode,
++                reply,
++            } = command;
++            assert_eq!(actual_mode, mode);
++            assert_eq!(project(*request), project(expected));
++            drop(received.residency_guard);
++            assert!(residency.try_write().is_ok());
++            let result = TurnInputSubmission::Started { turn_id: id };
++            reply.send(Ok(result.clone())).unwrap();
++            assert_eq!(waiter.await.unwrap().unwrap(), result);
++        }
++    }
++}
++
++#[tokio::test]
++async fn protocol_wrapping_preserves_controls_recovery_and_legacy_turn_input() {
++    use super::super::submission::SubmissionOp;
++    for operation in [
++        Op::Interrupt,
++        Op::Shutdown,
++        Op::RunUserShellCommand {
++            command: "opaque shell bytes\n".into(),
++            timeout_ms: Some(17),
++        },
++    ] {
++        let kind = operation.kind();
++        let debug = format!("{operation:?}");
++        let wrapped: SubmissionOp = operation.into();
++        assert_eq!(wrapped.kind(), kind);
++        assert_eq!(format!("{wrapped:?}"), debug);
++        let recovered = wrapped.into_protocol_for_test();
++        assert_eq!(recovered.kind(), kind);
++        assert_eq!(format!("{recovered:?}"), debug);
++    }
++    let (reply, waiter) = oneshot::channel();
++    let original = request(inputs().remove(1), /*trace*/ None);
++    let expected = project(original.clone());
++    let operation: SubmissionOp = Op::TurnInput {
++        request: Box::new(original),
++        mode: TurnInputMode::StartIfIdle,
++        reply,
++    }
++    .into();
++    let (tx, rx) = async_channel::bounded::<Submission>(1);
++    tx.send(Submission {
++        id: new_submission_id(),
++        op: operation,
++        trace: None,
++        parent_turn_id: None,
++        root_turn_id: None,
++        residency_guard: None,
++    })
++    .await
++    .unwrap();
++    let received = rx.recv().await.unwrap();
++    let SubmissionOp::Protocol(Op::TurnInput {
++        request,
++        mode,
++        reply,
++    }) = received.op
++    else {
++        panic!("legacy path stays protocol")
++    };
++    assert_eq!(mode, TurnInputMode::StartIfIdle);
++    assert_eq!(project(*request), expected);
++    reply
++        .send(Ok(TurnInputSubmission::NotSubmitted {
++            reason: NotSubmittedReason::NotIdle,
++        }))
++        .unwrap();
++    assert_eq!(
++        waiter.await.unwrap().unwrap(),
++        TurnInputSubmission::NotSubmitted {
++            reason: NotSubmittedReason::NotIdle
++        }
++    );
++
++    let original = request(inputs().remove(0), /*trace*/ None);
++    let expected = project(original.clone());
++    let (reply, waiter) = oneshot::channel();
++    let wrapped: SubmissionOp = Op::RecoverTurn {
++        thread_settings: original.thread_settings,
++        start_options: original.start,
++        reply,
++    }
++    .into();
++    let SubmissionOp::Protocol(Op::RecoverTurn {
++        thread_settings,
++        start_options,
++        reply,
++    }) = wrapped
++    else {
++        panic!("recovery stays protocol")
++    };
++    let mut recovered = request(inputs().remove(0), /*trace*/ None);
++    recovered.thread_settings = thread_settings;
++    recovered.start = start_options;
++    assert_eq!(project(recovered), expected);
++    reply.send(Err(CodexErr::InternalAgentDied)).unwrap();
++    assert!(matches!(
++        waiter.await.unwrap().unwrap_err().details(),
++        CodexErrorDetails::InternalAgentDied
++    ));
++}
++
++#[tokio::test]
++async fn dropping_queued_typed_command_closes_original_waiter_without_replay() {
++    let (submission, waiter) = OriginalTurnInputSubmission::capture(
++        request(inputs().remove(0), /*trace*/ None),
++        TurnInputMode::StartIfIdle,
++    )
++    .into_submission();
++    let (tx, rx) = async_channel::bounded::<Submission>(1);
++    tx.send(submission).await.unwrap();
++    drop(tx);
++    drop(rx);
++    let error = waiter
++        .await
++        .unwrap_or(Err(CodexErr::InternalAgentDied))
++        .unwrap_err();
++    assert!(matches!(
++        error.details(),
++        CodexErrorDetails::InternalAgentDied
++    ));
++}

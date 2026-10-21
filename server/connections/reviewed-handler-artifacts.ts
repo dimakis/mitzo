@@ -1402,4 +1402,20 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '87d6517e779b9b29f2e636a1919ea844beb0fc034f01fbfdf1c740fa5117ab52',
   '../../frontend/src/lib/telos-source-updates.ts':
     'd04a21a711eb8c7118491d94b1363f02b36b0f7457bbe711906f3d67bdbb6e8d',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-first-command-options.patch':
+    '5609b3654669aae0cfadc8e8f1a721a99508bcaa1fb5596971ca9b0f0649619a',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-fresh-history-seed.patch':
+    '8538fafc16853427f9f6b1914a444b211e4dbd3c7341fef24afde325f869d7ad',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-turn-input-envelope.patch':
+    '80d18dcccc8c9409a6f6cebb9673b2c97347ee605053a24755870c98bd11696e',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-typed-command-carrier.patch':
+    '5e19e68d42e9aed2693f91edbd36bcc1ed2e3e84e14700d7e47edb741dd3d793',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-client-info-ingress.patch':
+    'a40617f38eccd9f719e7ec7ccbe300ae3ef162ec0c51ce7876f293d6cadefa3a',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-selected-fresh-command-ingress.patch':
+    '60332d92a86906fff70df42d9ffefc89fbb758d1c2a92c1f404ffd0f8689964c',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-original-first-step-model-data.patch':
+    '9a698872b18230975bcf73d483b080cf43cbbcadd29b614a835eebaf98f06bff',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-startup-heap-storage-and-failure-diagnostics.patch':
+    'd23431be69e78ab01a84dc15d08087d423eb57cd20ef5facc6d4800d68042cc9',
 });

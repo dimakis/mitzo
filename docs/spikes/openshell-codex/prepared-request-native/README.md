@@ -6,7 +6,36 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 119 patches
+## Current composed source: 127 patches
+
+The 127 ordered patches reconstruct native tree `539c34fa4bb824b81e0f4bc379d62478b2277112`
+(local source `01f39b8e6222fda4c0e08207d3a2750cb17d17d2`). Every previous119 patch record
+and byte and the complete prior source boundary remain exact. Accepted main
+ea5ae7590da152cf9c5663b72d7b799cc2e8fba2 is composed in this candidate.
+
+The additions retain original first-command options/history/queue/client metadata,
+strict private fresh command parsing and native-owned normalized pairing, and the
+actual first-step model resolver/late ordinary settings consumer. A bounded private
+snapshot-storage change addresses the seven observed stack-overflow regressions;
+only CI can establish whether it repairs them. Test-only diagnostics expose the
+remaining shell-snapshot/skill-root assertions and Mac MCP deadline without changing
+original assertions or budgets. All 26 additional fixtures remain
+UNCOMPILED_UNRUN locally. CI requires 37 Core and 23 AppServer
+data-owner names, the same four Goal/API names, seven original stack regressions,
+and the complete original22 packages plus Linux sandbox and formatting.
+
+Published119 passed the same38 targeted unit identities on both platforms. Its
+full Mac suite recorded9409pass/8fail/39filtered skips; Linux9621pass/12fail/23filtered
+skips. Seven stack-overflow identities overlap across platforms; thirteen unique
+failed names remain retained. Both full suites failed and formatting skipped.
+The34 Core/AppServer focused passes overlap full-suite coverage; four Goal/API
+library tests are separate. No119 result qualifies this successor.
+
+Full initial context/tools/final request/count/currentness/State C-to-R/admission,
+registered RPC/factory/Ready/Join/final participant reply remain open. Candidate
+PRESENT adoption stays refused. No real model call, installation or deployment.
+
+## Previous composed source: 119 patches
 
 The 119 ordered patches reconstruct native tree
 `c5d4d25bac5c95a7139bcf2e4bfa19051f8bcc52` (local source

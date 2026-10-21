@@ -1,0 +1,620 @@
+diff --git a/codex-rs/core/src/session/client_input_data.rs b/codex-rs/core/src/session/client_input_data.rs
+index e050e77..7ce4683 100644
+--- a/codex-rs/core/src/session/client_input_data.rs
++++ b/codex-rs/core/src/session/client_input_data.rs
+@@ -9,6 +9,15 @@ use crate::thread_manager::selected_start_frame::InheritedSessionSourceFrame;
+ use codex_model_provider::WorkspaceRoutingContext;
+ use std::io;
+ 
++#[path = "fresh_history_data.rs"]
++pub(super) mod fresh_history_data;
++
++enum OriginalFreshHistorySlot {
++    Ordinary,
++    Retained(ThreadId, fresh_history_data::OriginalFreshHistoryData),
++    Consumed,
++}
++
+ pub(crate) struct SessionChannels {
+     pub(crate) tx_sub: Sender<Submission>,
+     pub(crate) rx_sub: Receiver<Submission>,
+@@ -39,6 +48,7 @@ enum OriginalClientSlot {
+ pub(crate) struct OriginalClientInputData {
+     client: OriginalClientSlot,
+     startup: Option<super::startup_selection::OriginalStartupSelection>,
++    fresh_history: OriginalFreshHistorySlot,
+     extension_tools: OriginalExtensionToolSlot,
+     thread_id: ThreadId,
+     init: ExtensionDataInit,
+@@ -74,6 +84,7 @@ impl OriginalClientInputData {
+         Self {
+             client: OriginalClientSlot::NotConstructed,
+             startup: None,
++            fresh_history: OriginalFreshHistorySlot::Ordinary,
+             extension_tools: OriginalExtensionToolSlot::Uncaptured,
+             thread_id,
+             init: init.clone(),
+@@ -148,8 +159,16 @@ impl OriginalClientInputData {
+     }
+     pub(crate) fn install_startup(
+         &mut self,
+-        startup: super::startup_selection::OriginalStartupSelection,
++        mut startup: super::startup_selection::OriginalStartupSelection,
+     ) -> io::Result<()> {
++        if !matches!(
++            std::mem::replace(&mut self.fresh_history, OriginalFreshHistorySlot::Consumed),
++            OriginalFreshHistorySlot::Ordinary
++        ) {
++            return Err(io::Error::other(
++                "original fresh-history capture already attempted",
++            ));
++        }
+         if self.startup.is_some() || !matches!(self.client, OriginalClientSlot::NotConstructed) {
+             return Err(io::Error::other(
+                 "startup selection already captured or client constructed",
+@@ -165,9 +184,38 @@ impl OriginalClientInputData {
+         }
+         self.validate_config(startup.raw_config())?;
+         self.validate_config(startup.effective_config())?;
++        let frame = self
++            .source_frame
++            .as_ref()
++            .ok_or_else(|| io::Error::other("original fresh-history source frame missing"))?;
++        let data = startup.take_fresh_history(frame.client_source().0)?;
++        self.fresh_history = OriginalFreshHistorySlot::Retained(self.thread_id, data);
+         self.startup = Some(startup);
+         Ok(())
+     }
++    pub(super) fn take_fresh_history(
++        &mut self,
++        thread_id: ThreadId,
++        config: &Arc<Config>,
++        source: &SessionSource,
++        history: &InitialHistory,
++    ) -> io::Result<Option<fresh_history_data::OriginalFreshHistoryData>> {
++        match std::mem::replace(&mut self.fresh_history, OriginalFreshHistorySlot::Consumed) {
++            OriginalFreshHistorySlot::Ordinary => Ok(None),
++            OriginalFreshHistorySlot::Retained(id, data) => {
++                if thread_id != id {
++                    return Err(io::Error::other(
++                        "original fresh-history allocation changed",
++                    ));
++                }
++                data.validate(config, source, history)?;
++                Ok(Some(data))
++            }
++            OriginalFreshHistorySlot::Consumed => {
++                Err(io::Error::other("original fresh-history slot consumed"))
++            }
++        }
++    }
+     pub(super) fn take_startup(
+         &mut self,
+     ) -> Option<super::startup_selection::OriginalStartupSelection> {
+diff --git a/codex-rs/core/src/session/fresh_history_data.rs b/codex-rs/core/src/session/fresh_history_data.rs
+new file mode 100644
+index 0000000..e8c6811
+--- /dev/null
++++ b/codex-rs/core/src/session/fresh_history_data.rs
+@@ -0,0 +1,76 @@
++//! Fresh-history DATA allocated by original selected startup, not complete
++//! history/agent state, a Session, admission, currentness or request authority.
++use super::*;
++
++pub(in crate::session) struct OriginalFreshHistoryData {
++    config: Arc<Config>,
++    source: SessionSource,
++    window_ids: Option<AutoCompactWindowIds>,
++    history: Option<ContextManager>,
++}
++impl OriginalFreshHistoryData {
++    pub(in crate::session) fn capture(
++        config: Arc<Config>,
++        source: &SessionSource,
++        history: &InitialHistory,
++    ) -> io::Result<Self> {
++        if !matches!(history, InitialHistory::New) {
++            return Err(io::Error::other(
++                "fresh history requires original New inputs",
++            ));
++        }
++        // Same ORIGINAL constructors; retain their actual values, including the
++        // unique window ID and ContextManager's process review-context revision.
++        let window_ids = AutoCompactWindowIds::new_initial();
++        let history = ContextManager::for_session(source, &config.features);
++        Ok(Self {
++            config,
++            source: source.clone(),
++            window_ids: Some(window_ids),
++            history: Some(history),
++        })
++    }
++    pub(in crate::session) fn validate(
++        &self,
++        config: &Arc<Config>,
++        source: &SessionSource,
++        history: &InitialHistory,
++    ) -> io::Result<()> {
++        if !Arc::ptr_eq(config, &self.config)
++            || source != &self.source
++            || !matches!(history, InitialHistory::New)
++        {
++            return Err(io::Error::other(
++                "retained original fresh-history inputs changed",
++            ));
++        }
++        Ok(())
++    }
++    pub(in crate::session) fn take_window_ids(&mut self) -> io::Result<AutoCompactWindowIds> {
++        self.window_ids
++            .take()
++            .ok_or_else(|| io::Error::other("original window IDs already adopted"))
++    }
++    pub(in crate::session) fn take_context(
++        &mut self,
++        config: &Arc<Config>,
++        source: &SessionSource,
++        history: &InitialHistory,
++    ) -> io::Result<ContextManager> {
++        let context = self
++            .history
++            .take()
++            .ok_or_else(|| io::Error::other("original fresh context already adopted"))?;
++        self.validate(config, source, history)?;
++        if self.window_ids.is_some() {
++            return Err(io::Error::other(
++                "original window IDs must be adopted before context",
++            ));
++        }
++        Ok(context)
++    }
++}
++
++#[cfg(test)]
++#[path = "fresh_history_data_tests.rs"]
++mod tests;
+diff --git a/codex-rs/core/src/session/fresh_history_data_tests.rs b/codex-rs/core/src/session/fresh_history_data_tests.rs
+new file mode 100644
+index 0000000..bf4f092
+--- /dev/null
++++ b/codex-rs/core/src/session/fresh_history_data_tests.rs
+@@ -0,0 +1,287 @@
++use super::*;
++use crate::session::startup_selection::OriginalStartupSelection;
++use codex_models_manager::manager::{
++    ModelsEndpointClient, ModelsEndpointFuture, ModelsEndpointResponse, OpenAiModelsManager,
++    RefreshStrategy,
++};
++use pretty_assertions::assert_eq;
++use std::sync::Mutex;
++use std::sync::atomic::{AtomicUsize, Ordering};
++
++#[derive(Debug)]
++struct OfflineCatalog {
++    rows: Mutex<Vec<ModelInfo>>,
++    reads: AtomicUsize,
++}
++impl ModelsEndpointClient for OfflineCatalog {
++    fn identity(&self) -> Option<String> {
++        Some("synthetic-startup-source".to_string())
++    }
++    fn has_command_auth(&self) -> bool {
++        false
++    }
++    fn uses_codex_backend(&self) -> ModelsEndpointFuture<'_, bool> {
++        Box::pin(std::future::ready(false))
++    }
++    fn supports_api_key_models(&self) -> bool {
++        true
++    }
++    fn has_provider_api_key(&self) -> bool {
++        true
++    }
++    fn list_models<'a>(
++        &'a self,
++        _version: &'a str,
++        _factory: codex_http_client::HttpClientFactory,
++    ) -> ModelsEndpointFuture<'a, CodexResult<ModelsEndpointResponse>> {
++        self.reads.fetch_add(1, Ordering::SeqCst);
++        let models = self.rows.lock().unwrap().clone();
++        Box::pin(std::future::ready(Ok(ModelsEndpointResponse {
++            models,
++            etag: None,
++            identity: self.identity().unwrap(),
++        })))
++    }
++}
++async fn fixture() -> anyhow::Result<(
++    tempfile::TempDir,
++    crate::StartThreadOptions,
++    Arc<AuthManager>,
++    SharedModelsManager,
++    Arc<OfflineCatalog>,
++)> {
++    let home = tempfile::tempdir()?;
++    std::fs::write(
++        home.path().join("config.toml"),
++        "model = 'gpt-6-luna'\nsandbox_mode = 'danger-full-access'\n",
++    )?;
++    std::fs::write(
++        home.path().join("requirements.toml"),
++        "[auto_review]\nrequired_on_models = ['gpt-6-luna']\n",
++    )?;
++    let config = crate::config::ConfigBuilder::default()
++        .codex_home(home.path().to_path_buf())
++        .loader_overrides(
++            codex_config::LoaderOverrides::with_managed_config_path_for_tests(
++                home.path().join("managed.toml"),
++            ),
++        )
++        .fallback_cwd(Some(home.path().to_path_buf()))
++        .build()
++        .await?;
++    let auth = AuthManager::from_auth_for_testing_with_home(
++        CodexAuth::from_api_key("synthetic-startup-source"),
++        home.path().to_path_buf(),
++    );
++    // The exact shipped Luna row is published through the REAL catalog owner;
++    // only its external endpoint is deterministic offline data, never HTTP.
++    let row = codex_models_manager::bundled_models_response()?
++        .models
++        .into_iter()
++        .find(|row| row.slug == "gpt-6-luna")
++        .unwrap();
++    let endpoint = Arc::new(OfflineCatalog {
++        rows: Mutex::new(vec![row]),
++        reads: AtomicUsize::new(0),
++    });
++    let models: SharedModelsManager = Arc::new(
++        OpenAiModelsManager::new_without_cache(endpoint.clone(), Some(Arc::clone(&auth)))
++            .with_provider_catalog(),
++    );
++    models.set_api_key_model_discovery_enabled(true);
++    models
++        .raw_model_catalog(RefreshStrategy::Online, config.http_client_factory())
++        .await;
++    let mut options = crate::StartThreadOptions::new(config);
++    options.environments = Some(vec![codex_protocol::protocol::TurnEnvironmentSelection {
++        environment_id: "startup-source-data".to_string(),
++        cwd: options.config.cwd.clone().into(),
++        workspace_roots: vec![options.config.cwd.clone().into()],
++        config: codex_protocol::protocol::EnvironmentConfigState::Pending,
++    }]);
++    Ok((home, options, auth, models, endpoint))
++}
++
++async fn captured() -> anyhow::Result<(
++    tempfile::TempDir,
++    crate::ThreadManager,
++    ThreadId,
++    crate::StartThreadOptions,
++    OriginalClientInputData,
++    Arc<Config>,
++    SessionSource,
++)> {
++    let (home, options, auth, models, _endpoint) = fixture().await?;
++    let manager = crate::ThreadManager::for_fresh_history_fixture(
++        &options.config,
++        Arc::clone(&auth),
++        Arc::clone(&models),
++    );
++    let reservation = manager.reserve_thread_start();
++    let id = reservation.thread_id();
++    let mut selected = manager
++        .prepare_reserved_selected_start(options, reservation)
++        .await?;
++    manager
++        .capture_selected_start_startup(&mut selected)
++        .await?;
++    let adoption = manager.adopt_selected_start_startup(&mut selected).await?;
++    assert!(
++        manager
++            .adopt_selected_start_startup(&mut selected)
++            .await
++            .is_err()
++    );
++    let (adopted_id, options, mut inputs) = adoption.into_fresh_history_fixture_parts();
++    assert_eq!(adopted_id, id);
++    let frame = inputs.source_frame().unwrap();
++    let source = frame.client_source().0.clone();
++    let fork = frame.configured_fork(&options)?;
++    let startup = inputs.take_startup().unwrap();
++    let (_owner, mut stages, _raw) = startup.into_session(
++        &models,
++        &auth,
++        &options.config,
++        configured_settings_data::ConfiguredBaselineInputs::from_options(&options, fork),
++        &source,
++    )?;
++    stages.take_review()?;
++    let effective = stages.take_effective()?;
++    assert!(manager.list_thread_ids().await.is_empty());
++    assert!(!home.path().join(".sandbox_migration").exists());
++    Ok((home, manager, id, options, inputs, effective, source))
++}
++
++#[tokio::test]
++async fn actual_selected_packet_moves_same_window_and_history_into_original_stages_once()
++-> anyhow::Result<()> {
++    let (_home, manager, id, options, mut inputs, effective, source) = captured().await?;
++    let mut seed = inputs
++        .take_fresh_history(id, &effective, &source, &options.initial_history)?
++        .expect("actual selected startup retained original history data");
++    let window = seed.window_ids.unwrap();
++    // Clone only a test witness, not captured production custody. A fresh
++    // ContextManager would allocate a different items Arc and review revision.
++    let witness = seed
++        .history
++        .as_ref()
++        .unwrap()
++        .clone()
++        .into_shared_annotated_items();
++    let version = seed.history.as_ref().unwrap().history_version();
++    assert_eq!(seed.take_window_ids()?, window);
++    assert!(seed.take_window_ids().is_err());
++    let history = seed.take_context(&effective, &source, &options.initial_history)?;
++    assert_eq!(history.history_version(), version);
++    assert!(Arc::ptr_eq(
++        &witness,
++        &history.into_shared_annotated_items()
++    ));
++    assert!(
++        seed.take_context(&effective, &source, &options.initial_history)
++            .is_err()
++    );
++    assert!(
++        inputs
++            .take_fresh_history(id, &effective, &source, &options.initial_history)
++            .is_err()
++    );
++    assert!(manager.list_thread_ids().await.is_empty());
++    Ok(())
++}
++
++#[tokio::test]
++async fn foreign_changed_source_history_and_equal_config_owner_burn_selected_slot()
++-> anyhow::Result<()> {
++    let (_home, options, auth, models, _endpoint) = fixture().await?;
++    let manager = crate::ThreadManager::for_fresh_history_fixture(
++        &options.config,
++        Arc::clone(&auth),
++        Arc::clone(&models),
++    );
++    let foreign = crate::ThreadManager::for_fresh_history_fixture(&options.config, auth, models);
++    let mut selected = manager
++        .prepare_reserved_selected_start(options, manager.reserve_thread_start())
++        .await?;
++    manager
++        .capture_selected_start_startup(&mut selected)
++        .await?;
++    assert!(
++        foreign
++            .adopt_selected_start_startup(&mut selected)
++            .await
++            .is_err()
++    );
++    assert!(foreign.list_thread_ids().await.is_empty());
++    assert!(manager.list_thread_ids().await.is_empty());
++    for mismatch in 0..5 {
++        let (_home, manager, id, options, mut inputs, effective, source) = captured().await?;
++        let mut changed_config = effective.as_ref().clone();
++        changed_config.ephemeral = !changed_config.ephemeral;
++        let foreign_id = manager.reserve_thread_start().thread_id();
++        let equal_but_foreign = Arc::new(effective.as_ref().clone());
++        let changed = Arc::new(changed_config);
++        let foreign_source = SessionSource::Cli;
++        let non_new = InitialHistory::Cleared;
++        let (actual_id, config, actual_source, history) = match mismatch {
++            0 => (foreign_id, &effective, &source, &options.initial_history),
++            1 => (id, &equal_but_foreign, &source, &options.initial_history),
++            2 => (id, &changed, &source, &options.initial_history),
++            3 => (id, &effective, &foreign_source, &options.initial_history),
++            4 => (id, &effective, &source, &non_new),
++            _ => unreachable!(),
++        };
++        assert!(
++            inputs
++                .take_fresh_history(actual_id, config, actual_source, history)
++                .is_err()
++        );
++        // Valid original arguments never reconstruct the consumed/failed slot.
++        assert!(
++            inputs
++                .take_fresh_history(id, &effective, &source, &options.initial_history)
++                .is_err()
++        );
++        assert!(manager.list_thread_ids().await.is_empty());
++    }
++    Ok(())
++}
++
++#[tokio::test]
++async fn wrong_stage_missing_values_and_non_new_capture_never_reconstruct_history()
++-> anyhow::Result<()> {
++    let (_home, _manager, id, options, mut inputs, effective, source) = captured().await?;
++    assert!(
++        OriginalFreshHistoryData::capture(
++            Arc::clone(&effective),
++            &source,
++            &InitialHistory::Cleared
++        )
++        .is_err()
++    );
++    let mut seed = inputs
++        .take_fresh_history(id, &effective, &source, &options.initial_history)?
++        .unwrap();
++    assert!(
++        seed.take_context(&effective, &source, &options.initial_history)
++            .is_err()
++    );
++    seed.take_window_ids()?;
++    assert!(
++        seed.take_context(&effective, &source, &options.initial_history)
++            .is_err()
++    );
++    let mut seed = OriginalFreshHistoryData::capture(
++        Arc::clone(&effective),
++        &source,
++        &options.initial_history,
++    )?;
++    seed.window_ids.take();
++    assert!(seed.take_window_ids().is_err());
++    seed.history.take();
++    assert!(
++        seed.take_context(&effective, &source, &options.initial_history)
++            .is_err()
++    );
++    Ok(())
++}
+diff --git a/codex-rs/core/src/session/session.rs b/codex-rs/core/src/session/session.rs
+index 38de1b3..d62aebe 100644
+--- a/codex-rs/core/src/session/session.rs
++++ b/codex-rs/core/src/session/session.rs
+@@ -739,7 +739,23 @@ impl Session {
+                 SessionId::from(thread_id)
+             }
+         });
+-        let initial_auto_compact_window_ids = AutoCompactWindowIds::new_initial();
++        let mut retained_fresh_history = match &mut inherited_client_inputs {
++            Some(inputs) => inputs
++                .take_fresh_history(
++                    thread_id,
++                    &config,
++                    &session_configuration.session_source,
++                    &initial_history,
++                )
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?,
++            None => None,
++        };
++        let initial_auto_compact_window_ids = match &mut retained_fresh_history {
++            Some(data) => data
++                .take_window_ids()
++                .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?,
++            None => AutoCompactWindowIds::new_initial(),
++        };
+         let restore_child_window = matches!(&initial_history, InitialHistory::Forked(_))
+             && session_configuration.session_source.is_non_root_agent()
+             && config.features.enabled(Feature::TokenBudget);
+@@ -1312,10 +1328,19 @@ impl Session {
+             let mut state = SessionState::new_with_auto_compact_window_ids(
+                 session_configuration.clone(),
+                 initial_auto_compact_window_ids,
+-                ContextManager::for_session(
+-                    &session_configuration.session_source,
+-                    &config.features,
+-                ),
++                match &mut retained_fresh_history {
++                    Some(data) => data
++                        .take_context(
++                            &config,
++                            &session_configuration.session_source,
++                            &initial_history,
++                        )
++                        .map_err(|error| CodexErr::InvalidRequest(error.to_string()))?,
++                    None => ContextManager::for_session(
++                        &session_configuration.session_source,
++                        &config.features,
++                    ),
++                },
+             );
+             state.base_instructions_provenance = base_instructions_provenance.clone();
+             state.active_disabled_plugin_ids = session_configuration.disabled_plugin_ids.clone();
+diff --git a/codex-rs/core/src/session/startup_selection.rs b/codex-rs/core/src/session/startup_selection.rs
+index 02cef91..4bc275b 100644
+--- a/codex-rs/core/src/session/startup_selection.rs
++++ b/codex-rs/core/src/session/startup_selection.rs
+@@ -14,6 +14,7 @@ pub(crate) use selected_settings_candidate::SelectedSettingsCandidate;
+ pub(crate) struct OriginalStartupSelection {
+     pub(super) owner: StartupSelectionOwner,
+     pub(super) stages: StartupSelectionStages,
++    fresh_history: Option<client_input_data::fresh_history_data::OriginalFreshHistoryData>,
+ }
+ pub(super) struct StartupSelectionOwner {
+     models: SharedModelsManager,
+@@ -107,8 +108,15 @@ impl OriginalStartupSelection {
+             source,
+             trusted,
+         )?;
++        let fresh_history =
++            client_input_data::fresh_history_data::OriginalFreshHistoryData::capture(
++                Arc::clone(&effective),
++                source,
++                &options.initial_history,
++            )?;
+         drop(pin);
+         Ok(Self {
++            fresh_history: Some(fresh_history),
+             owner: StartupSelectionOwner {
+                 models: Arc::clone(models),
+                 auth: Arc::clone(auth),
+@@ -128,6 +136,20 @@ impl OriginalStartupSelection {
+             },
+         })
+     }
++    pub(super) fn take_fresh_history(
++        &mut self,
++        source: &SessionSource,
++    ) -> io::Result<client_input_data::fresh_history_data::OriginalFreshHistoryData> {
++        let data = self.fresh_history.take().ok_or_else(|| {
++            io::Error::other("original fresh-history capture missing or consumed")
++        })?;
++        if source != &self.owner.source {
++            return Err(io::Error::other(
++                "original fresh-history source frame changed",
++            ));
++        }
++        Ok(data)
++    }
+     pub(crate) fn catalog_observation(
+         &self,
+     ) -> (SharedModelsManager, Arc<UnverifiedModelLimitCandidate>) {
+diff --git a/codex-rs/core/src/thread_manager/selected_start_tests.rs b/codex-rs/core/src/thread_manager/selected_start_tests.rs
+index b888a8d..1761b1d 100644
+--- a/codex-rs/core/src/thread_manager/selected_start_tests.rs
++++ b/codex-rs/core/src/thread_manager/selected_start_tests.rs
+@@ -130,3 +130,45 @@ async fn foreign_owner_changed_files_and_real_policy_writer_refuse() {
+     assert!(!associated);
+     assert!(manager.adopt_selected_start(&mut selected).is_err());
+ }
++
++// Only fixture access to the ORIGINAL manager/allocation owners. No Session is started.
++impl ThreadManager {
++    pub(crate) fn for_fresh_history_fixture(
++        config: &Config,
++        auth: Arc<AuthManager>,
++        models: SharedModelsManager,
++    ) -> Self {
++        Self::new(
++            config,
++            auth,
++            models,
++            CodexAppsToolsCache::default(),
++            SessionSource::Exec,
++            Arc::new(EnvironmentManager::default_for_tests()),
++            codex_extension_api::empty_extension_registry(),
++            Arc::new(codex_home::CodexHomeUserInstructionsProvider::new(
++                config.codex_home.clone(),
++            )),
++            /*analytics_events_client*/ None,
++            crate::passthrough_image_store(),
++            Arc::new(codex_thread_store::InMemoryThreadStore::default()),
++            /*agent_graph_store*/ None,
++            "offline-fresh-history".into(),
++            /*attestation_provider*/ None,
++            /*external_time_provider*/ None,
++        )
++    }
++}
++impl SelectedStartAdoption {
++    pub(crate) fn into_fresh_history_fixture_parts(
++        self,
++    ) -> (
++        ThreadId,
++        StartThreadOptions,
++        crate::session::client_input_data::OriginalClientInputData,
++    ) {
++        let id = self.allocation.thread_id();
++        let (_control, inputs) = self.allocation.into_parts();
++        (id, self.options, inputs)
++    }
++}
