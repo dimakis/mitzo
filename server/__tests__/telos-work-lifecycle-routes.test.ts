@@ -64,6 +64,7 @@ async function fixture() {
 
 const lifecycleReads = [
   { name: 'item', path: '/api/telos/work/items/studio/lifecycle' },
+  { name: 'work', path: '/api/telos/work/items/studio' },
   { name: 'list', path: '/api/telos/work/lifecycle?view=archive' },
 ] as const;
 
@@ -75,7 +76,9 @@ it.each(lifecycleReads)(
     const expected =
       name === 'item'
         ? f.canonical.work.readLifecycle('studio', f.canonical.actor)
-        : f.canonical.work.listLifecycle('archive', f.canonical.actor);
+        : name === 'work'
+          ? f.canonical.work.read('studio', f.canonical.actor)
+          : f.canonical.work.listLifecycle('archive', f.canonical.actor);
     const writer = new Database(f.canonical.dbPath);
     try {
       writer.exec('BEGIN IMMEDIATE');
