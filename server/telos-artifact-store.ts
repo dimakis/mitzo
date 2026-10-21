@@ -1,3 +1,7 @@
+import {
+  openTelosOwnedDatabase,
+  type TelosOwnedDatabase,
+} from '@mitzo/protocol/telos-sqlite-owners';
 import { databaseBackupWatermark, backupOwnedDatabase } from '@mitzo/protocol/database-backup';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
@@ -126,6 +130,7 @@ export function describeTelosArtifactDocument(
 /** Content and item links commit together in the canonical Telos database, outside sandboxes. */
 export class TelosArtifactStore {
   private db: Database.Database;
+  #telosOwner: TelosOwnedDatabase | undefined;
   private readonly ownsConnection: boolean;
   /** Internal host composition only. The work owner retains transaction/close
    * authority for a borrowed connection; save/read retain their existing checks. */
@@ -138,7 +143,10 @@ export class TelosArtifactStore {
   }
   constructor(path: string, borrowedDatabase?: Database.Database, readOnly = false) {
     this.ownsConnection = borrowedDatabase === undefined;
-    this.db = borrowedDatabase ?? new Database(path, { fileMustExist: true, readonly: readOnly });
+    this.#telosOwner = borrowedDatabase
+      ? undefined
+      : openTelosOwnedDatabase('canonical', path, { fileMustExist: true, readonly: readOnly });
+    this.db = borrowedDatabase ?? this.#telosOwner!.database;
     this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
     try {
@@ -146,6 +154,7 @@ export class TelosArtifactStore {
       this.db.prepare('SELECT id FROM links LIMIT 1').get();
       if (readOnly) {
         this.db.prepare('SELECT id FROM telos_artifact_revisions LIMIT 0').all();
+        this.#telosOwner?.seal();
         return;
       }
       this.db.exec(`CREATE TABLE IF NOT EXISTS telos_artifact_revisions (
@@ -165,8 +174,9 @@ export class TelosArtifactStore {
         CREATE INDEX IF NOT EXISTS telos_artifacts_item ON telos_artifact_revisions(item_id);
         CREATE INDEX IF NOT EXISTS telos_artifacts_source_page ON telos_artifact_revisions(session_id,created_at,id,revision);
         CREATE INDEX IF NOT EXISTS telos_artifacts_origin ON telos_artifact_revisions(id,item_id,session_id);`);
+      this.#telosOwner?.seal();
     } catch (error) {
-      if (this.ownsConnection) this.db.close();
+      this.#telosOwner?.close();
       throw error;
     }
   }
@@ -179,7 +189,7 @@ export class TelosArtifactStore {
   }
 
   close() {
-    if (this.ownsConnection) this.db.close();
+    this.#telosOwner?.close();
   }
   /** Match the submitted request, not mutable workspace bytes, before reading a path. */
   /** Shared task outputs are not a private LifeOps evidence vault. */

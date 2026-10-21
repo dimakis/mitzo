@@ -1,3 +1,7 @@
+import {
+  openTelosOwnedDatabase,
+  type TelosOwnedDatabase,
+} from '@mitzo/protocol/telos-sqlite-owners';
 import Database from 'better-sqlite3';
 import { randomUUID, createHash } from 'node:crypto';
 import type { PendingTelosSourceReview } from '@mitzo/harness';
@@ -35,10 +39,13 @@ interface Row {
 /** Recovery receipt only; canonical creation/context/artifacts retain their existing owners. */
 export class TelosSourceApprovalStore {
   private db: Database.Database;
+  #telosOwner: TelosOwnedDatabase;
   constructor(path: string) {
-    this.db = new Database(path, { fileMustExist: true });
-    this.db.pragma('busy_timeout=5000');
-    this.db.exec(`CREATE TABLE IF NOT EXISTS telos_work_source_approvals (
+    this.#telosOwner = openTelosOwnedDatabase('canonical', path, { fileMustExist: true });
+    this.db = this.#telosOwner.database;
+    try {
+      this.db.pragma('busy_timeout=5000');
+      this.db.exec(`CREATE TABLE IF NOT EXISTS telos_work_source_approvals (
       id TEXT PRIMARY KEY, perm_id TEXT NOT NULL UNIQUE, session_id TEXT NOT NULL,
       tool_use_id TEXT NOT NULL, actor_id TEXT NOT NULL, input_hash TEXT NOT NULL,
       data TEXT NOT NULL, data_sha256 TEXT NOT NULL, receipt TEXT, canonical_receipt TEXT,
@@ -48,9 +55,14 @@ export class TelosSourceApprovalStore {
       CREATE TRIGGER IF NOT EXISTS telos_source_approval_receipt_immutable BEFORE UPDATE OF receipt ON telos_work_source_approvals WHEN OLD.receipt IS NOT NULL AND NEW.receipt IS NOT OLD.receipt BEGIN SELECT RAISE(ABORT,'Reviewed source receipt is immutable'); END;
       CREATE TRIGGER IF NOT EXISTS telos_source_canonical_receipt_immutable BEFORE UPDATE OF canonical_receipt ON telos_work_source_approvals WHEN OLD.canonical_receipt IS NOT NULL AND NEW.canonical_receipt IS NOT OLD.canonical_receipt BEGIN SELECT RAISE(ABORT,'Canonical creation receipt is immutable'); END;
       CREATE TRIGGER IF NOT EXISTS telos_source_approval_no_delete BEFORE DELETE ON telos_work_source_approvals BEGIN SELECT RAISE(ABORT,'Reviewed source approval is retained'); END;`);
+      this.#telosOwner.seal();
+    } catch (error) {
+      this.#telosOwner.close();
+      throw error;
+    }
   }
   close() {
-    this.db.close();
+    this.#telosOwner.close();
   }
   private decode(row: Row | undefined): RetainedTelosSourceApproval | null {
     if (!row) return null;

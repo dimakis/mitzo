@@ -1,4 +1,9 @@
 import {
+  openTelosOwnedDatabase,
+  beginTelosDeletionReferenceScope,
+  type TelosOwnedDatabase,
+} from './telos-sqlite-owners.js';
+import {
   OrdinarySessionPreparationReceiptSchema,
   OrdinarySessionPreparationReceiptV2Schema,
   type OrdinarySessionPreparationReceipt,
@@ -1287,129 +1292,132 @@ export class EventStore {
     };
   }
 
+  #telosOwner: TelosOwnedDatabase;
   constructor(dbPath: string, logger?: EventStoreLogger) {
     this.log = logger ?? noopLogger;
-    const db = new Database(dbPath);
+    const owner = openTelosOwnedDatabase('events', dbPath);
+    this.#telosOwner = owner;
+    const db = owner.database;
     this.db = db;
-
-    db.pragma('journal_mode = WAL');
-    db.pragma('foreign_keys = ON');
-    db.exec(SCHEMA);
-    db.exec(`CREATE TABLE IF NOT EXISTS ordinary_session_preparations (
+    try {
+      db.pragma('journal_mode = WAL');
+      db.pragma('foreign_keys = ON');
+      db.exec(SCHEMA);
+      db.exec(`CREATE TABLE IF NOT EXISTS ordinary_session_preparations (
       operation_id TEXT PRIMARY KEY, session_id TEXT NOT NULL UNIQUE, workspace_id TEXT NOT NULL UNIQUE,
       receipt TEXT NOT NULL, metadata TEXT NOT NULL);`);
 
-    this.migratePromptTracking(db);
-    this.migrateUsageTracking(db);
-    this.migrateWorktreeTracking(db);
-    this.migrateCloseTracking(db);
-    this.migrateAttentionTracking(db);
-    this.migrateSessionState(db);
-    this.migrateExecutionState(db);
-    this.migrateBootContext(db);
-    this.migrateModelSelection(db);
-    this.migrateSessionRuntimeBinding(db);
-    if (
-      !(db.prepare('PRAGMA table_info(send_commands)').all() as Array<{ name: string }>).some(
-        (c) => c.name === 'ordinary_admission',
+      this.migratePromptTracking(db);
+      this.migrateUsageTracking(db);
+      this.migrateWorktreeTracking(db);
+      this.migrateCloseTracking(db);
+      this.migrateAttentionTracking(db);
+      this.migrateSessionState(db);
+      this.migrateExecutionState(db);
+      this.migrateBootContext(db);
+      this.migrateModelSelection(db);
+      this.migrateSessionRuntimeBinding(db);
+      if (
+        !(db.prepare('PRAGMA table_info(send_commands)').all() as Array<{ name: string }>).some(
+          (c) => c.name === 'ordinary_admission',
+        )
       )
-    )
-      db.exec('ALTER TABLE send_commands ADD COLUMN ordinary_admission TEXT');
-    if (
-      !(db.prepare('PRAGMA table_info(send_commands)').all() as Array<{ name: string }>).some(
-        (c) => c.name === 'preparing',
+        db.exec('ALTER TABLE send_commands ADD COLUMN ordinary_admission TEXT');
+      if (
+        !(db.prepare('PRAGMA table_info(send_commands)').all() as Array<{ name: string }>).some(
+          (c) => c.name === 'preparing',
+        )
       )
-    )
-      db.exec('ALTER TABLE send_commands ADD COLUMN preparing INTEGER NOT NULL DEFAULT 0');
-    this.migrateSdkTranscriptVerification(db);
-    this.migrateSymposium(db);
-    this.migrateConversationSource(db);
-    this.migrateUserMessageIndex(db);
-    this.sessionOutputs = new SessionOutputReferenceStore(db);
-    this.agentCommunication = new AgentCommunicationStore(db);
-    this.sessionCollaborations = new SessionCollaborationStore(db, (membership) =>
-      this.collaborationConversation.membershipChanged(membership),
-    );
-    this.collaborationConversation = new CollaborationConversationStore(db, {
-      sourceSetupAvailable: (id) =>
-        this.isCollaborationParticipantAvailable(id) &&
-        this.getSession(id)?.conversationSource !== 'external_import',
-      membership: (id) => this.getSessionCollaboration(id),
-      setMembership: (id, input) => this.setSessionCollaboration(id, input),
-      beginMembership: (id, sourceSessionId) =>
-        this.sessionCollaborations.start(id, sourceSessionId, (sessionId) =>
-          this.isCollaborationParticipantAvailable(sessionId),
-        ),
-      available: (id) => {
-        return this.isCollaborationParticipantAvailable(id);
-      },
-      settings: (id) => this.getOrdinaryConversationSettings(id),
-      allocation: (operationId) => {
-        const prepared = this.getOrdinarySessionPreparation(operationId);
-        if (prepared) {
-          const row = db
-            .prepare('SELECT metadata FROM ordinary_session_preparations WHERE operation_id=?')
-            .get(operationId) as { metadata: string };
-          this.assertPreparedOrdinaryMetadata(prepared, JSON.parse(row.metadata));
+        db.exec('ALTER TABLE send_commands ADD COLUMN preparing INTEGER NOT NULL DEFAULT 0');
+      this.migrateSdkTranscriptVerification(db);
+      this.migrateSymposium(db);
+      this.migrateConversationSource(db);
+      this.migrateUserMessageIndex(db);
+      this.sessionOutputs = new SessionOutputReferenceStore(db);
+      this.agentCommunication = new AgentCommunicationStore(db);
+      this.sessionCollaborations = new SessionCollaborationStore(db, (membership) =>
+        this.collaborationConversation.membershipChanged(membership),
+      );
+      this.collaborationConversation = new CollaborationConversationStore(db, {
+        sourceSetupAvailable: (id) =>
+          this.isCollaborationParticipantAvailable(id) &&
+          this.getSession(id)?.conversationSource !== 'external_import',
+        membership: (id) => this.getSessionCollaboration(id),
+        setMembership: (id, input) => this.setSessionCollaboration(id, input),
+        beginMembership: (id, sourceSessionId) =>
+          this.sessionCollaborations.start(id, sourceSessionId, (sessionId) =>
+            this.isCollaborationParticipantAvailable(sessionId),
+          ),
+        available: (id) => {
+          return this.isCollaborationParticipantAvailable(id);
+        },
+        settings: (id) => this.getOrdinaryConversationSettings(id),
+        allocation: (operationId) => {
+          const prepared = this.getOrdinarySessionPreparation(operationId);
+          if (prepared) {
+            const row = db
+              .prepare('SELECT metadata FROM ordinary_session_preparations WHERE operation_id=?')
+              .get(operationId) as { metadata: string };
+            this.assertPreparedOrdinaryMetadata(prepared, JSON.parse(row.metadata));
+            return {
+              kind: 'prepared',
+              sessionId: prepared.sessionId,
+              settings: prepared.settings,
+              firstCommandId: prepared.firstCommandId,
+            };
+          }
+          const command = this.getSendCommand(operationId);
+          if (command?.sessionId && this.getSession(command.sessionId)?.ordinaryWorkspaceId)
+            return undefined;
+          const admission = this.getOrdinaryCommandAdmission(operationId);
+          if (!command?.sessionId || command.error || !admission) return undefined;
+          const first = db
+            .prepare(
+              'SELECT client_msg_id FROM send_commands WHERE session_id=? ORDER BY rowid LIMIT 1',
+            )
+            .get(command.sessionId) as { client_msg_id: string } | undefined;
+          if (first?.client_msg_id !== operationId) return undefined;
           return {
-            kind: 'prepared',
-            sessionId: prepared.sessionId,
-            settings: prepared.settings,
-            firstCommandId: prepared.firstCommandId,
+            kind: 'first-command',
+            sessionId: command.sessionId,
+            settings: {
+              binding: admission.binding,
+              selection: admission.selection,
+              repositoryWorkspaceId: admission.workspace.workspaceId,
+            },
           };
-        }
-        const command = this.getSendCommand(operationId);
-        if (command?.sessionId && this.getSession(command.sessionId)?.ordinaryWorkspaceId)
-          return undefined;
-        const admission = this.getOrdinaryCommandAdmission(operationId);
-        if (!command?.sessionId || command.error || !admission) return undefined;
-        const first = db
-          .prepare(
-            'SELECT client_msg_id FROM send_commands WHERE session_id=? ORDER BY rowid LIMIT 1',
-          )
-          .get(command.sessionId) as { client_msg_id: string } | undefined;
-        if (first?.client_msg_id !== operationId) return undefined;
-        return {
-          kind: 'first-command',
-          sessionId: command.sessionId,
-          settings: {
-            binding: admission.binding,
-            selection: admission.selection,
-            repositoryWorkspaceId: admission.workspace.workspaceId,
-          },
-        };
-      },
-    });
+        },
+      });
 
-    this.log.info('EventStore initialized', { dbPath });
+      this.log.info('EventStore initialized', { dbPath });
 
-    this.stmts = {
-      append: db.prepare(
-        'INSERT INTO events (session_id, type, payload, seat_id, symposium_provenance) VALUES (?, ?, ?, ?, ?)',
-      ),
-      hasUserMessage: db.prepare(
-        `SELECT 1 FROM events
+      this.stmts = {
+        append: db.prepare(
+          'INSERT INTO events (session_id, type, payload, seat_id, symposium_provenance) VALUES (?, ?, ?, ?, ?)',
+        ),
+        hasUserMessage: db.prepare(
+          `SELECT 1 FROM events
          WHERE session_id = ? AND type = 'user_message'
            AND json_extract(payload, '$.messageId') = ?
          LIMIT 1`,
-      ),
-      eventsAfter: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? AND seq > ? ORDER BY seq',
-      ),
-      eventsAfterLimited: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?',
-      ),
-      latestWorktreePath: db.prepare(
-        `SELECT json_extract(payload, '$.path') AS path FROM events
+        ),
+        eventsAfter: db.prepare(
+          'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? AND seq > ? ORDER BY seq',
+        ),
+        eventsAfterLimited: db.prepare(
+          'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? AND seq > ? ORDER BY seq LIMIT ?',
+        ),
+        latestWorktreePath: db.prepare(
+          `SELECT json_extract(payload, '$.path') AS path FROM events
          WHERE session_id = ? AND type = 'worktree_opened'
            AND json_extract(payload, '$.repoName') = ?
          ORDER BY seq DESC LIMIT 1`,
-      ),
-      sessionEvents: db.prepare(
-        'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? ORDER BY seq',
-      ),
-      recentConversationText: db.prepare(
-        `SELECT seq,type,
+        ),
+        sessionEvents: db.prepare(
+          'SELECT seq, session_id, type, payload, created_at, seat_id, symposium_provenance FROM events WHERE session_id = ? ORDER BY seq',
+        ),
+        recentConversationText: db.prepare(
+          `SELECT seq,type,
           json_extract(payload, '$.messageId') AS message_id,
           CASE
             WHEN type='user_message' THEN json_extract(payload, '$.text')
@@ -1422,24 +1430,24 @@ export class EventStore {
           (type='block_delta' AND json_extract(payload, '$.blockType')='text')
         )
         ORDER BY seq DESC LIMIT ?`,
-      ),
-      getSession: db.prepare('SELECT * FROM sessions WHERE session_id = ?'),
-      listSessions: db.prepare(
-        `SELECT s.* FROM sessions s WHERE s.is_hidden = 0
+        ),
+        getSession: db.prepare('SELECT * FROM sessions WHERE session_id = ?'),
+        listSessions: db.prepare(
+          `SELECT s.* FROM sessions s WHERE s.is_hidden = 0
          AND ${REGISTERED_CONVERSATION_SQL} ORDER BY s.updated_at DESC`,
-      ),
-      listSessionsLimited: db.prepare(
-        `SELECT s.* FROM sessions s WHERE s.is_hidden = 0
+        ),
+        listSessionsLimited: db.prepare(
+          `SELECT s.* FROM sessions s WHERE s.is_hidden = 0
          AND ${REGISTERED_CONVERSATION_SQL} ORDER BY s.updated_at DESC LIMIT ?`,
-      ),
-      markInactive: db.prepare(
-        "UPDATE sessions SET is_active = 0, updated_at = unixepoch('now', 'subsec') * 1000 WHERE session_id = ?",
-      ),
-      hide: db.prepare(
-        "UPDATE sessions SET is_hidden = 1, updated_at = unixepoch('now', 'subsec') * 1000 WHERE session_id = ?",
-      ),
-      recordUsage: db.prepare(
-        `UPDATE sessions SET
+        ),
+        markInactive: db.prepare(
+          "UPDATE sessions SET is_active = 0, updated_at = unixepoch('now', 'subsec') * 1000 WHERE session_id = ?",
+        ),
+        hide: db.prepare(
+          "UPDATE sessions SET is_hidden = 1, updated_at = unixepoch('now', 'subsec') * 1000 WHERE session_id = ?",
+        ),
+        recordUsage: db.prepare(
+          `UPDATE sessions SET
           input_tokens = ?,
           output_tokens = ?,
           cache_read_tokens = ?,
@@ -1450,81 +1458,87 @@ export class EventStore {
           duration_api_ms = ?,
           updated_at = unixepoch('now', 'subsec') * 1000
         WHERE session_id = ?`,
-      ),
-      updateLastSpeaker: db.prepare(
-        `UPDATE sessions SET
+        ),
+        updateLastSpeaker: db.prepare(
+          `UPDATE sessions SET
           last_speaker = ?,
           last_speaker_at = unixepoch('now', 'subsec') * 1000,
           updated_at = unixepoch('now', 'subsec') * 1000
         WHERE session_id = ?`,
-      ),
-      getAttentionSessions: db.prepare(
-        `SELECT s.* FROM sessions s
+        ),
+        getAttentionSessions: db.prepare(
+          `SELECT s.* FROM sessions s
          WHERE s.is_hidden = 0 AND ${REGISTERED_CONVERSATION_SQL}
            AND s.last_speaker = 'assistant'
          ORDER BY s.last_speaker_at DESC
          LIMIT 10`,
-      ),
-      setSessionState: db.prepare(
-        `UPDATE sessions SET
+        ),
+        setSessionState: db.prepare(
+          `UPDATE sessions SET
           state = ?,
           last_state_change = ?,
           is_active = ?,
           updated_at = unixepoch('now', 'subsec') * 1000
         WHERE session_id = ?`,
-      ),
-      getSessionState: db.prepare('SELECT state FROM sessions WHERE session_id = ?'),
-    };
+        ),
+        getSessionState: db.prepare('SELECT state FROM sessions WHERE session_id = ?'),
+      };
 
-    this.sessionMetadata = new SessionMetadataStore({
-      database: () => this.db,
-      statements: this.stmts,
-      assertConversationIdentity: (id) => this.assertConversationIdentity(id),
-      getInternalSdkExecution: (id) => this.getInternalSdkExecution(id),
-      upsertSession: (meta) => this.upsertSession(meta),
-    });
-    this.ordinaryWorkspaceSessions = new OrdinaryWorkspaceSessionStore({
-      database: () => this.db,
-      getSession: (id) => this.getSession(id),
-      getSessionRuntimeBinding: (id) => this.getSessionRuntimeBinding(id),
-      createSessionWithRuntimeBinding: (meta, binding) =>
-        this.createSessionWithRuntimeBinding(meta, binding),
-      getSendCommand: (id) => this.getSendCommand(id),
-      getOrdinaryInitialCommandId: (id) => this.getOrdinaryInitialCommandId(id),
-      getLatestOrdinaryCommandAdmission: (id) => this.getLatestOrdinaryCommandAdmission(id),
-      admit: (meta, binding, command, operation) =>
-        this.admitOrdinaryCommand(meta, binding, command, 'local', operation),
-    });
-    this.executionLedger = new ExecutionLedger<SessionRow>({
-      database: () => this.db,
-      statements: this.stmts,
-      assertConversationIdentity: (id) => this.assertConversationIdentity(id),
-      isRegisteredConversation: (row) => isRegisteredConversation(rowToSession(row)),
-      getExecutionAdmission: (id, command) => this.getExecutionAdmission(id, command),
-      getProviderAttempts: (token) => this.getProviderAttempts(token),
-      transitionProviderAttempt: (token, phase, reason) =>
-        this.transitionProviderAttempt(token, phase, reason),
-      transitionExecution: (token, phase, reason) => this.transitionExecution(token, phase, reason),
-    });
-    this.sessionLifecycle = new SessionLifecycleStore({
-      database: () => this.db,
-      statements: this.stmts,
-      logger: this.log,
-      getSession: (id) => this.getSession(id),
-      getSessionClientState: (id) => this.getSessionClientState(id),
-      append: (id, type, payload) => this.append(id, type, payload),
-      setSessionState: (id, state, opts) => this.setSessionState(id, state, opts),
-      toClientState,
-    });
-    this.conversationReplay = new ConversationReplayStore<EventRow>({
-      database: () => this.db,
-      statements: this.stmts,
-      eventFromRow: (row) => rowToEvent(row),
-      getSession: (id) => this.getSession(id),
-      getSessionClientState: (id) => this.getSessionClientState(id),
-      getProviderAttempts: (token) => this.getProviderAttempts(token),
-      toClientState,
-    });
+      this.sessionMetadata = new SessionMetadataStore({
+        database: () => this.db,
+        statements: this.stmts,
+        assertConversationIdentity: (id) => this.assertConversationIdentity(id),
+        getInternalSdkExecution: (id) => this.getInternalSdkExecution(id),
+        upsertSession: (meta) => this.upsertSession(meta),
+      });
+      this.ordinaryWorkspaceSessions = new OrdinaryWorkspaceSessionStore({
+        database: () => this.db,
+        getSession: (id) => this.getSession(id),
+        getSessionRuntimeBinding: (id) => this.getSessionRuntimeBinding(id),
+        createSessionWithRuntimeBinding: (meta, binding) =>
+          this.createSessionWithRuntimeBinding(meta, binding),
+        getSendCommand: (id) => this.getSendCommand(id),
+        getOrdinaryInitialCommandId: (id) => this.getOrdinaryInitialCommandId(id),
+        getLatestOrdinaryCommandAdmission: (id) => this.getLatestOrdinaryCommandAdmission(id),
+        admit: (meta, binding, command, operation) =>
+          this.admitOrdinaryCommand(meta, binding, command, 'local', operation),
+      });
+      this.executionLedger = new ExecutionLedger<SessionRow>({
+        database: () => this.db,
+        statements: this.stmts,
+        assertConversationIdentity: (id) => this.assertConversationIdentity(id),
+        isRegisteredConversation: (row) => isRegisteredConversation(rowToSession(row)),
+        getExecutionAdmission: (id, command) => this.getExecutionAdmission(id, command),
+        getProviderAttempts: (token) => this.getProviderAttempts(token),
+        transitionProviderAttempt: (token, phase, reason) =>
+          this.transitionProviderAttempt(token, phase, reason),
+        transitionExecution: (token, phase, reason) =>
+          this.transitionExecution(token, phase, reason),
+      });
+      this.sessionLifecycle = new SessionLifecycleStore({
+        database: () => this.db,
+        statements: this.stmts,
+        logger: this.log,
+        getSession: (id) => this.getSession(id),
+        getSessionClientState: (id) => this.getSessionClientState(id),
+        append: (id, type, payload) => this.append(id, type, payload),
+        setSessionState: (id, state, opts) => this.setSessionState(id, state, opts),
+        toClientState,
+      });
+      this.conversationReplay = new ConversationReplayStore<EventRow>({
+        database: () => this.db,
+        statements: this.stmts,
+        eventFromRow: (row) => rowToEvent(row),
+        getSession: (id) => this.getSession(id),
+        getSessionClientState: (id) => this.getSessionClientState(id),
+        getProviderAttempts: (token) => this.getProviderAttempts(token),
+        toClientState,
+      });
+      owner.seal();
+    } catch (error) {
+      owner.close();
+      throw error;
+    }
   }
 
   private migratePromptTracking(db: Database.Database): void {
@@ -2164,7 +2178,7 @@ export class EventStore {
 
   close(): void {
     if (this.db) {
-      this.db.close();
+      this.#telosOwner.close();
       this.db = null;
     }
   }
@@ -2510,6 +2524,15 @@ export class EventStore {
     TelosWorkIdSchema.parse(itemId);
     if (!this.db?.open || this.db.inTransaction)
       throw new Error('Retained Telos role custody unavailable');
+    this.readCompleteRetainedTelosReferences(itemId);
+  }
+  beginTelosDeletionReferenceScope(itemId: string) {
+    TelosWorkIdSchema.parse(itemId);
+    return beginTelosDeletionReferenceScope(this.#telosOwner, () =>
+      this.readCompleteRetainedTelosReferences(itemId),
+    );
+  }
+  private readCompleteRetainedTelosReferences(itemId: string) {
     const schema = z.strictObject({
       version: z.literal(1),
       sessionId: z.string().min(1),
@@ -2518,11 +2541,9 @@ export class EventStore {
       guidance: z.string(),
     });
     const seen = new Map<string, string>();
-    const rows = this.db
-      .prepare(
-        "SELECT session_id,payload FROM events WHERE type='telos_work_role_context' ORDER BY seq",
-      )
-      .iterate() as Iterable<{ session_id: string; payload: string }>;
+    const rows = this.db!.prepare(
+      "SELECT session_id,payload FROM events WHERE type='telos_work_role_context' ORDER BY seq",
+    ).iterate() as Iterable<{ session_id: string; payload: string }>;
     for (const row of rows) {
       let payload: z.infer<typeof schema>;
       try {

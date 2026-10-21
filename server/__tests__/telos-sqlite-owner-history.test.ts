@@ -33,6 +33,7 @@ function fixture(): TelosDatabaseFiles {
 function open(files: TelosDatabaseFiles, role: keyof TelosDatabaseFiles = 'canonical') {
   const owner = openTelosOwnedDatabase(role, files[role], {}, files);
   owners.push(owner);
+  owner.database.pragma('journal_mode=WAL');
   owner.database.exec('CREATE TABLE IF NOT EXISTS evidence(value TEXT)');
   owner.seal();
   return owner;
@@ -153,4 +154,41 @@ it('retains the actual WAL family and rejects same-content sidecar replacement',
   renameSync(wal, wal + '.saved');
   copyFileSync(wal + '.saved', wal);
   expect(() => owner.assertCurrent()).toThrow();
+});
+
+it('latches authenticated exclusion-file replacement before a cold owner can be restored', () => {
+  const files = fixture();
+  createFreshTelosDatabaseFiles(files);
+  const exclusion = join(roots[0], '.telos-file-owners/exclusion');
+  renameSync(exclusion, exclusion + '.saved');
+  writeFileSync(exclusion, '', { mode: 0o600, flag: 'wx' });
+  const replaced = open(files);
+  expect(() => replaced.assertCurrent()).toThrow();
+  replaced.close();
+  rmSync(exclusion);
+  renameSync(exclusion + '.saved', exclusion);
+  expect(() => open(files).assertCurrent()).toThrow();
+});
+it('rejects overlapping families before creating any selected main', () => {
+  const files = fixture();
+  const overlap = { ...files, events: files.canonical + '-wal' };
+  expect(() => createFreshTelosDatabaseFiles(overlap)).toThrow();
+  for (const file of Object.values(overlap)) expect(existsSync(file)).toBe(false);
+});
+it('denies unsupported rollback-journal authority without invalidating ordinary writes', () => {
+  const files = fixture();
+  createFreshTelosDatabaseFiles(files);
+  const owner = openTelosOwnedDatabase('canonical', files.canonical, {}, files);
+  owners.push(owner);
+  owner.database.exec('CREATE TABLE evidence(value TEXT)');
+  owner.seal();
+  expect(() => owner.assertCurrent()).toThrow();
+  owner.database.exec("INSERT INTO evidence VALUES ('ordinary retained write')");
+  owner.close();
+  const supported = openTelosOwnedDatabase('canonical', files.canonical, {}, files);
+  owners.push(supported);
+  supported.database.pragma('journal_mode=WAL');
+  supported.database.prepare('SELECT * FROM evidence').all();
+  supported.seal();
+  expect(() => supported.assertCurrent()).not.toThrow();
 });

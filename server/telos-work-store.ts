@@ -1,4 +1,8 @@
 import {
+  openTelosOwnedDatabase,
+  type TelosOwnedDatabase,
+} from '@mitzo/protocol/telos-sqlite-owners';
+import {
   TelosOrdinaryWorkDelegationInputSchema,
   TelosOrdinaryWorkDelegationIntentSchema,
   TelosLegacyWorkDelegationIntentSchema,
@@ -112,6 +116,7 @@ type TelosWorkStorePolicy = {
  */
 export class TelosWorkStore {
   private db: Database.Database;
+  #telosOwner: TelosOwnedDatabase;
   #openedCanonicalName: string;
   #deletionFrame: { itemId: string; invalidated: boolean } | undefined;
   /** Observe initialized canonical authority without acquiring a schema writer.
@@ -168,7 +173,11 @@ export class TelosWorkStore {
     private readonly policy: TelosWorkStorePolicy,
     readOnly = false,
   ) {
-    this.db = new Database(path, { fileMustExist: true, readonly: readOnly });
+    this.#telosOwner = openTelosOwnedDatabase('canonical', path, {
+      fileMustExist: true,
+      readonly: readOnly,
+    });
+    this.db = this.#telosOwner.database;
     this.#openedCanonicalName = resolve(this.db.name);
     this.db.pragma('busy_timeout = 5000');
     this.db.pragma('foreign_keys = ON');
@@ -180,13 +189,14 @@ export class TelosWorkStore {
       } else {
         initializeTelosWorkSchema(this.db);
       }
+      this.#telosOwner.seal();
     } catch (error) {
-      this.db.close();
+      this.#telosOwner.close();
       throw error;
     }
   }
   close() {
-    if (this.db.open) this.db.close();
+    this.#telosOwner.close();
   }
   mainPublicationsForHost() {
     return new TelosMainPublicationRecords(

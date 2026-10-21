@@ -38,7 +38,10 @@ function selected(files: TelosDatabaseFiles): TelosDatabaseFiles {
   const result = Object.fromEntries(
     roles.map((role) => [role, resolve(files[role])]),
   ) as unknown as TelosDatabaseFiles;
-  if (new Set(Object.values(result)).size !== 3) deny();
+  const familyPaths = Object.values(result).flatMap((path) =>
+    ['', ...sidecars].map((suffix) => path + suffix),
+  );
+  if (new Set(familyPaths).size !== familyPaths.length) deny();
   return result;
 }
 export function selectedTelosDatabaseFiles(): TelosDatabaseFiles {
@@ -164,10 +167,18 @@ class Family {
   invalid = false;
   birthRecord: Anchor | undefined;
   exclusive = false;
+  readonly mains: Partial<Record<Role, Anchor>> = {};
+  readonly connections: Record<Role, number> = { canonical: 0, events: 0, tasks: 0 };
+  readonly sidecarSets: Partial<Record<Role, Array<Anchor | { path: string }>>> = {};
   constructor(readonly files: TelosDatabaseFiles) {
     this.root = directory(files);
+    let authenticated = false;
     try {
       if (exists(join(this.root, 'invalid'))) deny();
+      // Reject other environments/duplicate module owners BEFORE opening any
+      // auxiliary descriptor whose close could drop this process's SQLite locks.
+      this.lease = openLease(join(this.root, 'exclusion'));
+      lockLease(this.lease, 0);
       const dir = capture(this.root, true);
       this.anchors.push(dir);
       const key = capture(join(this.root, 'key'), false, true);
@@ -188,23 +199,28 @@ class Family {
         deny();
       const expected = createHmac('sha256', key.contents!).update(envelope.payload).digest();
       if (!timingSafeEqual(expected, Buffer.from(envelope.mac, 'hex'))) deny();
+      authenticated = true;
       const birth = JSON.parse(envelope.payload);
       if (birth.version !== 1 || !same(dir.id, birth.directory) || !same(key.id, birth.key)) deny();
       try {
         for (const role of roles) {
           const anchor = capture(files[role]);
           this.anchors.push(anchor);
+          this.mains[role] = anchor;
           if (birth.files[role].path !== files[role] || !same(anchor.id, birth.files[role])) deny();
         }
       } catch (error) {
         this.invalidate();
         throw error;
       }
-      this.lease = openLease(join(this.root, 'exclusion'));
-      lockLease(this.lease, 0);
       if (!same(leaseIdentity(this.lease), birth.exclusion)) deny();
       this.assert();
     } catch (error) {
+      const transient =
+        error instanceof Error &&
+        'code' in error &&
+        (error.code === 'MITZO_OWNER_BUSY' || error.code === 'MITZO_OWNER_UNSUPPORTED');
+      if (authenticated && !transient) this.invalidate();
       this.dispose();
       throw error;
     }
@@ -288,25 +304,30 @@ export function openTelosOwnedDatabase(
   } catch {
     /* fail closed for deletion */
   }
-  let anchor: Anchor | undefined;
+  const anchor = family?.mains[role];
   let database: Database.Database;
   let opened: Database.Database | undefined;
   try {
-    if (family) anchor = capture(filename);
+    if (family) {
+      family.connections[role]++;
+      family.assert();
+    }
     database = new Database(filename, options);
     opened = database;
     if (family) installCurrentFileProbe(database);
   } catch (error) {
     if (opened?.open) opened.close();
-    if (anchor) closeSync(anchor.fd);
-    if (family && --family.refs === 0) family.dispose();
+    if (family) {
+      family.connections[role]--;
+      if (--family.refs === 0) family.dispose();
+    }
     throw error;
   }
   let closed = false;
   let sealed = false;
-  const sealedSidecars: Array<Anchor | { path: string }> = [];
+  let supportedJournal = false;
   function assertCurrent() {
-    if (closed || !sealed || !family || !anchor) deny();
+    if (closed || !sealed || !family || !anchor || !supportedJournal) deny();
     try {
       if (!database.open) deny();
       family.assert();
@@ -319,7 +340,7 @@ export function openTelosOwnedDatabase(
         ).current !== 1
       )
         deny();
-      for (const sidecar of sealedSidecars) {
+      for (const sidecar of family.sidecarSets[role] ?? []) {
         if ('fd' in sidecar) check(sidecar);
         else if (exists(sidecar.path)) deny();
       }
@@ -334,10 +355,16 @@ export function openTelosOwnedDatabase(
       if (sealed || closed) deny();
       sealed = true;
       if (!family) return;
+      supportedJournal = database.pragma('journal_mode', { simple: true }) === 'wal';
+      if (!supportedJournal) return;
       try {
-        for (const suffix of sidecars) {
-          const path = filename + suffix;
-          sealedSidecars.push(exists(path) ? capture(path) : { path });
+        if (!family.sidecarSets[role]) {
+          const captures: Array<Anchor | { path: string }> = [];
+          family.sidecarSets[role] = captures;
+          for (const suffix of sidecars) {
+            const path = filename + suffix;
+            captures.push(exists(path) ? capture(path) : { path });
+          }
         }
         assertCurrent();
       } catch (error) {
@@ -370,10 +397,57 @@ export function openTelosOwnedDatabase(
       try {
         if (database.open) database.close();
       } finally {
-        for (const sidecar of sealedSidecars) if ('fd' in sidecar) closeSync(sidecar.fd);
-        if (anchor) closeSync(anchor.fd);
-        if (family && --family.refs === 0) family.dispose();
+        if (database.open) {
+          family?.invalidate();
+          deny();
+        }
+        if (family) {
+          // POSIX locks are process-owned. Close auxiliary DB-family descriptors
+          // only after the LAST managed SQLite connection for this role closes.
+          if (--family.connections[role] === 0) {
+            for (const sidecar of family.sidecarSets[role] ?? [])
+              if ('fd' in sidecar) closeSync(sidecar.fd);
+            delete family.sidecarSets[role];
+          }
+          if (--family.refs === 0) family.dispose();
+        }
       }
     },
   });
+}
+
+export interface TelosDeletionReferenceScope {
+  assertCurrent(): void;
+  close(): void;
+}
+/** Called by the actual reference store with its private complete reader. It
+ * starts its own writer, never borrows another caller's transaction. */
+export function beginTelosDeletionReferenceScope(
+  owner: TelosOwnedDatabase,
+  readCompleteReferences: () => void,
+): TelosDeletionReferenceScope {
+  owner.assertCurrent();
+  const db = owner.database;
+  if (db.readonly || db.inTransaction) deny();
+  db.exec('BEGIN IMMEDIATE');
+  let closed = false;
+  const scope = Object.freeze({
+    assertCurrent() {
+      if (closed || !db.open || !db.inTransaction) deny();
+      owner.assertCurrent();
+      readCompleteReferences();
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      if (db.open && db.inTransaction) db.exec('ROLLBACK');
+    },
+  });
+  try {
+    scope.assertCurrent();
+    return scope;
+  } catch (error) {
+    scope.close();
+    throw error;
+  }
 }
