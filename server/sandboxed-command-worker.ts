@@ -21,6 +21,8 @@ export interface SandboxWorkerPayload {
   env?: NodeJS.ProcessEnv;
   /** Trusted SDK runtime-only enrollment fences files without changing network policy. */
   filesystemOnly?: boolean;
+  /** Trusted parent has approved this command's general network effects. */
+  networkAccess?: 'approved-command';
 }
 
 interface WorkerDependencies {
@@ -70,6 +72,10 @@ export async function runSandboxedWorker(
   dependencies: WorkerDependencies = { manager: SandboxManager, spawn },
 ): Promise<number> {
   const { manager, spawn: spawnCommand } = dependencies;
+  if (payload.networkAccess !== undefined && payload.networkAccess !== 'approved-command')
+    throw new Error('Invalid command network authorization');
+  if (payload.networkAccess && payload.filesystemOnly)
+    throw new Error('Command network authorization cannot change SDK isolation');
   if (payload.filesystemOnly !== undefined && typeof payload.filesystemOnly !== 'boolean')
     throw new Error('Invalid filesystem-only sandbox mode');
   if (payload.filesystemOnly && (dependencies.platform ?? process.platform) !== 'darwin')
@@ -80,7 +86,13 @@ export async function runSandboxedWorker(
   if (dependenciesCheck.errors.length || dependenciesCheck.warnings.length)
     throw new Error('Complete OS sandbox dependencies are unavailable');
   try {
-    if (!payload.filesystemOnly) await manager.initialize(config);
+    if (!payload.filesystemOnly) {
+      if (payload.networkAccess === 'approved-command')
+        // This is a general network command grant, not a hostname-only security
+        // boundary. SRT retains its proxy, explicit deny rules and socket policy.
+        await manager.initialize(config, async () => true);
+      else await manager.initialize(config);
+    }
     authority.verify();
     // The outer shell starts before the OS sandbox. Transfer target argv/env
     // over a dedicated pipe to a tiny launcher AFTER crossing that boundary.

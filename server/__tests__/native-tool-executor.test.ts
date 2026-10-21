@@ -769,6 +769,65 @@ describe('native tool execution through session permissions', () => {
     expect(sent).toHaveLength(0);
     expect(executeSandboxedCommand).not.toHaveBeenCalled();
   });
+  it('uses the existing Agent approval and session grant for network-enabled host commands', async () => {
+    vi.mocked(executeSandboxedCommand).mockClear();
+    registry.get('client')!.sessionAllowList.add('Bash');
+    const execute = createNativeToolExecutor('client', registry, {
+      env: { PATH: '/usr/bin:/bin' },
+      networkAccess: 'approved-command',
+    });
+    const pending = execute(call('Bash', { command: 'npm install' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    const request = sent.find((e) => e.type === 'permission_request')!;
+    expect(request.title).toContain('network access');
+    expect(request.sessionGrantDescription).toContain('network access');
+    const { permissionNotificationCategory } = await import('../notification-actions.js');
+    expect(permissionNotificationCategory(request as never, true)).toBe('SESSION_PERMISSION');
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
+    resolvePending(request.permId as string, 'always');
+    expect(await pending).toMatchObject({ is_error: false });
+    expect(executeSandboxedCommand).toHaveBeenLastCalledWith(
+      expect.objectContaining({ networkAccess: 'approved-command' }),
+    );
+    sent.length = 0;
+    expect(await execute(call('Bash', { command: 'npm test' }), abort.signal)).toMatchObject({
+      is_error: false,
+    });
+    expect(sent).toHaveLength(0);
+    registry.setMode('client', 'ask');
+    expect(await execute(call('Bash', { command: 'npm install' }), abort.signal)).toMatchObject({
+      is_error: true,
+    });
+    expect(executeSandboxedCommand).toHaveBeenCalledTimes(2);
+  });
+  it('rechecks a mode downgrade while a network-enabled command is awaiting approval', async () => {
+    vi.mocked(executeSandboxedCommand).mockClear();
+    const execute = createNativeToolExecutor('client', registry, {
+      env: { PATH: '/usr/bin:/bin' },
+      networkAccess: 'approved-command',
+    });
+    const pending = execute(call('Bash', { command: 'npm install' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    registry.setMode('client', 'ask');
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'always');
+    expect(await pending).toMatchObject({ is_error: true });
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
+  });
+  it('does not upgrade networking if caller options change during command approval', async () => {
+    vi.mocked(executeSandboxedCommand).mockClear();
+    const options: Parameters<typeof createNativeToolExecutor>[2] = {
+      env: { PATH: '/usr/bin:/bin' },
+    };
+    const execute = createNativeToolExecutor('client', registry, options);
+    const pending = execute(call('Bash', { command: 'npm test' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    options.networkAccess = 'approved-command';
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await pending).toMatchObject({ is_error: false });
+    expect(executeSandboxedCommand).toHaveBeenLastCalledWith(
+      expect.objectContaining({ networkAccess: undefined }),
+    );
+  });
   it('allows sandboxed commands in Auto but denies them after switching to Ask', async () => {
     vi.mocked(executeSandboxedCommand).mockClear();
     registry.setMode('client', 'auto');
