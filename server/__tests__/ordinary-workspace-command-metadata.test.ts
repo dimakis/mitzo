@@ -333,6 +333,29 @@ it('uses pure canonical scope checks to withhold incomplete delegation, allow ex
     expect(f.events.getOrdinaryInitialCommandId(original.sessionId)).toBeUndefined();
     const receipt = await owner.delegate(actor, input, f.signal.signal);
     expect(receipt.workerConversationId).toBe(original.sessionId);
+    // Exercise the actual chat scope resolver while the canonical output owner
+    // holds its real writer fence. A scope read must not rerun schema writes.
+    const artifactInput = {
+      itemId: child,
+      filename: 'guarded-worker-output.md',
+      title: 'Guarded worker output',
+      bytes: Buffer.from('Exact guarded output'),
+      sessionId: original.sessionId,
+      requestId: randomUUID(),
+    };
+    const schemaBefore = canonical.db
+      .prepare('SELECT type,name,sql FROM sqlite_schema ORDER BY type,name')
+      .all();
+    const saved = canonical.artifacts.saveGuarded(artifactInput, () => {
+      expect(chat.resolveOwnedTelosWorkCommandScope(original.sessionId)).toEqual({
+        currentTaskId: receipt.attempt.executionTaskId,
+        goalId: receipt.attempt.executionTaskId,
+      });
+    });
+    expect(canonical.artifacts.read(saved.id, saved.revision).bytes).toEqual(artifactInput.bytes);
+    expect(
+      canonical.db.prepare('SELECT type,name,sql FROM sqlite_schema ORDER BY type,name').all(),
+    ).toEqual(schemaBefore);
     const wrapper = vi.spyOn(chat, 'resolveOwnedTelosWorkCommandScope');
     const ready = await meta();
     expect(ready.status).toBe(200);
@@ -362,6 +385,15 @@ it('uses pure canonical scope checks to withhold incomplete delegation, allow ex
     expect(f.workspaces.getOrdinaryWorkspaceForConversation(original.sessionId)?.state).toBe(
       'reserved',
     );
+    expect(() =>
+      canonical.artifacts.saveGuarded(
+        { ...artifactInput, requestId: randomUUID(), bytes: Buffer.from('Refused output') },
+        () => {
+          chat.resolveOwnedTelosWorkCommandScope(original.sessionId);
+        },
+      ),
+    ).toThrow('provisioning is incomplete');
+    expect(canonical.artifacts.read(saved.id).revision).toBe(1);
   } finally {
     work.close();
   }

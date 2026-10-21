@@ -21,7 +21,11 @@ import type {
   SymposiumProvenance,
 } from '@mitzo/protocol';
 import { messageIdentity } from '../message-identity.js';
-import { splitContextPrompt, type ContextInjection } from '@mitzo/protocol';
+import {
+  interruptUnansweredToolBlocks,
+  splitContextPrompt,
+  type ContextInjection,
+} from '@mitzo/protocol';
 
 function sameInjections(left: ContextInjection[] | undefined, right: ContextInjection[]) {
   return (
@@ -187,8 +191,8 @@ type MessagesCoreAction =
   // Reattach snapshot
   | { type: 'MESSAGE_SNAPSHOT'; messageId: string; startedSeq?: number; blocks: FinishedBlock[] }
   // Session / UI lifecycle
-  | { type: 'ERROR'; error: string }
-  | { type: 'CONTROL_REJECTED'; error: string; clientMsgId?: string }
+  | { type: 'ERROR'; error: string; retainedFailureSeq?: number }
+  | { type: 'CONTROL_REJECTED'; error: string; clientMsgId?: string; retainedFailureSeq?: number }
   | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean; wtId?: string }
   | {
       type: 'USER_SEND';
@@ -260,6 +264,7 @@ function finishSubagent(
         toolResult: b.toolResult,
         toolResultImages: b.toolResultImages,
         toolError: b.toolError,
+        ...(b.toolInterrupted !== undefined ? { toolInterrupted: b.toolInterrupted } : {}),
       })),
   };
 }
@@ -278,6 +283,7 @@ export function finishCurrent(current: StreamingMessage): FinishedMessage {
       toolResult: b.toolResult,
       toolResultImages: b.toolResultImages,
       toolError: b.toolError,
+      ...(b.toolInterrupted !== undefined ? { toolInterrupted: b.toolInterrupted } : {}),
       subagent: b.subagent ? finishSubagent(b.subagent) : undefined,
     };
   });
@@ -385,6 +391,25 @@ function sameProvenance(a: SymposiumProvenance, b: SymposiumProvenance): boolean
 
 function refuseAttributedEvent(state: MessagesState): MessagesState {
   return state.resyncRequired ? state : { ...state, resyncRequired: true };
+}
+
+function projectTerminalTools(
+  state: MessagesState,
+  provenance?: SymposiumProvenance,
+): MessagesState {
+  let changed = false;
+  const messages = state.messages.map((message) => {
+    if (
+      provenance &&
+      (!message.symposiumProvenance || !sameProvenance(message.symposiumProvenance, provenance))
+    )
+      return message;
+    const blocks = interruptUnansweredToolBlocks(message.blocks);
+    if (blocks === message.blocks) return message;
+    changed = true;
+    return { ...message, blocks };
+  });
+  return changed ? { ...state, messages } : state;
 }
 
 function reduceAttributed(state: MessagesState, action: MessagesAction): MessagesState {
@@ -579,8 +604,12 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       action.type === 'MESSAGE_SNAPSHOT' ||
       action.type === 'SESSION_END' ||
       action.type.startsWith('SUBAGENT_'))
-  )
-    return reduceAttributed(state, action);
+  ) {
+    const next = reduceAttributed(state, action);
+    return action.type === 'SESSION_END' && !next.resyncRequired
+      ? projectTerminalTools(next, action.symposiumProvenance)
+      : next;
+  }
   const next = reduceLegacyMessages(state, action);
   if (action.type === 'SESSION_END' && Object.keys(state.currentByMessage).length > 0) {
     let messages = next.messages;
@@ -594,7 +623,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
       )
         messages = insertByStartedSeq(messages, finishCurrent(current));
     }
-    return { ...next, messages, currentByMessage: {} };
+    return projectTerminalTools({ ...next, messages, currentByMessage: {} });
   }
   if (action.type === 'RESTORE') {
     const finishedIds = new Set(
@@ -609,7 +638,7 @@ export function messagesReducer(state: MessagesState, action: MessagesAction): M
         );
     return { ...next, currentByMessage, resyncRequired: false };
   }
-  return next;
+  return action.type === 'SESSION_END' ? projectTerminalTools(next) : next;
 }
 
 function reduceLegacyMessages(state: MessagesState, action: MessagesAction): MessagesState {
@@ -834,26 +863,53 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       return { ...state, permission: null, permissionQueue: [] };
 
     case 'CONTROL_REJECTED':
-    case 'ERROR':
+    case 'ERROR': {
+      const retainedSeq =
+        typeof action.retainedFailureSeq === 'number' &&
+        Number.isSafeInteger(action.retainedFailureSeq) &&
+        action.retainedFailureSeq > 0
+          ? action.retainedFailureSeq
+          : undefined;
+      let insertion = state.messages.length;
+      if (action.type === 'CONTROL_REJECTED' && action.clientMsgId) {
+        const owner = state.messages.findIndex(
+          (message) => message.role === 'user' && message.messageId === action.clientMsgId,
+        );
+        const next = state.messages.findIndex(
+          (message, index) => index > owner && message.role === 'user',
+        );
+        // Keep a delayed failure with its exact command group. Appending it
+        // after a newer input would look like that newer command's response.
+        if (owner >= 0 && next >= 0) insertion = next;
+      }
       return {
         ...state,
         messages: [
-          ...state.messages,
+          ...state.messages.slice(0, insertion),
           {
-            messageId: `err-${Date.now()}`,
+            // Match the host transcript projection so a valid-cursor merge
+            // recognizes the live failure instead of appending a second copy.
+            messageId:
+              retainedSeq === undefined ? `err-${Date.now()}` : `runtime-error-${retainedSeq}`,
             role: 'assistant',
             timestamp: Date.now(),
+            ...(retainedSeq === undefined ? {} : { startedSeq: retainedSeq }),
             blocks: [
               {
-                blockId: `err-${Date.now()}`,
+                blockId:
+                  retainedSeq === undefined
+                    ? `err-${Date.now()}`
+                    : `runtime-error-text-${retainedSeq}`,
                 blockType: 'text',
                 content: `**Error:** ${action.error}`,
               },
             ],
           },
+          ...state.messages.slice(insertion),
         ],
         ...(action.type === 'ERROR' ? { running: false, current: null } : {}),
       };
+    }
 
     case 'SESSION_INFO':
       return {

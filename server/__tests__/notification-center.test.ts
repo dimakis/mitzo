@@ -69,13 +69,15 @@ describe('central notification delivery', () => {
         });
       changed.mockClear();
       const feed = vi.spyOn(store, 'feed');
+      const count = vi.spyOn(store, 'needsAttentionCount');
       for (const id of ids) expect(resolvePending(id, 'once')).toBe(true);
       expect(changed).not.toHaveBeenCalled();
       expect(feed).not.toHaveBeenCalled();
       expect(store.get(`permission:${ids[0]}`)?.resolution).toBe('allowed');
       await new Promise<void>((resolve) => setImmediate(resolve));
       expect(changed).toHaveBeenCalledOnce();
-      expect(feed).toHaveBeenCalledOnce();
+      expect(feed).not.toHaveBeenCalled();
+      expect(count).toHaveBeenCalledOnce();
     } finally {
       ids.forEach(removePending);
       center.close();

@@ -1369,3 +1369,30 @@ it('retains a validated control rejection command identity for exact delivery se
     { type: 'CONTROL_REJECTED', error: 'Use contributor controls', clientMsgId: 'submitted' },
   ]);
 });
+
+it.each([false, true, undefined, 'false', 0])(
+  'retains only boolean session-grant display metadata (%s)',
+  (value) => {
+    const result = parseServerMessage(
+      {
+        type: 'permission_request',
+        permId: 'policy-display',
+        toolName: 'RequestGithubMainPublication',
+        toolInput: '{}',
+        allowSessionGrant: value,
+        approvalScope: 'request',
+      } as never,
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    const action = result.messagesActions[0];
+    expect(action).toMatchObject({
+      type: 'PERMISSION_REQUEST',
+      payload: { permId: 'policy-display' },
+    });
+    expect(
+      'payload' in action && (action.payload as { allowSessionGrant?: boolean }).allowSessionGrant,
+    ).toBe(typeof value === 'boolean' ? value : undefined);
+  },
+);

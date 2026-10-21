@@ -107,7 +107,7 @@ export class NotificationCenter {
   changed(): void {
     this.assertAvailable();
     this.deps.changed();
-    const count = this.store.feed('needs').needsYou;
+    const count = this.store.needsAttentionCount();
     if (count !== this.lastBadge) {
       void this.queueBadge(count);
     }
@@ -115,7 +115,7 @@ export class NotificationCenter {
   /** Registration must resync even when the count was already cached without devices. */
   syncBadge(): Promise<void> {
     this.assertAvailable();
-    return this.queueBadge(this.store.feed('needs').needsYou);
+    return this.queueBadge(this.store.needsAttentionCount());
   }
   private queueBadge(count: number): Promise<void> {
     this.lastBadge = count;
@@ -325,7 +325,7 @@ export class NotificationCenter {
             : prefs.sensitivePreviews || item.kind === 'test'
               ? item.body
               : 'Open Mitzo to review this notification.',
-          badge: this.store.feed('needs').needsYou,
+          badge: this.store.needsAttentionCount(),
           data: {
             notificationId: item.id,
             type: item.kind,

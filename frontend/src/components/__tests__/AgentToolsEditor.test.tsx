@@ -99,3 +99,41 @@ it('distinguishes configured sources and retains the exact opaque discovery revi
   );
   expect(screen.getByText(/missing from the installed catalog/i)).toBeTruthy();
 });
+
+it.each(['codex', 'codex-owned-local'])(
+  'selects supported %s tools through the original editor without treating selection as access',
+  (route) => {
+    const change = vi.fn();
+    const tool = {
+      ...tools[0],
+      id: 'mitzo:TaskStatus',
+      name: 'TaskStatus',
+      routes: [route],
+      requirement: 'Original delegated task and permission required.',
+    };
+    render(
+      <AgentToolsEditor
+        tools={[
+          tool,
+          { ...tools[0], id: 'mitzo:Unsupported', name: 'Unsupported', routes: ['future-unknown'] },
+        ]}
+        value={[]}
+        onChange={change}
+        disabled={false}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add tools' }));
+    expect(screen.getByRole('button', { name: 'Add TaskStatus' })).toHaveProperty(
+      'disabled',
+      false,
+    );
+    expect(screen.getByText(/Local Codex chats/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Add Unsupported' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Add TaskStatus' }));
+    expect(change).toHaveBeenCalledWith([{ id: 'mitzo:TaskStatus', version: 1 }]);
+    expect(screen.getByText(/Selection grants no access/)).toBeTruthy();
+  },
+);

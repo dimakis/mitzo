@@ -382,7 +382,25 @@ jobs:
       - name: Build
         id: build
         if: ${{ !cancelled() }}
+        env:
+          MITZO_BUILD_EVIDENCE_DIR: ${{ runner.temp }}/mitzo-production-bundle
         run: npm run build
+
+      - name: Retain exact production frontend
+        if: ${{ steps.build.outcome == 'success' }}
+        env:
+          MITZO_BUILD_EVIDENCE_DIR: ${{ runner.temp }}/mitzo-production-bundle
+          MITZO_PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          MITZO_PR_BASE: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/retain-production-bundle.mjs
+
+      - name: Upload exact production frontend
+        if: ${{ steps.build.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: production-frontend-${{ github.sha }}
+          path: ${{ runner.temp }}/mitzo-production-bundle
+          if-no-files-found: error
 
       - name: Bundle size
         id: bundle-size

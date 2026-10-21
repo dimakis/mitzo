@@ -93,6 +93,28 @@ const publicCases = [
     prefix: 'provider-error',
   },
   { name: 'native accepted runtime', native: true, payload: runtime, prefix: 'runtime-error' },
+  {
+    name: 'ordinary exact retained command',
+    native: false,
+    payload: {
+      ...runtime,
+      clientMsgId: 'before',
+      retainedCommandFailure: true,
+      error: 'Message saved. Public queue failure.',
+    },
+    prefix: 'runtime-error',
+  },
+  {
+    name: 'native exact retained command',
+    native: true,
+    payload: {
+      ...runtime,
+      clientMsgId: 'seat-user',
+      retainedCommandFailure: true,
+      error: 'Message saved. Public queue failure.',
+    },
+    prefix: 'runtime-error',
+  },
 ];
 
 it.each(publicCases)(
@@ -164,10 +186,58 @@ const privateCases = [
   { name: 'missing session', payload: { ...runtime, sessionId: undefined } },
   { name: 'foreign session', payload: { ...runtime, sessionId: 'foreign' } },
   { name: 'unaccepted client command', payload: { ...runtime, clientMsgId: 'unaccepted' } },
+  { name: 'unmarked accepted command diagnostic', payload: { ...runtime, clientMsgId: 'before' } },
+  {
+    name: 'marked foreign command diagnostic',
+    payload: {
+      ...runtime,
+      clientMsgId: 'unaccepted',
+      retainedCommandFailure: true,
+      error: 'Message saved. PRIVATE_RUNTIME',
+    },
+  },
   { name: 'null client command', payload: { ...runtime, clientMsgId: null } },
   { name: 'blank runtime', payload: { ...runtime, error: ' \n ' } },
   { name: 'nonstring runtime', payload: { ...runtime, error: { message: 'PRIVATE_RUNTIME' } } },
 ];
+
+it('preserves a newer native current turn while grouping an exact older retained failure', () => {
+  const f = fixture();
+  const writer = nativeSourceWriter(f.events, 'planning');
+  for (const messageId of ['native-older', 'native-newer'])
+    f.events.appendSymposium(
+      'planning',
+      'user_message',
+      { messageId, text: messageId },
+      writer.provenance[0],
+    );
+  writer.start(0, 'newer-native-output', 'Still streaming from the newer request');
+  const sequence = f.events.appendSymposium(
+    'planning',
+    'error',
+    {
+      ...runtime,
+      clientMsgId: 'native-older',
+      retainedCommandFailure: true,
+      error: 'Message saved. Earlier queue failure.',
+    },
+    writer.provenance[0],
+  );
+  const rows = f.events.getSessionEvents('planning');
+  const transcript = replayEventsToTranscript(rows);
+  expect(transcript.currents).toHaveLength(1);
+  expect(transcript.currents[0].messageId).toBe('newer-native-output');
+  expect(transcript.currents[0].blocks[0].content).toBe('Still streaming from the newer request');
+  for (const messages of [transcript.messages, replayEventsToMessages(rows)]) {
+    const older = messages.findIndex((message) => message.messageId === 'native-older');
+    expect(messages.slice(older, older + 3).map((message) => message.messageId)).toEqual([
+      'native-older',
+      `runtime-error-${sequence}`,
+      'native-newer',
+    ]);
+    expect(messages[older + 1].symposiumProvenance).toEqual(writer.provenance[0]);
+  }
+});
 it.each(privateCases)(
   'keeps $name private without ending the real completed turn',
   async ({ payload }) => {

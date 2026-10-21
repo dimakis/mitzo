@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ManagedSession } from '@mitzo/harness';
+import { acceptSendCommandAsync } from '../send-command.js';
 const runtime = vi.hoisted(() => ({
   admitExplicitSend: vi.fn(),
   enqueue: vi.fn(),
@@ -16,6 +17,8 @@ vi.mock('../codex-chat-session.js', async (importOriginal) => ({
   getCodexRuntime: () => runtime,
   openCodexChat: vi.fn(),
 }));
+vi.mock('../account-session-name.js', () => ({ accountSessionName: vi.fn(async () => '') }));
+vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
 const root = mkdtempSync(join(tmpdir(), 'codex-queue-retry-'));
 vi.stubEnv('REPO_PATH', root);
 const chat = await import('../chat.js');
@@ -169,7 +172,7 @@ afterAll(() => {
   vi.unstubAllEnvs();
   rmSync(root, { recursive: true, force: true });
 });
-it('waits for recovery-aware admission before acknowledging an idle follow-up', async () => {
+it('waits for recovery-aware admission before resuming an idle follow-up', async () => {
   const send = vi.fn();
   let admit!: (selection: { model: string; reasoningEffort?: string | null }) => void;
   runtime.admitExplicitSend.mockImplementationOnce(() => {
@@ -205,7 +208,111 @@ it('waits for recovery-aware admission before acknowledging an idle follow-up', 
   expect(runtime.resumeAfterExplicitSend).toHaveBeenCalledOnce();
   expect(send).not.toHaveBeenCalled();
 });
-it('does not acknowledge or echo a message when durable enqueue fails', async () => {
+it.each(['failed', 'cancelled'] as const)(
+  'retains an exact idle follow-up before transport admission and durably reports %s preparation',
+  async (outcome) => {
+    const sessionId = `idle-retention-${outcome}`;
+    const command = {
+      type: 'send' as const,
+      prompt: 'Continue my retained request',
+      sessionId,
+      clientMsgId: `idle-retention-command-${outcome}`,
+    };
+    const events: Record<string, unknown>[] = [];
+    const controller = new AbortController();
+    let rejectAdmission!: (error: Error) => void;
+    runtime.admitExplicitSend.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectAdmission = reject;
+        }),
+    );
+    chat.eventStore.upsertSession({ sessionId });
+    vi.spyOn(chat.registry, 'get').mockReturnValue({
+      inputQueue: {},
+      sessionId,
+      cwd: root,
+      transport: {
+        isOpen: () => true,
+        send(event: Record<string, unknown>) {
+          events.push(event);
+        },
+      },
+      observers: new Set(),
+    } as unknown as ManagedSession);
+    vi.spyOn(chat.eventStore, 'hasUserMessage').mockRestore();
+    let admissionComplete = false;
+    const dispatch = vi.fn<Parameters<typeof acceptSendCommandAsync>[2]>(
+      async (_message, _sessionId, onRetained) => {
+        const accepted = await chat.sendToChat(
+          'idle-client',
+          command.prompt,
+          undefined,
+          undefined,
+          command.clientMsgId,
+          undefined,
+          undefined,
+          controller.signal,
+          undefined,
+          undefined,
+          onRetained,
+        );
+        admissionComplete = true;
+        if (!accepted) throw Error('Codex queue admission failed');
+      },
+    );
+    let receipt: unknown;
+    const response = acceptSendCommandAsync(chat.eventStore, command, dispatch, {
+      acknowledgeRetained: true,
+    });
+    void response.then(
+      (value) => {
+        receipt = value;
+      },
+      () => {},
+    );
+    try {
+      await vi.waitFor(
+        () =>
+          expect(receipt).toMatchObject({
+            accepted: true,
+            retained: true,
+            sessionId,
+            clientMsgId: command.clientMsgId,
+          }),
+        { timeout: 100 },
+      );
+      expect(chat.eventStore.hasUserMessage(sessionId, command.clientMsgId)).toBe(true);
+      expect(admissionComplete).toBe(false);
+      expect(runtime.resumeAfterExplicitSend).not.toHaveBeenCalled();
+      expect(
+        await acceptSendCommandAsync(chat.eventStore, command, dispatch, {
+          acknowledgeRetained: true,
+        }),
+      ).toEqual(receipt);
+      expect(dispatch).toHaveBeenCalledOnce();
+      if (outcome === 'cancelled') controller.abort();
+      rejectAdmission(new Error('private transport admission failed'));
+      await vi.waitFor(() =>
+        expect(chat.eventStore.getSendCommand(command.clientMsgId)?.error).toMatch(
+          /^Message saved\./,
+        ),
+      );
+      expect(events.filter((event) => event.type === 'user_message')).toHaveLength(1);
+      expect(runtime.resumeAfterExplicitSend).not.toHaveBeenCalled();
+      expect(() =>
+        acceptSendCommandAsync(chat.eventStore, command, dispatch, {
+          acknowledgeRetained: true,
+        }),
+      ).toThrow(/^Message saved\./);
+      expect(dispatch).toHaveBeenCalledOnce();
+    } finally {
+      rejectAdmission?.(new Error('test cleanup'));
+      await Promise.resolve();
+    }
+  },
+);
+it('does not acknowledge or admit a message when durable prompt persistence fails', async () => {
   const send = vi.fn();
   vi.spyOn(chat.registry, 'get').mockReturnValue({
     inputQueue: {},
@@ -216,9 +323,13 @@ it('does not acknowledge or echo a message when durable enqueue fails', async ()
   } as unknown as ManagedSession);
   const echo = vi.spyOn(chat.eventStore, 'hasUserMessage').mockReturnValue(false);
   echo.mockClear();
-  runtime.admitExplicitSend.mockRejectedValueOnce(new Error('disk full'));
+  vi.spyOn(chat.eventStore, 'append').mockImplementationOnce(() => {
+    throw new Error('disk full');
+  });
   await expect(chat.sendToChat('c', 'hello', undefined, undefined, 'new-id')).resolves.toBe(false);
-  expect(echo).not.toHaveBeenCalled();
+  expect(echo).toHaveBeenCalledOnce();
+  expect(runtime.admitExplicitSend).not.toHaveBeenCalled();
+  expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'user_message' }));
   expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
 });
 

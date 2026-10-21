@@ -32,6 +32,13 @@ for (const theme of ['dark', 'light']) {
     page.on('pageerror', (error) => errors.push(error.message));
     await page.route('**/*', (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (path === '/api/telos/work/links') {
+        expect(route.request().method()).toBe('POST');
+        const body = route.request().postDataJSON();
+        expect(['origin', 'worker', 'reviewer']).toContain(body.conversationId);
+        expect(body).toEqual({ namespace: 'mitzo', conversationId: body.conversationId });
+        return route.fulfill({ json: [] });
+      }
       if (path.startsWith('/api/')) {
         if (route.request().method() !== 'GET') writes.push(path);
         return route.fulfill({ json: [] });
@@ -135,6 +142,13 @@ for (const theme of ['dark', 'light']) {
     const files = (await bundle).outputFiles!;
     await page.route('**/*', (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (path === '/api/telos/work/links') {
+        expect(route.request().method()).toBe('POST');
+        const body = route.request().postDataJSON();
+        expect(['origin', 'worker', 'reviewer']).toContain(body.conversationId);
+        expect(body).toEqual({ namespace: 'mitzo', conversationId: body.conversationId });
+        return route.fulfill({ json: [] });
+      }
       if (path.startsWith('/api/')) {
         if (route.request().method() !== 'GET') writes.push(path);
         return route.fulfill({ json: [] });

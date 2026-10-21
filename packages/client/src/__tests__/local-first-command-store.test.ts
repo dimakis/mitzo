@@ -5,6 +5,7 @@ const channel = vi.hoisted(() => ({
   id: null as string | null,
   send: vi.fn(),
   cursors: new Map<string, number>(),
+  acknowledgeSnapshot: vi.fn(),
 }));
 vi.mock('../sse-connection.js', () => ({
   SseConnection: class {
@@ -25,6 +26,10 @@ vi.mock('../sse-connection.js', () => ({
     trackSeq() {}
     commitTranscriptCursor(id: string, cursor: number) {
       channel.cursors.set(id, cursor);
+    }
+    acknowledgeReconnectSnapshot(sessionId: string, cursor: number, offerId?: string) {
+      channel.cursors.set(sessionId, cursor);
+      channel.acknowledgeSnapshot(sessionId, cursor, offerId);
     }
     getTrackedSessions() {
       return [];
@@ -68,6 +73,7 @@ function setup(
   channel.id = null;
   channel.send.mockReset();
   channel.cursors.clear();
+  channel.acknowledgeSnapshot.mockReset();
   const fetch = vi.fn().mockImplementation((path: string) =>
     Promise.resolve(
       path === '/local/send'
@@ -1220,3 +1226,496 @@ it('clears preparation progress when a newer assistant snapshot arrives after re
   });
   expect(store.getState().sendStatus).toBeNull();
 });
+
+it.each(['preparing', 'streaming'] as const)(
+  'keeps a newer command %s when an older retained command fails recovery',
+  (phase) => {
+    const { store } = setup();
+    channel.send.mockReturnValue(true);
+    const sessionId = 'late-command-error';
+    channel.listener({ type: 'session_id', sessionId });
+    const submit = (text: string, seq: number) => {
+      store.getState().sendMessage(text, { onDelivery: () => {} });
+      const command = channel.send.mock.calls.filter(([body]) => body.type === 'send').at(-1)![0];
+      channel.listener({
+        type: 'user_message',
+        sessionId,
+        messageId: command.clientMsgId,
+        text,
+        seq,
+      });
+      channel.listener({
+        type: '_send_accepted',
+        sessionId,
+        clientMsgId: command.clientMsgId,
+        retained: true,
+      });
+      return command;
+    };
+    const first = submit('First saved command', 1);
+    const second = submit('Newer saved command', 2);
+    if (phase === 'streaming') {
+      channel.listener({ type: 'message_start', sessionId, seq: 3, messageId: 'newer-answer' });
+      channel.listener({
+        type: 'block_start',
+        sessionId,
+        seq: 4,
+        blockId: 'newer-text',
+        blockType: 'text',
+      });
+      channel.listener({
+        type: 'block_delta',
+        sessionId,
+        seq: 5,
+        blockId: 'newer-text',
+        delta: 'Current answer',
+      });
+    }
+    const current = store.getState().messages.current;
+    const status = store.getState().sendStatus;
+    expect(store.getState().messages.running).toBe(true);
+    expect(status).toBe(phase === 'preparing' ? 'Preparing response…' : null);
+    const failure = {
+      type: 'error',
+      sessionId,
+      clientMsgId: first.clientMsgId,
+      seq: phase === 'streaming' ? 6 : 3,
+      prevSessionSeq: phase === 'streaming' ? 5 : 2,
+      error: 'Message saved. Earlier recovery failed.',
+    };
+    // Returning true commits this durable sequence through the normal SSE
+    // applied-delivery boundary instead of requesting a replay of the error.
+    expect(channel.listener(failure)).toBe(true);
+    expect(failure.type).toBe('error');
+    expect(store.getState().messages.running).toBe(true);
+    expect(store.getState().messages.current).toEqual(current);
+    expect(store.getState().sendStatus).toBe(status);
+    expect(store.getState().sendError).toBeNull();
+    const transcript = store.getState().messages.messages;
+    const errors = transcript.filter((message) =>
+      message.blocks.some(
+        (block) => block.blockType === 'text' && block.content.includes('Earlier recovery failed'),
+      ),
+    );
+    expect(errors).toHaveLength(1);
+    expect(
+      transcript.findIndex((message) => message.messageId === errors[0].messageId),
+    ).toBeLessThan(transcript.findIndex((message) => message.messageId === second.clientMsgId));
+    // A delayed/retried B receipt must not treat A's error as B's answer.
+    channel.listener({
+      type: '_send_accepted',
+      sessionId,
+      clientMsgId: second.clientMsgId,
+      retained: true,
+    });
+    expect(store.getState().sendStatus).toBe(status);
+    expect(store.getState().messages.running).toBe(true);
+    expect(store.getState().messages.current).toEqual(current);
+  },
+);
+
+it('keeps the latest command recovery failure terminal and visible', () => {
+  const { store } = setup();
+  const sessionId = 'latest-command-error';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({
+    type: 'user_message',
+    sessionId,
+    seq: 1,
+    messageId: 'latest',
+    text: 'Saved request',
+  });
+  channel.listener({ type: '_send_accepted', sessionId, clientMsgId: 'latest', retained: true });
+  channel.listener({
+    type: 'error',
+    sessionId,
+    seq: 2,
+    clientMsgId: 'latest',
+    error: 'Message saved. Current recovery failed.',
+  });
+  expect(store.getState().sendStatus).toBeNull();
+  expect(store.getState().messages.running).toBe(false);
+  expect(store.getState().messages.messages.at(-1)?.blocks).toContainEqual(
+    expect.objectContaining({ content: '**Error:** Message saved. Current recovery failed.' }),
+  );
+});
+
+it('keeps a newer tool pending after an older saved failure until its actual terminal event', () => {
+  const { store } = setup();
+  const sessionId = 'retained-error-tool-lifecycle';
+  channel.send.mockReturnValue(true);
+  channel.listener({ type: 'session_id', sessionId });
+  const commands = ['Older request', 'Newer request'].map((text, index) => {
+    store.getState().sendMessage(text, { onDelivery: () => {} });
+    const command = channel.send.mock.calls.filter(([body]) => body.type === 'send').at(-1)![0];
+    channel.listener({
+      type: 'user_message',
+      sessionId,
+      seq: index + 1,
+      messageId: command.clientMsgId,
+      text,
+    });
+    channel.listener({
+      type: '_send_accepted',
+      sessionId,
+      clientMsgId: command.clientMsgId,
+      retained: true,
+    });
+    return command;
+  });
+  channel.listener({ type: 'message_start', sessionId, seq: 3, messageId: 'newer-answer' });
+  channel.listener({
+    type: 'block_start',
+    sessionId,
+    seq: 4,
+    blockId: 'newer-tool',
+    blockType: 'tool_use',
+  });
+  channel.listener({
+    type: 'block_end',
+    sessionId,
+    seq: 5,
+    blockId: 'newer-tool',
+    blockType: 'tool_use',
+    toolId: 'pending-call',
+    toolName: 'TelosReadArtifact',
+    input: '{}',
+  });
+  const current = store.getState().messages.current;
+  expect(store.getState().messages.running).toBe(true);
+  expect(current?.blocks.get('newer-tool')).toMatchObject({ blockType: 'tool_use' });
+  channel.listener({
+    v: 2,
+    type: 'error',
+    sessionId,
+    seq: 6,
+    prevSessionSeq: 5,
+    clientMsgId: commands[0].clientMsgId,
+    retainedCommandFailure: true,
+    error: 'Message saved. Earlier recovery failed.',
+  });
+  expect(store.getState().messages.current).toEqual(current);
+  expect(store.getState().messages.running).toBe(true);
+  expect(store.getState().messages.current?.blocks.get('newer-tool')).not.toHaveProperty(
+    'toolInterrupted',
+  );
+  expect(store.getState().messages.current?.blocks.get('newer-tool')?.toolResult).toBeUndefined();
+  channel.listener({ type: 'session_end', sessionId, seq: 7, prevSessionSeq: 6 });
+  const finished = store
+    .getState()
+    .messages.messages.find((message) => message.messageId === 'newer-answer');
+  expect(finished?.blocks[0]).toMatchObject({ blockType: 'tool_use', toolInterrupted: true });
+  expect(finished?.blocks[0].toolResult).toBeUndefined();
+  expect(finished?.blocks[0].toolError).toBeUndefined();
+  expect(store.getState().messages.running).toBe(false);
+});
+
+it('keeps an older command failure after its existing output and before the newer input', () => {
+  const { store } = setup();
+  const sessionId = 'command-error-groups';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({
+    type: 'user_message',
+    sessionId,
+    seq: 1,
+    messageId: 'older',
+    text: 'Older input',
+  });
+  channel.listener({ type: 'message_start', sessionId, seq: 2, messageId: 'older-answer' });
+  channel.listener({
+    type: 'block_start',
+    sessionId,
+    seq: 3,
+    blockId: 'older-text',
+    blockType: 'text',
+  });
+  channel.listener({
+    type: 'block_delta',
+    sessionId,
+    seq: 4,
+    blockId: 'older-text',
+    delta: 'Older output',
+  });
+  channel.listener({ type: 'message_end', sessionId, seq: 5, messageId: 'older-answer' });
+  channel.listener({
+    type: 'user_message',
+    sessionId,
+    seq: 6,
+    messageId: 'newer',
+    text: 'Newer input',
+  });
+  channel.listener({
+    type: 'error',
+    sessionId,
+    seq: 7,
+    clientMsgId: 'older',
+    error: 'Older command failed.',
+  });
+  const transcript = store.getState().messages.messages;
+  expect(transcript.map((message) => message.messageId)).toEqual([
+    'older',
+    'older-answer',
+    expect.stringMatching(/^err-/),
+    'newer',
+  ]);
+  expect(transcript[1].blocks).toContainEqual(expect.objectContaining({ content: 'Older output' }));
+});
+
+it.each(['older', 'current'] as const)(
+  'deduplicates a live %s retained-command failure during valid-cursor history merge',
+  async (position) => {
+    const { store, fetch } = setup();
+    const sessionId = `stable-retained-error-${position}`;
+    const error = 'Message saved. Codex recovery could not finish.';
+    channel.listener({ type: 'session_id', sessionId });
+    channel.listener({
+      type: 'user_message',
+      sessionId,
+      seq: 1,
+      messageId: 'command-a',
+      text: 'A',
+    });
+    if (position === 'older') {
+      channel.listener({
+        type: 'user_message',
+        sessionId,
+        seq: 2,
+        messageId: 'command-b',
+        text: 'B',
+      });
+      channel.listener({
+        type: '_send_accepted',
+        sessionId,
+        clientMsgId: 'command-b',
+        retained: true,
+      });
+    }
+    const seq = position === 'older' ? 3 : 2;
+    expect(
+      channel.listener({
+        v: 2,
+        type: 'error',
+        sessionId,
+        seq,
+        prevSessionSeq: seq - 1,
+        clientMsgId: 'command-a',
+        retainedCommandFailure: true,
+        error,
+      }),
+    ).toBe(true);
+    const history = [
+      {
+        messageId: 'command-a',
+        role: 'user',
+        timestamp: 1000,
+        startedSeq: 1,
+        blocks: [{ blockId: 'user-a', blockType: 'text', content: 'A' }],
+      },
+      {
+        messageId: `runtime-error-${seq}`,
+        role: 'assistant',
+        timestamp: 1001,
+        startedSeq: seq,
+        blocks: [
+          {
+            blockId: `runtime-error-text-${seq}`,
+            blockType: 'text',
+            content: `**Error:** ${error}`,
+          },
+        ],
+      },
+      ...(position === 'older'
+        ? [
+            {
+              messageId: 'command-b',
+              role: 'user',
+              timestamp: 1002,
+              startedSeq: 2,
+              blocks: [{ blockId: 'user-b', blockType: 'text', content: 'B' }],
+            },
+          ]
+        : []),
+    ];
+    fetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify(
+            url.includes(`messages?throughSeq=${seq}`)
+              ? { messages: history, cursor: seq, current: null }
+              : [],
+          ),
+        ),
+      ),
+    );
+    channel.listener({
+      type: 'session_reconnect_snapshot',
+      sessionId,
+      cursor: seq,
+      cursorValid: true,
+      offerId: 'stable-replay',
+      state: position === 'older' ? 'running' : 'idle',
+    });
+    await vi.waitFor(() =>
+      expect(channel.acknowledgeSnapshot).toHaveBeenCalledWith(sessionId, seq, 'stable-replay'),
+    );
+    expect(
+      fetch.mock.calls.some(
+        ([url]) => url === `/api/sessions/${sessionId}/messages?throughSeq=${seq}`,
+      ),
+    ).toBe(true);
+    const transcript = store.getState().messages.messages;
+    const failures = transcript.filter((message) =>
+      message.blocks.some((block) => block.content === `**Error:** ${error}`),
+    );
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({
+      messageId: `runtime-error-${seq}`,
+      startedSeq: seq,
+      blocks: [
+        { blockId: `runtime-error-text-${seq}`, blockType: 'text', content: `**Error:** ${error}` },
+      ],
+    });
+    expect(transcript.map((message) => message.messageId)).toEqual(
+      history.map((message) => message.messageId),
+    );
+    if (position === 'older') {
+      channel.listener({
+        type: '_send_accepted',
+        sessionId,
+        clientMsgId: 'command-b',
+        retained: true,
+      });
+      expect(store.getState().sendStatus).toBe('Preparing response…');
+      expect(store.getState().messages.running).toBe(true);
+    } else expect(store.getState().messages.running).toBe(false);
+    expect(channel.acknowledgeSnapshot).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([
+  { name: 'unmarked', patch: { retainedCommandFailure: undefined } },
+  { name: 'unknown command', patch: { clientMsgId: 'unknown' } },
+  { name: 'fractional sequence', patch: { seq: 2.5 } },
+  { name: 'unsafe sequence', patch: { seq: Number.MAX_SAFE_INTEGER + 1 } },
+  { name: 'wrong version', patch: { v: 1 } },
+  { name: 'unclassified text', patch: { error: 'Generic runtime error' } },
+])('keeps $name errors on their existing live-message identity path', ({ patch }) => {
+  const { store } = setup();
+  const sessionId = 'generic-error-identity';
+  channel.listener({ type: 'session_id', sessionId });
+  channel.listener({
+    type: 'user_message',
+    sessionId,
+    seq: 1,
+    messageId: 'known',
+    text: 'Known prompt',
+  });
+  channel.listener({
+    v: 2,
+    type: 'error',
+    sessionId,
+    seq: 2,
+    clientMsgId: 'known',
+    retainedCommandFailure: true,
+    error: 'Message saved. Recovery failed.',
+    ...patch,
+  });
+  expect(store.getState().messages.messages.at(-1)?.messageId).toMatch(/^err-/);
+});
+
+it.each(['older', 'current'] as const)(
+  'applies a live %s retained failure once when it arrives during a bounded history fetch',
+  async (position) => {
+    const { store, fetch } = setup();
+    const sessionId = `retained-error-suffix-${position}`;
+    const error = 'Message saved. Recovery failed during replay.';
+    channel.listener({ type: 'session_id', sessionId });
+    channel.listener({ type: 'user_message', sessionId, seq: 1, messageId: 'suffix-a', text: 'A' });
+    const history = [
+      {
+        messageId: 'suffix-a',
+        role: 'user',
+        timestamp: 1000,
+        startedSeq: 1,
+        blocks: [{ blockId: 'user-a', blockType: 'text', content: 'A' }],
+      },
+    ];
+    if (position === 'older') {
+      channel.listener({
+        type: 'user_message',
+        sessionId,
+        seq: 2,
+        messageId: 'suffix-b',
+        text: 'B',
+      });
+      channel.listener({
+        type: '_send_accepted',
+        sessionId,
+        clientMsgId: 'suffix-b',
+        retained: true,
+      });
+      history.push({
+        messageId: 'suffix-b',
+        role: 'user',
+        timestamp: 1001,
+        startedSeq: 2,
+        blocks: [{ blockId: 'user-b', blockType: 'text', content: 'B' }],
+      });
+    }
+    const cursor = position === 'older' ? 2 : 1;
+    let finish!: () => void;
+    fetch.mockImplementation((url: string) =>
+      url.includes(`messages?throughSeq=${cursor}`)
+        ? new Promise<Response>((resolve) => {
+            finish = () =>
+              resolve(new Response(JSON.stringify({ messages: history, cursor, current: null })));
+          })
+        : Promise.resolve(new Response('[]')),
+    );
+    channel.listener({
+      type: 'session_reconnect_snapshot',
+      sessionId,
+      cursor,
+      cursorValid: true,
+      offerId: 'held-history',
+      state: position === 'older' ? 'running' : 'idle',
+    });
+    await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+    const seq = cursor + 1;
+    channel.listener({
+      v: 2,
+      type: 'error',
+      sessionId,
+      seq,
+      prevSessionSeq: cursor,
+      clientMsgId: 'suffix-a',
+      retainedCommandFailure: true,
+      error,
+    });
+    finish();
+    await vi.waitFor(() =>
+      expect(channel.acknowledgeSnapshot).toHaveBeenCalledWith(sessionId, cursor, 'held-history'),
+    );
+    const transcript = store.getState().messages.messages;
+    expect(
+      transcript.filter((message) =>
+        message.blocks.some((block) => block.content === `**Error:** ${error}`),
+      ),
+    ).toHaveLength(1);
+    expect(transcript.map((message) => message.messageId)).toEqual([
+      'suffix-a',
+      `runtime-error-${seq}`,
+      ...(position === 'older' ? ['suffix-b'] : []),
+    ]);
+    expect(store.getState().messages.running).toBe(position === 'older');
+    if (position === 'older') {
+      channel.listener({
+        type: '_send_accepted',
+        sessionId,
+        clientMsgId: 'suffix-b',
+        retained: true,
+      });
+      expect(store.getState().sendStatus).toBe('Preparing response…');
+    }
+  },
+);

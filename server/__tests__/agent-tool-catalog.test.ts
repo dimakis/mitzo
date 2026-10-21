@@ -126,3 +126,29 @@ it('does not qualify selected task tools on legacy host Codex or OpenShell', () 
   expect(() => assertAgentToolRoute(definition, 'codex')).toThrow(/unavailable/);
   expect(() => assertAgentToolRoute(definition, 'openshell')).toThrow(/not supported/);
 });
+
+it('limits the configured main merge tool to explicit owned native selection', () => {
+  const ref = { id: 'mitzo:RequestGithubMainPublication', version: 1 };
+  expect(() => assertAgentToolRoute({ tools: [ref] } as never, 'codex-owned-local')).not.toThrow();
+  for (const route of ['local-api', 'codex', 'openshell', 'symposium'])
+    expect(() => assertAgentToolRoute({ tools: [ref] } as never, route)).toThrow();
+  const session = {};
+  bindAgentToolSelection(session, { tools: [ref] } as never, 'codex-owned-local');
+  expect(agentToolAllowed(session, 'RequestGithubMainPublication')).toBe(true);
+  expect(agentToolAllowed(session, 'RequestGithubPublish')).toBe(false);
+  expect(agentToolAllowed(session, 'TelosFindArtifacts')).toBe(false);
+});
+
+it.each(['TelosStartSlice', 'TelosWorkControl'])(
+  'selects existing %s only on the owned local route without granting a role',
+  (name) => {
+    const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
+    expect(agentToolCatalog().find((entry) => entry.name === name)).toMatchObject({
+      routes: ['codex-owned-local'],
+      requirement: expect.stringContaining('current retained lead'),
+    });
+    expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
+    for (const route of ['local-api', 'codex', 'openshell', 'claude-sdk', 'symposium'])
+      expect(() => assertAgentToolRoute(definition, route)).toThrow();
+  },
+);

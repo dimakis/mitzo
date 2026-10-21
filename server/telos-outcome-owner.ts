@@ -26,10 +26,20 @@ export async function createCanonicalTelosOutcome(
     ): Promise<{ stdout: string }>;
   },
   raw: unknown,
+  assertCurrentSync?: () => void,
 ): Promise<CanonicalTelosOutcomeResult> {
   const input = TelosOutcomeCreateBodySchema.parse(raw);
   if (!(options.exists ?? existsSync)(options.script))
     throw Error('Canonical Telos creator unavailable');
+  // Renew the original pending native/UI source authority at the actual
+  // external creator dispatch. No await separates admission from execution.
+  if (assertCurrentSync) {
+    const result: unknown = assertCurrentSync();
+    if (result !== undefined) {
+      void Promise.resolve(result).catch(() => {});
+      throw Error('Canonical Telos source authority unavailable');
+    }
+  }
   let stdout: string;
   try {
     ({ stdout } = await options.execute(

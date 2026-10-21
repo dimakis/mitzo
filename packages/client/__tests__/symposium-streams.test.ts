@@ -44,6 +44,46 @@ function reduceWire(state: typeof INITIAL_MESSAGES_STATE, event: Record<string, 
 }
 
 describe('concurrent Symposium streams', () => {
+  it('ends unanswered tools only for the exact terminal seat after message_end', () => {
+    let state = { ...INITIAL_MESSAGES_STATE, running: true };
+    const first = provenance('architect');
+    const second = provenance('reviewer');
+    for (const seat of [first, second]) {
+      state = messagesReducer(state, {
+        type: 'MESSAGE_START',
+        messageId: 'shared',
+        symposiumProvenance: seat,
+      });
+      state = messagesReducer(state, {
+        type: 'BLOCK_START',
+        messageId: 'shared',
+        blockId: 'call',
+        blockType: 'tool_use',
+        symposiumProvenance: seat,
+      });
+      state = messagesReducer(state, {
+        type: 'BLOCK_END',
+        messageId: 'shared',
+        blockId: 'call',
+        blockType: 'tool_use',
+        toolId: 'same-id',
+        toolName: 'TelosCreateOutcome',
+        symposiumProvenance: seat,
+      });
+      state = messagesReducer(state, {
+        type: 'MESSAGE_END',
+        messageId: 'shared',
+        symposiumProvenance: seat,
+      });
+    }
+    const sibling = state.messages[1];
+    state = messagesReducer(state, { type: 'SESSION_END', symposiumProvenance: first });
+    expect(state.messages[0].blocks[0]).toHaveProperty('toolInterrupted', true);
+    expect(state.messages[1]).toBe(sibling);
+    expect(state.messages[1].blocks[0]).not.toHaveProperty('toolInterrupted');
+    expect(state.running).toBe(true);
+    expect(state.resyncRequired).toBe(false);
+  });
   it('keeps colliding provider IDs separate across seats and generations', () => {
     const first = provenance('architect', 1);
     const second = provenance('reviewer', 1);

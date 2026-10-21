@@ -125,6 +125,7 @@ interface PermissionRequestMsg {
   displayName?: string;
   tier?: ToolTier;
   approvalScope?: 'session' | 'conversation' | 'request';
+  allowSessionGrant?: boolean;
 }
 
 interface PermissionTimeoutMsg {
