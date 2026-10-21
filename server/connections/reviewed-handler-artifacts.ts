@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.466-telos-selected-lead-tools-and-origin-scope';
+  'v1.0.468-telos-source-receipt-lifecycle';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -280,7 +280,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/styles/global.css':
     'ae0e1ed8ee2c6662e53f144b0eb232d585ceea93dd20b99ef18b06d5b13d921e',
   '../../frontend/src/components/TelosSourceReview.tsx':
-    '4e2d44034d20034b193cb998855b40a8856841317e4c0e8be9a8b5310395be1f',
+    '5642df0dde7a425b2ceb755e60a77036a954e6d5fa1af04e0e99f7a087b02107',
   '../../frontend/src/components/PermissionBanner.tsx':
     'eb59c9845314bbb0f1b15a720361c8fcef7678e477cb36d5b2be093212760825',
   '../telos-artifact-routes.ts': '27c18f41fa4f750b97c7b7527d28628d1833a4bd51d9a5bb1fca65e098ecd5ba',
@@ -1200,7 +1200,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/telos-work-delegation.ts':
     '71f956cb65d618bf9263fa70386efee470346cb320a15b024270ba26b41c5476',
   '../../frontend/src/components/TelosWorkerReceiptCard.tsx':
-    '09c83993bc87c259bec30bc8ce5f1fe837baf47ad01695eb7690b54cb853dafc',
+    '478e884913168fd209081a7be72b841632d982417ddc8eb92eb1fbf0db9eb31a',
   '../../frontend/src/components/TelosWorkerReceiptCard.css':
     '79f5338f99b0d064c6639ef4c4db941cbbe3354954db0b8bfaf5eef0f7bd52cd',
   '../telos-worker-task-tools.ts':

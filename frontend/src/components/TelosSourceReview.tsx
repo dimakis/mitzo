@@ -23,8 +23,12 @@ type Prepared = {
 // A resolved permission can remove its card before the HTTP receipt arrives.
 // Keep an attempted request's exact bytes in this login until receipt/recovery.
 const attempted = new Map<string, Prepared>();
+let sourceSaveLogin = Symbol('Telos source save login');
 if (typeof window !== 'undefined')
-  window.addEventListener(AUTH_LOST_EVENT, () => attempted.clear());
+  window.addEventListener(AUTH_LOST_EVENT, () => {
+    attempted.clear();
+    sourceSaveLogin = Symbol('Telos source save login');
+  });
 
 function errorCode(error: unknown): string | undefined {
   return error && typeof error === 'object' && 'code' in error ? String(error.code) : undefined;
@@ -527,6 +531,7 @@ export function useTelosSourceReview({
     if (!activeReview || !preview || !previewInput || saving || saved || blocked || isExpired())
       return;
     const version = generation.current;
+    const login = sourceSaveLogin;
     const prepared: Prepared = attempted.get(identity) ?? {
       review: activeReview,
       preview,
@@ -537,18 +542,25 @@ export function useTelosSourceReview({
     setSaving(true);
     setError(null);
     try {
-      prepared.pending ??= api.approveSourcePermission(permId, prepared.input);
+      prepared.pending ??= api.approveSourcePermission(permId, prepared.input).then((receipt) => {
+        if (receipt.permId !== permId || receipt.sessionId !== sessionId)
+          throw Error('Source receipt changed.');
+        // Permission resolution can remove the banner before this response.
+        // Notify once per shared request, independently of that banner, while
+        // rejecting responses from a login that has since lost authentication.
+        if (sourceSaveLogin === login)
+          announceTelosSourceSaved({
+            conversationId: sessionId,
+            itemId: receipt.receipt.work.itemId,
+          });
+        return receipt;
+      });
       const receipt = await prepared.pending;
-      if (receipt.permId !== permId || receipt.sessionId !== sessionId)
-        throw Error('Source receipt changed.');
+      if (sourceSaveLogin !== login) return;
       if (attempted.get(identity) === prepared) attempted.delete(identity);
       if (valid(identity, version)) {
         setSaved(true);
         setSavedItem(receipt.receipt.work.itemId);
-        announceTelosSourceSaved({
-          conversationId: sessionId,
-          itemId: receipt.receipt.work.itemId,
-        });
       }
     } catch (failure) {
       prepared.pending = undefined;

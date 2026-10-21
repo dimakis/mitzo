@@ -199,115 +199,147 @@ it('refuses adoption, foreign identities, missing message/provenance and stale l
   expect(screen.queryByText('Created from this exchange')).toBeNull();
 });
 
-it('discovers a confirmed source creation without remounting the ordinary chat or interpreting tool text', async () => {
-  setup();
-  const links = vi.mocked(TelosWorkApiClient.prototype.links);
-  links.mockResolvedValue([]);
-  let releaseInitial!: (value: Awaited<ReturnType<TelosWorkApiClient['links']>>) => void;
-  links.mockImplementationOnce(
-    () =>
-      new Promise((resolve) => {
-        releaseInitial = resolve;
-      }),
-  );
-  const permId = 'new-origin-permission';
-  const proposalSha256 = 'a'.repeat(64);
-  const expiresAt = Date.now() + 120_000;
-  const review = {
-    permId,
-    sessionId: 'origin',
-    toolUseId: 'create-once',
-    expiresAt,
-    proposalSha256,
-    operation: {
-      kind: 'create',
-      outcome: {
-        summary: 'Exact created outcome',
-        intent: 'Retain source',
-        rationale: 'Keep the original exchange',
-        acceptanceCriteria: ['Exact source retained'],
-        milestones: ['Read source'],
-        profile: 'manual',
-      },
-    },
-    source: {
-      conversationId: 'origin',
-      title: 'Original discussion',
-      boundary: { sequence: 11, messageId: 'agreed' },
-    },
-    messages: [
-      {
-        messageId: 'agreed',
-        sequence: 11,
-        author: 'assistant',
-        blocks: [{ blockId: 'agreed', content: 'The agreed source text', sha256: 'c'.repeat(64) }],
-        attribution: null,
-      },
-    ],
-    artifacts: [],
-  };
-  vi.spyOn(TelosWorkApiClient.prototype, 'getSourcePermission').mockResolvedValue(review as never);
-  vi.spyOn(TelosWorkApiClient.prototype, 'previewSourcePermission').mockImplementation(
-    async (_id, input) =>
-      ({
-        permId,
-        sessionId: 'origin',
-        requestId: input.requestId,
-        proposalSha256,
-        preview: {
-          sha256: 'b'.repeat(64),
-          packet: {
-            brief: { text: 'Reviewed original source' },
-            context: { boundary: review.source.boundary, messages: review.messages, artifacts: [] },
-          },
+it.each(['mounted', 'permission-resolved'] as const)(
+  'discovers a confirmed source creation without remounting the ordinary chat (%s)',
+  async (permissionState) => {
+    setup();
+    const links = vi.mocked(TelosWorkApiClient.prototype.links);
+    links.mockResolvedValue([]);
+    let releaseInitial!: (value: Awaited<ReturnType<TelosWorkApiClient['links']>>) => void;
+    links.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseInitial = resolve;
+        }),
+    );
+    const permId = 'new-origin-permission';
+    const proposalSha256 = 'a'.repeat(64);
+    const expiresAt = Date.now() + 120_000;
+    const review = {
+      permId,
+      sessionId: 'origin',
+      toolUseId: 'create-once',
+      expiresAt,
+      proposalSha256,
+      operation: {
+        kind: 'create',
+        outcome: {
+          summary: 'Exact created outcome',
+          intent: 'Retain source',
+          rationale: 'Keep the original exchange',
+          acceptanceCriteria: ['Exact source retained'],
+          milestones: ['Read source'],
+          profile: 'manual',
         },
-      }) as never,
-  );
-  vi.spyOn(TelosWorkApiClient.prototype, 'approveSourcePermission').mockImplementation(async () => {
-    links.mockResolvedValue([
-      {
-        itemId: 'item-a',
-        role: 'origin',
-        conversation: { namespace: 'mitzo', conversationId: 'origin' },
       },
-    ] as never);
-    return {
+      source: {
+        conversationId: 'origin',
+        title: 'Original discussion',
+        boundary: { sequence: 11, messageId: 'agreed' },
+      },
+      messages: [
+        {
+          messageId: 'agreed',
+          sequence: 11,
+          author: 'assistant',
+          blocks: [
+            { blockId: 'agreed', content: 'The agreed source text', sha256: 'c'.repeat(64) },
+          ],
+          attribution: null,
+        },
+      ],
+      artifacts: [],
+    };
+    vi.spyOn(TelosWorkApiClient.prototype, 'getSourcePermission').mockResolvedValue(
+      review as never,
+    );
+    vi.spyOn(TelosWorkApiClient.prototype, 'previewSourcePermission').mockImplementation(
+      async (_id, input) =>
+        ({
+          permId,
+          sessionId: 'origin',
+          requestId: input.requestId,
+          proposalSha256,
+          preview: {
+            sha256: 'b'.repeat(64),
+            packet: {
+              brief: { text: 'Reviewed original source' },
+              context: {
+                boundary: review.source.boundary,
+                messages: review.messages,
+                artifacts: [],
+              },
+            },
+          },
+        }) as never,
+    );
+    let releaseReceipt!: (
+      value: Awaited<ReturnType<TelosWorkApiClient['approveSourcePermission']>>,
+    ) => void;
+    const approve = vi
+      .spyOn(TelosWorkApiClient.prototype, 'approveSourcePermission')
+      .mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            releaseReceipt = resolve;
+          }),
+      );
+    const receipt = {
       permId,
       sessionId: 'origin',
       receipt: { work: { itemId: 'item-a' } },
       sourceSnapshotId: 'source-a',
     } as never;
-  });
-  render(
-    <Surface
-      extra={
-        <PermissionBanner
-          permId={permId}
-          sessionId="origin"
-          reviewKind="telos_source"
-          toolName="TelosCreateOutcome"
-          toolInput="{}"
-          expiresAt={expiresAt}
-          onRespond={vi.fn()}
-        />
-      }
-    />,
-  );
-  await waitFor(() => expect(links).toHaveBeenCalledTimes(1));
-  const draft = screen.getByRole('textbox', { name: 'Unsent draft' });
-  expect(screen.queryByText('Created from this exchange')).toBeNull();
-  fireEvent.click(await screen.findByRole('checkbox', { name: /The agreed source text/ }));
-  fireEvent.click(screen.getByRole('button', { name: 'Review selected source' }));
-  await screen.findByText('Reviewed source');
-  fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
-  await screen.findByText('Reviewed source saved.');
-  expect(
-    await screen.findByRole('link', { name: /Exact created outcome.*Created from this exchange/ }),
-  ).toBeTruthy();
-  await act(async () => releaseInitial([]));
-  expect(
-    screen.getByRole('link', { name: /Exact created outcome.*Created from this exchange/ }),
-  ).toBeTruthy();
-  expect(screen.getByRole('textbox', { name: 'Unsent draft' })).toBe(draft);
-  expect((draft as HTMLTextAreaElement).value).toBe('Keep original draft');
-});
+    const view = render(
+      <Surface
+        extra={
+          <PermissionBanner
+            permId={permId}
+            sessionId="origin"
+            reviewKind="telos_source"
+            toolName="TelosCreateOutcome"
+            toolInput="{}"
+            expiresAt={expiresAt}
+            onRespond={vi.fn()}
+          />
+        }
+      />,
+    );
+    await waitFor(() => expect(links).toHaveBeenCalledTimes(1));
+    const draft = screen.getByRole('textbox', { name: 'Unsent draft' });
+    expect(screen.queryByText('Created from this exchange')).toBeNull();
+    fireEvent.click(await screen.findByRole('checkbox', { name: /The agreed source text/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Review selected source' }));
+    await screen.findByText('Reviewed source');
+    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
+    await waitFor(() => expect(approve).toHaveBeenCalledTimes(1));
+    if (permissionState === 'permission-resolved') {
+      // The real permission_resolved event removes only the banner before its
+      // already-running approval HTTP request returns. Keep the chat mounted.
+      view.rerender(<Surface />);
+      expect(screen.queryByLabelText('Approval required')).toBeNull();
+    }
+    await act(async () => {
+      links.mockResolvedValue([
+        {
+          itemId: 'item-a',
+          role: 'origin',
+          conversation: { namespace: 'mitzo', conversationId: 'origin' },
+        },
+      ] as never);
+      releaseReceipt(receipt);
+    });
+    if (permissionState === 'mounted') await screen.findByText('Reviewed source saved.');
+    expect(
+      await screen.findByRole('link', {
+        name: /Exact created outcome.*Created from this exchange/,
+      }),
+    ).toBeTruthy();
+    await act(async () => releaseInitial([]));
+    expect(
+      screen.getByRole('link', { name: /Exact created outcome.*Created from this exchange/ }),
+    ).toBeTruthy();
+    expect(screen.getByRole('textbox', { name: 'Unsent draft' })).toBe(draft);
+    expect((draft as HTMLTextAreaElement).value).toBe('Keep original draft');
+  },
+);
