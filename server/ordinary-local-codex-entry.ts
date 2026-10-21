@@ -161,7 +161,9 @@ function inventory(
   const result = catalog.inventory();
   result.accounts = result.accounts.filter(({ account, models }) => {
     try {
-      const selected = profiles.codexProfile(profiles.resolve(account.accountId, models[0]?.id));
+      const selected = profiles.localCodexProfile(
+        profiles.resolve(account.accountId, models[0]?.id),
+      );
       return selected.workspaceId === undefined && selected.nativeAuth === undefined;
     } catch {
       return false;
@@ -611,7 +613,7 @@ function createOwnedCodexEntryRouter(
         if (!isDeepStrictEqual({ accountId, provider, profileRevision }, input.runtime.account))
           throw Error(unavailable);
         if (input.runOn === 'local' && input.runtime.harness === 'codex') {
-          const selected = profiles.codexProfile(binding);
+          const selected = profiles.localCodexProfile(binding);
           if (selected.nativeAuth !== undefined || selected.workspaceId !== undefined)
             throw Error(unavailable);
         }

@@ -22,7 +22,7 @@ export const LocalCodexFirstCommandSchema = z
     capabilityRevision: reference,
     runtime: z.strictObject({
       account: SessionRuntimeBindingV1Schema.shape.account
-        .extend({ provider: z.literal('openai-codex') })
+        .extend({ provider: z.enum(['openai-codex', 'openai']) })
         .strict(),
       harness: z.literal('codex'),
       targetId: reference,
@@ -88,8 +88,6 @@ export const OrdinaryCodexFirstCommandSchema = z
   })
   .superRefine((request, ctx) => {
     validateCommandBounds(request, ctx);
-    if (request.runOn === 'local' && request.runtime.account.provider !== 'openai-codex')
-      ctx.addIssue({ code: 'custom', message: 'Unsupported Local account adapter' });
   });
 export type OrdinaryCodexFirstCommand = z.infer<typeof OrdinaryCodexFirstCommandSchema>;
 export const OrdinaryCodexContinuationCommandSchema = OrdinaryCodexFirstCommandSchema.safeExtend({

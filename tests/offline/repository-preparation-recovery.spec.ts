@@ -255,6 +255,13 @@ for (const theme of ['dark', 'light'] as const) {
   }, info) => {
     const files = (await output).outputFiles!;
     const inventory = multiRuntimeInventoryFixture();
+    inventory.routes.push({
+      account: inventory.accounts.find((entry) => entry.account.accountId === 'api')!.account,
+      targetId: 'mac',
+      harness: 'codex',
+      modes: ['agent'],
+      models: [{ id: 'local-model', label: 'Local model', reasoningEfforts: ['low'] }],
+    });
     inventory.agentProfiles.push({
       kind: 'builtin',
       profileId: DEFAULT_MITZO_PROFILE_ID,
@@ -418,6 +425,8 @@ for (const theme of ['dark', 'light'] as const) {
       await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', accountId!);
       await openChatSetting(page, 'execution');
       await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
+      if (accountId === 'api')
+        await expect(page.getByText('Runs with Codex', { exact: true })).toBeVisible();
       await openChatSetting(page, 'repository');
       await page.getByLabel('Local repository').selectOption('local:local/primary');
       await page.getByRole('button', { name: 'Use repository', exact: true }).click();
@@ -439,7 +448,7 @@ for (const theme of ['dark', 'light'] as const) {
     }
     expect(selected.map((entry) => entry.runtime.harness)).toEqual([
       'codex',
-      'responses',
+      'codex',
       'claude-sdk',
       'gemini',
     ]);
