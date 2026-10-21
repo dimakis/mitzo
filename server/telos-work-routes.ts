@@ -57,16 +57,23 @@ export function createTelosWorkRouter(options: {
     res.setHeader('Cache-Control', 'private, no-store');
     next();
   });
-  const run = (res: Response, action: (store: TelosWorkStore) => unknown, readRecord = false) => {
+  const run = (
+    res: Response,
+    action: (store: TelosWorkStore) => unknown,
+    mode: 'write' | 'record' | 'lifecycle' = 'write',
+  ) => {
     let store: TelosWorkStore | undefined;
     try {
       const policy = {
         ordinaryConversation: options.ordinaryConversation,
         sourceConversation: options.sourceConversation,
       };
-      store = readRecord
-        ? TelosWorkStore.openForRecordRead(options.dbPath(), policy)
-        : new TelosWorkStore(options.dbPath(), policy);
+      store =
+        mode === 'record'
+          ? TelosWorkStore.openForRecordRead(options.dbPath(), policy)
+          : mode === 'lifecycle'
+            ? TelosWorkStore.openForLifecycleListRead(options.dbPath(), policy)
+            : new TelosWorkStore(options.dbPath(), policy);
       res.json(action(store));
     } catch (error) {
       const known = error instanceof TelosWorkError;
@@ -150,7 +157,7 @@ export function createTelosWorkRouter(options: {
       res.status(400).json({ code: 'invalid', error: 'Invalid work item ID' });
       return;
     }
-    run(res, (store) => store.readLifecycle(id.data, authority));
+    run(res, (store) => store.readLifecycle(id.data, authority), 'lifecycle');
   });
   router.get('/api/telos/work/lifecycle', options.operatorAuth, (req, res) => {
     const authority = lifecycleActor(res);
@@ -160,7 +167,7 @@ export function createTelosWorkRouter(options: {
       res.status(400).json({ code: 'invalid', error: 'Invalid lifecycle view' });
       return;
     }
-    run(res, (store) => store.listLifecycle(view.data, authority));
+    run(res, (store) => store.listLifecycle(view.data, authority), 'lifecycle');
   });
   router.post(
     '/api/telos/work/lifecycle',
@@ -257,7 +264,7 @@ export function createTelosWorkRouter(options: {
       res.status(400).json({ code: 'invalid', error: 'Invalid work item ID' });
       return;
     }
-    run(res, (store) => store.readRecord(id.data, authority), true);
+    run(res, (store) => store.readRecord(id.data, authority), 'record');
   });
   router.post('/api/telos/work/commands', options.operatorAuth, (req, res) => {
     const authority = actor(res);
