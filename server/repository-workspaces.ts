@@ -45,6 +45,7 @@ import {
   GithubRepositoryPreviewSchema,
   inspectGithubRepositorySource,
   prepareGithubRepositorySource,
+  MAX_REPOSITORY_CHECKOUT_BYTES,
   type GithubRepositoryPreview,
 } from './github-repository-source.js';
 
@@ -203,7 +204,7 @@ export async function repositorySourceDigest(directory: string): Promise<string>
       if (before.isDirectory()) await walk(child, relative + '/');
       else if (before.isFile()) {
         bytes += before.size;
-        if (bytes > 128 * 1024 * 1024)
+        if (bytes > MAX_REPOSITORY_CHECKOUT_BYTES)
           throw new Error('Repository source exceeds supported bounds');
         const file = await open(child, constants.O_RDONLY | constants.O_NOFOLLOW);
         try {

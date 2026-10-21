@@ -7,7 +7,11 @@ import {
 } from '@mitzo/harness';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
-import { canonicalRepositorySelection } from './github-repository-source.js';
+import {
+  canonicalRepositorySelection,
+  RepositorySourceLimitError,
+  RepositorySpaceError,
+} from './github-repository-source.js';
 import {
   getRepositoryWorkspaces,
   repositoryWorkspaceBinding,
@@ -222,8 +226,10 @@ export function sessionRepositoryTools(
           content: JSON.stringify({ repositoryChat: publicPreparation(preparation) }),
           isError: false,
         };
-      } catch {
+      } catch (error) {
         if (!current()) return unavailable();
+        if (error instanceof RepositorySourceLimitError || error instanceof RepositorySpaceError)
+          return { content: error.message, isError: true };
         return {
           content:
             name === 'PrepareRepositoryChat'

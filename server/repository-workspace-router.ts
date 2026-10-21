@@ -7,6 +7,11 @@ import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
+import {
+  RepositorySourceLimitError,
+  RepositorySpaceError,
+  REPOSITORY_SOURCE_LIMIT_MIB,
+} from './github-repository-source.js';
 
 const selection = z.strictObject({
   accountId: z.string().min(1).max(128),
@@ -83,7 +88,11 @@ export function createRepositoryWorkspaceRouter(deps: {
           ...(input.data.ordinaryRuntime ? [input.data.ordinaryRuntime] : []),
         ),
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof RepositorySpaceError)
+        return res.status(507).json({ code: 'repository_space', error: error.message });
+      if (error instanceof RepositorySourceLimitError)
+        return res.status(413).json({ code: 'repository_source_limit', error: error.message });
       return res.status(409).json({
         error:
           'Repository preview unavailable. Check the selected account, GitHub connection and repository access.',
@@ -105,10 +114,13 @@ export function createRepositoryWorkspaceRouter(deps: {
     try {
       const binding = deps.resolveBinding(input.data.accountId, input.data.model);
       return res.json(await deps.prepare(String(req.params.id), binding, controller.signal));
-    } catch {
+    } catch (error) {
+      if (error instanceof RepositorySpaceError)
+        return res.status(507).json({ code: 'repository_space', error: error.message });
+      if (error instanceof RepositorySourceLimitError)
+        return res.status(413).json({ code: 'repository_source_limit', error: error.message });
       return res.status(409).json({
-        error:
-          'Repository preparation unavailable. Refresh the preview if its commit or connection changed. Initial support is limited to regular files, 10,000 files and 64 MiB of source.',
+        error: `Repository preparation unavailable. Refresh the preview if its commit or connection changed. Support is limited to regular files, 10,000 files and ${REPOSITORY_SOURCE_LIMIT_MIB} MiB of source.`,
       });
     } finally {
       clearTimeout(timer);

@@ -18,6 +18,7 @@ logs/
 .grafana-data/
 .mlflow-data/
 .DS_Store
+.mitzo-devtools/
 test-results/
 playwright-report/
 .claude/worktrees/

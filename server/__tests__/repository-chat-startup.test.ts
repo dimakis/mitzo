@@ -29,6 +29,7 @@ it('claims only the initial conversation, supplies a trusted seed and binds cont
   expect(source?.seed).toBe('/private/source/mgmt');
   expect(repositoryChatContext(source)).toContain('workspace');
   expect(repositoryChatContext(source)).toContain('a'.repeat(40));
+  expect(repositoryChatContext(source)).toContain('setup:dev');
   await expect(
     selectRepositoryChatWorkspace(
       {
