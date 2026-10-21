@@ -1,5 +1,13 @@
 # Account profiles: first mobile slice
 
+## OpenAI API model refresh
+
+Existing OpenAI API accounts now refresh availability from `GET https://api.openai.com/v1/models` using each profile's explicit credential reference. Initial catalogue loads and the hourly refresh share an account-scoped, one-hour cache; **Refresh models** forces a fresh metadata request. The available IDs are intersected with the supported API catalogue also used by account enrollment, which includes GPT-6.1 Sol, GPT-6 Sol, and GPT-6 Luna. Configured labels and reasoning settings are preserved for available models; supported newly available models no longer need a profile-file edit.
+
+The request has a deadline, bounded response size, no redirects, and no inherited-key or alternate-account fallback. Discovery performs no inference and does not start a conversation sandbox. Failure preserves the last successful catalogue (or configured models before the first success), marks it stale, and does not expose upstream errors or credentials. Enrollment still independently requires Luna availability for its attended validation. Passive conversation metadata reads use the cached or configured API catalogue; an explicit refresh performs discovery.
+
+The original first-slice account documentation follows.
+
 The mobile chat page loads account and model choices from `GET /api/accounts`. A new task sends an account ID and model; the server validates them before starting the existing SDK harness. For bound tasks, the server preallocates a valid SDK session UUID and stores account binding and boot context together before starting the SDK. Reloading the conversation displays that saved binding. Follow-up input and resumed tasks retain the binding.
 
 This slice implements **Claude on Vertex AI only**. OpenAI API and ChatGPT subscription execution are not yet implemented. Existing clients and legacy conversations retain their previous routing behavior. The desktop chat picker remains unchanged.
