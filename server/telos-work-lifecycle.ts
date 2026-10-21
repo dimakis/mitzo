@@ -38,6 +38,33 @@ const deletionOwnedTables = new Set([
 function conflict(message: string): never {
   throw new TelosWorkError('conflict', message);
 }
+/** JSON custody can escape both item IDs and otherwise plain ASCII references.
+ * Decode actual documents without changing their retained bytes. Non-JSON text
+ * keeps the original raw scan; unsupported parser failures propagate closed. */
+function decodedJsonReferences(raw: string, itemId: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    if (error instanceof SyntaxError) return false;
+    throw error;
+  }
+  const pending: unknown[] = [parsed];
+  while (pending.length) {
+    const value = pending.pop();
+    if (typeof value === 'string') {
+      if (value.includes(itemId)) return true;
+    } else if (Array.isArray(value)) {
+      for (const child of value) pending.push(child);
+    } else if (value !== null && typeof value === 'object') {
+      for (const [key, child] of Object.entries(value)) {
+        if (key.includes(itemId)) return true;
+        pending.push(child);
+      }
+    }
+  }
+  return false;
+}
 
 /** Additive metadata in the canonical owner, not a second outcome or scheduler.
  * Archive/trash preserve rows and relationships. Current output can reconcile;
@@ -331,13 +358,19 @@ export class TelosWorkLifecycle {
             .get(itemId)
         )
           conflict('Permanent deletion refuses retained source, work or receipt references');
+        const rows = this.db
+          .prepare(`SELECT CAST(${quote(column.name)} AS TEXT) AS raw FROM ${quote(name)}`)
+          .iterate() as Iterable<{ raw: string | null }>;
+        for (const row of rows)
+          if (typeof row.raw === 'string' && decodedJsonReferences(row.raw, itemId))
+            conflict('Permanent deletion refuses retained decoded JSON references');
       }
     }
     const rows = this.db.prepare('SELECT * FROM items WHERE id<>?').all(itemId);
     if (
       rows.some((row) =>
         Object.values(row as Record<string, unknown>).some(
-          (v) => typeof v === 'string' && v.includes(itemId),
+          (v) => typeof v === 'string' && (v.includes(itemId) || decodedJsonReferences(v, itemId)),
         ),
       )
     )

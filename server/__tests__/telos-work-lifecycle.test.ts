@@ -480,3 +480,104 @@ it.each([
     expect(f.work.readLifecycle('empty', f.actor).disposition).toBe('trashed');
   },
 );
+
+it.each([
+  ['quoted ID value', 'item"quoted', '{"reference":"item\\"quoted"}'],
+  ['backslash ID value', 'item\\path', '{"reference":"item\\\\path"}'],
+  ['quoted ID key', 'item"quoted', '{"item\\"quoted":true}'],
+  ['backslash ID key', 'item\\path', '{"item\\\\path":true}'],
+  ['Unicode value', 'empty', '{"reference":"\\u0065\\u006d\\u0070\\u0074\\u0079"}'],
+  ['Unicode key', 'empty', '{"\\u0065\\u006d\\u0070\\u0074\\u0079":true}'],
+  ['root string', 'item"quoted', '"item\\"quoted"'],
+  ['nested array', 'empty', '[{"nested":["prefix-\\u0065\\u006d\\u0070\\u0074\\u0079-suffix"]}]'],
+])(
+  'retains decoded JSON references for %s before host quiescence without rewriting raw evidence',
+  (_label, itemId, raw) => {
+    const f = fixture();
+    f.add(itemId);
+    f.lifecycle(itemId, 'trash');
+    // An actual pending-role journal has JSON custody without an item_id column.
+    f.canonical.db
+      .prepare(
+        'INSERT INTO telos_work_role_setups(actor_id,request_id,fingerprint,intent) VALUES(?,?,?,?)',
+      )
+      .run('operator:retained', 'pending-reference', 'retained-fingerprint', raw);
+    expect(raw.includes(itemId)).toBe(false);
+    const verify = vi.fn(() => {});
+    expect(() =>
+      f.work.executeLifecycle(
+        {
+          requestId: 'permanent',
+          itemId,
+          operation: 'delete_permanently',
+          expectedRevision: f.work.read(itemId, f.actor).revision,
+          confirmation: { itemId, phrase: 'DELETE PERMANENTLY' },
+        },
+        f.actor,
+        verify,
+      ),
+    ).toThrow(/reference/i);
+    expect(verify).not.toHaveBeenCalled();
+    expect(
+      f.canonical.db
+        .prepare('SELECT intent FROM telos_work_role_setups WHERE request_id=?')
+        .get('pending-reference'),
+    ).toEqual({ intent: raw });
+    expect(f.work.readLifecycle(itemId, f.actor).disposition).toBe('trashed');
+  },
+);
+
+it('retains a Unicode-escaped JSON reference in another canonical item without rewriting either item', () => {
+  const f = fixture();
+  f.add('empty');
+  f.lifecycle('empty', 'trash');
+  const raw = '{"task_hint":"\\u0065\\u006d\\u0070\\u0074\\u0079"}';
+  f.canonical.db.prepare("UPDATE items SET context_hints=? WHERE id='studio'").run(raw);
+  const verify = vi.fn(() => {});
+  expect(() =>
+    f.work.executeLifecycle(
+      {
+        requestId: 'permanent',
+        itemId: 'empty',
+        operation: 'delete_permanently',
+        expectedRevision: f.work.read('empty', f.actor).revision,
+        confirmation: { itemId: 'empty', phrase: 'DELETE PERMANENTLY' },
+      },
+      f.actor,
+      verify,
+    ),
+  ).toThrow(/reference/i);
+  expect(verify).not.toHaveBeenCalled();
+  expect(f.canonical.db.prepare("SELECT context_hints FROM items WHERE id='studio'").get()).toEqual(
+    { context_hints: raw },
+  );
+  expect(f.work.readLifecycle('empty', f.actor).disposition).toBe('trashed');
+});
+
+it('allows only the original confirmed unreferenced leaf when unrelated JSON has no decoded reference', () => {
+  const f = fixture();
+  f.add('empty');
+  f.lifecycle('empty', 'trash');
+  f.canonical.db.exec('CREATE TABLE unrelated_refs(payload JSON)');
+  const raw = '{"other":["different",true,null,{"unrelated":"kept"}]}';
+  f.canonical.db.prepare('INSERT INTO unrelated_refs VALUES(?)').run(raw);
+  const verify = vi.fn(() => {});
+  const input = {
+    requestId: 'permanent',
+    itemId: 'empty',
+    operation: 'delete_permanently',
+    expectedRevision: f.work.read('empty', f.actor).revision,
+    confirmation: { itemId: 'empty', phrase: 'DELETE PERMANENTLY' },
+  };
+  const receipt = f.work.executeLifecycle(input, f.actor, verify);
+  expect(receipt.lifecycle).toBeNull();
+  expect(verify).toHaveBeenCalledExactlyOnceWith('empty');
+  expect(f.canonical.db.prepare('SELECT payload FROM unrelated_refs').get()).toEqual({
+    payload: raw,
+  });
+  expect(
+    f.work.executeLifecycle(input, f.actor, () => {
+      throw new Error('must not repeat');
+    }),
+  ).toEqual(receipt);
+});
