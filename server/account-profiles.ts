@@ -3,7 +3,6 @@ import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
 import { CredentialReferenceSchema, credentials } from './credentials.js';
 import { discoverOpenAIModels } from './openai-enrollment-models.js';
-import { KeychainRotationCredentials } from './keychain-rotation-credentials.js';
 import { CodexAppServerClient } from './codex-app-server-client.js';
 import { OrdinaryLocalCodexHostRuntime } from './ordinary-local-codex-host-runtime.js';
 import { verifyCodexAccount } from './codex-account.js';
@@ -711,12 +710,13 @@ export class AccountProfiles {
     return profiles[0]?.models;
   }
 
-  async refresh(force = false) {
+  async refresh(force = false, options: { discoverApi?: boolean } = {}) {
     await Promise.all(
       this.profiles
         .filter(
           (p) =>
-            p.provider === 'openai' || (p.provider === 'openai-codex' && this.options.codexEnabled),
+            (p.provider === 'openai' && options.discoverApi !== false) ||
+            (p.provider === 'openai-codex' && this.options.codexEnabled),
         )
         .map((profile) =>
           refreshModels(
@@ -742,14 +742,14 @@ export class AccountProfiles {
       this.options.modelDiscoveryTimeoutMs ?? MODEL_DISCOVERY_TIMEOUT_MS,
     );
     try {
-      const key = await withDiscoveryDeadline(
-        async () =>
-          process.env.MITZO_KEYCHAIN_HELPER
-            ? (await new KeychainRotationCredentials().read(profile.credentialRef, deadline.signal))
-                .value
-            : credentials.resolve(profile.credentialRef),
-        deadline.signal,
-      );
+      const key = await withDiscoveryDeadline(async () => {
+        if (!process.env.MITZO_KEYCHAIN_HELPER) return credentials.resolve(profile.credentialRef);
+        // Loading account metadata must not initialize a credential controller.
+        const { KeychainRotationCredentials } = await import('./keychain-rotation-credentials.js');
+        return (
+          await new KeychainRotationCredentials().read(profile.credentialRef, deadline.signal)
+        ).value;
+      }, deadline.signal);
       const models = await withDiscoveryDeadline(
         () => discoverOpenAIModels(key, deadline.signal),
         deadline.signal,

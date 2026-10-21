@@ -200,3 +200,18 @@ it('exposes only API reasoning levels for newly discovered models', async () => 
   const binding = profiles.resolve(configured.id, sol.id);
   expect(() => profiles.validateModelSelection(binding, sol.id, 'ultra')).toThrow(/unavailable/);
 });
+
+it('can serve passive conversation metadata without resolving API credentials or fetching models', async () => {
+  const resolve = vi.spyOn(credentials, 'resolve').mockResolvedValue('SYNTHETIC_WORK_KEY');
+  const request = vi.fn<typeof fetch>().mockResolvedValue(catalog('gpt-6.1-sol'));
+  vi.stubGlobal('fetch', request);
+  const configured = profile();
+  const profiles = new AccountProfiles([configured]);
+  await profiles.refresh(false, { discoverApi: false });
+  expect(resolve).not.toHaveBeenCalled();
+  expect(request).not.toHaveBeenCalled();
+  expect(profiles.catalog()[0].models).toEqual(configured.models);
+  await profiles.refresh(true, { discoverApi: true });
+  expect(request).toHaveBeenCalledOnce();
+  expect(profiles.catalog()[0].models.map((model) => model.id)).toEqual(['gpt-6.1-sol']);
+});
