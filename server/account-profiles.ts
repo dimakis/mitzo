@@ -1,7 +1,8 @@
 import { protectCodexProfileRoots } from './codex-private-path.js';
 import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
-import { CredentialReferenceSchema } from './credentials.js';
+import { CredentialReferenceSchema, credentials } from './credentials.js';
+import { discoverOpenAIModels } from './openai-enrollment-models.js';
 import { CodexAppServerClient } from './codex-app-server-client.js';
 import { OrdinaryLocalCodexHostRuntime } from './ordinary-local-codex-host-runtime.js';
 import { verifyCodexAccount } from './codex-account.js';
@@ -709,14 +710,19 @@ export class AccountProfiles {
     return profiles[0]?.models;
   }
 
-  async refresh(force = false) {
+  async refresh(force = false, options: { discoverApi?: boolean } = {}) {
     await Promise.all(
       this.profiles
-        .filter((p) => p.provider === 'openai-codex' && this.options.codexEnabled)
+        .filter(
+          (p) =>
+            (p.provider === 'openai' && options.discoverApi !== false) ||
+            (p.provider === 'openai-codex' && this.options.codexEnabled),
+        )
         .map((profile) =>
           refreshModels(
             JSON.stringify(profile),
             async () => {
+              if (profile.provider === 'openai') return this.discoverApiModels(profile);
               if (profile.provider !== 'openai-codex') return profile.models;
               return this.discoverCodexModels(profile);
             },
@@ -724,6 +730,42 @@ export class AccountProfiles {
           ),
         ),
     );
+  }
+
+  /** Metadata-only control-plane request using this account's explicit key reference. */
+  private async discoverApiModels(
+    profile: Extract<z.infer<typeof Profile>, { provider: 'openai' }>,
+  ) {
+    const deadline = new AbortController();
+    const timeout = setTimeout(
+      () => deadline.abort(),
+      this.options.modelDiscoveryTimeoutMs ?? MODEL_DISCOVERY_TIMEOUT_MS,
+    );
+    try {
+      const key = await withDiscoveryDeadline(async () => {
+        if (!process.env.MITZO_KEYCHAIN_HELPER) return credentials.resolve(profile.credentialRef);
+        // Loading account metadata must not initialize a credential controller.
+        const { KeychainRotationCredentials } = await import('./keychain-rotation-credentials.js');
+        return (
+          await new KeychainRotationCredentials().read(profile.credentialRef, deadline.signal)
+        ).value;
+      }, deadline.signal);
+      const models = await withDiscoveryDeadline(
+        () => discoverOpenAIModels(key, deadline.signal),
+        deadline.signal,
+      );
+      // Configured presentation/capabilities are retained only for models the key still lists.
+      return models.map(
+        (model) =>
+          profile.models.find((entry) => entry.id === model.id) ?? {
+            ...model,
+            // Enrollment also carries Codex-only levels; API requests stop at max.
+            reasoningEfforts: model.reasoningEfforts?.filter((effort) => effort !== 'ultra'),
+          },
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   /** Model discovery is deliberately account-scoped, not conversation-scoped.
