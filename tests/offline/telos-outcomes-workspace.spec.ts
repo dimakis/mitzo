@@ -942,7 +942,9 @@ for (const theme of ['dark', 'light'])
     });
     try {
       await page.getByRole('button', { name: 'Back', exact: true }).click();
-      await expect(page.locator('.telos-legacy-page')).toBeVisible();
+      await expect(page.locator('.todo-page.telos-canonical-page')).toBeVisible();
+      await expect(page.getByText('Loading outcomes…', { exact: true })).toBeVisible();
+      await expect(page.locator('.telos-legacy-page')).toBeHidden();
       await expect(page.locator('.todo-scroll')).toHaveJSProperty('scrollTop', 0);
     } finally {
       recordReadGate = undefined;

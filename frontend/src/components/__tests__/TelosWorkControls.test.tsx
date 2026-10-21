@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { TelosWorkApiClient } from '@mitzo/client';
 import {
@@ -327,6 +327,9 @@ it.each(['requested', 'acknowledged', 'applied', 'released'] as const)(
     const card = await screen.findByRole('article', {
       name: 'Operator pause receipt: Publishing to shared main',
     });
+    await Promise.all(
+      [...outcomes.slice(1), ...workers].map((record) => within(card).findByText(record.summary)),
+    );
     expect(card.textContent).toContain('Requested by operator');
     expect(card.textContent).not.toContain('Highest priority');
     expect(card.textContent).not.toContain('Work title unavailable');

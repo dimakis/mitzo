@@ -489,7 +489,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
                   );
                 })}
               </ul>
-              <button className="todo-refresh" onClick={refreshWorkspace}>
+              <button className="home-secondary" onClick={refreshWorkspace}>
                 Retry unavailable outcomes
               </button>
             </div>
@@ -549,20 +549,35 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
         {planningError && <p role="alert">{planningError}</p>}
         {(canonical.unavailable.length > 0 || discovery.error) && (
           <div role="alert" className="telos-unavailable-records">
-            <p>
-              Outcome workspace records unavailable. Original Telos fields remain available below.
-            </p>
-            <ul>
-              {canonical.failures.map((failure) => (
-                <li key={failure.itemId}>
-                  {failure.itemId} · {failure.status ? `HTTP ${failure.status} · ` : ''}
-                  {failure.code}
-                </li>
-              ))}
-            </ul>
-            <button className="todo-refresh" onClick={refreshWorkspace}>
-              Retry unavailable outcomes
-            </button>
+            <div className="home-inline-actions">
+              <details>
+                <summary className="home-text-action">
+                  {canonical.unavailable.length > 0
+                    ? `${canonical.unavailable.length} records unavailable`
+                    : 'Outcome records unavailable'}
+                </summary>
+                <p>
+                  Outcome workspace records unavailable. Original Telos fields remain available
+                  below.
+                </p>
+                {discovery.error && <p>{discovery.error}</p>}
+                <ul>
+                  {canonical.failures.map((failure) => (
+                    <li key={failure.itemId}>
+                      {failure.itemId} · {failure.status ? `HTTP ${failure.status} · ` : ''}
+                      {failure.code}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+              <button
+                className="home-secondary"
+                aria-label="Retry unavailable outcomes"
+                onClick={refreshWorkspace}
+              >
+                Retry
+              </button>
+            </div>
           </div>
         )}
         <div className="todo-toolbar">
