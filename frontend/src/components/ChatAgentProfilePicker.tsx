@@ -369,7 +369,7 @@ function ControlledAgentProfilePicker({
             );
           }}
         >
-          <option value="">Choose published agent</option>
+          <option value="">Choose agent</option>
           {value && !versions.some((v) => controlledProfileKey(v) === value) && (
             <option value={value} disabled>
               Unavailable {selection && 'kind' in selection ? 'builtin agent' : 'agent'} · r

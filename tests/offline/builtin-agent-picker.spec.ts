@@ -158,7 +158,7 @@ for (const appearance of ['dark', 'light'] as const)
     await agent.focus();
     await expect(agent).toBeFocused();
     await page.screenshot({
-      path: testInfo.outputPath(`builtin-agents-${appearance}.png`),
+      path: testInfo.outputPath(`local-builtin-agents-${appearance}.png`),
       fullPage: true,
     });
     await settingsHome(page);
