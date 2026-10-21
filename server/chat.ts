@@ -958,12 +958,12 @@ export function createSessionWorktrees(
     log.info('primary worktree created', { wtId, path: primaryPath });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    log.error('primary worktree creation failed, using base repo', { error: message });
+    log.error('primary worktree creation failed', { error: message });
     send(transport, {
       type: 'error',
-      error: `Worktree creation failed (using base repo): ${message}`,
+      error: `Worktree creation failed: ${message}`,
     });
-    return { cwd: baseCwd, wtId, repoWorktrees };
+    throw new Error(`Worktree creation failed: ${message}`);
   }
 
   return {
@@ -1890,13 +1890,21 @@ async function _startChatInner(
 
   // Generate session-scoped worktree ID and create worktrees in all repos
   const wtId = generateWtId();
-  const { cwd, worktreePath, repoWorktrees } = openShellSelected
-    ? {
-        cwd: openShellWorkdir!,
-        worktreePath: undefined,
-        repoWorktrees: new Map<string, { path: string; wtId: string }>(),
-      }
-    : createSessionWorktrees(transport, baseCwd, wtId, options);
+  let sessionWorktrees: ReturnType<typeof createSessionWorktrees>;
+  try {
+    sessionWorktrees = openShellSelected
+      ? {
+          cwd: openShellWorkdir!,
+          wtId,
+          worktreePath: undefined,
+          repoWorktrees: new Map<string, { path: string; wtId: string }>(),
+        }
+      : createSessionWorktrees(transport, baseCwd, wtId, options);
+  } catch (error) {
+    options.onStartupAdmission?.(error);
+    return;
+  }
+  const { cwd, worktreePath, repoWorktrees } = sessionWorktrees;
 
   if (repositoryWorkspace?.directory && !openShellSelected) {
     repoWorktrees.set('primary', { path: repositoryWorkspace.directory, wtId });

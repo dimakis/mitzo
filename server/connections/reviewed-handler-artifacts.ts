@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.502-local-repository-retry';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.503-local-worktree-startup';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -720,7 +720,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': '17053c6f4316441c06927b60663488d1446f62120ea5e12b00ac3fc5473f82e0',
+  '../chat.ts': 'aa2f0226595de7d9f14f4697eb1e79b1b0068f6005d09344f72e02a1d7fdfdb3',
   '../../packages/harness/src/session-registry.ts':
     'a356f9fe321fa35e13aea28ec8480dfa63766e96a0f8a861dcd2cba533e5c118',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
