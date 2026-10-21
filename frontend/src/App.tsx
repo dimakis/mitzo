@@ -268,6 +268,16 @@ export function App() {
                   }
                 />
                 <Route
+                  path="/connections/secrets/:setupId"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <ConnectionSetupView secretRelay />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
                   path="/connections"
                   element={
                     <ProtectedRoute>
@@ -286,10 +296,6 @@ export function App() {
                           <WorkspacePageHeading
                             title="Attention"
                             description="The items that need a decision or a closer look."
-                          />
-                          <Route
-                            path="/connections/secrets/:setupId"
-                            element={<ConnectionSetupView secretRelay />}
                           />
                           <AttentionFeed />
                         </main>
