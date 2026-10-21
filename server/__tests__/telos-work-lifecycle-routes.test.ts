@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import Database from 'better-sqlite3';
 import type { Server } from 'node:http';
 import { createTelosWorkRouter } from '../telos-work-routes.js';
 import { TelosWorkStore } from '../telos-work-store.js';
@@ -60,6 +61,87 @@ async function fixture() {
   });
   return { canonical, authorization, assertLifecycleQuiescent, server, post, read, input };
 }
+
+const lifecycleReads = [
+  { name: 'item', path: '/api/telos/work/items/studio/lifecycle' },
+  { name: 'work', path: '/api/telos/work/items/studio' },
+  { name: 'list', path: '/api/telos/work/lifecycle?view=archive' },
+] as const;
+
+it.each(lifecycleReads)(
+  'reads committed $name lifecycle while an independent canonical writer retains a transition',
+  async ({ name, path }) => {
+    const f = await fixture();
+    expect((await f.post(f.input('archive'))).status).toBe(200);
+    const expected =
+      name === 'item'
+        ? f.canonical.work.readLifecycle('studio', f.canonical.actor)
+        : name === 'work'
+          ? f.canonical.work.read('studio', f.canonical.actor)
+          : f.canonical.work.listLifecycle('archive', f.canonical.actor);
+    const writer = new Database(f.canonical.dbPath);
+    try {
+      writer.exec('BEGIN IMMEDIATE');
+      expect(
+        writer
+          .prepare(
+            "UPDATE telos_work_lifecycle SET data=json_set(data,'$.disposition','active') WHERE item_id='studio'",
+          )
+          .run().changes,
+      ).toBe(1);
+      const response = await request(f.server).get(path).set('x-operator', 'interactive');
+      expect(response.status, JSON.stringify(response.body)).toBe(200);
+      expect(response.body).toEqual(expected);
+      expect(writer.inTransaction).toBe(true);
+      expect(
+        writer
+          .prepare(
+            "SELECT json_extract(data,'$.disposition') AS disposition FROM telos_work_lifecycle WHERE item_id='studio'",
+          )
+          .get(),
+      ).toEqual({ disposition: 'active' });
+    } finally {
+      if (writer.inTransaction) writer.exec('ROLLBACK');
+      writer.close();
+    }
+  },
+  15000,
+);
+
+it.each(lifecycleReads)(
+  'initializes missing lifecycle history for the $name GET',
+  async ({ path }) => {
+    const f = await fixture();
+    f.canonical.db.exec('DROP TABLE telos_work_lifecycle_history');
+    const response = await request(f.server)
+      .get(path.replace('view=archive', 'view=active'))
+      .set('x-operator', 'interactive');
+    expect(response.status, JSON.stringify(response.body)).toBe(200);
+    expect(
+      f.canonical.db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='telos_work_lifecycle_history'",
+        )
+        .get(),
+    ).toEqual({ name: 'telos_work_lifecycle_history' });
+  },
+);
+
+it.each(lifecycleReads)(
+  'does not promote malformed history into a writer for the $name GET',
+  async ({ path }) => {
+    const f = await fixture();
+    f.canonical.db.exec('DROP TABLE telos_work_lifecycle_history');
+    f.canonical.db.exec('CREATE TABLE telos_work_lifecycle_history(broken TEXT)');
+    const schema = f.canonical.db.pragma('schema_version', { simple: true });
+    const response = await request(f.server)
+      .get(path.replace('view=archive', 'view=active'))
+      .set('x-operator', 'interactive');
+    expect(response.status).toBe(503);
+    expect(response.body).toEqual({ code: 'unavailable', error: 'Telos work service unavailable' });
+    expect(f.canonical.db.pragma('schema_version', { simple: true })).toBe(schema);
+  },
+);
 
 it('derives interactive lifecycle authority, applies canonical revision and retains exact replay through HTTP', async () => {
   const f = await fixture();
