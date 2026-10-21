@@ -6,7 +6,36 @@ not an installed runtime or a qualified Symposium route. It uses the existing
 Codex HTTP, Responses API and StateRuntime owners. No provider session system,
 account profile, runtime selection or deployment is added.
 
-## Current composed source: 133 patches
+## Current composed source: 134 patches
+
+The 134 ordered patches reconstruct native tree `564608a128d39d0de25c548d132b8b11defad617`
+(local source `47f8044cdc14f31a6a01027431f960fbfb37e0e9`). All previous 133 patch records and bytes,
+and their complete source boundary, remain exact. Accepted main `1886f505ab9c799eea8599829abb037988c0ba9b`
+is included through normal merges. Three later private context cuts are excluded.
+
+One test fixture uses the actual `ResponseItemId::from_server` constructor and
+matches `CodexErrorDetails::InvalidRequest` through `error.details()`. This repairs
+the two compiler sites observed in published 133 without changing production,
+expected values, assertions, test identities, discovery or budgets. No new tests
+are added. The repair has not been compiled or run locally.
+
+Published 133 Linux independently passed 27 AppServer and four Goal/API tests.
+Its 51 Core and seven prior-stack cases reached neither discovery nor execution;
+the redirected lists were invalid zero-byte JSON. The full 23-package attempt
+failed Core lib-test compilation and formatting was skipped. macOS independently
+passed the same 27 AppServer and four Goal/API identities, with the same two
+compiler sites blocking Core, prior-stack and full 22-package execution; formatting
+was skipped. These are 31 distinct identities per OS. Earlier runtime failures
+remain unresolved and unmeasured.
+
+Fresh CI must retain exact 51 Core, 27 AppServer, four Goal/API and seven separate
+stack cases, the original full 22 packages plus Linux sandbox, and formatting.
+One thread, zero retries and the original budgets remain. No earlier result
+qualifies this successor. Full context/tools/request/count/currentness/State,
+RPC/factory/Ready/Join and final participant reply remain open. PRESENT adoption
+stays refused. No model call, installation or deployment.
+
+## Previous composed source: 133 patches
 
 The 133 ordered patches reconstruct native tree `4a7c3f19a7db35b845da2aba8e55a5120a21f399`
 (local source `44ae9263c7cdebe750ff0f3371c6d545e7ebf6f7`). Every previous 127 patch record

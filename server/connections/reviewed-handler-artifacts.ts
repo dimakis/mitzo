@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.473-symposium-native-context';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.474-symposium-native-fixtures';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1431,4 +1432,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '146fe47b4a50f7c22253fc728ffaa0556825855a465b461db3d2ac0f0d152a98',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-test-fixture-compile-compatibility.patch':
     '8e5b42b60522d41c94256be832786f3c35408f5abdc8d55dcfe0a359825d96e1',
+  '../../docs/spikes/openshell-codex/prepared-request-native/native-typed-user-input-fixture-api-repair.patch':
+    '7330348000512f425b8a01570516b1c646023b1f45266de9c56550474906536a',
 });

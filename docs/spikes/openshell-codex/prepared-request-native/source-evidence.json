@@ -536,10 +536,14 @@
     {
       "file": "native-test-fixture-compile-compatibility.patch",
       "sha256": "8e5b42b60522d41c94256be832786f3c35408f5abdc8d55dcfe0a359825d96e1"
+    },
+    {
+      "file": "native-typed-user-input-fixture-api-repair.patch",
+      "sha256": "7330348000512f425b8a01570516b1c646023b1f45266de9c56550474906536a"
     }
   ],
-  "sourceTree": "4a7c3f19a7db35b845da2aba8e55a5120a21f399",
-  "localSourceCommit": "44ae9263c7cdebe750ff0f3371c6d545e7ebf6f7",
+  "sourceTree": "564608a128d39d0de25c548d132b8b11defad617",
+  "localSourceCommit": "47f8044cdc14f31a6a01027431f960fbfb37e0e9",
   "sourceCommits": [
     "35e787df919033ac618850a27e3065b40c031cbe",
     "f50eda942f209577842eb1e091f07e00de021f0d",
@@ -717,7 +721,8 @@
     "d881bf6195f8efcaaec2f0e7416ec730f90cee86",
     "65464e9129723878049d2e0f21a19392220bd7f0",
     "e99e935415db390b0801a3a2cac3a090baeb6675",
-    "44ae9263c7cdebe750ff0f3371c6d545e7ebf6f7"
+    "44ae9263c7cdebe750ff0f3371c6d545e7ebf6f7",
+    "47f8044cdc14f31a6a01027431f960fbfb37e0e9"
   ],
   "lockNormalization": {
     "localWorkspacePackageVersionLabels": 159,
@@ -727,7 +732,7 @@
     "bazelModDeps": "passed with task-local caches; MODULE.bazel.lock unchanged"
   },
   "checks": {
-    "scope": "133 ordered patches preserve all127 previous records/bytes and their complete source boundary. Six reviewed cuts connect original first-step Skills/model/permission DATA, original typed-input projection, startup-owned base/provenance and distinct constructor/fresh-reset state values to existing consumers; a two-test-file repair addresses four actual compiler sites. Full context/tools/request/count/currentness/State/admission/RPC/Ready/Join/final participant reply remain open. Fresh combined CI required.",
+    "scope": "134 ordered patches preserve every previous133 patch record, byte and complete source boundary. One fixture-only repair uses actual ResponseItemId::from_server and CodexErrorDetails::InvalidRequest through error.details(); expected values, assertions, production, discovery and all CI budgets remain unchanged. Accepted main1886 is normally merged. Private90d/c040/9e29 context cuts excluded. Full Symposium request/count/currentness/State/admission/RPC/factory/Join/final reply remain open.",
     "localFocused": {
       "status": "exact_source_reconstruction_and_scoped_format_only",
       "compiled": false,
@@ -736,7 +741,7 @@
       "dynamicGreenClaimed": false
     },
     "ci": {
-      "status": "pending_133_exact_source_after_test_fixture_compilation_repairs",
+      "status": "pending_134_exact_source_after_two_actual133_fixture_compiler_sites_repaired",
       "workflow": ".github/workflows/prepared-request-native.yml",
       "scope": [
         "codex-core",
@@ -1179,6 +1184,31 @@
         "cause": "Same four codex-core lib-test compiler sites in three phases per OS: Features/ManagedFeatures mismatch, unsupported ResponseItemId conversion and two helper calls shadowed by local request.",
         "old119RuntimeFailures": "Thirteen unique failures, including seven explicit stack overflows, remain unresolved and unmeasured by127.",
         "meaning": "Per-platform exact list/log/official/JUnit source qualification retained. No pass donation, overlap addition, runtime-stack repair or successor qualification."
+      },
+      "prior133QualificationTransfers": false,
+      "prior133Observed": {
+        "head": "15054286e4835c557c9ec10418d4d767072a9f77",
+        "native": "44ae9263c7cdebe750ff0f3371c6d545e7ebf6f7",
+        "run": 39564630451,
+        "linuxQualificationSha256": "b91ec6a411ab846dc65bb266ef6192c4425a9926baef247f108274036cec5e43",
+        "linuxActualUnitPass": {
+          "AppServer": 27,
+          "GoalApi": 4
+        },
+        "linuxCore51AndPriorStack7": "Compilation101 before discovery/execution; redirected lists0B INVALID JSON.",
+        "linuxFullSuite": "Original22 packages plus Linux sandbox attempted; Core lib-test compile101 before runtime; formatting SKIPPED.",
+        "macosTerminal": "Job119103846512 FAILURE09:38:13Z; independent exact named discovery/log/official/JUnit/source qualification closed. Same31 unique identities as Linux; not62 distinct tests.",
+        "cause": "Both OS independently observe the same E0277 at turn_user_input_data_tests.rs10 and E0164 at100, repeated in three compilation phases per OS. Actual protocol APIs independently source-reviewed; this patch corrects only those fixture expressions.",
+        "old119RuntimeFailures": "Thirteen unique runtime failures including seven stack overflows remain unresolved and unmeasured by133.",
+        "meaning": "No prior result qualifies134; actual fresh exact combined CI required.",
+        "macosQualificationSha256": "cc177338ec3ef4428b7b6200960db97f5cdc674a73ddaceb6dce33e84742a310",
+        "bothPlatformQualificationSha256": "546fd1d02072f27e08d46fa4c8bc6dc38322b0747145e0ea27923df08d6174a2",
+        "macosActualUnitPass": {
+          "AppServer": 27,
+          "GoalApi": 4
+        },
+        "macosCore51AndPriorStack7": "Compilation101 before discovery/execution; redirected lists0B INVALID JSON.",
+        "macosFullSuite": "Original22 packages attempted; same two Core lib-test compile sites E0277/E0164, no runtime/JUnit; formatting SKIPPED."
       }
     },
     "sourceReviews": {
@@ -1227,6 +1257,15 @@
         ],
         "status": "Reuse six bounded source peers and exact normal actual commits; new fixtures uncompiled/unrun until CI.",
         "compilerAndModelCalls": 0
+      },
+      "public133FixtureApiRepair": {
+        "nativeCommit": "47f8044cdc14f31a6a01027431f960fbfb37e0e9",
+        "sourcePeerSha256": "4e36fa5756a3719b60a8bab50ab8e810ebad3595786ee60d9be6278dee597943",
+        "actualCoreReceiptSha256": "6363d2c155f55a760497e8fce5066300617f5fb79f0de6e1d9a60933bc0b2b25",
+        "actualRootCustodySha256": "10dc9b2c374a2db750af63633ca480159e8bca359a9014037506fbcba17ce700",
+        "newTests": 0,
+        "productionAssertionsDiscoveryBudgetChanges": false,
+        "status": "Fixture API correction source-reviewed and normally committed; UNCOMPILED_UNRUN locally."
       }
     }
   },
@@ -1437,6 +1476,10 @@
     "acceptedMain133": {
       "commit": "58bdfbe9c7faa6021b6f7ce8d94388e09be00623",
       "kind": "Normal merge of accepted notification and ordinary command-admission performance changes; original EA5 acceptance cases retain their original source scope."
+    },
+    "acceptedMain134": {
+      "commit": "1886f505ab9c799eea8599829abb037988c0ba9b",
+      "kind": "Normal merge of accepted1072/1073 ordinary admission and Knowledge performance changes; source-scoped EA5/150 acceptance not relabeled."
     }
   },
   "historicalFoundation": {
@@ -6524,6 +6567,514 @@
             "01f39b8e6222fda4c0e08207d3a2750cb17d17d2"
           ],
           "status": "Bounded source peers and exact normal commits only; new fixtures UNCOMPILED_UNRUN until CI.",
+          "compilerAndModelCalls": 0
+        }
+      }
+    }
+  },
+  "previous133SourceBoundary": {
+    "sourceTree": "4a7c3f19a7db35b845da2aba8e55a5120a21f399",
+    "localSourceCommit": "44ae9263c7cdebe750ff0f3371c6d545e7ebf6f7",
+    "checks": {
+      "scope": "133 ordered patches preserve all127 previous records/bytes and their complete source boundary. Six reviewed cuts connect original first-step Skills/model/permission DATA, original typed-input projection, startup-owned base/provenance and distinct constructor/fresh-reset state values to existing consumers; a two-test-file repair addresses four actual compiler sites. Full context/tools/request/count/currentness/State/admission/RPC/Ready/Join/final participant reply remain open. Fresh combined CI required.",
+      "localFocused": {
+        "status": "exact_source_reconstruction_and_scoped_format_only",
+        "compiled": false,
+        "rustTestsExecuted": false,
+        "allNewRustFixtures": "18 additional unique fixtures authored/source-reviewed UNCOMPILED_UNRUN locally; one existing App standalone-input oracle extended separately. No local compiler, tests or real model calls.",
+        "dynamicGreenClaimed": false
+      },
+      "ci": {
+        "status": "pending_133_exact_source_after_test_fixture_compilation_repairs",
+        "workflow": ".github/workflows/prepared-request-native.yml",
+        "scope": [
+          "codex-core",
+          "codex-http-client",
+          "codex-state",
+          "codex-api",
+          "codex-guardian-reviewer",
+          "codex-extension-api",
+          "codex-mcp-extension",
+          "codex-login",
+          "codex-memories-extension",
+          "codex-web-search-extension",
+          "codex-history-notes-extension",
+          "codex-goal-extension",
+          "codex-models-manager",
+          "codex-home",
+          "codex-model-provider-info",
+          "codex-skills-extension",
+          "codex-skills",
+          "codex-exec-server",
+          "codex-app-server",
+          "codex-git-attribution",
+          "codex-core-plugins",
+          "codex-execpolicy"
+        ],
+        "linuxAdditionalScope": ["codex-linux-sandbox"],
+        "platforms": ["ubuntu-24.04", "macos-26"],
+        "testThreads": 1,
+        "retries": 0,
+        "prior81QualificationTransfers": false,
+        "prior82QualificationTransfers": false,
+        "prior83QualificationTransfers": false,
+        "prior84QualificationTransfers": false,
+        "prior85QualificationTransfers": false,
+        "prior86QualificationTransfers": false,
+        "prior87QualificationTransfers": false,
+        "prior88QualificationTransfers": false,
+        "prior88Failure": {
+          "run": 39454890578,
+          "linuxJob": 118739246813,
+          "conclusion": "failure",
+          "failure": "E0308 in model-provider-info/src/captured_provider.rs:124; test literal map used String instead of existing RedactedString",
+          "fixtureExecution": "No crate fixtures executed: cargo test --no-run compilation failed",
+          "macosJob": 118739246289,
+          "macosOutcomeAtCapture": "in_progress",
+          "linuxArtifact": 12283706338,
+          "linuxArtifactSha256": "bcb31395efcb667155ed665b217b57929c7d71dccc01a0a583c90c15966ecee2"
+        },
+        "prior89QualificationTransfers": false,
+        "prior89Terminal": {
+          "sourceCommit": "349165924d187197140074b8cfefe087d2e73cba",
+          "sourceTree": "5afdd74dd6631cf91d32325d78914dff3bc6a8f7",
+          "checks": {
+            "scope": "89 ordered patches retain all88 prior patch records/bytes. Patch89 changes only three test literal values from String to the existing RedactedString type, preserving exact malformed/case-ambiguous header bytes and original assertions. Production native source and all complete-factory/readiness limits remain unchanged.",
+            "localFocused": {
+              "status": "exact_source_reconstruction_and_scoped_format_only",
+              "rustTestsExecuted": false,
+              "compiled": false,
+              "allNewRustFixtures": "UNCOMPILED/UNRUN",
+              "dynamicGreenClaimed": false
+            },
+            "ci": {
+              "status": "pending_89_exact_source",
+              "workflow": ".github/workflows/prepared-request-native.yml",
+              "scope": [
+                "codex-core",
+                "codex-http-client",
+                "codex-state",
+                "codex-api",
+                "codex-guardian-reviewer",
+                "codex-extension-api",
+                "codex-mcp-extension",
+                "codex-login",
+                "codex-memories-extension",
+                "codex-web-search-extension",
+                "codex-history-notes-extension",
+                "codex-goal-extension",
+                "codex-models-manager",
+                "codex-home",
+                "codex-model-provider-info",
+                "codex-skills-extension",
+                "codex-skills",
+                "codex-exec-server",
+                "codex-app-server",
+                "codex-git-attribution",
+                "codex-core-plugins",
+                "codex-execpolicy"
+              ],
+              "linuxAdditionalScope": ["codex-linux-sandbox"],
+              "platforms": ["ubuntu-24.04", "macos-26"],
+              "testThreads": 1,
+              "retries": 0,
+              "prior81QualificationTransfers": false,
+              "prior82QualificationTransfers": false,
+              "prior83QualificationTransfers": false,
+              "prior84QualificationTransfers": false,
+              "prior85QualificationTransfers": false,
+              "prior86QualificationTransfers": false,
+              "prior87QualificationTransfers": false,
+              "prior88QualificationTransfers": false,
+              "prior88Failure": {
+                "run": 39454890578,
+                "linuxJob": 118739246813,
+                "conclusion": "failure",
+                "failure": "E0308 in model-provider-info/src/captured_provider.rs:124; test literal map used String instead of existing RedactedString",
+                "fixtureExecution": "No crate fixtures executed: cargo test --no-run compilation failed",
+                "macosJob": 118739246289,
+                "macosOutcomeAtCapture": "in_progress",
+                "linuxArtifact": 12283706338,
+                "linuxArtifactSha256": "bcb31395efcb667155ed665b217b57929c7d71dccc01a0a583c90c15966ecee2"
+              }
+            }
+          },
+          "terminalRun": 39463080370,
+          "conclusion": "cancelled_both_platforms_after_partial_fixture_failures_by_120_minute_job_limit",
+          "terminalSealSha256": "6466fb33cae79727b4e92439e534fac7744d0f01bfbcfec01a7dbf7ae1c58866",
+          "partialRetainedArtifactLogRecords": {
+            "linux": {
+              "passed": 6828,
+              "failed": 3,
+              "lastOrdinal": 6831,
+              "listed": 9568
+            },
+            "macos": {
+              "passed": 6171,
+              "failed": 3,
+              "lastOrdinal": 6174,
+              "listed": 9352
+            }
+          },
+          "countsAreFinalSuiteTotals": false,
+          "platformsMayOverlap": true,
+          "junitPresent": false,
+          "formattingExecuted": false,
+          "failedFixtures": [
+            "client::public_responses_capture::tests::bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture",
+            "client::public_responses_capture::tests::public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row",
+            "thread_manager::pre_session_skills::tests::original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup"
+          ]
+        },
+        "jobTimeoutMinutes": 240,
+        "timeoutReason": "Both source89 jobs exceeded maximum execution time 2h0m0s after thousands of records; retain complete same package coverage, one thread and zero retries.",
+        "prior99QualificationTransfers": false,
+        "prior99Terminal": {
+          "checkpoint": "source99Terminal",
+          "sourceCommit": "b2f34ca45571ca7514b5f307b76a78b475829769",
+          "sourceTree": "6e7109d979ed7deeb4e00fe3ec3473083d0e1b74",
+          "terminalRun": 39482696019,
+          "conclusion": "both_platforms_failed_core_library_compilation_during_standalone_helpers",
+          "compilerErrors": {
+            "code": "E0433",
+            "type": "BaseInstructionsProvenance",
+            "path": "core/src/session/session.rs",
+            "lines": [791, 797, 803]
+          },
+          "crateFixturesExecuted": 0,
+          "nativeFormattingExecuted": false,
+          "original89ThreeFailureOraclesQualified": false,
+          "terminalReceiptSha256": "2e02bd8a114148ac1679361915a7286e49a3867db1ffb74fc47f1592416276b5",
+          "officialLogs": [
+            {
+              "platform": "linux",
+              "sha256": "4bf78e5ad2ff6e8ab5fc1ac28d501ee9a0b81346521125ccde88e57f583063a8",
+              "bytes": 258258,
+              "job": 118835054202
+            },
+            {
+              "platform": "macos",
+              "sha256": "c268766265e998e4622187cdac2ca96dbb71763d8f1a9bb1a5831b8a5278fc4c",
+              "bytes": 248626,
+              "job": 118835053811
+            }
+          ]
+        },
+        "prior103QualificationTransfers": false,
+        "prior103LastObserved": {
+          "run": 39489271965,
+          "head": "06b529c9397dc98c8782c6a8991a93edf40edeaf",
+          "nativeTree": "607b88e5275dc347713a85c2b6ae454470bffb54",
+          "bothStandaloneHelpers": "success",
+          "bothCrateFixtureSteps": "in_progress_at_last_observation",
+          "wholeFixtureOrFormattingPassClaimed": false,
+          "plannedSupersession": "Meaningful new104+105source plus independently reviewed host CI repair; retain exact eventual terminal logs/partial results, do not transfer qualification."
+        },
+        "prior105QualificationTransfers": false,
+        "prior105Terminal": {
+          "head": "de3551a95613422cc66407485c890781b27b0295",
+          "run": 39500169315,
+          "linuxJob": 118895998388,
+          "macosJob": 118895999030,
+          "both": "FAILURE Corelibtest cargo test --no-run5diagnostics missingModelClienttype384/391/400/409 +consequentstatepredicate61; no fixturesexecuted/formatSKIPPED; standalonehelpersSUCCESS",
+          "linuxLogSha256": "023973975d5e08cf319411bc48ea5ed872fbd40c5d43ed3a6491dbe3bc34edad",
+          "macosLogSha256": "02b47b16ca1f3198487ef2f7eff732bacc82d15ca130df70e2fa64eaa11978d2",
+          "fix": "Patch107 exact1testimport, not a compilerpass. Fresh107bothOSCI required."
+        },
+        "prior103Terminal": {
+          "run": 39489271965,
+          "both": "CANCELLED afterpartialexecutedprefix Mac868PASS/9373 Linux1526PASS/9589; helpersSUCCESS/formatSKIP, no fullPASS",
+          "CSourceResultsSealSha256": "68875a2f17358886d8b83cf2fe5d234a333eb06e6f77dcb60f2b34f70fb3f6a9",
+          "precision": "NEWlowerlevelimagefixturePASSboth doesNOTqualifyhistorical89bundledLuna; allTHREE historical89failingnames haveNOretainedrecord."
+        },
+        "additionalExplicitLibraries": {
+          "packages": ["codex-goal-extension", "codex-extension-api"],
+          "target": "--lib",
+          "reason": "Original [lib]test=false prevents defaultdiscovery; actual4namedtests must be foundandpass",
+          "full22CommandByteExact": true,
+          "linuxSandboxPreserved": true,
+          "earlyHistorical89Oracles": "Threeexactretainedfailures explicitlydiscovered/runbeforefullsuite; no duplicatecountsadded. All addedfailuresremainjobfailures; fullsuitecontinuesevenafteraddedstepfailure oncehelperssucceed.",
+          "earlyCoreRegressionFixtures": {
+            "historical89": [
+              "client::public_responses_capture::tests::bundled_luna_row_retains_its_real_encoding_flag_and_full_model_during_public_capture",
+              "client::public_responses_capture::tests::public_route_encodes_one_standard_body_without_replacing_the_lite_catalog_row",
+              "thread_manager::pre_session_skills::tests::original_thread_manager_captures_hidden_knowledge_and_native_model_without_startup"
+            ],
+            "newCoreCarry": [
+              "session::client_input_data::tests::retained_tool_carrier_burns_foreign_allocation_and_repeated_install_or_take",
+              "session::client_input_data::tests::retained_tool_binding_ignores_unbound_contexts_and_never_recovers_after_cancel_or_failure",
+              "session::turn_input::tests::retained_tools_bind_only_actual_admitted_user_and_reject_automatic_or_recovery",
+              "tools::spec_plan::tests::retained_actual_registry_iterator_associates_before_router_and_preserves_final_specs",
+              "tools::spec_plan::tests::retained_router_metadata_mismatch_burns_before_adapter_and_cannot_fall_back"
+            ],
+            "discovery": "Require exact51 nonignored Core cases: previous37 retained plus14 new. Early/full coverage overlaps.",
+            "newConfiguredSettings": [
+              "session::configured_settings_data::tests::configured_baseline_preserves_actual_history_owner_and_explicit_empty_precedence",
+              "session::configured_settings_data::tests::configured_baseline_uses_real_context_fallback_but_never_foreign_settings_owner",
+              "session::configured_settings_data::tests::configured_step_preserves_original_luna_tier_filter_and_full_settings_data",
+              "session::configured_settings_data::tests::configured_permission_environment_stages_keep_original_values_and_unresolved_states",
+              "session::startup_selection::tests::original_startup_retains_effective_baseline_and_rejects_changed_selected_inputs",
+              "session::configured_settings_data::tests::retained_configured_baseline_keeps_owned_data_and_burns_each_stage",
+              "session::configured_settings_data::tests::retained_configured_baseline_refuses_changed_presence_order_history_source_and_fork",
+              "session::configured_settings_update::tests::providerless_update_preserves_whole_mutable_data_and_sparse_precedence",
+              "session::configured_settings_update::tests::providerless_environment_guard_and_permission_errors_precede_step_edits",
+              "session::configured_settings_update::tests::providerless_permission_environment_and_roots_are_resolved_before_final_step"
+            ],
+            "newSelectedSettingsCandidate": [
+              "session::startup_selection::selected_settings_candidate::tests::selected_candidate_uses_retained_baseline_and_sparse_tier_precedence",
+              "session::startup_selection::selected_settings_candidate::tests::selected_candidate_refuses_foreign_effective_owner_and_changed_baseline",
+              "session::startup_selection::selected_settings_candidate::tests::selected_candidate_checks_proposed_permissions_before_step_constraints"
+            ],
+            "newOriginalCommandAndHistory": [
+              "session::client_input_data::fresh_history_data::tests::actual_selected_packet_moves_same_window_and_history_into_original_stages_once",
+              "session::client_input_data::fresh_history_data::tests::foreign_changed_source_history_and_equal_config_owner_burn_selected_slot",
+              "session::client_input_data::fresh_history_data::tests::wrong_stage_missing_values_and_non_new_capture_never_reconstruct_history",
+              "session::turn_input_submission::tests::whole_request_all_modes_and_trace_move_once_into_original_core_submission",
+              "session::turn_input_submission::tests::original_oneshot_preserves_routing_decisions_and_error_payloads",
+              "session::turn_input_submission::tests::dropping_same_original_submission_closes_waiter_and_waiter_loss_does_not_replay",
+              "session::turn_input_submission::tests::same_opaque_command_and_complete_request_cross_actual_core_channel_once",
+              "session::turn_input_submission::tests::protocol_wrapping_preserves_controls_recovery_and_legacy_turn_input",
+              "session::turn_input_submission::tests::dropping_queued_typed_command_closes_original_waiter_without_replay",
+              "session::startup_selection::selected_settings_candidate::tests::paired_command_uses_native_normalized_settings_and_same_prepared_data_once",
+              "session::startup_selection::selected_settings_candidate::tests::paired_first_step_uses_changed_personality_and_exact_effective_overrides_once",
+              "session::startup_selection::selected_settings_candidate::tests::first_step_refuses_missing_foreign_changed_model_settings_and_catalog_publication",
+              "session::first_step_model_data::tests::original_first_step_preserves_resolved_row_and_late_summary_tier_filtering",
+              "session::first_step_model_data::tests::ordinary_first_step_resolves_changed_model_instead_of_reusing_startup_row",
+              "session::startup_selection::tests::retained_startup_config_heap_storage_preserves_values_and_original_adoption",
+              "session::model_client_construction::tests::retained_client_heap_snapshot_keeps_same_client_and_ordinary_optional_layout"
+            ],
+            "newPost127OriginalData": [
+              "session::initial_model_state_data::tests::original_previous_model_precedence_and_native_fragment_match_actual_model_data",
+              "session::client_input_data::fresh_history_data::tests::actual_fresh_capsule_moves_distinct_constructor_and_post_event_reset_once",
+              "session::client_input_data::fresh_history_data::tests::original_fresh_previous_stages_refuse_foreign_config_source_history_or_wrong_order",
+              "session::base_instructions_data::tests::original_provenance_branches_preserve_config_history_precedence_and_prompt_copy",
+              "session::base_instructions_data::tests::captured_base_values_move_once_and_refuse_foreign_changed_or_nonfresh_inputs",
+              "session::startup_selection::tests::retained_base_stays_startup_owned_across_first_command_personality_and_original_packet_adoption",
+              "session::turn_user_input_data::tests::original_internal_projection_keeps_order_and_ignores_all_non_user_partitions",
+              "session::turn_user_input_data::tests::original_start_classification_rejects_reply_ids_other_items_and_mail_without_mutation",
+              "session::startup_selection::selected_settings_candidate::tests::first_step_context_uses_same_command_model_and_refuses_lossy_reply_or_root_substitution",
+              "session::startup_selection::selected_settings_candidate::tests::permission_context_refuses_foreign_changed_burned_and_keeps_unpaired_baseline",
+              "session::startup_selection::selected_settings_candidate::tests::standalone_skills_projection_retains_same_complete_box_and_original_model_owner",
+              "thread_manager::pre_session_skills::tests::shared_skills_body_retains_exact_model_arc_and_legacy_prompt_data",
+              "session::configured_settings_data::tests::candidate_permission_section_uses_actual_proposed_profile_step_and_original_renderer",
+              "environment_selection::initial_context::tests::original_local_roots_materialize_proposed_profile_and_refuse_changed_selection_or_cwd"
+            ]
+          },
+          "earlyAppServerDataOwners": {
+            "packages": ["codex-app-server"],
+            "target": "--lib",
+            "requiredExactNames": [
+              "request_processors::turn_processor::turn_command_data::tests::original_command_stages_preserve_every_user_variant_selector_and_context_role",
+              "request_processors::turn_processor::turn_command_data::tests::original_command_preserves_absent_null_empty_and_start_tier_assembly",
+              "request_processors::turn_processor::turn_command_data::tests::original_command_keeps_validation_priority_unicode_count_and_late_output_image_refusal",
+              "request_processors::turn_processor::turn_command_data::tests::original_command_preserves_function_output_content_without_rendering_or_materializing",
+              "request_processors::turn_processor::turn_settings_data::tests::unchanged_normalization_needs_no_live_snapshot_or_startup_preview",
+              "request_processors::turn_processor::turn_settings_data::tests::original_explicit_empty_and_default_environment_paths_keep_distinct_roots",
+              "request_processors::turn_processor::turn_settings_data::tests::selected_settings_named_permission_failure_and_candidate_one_use_refuse_without_start",
+              "config_manager::runtime_feature_source::tests::owned_runtime_observation_outlives_initiating_manager_and_tracks_shared_clone_aba",
+              "config_manager::runtime_feature_source::tests::owned_poisoned_original_publisher_refuses_observation_and_association",
+              "config_manager::selected_start_config::tests::owned_selected_source_outlives_initiating_manager_and_rejects_foreign_substitution",
+              "config_manager::selected_start_config::tests::owned_selected_source_keeps_same_writer_clone_publication_and_refuses_aba",
+              "request_processors::turn_processor::turn_command_data::tests::route_independent_body_preserves_complete_raw_input_and_null_empty_matrix",
+              "request_processors::turn_processor::turn_command_data::tests::route_independent_body_and_original_legacy_wrapper_preserve_complete_request_data",
+              "request_processors::thread_processor::first_command_options::tests::original_default_and_explicit_options_preserve_whole_data_without_starting",
+              "request_processors::thread_processor::first_command_options::tests::original_explicit_history_roots_dynamic_mcp_trace_and_source_survive_stages",
+              "request_processors::thread_processor::first_command_options::tests::invalid_dynamic_tools_refuse_in_original_pre_metadata_stage",
+              "request_processors::client_info_data::tests::raw_metadata_preserves_absence_empty_content_and_owned_buffers_until_resolution",
+              "request_processors::client_info_data::tests::original_xcode_prefix_and_case_boundaries_are_resolved_without_normalization",
+              "config_manager::selected_start_config::tests::initiating_client_info_moves_with_original_options_reservation_and_installed_owner",
+              "config_manager::selected_start_config::tests::parsed_fresh_command_pairs_once_and_foreign_or_missing_sources_refuse_without_start",
+              "config_manager::selected_start_config::tests::first_command_model_capture_rejects_unreviewed_row_without_session_or_store",
+              "request_processors::thread_processor::fresh_command_ingress::tests::prepare_decoder_keeps_scope_selection_and_command_presence_distinct",
+              "request_processors::turn_processor::turn_command_data::tests::fresh_decode_preserves_all_original_body_fields_and_double_option_tier",
+              "config_manager::selected_start_config::tests::installed_first_step_context_retains_command_model_and_rejects_baseline_observation",
+              "config_manager::selected_start_config::tests::installed_candidate_permission_projection_uses_private_pipeline_and_keeps_named_root_refusal",
+              "config_manager::selected_start_config::tests::installed_prompt_base_keeps_original_startup_provenance_with_changed_first_personality",
+              "config_manager::selected_start_config::tests::installed_initial_model_data_consumes_actual_fresh_sources_without_claiming_complete_history"
+            ],
+            "reason": "Require exact27 nonignored AppServer data-owner cases: previous23 retained plus4 new. Prior integration regressions remain separate."
+          }
+        },
+        "prior107QualificationTransfers": false,
+        "prior107Observed": {
+          "run": 39508363990,
+          "linuxJob": 118922920077,
+          "linuxConclusion": "failure",
+          "linuxFixtureExecution": 0,
+          "linuxCause": "Five E0624 private ModelClient.auth_manager calls in AppServer unit modules, cargo test --no-run failed before discovery",
+          "linuxQualificationSha256": "fe2b5d6f18074c6df03ebb0aa9e595484f3fc4e66e0d9b61bc6bf741b59190a8",
+          "macosJob": 118922919686,
+          "macosAtObservation": "in_progress native fixtures; no terminal/full pass claimed",
+          "historical89ThreeFailures": "All three retained; no execution records in107 Linux and no green transfer"
+        },
+        "prior111QualificationTransfers": false,
+        "prior111Observed": {
+          "head": "1ff3066ba65d54ca48ed9231d3ead3de5703592e",
+          "run": 39515745556,
+          "linuxJob": 118947713685,
+          "linuxConclusion": "failure",
+          "linuxCompletedAt": "2026-10-21T00:36:33Z",
+          "linuxCause": "All three phases failed compilation before discovery or fixture execution: early Core3 E0308, Goal1 E0308, full22+Linux sandbox repeats the same3 Core E0308. Seven diagnostic occurrences at four unique locations. Zero-byte lists are invalid JSON, not successful discovery; formatting did not execute.",
+          "linuxOfficialLogSha256": "af7c92cebe5dc7edc0cf5e65590841f6652df082bc7de8b0c02246e684d1a167",
+          "linuxArtifactSha256": "ad6f9c4440123928ab278f9a073aebdaa4b2f093e2da9c13f1c4f4e390b86270",
+          "macosJob": 118947713925,
+          "localArcFix": "Four construction wrappers only, original test assertions retained; fresh both-OS CI required.",
+          "linuxIndependentQualificationSha256": "ab6b7d18df26be5a4a355a85b9842787fd1a76a9a62bdcf5fcdfc12a37391a27",
+          "macosConclusion": "failure",
+          "macosCompletedAt": "2026-10-21T00:52:36Z",
+          "macosOfficialLogSha256": "64b10de5e7313863e385af4e409c871911130272a6cb4bdca4700b499bd3542e",
+          "macosArtifactSha256": "eb04bd18b12f5373c7a681183ef6425fecb74c3c8af671843c4598105c929ad1",
+          "macosObservedCause": "All three phases failed with the same four unique E0308 registry-owner locations; full phase repeats three Core diagnostics. Independent terminal qualification pending. No native pass or transfer claimed."
+        },
+        "prior115QualificationTransfers": false,
+        "prior115Observed": {
+          "head": "3ed216ac1861ead08b84f91a2157aa9e9076dab9",
+          "run": 39524272993,
+          "host": "ALL8SUCCESS",
+          "linuxJob": 118975155324,
+          "linux": "TerminalFAIL: early18Core and full22+Linuxsandbox compile E0505 at configured_settings_update_tests103 before discovery/execution; separate4namedGoal/APIunitPASS from actual list/log/phaseJUnit, independently qualified. Formatting skipped.",
+          "macosJob": 118975155512,
+          "macos": "TerminalFAIL: actualmetadata Core14/full16FAIL/extension15SUCCESS/fmtSKIP/helpersSUCCESS. Bounded Core raw triage observes same E0505 config move103/borrow90/lastuse107 in two diagnostics, no extra Ecode. Independent named phase qualification pending; no Mac fixture counts claimed here.",
+          "sourceOnlyPrivateRepair": "Identical config Arc field moved after parts.disabled_plugin_ids lastborrow, no compilerPASSclaim.",
+          "linuxCompletedAt": "2026-10-21T01:37:42Z",
+          "linuxOfficialLogSha256": "65be67b472acd603e2fa5796a395aa5709021435b2ea5b3d6c7e8fe0ba8d056f",
+          "linuxArtifactSha256": "80f949cef2cf629a6ac2e82eea8d8b9ca2a1854412fc4fd45a9a90c57b15c9c4",
+          "linuxIndependentQualificationSha256": "d585fc9749953479037d8e863ec54d084c4c0e00d13ec25d99f34a5606a0eddc",
+          "macosConclusion": "failure",
+          "macosCompletedAt": "2026-10-21T02:15:29Z",
+          "macosOfficialLogSha256": "13c215e1fcf1084f39a453980ab2718477906d9c1cceb442dc3e72cf5bf4b845",
+          "macosArtifactSha256": "bb8b78612e57f130c185090dabbe2ddfad33b970ce1cbac11b78344494d74ed0",
+          "macosArtifact": 12315587341,
+          "macosIndependentQualification": "Pending C sole qualifier; later seal updates PR body/checkpoint without regenerating source or restarting119CI.",
+          "bothTerminalBeforeSuccessorPublication": true,
+          "noQualificationTransfer": "Both115terminalfacts andLinux4unitPASS retain115source identity only; all119fixtures require fresh exact-source CI."
+        },
+        "prior119QualificationTransfers": false,
+        "prior119Observed": {
+          "head": "129055fb2667246cdb7e11bb355fa44ba32bf5c9",
+          "native": "bd59b7a06af3ec4291b3198cfe64af30f4a71e94",
+          "combinedQualification": {
+            "path": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/implementation-evidence/native119-both-terminal-phases/both-platform-terminal-qualification.json",
+            "sha256": "2156d6628beb5503f4bba4362733f2e3bc925512515acd49799709fb4369bb67",
+            "fullSemanticReadIncluding38NamedRows": true
+          },
+          "platforms": [
+            {
+              "platform": "macos-26",
+              "job": 119002591124,
+              "receipt": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/implementation-evidence/native119-macos-terminal-phases/source-results-qualification.json",
+              "sha256": "318686074fe8563bbc098071325a357c97e86cbc8fffb606e3ae95e402810780",
+              "full": {
+                "passed": 9409,
+                "failed": 8,
+                "SIGABRT": 7,
+                "otherFailures": 1,
+                "executed": 9417,
+                "filteredSkipped": 39,
+                "durationSeconds": "3673.637"
+              },
+              "format": "SKIPPED"
+            },
+            {
+              "platform": "ubuntu-24.04",
+              "job": 119002591001,
+              "receipt": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/implementation-evidence/native119-linux-terminal-phases/source-results-qualification.json",
+              "sha256": "f69f3debcdae6dfd964fbf46b5c3b5cbcefaa4242a5f4251993935940bd915e3",
+              "precisionAddendum": "/Users/dsaridak/Documents/Codex/2026-10-17/implement-this-symposium-acceptance-workstream-read/implementation-evidence/native119-linux-terminal-phases/source-binding-precision-addendum.json",
+              "precisionAddendumSHA256": "f08bdce1838d6a18da8ddde88ab7c353ae8be36aefdfa2f7ea8cfdfc04dace96",
+              "full": {
+                "passed": 9621,
+                "failed": 12,
+                "SIGABRT": 7,
+                "otherFailures": 5,
+                "executed": 9633,
+                "filteredSkipped": 23,
+                "durationSeconds": "4659.041"
+              },
+              "format": "SKIPPED"
+            }
+          ],
+          "sameFocusedIdentitiesPerOS": 38,
+          "fullSuiteOverlapPerOS": 34,
+          "distinctFailedIdentities": 13,
+          "sharedExplicitStackOverflows": 7,
+          "meaning": "Both full suites failed and format skipped. Retain failures; next source needs fresh CI. Diagnostics do not establish repairs of residual assertions/Mac deadline."
+        },
+        "priorStackRegressionPhase": {
+          "requiredExactNames": [
+            "suite::v2::mcp_resource::metadata_and_mcp_requests_complete_while_unrelated_resume_loads_config",
+            "suite::v2::mcp_resource::resume_reloads_config_when_saved_workspace_roots_change",
+            "suite::v2::mcp_resource::resume_revalidates_persisted_thread_after_config_load::duplicate_resume",
+            "suite::v2::mcp_resource::resume_revalidates_persisted_thread_after_config_load::git_metadata_and_project_assignment",
+            "suite::v2::mcp_resource::resume_revalidates_persisted_thread_after_config_load::project_deletion",
+            "suite::v2::remote_thread_store::cold_thread_resume_rechecks_non_local_history_after_config_load",
+            "guardian::tests::guardian_ephemeral_retry_preserves_parallel_trunk_and_fork_history"
+          ],
+          "purpose": "Seven original failing identities, same budgets/8MiB/one thread/zero retries. Full original suite still executes independently; overlapping passes not added."
+        },
+        "prior127QualificationTransfers": false,
+        "prior127Observed": {
+          "head": "16962f7fe6f6aae440458453273eab5513271a43",
+          "native": "01f39b8e6222fda4c0e08207d3a2750cb17d17d2",
+          "run": 39550671427,
+          "linuxQualificationSha256": "e9d48781ab97ed83d4e606a74ef658769f9c50fd6f787cec30a2455bb567395a",
+          "macosQualificationSha256": "116f453cbbf77a74a3125a82c4be943efc1af1af63d73614cd891e805f68fdc5",
+          "perPlatformActualUnitPass": {
+            "AppServer": 23,
+            "GoalApi": 4
+          },
+          "Core37AndPriorStack7": "Compilation failed before discovery/execution; redirected lists0B INVALID JSON.",
+          "fullSuites": "Original22 packages attempted on Mac, plus Linux sandbox on Linux; both compile101 before runtime, formatting SKIPPED.",
+          "cause": "Same four codex-core lib-test compiler sites in three phases per OS: Features/ManagedFeatures mismatch, unsupported ResponseItemId conversion and two helper calls shadowed by local request.",
+          "old119RuntimeFailures": "Thirteen unique failures, including seven explicit stack overflows, remain unresolved and unmeasured by127.",
+          "meaning": "Per-platform exact list/log/official/JUnit source qualification retained. No pass donation, overlap addition, runtime-stack repair or successor qualification."
+        }
+      },
+      "sourceReviews": {
+        "retainedFrame": "Root17sourcechecks closed b9, receipt771fd2c54959336026a211332f1171f9dcbd85a856fd57e8fbfec1b2edc9b455",
+        "clientIssuer": "Root14V3 +17finalscope checks closed c3; producer88/59/31static layers retained, not test totals; receipt53ce49cb2de102a35868f98812ac9ac410a4b9ebd7e12e0df607ad87972d83c5",
+        "scopedFormat": "Installed1.95 only19ownedpaths; raw755semantic/extraction lines,1175formattedlines separated;8newclientfixtures uncompiled/unrun locally",
+        "localRustCompilerOrTestsInvoked": false,
+        "startupSelection": "RootSINGLE13inert source5907d3de +7finalcustody3817c4c2/Core70a0intake; exact8files/all8903unownedmodes/4newfixturesUNCOMPILED_UNRUN. 720raw vs1254Gitformatted plus924mechanical alignment retained, no compilerclaim.",
+        "testImport": "Core exact1linefixtureimportb17/allproduction-and-assertionsunchanged; Rootstaticcausalrepairread, freshCIpending",
+        "goal": "SAME RootSINGLEsource9209/custody555a/Core490c; fourUNCOMPILED_UNRUN realGoal/API fixtures, originalmetadata/configonly/realhandlers preserved.",
+        "admittedCarry": "SAME RootSINGLE13source0f454/Core650a/actualhandoffbb1b; fiveUNCOMPILED_UNRUN genericCore realregistry/admittedturn/routerfixtures; twoonlymechanicalNone inoldtestliterals.",
+        "authTestSupport": "Root SINGLE10 causal source e3ab0848; same actual five clients/auth Arc identities; original private getter/runtime/Cargo unchanged. No compile claim.",
+        "commandData": "Root SINGLE15 full semantic 4e27f9 +mechanical353 rebind7 5f2f919c; exact3 postimages/25fields/17ordinary effect positions/whole inverse and all unowned modes. Four UNCOMPILED_UNRUN fixtures.",
+        "configuredBaseline": "Root SINGLE source b54bb7187c34834ba86f1cfb651a74803466863d92e2c3e54f67f21cd8b4d070; actual aed custody 6de856994bf5faffd7ea9f23d723a6cbac502632b3beb73f8ff5640998bb3135. Four new fixtures UNCOMPILED_UNRUN.",
+        "retainedConfiguredBaseline": "Root source 31007335066223ad3c27e36cdb18a79af1b52935c944509cd0070bbac088a72b; actual cad custody 4d5de9c2fa20c45c219703d07b90977b4af2a42f7c5532cc3f01cf1d3719c025. Three new fixtures UNCOMPILED_UNRUN.",
+        "providerlessSettingsUpdate": "Root SINGLE v2 source 1a2ffbe16f2e2d800c21cce2b14554b467b183cbb9dd40ac116666f706e18763; actual50aa custody a7e194d3957effe22930b83e16b0e60223a2ccccae0a554d76268f525c16f653. Original private effective_permission_profile adapter retained; three meaningful new fixtures UNCOMPILED_UNRUN.",
+        "arcFixtureOwners": "Root source bf9500086a59a540bed9e76692e0d84458affd387acd52bc1d02b9c05ab02b81; actual44f custody 677bacfa3e0b39adade3e81b3b29effc9c96f7efdbfe890c528904af147a0824. Four Arc wrappers in three existing test files, no production changes.",
+        "selectedSettingsNormalizerAndCandidate": "Root single source45f0af51e06f8366c21fa1894e087aedbb4d9978e5428cbf1e3c811ca3ac3d24; actualc5a custodyb6740c4213a7529af27cd80d1c8421e8e77a1d4adc300ccde4eff86b2e32eb41. Elevenpaths/sixfixtures, sourceonly; complete selectedcommand/adoption OPEN.",
+        "ownedOriginalConfigAndPublisher": "Root16check source4a5552d177b10c30671a2e2100bbb1d73249e0badfb42cca1edef9a4e754a502; actual1be custodyb3525257db3f457d38e435be1e5c17a41b1036ba289597f0de20af19aa7d4ba8. Fivepaths/fournewfixtures, sameexistingowners only.",
+        "providerlessFixtureBorrowOrder": "Root9check sourcedb9bb3cabcc57ccdee562acd27dfd8550a0ec7c9912b02747484b6bbbf68578c; actual35c custodyb3525257db3f457d38e435be1e5c17a41b1036ba289597f0de20af19aa7d4ba8. Oneidenticaltestfieldreorder, no newfixture/assertion/production change.",
+        "routeIndependentCommandBody": "Root17check source7512d6f74438cc58a613c69e60188710e329be7558642b32fe8dd531213fe60c; actualbd59receipt61873bf05dba3ddb77db63039cbf65cc288b12b63156e22d25e49deb79c4eb83. Twoexistingpaths/twofixtures; originalwholeordinarycaller/25move/errororder and oldoracles preserved. Sourceonly, actualRoot9checkcustody8a1147d94157809b7e3d2b2fd30cb8dae280d1f2f306993bea901e1b8c3c0cfe closed.",
+        "privateOrdinaryInputsBatch": {
+          "preparationSha256": "871ed92aedd7e449726d501ac625cea85cb49012a21f2285d407ca0dd4c171cb",
+          "actualPrivateCommits": [
+            "e58d1c481ff8584d2f9daa3b75321e5716fcd7eb",
+            "5b0ab5f0ab1118689aa093a29fef3f1973c80bd4",
+            "d93af09902f5c3d6d8973f11a2e4d9dacdc94e29",
+            "c252187c9b69d18b6734398e1c8f52c9db0f0a98",
+            "882e0f98a0d1ebd6b3499a2bca628f40bd2b71b7",
+            "950c367c042264799e923cd9a56b913dffdbe935",
+            "ed3de44b83d71680da4c1e2f587a41b547d57654",
+            "01f39b8e6222fda4c0e08207d3a2750cb17d17d2"
+          ],
+          "status": "Bounded source peers and exact normal commits only; new fixtures UNCOMPILED_UNRUN until CI.",
+          "compilerAndModelCalls": 0
+        },
+        "post127OriginalDataBatch": {
+          "preparationSha256": "c0501ea3e6db8bde6b53b575cf0763f7b0bc45cb7886429f699586d999650212",
+          "actualPrivateCommits": [
+            "3cc8dc7d425a24ef0c5666202e00562b48140dc9",
+            "b75359f1c24fd22ad03986f74807016dcf75f89e",
+            "d881bf6195f8efcaaec2f0e7416ec730f90cee86",
+            "65464e9129723878049d2e0f21a19392220bd7f0",
+            "e99e935415db390b0801a3a2cac3a090baeb6675",
+            "44ae9263c7cdebe750ff0f3371c6d545e7ebf6f7"
+          ],
+          "status": "Reuse six bounded source peers and exact normal actual commits; new fixtures uncompiled/unrun until CI.",
           "compilerAndModelCalls": 0
         }
       }
