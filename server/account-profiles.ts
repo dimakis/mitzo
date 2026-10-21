@@ -755,7 +755,14 @@ export class AccountProfiles {
         deadline.signal,
       );
       // Configured presentation/capabilities are retained only for models the key still lists.
-      return models.map((model) => profile.models.find((entry) => entry.id === model.id) ?? model);
+      return models.map(
+        (model) =>
+          profile.models.find((entry) => entry.id === model.id) ?? {
+            ...model,
+            // Enrollment also carries Codex-only levels; API requests stop at max.
+            reasoningEfforts: model.reasoningEfforts?.filter((effort) => effort !== 'ultra'),
+          },
+      );
     } finally {
       clearTimeout(timeout);
     }

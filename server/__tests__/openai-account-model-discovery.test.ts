@@ -185,3 +185,18 @@ it('never falls back to an interpreter credential read when the signed helper fa
   expect(profiles.catalog()[0].models).toEqual(configured.models);
   expect(profiles.catalog()[0].modelDiscovery.stale).toBe(true);
 });
+
+it('exposes only API reasoning levels for newly discovered models', async () => {
+  vi.spyOn(credentials, 'resolve').mockResolvedValue('SYNTHETIC_WORK_KEY');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof fetch>().mockResolvedValue(catalog('gpt-6.1-sol', 'gpt-6-luna')),
+  );
+  const configured = profile();
+  const profiles = new AccountProfiles([configured]);
+  await profiles.refresh();
+  const sol = profiles.catalog()[0].models.find((model) => model.id === 'gpt-6.1-sol')!;
+  expect(sol.reasoningEfforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+  const binding = profiles.resolve(configured.id, sol.id);
+  expect(() => profiles.validateModelSelection(binding, sol.id, 'ultra')).toThrow(/unavailable/);
+});
