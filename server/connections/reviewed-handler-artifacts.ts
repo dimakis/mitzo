@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.515-local-catalog-hydration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.516-local-codex-bootstrap';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -646,7 +646,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-bootstrap.ts':
     '51c9661ffb78ad881e1f24128d768b4026570dd63b02b5ee6f8b5df11768304d',
   '../owned-codex-lifecycle-bridge.ts':
-    '784da43bccb37c0ec044ddddfebf547c6d72f94737e32b35378ac761376d0f1c',
+    '51fcf724b65efc92e8b819fb9920d9134595aebc6b5a3d604e222f80369538b3',
   '../owned-local-codex-chat-admission.ts':
     '8f610e04aed917d7d41f550344bb2837e7c77959a0e973fb01858a00297e06e4',
   '../codex-account.ts': 'dc2ac5efec915495b6af3c7a3001ea4856427ca2d185648a864d2ceeb6593e71',

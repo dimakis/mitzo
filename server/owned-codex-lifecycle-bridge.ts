@@ -24,8 +24,24 @@ export class OwnedCodexLifecycleBridge {
           if (this.#closed) throw unavailable();
           if (!this.#owner) {
             // These bootstrap observations have no conversation execution or
-            // host-tool effects. Every other unsolicited notification refuses.
+            // host-tool effects. They confer no login or execution authority;
+            // the bootstrap lease independently verifies account and file custody.
             if (method === 'account/updated' || method === 'account/rateLimits/updated') return;
+            if (
+              method === 'remoteControl/status/changed' &&
+              params.status === 'disabled' &&
+              params.environmentId === null
+            )
+              return;
+            if (
+              method === 'account/login/completed' &&
+              params.loginId === null &&
+              params.success === true &&
+              params.error === null
+            )
+              return;
+            // Every other unsolicited notification refuses, including remote
+            // execution, another login flow and pre-attachment thread/turn events.
             throw unavailable();
           }
           this.assertCurrentSync();
