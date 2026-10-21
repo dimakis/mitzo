@@ -9,6 +9,8 @@ import {
   OrdinaryWorkspaceFirstCommandSchema,
   LocalCodexFirstCommandSchema,
   AgentLibraryVersionSchema,
+  DEFAULT_MITZO_PROFILE_ID,
+  DEFAULT_MITZO_PROFILE_REVISION,
   AgentContextSnapshotSchema,
   type AgentLibraryVersion,
   type AgentContextSnapshot,
@@ -56,6 +58,13 @@ export function useExplicitLocalChat(
     // Saved runtime intent (including an empty account) and session metadata win.
     const preferred = ChatRuntimeSelectionSchema.safeParse({
       ...createChatRuntimeSelection(),
+      agentProfile: sessionId
+        ? null
+        : {
+            kind: 'builtin',
+            profileId: DEFAULT_MITZO_PROFILE_ID,
+            revision: DEFAULT_MITZO_PROFILE_REVISION,
+          },
       account: sessionId
         ? null
         : savedAccount === undefined
