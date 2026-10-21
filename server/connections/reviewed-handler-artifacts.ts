@@ -795,7 +795,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../home-assistant-dashboard.ts':
     '1053d482935af066472aedd48365af2b71cb7cf55e30ee88cc9fcf89b96e1d62',
   '../credential-connections.ts':
-    '1ec75f6c3433fad4cdb81de0c9fe27586a72fc599663abdd1474a69be306614f',
+    '30a05f30e80fe1adc4ca0d68b136d1af6fbeb458c69e8e4cbf37299d740db5a8',
   '../credential-connections-router.ts':
     'bf73811f41540bdeb3d4d7c0d7db02659a7b2aae92b1ae67c36438a45cecf606',
   '../credential-connection-tools.ts':
@@ -1299,7 +1299,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '87d6517e779b9b29f2e636a1919ea844beb0fc034f01fbfdf1c740fa5117ab52',
   '../../frontend/src/lib/telos-source-updates.ts':
     'd04a21a711eb8c7118491d94b1363f02b36b0f7457bbe711906f3d67bdbb6e8d',
-  '../secret-relay.ts': '50be8dd2175b03d790edf28df5ac21ea0810e81bacf302a603922dbc49e272a6',
+  '../secret-relay.ts': 'ab0556cb51dfbc4b5eb3a29e7b21e13f5b185a69b95d822e2f4ef8d3bb4bf1da',
   '../secret-relay-lan.ts': '03442b04b8a16ddc3146813f43ed45d9b4ae8fa0a64971a100de48d9a791a812',
   '../secret-relay-runtime.ts': '1fccbbf593e4ca04a116896c3221f8e01ca98bb2b014924eca114b0ef6e520ea',
   '../openshell-secret-vault.ts':

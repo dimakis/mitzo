@@ -771,12 +771,21 @@ export class CredentialConnections {
     controllers.add(controller);
     this.active.set(key, controllers);
     const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30_000)]);
+    // The transport performs additional async checks before HTTP dispatch and
+    // after DNS. Carry the relay's current consent through each of those awaits.
+    const finalAuthority = relay
+      ? async () => {
+          await assertRuntimeCurrent?.();
+          combined.throwIfAborted();
+          check();
+        }
+      : assertRuntimeCurrent;
     try {
       const secret = await this.vault.read(c.credentialRef);
       combined.throwIfAborted();
       check();
       if (!secret || /[\r\n]/.test(secret)) throw new Error('Credential unavailable');
-      await assertRuntimeCurrent?.();
+      await finalAuthority?.();
       check();
       const headers = credentialHeaders(c.auth, secret);
       if (relay)
@@ -790,7 +799,7 @@ export class CredentialConnections {
           headers,
           body: request.body,
           allowPrivateNetwork: c.allowPrivateNetwork,
-          assertRuntimeCurrent,
+          assertRuntimeCurrent: finalAuthority,
         },
         combined,
       );

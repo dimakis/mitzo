@@ -180,3 +180,32 @@ it('allows exact local device form writes only with the separate LAN adapter ena
   const draft = enabled.prepare('chat', input);
   expect(draft.targets[0].endpoint).toBe('http://192.168.1.115');
 });
+
+it('caps in-flight secret writes to relay expiry independently of the outer timeout', async () => {
+  const f = fixture();
+  const draft = f.service.prepare('chat', f.input);
+  await f.service.complete(draft.id, 1, 'private-fixture', signal(), () => true);
+  f.store.putRelay({ ...f.store.getRelay(draft.id)!, expiresAt: Date.now() + 50 });
+  const outer = AbortSignal.timeout(500);
+  let outerAborted: boolean | undefined;
+  f.apply.mockImplementationOnce(
+    async (_session, _target, _body, _encoding, activeSignal, _check, dispatched) => {
+      dispatched();
+      await new Promise<void>((_resolve, reject) =>
+        activeSignal.addEventListener(
+          'abort',
+          () => {
+            outerAborted = outer.aborted;
+            reject(new Error('Cancelled'));
+          },
+          { once: true },
+        ),
+      );
+      return { status: 200 };
+    },
+  );
+  expect(await f.service.apply('chat', draft.id, 0, outer, () => true)).toEqual({
+    outcome: 'unconfirmed',
+  });
+  expect(outerAborted).toBe(false);
+});

@@ -103,3 +103,32 @@ it('does not journal dispatch when runtime authority fails', async () => {
   expect(dispatched).not.toHaveBeenCalled();
   expect(send).not.toHaveBeenCalled();
 });
+
+it('rechecks relay consent after the transport final authority await before transmitting', async () => {
+  const { service, target, send } = await fixture();
+  let allowed = true;
+  let assertions = 0;
+  const transmitted = vi.fn();
+  send.mockImplementationOnce(async (input) => {
+    await input.assertRuntimeCurrent?.();
+    transmitted();
+    return { status: 200, body: 'private-fixture' };
+  });
+  await expect(
+    service.applyRelayTarget(
+      'chat',
+      target,
+      '{}',
+      'json',
+      AbortSignal.timeout(1000),
+      () => {
+        if (!allowed) throw new Error('Relay expired or permissions changed');
+      },
+      vi.fn(),
+      async () => {
+        if (++assertions === 2) allowed = false;
+      },
+    ),
+  ).rejects.toThrow();
+  expect(transmitted).not.toHaveBeenCalled();
+});

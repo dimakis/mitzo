@@ -220,7 +220,11 @@ export class SecretRelays {
     relay.targets.forEach((t) => this.checkedTarget(t));
     const controller = new AbortController();
     this.active.set(id, controller);
-    const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30000)]);
+    const combined = AbortSignal.any([
+      signal,
+      controller.signal,
+      AbortSignal.timeout(Math.max(1, Math.min(30000, relay.expiresAt - Date.now()))),
+    ]);
     relay.status = 'verifying';
     relay.revision++;
     this.store.putRelay(relay);
@@ -321,7 +325,11 @@ export class SecretRelays {
     if (this.active.has(key)) throw new Error('Secret write in progress');
     const controller = new AbortController();
     this.active.set(key, controller);
-    const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30000)]);
+    const combined = AbortSignal.any([
+      signal,
+      controller.signal,
+      AbortSignal.timeout(Math.max(1, Math.min(30000, relay.expiresAt - Date.now()))),
+    ]);
     const receipt = (outcome: RelayOutcome) => {
       const current = this.get(id);
       current.outcomes[targetIndex] = outcome;
