@@ -570,6 +570,7 @@ for (const { software, regression } of [
         .getByLabel('Discover categories')
         .getByRole('button', { name: 'Job', exact: true })
         .click();
+      await expect(page.getByLabel('Discover categories')).toHaveCount(0);
       await page.getByRole('searchbox', { name: 'Search Telos tree' }).fill(record.summary);
       await page.getByRole('button', { name: record.summary, exact: true }).click();
       await page

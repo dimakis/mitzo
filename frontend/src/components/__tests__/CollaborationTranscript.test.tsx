@@ -2,7 +2,11 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { createCollaborationProjection, applyCollaborationEvents } from '@mitzo/client';
+import {
+  createCollaborationProjection,
+  applyCollaborationEvents,
+  TelosWorkApiClient,
+} from '@mitzo/client';
 import { CollaborationTranscript } from '../CollaborationTranscript';
 import {
   sharedConversationView,
@@ -20,8 +24,23 @@ afterEach(() => {
   cleanup();
   Element.prototype.scrollTo = originalScrollTo;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 const names = { architect: 'Architect', reviewer: 'Reviewer', reader: 'Reader' };
+it('never queries ordinary origins using the aggregate collaboration identity', async () => {
+  const links = vi.spyOn(TelosWorkApiClient.prototype, 'links').mockResolvedValue([]);
+  render(
+    <MemoryRouter>
+      <CollaborationTranscript
+        projection={createCollaborationProjection(sharedConversationView())}
+        names={names}
+      />
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(screen.getByText(sharedReply.text)).toBeTruthy());
+  fireEvent(document, new Event('visibilitychange'));
+  expect(links).not.toHaveBeenCalled();
+});
 it('keeps the successful reply visible beside uncertain and pending independent recipients', () => {
   const projection = createCollaborationProjection(sharedConversationView());
   const { rerender } = render(

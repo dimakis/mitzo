@@ -3,7 +3,8 @@ import { useSessionDisplay } from '../hooks/useSessionDisplay';
 import { UiIcon } from './UiIcon';
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../lib/api-fetch';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import { telosHomeItemState } from '../lib/telos-item-navigation';
 import type { HomePin } from '@mitzo/protocol';
 import type { Session } from '../types/chat';
 import type { TodoItem } from '../types/todo';
@@ -16,6 +17,7 @@ import '../styles/home.css';
 
 export function HomePins({ sessions }: { sessions: Session[] }) {
   const home = useHomePreferences();
+  const location = useLocation();
   const { showContext } = useSessionDisplay();
   const [mode, setMode] = useState<'add' | 'manage' | null>(null);
   return (
@@ -46,6 +48,7 @@ export function HomePins({ sessions }: { sessions: Session[] }) {
       ) : home.preferences?.pins.length ? (
         home.preferences.pins.map((pin) => (
           <Link
+            state={pin.kind === 'telos' ? telosHomeItemState(location) : undefined}
             className="workspace-record home-record"
             key={`${pin.kind}:${pin.id}`}
             to={

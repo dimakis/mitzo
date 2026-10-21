@@ -11,6 +11,32 @@ export function initializeTelosWorkSchema(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS telos_work_control_evidence(seq INTEGER PRIMARY KEY,control_id TEXT NOT NULL REFERENCES telos_work_controls(control_id),data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS telos_work_control_revalidations(control_id TEXT NOT NULL REFERENCES telos_work_controls(control_id),item_id TEXT NOT NULL REFERENCES items(id),main_commit TEXT NOT NULL,work_revision TEXT NOT NULL,evidence_ref TEXT NOT NULL,PRIMARY KEY(control_id,item_id,main_commit,work_revision,evidence_ref));
     CREATE TABLE IF NOT EXISTS telos_work_control_commands(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,fingerprint TEXT NOT NULL,receipt TEXT NOT NULL,PRIMARY KEY(actor_id,request_id));
+    CREATE TABLE IF NOT EXISTS telos_work_main_publications(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,item_id TEXT NOT NULL REFERENCES items(id),fingerprint TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(actor_id,request_id));
+    CREATE TABLE IF NOT EXISTS telos_work_main_publication_acknowledgements(actor_id TEXT NOT NULL,request_id TEXT NOT NULL,merge_commit TEXT NOT NULL,approval_receipt_id TEXT NOT NULL,PRIMARY KEY(actor_id,request_id,merge_commit),FOREIGN KEY(actor_id,request_id) REFERENCES telos_work_main_publications(actor_id,request_id));
+    CREATE TRIGGER IF NOT EXISTS telos_work_main_publication_ack_owner BEFORE INSERT ON telos_work_main_publication_acknowledgements WHEN NOT EXISTS (
+      SELECT 1 FROM telos_work_main_publications WHERE actor_id=NEW.actor_id AND request_id=NEW.request_id
+      AND json_extract(data,'$.state') IN ('uncertain','accepted') AND json_extract(data,'$.pins.contract')='normal-pr-rules-v1'
+      AND json_extract(data,'$.approvalReceiptId')=NEW.approval_receipt_id
+    ) BEGIN SELECT RAISE(ABORT,'Publication acknowledgement requires its admitted approval'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_main_publication_ack_no_update BEFORE UPDATE ON telos_work_main_publication_acknowledgements BEGIN SELECT RAISE(ABORT,'Publication acknowledgements are immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_main_publication_ack_no_delete BEFORE DELETE ON telos_work_main_publication_acknowledgements BEGIN SELECT RAISE(ABORT,'Publication acknowledgements are retained'); END;
+    CREATE UNIQUE INDEX IF NOT EXISTS telos_work_main_publications_one_approval ON telos_work_main_publications(json_extract(data,'$.approvalReceiptId')) WHERE json_extract(data,'$.approvalReceiptId') IS NOT NULL;
+    CREATE TRIGGER IF NOT EXISTS telos_work_main_publications_identity BEFORE UPDATE OF actor_id,request_id,item_id,fingerprint ON telos_work_main_publications BEGIN SELECT RAISE(ABORT,'Publication request identity is immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_main_publications_no_delete BEFORE DELETE ON telos_work_main_publications BEGIN SELECT RAISE(ABORT,'Publication uncertainty and receipts are retained'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_main_publications_pins BEFORE UPDATE OF data ON telos_work_main_publications WHEN json_extract(NEW.data,'$.pins') IS NOT json_extract(OLD.data,'$.pins') BEGIN SELECT RAISE(ABORT,'Publication pins are immutable'); END;
+    DROP TRIGGER IF EXISTS telos_work_main_publications_terminal;
+    CREATE TRIGGER IF NOT EXISTS telos_work_main_publications_terminal BEFORE UPDATE OF data ON telos_work_main_publications WHEN NOT (
+      (json_extract(OLD.data,'$.state')='requested' AND json_extract(NEW.data,'$.state') IN ('denied','uncertain')) OR
+      (json_extract(OLD.data,'$.state')='uncertain' AND json_extract(NEW.data,'$.state')='accepted') OR
+      (json_extract(OLD.data,'$.state')='uncertain' AND json_extract(NEW.data,'$.state')='uncertain' AND json_extract(OLD.data,'$.remoteMergeCommit') IS NULL AND json_remove(NEW.data,'$.remoteMergeCommit')=json_remove(OLD.data,'$.remoteMergeCommit')) OR
+      NEW.data=OLD.data
+    ) BEGIN SELECT RAISE(ABORT,'Publication admission and terminal receipts cannot be reset'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_main_publications_observations BEFORE UPDATE OF data ON telos_work_main_publications WHEN
+      (json_extract(OLD.data,'$.inspectedMainHead') IS NOT NULL AND json_extract(NEW.data,'$.inspectedMainHead') IS NOT json_extract(OLD.data,'$.inspectedMainHead')) OR
+      (json_extract(OLD.data,'$.admittedMainHead') IS NOT NULL AND json_extract(NEW.data,'$.admittedMainHead') IS NOT json_extract(OLD.data,'$.admittedMainHead')) OR
+      (json_extract(OLD.data,'$.remoteMergeCommit') IS NOT NULL AND json_extract(NEW.data,'$.remoteMergeCommit') IS NOT json_extract(OLD.data,'$.remoteMergeCommit'))
+      BEGIN SELECT RAISE(ABORT,'Publication observations and remote acknowledgement are immutable'); END;
+    CREATE TRIGGER IF NOT EXISTS telos_work_main_publications_approval BEFORE UPDATE OF data ON telos_work_main_publications WHEN json_extract(OLD.data,'$.approvalReceiptId') IS NOT NULL AND json_extract(NEW.data,'$.approvalReceiptId') IS NOT json_extract(OLD.data,'$.approvalReceiptId') BEGIN SELECT RAISE(ABORT,'Publication approval receipt is immutable'); END;
     CREATE TRIGGER IF NOT EXISTS telos_work_control_evidence_no_update BEFORE UPDATE ON telos_work_control_evidence BEGIN SELECT RAISE(ABORT,'Control evidence is immutable'); END;
     CREATE TRIGGER IF NOT EXISTS telos_work_control_evidence_no_delete BEFORE DELETE ON telos_work_control_evidence BEGIN SELECT RAISE(ABORT,'Control evidence is immutable'); END;
     CREATE TABLE IF NOT EXISTS telos_work_kinds(item_id TEXT PRIMARY KEY REFERENCES items(id),kind TEXT NOT NULL CHECK(kind IN ('coordinator','outcome','work_item')));

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
+import { createLogger } from './logger.js';
 import {
   CredentialReferenceSchema,
   type CredentialReference,
@@ -19,21 +20,57 @@ export type PublicationCommandRunner = (
   args: readonly string[],
   signal: AbortSignal,
   environment: NodeJS.ProcessEnv,
+  /** After async directory/environment preparation, obtain the final synchronous
+   * admission action. Invoke it immediately before the process effect. */
+  prepareDispatch?: () => Promise<() => void>,
 ) => Promise<{ stdout: string }>;
 const execute = promisify(execFile);
-const commandRunner: PublicationCommandRunner = async (command, args, signal, environment) => {
+const log = createLogger('publication-credentials');
+const commandRunner: PublicationCommandRunner = async (
+  command,
+  args,
+  signal,
+  environment,
+  prepareDispatch,
+) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mitzo-publication-command-'));
+  let received = false;
   try {
-    return await execute(command, [...args], {
+    const argv = [...args];
+    const options = {
       cwd,
       env: { ...environment, HOME: cwd, GH_CONFIG_DIR: cwd },
       signal,
       timeout: 60_000,
       maxBuffer: 4 * 1024 * 1024,
-      encoding: 'utf8',
-    });
+      encoding: 'utf8' as const,
+    };
+    const dispatch = prepareDispatch ? await prepareDispatch() : undefined;
+    signal.throwIfAborted();
+    dispatch?.();
+    signal.throwIfAborted();
+    const response = await execute(command, argv, options);
+    received = true;
+    return response;
   } finally {
-    await rm(cwd, { recursive: true, force: true });
+    if (prepareDispatch && received) {
+      try {
+        await rm(cwd, { recursive: true, force: true });
+      } catch {
+        // Preserve the received mutation fact for its original ACK owner. A
+        // cleanup failure grants no further effect or credential authority.
+        try {
+          log.warn(
+            'Isolated publication command cleanup failed after a received mutation response',
+          );
+        } catch {
+          // A diagnostic sink must not discard the already received response.
+        }
+      }
+    } else {
+      // Legacy reads and failures keep their original cleanup error behavior.
+      await rm(cwd, { recursive: true, force: true });
+    }
   }
 };
 interface Entry {
@@ -48,6 +85,10 @@ interface Entry {
  * controls that boundary. Never silently replace a selected credential. */
 export class PublicationCredentialCustodian {
   private readonly entries = new Map<string, Entry>();
+  private readonly mergeDispatchers = new WeakMap<
+    PublicationCredentialHandle,
+    (args: readonly string[], signal: AbortSignal, admit: () => void) => Promise<{ stdout: string }>
+  >();
   constructor(
     private readonly resolver: CredentialResolver,
     private readonly runner: PublicationCommandRunner = commandRunner,
@@ -93,6 +134,24 @@ export class PublicationCredentialCustodian {
       ? entry.handle
       : null;
   }
+  /** Separate dispatch boundary for a genuine handle minted by THIS custodian.
+   * It supplies no merge permission: the original owner must synchronously admit
+   * after all credential and command preparation, immediately before dispatch. */
+  async dispatchMainMerge(
+    handle: PublicationCredentialHandle,
+    args: readonly string[],
+    signal: AbortSignal,
+    admit: () => void,
+  ): Promise<{ stdout: string }> {
+    const dispatch = this.mergeDispatchers.get(handle);
+    if (
+      !dispatch ||
+      this.resolve(handle.connectionId, handle.revision, handle.generation) !== handle
+    )
+      throw new Error('Original selected publication credential required');
+    signal.throwIfAborted();
+    return dispatch(args, signal, admit);
+  }
   async select(id: string, revision: number): Promise<PublicationCredentialHandle> {
     const entry = this.current(id, revision);
     if (entry.handle) return entry.handle;
@@ -122,73 +181,110 @@ export class PublicationCredentialCustodian {
       }
       assertCurrent();
     };
+    const run = async (
+      command: 'gh' | 'git',
+      args: readonly string[],
+      signal: AbortSignal,
+      dispatch?: () => void,
+    ) => {
+      await verify();
+      const combined = AbortSignal.any([signal, cancel.signal, AbortSignal.timeout(60_000)]);
+      combined.throwIfAborted();
+      // Whitelisted environment, no inherited Git configuration, auth, proxies,
+      // hooks or user configuration. Secret appears only in child environment.
+      const env = {
+        PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin',
+        HOME: '/dev/null',
+        GH_CONFIG_DIR: '/dev/null',
+        GH_TOKEN: secret,
+        GITHUB_TOKEN: secret,
+        GH_PROMPT_DISABLED: '1',
+        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_GLOBAL: '/dev/null',
+        GIT_TERMINAL_PROMPT: '0',
+        GIT_CONFIG_COUNT: '3',
+        GIT_CONFIG_KEY_0: 'core.hooksPath',
+        GIT_CONFIG_VALUE_0: '/dev/null',
+        GIT_CONFIG_KEY_1: 'credential.helper',
+        GIT_CONFIG_VALUE_1: '',
+        GIT_CONFIG_KEY_2: 'credential.helper',
+        GIT_CONFIG_VALUE_2:
+          '!f() { [ "$1" = get ] || exit 0; protocol=; host=; while IFS= read -r line && [ -n "$line" ]; do case "$line" in protocol=*) protocol=${line#protocol=};; host=*) host=${line#host=};; esac; done; [ "$protocol" = https ] && [ "$host" = github.com ] || exit 1; echo username=x-access-token; echo password="$GITHUB_TOKEN"; }; f',
+      };
+      try {
+        if (
+          !['gh', 'git'].includes(command) ||
+          args.length > 128 ||
+          args.some((a) => a.length > 65536 || a.includes('\0'))
+        )
+          throw new Error('Invalid command');
+        const result = dispatch
+          ? await this.runner(command, args, combined, env, async () => {
+              // The real isolated runner has finished its asynchronous cwd
+              // preparation. Renew the SAME immutable credential once more.
+              await verify();
+              combined.throwIfAborted();
+              return () => {
+                combined.throwIfAborted();
+                assertCurrent();
+                dispatch();
+                combined.throwIfAborted();
+                assertCurrent();
+              };
+            })
+          : await this.runner(command, args, combined, env);
+        if (Buffer.byteLength(result.stdout) > 4 * 1024 * 1024 || result.stdout.includes(secret))
+          throw new Error('Invalid output');
+        // A successfully received mutation response belongs to the original
+        // admitted operation even if its authority has since been revoked.
+        // Its caller still validates immutable resource pins before recording
+        // the ACK. Reads retain their original post-response custody checks.
+        if (!dispatch) {
+          await verify();
+          combined.throwIfAborted();
+        }
+        return { stdout: result.stdout };
+      } catch (error) {
+        if (
+          command === 'gh' &&
+          !combined.aborted &&
+          typeof error === 'object' &&
+          error !== null &&
+          'stderr' in error &&
+          typeof error.stderr === 'string' &&
+          /^gh: [^\r\n]* \(HTTP 404\)\r?\n?$/.test(error.stderr)
+        ) {
+          try {
+            await verify();
+            combined.throwIfAborted();
+          } catch {
+            throw new Error('Publication credential command failed');
+          }
+          // Raw subprocess errors can contain secrets; preserve only the reviewed status.
+          throw new PublicationCredentialHttpError(404);
+        }
+        // Raw subprocess diagnostics may contain the credential; never retain a cause.
+        // eslint-disable-next-line preserve-caught-error
+        throw new Error('Publication credential command failed');
+      }
+    };
     const handle: PublicationCredentialHandle = Object.freeze({
       connectionId: id,
       revision,
       generation: randomUUID(),
       assertCurrent,
-      run: async (command: 'gh' | 'git', args: readonly string[], signal: AbortSignal) => {
-        await verify();
-        const combined = AbortSignal.any([signal, cancel.signal, AbortSignal.timeout(60_000)]);
-        combined.throwIfAborted();
-        // Whitelisted environment, no inherited Git configuration, auth, proxies,
-        // hooks or user configuration. Secret appears only in child environment.
-        const env = {
-          PATH: '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin',
-          HOME: '/dev/null',
-          GH_CONFIG_DIR: '/dev/null',
-          GH_TOKEN: secret,
-          GITHUB_TOKEN: secret,
-          GH_PROMPT_DISABLED: '1',
-          GIT_CONFIG_NOSYSTEM: '1',
-          GIT_CONFIG_GLOBAL: '/dev/null',
-          GIT_TERMINAL_PROMPT: '0',
-          GIT_CONFIG_COUNT: '3',
-          GIT_CONFIG_KEY_0: 'core.hooksPath',
-          GIT_CONFIG_VALUE_0: '/dev/null',
-          GIT_CONFIG_KEY_1: 'credential.helper',
-          GIT_CONFIG_VALUE_1: '',
-          GIT_CONFIG_KEY_2: 'credential.helper',
-          GIT_CONFIG_VALUE_2:
-            '!f() { [ "$1" = get ] || exit 0; protocol=; host=; while IFS= read -r line && [ -n "$line" ]; do case "$line" in protocol=*) protocol=${line#protocol=};; host=*) host=${line#host=};; esac; done; [ "$protocol" = https ] && [ "$host" = github.com ] || exit 1; echo username=x-access-token; echo password="$GITHUB_TOKEN"; }; f',
-        };
-        try {
-          if (
-            !['gh', 'git'].includes(command) ||
-            args.length > 128 ||
-            args.some((a) => a.length > 65536 || a.includes('\0'))
-          )
-            throw new Error('Invalid command');
-          const result = await this.runner(command, args, combined, env);
-          if (Buffer.byteLength(result.stdout) > 4 * 1024 * 1024 || result.stdout.includes(secret))
-            throw new Error('Invalid output');
-          await verify();
-          combined.throwIfAborted();
-          return { stdout: result.stdout };
-        } catch (error) {
-          if (
-            command === 'gh' &&
-            !combined.aborted &&
-            typeof error === 'object' &&
-            error !== null &&
-            'stderr' in error &&
-            typeof error.stderr === 'string' &&
-            /^gh: [^\r\n]* \(HTTP 404\)\r?\n?$/.test(error.stderr)
-          ) {
-            try {
-              await verify();
-              combined.throwIfAborted();
-            } catch {
-              throw new Error('Publication credential command failed');
-            }
-            // Raw subprocess errors can contain secrets; preserve only the reviewed status.
-            throw new PublicationCredentialHttpError(404);
-          }
-          // Raw subprocess diagnostics may contain the credential; never retain a cause.
-          // eslint-disable-next-line preserve-caught-error
-          throw new Error('Publication credential command failed');
-        }
-      },
+      run: (command: 'gh' | 'git', args: readonly string[], signal: AbortSignal) =>
+        run(command, args, signal),
+    });
+    this.mergeDispatchers.set(handle, async (args, signal, admit) => {
+      let invoked = false;
+      const result = await run('gh', args, signal, () => {
+        if (invoked) throw new Error('Publication dispatch admission is one-use');
+        invoked = true;
+        admit();
+      });
+      if (!invoked) throw new Error('Publication executor did not admit its dispatch');
+      return result;
     });
     entry.cancel = cancel;
     entry.handle = handle;

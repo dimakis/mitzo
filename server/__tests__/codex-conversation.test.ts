@@ -1550,6 +1550,136 @@ it('checks thread and turn identity, rejects unknown tools, and executes a dupli
   });
   expect(execute).toHaveBeenCalledOnce();
 });
+it.each(['success', 'error', 'throw'] as const)(
+  'closes ordinary native call custody after the actual %s callback while its turn remains live',
+  async (outcome) => {
+    const f = await setup();
+    await f.c.send({ id: 'a', prompt: 'read' });
+    const input = {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'actual-ordinary-callback',
+      tool: 'Read',
+      arguments: { file_path: 'note' },
+    };
+    const identity = {
+      turnId: input.turnId,
+      toolName: input.tool,
+      requestHash: createHash('sha256').update(JSON.stringify(input.arguments)).digest('hex'),
+    };
+    let entered!: () => void;
+    let release!: () => void;
+    const executing = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.execute.mockImplementation(async () => {
+      entered();
+      await held;
+      if (outcome === 'throw') throw Error('Synthetic host failure');
+      return { content: 'Actual ordinary result', isError: outcome === 'error' };
+    });
+    const callback = f.callbacks.onRequest('item/tool/call', input, new AbortController().signal);
+    await executing;
+    expect(
+      f.store.pendingNativeHostTool('app', f.getBinding(), input.callId, identity),
+    ).toMatchObject({
+      commandId: 'a',
+      turnId: 'turn-1',
+      callId: input.callId,
+    });
+    release();
+    expect(await callback).toMatchObject({ success: outcome === 'success' });
+    expect
+      .soft(f.store.pendingNativeHostTool('app', f.getBinding(), input.callId, identity))
+      .toBeUndefined();
+    expect(f.c.queue()[0].status).toBe('running');
+    expect(
+      await f.callbacks.onRequest('item/tool/call', input, new AbortController().signal),
+    ).toMatchObject({ success: false });
+    expect(f.execute).toHaveBeenCalledOnce();
+    expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  },
+);
+
+it.each([
+  'success',
+  'error',
+  'throw',
+  'result-write-failure',
+  'aborted',
+  'turn-completed',
+  'closed',
+  'mutated-input',
+] as const)(
+  'bounds the actual native callback currentness fence through %s without another claim or turn',
+  async (outcome) => {
+    const f = await setup();
+    await f.c.send({ id: 'a', prompt: 'read' });
+    const input = {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'scoped-call',
+      tool: 'Read',
+      arguments: { file_path: 'note' },
+    };
+    let invocation:
+      { readonly turnId: string; readonly callId: string; assertCurrentSync?(): void } | undefined;
+    let entered!: () => void;
+    let release!: () => void;
+    const executing = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let executions = 0;
+    let actualInput: Parameters<CodexConversationOptions['executeTool']>[1] | undefined;
+    f.conversationOptions.executeTool = async (_name, _input, _signal, context) => {
+      executions++;
+      actualInput = _input;
+      invocation = context;
+      entered();
+      await held;
+      if (outcome === 'throw') throw Error('Synthetic host failure');
+      return { content: 'Original result', isError: outcome === 'error' };
+    };
+    const controller = new AbortController();
+    const callback = f.callbacks.onRequest('item/tool/call', input, controller.signal);
+    await executing;
+    expect.soft(Object.isFrozen(invocation)).toBe(true);
+    expect(typeof invocation!.assertCurrentSync).toBe('function');
+    expect(Object.keys(invocation!)).toEqual(['turnId', 'callId']);
+    expect(structuredClone(invocation)).toEqual({ turnId: input.turnId, callId: input.callId });
+    expect(() => invocation!.assertCurrentSync!()).not.toThrow();
+    if (outcome === 'aborted') controller.abort();
+    if (outcome === 'closed') f.c.close();
+    if (outcome === 'turn-completed')
+      f.callbacks.onNotification('turn/completed', {
+        threadId: input.threadId,
+        turn: { id: input.turnId, status: 'completed' },
+      });
+    if (outcome === 'mutated-input') actualInput!.file_path = 'substituted';
+    if (['aborted', 'closed', 'turn-completed', 'mutated-input'].includes(outcome))
+      expect(() => invocation!.assertCurrentSync!()).toThrow();
+    if (outcome === 'result-write-failure')
+      vi.spyOn(f.store, 'recordToolResult').mockImplementationOnce(() => {
+        throw Error('Synthetic result write failure');
+      });
+    release();
+    if (outcome === 'result-write-failure')
+      await expect(callback).rejects.toThrow('Synthetic result write failure');
+    else await callback;
+    expect(() => invocation!.assertCurrentSync!()).toThrow();
+    expect(executions).toBe(1);
+    expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    if (['success', 'error', 'throw', 'result-write-failure'].includes(outcome))
+      expect(f.c.queue()[0].status).toBe('running');
+  },
+);
+
 it('replays the exact durable symposium tool result for a duplicate provider call', async () => {
   const delivered = vi.fn();
   const { c, callbacks, execute } = await setup(

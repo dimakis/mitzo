@@ -1,3 +1,4 @@
+import { agentToolRouteLabel } from '../lib/agent-tool-routes';
 import { useRef, useState } from 'react';
 import type { AgentToolCatalogEntry, AgentToolReference } from '@mitzo/protocol';
 import { MotionPresence } from './MotionPresence';
@@ -19,12 +20,12 @@ export function AgentToolsEditor({
   const selected = value ?? [];
   return (
     <fieldset className="agent-library-fields" disabled={disabled}>
-      <p>Choose tools for new local OpenAI Responses and Gemini/Vertex API chats.</p>
+      <p>Choose tools for new local API and Codex chats.</p>
       <details>
         <summary>Runtime compatibility</summary>
         <p>
-          Native Codex, OpenShell, Claude SDK and reviewer seats do not yet support explicit
-          selections. Existing chats keep their original selection.
+          OpenShell, Claude SDK and reviewer seats do not support explicit selections. Each tool
+          lists its compatible runtimes. Existing chats keep their original selection.
         </p>
       </details>
       {value === undefined ? (
@@ -124,16 +125,14 @@ export function AgentToolsEditor({
                       <p>{tool.description}</p>
                       <small>
                         {tool.source} · {tool.behavior} ·{' '}
-                        {tool.routes.includes('local-api')
-                          ? 'Local API chats'
-                          : 'Unsupported route'}
+                        {agentToolRouteLabel(tool.routes) ?? 'Unsupported route'}
                       </small>
                       <p>{tool.requirement}</p>
                     </div>
                     <button
                       type="button"
                       aria-label={`Add ${tool.name}${'revision' in tool ? ` from ${tool.source}` : ''}`}
-                      disabled={!tool.routes.includes('local-api') || selected.length >= 100}
+                      disabled={!agentToolRouteLabel(tool.routes) || selected.length >= 100}
                       onClick={() =>
                         onChange([
                           ...selected,

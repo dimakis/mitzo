@@ -65,6 +65,18 @@ export class NotificationStore {
       this.db.exec('ALTER TABLE notifications ADD COLUMN archived_at INTEGER');
     if (!columns.some((column) => column.name === 'inbox_source_path'))
       this.db.exec('ALTER TABLE notifications ADD COLUMN inbox_source_path TEXT');
+    // The one-second delivery sweep should visit only live candidates. Keep the
+    // privacy callback out of indexes: every candidate must use current policy.
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS notifications_delivery_due ON notifications(delivery_at)
+        WHERE delivery_status='queued' AND archived_at IS NULL AND resolved_at IS NULL;
+      CREATE INDEX IF NOT EXISTS notifications_expiring ON notifications(expires_at)
+        WHERE resolved_at IS NULL AND expires_at IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS notifications_live_permissions ON notifications(perm_id)
+        WHERE perm_id IS NOT NULL AND resolved_at IS NULL;
+      CREATE INDEX IF NOT EXISTS notifications_needs_attention ON notifications(created_at DESC, id)
+        WHERE archived_at IS NULL AND (${needs});
+    `);
     this.db.function('inbox_visible', (data: string, source: string | null) => {
       try {
         const record = JSON.parse(data) as MitzoNotification;
@@ -259,13 +271,7 @@ export class NotificationStore {
         n: number;
       }
     ).n;
-    const needsYou = (
-      this.db
-        .prepare(
-          `SELECT COUNT(*) AS n FROM notifications WHERE ${visible} AND archived_at IS NULL AND (${needs})`,
-        )
-        .get() as { n: number }
-    ).n;
+    const needsYou = this.countNeedsAttention();
     const sources = (
       this.db
         .prepare(
@@ -376,19 +382,28 @@ export class NotificationStore {
         )
         .all(Math.min(100, Math.max(1, limit)), Math.max(0, offset)) as Row[]
     ).map(item);
-    const needsYou = (
-      this.db
-        .prepare(
-          `SELECT COUNT(*) AS n FROM notifications WHERE ${visible} AND (${needs}) AND archived_at IS NULL`,
-        )
-        .get() as { n: number }
-    ).n;
+    const needsYou = this.countNeedsAttention();
     const total = (
       this.db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE ${where}`).get() as {
         n: number;
       }
     ).n;
     return { items, needsYou, total };
+  }
+  /** Fresh badge state without loading feed bodies, pagination or unrelated totals. */
+  needsAttentionCount(now = Date.now()): number {
+    this.refreshInboxPolicy();
+    this.expire(now);
+    return this.countNeedsAttention();
+  }
+  private countNeedsAttention(): number {
+    return (
+      this.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM notifications WHERE ${visible} AND (${needs}) AND archived_at IS NULL`,
+        )
+        .get() as { n: number }
+    ).n;
   }
   preferences(): NotificationPreferences {
     const row = this.db.prepare('SELECT data FROM notification_preferences WHERE id=1').get() as

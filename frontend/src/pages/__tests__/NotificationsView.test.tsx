@@ -402,3 +402,66 @@ it('returns to the previous page after archiving the last item on a page', async
   await screen.findByText('Update 0');
   expect(screen.queryByText('Last item')).toBeNull();
 });
+
+describe('host session-grant display policy', () => {
+  it.each(['once', 'deny'] as const)(
+    'sends %s without offering retained session approval when explicitly false',
+    async (decision) => {
+      const original = vi.mocked(apiFetch).getMockImplementation()!;
+      vi.mocked(apiFetch).mockImplementation(async (url, options) => {
+        const response = await original(url, options);
+        if (options?.method) return response;
+        const data = await response.json();
+        data.items[0].request = {
+          ...pending.request,
+          approvalScope: 'request',
+          allowSessionGrant: false,
+          sessionGrantDescription: 'Keep this approval until the session ends.',
+        };
+        return new Response(JSON.stringify(data));
+      });
+      show();
+      fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
+      expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+      expect(screen.queryByText('Keep this approval until the session ends.')).toBeNull();
+      expect(screen.getByText('Allow once covers this request.')).toBeVisible();
+      fireEvent.click(
+        screen.getByRole('button', { name: decision === 'once' ? 'Allow once' : 'Deny' }),
+      );
+      await waitFor(() =>
+        expect(apiFetch).toHaveBeenCalledWith(
+          '/api/notifications/permission%3Ap1/respond',
+          expect.objectContaining({ body: JSON.stringify({ sessionId: 's1', decision }) }),
+        ),
+      );
+    },
+  );
+  it.each([undefined, true])(
+    'preserves the ordinary request-scope session action for %s',
+    async (allowSessionGrant) => {
+      const original = vi.mocked(apiFetch).getMockImplementation()!;
+      vi.mocked(apiFetch).mockImplementation(async (url, options) => {
+        const response = await original(url, options);
+        if (options?.method) return response;
+        const data = await response.json();
+        data.items[0].request = {
+          ...pending.request,
+          approvalScope: 'request',
+          ...(allowSessionGrant === undefined ? {} : { allowSessionGrant }),
+        };
+        return new Response(JSON.stringify(data));
+      });
+      show();
+      fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+      await waitFor(() =>
+        expect(apiFetch).toHaveBeenCalledWith(
+          '/api/notifications/permission%3Ap1/respond',
+          expect.objectContaining({
+            body: JSON.stringify({ sessionId: 's1', decision: 'always' }),
+          }),
+        ),
+      );
+    },
+  );
+});

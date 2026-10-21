@@ -157,6 +157,8 @@ export interface StreamingBlock {
   toolResult?: string;
   toolResultImages?: ToolResultImage[];
   toolError?: boolean;
+  /** Owning execution ended without a result; no tool success/failure is implied. */
+  toolInterrupted?: boolean;
   subagent?: StreamingSubagentState | FinishedSubagentState;
 }
 
@@ -183,6 +185,8 @@ export interface FinishedBlock {
   toolResult?: string;
   toolResultImages?: ToolResultImage[];
   toolError?: boolean;
+  /** Display-only terminal observation; an actual late result takes precedence. */
+  toolInterrupted?: boolean;
   subagent?: FinishedSubagentState;
 }
 
@@ -233,6 +237,9 @@ export interface PermissionRequest {
   displayName?: string;
   tier?: ToolTier;
   approvalScope?: 'session' | 'conversation' | 'request';
+  /** Display restriction only; absence preserves legacy retained-scope choices.
+   * Never grants or changes the server's retained approval authority. */
+  allowSessionGrant?: boolean;
   /** Server-supplied human description of the retained session scope. */
   sessionGrantDescription?: string;
   responseError?: string;

@@ -27,8 +27,14 @@ function activityPreview(block: ChatBlock): string {
     const summary = webAccessSummary(block.toolInput ?? '');
     return `${summary.name} · ${summary.target}`;
   }
-  if (block.toolName === 'Bash')
-    return getToolStatus(block).done ? 'Command completed' : 'Running command';
+  if (block.toolName === 'Bash') {
+    const status = getToolStatus(block);
+    return status.interrupted
+      ? 'Command interrupted'
+      : status.done
+        ? 'Command completed'
+        : 'Running command';
+  }
   const name =
     block.toolName === 'WebSearch'
       ? 'Web search'
@@ -82,15 +88,19 @@ export function AgentActivity({
   };
   tools.forEach(collectDelegates);
   const delegatedRunning = delegated.filter((agent) => 'running' in agent && agent.running).length;
-  const failed = allTools.filter((tool) => tool.toolError).length;
+  const interrupted = allTools.filter((tool) => getToolStatus(tool).interrupted).length;
+  const failed = allTools.filter(
+    (tool) => tool.toolError && !getToolStatus(tool).interrupted,
+  ).length;
   const active =
     delegatedRunning > 0 ||
     rows.some(
       (row) =>
         row.streaming &&
         row.block &&
-        (('done' in row.block && !row.block.done) ||
-          (row.block.blockType === 'tool_use' && !getToolStatus(row.block).done)),
+        (row.block.blockType === 'tool_use'
+          ? getToolStatus(row.block).running
+          : 'done' in row.block && !row.block.done),
     );
   const label = delegated.length ? 'Agents at work' : 'Activity';
   const delegateSummary = delegated.length
@@ -105,7 +115,7 @@ export function AgentActivity({
         type="button"
         className="agent-activity-header"
         ref={headerRef}
-        aria-label={`${label}: ${delegateSummary ? `${delegateSummary} · ` : ''}${preview}${active ? ' · Running' : ''}${failed ? ` · ${failed} failed` : ''}`}
+        aria-label={`${label}: ${delegateSummary ? `${delegateSummary} · ` : ''}${preview}${interrupted ? ` · ${interrupted} interrupted` : ''}${active ? ' · Running' : ''}${failed ? ` · ${failed} failed` : ''}`}
         aria-expanded={expanded}
         aria-controls={detailsId}
         onClick={() => setChoice({ replied, expanded: !expanded })}
@@ -115,6 +125,7 @@ export function AgentActivity({
         <span className="agent-activity-preview">
           {delegateSummary && `${delegateSummary} · `}
           {preview}
+          {interrupted > 0 && ` · ${interrupted} interrupted`}
         </span>
         {failed > 0 && <span className="agent-activity-error">{failed} failed</span>}
         <UiIcon name={expanded ? 'down' : 'forward'} size={16} />

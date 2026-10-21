@@ -66,3 +66,27 @@ it('does not claim empty tools or unused profiles while data is unavailable', ()
   rerender(<Catalog tools={[]} catalog={null} loaded />);
   expect(screen.getByText('No implemented tools are available.')).toBeTruthy();
 });
+
+it.each(['codex', 'codex-owned-local'])(
+  'describes supported %s tool selection without claiming an access grant',
+  (route) => {
+    render(
+      <Catalog
+        tools={[
+          {
+            ...tools[0],
+            name: 'TaskStatus',
+            id: 'mitzo:TaskStatus',
+            routes: [route],
+            requirement: 'Original scoped task and tool permission required.',
+          },
+        ]}
+        catalog={null}
+        loaded
+      />,
+    );
+    expect(screen.queryByText('Selection unavailable')).toBeNull();
+    expect(screen.getByText('Local Codex chats')).toBeTruthy();
+    expect(screen.getByText('Original scoped task and tool permission required.')).toBeTruthy();
+  },
+);
