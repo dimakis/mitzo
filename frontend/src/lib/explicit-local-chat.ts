@@ -35,6 +35,7 @@ export const ExplicitLocalInventorySchema = z
     version: z.literal(1),
     authority: z.literal('configuration-only'),
     defaultLocation: z.literal('openshell'),
+    defaultLocalRepository: z.boolean().optional(),
     capabilityRevision: ref,
     accounts: z
       .array(
@@ -184,7 +185,7 @@ type ExplicitCommandContent = {
   retainedAgentContext?: AgentContextSnapshot;
   nativeConstraint?: NativeContinuationConstraint;
 };
-type RepositoryCommandContent = ExplicitCommandContent & { repositoryWorkspaceId: string };
+type RepositoryCommandContent = ExplicitCommandContent & { repositoryWorkspaceId?: string };
 type OrdinaryCommandContent = ExplicitCommandContent & {
   sessionId: string;
   ordinaryWorkspaceId: string;

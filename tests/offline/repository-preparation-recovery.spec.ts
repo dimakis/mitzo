@@ -249,210 +249,238 @@ for (const theme of ['dark', 'light']) {
   });
 }
 
-for (const theme of ['dark', 'light'] as const) {
-  test(`every local account selects an existing Mac repository without importing it (${theme})`, async ({
-    page,
-  }, info) => {
-    const files = (await output).outputFiles!;
-    const inventory = multiRuntimeInventoryFixture();
-    inventory.routes.push({
-      account: inventory.accounts.find((entry) => entry.account.accountId === 'api')!.account,
-      targetId: 'mac',
-      harness: 'codex',
-      modes: ['agent'],
-      models: [{ id: 'local-model', label: 'Local model', reasoningEfforts: ['low'] }],
-    });
-    inventory.agentProfiles.push({
-      kind: 'builtin',
-      profileId: DEFAULT_MITZO_PROFILE_ID,
-      revision: DEFAULT_MITZO_PROFILE_REVISION,
-      definition: defaultMitzoProfileDefinition,
-      contentHash: sha256Hex(JSON.stringify(defaultMitzoProfileDefinition)),
-    } as never);
-    const gemini = {
-      accountId: 'gemini',
-      provider: 'google-vertex' as const,
-      profileRevision: 'gemini-r1',
-    };
-    inventory.accounts.push({
-      account: gemini,
-      label: 'Gemini billing',
-      models: [{ id: 'gemini-model', label: 'Gemini model' }],
-      modelDiscovery: { source: 'configured', stale: false },
-    });
-    inventory.targets.push({
-      targetId: 'gemini',
-      targetRevision: 'gemini-r1',
-      label: 'Local Gemini',
-      location: 'local',
-      harness: 'gemini',
-    });
-    inventory.routes.push({
-      account: gemini,
-      targetId: 'gemini',
-      harness: 'gemini',
-      modes: ['agent'],
-    });
-    const selected: Array<{
-      runtime: { harness: string; account: { accountId: string } };
-      runOn: string;
-    }> = [];
-    const errors: string[] = [],
-      unexpected: string[] = [];
-    page.on('pageerror', (error) => errors.push(error.message));
-    await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
-    await page.setViewportSize({
-      width: info.project.name.startsWith('mobile') ? 320 : 1280,
-      height: 844,
-    });
-    await page.route('**/*', async (route) => {
-      const url = new URL(route.request().url()),
-        path = url.pathname;
-      if (url.hostname !== 'mitzo-ui.test') {
-        unexpected.push(url.href);
-        return route.abort();
-      }
-      if (path.endsWith('/catalog'))
-        return route.fulfill({
-          json: {
-            available: true,
-            location: 'local',
-            repositories: [
-              {
-                connectionId: 'local',
-                repositoryId: 'primary',
-                repository: 'local/primary',
-                label: 'Mitzo',
-              },
-            ],
-          },
-        });
-      if (path === '/api/repository-workspaces/local') {
-        const body = route.request().postDataJSON();
-        selected.push(body.ordinaryRuntime);
-        const target = inventory.targets.find(
-          (entry) => entry.targetId === body.ordinaryRuntime.runtime.targetId,
-        )!;
-        return route.fulfill({
-          json: {
-            id: body.requestId,
-            repository: 'local/primary',
-            baseBranch: 'main',
-            baseOid: 'a'.repeat(40),
-            featureBranch: `mitzo/repo-${body.requestId}`,
-            state: 'ready',
-            ordinaryRuntime: {
-              version: 2,
-              account: body.ordinaryRuntime.runtime.account,
-              harness: { implementation: target.harness },
-              execution: {
-                location: 'local',
-                targetId: target.targetId,
-                targetRevision: target.targetRevision,
-              },
-            },
-          },
-        });
-      }
-      if (path.startsWith('/api/')) {
-        if (route.request().method() !== 'GET') {
-          unexpected.push(path);
+for (const workspaceChoice of ['select', 'default'] as const) {
+  for (const theme of ['dark', 'light'] as const) {
+    test(`every local account ${workspaceChoice === 'select' ? 'selects an existing Mac repository without importing it' : 'starts locally without repository preparation'} (${theme})`, async ({
+      page,
+    }, info) => {
+      const files = (await output).outputFiles!;
+      const inventory = multiRuntimeInventoryFixture();
+      inventory.defaultLocalRepository = true;
+      inventory.routes.push({
+        account: inventory.accounts.find((entry) => entry.account.accountId === 'api')!.account,
+        targetId: 'mac',
+        harness: 'codex',
+        modes: ['agent'],
+        models: [{ id: 'local-model', label: 'Local model', reasoningEfforts: ['low'] }],
+      });
+      inventory.agentProfiles.push({
+        kind: 'builtin',
+        profileId: DEFAULT_MITZO_PROFILE_ID,
+        revision: DEFAULT_MITZO_PROFILE_REVISION,
+        definition: defaultMitzoProfileDefinition,
+        contentHash: sha256Hex(JSON.stringify(defaultMitzoProfileDefinition)),
+      } as never);
+      const gemini = {
+        accountId: 'gemini',
+        provider: 'google-vertex' as const,
+        profileRevision: 'gemini-r1',
+      };
+      inventory.accounts.push({
+        account: gemini,
+        label: 'Gemini billing',
+        models: [{ id: 'gemini-model', label: 'Gemini model' }],
+        modelDiscovery: { source: 'configured', stale: false },
+      });
+      inventory.targets.push({
+        targetId: 'gemini',
+        targetRevision: 'gemini-r1',
+        label: 'Local Gemini',
+        location: 'local',
+        harness: 'gemini',
+      });
+      inventory.routes.push({
+        account: gemini,
+        targetId: 'gemini',
+        harness: 'gemini',
+        modes: ['agent'],
+      });
+      const commands: Array<{
+        runOn: string;
+        runtime: { harness: string; account: { accountId: string } };
+        repositoryWorkspaceId?: string;
+      }> = [];
+      const selected: Array<{
+        runtime: { harness: string; account: { accountId: string } };
+        runOn: string;
+      }> = [];
+      const errors: string[] = [],
+        unexpected: string[] = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
+      await page.setViewportSize({
+        width: info.project.name.startsWith('mobile') ? 320 : 1280,
+        height: 844,
+      });
+      await page.route('**/*', async (route) => {
+        const url = new URL(route.request().url()),
+          path = url.pathname;
+        if (url.hostname !== 'mitzo-ui.test') {
+          unexpected.push(url.href);
           return route.abort();
         }
-        const fixtures: Record<string, unknown> = {
-          '/api/auth/check': { authenticated: true },
-          '/api/config': { quickActions: [], contextBlocks: {} },
-          '/api/chat/runtime/capabilities': inventory,
-          '/api/agent-library': { drafts: [], versions: inventory.agentProfiles },
-          '/api/service-health': { services: [], checkedAt: 0 },
-          '/api/tasks/loop': { state: 'idle' },
-          '/api/version': {
-            version: 'offline',
-            branch: 'fixture',
-            hash: 'a'.repeat(40),
-            updateAvailable: false,
-          },
-          '/api/home/preferences': {
-            revision: 1,
-            names: { briefing: 'Jeeves', terminal: 'Minion' },
-            pins: [],
-          },
-        };
-        return route.fulfill({ json: fixtures[path] ?? [] });
-      }
-      if (/\.(png|svg)$/.test(path)) {
-        try {
+        if (path.endsWith('/catalog'))
           return route.fulfill({
-            body: await readFile(resolve('frontend/public', path.slice(1))),
-            contentType: path.endsWith('.svg') ? 'image/svg+xml' : 'image/png',
+            json: {
+              available: true,
+              location: 'local',
+              repositories: [
+                {
+                  connectionId: 'local',
+                  repositoryId: 'primary',
+                  repository: 'local/primary',
+                  label: 'Mitzo',
+                },
+              ],
+            },
           });
-        } catch {
-          return route.fulfill({ status: 404, body: '' });
+        if (path === '/api/chat/local-codex/send' || path === '/api/chat/runtime/send') {
+          commands.push(route.request().postDataJSON());
+          return route.abort('failed');
         }
-      }
-      const asset = files.find((file) =>
-        path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
-      );
-      if (asset)
+        if (path === '/api/repository-workspaces/local') {
+          const body = route.request().postDataJSON();
+          selected.push(body.ordinaryRuntime);
+          const target = inventory.targets.find(
+            (entry) => entry.targetId === body.ordinaryRuntime.runtime.targetId,
+          )!;
+          return route.fulfill({
+            json: {
+              id: body.requestId,
+              repository: 'local/primary',
+              baseBranch: 'main',
+              baseOid: 'a'.repeat(40),
+              featureBranch: `mitzo/repo-${body.requestId}`,
+              state: 'ready',
+              ordinaryRuntime: {
+                version: 2,
+                account: body.ordinaryRuntime.runtime.account,
+                harness: { implementation: target.harness },
+                execution: {
+                  location: 'local',
+                  targetId: target.targetId,
+                  targetRevision: target.targetRevision,
+                },
+              },
+            },
+          });
+        }
+        if (path.startsWith('/api/')) {
+          if (route.request().method() !== 'GET') {
+            unexpected.push(path);
+            return route.abort();
+          }
+          const fixtures: Record<string, unknown> = {
+            '/api/auth/check': { authenticated: true },
+            '/api/config': { quickActions: [], contextBlocks: {} },
+            '/api/chat/runtime/capabilities': inventory,
+            '/api/agent-library': { drafts: [], versions: inventory.agentProfiles },
+            '/api/service-health': { services: [], checkedAt: 0 },
+            '/api/tasks/loop': { state: 'idle' },
+            '/api/version': {
+              version: 'offline',
+              branch: 'fixture',
+              hash: 'a'.repeat(40),
+              updateAvailable: false,
+            },
+            '/api/home/preferences': {
+              revision: 1,
+              names: { briefing: 'Jeeves', terminal: 'Minion' },
+              pins: [],
+            },
+          };
+          return route.fulfill({ json: fixtures[path] ?? [] });
+        }
+        if (/\.(png|svg)$/.test(path)) {
+          try {
+            return route.fulfill({
+              body: await readFile(resolve('frontend/public', path.slice(1))),
+              contentType: path.endsWith('.svg') ? 'image/svg+xml' : 'image/png',
+            });
+          } catch {
+            return route.fulfill({ status: 404, body: '' });
+          }
+        }
+        const asset = files.find((file) =>
+          path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+        );
+        if (asset)
+          return route.fulfill({
+            contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+            body: asset.text,
+          });
+        if (path !== '/chat') return route.abort();
         return route.fulfill({
-          contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
-          body: asset.text,
+          contentType: 'text/html',
+          body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
         });
-      if (path !== '/chat') return route.abort();
-      return route.fulfill({
-        contentType: 'text/html',
-        body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
       });
+      await page.addInitScript(() => {
+        const id = new URL(location.href).searchParams.get('offlineAccount')!;
+        const choices: Record<string, { model: string; reasoningEffort?: string }> = {
+          personal: { model: 'luna-fixture', reasoningEffort: 'low' },
+          api: { model: 'local-model', reasoningEffort: 'low' },
+          vertex: { model: 'claude-model', reasoningEffort: 'high' },
+          gemini: { model: 'gemini-model' },
+        };
+        localStorage.clear();
+        sessionStorage.clear();
+        localStorage.setItem(
+          'mitzo-default-account-model',
+          JSON.stringify({ accountId: id, ...choices[id] }),
+        );
+      });
+      for (const accountId of ['personal', 'api', 'vertex', 'gemini']) {
+        await page.goto(`/chat?offlineAccount=${accountId}`);
+        await settingsHome(page);
+        await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', accountId!);
+        await openChatSetting(page, 'execution');
+        await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
+        if (accountId === 'api')
+          await expect(page.getByText('Runs with Codex', { exact: true })).toBeVisible();
+        if (workspaceChoice === 'default') {
+          await page.getByRole('button', { name: 'Done', exact: true }).click();
+          const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+          await composer.fill('Develop Mitzo from latest main');
+          const start = page.getByRole('button', { name: 'Start session', exact: true });
+          await expect(start).toBeEnabled();
+          await start.click();
+          await expect
+            .poll(() => commands.length)
+            .toBe(['personal', 'api', 'vertex', 'gemini'].indexOf(accountId) + 1);
+          expect(commands.at(-1)).toMatchObject({
+            runOn: 'local',
+            runtime: { account: { accountId } },
+          });
+          expect(commands.at(-1)?.repositoryWorkspaceId).toBeUndefined();
+          expect(selected).toHaveLength(0);
+          await expect(composer).toHaveValue('Develop Mitzo from latest main');
+          continue;
+        }
+        await openChatSetting(page, 'repository');
+        await page.getByLabel('Local repository').selectOption('local:local/primary');
+        await page.getByRole('button', { name: 'Use repository', exact: true }).click();
+        await expect(page.getByText(/worktree starts from latest upstream main/)).toBeVisible();
+        await expect(
+          page.getByRole('button', { name: 'Prepare repository', exact: true }),
+        ).toHaveCount(0);
+        expect(selected.at(-1)).toMatchObject({
+          runOn: 'local',
+          runtime: { account: { accountId } },
+        });
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+          true,
+        );
+        await page.screenshot({
+          path: info.outputPath(`existing-local-${accountId}-${theme}.png`),
+          fullPage: true,
+        });
+      }
+      expect(
+        (workspaceChoice === 'select' ? selected : commands).map((entry) => entry.runtime.harness),
+      ).toEqual(['codex', 'codex', 'claude-sdk', 'gemini']);
+      expect(errors).toEqual([]);
+      expect(unexpected).toEqual([]);
     });
-    await page.addInitScript(() => {
-      const id = new URL(location.href).searchParams.get('offlineAccount')!;
-      const choices: Record<string, { model: string; reasoningEffort?: string }> = {
-        personal: { model: 'luna-fixture', reasoningEffort: 'low' },
-        api: { model: 'local-model', reasoningEffort: 'low' },
-        vertex: { model: 'claude-model', reasoningEffort: 'high' },
-        gemini: { model: 'gemini-model' },
-      };
-      localStorage.clear();
-      sessionStorage.clear();
-      localStorage.setItem(
-        'mitzo-default-account-model',
-        JSON.stringify({ accountId: id, ...choices[id] }),
-      );
-    });
-    for (const accountId of ['personal', 'api', 'vertex', 'gemini']) {
-      await page.goto(`/chat?offlineAccount=${accountId}`);
-      await settingsHome(page);
-      await expect(settingRow(page, 'Account')).toHaveAttribute('data-value', accountId!);
-      await openChatSetting(page, 'execution');
-      await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
-      if (accountId === 'api')
-        await expect(page.getByText('Runs with Codex', { exact: true })).toBeVisible();
-      await openChatSetting(page, 'repository');
-      await page.getByLabel('Local repository').selectOption('local:local/primary');
-      await page.getByRole('button', { name: 'Use repository', exact: true }).click();
-      await expect(page.getByText(/worktree starts from latest upstream main/)).toBeVisible();
-      await expect(
-        page.getByRole('button', { name: 'Prepare repository', exact: true }),
-      ).toHaveCount(0);
-      expect(selected.at(-1)).toMatchObject({
-        runOn: 'local',
-        runtime: { account: { accountId } },
-      });
-      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
-        true,
-      );
-      await page.screenshot({
-        path: info.outputPath(`existing-local-${accountId}-${theme}.png`),
-        fullPage: true,
-      });
-    }
-    expect(selected.map((entry) => entry.runtime.harness)).toEqual([
-      'codex',
-      'codex',
-      'claude-sdk',
-      'gemini',
-    ]);
-    expect(errors).toEqual([]);
-    expect(unexpected).toEqual([]);
-  });
+  }
 }

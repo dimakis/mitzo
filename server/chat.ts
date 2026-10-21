@@ -3577,9 +3577,12 @@ export async function prepareOwnedCodexChat(
       eventStore,
       publishingGitStorageRoots: isOrdinaryWorkspace(workspace)
         ? undefined
-        : [BASE_REPO, ...Object.values(getRepoConfig().repos)]
-            .filter(Boolean)
-            .map((root) => join(root, '.git')),
+        : [
+            ...(workspace.localSource ? [workspace.localSource.commonDirectory] : []),
+            ...[BASE_REPO, ...Object.values(getRepoConfig().repos)]
+              .filter(Boolean)
+              .map((root) => join(root, '.git')),
+          ],
     });
     resolveOwnedTelosWorkCommandScope(sessionId);
     if (closed || abortController.signal.aborted) {

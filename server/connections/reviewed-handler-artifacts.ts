@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.507-local-api-codex-route';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.508-automatic-local-worktree-start';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -574,7 +575,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
     '32660ff240dd5f62c2a8ab976941553a84b7f3809ed3455ffe4e64ccfcd2613d',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
-    '0fb9b22a7c75a5fde5d106843c4115fc88159dd39dde83c5b916c17eb84f0989',
+    '975c0effb2bc96fc15035e569d6b0f55a475950e1d3622e60f668e3dea1a484f',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '4791a0f7870378d7353134e2a93972f1f7b5ef8197f20cfdc7304d0fd8adfb75',
   '../../frontend/src/lib/launch-draft-delivery.ts':
@@ -592,21 +593,21 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/chat-runtime-selection.ts':
     'b47f7b6cc1bd0d261c7c57560204a1e5d18edd72f58e34e7e9fd63eba1244de0',
   '../../frontend/src/lib/explicit-local-chat.ts':
-    '2e68873e8331caf74cbd1ac0acbc9268c263e4e1efc96174979cfc43ef51739f',
+    'd599b5ccfc4d332a38e8d90cb06e0a930f329c8da041be6f32e86a94676fea13',
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '89c3593476f8ee0e99ab1ad1f8b0879626e731a8581cf755f5090624cb8ceedd',
   '../../frontend/src/pages/ChatView.tsx':
-    '9b38a55e43cd446ca4822cfee3709982a7441dffbe0074befbd0041008bc1494',
+    'fded706bdfcd92283ae72527fcd0976e802d63e2b8bac2fb9066f6d43cf5bb09',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '57a64f12963304e7be462e1db5b39be2ca10c3e9caa25c94dccd927545adfc2d',
+    'ce363f64a0695a3adce0861a52eb58e5b8598c143ac136a4962a50af879a6ce7',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
     'cc6601ea07ccc4398835154261424b9cda6a631d28d36adc283261644486a963',
   '../../packages/protocol/src/local-codex-first-command.ts':
-    'aaaadaf1e9b56fadfdaa4b3906a2ecebafe4bed2e558d691354aeeb921afd17d',
+    'ae2191a80acd48295afaf9c1d3941f643d9c4b73dd7d5a6ce574887a433a0a93',
   '../ordinary-local-codex-entry.ts':
-    '2b65a4417b75a7d5b44e89b3af4ddf86e2ddb0295ac806019e05e5e94a6467e8',
+    'b8adc31552f5195cd51b20c63268b1912e85e47b5d274bd22e819748df17909d',
   '../ordinary-local-codex-metadata.ts':
     '0ccfe315aa4bd8b5360608a3a588c3c0545c3fb7a34b3673c9db0156c610283a',
   '../ordinary-repository-startup.ts':
@@ -722,7 +723,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': 'aa2f0226595de7d9f14f4697eb1e79b1b0068f6005d09344f72e02a1d7fdfdb3',
+  '../chat.ts': '176fb4f138c13bac8c79dc9dc25acc472217e7b60d4d0fce7941ead6956263c9',
   '../../packages/harness/src/session-registry.ts':
     'a356f9fe321fa35e13aea28ec8480dfa63766e96a0f8a861dcd2cba533e5c118',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
@@ -927,7 +928,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '3bb6af48164c23b647dffe9f26dcbbb80c7769f55ce7f57fb5a4d3e334752c24',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '1a77bae1206b5e282a37b17efa088e86ebbdc740d40376ebb71a306d7011bdd8',
+  '../codex-chat-session.ts': '93f311b4f79119ec1613642c333c85dfcb3514f1f6884e2ea0707f0d49e3df65',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

@@ -243,6 +243,7 @@ export function useExplicitLocalChat(
         const preparedRepository =
           preparedFirst &&
           ordinaryWorkspaceId === undefined &&
+          body.repositoryWorkspaceId !== undefined &&
           LocalCodexFirstCommandSchema.shape.repositoryWorkspaceId.safeParse(
             body.repositoryWorkspaceId,
           ).success;

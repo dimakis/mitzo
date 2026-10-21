@@ -51,7 +51,11 @@ import {
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
-import { getRepositoryWorkspaces, getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
+import {
+  getRepositoryWorkspaces,
+  getOrdinaryWorkspaces,
+  getLocalRepositoryWorkspaces,
+} from './repository-workspace-runtime.js';
 import {
   OrdinaryLocalCodexCapabilityCatalog,
   loadOrdinaryLocalCodexTarget,
@@ -234,6 +238,7 @@ export function ordinaryCodexCapabilities() {
     version: 1,
     authority: 'configuration-only',
     defaultLocation: 'openshell',
+    defaultLocalRepository: !!BASE_REPO && isAbsolute(BASE_REPO),
     capabilityRevision: createHash('sha256')
       .update(
         JSON.stringify([
@@ -427,7 +432,23 @@ function createOwnedCodexEntryRouter(
           code: 'invalid_request',
           error: general ? 'Invalid conversation command' : 'Invalid local first command',
         });
-      const input = structuredClone(parsed.data);
+      let input = structuredClone(parsed.data);
+      const automaticLocalRepository =
+        !ordinary &&
+        !continuation &&
+        input.runOn === 'local' &&
+        (!('repositoryWorkspaceId' in input) || input.repositoryWorkspaceId === undefined);
+      if (automaticLocalRepository) {
+        const id = nativeStartupSessionId(
+          `local-repository:${auth.id}:${input.runtime.account.accountId}:${input.clientMsgId}`,
+        );
+        // Normalize through the same public shape so exact retries retain the
+        // original canonical reservation and command fingerprints.
+        input = (general ? OrdinaryRuntimeFirstCommandSchema : LocalCodexFirstCommandSchema).parse({
+          ...input,
+          repositoryWorkspaceId: id,
+        });
+      }
       const ordinaryInput = ordinary ? OrdinaryWorkspaceFirstCommandSchema.parse(input) : undefined;
       const repositoryWorkspaceId =
         'repositoryWorkspaceId' in input ? input.repositoryWorkspaceId : undefined;
@@ -638,6 +659,24 @@ function createOwnedCodexEntryRouter(
         )
           throw Error(unavailable);
         if (!ordinary && (!BASE_REPO || !isAbsolute(BASE_REPO))) throw Error(unavailable);
+        if (automaticLocalRepository) {
+          authority.assertCurrent();
+          await getLocalRepositoryWorkspaces().selectLocalRepository(
+            binding,
+            'primary',
+            {
+              runOn: 'local',
+              runtime: {
+                account: input.runtime.account,
+                harness: input.runtime.harness,
+                targetId: input.runtime.targetId,
+              },
+            },
+            controller.signal,
+            repositoryWorkspaceId!,
+          );
+          authority.assertCurrent();
+        }
         const preparedRepository =
           !ordinary && !continuation
             ? ctx.eventStore.getOrdinarySessionPreparationForConversation(sessionId)
