@@ -45,3 +45,13 @@ private fixture foundation is development evidence; Core owns final lifecycle an
 corrective integration, pins/runtime, review and CI. S9 owns matching-source App
 and browser acceptance. No S7 browser/native/backend/model run or deployment is
 included in this source packet.
+
+Cold lifecycle recovery requires **Review current state** after the current
+identity's lifecycle read settles, including an explicit unavailable result.
+The command-only journal cannot distinguish a previous refusal from a lost
+response. Review retains its exact original request and revision and sends
+nothing; a separate explicit retry can then recover the original result. It
+never grants a new command or changes the stored journal. Active known refusals
+keep their existing review flow. A server's known inability to verify deletion
+safety is explained in plain language; Request details retains the original
+HTTP status, code and message without implying that deletion succeeded.

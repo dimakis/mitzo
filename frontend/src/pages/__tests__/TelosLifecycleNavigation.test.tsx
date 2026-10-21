@@ -34,6 +34,7 @@ let records: TelosWorkItem[];
 let lifecycle: ReturnType<typeof createTelosLifecycleFixture>;
 let canonicalUnavailable: boolean;
 let writes: TelosWorkLifecycleCommand[];
+let refuseLifecycle: boolean;
 let requests: string[];
 let loseDeletionReceipt: boolean;
 let deletionReceipt: TelosWorkLifecycleReceipt | null;
@@ -124,6 +125,7 @@ beforeEach(() => {
   lifecycle = createTelosLifecycleFixture();
   canonicalUnavailable = false;
   writes = [];
+  refuseLifecycle = false;
   requests = [];
   loseDeletionReceipt = false;
   deletionReceipt = null;
@@ -157,6 +159,8 @@ beforeEach(() => {
     if (url.pathname === '/api/telos/work/lifecycle' && init?.method === 'POST') {
       const command = JSON.parse(String(init.body)) as TelosWorkLifecycleCommand;
       writes.push(command);
+      if (refuseLifecycle)
+        return Response.json({ code: 'conflict', error: 'Request refused' }, { status: 409 });
       if (command.operation === 'delete_permanently') {
         if (deletionReceipt) return Response.json(deletionReceipt);
         records = records.filter((record) => record.itemId !== command.itemId);
@@ -349,6 +353,7 @@ for (const target of ['collection', 'parent', 'home'] as const)
     const retainedState = await loseReceiptAndReloadContext(target);
     const original = structuredClone(writes[0]);
     mount('/todos/selected', retainedState);
+    await reviewColdRecovery();
     const retry = await screen.findByRole('button', { name: 'Retry original request' });
     await waitFor(() =>
       expect(
@@ -412,6 +417,7 @@ it('keeps Back reachable from missing-item recovery without replaying or clearin
   const retainedState = await loseReceiptAndReloadContext('collection');
   const original = structuredClone(writes[0]);
   mount('/todos/selected', retainedState);
+  await reviewColdRecovery();
   await screen.findByRole('button', { name: 'Retry original request' });
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
   await waitFor(() => expect(route()).toBe('/todos?view=trash'));
@@ -435,4 +441,38 @@ it('does not suppress the ordinary missing-item redirect for an invalid retained
   expect(screen.queryByRole('button', { name: 'Retry original request' })).toBeNull();
   expect(writes).toHaveLength(1);
   expect(JSON.parse(sessionStorage.getItem(scopedKey)!)).toMatchObject({ itemId: 'other-item' });
+});
+
+async function reviewColdRecovery() {
+  const review = await screen.findByRole('button', { name: 'Review current state' });
+  await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(review);
+}
+it('requires review on the actual item route after reopening a known refusal from a cold command-only journal', async () => {
+  refuseLifecycle = true;
+  mount('/todos/selected', {
+    telosHistory: [],
+    telosCollectionView: 'active',
+    opaque: { files: 'retained context' },
+  });
+  await screen.findByRole('heading', { name: 'Original retained outcome' });
+  await screen.findByText('No operator pause');
+  fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+  await screen.findByRole('button', { name: 'Review current state' });
+  const original = structuredClone(writes[0]);
+  const state = navState();
+  cleanup();
+  window.dispatchEvent(new Event('mitzo:auth-restored'));
+  mount('/todos/selected', state);
+  await screen.findByRole('heading', { name: 'Original retained outcome' });
+  const review = await screen.findByRole('button', { name: 'Review current state' });
+  await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
+  expect(screen.queryByRole('button', { name: 'Retry original request' })).toBeNull();
+  expect(writes).toEqual([original]);
+  expect(navState().opaque).toEqual({ files: 'retained context' });
+  fireEvent.click(review);
+  expect(writes).toEqual([original]);
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry original request' }));
+  await screen.findByRole('button', { name: 'Review current state' });
+  expect(writes).toEqual([original, original]);
 });

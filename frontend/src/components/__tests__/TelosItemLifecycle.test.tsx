@@ -170,6 +170,16 @@ it('offers a separate exact deletion confirmation and preserves a real host refu
     operation: 'delete_permanently',
     confirmation: { itemId: 'selected', phrase: 'DELETE PERMANENTLY' },
   });
+  const refusal = within(dialog).getByRole('alert');
+  expect(
+    within(refusal).getByText(
+      'Permanent deletion is unavailable because this server cannot verify that it is safe. This request did not delete the item.',
+    ),
+  ).toBeTruthy();
+  const details = refusal.querySelector('details')!;
+  expect(details.hasAttribute('open')).toBe(false);
+  expect(within(details).getByText('HTTP 409 · conflict')).toBeTruthy();
+  expect(details.textContent).toContain('Verified host quiescence required for permanent deletion');
   expect(props.onDeleted).not.toHaveBeenCalled();
   expect(screen.queryByText('Item permanently deleted.')).toBeNull();
 });
@@ -335,4 +345,26 @@ it('closes a destructive review on an authentication change and requires a fresh
       .disabled,
   ).toBe(true);
   expect(write).not.toHaveBeenCalled();
+});
+it('keeps current-state review required when a refused operation is reopened, before offering its identical retry', async () => {
+  const write = vi
+    .spyOn(TelosWorkApiClient.prototype, 'executeLifecycle')
+    .mockRejectedValue(new TelosWorkApiError(409, 'conflict', 'Refused lifecycle request'));
+  const first = render(<TelosItemLifecycle {...props} />);
+  await screen.findByText('No operator pause');
+  fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+  await screen.findByRole('button', { name: 'Review current state' });
+  const original = structuredClone(write.mock.calls[0][0]);
+  first.unmount();
+  render(<TelosItemLifecycle {...props} />);
+  const review = await screen.findByRole('button', { name: 'Review current state' });
+  expect(screen.queryByRole('button', { name: 'Retry original request' })).toBeNull();
+  await waitFor(() => expect((review as HTMLButtonElement).disabled).toBe(false));
+  expect(write).toHaveBeenCalledTimes(1);
+  fireEvent.click(review);
+  expect(write).toHaveBeenCalledTimes(1);
+  fireEvent.click(await screen.findByRole('button', { name: 'Retry original request' }));
+  await screen.findByRole('button', { name: 'Review current state' });
+  expect(write.mock.calls[1][0]).toEqual(original);
+  expect(write).toHaveBeenCalledTimes(2);
 });
