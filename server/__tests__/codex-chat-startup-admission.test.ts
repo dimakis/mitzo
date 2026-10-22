@@ -1,3 +1,4 @@
+import { OrdinaryRepositoryPreparationSchema } from '../ordinary-repository-preparation.js';
 import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
@@ -750,13 +751,14 @@ it('starts the ordinary OpenShell default through its real native queue and mana
     inspect: forbiddenRepository,
     prepare: forbiddenRepository,
     ordinaryPreparation: {
-      capture: async () => ({
-        version: 1,
-        originalBinding: binding,
-        runtimeBinding,
-        credentialDigest: 'a'.repeat(64),
-        sandboxWorkdir: config.workdir,
-      }),
+      capture: async () =>
+        OrdinaryRepositoryPreparationSchema.parse({
+          version: 1,
+          originalBinding: binding,
+          runtimeBinding,
+          credentialDigest: 'a'.repeat(64),
+          sandboxWorkdir: config.workdir,
+        }),
       assert: async () => {},
     },
   });

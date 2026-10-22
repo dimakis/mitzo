@@ -1,3 +1,4 @@
+import { OrdinaryRepositoryPreparationSchema } from '../ordinary-repository-preparation.js';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
 import { canonicalJson } from '../connections/capabilities/input-validation.js';
 import { openShellPhysicalCustodyFingerprint } from '../openshell-codex-custody.js';
@@ -1325,13 +1326,15 @@ it('starts a fresh OpenShell chat through ordinary mgmt custody without selectin
   const forbidden = vi.fn(async () => {
     throw Error('No repository authority for default chat');
   });
-  const capture = vi.fn(async () => ({
-    version: 1 as const,
-    originalBinding: binding,
-    runtimeBinding: shell.admittedBinding,
-    credentialDigest: 'a'.repeat(64),
-    sandboxWorkdir: shell.config.workdir,
-  }));
+  const capture = vi.fn(async () =>
+    OrdinaryRepositoryPreparationSchema.parse({
+      version: 1 as const,
+      originalBinding: binding,
+      runtimeBinding: shell.admittedBinding,
+      credentialDigest: 'a'.repeat(64),
+      sandboxWorkdir: shell.config.workdir,
+    }),
+  );
   const workspaces = new RepositoryWorkspaces(join(root, 'owner'), {
     authorize: forbidden,
     inspect: forbidden,

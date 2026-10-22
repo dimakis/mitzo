@@ -54,7 +54,7 @@ const commandSelection = {
   version: 1 as const,
   agent: { profileId: 'ordinary-agent', revision: 1 },
   context: { source: 'none' as const, revision: null },
-  permission: { mode: 'agent' as const, revision: 0 },
+  permission: { mode: 'agent' as const, revision: 0 as const },
   model: binding.model,
   thinking: null,
 };

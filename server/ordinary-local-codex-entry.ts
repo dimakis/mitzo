@@ -511,7 +511,7 @@ function createOwnedCodexEntryRouter(
                   (r) =>
                     isDeepStrictEqual(r.account, request.runtime.account) &&
                     r.targetId === request.runtime.targetId &&
-                    r.modes.includes(request.runtime.mode),
+                    r.modes.some((mode) => mode === request.runtime.mode),
                 ) ||
                 (request.selection.thinking === null
                   ? !!model.reasoningEfforts?.length
