@@ -533,3 +533,59 @@ it('recovers the original default allocation after owner restart without new pre
   expect(f.capture).toHaveBeenCalledOnce();
   expect(f.forbidden).not.toHaveBeenCalled();
 });
+
+it('normalizes a fresh default OpenShell send once and recovers its exact workspace and session after restart', async () => {
+  const f = await fixture({ location: 'openshell', provider: 'openai' });
+  const { EventStore } = await import('../event-store.js');
+  const { prepareDefaultOpenShellCommand } =
+    await import('../ordinary-openshell-default-workspace.js');
+  const events = new EventStore(':memory:');
+  cleanups.push(() => events.close());
+  const qualify = vi.fn(() => ({ binding: f.binding, agentProfile }));
+  const input = {
+    runOn: 'openshell' as const,
+    clientMsgId: randomUUID(),
+    capabilityRevision: 'offline-capability',
+    runtime: {
+      account: f.runtimeBinding.account,
+      harness: 'codex' as const,
+      targetId: 'offline-target',
+      mode: 'agent' as const,
+    },
+    selection: commandSelection,
+    payload: { text: 'Hello without a repository' },
+  };
+  const options = {
+    input,
+    authSessionId: 'original-operator',
+    events,
+    taskRoot: () => f.taskRoot,
+    qualify,
+    signal: new AbortController().signal,
+  };
+  const original = await prepareDefaultOpenShellCommand({ ...options, workspaces: f.owner });
+  f.reopen();
+  expect(await prepareDefaultOpenShellCommand({ ...options, workspaces: f.owner })).toEqual(
+    original,
+  );
+  expect(events.getSession(original.sessionId)).toMatchObject({
+    ordinaryWorkspaceId: original.workspace.workspaceId,
+  });
+  expect(events.getOrdinaryInitialCommandId(original.sessionId)).toBeUndefined();
+  expect(qualify).toHaveBeenCalledOnce();
+  expect(f.capture).toHaveBeenCalledOnce();
+  expect(f.forbidden).not.toHaveBeenCalled();
+  await expect(
+    prepareDefaultOpenShellCommand({
+      ...options,
+      workspaces: f.owner,
+      input: { ...input, selection: { ...input.selection, model: 'different' } },
+    }),
+  ).rejects.toThrow('Original default OpenShell settings');
+  const differentOperator = await prepareDefaultOpenShellCommand({
+    ...options,
+    authSessionId: 'other-operator',
+    workspaces: f.owner,
+  });
+  expect(differentOperator.sessionId).not.toBe(original.sessionId);
+});

@@ -61,6 +61,7 @@ const fixtures = vi.hoisted(() => ({
   shellTarget: vi.fn(),
   shellResumable: false,
   workspace: vi.fn(),
+  ordinaryWorkspace: vi.fn(),
   library: vi.fn(),
   profiles: vi.fn(),
   controller: false,
@@ -109,6 +110,7 @@ vi.mock('../account-profiles.js', async (original) => ({
 vi.mock('../agent-library-runtime.js', () => ({ getAgentLibrary: fixtures.library }));
 vi.mock('../repository-workspace-runtime.js', () => ({
   getRepositoryWorkspaces: fixtures.workspace,
+  getOrdinaryWorkspaces: fixtures.ordinaryWorkspace,
 }));
 vi.mock('../symposium-custodian-mode.js', () => ({
   custodianControllerClient: undefined,
@@ -1303,3 +1305,72 @@ it('reserves a qualified OpenShell preparation model B before admission and an e
     await rm(root, { recursive: true, force: true });
   }
 }, 15000);
+
+it('starts a fresh OpenShell chat through ordinary mgmt custody without selecting a repository', async () => {
+  const shell = configuredShell();
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'default-shell-public-')));
+  const taskRoot = join(root, 'tasks');
+  await mkdir(taskRoot, { mode: 0o700 });
+  vi.stubEnv('MITZO_ORDINARY_TASK_ROOT', taskRoot);
+  const binding = shell.shellProfiles.resolve('brokered', 'fixture');
+  const forbidden = vi.fn(async () => {
+    throw Error('No repository authority for default chat');
+  });
+  const capture = vi.fn(async () => ({
+    version: 1 as const,
+    originalBinding: binding,
+    runtimeBinding: shell.admittedBinding,
+    credentialDigest: 'a'.repeat(64),
+    sandboxWorkdir: shell.config.workdir,
+  }));
+  const workspaces = new RepositoryWorkspaces(join(root, 'owner'), {
+    authorize: forbidden,
+    inspect: forbidden,
+    prepare: forbidden,
+    ordinaryPreparation: { capture, assert: async () => {} },
+  });
+  fixtures.ordinaryWorkspace.mockReturnValue(workspaces);
+  const { repositoryWorkspaceId: _unused, ...request } = shell.request;
+  fixtures.startShell.mockImplementation(async (_transport, _client, args) => {
+    const record = workspaces.getOrdinaryWorkspace(args.meta.ordinaryWorkspaceId);
+    await workspaces.claimOrdinaryWorkspace({
+      id: record.id,
+      conversationId: record.conversationId,
+      binding,
+      taskRoot,
+      signal: new AbortController().signal,
+    });
+    store.admitPreparedOrdinaryWorkspaceCommand(
+      args.preparationOperationId,
+      args.meta,
+      shell.admittedBinding,
+      {
+        clientMsgId: args.command.clientMsgId,
+        requestFingerprint: 'offline-boundary-receipt',
+        selection: args.command.selection,
+        payload: args.command.payload,
+      },
+    );
+    store.claimOrdinaryOpenShellCommandDispatch(args.command.clientMsgId);
+    store.completeOrdinaryOpenShellCommand(args.command.clientMsgId);
+    return { dispatched: true, sessionId: record.conversationId };
+  });
+  try {
+    const capabilities = await invoke('GET', '/capabilities', undefined);
+    expect(capabilities.body).toMatchObject({ defaultOpenShellWorkspace: true });
+    const accepted = await invoke('POST', '/send', request);
+    expect(accepted.status).toBe(202);
+    const meta = store.getSession((accepted.body as { sessionId: string }).sessionId)!;
+    expect(meta.ordinaryWorkspaceId).toBeTruthy();
+    expect(meta.repositoryWorkspaceId).toBeUndefined();
+    expect(meta.cwd).toBe(shell.config.workdir);
+    expect(fixtures.startShell.mock.calls[0][2].preparationOperationId).toBeTruthy();
+    expect(capture).toHaveBeenCalledOnce();
+    expect(forbidden).not.toHaveBeenCalled();
+    expect(fixtures.reserveSandbox).not.toHaveBeenCalled();
+    expect(fixtures.reserve).not.toHaveBeenCalled();
+  } finally {
+    workspaces.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

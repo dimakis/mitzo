@@ -117,7 +117,8 @@ function workspaceOwner(readOnly = false, ordinary = false, local = false) {
     (local
       ? !localRepositoryWorkspacesEnabled()
       : ordinary
-        ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
+        ? process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' &&
+          process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED !== '1'
         : !repositoryWorkspacesEnabled())
   )
     throw new Error(
