@@ -1,4 +1,9 @@
 import {
+  TelosWorkLifecycleCommandSchema,
+  TelosWorkLifecycleViewSchema,
+  TelosWorkLifecycleListSchema,
+  TelosWorkLifecycleReceiptSchema,
+  type TelosWorkLifecycleCommand,
   TelosWorkControlCommandSchema,
   TelosWorkControlResultSchema,
   type TelosWorkControlCommand,
@@ -312,6 +317,63 @@ export class TelosWorkApiClient {
     const id = TelosWorkIdSchema.parse(itemId);
     if (/[\\/?#]/.test(id)) return Promise.reject(new Error('Invalid work item ID'));
     return this.request('items/' + encodeURIComponent(id), TelosWorkViewSchema, undefined, signal);
+  }
+  async readLifecycle(itemId: string, signal?: AbortSignal) {
+    const id = TelosWorkIdSchema.parse(itemId);
+    if (/[\\/?#]/.test(id)) throw new Error('Invalid work item ID');
+    const result = await this.request(
+      'items/' + encodeURIComponent(id) + '/lifecycle',
+      TelosWorkLifecycleViewSchema,
+      undefined,
+      signal,
+    );
+    if (result.itemId !== id)
+      throw new TelosWorkApiError(
+        502,
+        'invalid',
+        'Lifecycle identity differs from the selected item',
+      );
+    return result;
+  }
+  listLifecycle(view: 'active' | 'archive' | 'trash' = 'active', signal?: AbortSignal) {
+    const selected = TelosWorkLifecycleListSchema.parse(view);
+    return this.request(
+      'lifecycle?' + new URLSearchParams({ view: selected }),
+      TelosWorkLifecycleViewSchema.array(),
+      undefined,
+      signal,
+    );
+  }
+  async executeLifecycle(input: TelosWorkLifecycleCommand, signal?: AbortSignal) {
+    const command = TelosWorkLifecycleCommandSchema.parse(input);
+    if (
+      command.operation === 'delete_permanently' &&
+      command.confirmation.itemId !== command.itemId
+    )
+      throw new TelosWorkApiError(
+        400,
+        'invalid',
+        'Permanent deletion confirmation must match the selected item',
+      );
+    const result = await this.request(
+      'lifecycle',
+      TelosWorkLifecycleReceiptSchema,
+      command,
+      signal,
+    );
+    if (
+      result.requestId !== command.requestId ||
+      result.itemId !== command.itemId ||
+      result.operation !== command.operation ||
+      (command.operation === 'delete_permanently') !== (result.lifecycle === null) ||
+      (result.lifecycle !== null && result.lifecycle.itemId !== command.itemId)
+    )
+      throw new TelosWorkApiError(
+        502,
+        'invalid',
+        'Lifecycle receipt differs from the selected command',
+      );
+    return result;
   }
   readRecord(itemId: string, signal?: AbortSignal) {
     const id = TelosWorkIdSchema.parse(itemId);

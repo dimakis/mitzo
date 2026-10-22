@@ -27,7 +27,7 @@ export const OrdinaryLocalCommandAdmissionSchema = z.strictObject({
   version: z.literal(1),
   binding: SessionRuntimeBindingV2Schema.refine(
     (b) =>
-      b.account.provider === 'openai-codex' &&
+      ['openai-codex', 'openai'].includes(b.account.provider) &&
       b.harness.implementation === 'codex' &&
       b.execution.location === 'local',
     'Ordinary local Codex route required',

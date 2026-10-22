@@ -18,3 +18,15 @@
 .chat-status-message--error {
   color: var(--color-danger);
 }
+
+.chat-status-message--action {
+  align-items: center;
+}
+
+.chat-status-message--action > span {
+  flex: 1;
+}
+
+.chat-status-message--action > button {
+  flex-shrink: 0;
+}

@@ -5,6 +5,22 @@ approved picker. OpenShell remains the new-session default. The Local route stay
 behind its existing explicit configuration gate. Source tests do not enroll a
 provider, deploy the feature or qualify its behavior against a live model.
 
+## Production account configuration
+
+With `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1`, production bundle validation accepts
+an ordinary file-backed ChatGPT host-login profile alongside existing OpenShell
+accounts. The host profile declares its absolute `credentialRef`, email and
+non-API plan. It must omit workspace identity, native sandbox authentication and
+every sandbox provider/grant field. Host runtime declarations still need to be
+regenerated for the actual accepted release and measured executable; deployment
+validation of profile shape does not establish login or runtime readiness.
+
+The host login is a separate connection from the brokered OpenShell OAuth
+profile, even when both belong to the operator's same ChatGPT subscription.
+Keep the existing broker profile and authentication unchanged. OpenAI API
+profiles retain their sandbox provider checks, and brokered subscription
+profiles retain provider ID, grant and credential-isolation validation.
+
 ## Retained conversation and command selection
 
 The existing EventStore admission receipt freezes each command's prepared prompt,

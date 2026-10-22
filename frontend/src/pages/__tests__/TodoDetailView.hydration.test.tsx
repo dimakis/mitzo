@@ -326,3 +326,18 @@ it('releases a retained canonical workspace after the current record read settle
   await act(async () => related.resolve(parent));
   await waitFor(() => expect(document.querySelector('.telos-item-workspace')).toBeNull());
 });
+
+it('keeps no-snapshot navigation in a standard loading frame until the canonical primary read settles', async () => {
+  const pending = deferred<TelosWorkItem>();
+  vi.mocked(useTodoData).mockReturnValue(collection() as ReturnType<typeof useTodoData>);
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockImplementation((id) =>
+    id === 'studio' ? pending.promise : Promise.resolve(parent),
+  );
+  const view = mount();
+  expect(view.container.querySelector('.todo-detail-legacy')).toBeNull();
+  expect(screen.getByText('Loading...').getAttribute('role')).toBe('status');
+  expect(screen.queryByText('Urgency')).toBeNull();
+  await act(async () => pending.resolve(root));
+  await screen.findByRole('heading', { name: root.summary });
+  expect(view.container.querySelector('.telos-item-workspace')).toBeTruthy();
+});

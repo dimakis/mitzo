@@ -209,6 +209,49 @@ it('retains request after logout and never automatically retries on a new authen
   expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
   expect(store.getState().localCommand?.request).toEqual(request);
 });
+it.each(['retained', 'lost-response'])(
+  'ends only unassigned optimistic busy state when a Local send is %s, preserving its draft and exact recovery',
+  async (failure) => {
+    const { store, fetch, readStorage } = setup();
+    channel.id = 'live-sse';
+    const assigned = vi.fn();
+    const delivered = vi.fn();
+    fetch.mockImplementation(async () => {
+      if (failure === 'lost-response') throw Error('Offline transport failure');
+      return Response.json(
+        {
+          ok: false,
+          code: 'retained_command',
+          error: 'Local Codex entry unavailable',
+          clientMsgId: request.clientMsgId,
+          sessionId: 'retained-session',
+          state: 'uncertain',
+        },
+        { status: 409 },
+      );
+    });
+    expect(
+      store.getState().sendLocalFirstCommand(request, {
+        draftId: 'original-draft',
+        onSessionAssigned: assigned,
+        onDelivery: delivered,
+      }),
+    ).toBe(true);
+    expect(store.getState().messages.running).toBe(true);
+    await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('uncertain'));
+    expect(store.getState().messages.running).toBe(false);
+    expect(store.getState().messages.messages).toEqual([
+      expect.objectContaining({ messageId: request.clientMsgId, role: 'user' }),
+    ]);
+    expect(store.getState().sessions.active).toBeNull();
+    expect(assigned).not.toHaveBeenCalled();
+    expect(readStorage()[0]).toMatchObject({ body: request, localDraftId: 'original-draft' });
+    expect(store.getState().sendLocalFirstCommand({ ...request, clientMsgId: 'replacement' })).toBe(
+      false,
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+  },
+);
 it('keeps delayed assignment with its originating draft after New and exposes recovery without adopting the new composer', async () => {
   const { store, fetch } = setup();
   channel.id = 'live-sse';

@@ -1,3 +1,5 @@
+import { TelosItemLifecycle } from './TelosItemLifecycle';
+import type { TelosWorkLifecycleView } from '@mitzo/protocol';
 import { TodoPrioritySelect } from './TodoPrioritySelect';
 import type { TodoPrioritySaveState } from '../lib/todo-priority-save-state';
 import { todoPriority } from '../lib/todo-utils';
@@ -40,6 +42,7 @@ export function TelosItemWorkspace({
   relatedState = 'ready',
   onRefresh,
   prioritySaveState,
+  onLifecycleCurrent,
 }: {
   record: TelosWorkItem;
   records: TelosWorkItem[];
@@ -49,6 +52,7 @@ export function TelosItemWorkspace({
   relatedState?: 'loading' | 'unavailable' | 'ready';
   onRefresh?(): void;
   prioritySaveState?: TodoPrioritySaveState;
+  onLifecycleCurrent?(view: TelosWorkLifecycleView): void;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -185,7 +189,7 @@ export function TelosItemWorkspace({
         <button aria-label="Back" onClick={onBack}>
           <UiIcon name="back" size={20} />
         </button>
-        <div>
+        <div className="telos-item-title">
           {parent && <button onClick={() => onOpen(parent.itemId)}>{parent.summary}</button>}
           <h1>{record.summary}</h1>
           <span className="telos-node-meta">
@@ -198,6 +202,16 @@ export function TelosItemWorkspace({
           onChange={(priority) => setTodoPriority(record.itemId, priority)}
         />
       </header>
+      <TelosItemLifecycle
+        itemId={record.itemId}
+        title={record.summary}
+        kind={record.kind}
+        parentId={record.parentId}
+        refreshKey={refreshKey}
+        onOpen={onOpen}
+        onDeleted={onBack}
+        onCurrentState={onLifecycleCurrent}
+      />
       <nav className="telos-tabs" aria-label="Item views">
         {tabs.map((value) => (
           <button key={value} aria-pressed={value === current} onClick={() => select(value)}>
@@ -207,7 +221,7 @@ export function TelosItemWorkspace({
       </nav>
       {error && <p role="alert">{error}</p>}
       <div className="telos-dashboard">
-        <div>
+        <div className="telos-workspace-content">
           {current === 'Chat' ? (
             <TelosItemChatTab
               key={record.itemId}
@@ -227,11 +241,13 @@ export function TelosItemWorkspace({
               ) : (
                 <section>
                   <h2>{record.kind === 'work_item' ? 'This work item' : 'This item'}</h2>
-                  <p>{record.intent}</p>
+                  <p>{record.intent || 'Not recorded'}</p>
                 </section>
               )}
-              <h2>Plans, documents & outputs</h2>
-              {materials}
+              <section className="telos-materials-section">
+                <h2>Plans, documents & outputs</h2>
+                {materials}
+              </section>
             </>
           )}
         </div>

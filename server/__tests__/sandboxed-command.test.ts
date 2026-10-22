@@ -64,6 +64,14 @@ it('fails closed when a sandbox dependency would degrade isolation', async () =>
 
 // Real OS boundary tests: enable on a host that permits nested sandbox creation.
 describe.runIf(process.env.MITZO_SANDBOX_INTEGRATION === '1')('OS sandbox', () => {
+  it('runs a disposable local HTTP test server after network command approval', async () => {
+    const script = `const http = require('node:http'); const server = http.createServer((_, res) => res.end('local-test-ok')); server.listen(0, '127.0.0.1', () => { http.get({host:'127.0.0.1',port:server.address().port}, res => {res.pipe(process.stdout);res.on('end',()=>server.close());}).on('error',e=>{console.error(e.message);server.close();process.exitCode=1;});});`;
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+    const output = await run(`${quote(process.execPath)} -e ${quote(script)}`, {
+      networkAccess: 'approved-command',
+    });
+    expect(output).toEqual({ content: 'local-test-ok', isError: false });
+  }, 20000);
   it('scopes optional read roots without exposing neighboring task files', async () => {
     const neighboring = join(root, 'other-task');
     await writeFile(neighboring, 'unapproved-task-content');

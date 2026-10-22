@@ -41,6 +41,8 @@ export async function ownedRuntimeFixture(
     chatRoute?: boolean;
     silentPreparation?: boolean;
     builtinPreparation?: boolean;
+    api?: boolean;
+    localRepository?: boolean;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -99,13 +101,21 @@ export async function ownedRuntimeFixture(
       models: [{ id: 'fixture-model', label: 'Fixture model', reasoningEfforts: ['low'] }],
     },
   ];
+  if (options.api)
+    configuration[0] = {
+      id: 'work',
+      label: 'Work API',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'offline-test', account: 'work' },
+      models: [{ id: 'fixture-model', label: 'Fixture model', reasoningEfforts: ['low'] }],
+    } as never;
   const writeProfiles = () =>
     writeFileSync(configPath, JSON.stringify(configuration), { mode: 0o600 });
   writeProfiles();
   vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', configPath);
   vi.stubEnv('MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB', '');
   vi.stubEnv('MITZO_CODEX_ENABLED', '1');
-  const binding = loadAccountProfiles().resolve('personal', 'fixture-model');
+  const binding = loadAccountProfiles().resolve(options.api ? 'work' : 'personal', 'fixture-model');
   const eventPath = options.chatRoute ? join(root, '.mitzo', 'events.db') : join(root, 'events.db');
   const events = new EventStore(eventPath);
   const library = new AgentLibraryStore(eventPath);
@@ -194,6 +204,7 @@ export async function ownedRuntimeFixture(
   const baseOid = git(source, 'rev-parse', 'HEAD');
   const inspect = async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid });
   const workspace = new RepositoryWorkspaces(join(root, 'repositories'), {
+    localRepositories: () => ({ primary: source }),
     authorize: async (selected) => {
       loadAccountProfiles().resumeRouting(selected);
       return { revision: 1, allowedBaseBranches: ['main'] };
@@ -223,23 +234,40 @@ export async function ownedRuntimeFixture(
   });
   cleanups.push(() => workspace.close());
   const signal = new AbortController();
-  const preview = await workspace.preview(
-    binding,
-    'fixture-github',
-    'example/repo',
-    signal.signal,
-    options.silentPreparation
-      ? {
+  const localReady = options.localRepository
+    ? await workspace.selectLocalRepository(
+        binding,
+        'primary',
+        {
           runOn: 'local',
           runtime: {
             account: catalog.inventory().accounts[0].account,
             harness: 'codex',
             targetId: 'local-mac',
           },
-        }
-      : undefined,
-  );
-  const prepared = await workspace.prepare(preview.id, binding, signal.signal);
+        },
+        signal.signal,
+      )
+    : undefined;
+  const preview =
+    localReady ??
+    (await workspace.preview(
+      binding,
+      'fixture-github',
+      'example/repo',
+      signal.signal,
+      options.silentPreparation
+        ? {
+            runOn: 'local',
+            runtime: {
+              account: catalog.inventory().accounts[0].account,
+              harness: 'codex',
+              targetId: 'local-mac',
+            },
+          }
+        : undefined,
+    ));
+  const prepared = localReady ?? (await workspace.prepare(preview.id, binding, signal.signal));
   let reservation: Omit<
     import('../../repository-workspaces.js').HostRepositoryReservationInput,
     'signal'
@@ -253,6 +281,12 @@ export async function ownedRuntimeFixture(
     taskRoot,
   };
   let reserved: import('../../repository-workspaces.js').HostRepositoryReservation;
+  if (localReady)
+    reservation = {
+      ...reservation,
+      runtimeBinding: localReady.ordinaryRuntime,
+      commandFingerprint: 'a'.repeat(64),
+    };
   if (!options.silentPreparation)
     reserved = await workspace.reserveHostTask({ ...reservation, signal: signal.signal });
   const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 },
@@ -321,7 +355,9 @@ export async function ownedRuntimeFixture(
       initialize: vi.fn(async () => {}),
       request: vi.fn(async (method: string): Promise<unknown> => {
         if (method === 'account/read')
-          return { account: { type: 'chatgpt', email: configuration[0].email, planType: 'plus' } };
+          return options.api
+            ? { account: { type: 'apiKey' }, requiresOpenaiAuth: true }
+            : { account: { type: 'chatgpt', email: configuration[0].email, planType: 'plus' } };
         if (method === 'config/read') return { config: {} };
         if (method === 'model/list')
           return {
@@ -384,6 +420,19 @@ export async function ownedRuntimeFixture(
       env,
       privateRoot,
       launch,
+      ...(options.api
+        ? {
+            launchApi: async (home: string) => {
+              expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('uncertain');
+              await writeFile(
+                join(home, 'auth.json'),
+                JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
+                { mode: 0o600, flag: 'wx' },
+              );
+              return rpc;
+            },
+          }
+        : {}),
       dispatch,
     };
     const create = () => {

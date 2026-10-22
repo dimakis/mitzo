@@ -2,6 +2,43 @@
 
 This dependent source increment adopts the existing NativeResponses runner and private history store into ordinary runtime admission. It does not qualify a live account, deploy a backend, enroll Vertex/recipes, or change the OpenShell default.
 
+## Local development environment and command approvals
+
+The server supplies the actual host OS, architecture, working directory and
+writable checkout/worktree roots to the model. Local Mac describes tool execution;
+the selected OpenAI API account still supplies inference and billing. The model
+must use those host paths instead of assuming OpenShell container paths.
+
+`MITZO_ORDINARY_LOCAL_RESPONSES_NETWORK_ENABLED=1` explicitly enables networked
+Bash commands for the enrolled ordinary Local API owner. It is off by default and
+does not apply to legacy API or Gemini sessions. Tool descriptions and runtime
+instructions reflect the selected policy. The ordinary route and its accepted
+source-bound target declaration remain separately required.
+
+This uses the existing permission handler and approval card. Agent permits file
+edits and requests approval for commands. The card states that the command has
+network access; **Allow for this session** retains that command capability for
+the conversation. Old networkless Bash grants cannot supply the new grant. Auto
+permits commands under its existing preset; Ask, skill restrictions, ownership
+checks, cancellation and permission downgrades remain enforced.
+
+Network authorization covers general proxy-mediated egress for the approved
+command and its children, including local binding and loopback for development
+servers. This includes reaching local services; it does not promise a hostname-only
+or public-only boundary. The pinned OS sandbox retains its proxy destination denials, Unix
+socket restrictions, private path protections, isolated HOME/TMPDIR, scrubbed
+environment and checkout write scope. There is no unsandboxed fallback. Connection
+and model credentials are not supplied to Bash; authenticated services still use
+their existing connection approvals. URL read grants do not authorize shell
+networking. GitCommit and RequestGithubPublish remain the supported Git operations.
+
+The network setting is captured when the driver opens. Changing configuration
+requires the normal accepted-source activation and restart procedure; it does not
+grant access to an existing conversation by mutating its binding. Requalify target
+declarations against the actual activated release, preserve retained histories and
+verify Work OpenAI remains selectable. Source acceptance does not activate either
+switch, deploy production, or establish live model/runtime qualification.
+
 The existing picker and generic `/api/chat/runtime` capability/send/continue entry derive Local Responses or OpenShell Codex from the exact enrolled OpenAI API account and selected environment. A single opaque account reference retains provider, routing revision and billing credential owner across environments. Different environments start separate conversations and accepted repository checkouts. Model catalogs and thinking support stay attached to each route snapshot; combined account display metadata never authorizes another route.
 
 Local Responses requires `MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED=1` and an explicit private `MITZO_ORDINARY_LOCAL_RESPONSES_TARGET_FILE`. The version 1 target declares targetId, label, actual hostId and the reviewed source contract revision returned by `ordinaryLocalResponsesContractRevision()`. Absence, incompatible host/source, disabled enrollment, or missing enrollment credential custody refuses the route. The account must be ready in the existing enrolled AccountProfiles projection and owned by the exact existing OpenAIEnrollmentAuthority. No generic secret lookup, other account, subscription-to-API substitution, or ambient OpenShell choice supplies a fallback.

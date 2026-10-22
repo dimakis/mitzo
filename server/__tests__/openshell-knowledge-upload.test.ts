@@ -18,7 +18,16 @@ import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { SpanStatusCode } from '@opentelemetry/api';
 import { tracer } from '../tracing.js';
-import { canonicalJsonPayload } from '../../scripts/verify-openshell-production.mjs';
+import {
+  canonicalJsonPayload,
+  verifyPreparedSeed,
+} from '../../scripts/verify-openshell-production.mjs';
+
+vi.mock('../../scripts/verify-openshell-production.mjs', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../../scripts/verify-openshell-production.mjs')>();
+  return { ...actual, verifyPreparedSeed: vi.fn(actual.verifyPreparedSeed) };
+});
 import {
   OpenShellRuntimeManager,
   prepareOpenShellSeed,
@@ -1163,4 +1172,167 @@ it('refuses linked source knowledge without copying or changing its target', () 
   expect(() => prepareOpenShellSeed(config)).toThrow('unsafe symlink');
   expect(readFileSync(target, 'utf8')).toBe('Accepted A');
   expect(statSync(target).mode & 0o777).toBe(0o644);
+});
+
+it('attests source once and frozen upload once when no asynchronous capacity boundary is supplied', async () => {
+  const config = publication();
+  vi.mocked(verifyPreparedSeed).mockClear();
+  const frozen = await preparePublishedOpenShellSeed(config, new AbortController().signal);
+  try {
+    expect(vi.mocked(verifyPreparedSeed).mock.calls.map(([path]) => path)).toEqual([
+      config.seed,
+      frozen.seed,
+    ]);
+    expect(readFileSync(join(frozen.seed, 'memory/example.md'), 'utf8')).toBe('Accepted A');
+  } finally {
+    frozen.cleanup();
+  }
+});
+
+it('rechecks mutable source after an asynchronous capacity boundary before freezing', async () => {
+  const config = publication();
+  vi.mocked(verifyPreparedSeed).mockClear();
+  await expect(
+    preparePublishedOpenShellSeed(config, new AbortController().signal, async () => {
+      await Promise.resolve();
+      writeFileSync(join(config.seed, 'memory/example.md'), 'Changed during capacity admission');
+    }),
+  ).rejects.toThrow();
+  expect(vi.mocked(verifyPreparedSeed).mock.calls.map(([path]) => path)).toEqual([
+    config.seed,
+    config.seed,
+  ]);
+  expect(existsSync(join(root, 'private/knowledge-uploads'))).toBe(false);
+});
+
+function held<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
+  return { promise, resolve, reject };
+}
+const nextTick = () => new Promise<void>((resolve) => setImmediate(resolve));
+
+it.each([
+  'success',
+  'runtime_failure',
+  'cache_failure',
+  'cache_malformed',
+  'both_failure',
+  'cancelled',
+] as const)(
+  'overlaps fresh read-only runtime/cache checks and settles both before mutation or release: %s',
+  async (outcome) => {
+    const f = firstCommandFixture();
+    const runtime = await f.ensure();
+    const runtimeRead = held<string>();
+    const cacheRead = held<string>();
+    const original = f.ssh.getMockImplementation()!;
+    const runtimeEntered = vi.fn();
+    const cacheEntered = vi.fn();
+    f.ssh.mockImplementation(async (args) => {
+      if (args.join(' ').includes('attest-knowledge-runtime.py')) {
+        runtimeEntered();
+        return runtimeRead.promise;
+      }
+      if (args.join(' ').includes('knowledge-cache-probe')) {
+        cacheEntered();
+        return cacheRead.promise;
+      }
+      return original(args);
+    });
+    const abort = new AbortController();
+    let settled = false;
+    const preparing = f.manager.adoptKnowledge(
+      'first-conversation',
+      runtime,
+      abort.signal,
+      undefined,
+      'first',
+    );
+    void preparing.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    try {
+      await nextTick();
+      expect(runtimeEntered).toHaveBeenCalledOnce();
+      expect(cacheEntered).toHaveBeenCalledOnce();
+      expect(settled).toBe(false);
+      const uploads = () => f.run.mock.calls.filter(([args]) => args.includes('upload'));
+      expect(uploads()).toHaveLength(0);
+      if (outcome === 'cancelled') abort.abort();
+      const cacheError = new Error('PRIVATE cache failure');
+      if (outcome === 'cache_failure' || outcome === 'both_failure') cacheRead.reject(cacheError);
+      else if (outcome === 'cache_malformed') cacheRead.resolve('{');
+      else cacheRead.resolve(JSON.stringify({ valid: false, present: false }));
+      await nextTick();
+      expect(settled).toBe(false);
+      expect(uploads()).toHaveLength(0);
+      if (outcome === 'runtime_failure' || outcome === 'both_failure') runtimeRead.resolve('{}');
+      else runtimeRead.resolve(JSON.stringify(f.config.seedStackManifest.runtime));
+      if (outcome === 'success') {
+        await expect(preparing).resolves.toHaveProperty('sourceCommit', 'a'.repeat(40));
+        expect(uploads()).toHaveLength(1);
+      } else {
+        if (outcome === 'runtime_failure' || outcome === 'both_failure')
+          await expect(preparing).rejects.toThrow('Runtime is incompatible');
+        else if (outcome === 'cache_failure') await expect(preparing).rejects.toBe(cacheError);
+        else if (outcome === 'cache_malformed')
+          await expect(preparing).rejects.toBeInstanceOf(SyntaxError);
+        else await expect(preparing).rejects.toThrow();
+        expect(uploads()).toHaveLength(0);
+      }
+    } finally {
+      runtimeRead.resolve(JSON.stringify(f.config.seedStackManifest.runtime));
+      cacheRead.resolve(JSON.stringify({ valid: false, present: false }));
+      await preparing.catch(() => {});
+    }
+  },
+);
+
+it('waits for a held cache read even after runtime incompatibility, without releasing admission', async () => {
+  const f = firstCommandFixture();
+  const runtime = await f.ensure();
+  const cache = held<string>();
+  const original = f.ssh.getMockImplementation()!;
+  f.ssh.mockImplementation(async (args) => {
+    if (args.join(' ').includes('attest-knowledge-runtime.py')) return '{}';
+    if (args.join(' ').includes('knowledge-cache-probe')) return cache.promise;
+    return original(args);
+  });
+  let settled = false;
+  const preparing = f.manager.adoptKnowledge(
+    'first-conversation',
+    runtime,
+    new AbortController().signal,
+    undefined,
+    'first',
+  );
+  void preparing.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  try {
+    await nextTick();
+    expect(
+      f.ssh.mock.calls.some(([args]) => args.join(' ').includes('knowledge-cache-probe')),
+    ).toBe(true);
+    expect(settled).toBe(false);
+    expect(f.run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(0);
+  } finally {
+    cache.resolve(JSON.stringify({ valid: false, present: false }));
+    await expect(preparing).rejects.toThrow('Runtime is incompatible');
+  }
 });

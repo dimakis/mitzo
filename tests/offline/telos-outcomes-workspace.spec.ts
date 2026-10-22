@@ -1,3 +1,4 @@
+import { waitForNewFixtureReads } from '../support/fixture-reads';
 import { localInventoryFixture } from '../../frontend/src/test-utils/local-inventory-fixture';
 import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
@@ -742,8 +743,18 @@ for (const theme of ['dark', 'light'])
       await page.setViewportSize({ width: 1280, height: 900 });
     }
 
-    await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await expect(search).toHaveValue('frontend/src/pages/TodoView.tsx');
+    await waitForNewFixtureReads(
+      page,
+      [
+        '/api/telos/work/items/fixture-outer',
+        '/api/telos/work/items/fixture-inner',
+        '/api/telos/work/items/fixture-nested-outcome',
+      ],
+      async () => {
+        await page.getByRole('button', { name: 'Back', exact: true }).click();
+        await expect(search).toHaveValue('frontend/src/pages/TodoView.tsx');
+      },
+    );
     failRecords = true;
     await reload();
     await expect(
@@ -942,7 +953,9 @@ for (const theme of ['dark', 'light'])
     });
     try {
       await page.getByRole('button', { name: 'Back', exact: true }).click();
-      await expect(page.locator('.telos-legacy-page')).toBeVisible();
+      await expect(page.locator('.todo-page.telos-canonical-page')).toBeVisible();
+      await expect(page.getByText('Loading outcomes…', { exact: true })).toBeVisible();
+      await expect(page.locator('.telos-legacy-page')).toBeHidden();
       await expect(page.locator('.todo-scroll')).toHaveJSProperty('scrollTop', 0);
     } finally {
       recordReadGate = undefined;

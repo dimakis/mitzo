@@ -3,7 +3,16 @@ import '@testing-library/jest-dom/vitest';
 import userEvent from '@testing-library/user-event';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
+import {
+  DEFAULT_MITZO_PROFILE_ID,
+  DEFAULT_MITZO_PROFILE_REVISION,
+  defaultMitzoProfileDefinition,
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+  profileBuilderDefinition,
+} from '@mitzo/protocol';
+import { sha256Hex } from '../../lib/browser-crypto';
 import { AccountModelPicker } from '../AccountModelPicker';
 import { ChatAgentProfilePicker } from '../ChatAgentProfilePicker';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
@@ -12,6 +21,45 @@ import type { ExplicitLocalInventory } from '../../lib/explicit-local-chat';
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import type { useExplicitLocalChat } from '../../hooks/useExplicitLocalChat';
 afterEach(cleanup);
+function CurrentSearch() {
+  return <output data-testid="profile-search">{useLocation().search}</output>;
+}
+
+it.each([
+  [DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION, defaultMitzoProfileDefinition],
+  [PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION, profileBuilderDefinition],
+] as const)(
+  'selects builtin %s without changing its namespace or losing it from the URL',
+  (profileId, revision, definition) => {
+    const changed = vi.fn();
+    const version = {
+      kind: 'builtin' as const,
+      profileId,
+      revision,
+      definition,
+      contentHash: sha256Hex(JSON.stringify(definition)),
+    };
+    render(
+      <MemoryRouter>
+        <ChatAgentProfilePicker
+          sessionId={null}
+          search=""
+          onChange={changed}
+          controlled={{ versions: [version], selection: null, onChange: changed }}
+        />
+        <CurrentSearch />
+      </MemoryRouter>,
+    );
+    fireEvent.change(screen.getByRole('combobox', { name: 'Agent' }), {
+      target: { value: JSON.stringify(['builtin', profileId, revision]) },
+    });
+    expect(changed).toHaveBeenCalledWith({ kind: 'builtin', profileId, revision });
+    const search = new URLSearchParams(screen.getByTestId('profile-search').textContent!);
+    expect(search.get('agentProfileKind')).toBe('builtin');
+    expect(search.get('agentProfile')).toBe(profileId);
+    expect(search.get('profileRevision')).toBe(String(revision));
+  },
+);
 it('derives software from the selected route and leaves unresolved OpenShell without a software claim', () => {
   const runtime = {
     visible: true,

@@ -191,6 +191,9 @@ export function DesktopChatView() {
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew || localRuntime.preparedFirst;
+  const defaultLocalRepository =
+    localRuntime.intent.execution.location === 'local' &&
+    localRuntime.inventory?.defaultLocalRepository === true;
   const refreshedFirstCommand = useRef<string | null>(null);
   const { preparedFirst, refresh: refreshRuntimeMetadata } = localRuntime;
   useEffect(() => {
@@ -767,8 +770,8 @@ export function DesktopChatView() {
         !localFirstCommand ||
         localRuntime.reason ||
         (localCommand && localCommand.state !== 'consumed') ||
-        !repositorySelection?.repositoryWorkspaceId ||
-        repositorySelection.blocked ||
+        (!defaultLocalRepository && !repositorySelection?.repositoryWorkspaceId) ||
+        repositorySelection?.blocked ||
         ctxBlocks?.length ||
         launching ||
         missingDraftReason ||
@@ -777,7 +780,7 @@ export function DesktopChatView() {
         return false;
       const command = buildLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
         clientMsgId: createBrowserId(),
-        repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId,
+        repositoryWorkspaceId: repositorySelection?.repositoryWorkspaceId,
         mode,
         text,
         sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
@@ -795,7 +798,7 @@ export function DesktopChatView() {
               'The conversation opened, but its Agent Library return link could not be saved. Keep this conversation open.',
             );
           }
-          if (accountSelection?.accountId)
+          if (accountSelection?.accountId && repositorySelection?.repositoryWorkspaceId)
             consumeRepositoryDraft(
               repositoryDraftKey(accountSelection.accountId, accountSelection.model),
               repositorySelection.repositoryWorkspaceId!,
@@ -944,6 +947,7 @@ export function DesktopChatView() {
             ? {
                 accounts: runtimeModelAccounts(localRuntime.intent, localRuntime.inventory),
                 accountNeedsConfirmation: localRuntime.accountNeedsConfirmation,
+                accountReference: localRuntime.intent.accountReference ?? null,
                 onRefresh: localRuntime.refresh,
                 selection: localRuntime.intent.account,
                 onAccountChange: (selection) =>
@@ -1079,6 +1083,13 @@ export function DesktopChatView() {
         accountId={repositoryAccountSelection.accountId}
         model={repositoryAccountSelection.model}
         draftScoped={draftEnabled}
+        preparationNote={
+          draftEnabled && repositorySelection?.repositoryWorkspaceId
+            ? preparedModelEditable
+              ? 'The prepared checkout keeps its account and environment. Model and thinking apply to the first message.'
+              : 'Remove the repository preparation to change account or model.'
+            : undefined
+        }
         ordinaryRuntime={
           explicitNew &&
           localRuntime.intent.accountReference &&
@@ -1315,7 +1326,7 @@ export function DesktopChatView() {
       <div className="workspace-session-settings">
         {isSymposium && agentControl}
         {isSymposium && executionControl}
-        {localCommand && (
+        {localCommand?.state === 'consumed' && (
           <div className="chat-agent-profile" role="status">
             <span>
               {localCommand.state === 'consumed'
@@ -1537,13 +1548,6 @@ export function DesktopChatView() {
                   <RepositoryChatDraftNotice handoff={repositoryHandoff} />
                   {missingDraftReason && <div role="alert">{missingDraftReason}</div>}
                   {repositoryAccountReason && <div role="alert">{repositoryAccountReason}</div>}
-                  {draftEnabled && repositorySelection?.repositoryWorkspaceId && (
-                    <p role="status">
-                      {preparedModelEditable
-                        ? 'The prepared checkout keeps its account and environment. Model and thinking apply to the first message.'
-                        : 'Remove the repository preparation to change account or model.'}
-                    </p>
-                  )}
                   {newChatDraft.settingsError && (
                     <div role="alert">Draft settings could not be saved on this device.</div>
                   )}
@@ -1573,8 +1577,13 @@ export function DesktopChatView() {
 
                   <CodexQueueStatus
                     sessionId={controlsBlocked ? null : activeSessionId}
-                    deliveryStatus={sendStatus}
+                    deliveryStatus={
+                      localCommand && localCommand.state !== 'consumed' ? null : sendStatus
+                    }
                     deliveryError={sendError}
+                    deliveryBusy={
+                      localCommand ? localCommand.state === 'pending' : messages.running
+                    }
                   />
                   {invalidRoleSetup && (
                     <p role="alert">
@@ -1647,7 +1656,8 @@ export function DesktopChatView() {
                                   })),
                                 },
                               ).reason
-                          : localFirstCommand && repositorySelection?.repositoryWorkspaceId
+                          : localFirstCommand &&
+                              (repositorySelection?.repositoryWorkspaceId || defaultLocalRepository)
                             ? (text, images) =>
                                 prepareLocalFirstCommand(
                                   localRuntime.intent,
@@ -1655,7 +1665,7 @@ export function DesktopChatView() {
                                   {
                                     clientMsgId: createBrowserId(),
                                     repositoryWorkspaceId:
-                                      repositorySelection.repositoryWorkspaceId!,
+                                      repositorySelection?.repositoryWorkspaceId,
                                     mode,
                                     text,
                                     sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
@@ -1674,6 +1684,20 @@ export function DesktopChatView() {
                         ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
                         : undefined
                     }
+                    sendDisabledAction={
+                      localCommand && !['pending', 'consumed'].includes(localCommand.state)
+                        ? {
+                            label: 'Retry',
+                            onClick: () => {
+                              recoverLocalCommand();
+                            },
+                            disabled:
+                              !connected ||
+                              !localCommand.request ||
+                              localCommand.state === 'blocked',
+                          }
+                        : undefined
+                    }
                     sendDisabledReason={
                       (invalidRoleSetup
                         ? 'This work conversation setup is unavailable. Return to the work item and choose a supported role.'
@@ -1686,15 +1710,21 @@ export function DesktopChatView() {
                       (localRuntime.commandAvailable &&
                       localCommand &&
                       localCommand.state !== 'consumed'
-                        ? 'Review the retained Local command before sending.'
+                        ? localCommand.state === 'pending'
+                          ? 'Sending…'
+                          : 'Something went wrong.'
                         : undefined) ??
                       (explicitNew && localCommand && localCommand.state !== 'consumed'
-                        ? 'Review the retained Local command before sending.'
+                        ? localCommand.state === 'pending'
+                          ? 'Sending…'
+                          : 'Something went wrong.'
                         : undefined) ??
                       (localFirstCommand && (!localTransportAvailable || !connected)
                         ? 'Execution connection is unavailable. Reconnect before sending.'
                         : undefined) ??
-                      (explicitNew && !repositorySelection?.repositoryWorkspaceId
+                      (explicitNew &&
+                      !defaultLocalRepository &&
+                      !repositorySelection?.repositoryWorkspaceId
                         ? 'Prepare a repository before sending the command.'
                         : undefined) ??
                       (launchDeliveryPending

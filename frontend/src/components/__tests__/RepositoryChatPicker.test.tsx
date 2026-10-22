@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RepositoryChatPicker } from '../RepositoryChatPicker';
 const api = vi.hoisted(() => ({ fetch: vi.fn() }));
@@ -12,13 +12,177 @@ afterEach(() => {
   sessionStorage.clear();
 });
 const preview = {
-  id: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+  id: '8ca30b0d-3e65-4eeb-8244-f6277350818f' as const,
   repository: 'example/repo',
   baseBranch: 'main',
   baseOid: 'a'.repeat(40),
   featureBranch: 'mitzo/task',
   state: 'preview',
 };
+it('uses a repository already on the Mac without a GitHub preview or preparation step', async () => {
+  vi.spyOn(crypto, 'randomUUID').mockReturnValue(preview.id);
+  const runtime = {
+    runOn: 'local' as const,
+    runtime: {
+      account: { accountId: 'account', provider: 'openai' as const, profileRevision: 'rev' },
+      harness: 'responses' as const,
+      targetId: 'mac',
+    },
+  };
+  const bound = {
+    version: 2,
+    account: runtime.runtime.account,
+    harness: { implementation: 'responses' },
+    execution: { location: 'local', targetId: 'mac', targetRevision: 'host-1' },
+  };
+  const onChange = vi.fn();
+  api.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes('/catalog')
+            ? {
+                available: true,
+                location: 'local',
+                repositories: [
+                  {
+                    connectionId: 'local',
+                    repositoryId: 'primary',
+                    repository: 'local/primary',
+                    label: 'Mitzo',
+                  },
+                ],
+              }
+            : { ...preview, repository: 'local/primary', state: 'ready', ordinaryRuntime: bound },
+        ),
+      ),
+  );
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      draftScoped
+      ordinaryRuntime={runtime}
+      onChange={onChange}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('Local repository'), 'local:local/primary');
+  await user.click(screen.getByRole('button', { name: 'Use repository' }));
+  await screen.findByText(/worktree starts from latest upstream main/i);
+  expect(screen.getByText('Mitzo', { exact: true })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Refresh repository status' })).toBeTruthy();
+  expect(api.fetch.mock.calls[0][0]).toContain('runOn=local');
+  const posts = api.fetch.mock.calls.filter(([, options]) => options?.method === 'POST');
+  expect(posts).toHaveLength(1);
+  expect(posts[0][0]).toBe('/api/repository-workspaces/local');
+  expect(JSON.parse(posts[0][1].body)).toMatchObject({
+    repositoryId: 'primary',
+    ordinaryRuntime: runtime,
+    requestId: expect.any(String),
+  });
+  expect(onChange).toHaveBeenLastCalledWith({
+    repositoryWorkspaceId: preview.id,
+    blocked: false,
+    ordinaryRuntime: bound,
+  });
+  expect(screen.queryByText('Prepare repository')).toBeNull();
+  expect(screen.queryByText('Paste a GitHub URL')).toBeNull();
+});
+it('allows retry after an upstream failure instead of trapping a local selection behind a missing receipt', async () => {
+  const ordinaryRuntime = {
+    runOn: 'local' as const,
+    runtime: {
+      account: { accountId: 'account', provider: 'openai' as const, profileRevision: 'rev' },
+      harness: 'responses' as const,
+      targetId: 'mac',
+    },
+  };
+  api.fetch.mockImplementation(
+    async (_url: string, options?: RequestInit) =>
+      new Response(
+        JSON.stringify(
+          options?.method === 'POST'
+            ? { error: 'Upstream main is unavailable' }
+            : {
+                available: true,
+                location: 'local',
+                repositories: [
+                  {
+                    connectionId: 'local',
+                    repositoryId: 'primary',
+                    repository: 'local/primary',
+                    label: 'Mitzo',
+                  },
+                ],
+              },
+        ),
+        { status: options?.method === 'POST' ? 409 : 200 },
+      ),
+  );
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      ordinaryRuntime={ordinaryRuntime}
+      onChange={vi.fn()}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('Local repository'), 'local:local/primary');
+  await user.click(screen.getByRole('button', { name: 'Use repository' }));
+  await screen.findByText('Upstream main is unavailable');
+  expect(
+    (screen.getByRole('button', { name: 'Use repository' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+  expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBeNull();
+});
+it('can leave a lost local selection whose metadata was never created', async () => {
+  const ordinaryRuntime = {
+    runOn: 'local' as const,
+    runtime: {
+      account: { accountId: 'account', provider: 'openai' as const, profileRevision: 'rev' },
+      harness: 'responses' as const,
+      targetId: 'mac',
+    },
+  };
+  api.fetch.mockImplementation(async (url: string, options?: RequestInit) => {
+    if (options?.method === 'POST') throw Error('Disconnected');
+    if (options?.method === 'DELETE') return new Response(null, { status: 404 });
+    return new Response(
+      JSON.stringify({
+        available: true,
+        location: 'local',
+        repositories: [
+          {
+            connectionId: 'local',
+            repositoryId: 'primary',
+            repository: 'local/primary',
+            label: 'Mitzo',
+          },
+        ],
+      }),
+    );
+  });
+  const onChange = vi.fn();
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      ordinaryRuntime={ordinaryRuntime}
+      onChange={onChange}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('Local repository'), 'local:local/primary');
+  await user.click(screen.getByRole('button', { name: 'Use repository' }));
+  await screen.findByText(/Refresh its status to continue/);
+  await user.click(screen.getByRole('button', { name: 'Use default repository' }));
+  expect(onChange).toHaveBeenLastCalledWith(null);
+});
 it('does not consume another saved receipt when leaving an explicit claimed handoff', async () => {
   const otherId = 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212';
   sessionStorage.setItem('mitzo-repository-draft:account:model', otherId);
@@ -566,4 +730,319 @@ it('retains the same ready preparation across a supported model edit and exposes
   });
   expect(api.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0);
   expect(api.fetch.mock.calls.some(([url]) => String(url).includes(`/${preview.id}?`))).toBe(true);
+});
+
+const runtimeChoice = (location: 'local' | 'openshell') => ({
+  runOn: location,
+  runtime: {
+    account: { accountId: 'account', provider: 'openai' as const, profileRevision: 'r1' },
+    harness: location === 'local' ? ('responses' as const) : ('codex' as const),
+    targetId: location === 'local' ? 'mac' : 'shell',
+  },
+});
+function mockRepositoryFlow(losePrepare = false) {
+  api.fetch.mockImplementation(async (url: string) => {
+    if (url.includes('/catalog'))
+      return new Response(
+        JSON.stringify({
+          available: true,
+          repositories: [{ connectionId: 'github', label: 'GitHub', repository: 'example/repo' }],
+        }),
+      );
+    if (url.endsWith('/preview')) return new Response(JSON.stringify(preview));
+    if (url.endsWith('/prepare') && losePrepare) throw Error('response lost');
+    return new Response(JSON.stringify({ ...preview, state: 'ready' }));
+  });
+}
+it('invalidates an unprepared preview when the selected execution runtime changes', async () => {
+  mockRepositoryFlow();
+  const onChange = vi.fn();
+  const { rerender } = render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      ordinaryRuntime={runtimeChoice('openshell')}
+      onChange={onChange}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('GitHub repository'), 'github:example/repo');
+  await user.click(screen.getByRole('button', { name: 'Preview repository' }));
+  await screen.findByRole('button', { name: 'Prepare repository' });
+  rerender(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      ordinaryRuntime={runtimeChoice('local')}
+      onChange={onChange}
+    />,
+  );
+  await vi.waitFor(() =>
+    expect(screen.queryByRole('button', { name: 'Prepare repository' })).toBeNull(),
+  );
+  await user.click(screen.getByRole('button', { name: 'Preview repository' }));
+  const requests = api.fetch.mock.calls.filter(([url]) => url.endsWith('/preview'));
+  expect(requests).toHaveLength(2);
+  expect(JSON.parse(requests[1][1].body).ordinaryRuntime).toEqual(runtimeChoice('local'));
+});
+it.each(['preparing', 'error'])(
+  'a newer refresh wins over a late initial restoration: %s',
+  async (lateState) => {
+    let completeRestoration!: (response: Response) => void;
+    let reads = 0;
+    api.fetch.mockImplementation(async (url: string) => {
+      if (url.includes('/catalog')) return Response.json({ available: true, repositories: [] });
+      if (++reads === 1)
+        return new Promise<Response>((resolve) => {
+          completeRestoration = resolve;
+        });
+      return Response.json({ ...preview, state: 'ready' });
+    });
+    const onChange = vi.fn();
+    render(
+      <RepositoryChatPicker
+        accountId="account"
+        model="model"
+        draftScoped
+        initialPreparationId={preview.id}
+        onChange={onChange}
+      />,
+    );
+    await userEvent
+      .setup()
+      .click(await screen.findByRole('button', { name: 'Refresh preparation status' }));
+    await screen.findByText(/Ready for your first prompt/);
+    await act(async () => {
+      completeRestoration(
+        lateState === 'error'
+          ? new Response(null, { status: 500 })
+          : Response.json({ ...preview, state: 'preparing' }),
+      );
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByText(/Ready for your first prompt/)).toBeTruthy();
+    expect(onChange).toHaveBeenLastCalledWith({
+      repositoryWorkspaceId: preview.id,
+      blocked: false,
+    });
+    expect(reads).toBe(2);
+  },
+);
+
+it('recovers the same preparation after its response was lost without preparing twice', async () => {
+  mockRepositoryFlow(true);
+  const onChange = vi.fn();
+  render(
+    <RepositoryChatPicker accountId="account" model="model" draftScoped onChange={onChange} />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('GitHub repository'), 'github:example/repo');
+  await user.click(screen.getByRole('button', { name: 'Preview repository' }));
+  await user.click(await screen.findByRole('button', { name: 'Prepare repository' }));
+  await screen.findByRole('alert');
+  await user.click(screen.getByRole('button', { name: 'Refresh preparation status' }));
+  await screen.findByText(/Ready for your first prompt/);
+  expect(onChange).toHaveBeenLastCalledWith({ repositoryWorkspaceId: preview.id, blocked: false });
+  expect(api.fetch.mock.calls.filter(([url]) => url.endsWith('/prepare'))).toHaveLength(1);
+  expect(
+    api.fetch.mock.calls.some(
+      ([url, options]) =>
+        url === `/api/repository-workspaces/${preview.id}?accountId=account&model=model` &&
+        !options.method,
+    ),
+  ).toBe(true);
+});
+
+it('does not unblock a recovered source prepared for another execution runtime', async () => {
+  mockRepositoryFlow(true);
+  const onChange = vi.fn();
+  const { rerender } = render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      draftScoped
+      ordinaryRuntime={runtimeChoice('openshell')}
+      onChange={onChange}
+    />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('GitHub repository'), 'github:example/repo');
+  await user.click(screen.getByRole('button', { name: 'Preview repository' }));
+  await user.click(await screen.findByRole('button', { name: 'Prepare repository' }));
+  await screen.findByRole('alert');
+  rerender(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      draftScoped
+      ordinaryRuntime={runtimeChoice('local')}
+      onChange={onChange}
+    />,
+  );
+  api.fetch.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        ...preview,
+        state: 'ready',
+        ordinaryRuntime: {
+          version: 2,
+          account: runtimeChoice('openshell').runtime.account,
+          harness: { implementation: 'codex' },
+          execution: { location: 'openshell', targetId: 'shell', targetRevision: 'r1' },
+        },
+      }),
+    ),
+  );
+  await user.click(screen.getByRole('button', { name: 'Refresh preparation status' }));
+  await screen.findByText(/original execution choices/);
+  expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ blocked: true }));
+  expect(screen.queryByText(/Ready for your first prompt/)).toBeNull();
+});
+
+it('retains a ready checkout when its matching runtime inventory arrives after restoration', async () => {
+  const choice = runtimeChoice('local');
+  const ordinaryRuntime = {
+    version: 2 as const,
+    account: choice.runtime.account,
+    harness: { implementation: choice.runtime.harness },
+    execution: { location: choice.runOn, targetId: choice.runtime.targetId, targetRevision: 'r1' },
+  };
+  api.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes('/catalog')
+            ? { available: true, repositories: [] }
+            : { ...preview, state: 'ready', ordinaryRuntime },
+        ),
+      ),
+  );
+  const onChange = vi.fn();
+  const props = {
+    accountId: 'account',
+    model: 'model',
+    draftScoped: true,
+    initialPreparationId: preview.id,
+    onChange,
+  };
+  const { rerender } = render(<RepositoryChatPicker {...props} />);
+  await screen.findByText(/Ready for your first prompt/);
+  rerender(<RepositoryChatPicker {...props} ordinaryRuntime={choice} />);
+  expect(onChange).toHaveBeenLastCalledWith({
+    repositoryWorkspaceId: preview.id,
+    blocked: false,
+    ordinaryRuntime,
+  });
+  expect(screen.queryByRole('alert')).toBeNull();
+  rerender(<RepositoryChatPicker {...props} ordinaryRuntime={runtimeChoice('openshell')} />);
+  expect(onChange).toHaveBeenLastCalledWith({ repositoryWorkspaceId: preview.id, blocked: true });
+  await screen.findByText(/original execution choices/);
+  rerender(<RepositoryChatPicker {...props} ordinaryRuntime={choice} />);
+  expect(onChange).toHaveBeenLastCalledWith({
+    repositoryWorkspaceId: preview.id,
+    blocked: false,
+    ordinaryRuntime,
+  });
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(api.fetch.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(0);
+});
+
+it('refreshes the local catalog when runtime inventory arrives after a saved checkout', async () => {
+  const choice = runtimeChoice('local');
+  const ordinaryRuntime = {
+    version: 2,
+    account: choice.runtime.account,
+    harness: { implementation: choice.runtime.harness },
+    execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+  };
+  api.fetch.mockImplementation(async (url: string, options?: RequestInit) => {
+    if (options?.method === 'DELETE') return new Response(null, { status: 204 });
+    if (url.includes('/catalog'))
+      return Response.json({
+        available: true,
+        ...(url.includes('runOn=local') ? { location: 'local' } : {}),
+        repositories: [
+          {
+            connectionId: 'local',
+            repositoryId: 'primary',
+            repository: 'local/primary',
+            label: 'Mitzo',
+          },
+        ],
+      });
+    return Response.json({
+      ...preview,
+      repository: 'local/primary',
+      state: 'ready',
+      ordinaryRuntime,
+    });
+  });
+  const onChange = vi.fn();
+  const props = {
+    accountId: 'account',
+    model: 'model',
+    draftScoped: true,
+    initialPreparationId: preview.id,
+    onChange,
+  };
+  const { rerender } = render(<RepositoryChatPicker {...props} />);
+  await screen.findByText(/Ready for your first prompt/);
+  rerender(<RepositoryChatPicker {...props} ordinaryRuntime={choice} />);
+  await screen.findByRole('button', { name: 'Use default repository' });
+  expect(screen.getByText('Mitzo')).toBeTruthy();
+  expect(onChange).toHaveBeenLastCalledWith({
+    repositoryWorkspaceId: preview.id,
+    blocked: false,
+    ordinaryRuntime,
+  });
+  expect(
+    api.fetch.mock.calls.filter(([url]) => url.includes('/catalog') && url.includes('runOn=local')),
+  ).toHaveLength(1);
+  expect(api.fetch.mock.calls.filter(([url]) => !url.includes('/catalog'))).toHaveLength(1);
+});
+
+it('does not release a restored checkout belonging to another selected runtime', async () => {
+  const original = runtimeChoice('openshell');
+  api.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes('/catalog')
+            ? { available: true, repositories: [] }
+            : {
+                ...preview,
+                state: 'ready',
+                ordinaryRuntime: {
+                  version: 2,
+                  account: original.runtime.account,
+                  harness: { implementation: original.runtime.harness },
+                  execution: {
+                    location: original.runOn,
+                    targetId: original.runtime.targetId,
+                    targetRevision: 'r1',
+                  },
+                },
+              },
+        ),
+      ),
+  );
+  const onChange = vi.fn();
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      draftScoped
+      initialPreparationId={preview.id}
+      ordinaryRuntime={runtimeChoice('local')}
+      onChange={onChange}
+    />,
+  );
+  await vi.waitFor(() => expect(api.fetch.mock.calls).toHaveLength(2));
+  await vi.waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ blocked: true, repositoryWorkspaceId: preview.id }),
+  );
+  await screen.findByText(/original execution choices/);
 });
