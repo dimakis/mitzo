@@ -20,7 +20,7 @@ import { loadAccountProfiles } from './account-profiles.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
-import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
+import { getRepositoryWorkspaces, getOrdinaryWorkspaces } from './repository-workspace-runtime.js';
 import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import { permissionRevision } from './session-permission-revision.js';
 import {
@@ -144,6 +144,7 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
   selectedModel?: string;
   sessionId: string;
   workspaceId: string;
+  workspaceKind?: 'repository' | 'ordinary';
   taskRoot: string;
   operatorConnectionId: string;
   signal: AbortSignal;
@@ -184,8 +185,11 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
     target: configured.target,
     deployment: 'ordinary',
   });
-  const workspace = getRepositoryWorkspaces(true);
-  const originalWorkspace = workspace.get(input.workspaceId);
+  const ordinary = input.workspaceKind === 'ordinary';
+  const workspace = ordinary ? getOrdinaryWorkspaces(true) : getRepositoryWorkspaces(true);
+  const readWorkspace = () =>
+    ordinary ? workspace.getOrdinaryWorkspace(input.workspaceId) : workspace.get(input.workspaceId);
+  const originalWorkspace = readWorkspace();
   const permission = permissionRevision(input.events, input.sessionId);
   const retainedAbort = new AbortController();
   const retainedAuthority = retainAgentContextAuthority({ ...captured.auth }, retainedAbort);
@@ -247,8 +251,25 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
       expected.agentContext,
       expected.binding.account.provider,
     );
-    const record = workspace.get(input.workspaceId);
-    if (
+    const record = readWorkspace();
+    if (ordinary) {
+      const current = workspace.validateRetainedOrdinaryWorkspace(input.sessionId);
+      if (
+        current.id !== input.workspaceId ||
+        current.conversationId !== input.sessionId ||
+        current.directory !== configured.config.workdir ||
+        current.hostReservation.taskRoot !== input.taskRoot ||
+        !('preparationFingerprint' in originalWorkspace) ||
+        current.preparationFingerprint !== originalWorkspace.preparationFingerprint ||
+        !isDeepStrictEqual(current.binding, input.account) ||
+        !isDeepStrictEqual(current.settings.binding, expected.binding) ||
+        !isDeepStrictEqual(current.agentProfile, expected.agentProfile) ||
+        !current.sandbox
+      )
+        throw unavailable();
+    } else if (
+      !('baseOid' in record) ||
+      !('baseOid' in originalWorkspace) ||
       !isDeepStrictEqual(record.binding, input.account) ||
       record.baseOid !== originalWorkspace.baseOid ||
       record.sourceDigest !== originalWorkspace.sourceDigest ||
@@ -332,8 +353,16 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
       if (!physical || physical.phase !== 'Ready') throw unavailable();
     }
     assertCurrentSync(expected);
-    const record = workspace.get(input.workspaceId);
-    if (record.state === 'claimed' && !record.sourceReleased)
+    const record = readWorkspace();
+    if (ordinary) {
+      await workspace.revalidateOrdinaryWorkspace({
+        id: input.workspaceId,
+        conversationId: input.sessionId,
+        binding: input.account,
+        taskRoot: input.taskRoot,
+        signal,
+      });
+    } else if ('sourceReleased' in record && record.state === 'claimed' && !record.sourceReleased)
       await workspace.startupSeed(input.workspaceId, input.account, input.sessionId, signal);
     assertCurrentSync(expected);
   };
@@ -358,6 +387,7 @@ export function createOrdinaryOpenShellCodexEntryOwner(input: {
     events: input.events,
     profiles,
     workspace,
+    workspaceKind: input.workspaceKind,
     sessionId: input.sessionId,
     workspaceId: input.workspaceId,
     taskRoot: input.taskRoot,
