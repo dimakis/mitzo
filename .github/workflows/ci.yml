@@ -69,7 +69,15 @@ jobs:
           cache: npm
       - run: npm install --global npm@11.18.0
       - run: npm install --no-audit
-      - run: npx playwright install --with-deps webkit chromium
+      - name: Prefer HTTPS Ubuntu mirrors for browser dependencies
+        run: |
+          sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
+          grep -Fq 'https://archive.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
+          grep -Fq 'https://security.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
+          apt-config dump Acquire::Retries Acquire::http::Timeout Acquire::https::Timeout
+      - name: Install browsers and dependencies
+        timeout-minutes: 8
+        run: npx playwright install --with-deps webkit chromium
       - run: npm run test:browser
         id: browser-tests
       - name: Retain browser failure evidence
@@ -104,7 +112,15 @@ jobs:
           cache: npm
       - run: npm install --global npm@11.18.0
       - run: npm install --no-audit
-      - run: npx playwright install --with-deps webkit chromium
+      - name: Prefer HTTPS Ubuntu mirrors for browser dependencies
+        run: |
+          sudo sed -i '\|^http://azure\.archive\.ubuntu\.com/ubuntu/|d' /etc/apt/apt-mirrors.txt
+          grep -Fq 'https://archive.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
+          grep -Fq 'https://security.ubuntu.com/ubuntu/' /etc/apt/apt-mirrors.txt
+          apt-config dump Acquire::Retries Acquire::http::Timeout Acquire::https::Timeout
+      - name: Install browsers and dependencies
+        timeout-minutes: 8
+        run: npx playwright install --with-deps webkit chromium
       - name: Verify shared theme and mobile layouts without a backend
         id: offline-tests
         run: npm run test:ui -- --project=${{ matrix.project }}
