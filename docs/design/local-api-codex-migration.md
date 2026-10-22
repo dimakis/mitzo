@@ -114,9 +114,9 @@ not a live model response. Retained uncertain commands keep their original recei
 recovery never automatically replays an unconfirmed dispatch or resets its worktree.
 
 The client now clears only the unassigned draft's optimistic running state on
-uncertain delivery. Mobile and desktop expose original-command review and exact
-recovery beside the composer, independently of closed settings. Draft content and
-frozen choices remain intact. Actual application/shell browser checks exercise
+uncertain delivery. Mobile and desktop reuse one short composer failure message
+with a Retry action, independently of closed settings. Draft content and frozen
+choices remain intact; no extra diagnostic panel is shown. Actual application/shell browser checks exercise
 HTTP 409 and transport loss for all four local account types, exact recovery,
 disabled replacement sends, keyboard controls and phone/desktop geometry.
 

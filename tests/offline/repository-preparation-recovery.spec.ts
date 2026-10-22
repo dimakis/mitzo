@@ -474,17 +474,20 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           expect(commands.at(-1)?.repositoryWorkspaceId).toBeUndefined();
           expect(selected).toHaveLength(0);
           await expect(composer).toHaveValue('Develop Mitzo from latest main');
-          const review = page.getByText('Review retained Local command', { exact: true });
-          await expect(review).toBeVisible();
+          const recover = page.getByRole('button', { name: 'Retry', exact: true });
+          await expect(recover).toBeVisible();
+          await expect(page.getByText('Something went wrong.', { exact: true })).toHaveCount(1);
+          await expect(
+            page.getByText(
+              /command retained|Review retained|Review the retained|Delivery was not confirmed/,
+            ),
+          ).toHaveCount(0);
           await expect(page.getByRole('button', { name: 'Stop generation' })).toHaveCount(0);
           await expect(page.locator('.conversation-composer [data-icon="loading"]')).toHaveCount(0);
           await expect(start).toBeDisabled();
           await expect(
             page.getByRole('region', { name: 'Agent settings', exact: true }),
           ).toBeHidden();
-          await review.click();
-          const recover = page.getByRole('button', { name: 'Recover original Local command' });
-          await expect(recover).toBeVisible();
           await recover.scrollIntoViewIfNeeded();
           expect((await recover.boundingBox())!.height).toBeGreaterThanOrEqual(44);
           await expect(recover).toBeInViewport();

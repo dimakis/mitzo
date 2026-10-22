@@ -337,23 +337,21 @@ request keeps its original settings snapshot. Consumed receipt settings are labe
 remain independently disabled. Metadata loading/failure never enables legacy
 fallback; Retry preserves the conversation and draft.
 
-Unconfirmed Local/OpenShell sends expose `LocalCommandRecovery` beside the ordinary
-composer, independently of closed settings. Its native details disclosure shows
-the frozen original message, account/model/thinking/location, exact-receipt recovery
-and links to the original draft or observed conversation. It does not rebuild or
-automatically resend the draft. Unassigned optimistic progress stops on delivery
-uncertainty; real conversation progress keeps its owner. Recovery replaces the
-duplicate delivery-status row, and disconnected recovery stays disabled.
+Unconfirmed Local/OpenShell sends reuse the composer's existing status row with
+one short failure message and one **Retry** action. The action asks the owning outbox
+to check the frozen original request; it does not rebuild or automatically replay
+edited draft content. Retry stays disabled while disconnected. No diagnostic panel,
+repeated payload, account/model summary or duplicate delivery row is shown.
+Unassigned optimistic progress stops on uncertainty; real conversation progress
+keeps its owner and the edited draft remains intact.
 
-This shared control uses the existing quiet surface, `home-secondary`, semantic
-colors, font/type/spacing/radius tokens and 44px touch targets. Its scrollable body
-is bounded to 40dvh (a structural viewport constraint) and the shared spacing scale
-to keep the composer and navigation reachable. All-intercept real application/shell
-checks cover all four local account types, HTTP 409 and transport loss, exact
-request recovery by keyboard, 320px phone and 1280px desktop geometry, dark Mint/System
-and light Teal/Georgia. Inspected captures show
-[mobile recovery](assets/local-command-recovery-mobile-dark.png) and
-[desktop recovery](assets/local-command-recovery-desktop-light.png).
+`ChatStatusMessage` shares this optional action pattern with `ChatInput`, using the
+existing `home-secondary` control, semantic colors, shared spacing and 44px touch
+target. All-intercept real application/shell checks cover all four local account
+types, HTTP 409 and transport loss, exact keyboard recovery, 320px phones and
+1280px desktop, dark Mint/System and light Teal/Georgia. Inspected captures show
+[mobile retry](assets/local-command-recovery-mobile-dark.png) and
+[desktop retry](assets/local-command-recovery-desktop-light.png).
 
 New session elsewhere creates a separately owned blank draft with copied intent
 and no inherited repository preparation. The explicit retained-intent flag keeps
