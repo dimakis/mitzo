@@ -350,6 +350,14 @@ export function prepareOrdinaryWorkspaceSelection(
   inventory: ExplicitLocalInventory | null,
   input: ExplicitCommandContent,
 ) {
+  // Telos allocation uses the separately enrolled Local Mac preparation API.
+  // OpenShell default chat admission does not enroll that role-allocation flow.
+  if (selection.execution.location !== 'local')
+    return {
+      request: null,
+      reason:
+        'Ordinary workspaces currently require a supported Local Mac Codex account and target. Choose those settings to continue.',
+    };
   const reason = ordinaryRouteReason(selection, inventory);
   if (reason) return { request: null, reason };
   const result = prepareExplicitCommand(selection, inventory, input, ordinarySelectionSchema);

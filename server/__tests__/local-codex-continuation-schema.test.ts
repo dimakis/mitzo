@@ -77,6 +77,13 @@ it('supports explicit API billing on local and OpenShell Codex while retaining c
   expect(OrdinaryCodexFirstCommandSchema.safeParse(withoutSource).success).toBe(true);
   expect(
     OrdinaryCodexFirstCommandSchema.safeParse({ ...withoutSource, runOn: 'openshell' }).success,
+  ).toBe(true);
+  expect(
+    OrdinaryCodexContinuationCommandSchema.safeParse({
+      ...withoutSource,
+      runOn: 'openshell',
+      sessionId: input.sessionId,
+    }).success,
   ).toBe(false);
   expect(
     LocalCodexContinuationCommandSchema.safeParse({ ...withoutSource, sessionId: input.sessionId })
