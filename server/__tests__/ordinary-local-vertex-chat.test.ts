@@ -167,7 +167,7 @@ it('routes first, queued future and cold commands through the actual SDK owner w
     new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
       let status = 200;
       const req = {
-        method: 'POST',
+        method: url === '/capabilities' ? 'GET' : 'POST',
         url,
         headers: { 'x-connection-id': f.dependencies.operatorConnectionId },
         body,
@@ -192,11 +192,69 @@ it('routes first, queued future and cold commands through the actual SDK owner w
         }
       ).handle(req, res, (error) => reject(error ?? Error('Unmatched route')));
     });
-  const wire = { ...f.request, runOn: 'local', repositoryWorkspaceId: f.reservation.id };
-  await expect(invoke('/send', wire)).resolves.toMatchObject({
-    status: 202,
-    body: { dispatched: true, state: 'consumed' },
+  // Public catalog -> production browser builder -> durable transport -> actual router.
+  const { ExplicitLocalInventorySchema, prepareLocalFirstCommand } =
+    await import('../../frontend/src/lib/explicit-local-chat.js');
+  const { createChatRuntimeSelection } =
+    await import('../../frontend/src/lib/chat-runtime-selection.js');
+  const { SendOutbox } = await import('../../packages/client/src/send-outbox.js');
+  const capabilities = await invoke('/capabilities', undefined);
+  expect(capabilities.status).toBe(200);
+  const inventory = ExplicitLocalInventorySchema.parse(capabilities.body);
+  const route = inventory.routes.find((route) => route.harness === 'claude-sdk')!;
+  expect(route).toBeDefined();
+  const built = prepareLocalFirstCommand(
+    {
+      ...createChatRuntimeSelection(),
+      account: {
+        accountId: route.account.accountId,
+        model: f.request.selection.model,
+        reasoningEffort: f.request.selection.thinking,
+      },
+      accountReference: route.account,
+      agentProfile: f.request.selection.agent,
+      execution: { location: 'local', targetId: route.targetId },
+      capabilityRevision: inventory.capabilityRevision,
+    },
+    inventory,
+    {
+      repositoryWorkspaceId: f.reservation.id,
+      clientMsgId: f.request.clientMsgId,
+      mode: 'agent',
+      text: f.request.payload.text,
+      sourceSnapshots: [agentLibrarySource],
+    },
+  );
+  expect(built.reason).toBeUndefined();
+  expect(built.request).not.toBeNull();
+  const wire = built.request!;
+  expect(wire.capabilityRevision).toBe(route.capabilityRevision);
+  let persisted: string | null = null;
+  const receipts = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/api/chat/local-codex/send',
+    localFirstCommand: true,
+    storage: {
+      getItem: () => persisted,
+      setItem: (_key, value) => {
+        persisted = value;
+      },
+    },
+    notify: receipts,
+    fetch: async (path, init) => {
+      expect(path).toBe('/api/chat/runtime/send');
+      const response = await invoke('/send', JSON.parse(String(init?.body)));
+      return new Response(JSON.stringify(response.body), { status: response.status });
+    },
   });
+  outbox.start();
+  expect(outbox.enqueue(wire, 1, 'public-vertex-draft')).toBe(true);
+  await vi.waitFor(
+    () => expect(receipts).toHaveBeenCalledWith(expect.objectContaining({ state: 'consumed' })),
+    { timeout: 10000 },
+  );
+  expect(persisted).toBe('[]');
+  outbox.stop();
   // HTTP preparation has finished. A late deadline callback cannot abort the
   // admitted conversation or its subsequent frozen followup.
   const deadline = preparationTimers.mock.calls.find(([, delay]) => delay === 120000)?.[0];
