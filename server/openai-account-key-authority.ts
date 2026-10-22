@@ -71,13 +71,9 @@ export function openAIAccountKeyAuthority(
       signal.throwIfAborted();
       assertCurrent();
       if (runtime?.assertOpenAIKeyReady) {
-        await runtime.service.withCredentialMutation(async () => {
-          signal.throwIfAborted();
-          assertCurrent();
-          await runtime.assertOpenAIKeyReady!(binding.accountId, signal);
-          signal.throwIfAborted();
-          assertCurrent();
-        });
+        await runtime.service.assertAccountCredentialReady(binding.accountId, signal);
+        signal.throwIfAborted();
+        assertCurrent();
       } else if (manager) throw Error('OpenAI account controller unavailable');
       signal.throwIfAborted();
       assertCurrent();

@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { warmPoolConnectionAccount } from './openshell-warm-pool-binding.js';
 import {
   ConnectionStore,
@@ -78,6 +79,7 @@ function legacyCredentials(value: Credentials | string) {
  * Durable intent is written before gateway effects, so restart can complete cleanup. */
 export class ConnectionsService {
   private queue: Promise<unknown> = Promise.resolve();
+  private readonly credentialGate = new AsyncLocalStorage<{ active: boolean }>();
   constructor(
     private readonly store: ConnectionStore,
     private readonly gateway: ConnectionGateway,
@@ -95,11 +97,29 @@ export class ConnectionsService {
       release = resolve;
     });
     await prior;
+    const lease = { active: true };
     try {
-      return await work();
+      return await this.credentialGate.run(lease, work);
     } finally {
+      lease.active = false;
       release();
     }
+  }
+  /** Readiness may repeat inside the current reservation without reacquiring it.
+   * Only this fixed, read-only controller check can reuse the lease; credential
+   * mutations and other admissions always remain serialized. Expired async
+   * descendants must acquire a fresh reservation.
+   */
+  async assertAccountCredentialReady(accountId: string, signal: AbortSignal): Promise<void> {
+    const check = async () => {
+      signal.throwIfAborted();
+      if (!this.options.accountCredentialReady)
+        throw new Error('OpenAI account controller unavailable');
+      await this.options.accountCredentialReady(accountId, signal);
+      signal.throwIfAborted();
+    };
+    if (this.credentialGate.getStore()?.active) await check();
+    else await this.serial(check);
   }
   catalog(ownerId = 'operator') {
     return this.store.list(ownerId);
