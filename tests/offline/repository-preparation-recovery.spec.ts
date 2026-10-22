@@ -296,10 +296,12 @@ for (const workspaceChoice of ['select', 'default'] as const) {
         modes: ['agent'],
       });
       const commands: Array<{
+        clientMsgId: string;
         runOn: string;
         runtime: { harness: string; account: { accountId: string } };
         repositoryWorkspaceId?: string;
       }> = [];
+      const recoveries: unknown[] = [];
       const selected: Array<{
         runtime: { harness: string; account: { accountId: string } };
         runOn: string;
@@ -335,7 +337,22 @@ for (const workspaceChoice of ['select', 'default'] as const) {
             },
           });
         if (path === '/api/chat/local-codex/send' || path === '/api/chat/runtime/send') {
-          commands.push(route.request().postDataJSON());
+          const request = route.request().postDataJSON();
+          if (commands.some((entry) => entry.clientMsgId === request.clientMsgId))
+            recoveries.push(request);
+          else commands.push(request);
+          if (request.runtime.account.accountId === 'api')
+            return route.fulfill({
+              status: 409,
+              json: {
+                ok: false,
+                code: 'retained_command',
+                error: 'Conversation runtime unavailable',
+                clientMsgId: request.clientMsgId,
+                sessionId: 'retained-api',
+                state: 'uncertain',
+              },
+            });
           return route.abort('failed');
         }
         if (path === '/api/repository-workspaces/local') {
@@ -456,6 +473,34 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           });
           expect(commands.at(-1)?.repositoryWorkspaceId).toBeUndefined();
           expect(selected).toHaveLength(0);
+          await expect(composer).toHaveValue('Develop Mitzo from latest main');
+          const review = page.getByText('Review retained Local command', { exact: true });
+          await expect(review).toBeVisible();
+          await expect(page.getByRole('button', { name: 'Stop generation' })).toHaveCount(0);
+          await expect(page.locator('.conversation-composer [data-icon="loading"]')).toHaveCount(0);
+          await expect(start).toBeDisabled();
+          await expect(
+            page.getByRole('region', { name: 'Agent settings', exact: true }),
+          ).toBeHidden();
+          await review.click();
+          const recover = page.getByRole('button', { name: 'Recover original Local command' });
+          await expect(recover).toBeVisible();
+          await recover.scrollIntoViewIfNeeded();
+          expect((await recover.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+          await expect(recover).toBeInViewport();
+          await expect(composer).toBeInViewport();
+          expect(
+            await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+          ).toBe(true);
+          if (accountId === 'api')
+            await page.screenshot({
+              path: info.outputPath(`local-command-recovery-${theme}.png`),
+              fullPage: true,
+            });
+          await recover.focus();
+          await page.keyboard.press('Enter');
+          await expect.poll(() => recoveries.length).toBe(commands.length);
+          expect(recoveries.at(-1)).toEqual(commands.at(-1));
           await expect(composer).toHaveValue('Develop Mitzo from latest main');
           continue;
         }

@@ -91,6 +91,35 @@ criteria pass; source integration alone does not close every migration milestone
 
 ## Verification and activation
 
+### Native startup correction, 22 October 2026
+
+The pinned Codex 0.160.0 binary emits `remoteControl/status/changed` with
+`status: disabled` after initialization, then `account/login/completed` with a
+successful, null-ID API login before the conversation owner attaches. The initial
+bridge rejected both observations and closed the connection. A local API command
+therefore retained an uncertain admission and returned HTTP 409 before its first
+provider turn. Earlier mocked bootstrap coverage omitted these native frames.
+
+The bridge now accepts only the disabled, unbound remote-control observation and
+successful null-ID login completion. Neither grants authority: private auth-file,
+key-controller, account, runtime and selection checks still qualify the lease.
+Pre-attachment thread/turn/tool effects, enabled remote control and other login
+flows remain refused. The real entry/startup regression includes both frames.
+
+A diagnostic ran the pinned native binary through the actual isolated API launch
+and API-login custody code with a synthetic key in a temporary home. It completed
+initialization, login and account checks without a provider/model turn, real account
+credentials or production mutation. This proves native handshake compatibility,
+not a live model response. Retained uncertain commands keep their original receipt;
+recovery never automatically replays an unconfirmed dispatch or resets its worktree.
+
+The client now clears only the unassigned draft's optimistic running state on
+uncertain delivery. Mobile and desktop expose original-command review and exact
+recovery beside the composer, independently of closed settings. Draft content and
+frozen choices remain intact. Actual application/shell browser checks exercise
+HTTP 409 and transport loss for all four local account types, exact recovery,
+disabled replacement sends, keyboard controls and phone/desktop geometry.
+
 Focused offline checks cover account routing, private API custody and reopen,
 native bootstrap, actual API composer startup and exact retries, existing dirty
 worktree continuation, fresh upstream bases and explicit refs. Browser checks use
