@@ -92,6 +92,16 @@ export class ConnectionsService {
   private serial<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     return this.credentialGate.run(work, signal);
   }
+  /** Fixed controller readiness check; nested reads reuse only their live owner. */
+  async assertAccountCredentialReady(accountId: string, signal: AbortSignal): Promise<void> {
+    await this.withCredentialRead(async () => {
+      signal.throwIfAborted();
+      if (!this.options.accountCredentialReady)
+        throw new Error('OpenAI account controller unavailable');
+      await this.options.accountCredentialReady(accountId, signal);
+      signal.throwIfAborted();
+    }, signal);
+  }
   catalog(ownerId = 'operator') {
     return this.store.list(ownerId);
   }

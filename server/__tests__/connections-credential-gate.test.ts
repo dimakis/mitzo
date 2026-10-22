@@ -49,8 +49,10 @@ async function bounded<T>(work: Promise<T>): Promise<T> {
 }
 
 it('qualifies API custody inside an OpenShell runtime reservation without blocking later Mac reads', async () => {
-  const service = fixture();
   const ready = vi.fn(async () => {});
+  const service = new ConnectionsService({ list: () => [] } as never, {} as never, {
+    accountCredentialReady: ready,
+  });
   state.runtime = { service, assertOpenAIKeyReady: ready };
   const authority = openAIAccountKeyAuthority(binding);
   await bounded(
@@ -58,8 +60,9 @@ it('qualifies API custody inside an OpenShell runtime reservation without blocki
       await authority.assertReady(new AbortController().signal);
     }),
   );
-  await bounded(authority.assertReady(new AbortController().signal));
   expect(ready).toHaveBeenCalledTimes(2);
+  await bounded(authority.assertReady(new AbortController().signal));
+  expect(ready).toHaveBeenCalledTimes(3);
 });
 
 it('keeps unrelated rotation excluded while allowing nested read-only custody checks', async () => {

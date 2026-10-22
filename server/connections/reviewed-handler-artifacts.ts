@@ -22,10 +22,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/connections-credential-readiness.test.ts':
+    '9fd63b18aa4c451c051711e3ad1f6602dccb8f01359af84969901de1babb2971',
   '../local-codex-observation.ts':
     'b1870acb1f1fffd7a28356628b2b9f2c1720a79b36903785d49c72915590a425',
   '../__tests__/connections-credential-gate.test.ts':
-    '1b8280389235f5ea50d94753637c5b0ff2b348034a9c7b1ea68a2c4fdf2e5b0d',
+    '553fe22bb02d8458d7e016d6e429c3c8a45d46c245cc2c4b282f394fcf195a02',
   '../credential-operation-gate.ts':
     'cb9c76245fc67059e248a9622ea36192dfac54da98377f66cf5b9112f82601b9',
   '../../frontend/src/lib/constants.ts':
@@ -188,7 +190,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '568a46de4fc1202e3304220ddb576092882c9a308e5e2080471e89e0bc246466',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../openai-account-key-authority.ts':
-    '242dd90149600084c91ec9e23fac770941e783f320f8ff3a72ca3896a3ecbd40',
+    '831c610954c10143fe29295620420504e245593eff5d925f3f3c5bdd6c6b86b1',
   '../terminal-plan-adviser.ts': 'dfd8232082bcdf9b149bd4100b3ae8c82b5fe9f1a663095ca7d337feadffc6a0',
   '../terminal-router.ts': 'b1a4968bcf4f73146f6d49cb73e97a259d7734575e42e163a8301380ca36e057',
   '../knowledge-draft-store.ts': '1d412689921f7a04a10f7f4842486321bc970d9b9ea6f6a983ff2a948094b639',
@@ -892,7 +894,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
   '../connections-router.ts': 'afb2657c850dd4b3a64cd2d295ca8682204ddcdff0dba90ce6fa610c15596e93',
-  '../connections-service.ts': '41dc636186cfc66e585218eb9cfe89978f153302eb5eae7c84e062a9f14ab101',
+  '../connections-service.ts': '8f5cedd8b9e2a32616f3ce56d1abb9cf81ad29da8834ebd9c15c3b8470eaf57a',
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':
     '02e1a872e4f24c7fd42ddd4c9a1e535be847f3e1c16ab34593e3511a22003fe5',
@@ -1028,7 +1030,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-codex-continuation-status.ts':
     '492ab5eb67b177bbac2ad69eede08edff7aa62ce7a6f485d5ee9e9ac12bedcd5',
   '../ordinary-openshell-codex-entry-owner.ts':
-    '1f8e49d9b4f80755653407cc02aaaaf0e34ecca795e35064cbee425e5bf00c1b',
+    '040d8858f5a05ccc0bc0f369a0ae43e4db7e434e5e15a7b188a8ca9ddefb79e9',
   '../ordinary-openshell-codex-entry.ts':
     'b89f35efbc19c63e91cea06674ed4e55e656cf412f83de120aee45c91438443f',
   '../ordinary-openshell-codex-owned-runtime.ts':
