@@ -11,6 +11,9 @@ allowed-tools:
   - Glob
   - Grep
   - Bash
+  - Agent
+  - TaskOutput
+  - TaskStop
 ---
 
 Follow the canonical `land-pr` instructions and pass through `$ARGUMENTS` as the PR selection. Mitzo includes the registry-selected dependency below; other skill hosts load `land-pr` from their available skill catalog. Use `--prepare-only` unless the user has authorized landing this PR. If unavailable, report the missing canonical skill.
