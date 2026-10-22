@@ -4,7 +4,7 @@ import { IncomingWsMessage, type IncomingWsMessage as Message } from '@mitzo/pro
 import { SessionRegistry } from '@mitzo/harness';
 import { EventStore } from '../event-store.js';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
-import { revokeAuthSession } from '../auth.js';
+import { revokeAuthSession, login, authenticateToken } from '../auth.js';
 import {
   claimTransportConnection,
   releaseTransportConnection,
@@ -17,6 +17,7 @@ import {
   resolvePending,
 } from '../permissions.js';
 import {
+  ownedLocalControlStatus,
   assertLegacyOwnedControlAllowed,
   legacyChatOwnsAttachment,
 } from '../owned-local-codex-control.js';
@@ -27,7 +28,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function fixture(bound = true, harness: 'codex' | 'responses' | 'claude-sdk' = 'codex') {
+function fixture(
+  bound = true,
+  harness: 'codex' | 'responses' | 'claude-sdk' = 'codex',
+  location: 'local' | 'openshell' = 'local',
+) {
   const store = new EventStore(':memory:');
   const registry = new SessionRegistry();
   const sessionId = randomUUID(),
@@ -47,7 +52,7 @@ function fixture(bound = true, harness: 'codex' | 'responses' | 'claude-sdk' = '
       profileRevision: 'r1',
     },
     harness: { implementation: harness },
-    execution: { location: 'local', targetId: 'host', targetRevision: 't1' },
+    execution: { location, targetId: 'host', targetRevision: 't1' },
   } as const;
   if (bound)
     store.createSessionWithRuntimeBinding(
@@ -336,5 +341,28 @@ it.each(['responses', 'claude-sdk'] as const)(
     expect(() => f.dispatch(actor, { type: 'subscribe', sessionId: f.sessionId })).toThrow(
       'another login',
     );
+  },
+);
+
+it.each(['local', 'openshell'] as const)(
+  'limits cross-login operator transport controls to Local Codex: %s',
+  async (location) => {
+    const f = fixture(true, 'codex', location);
+    const auth = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+    if (!auth) throw Error('Fixture login failed');
+    const connection = randomUUID();
+    const transport = { send: vi.fn(), isOpen: () => true };
+    claimTransportConnection(connection, auth.id);
+    cleanups.push(
+      bindAgentLibraryTransport(connection, auth),
+      () => revokeAuthSession(auth),
+      () => releaseTransportConnection(connection, auth.id),
+    );
+    expect(
+      ownedLocalControlStatus(connection, f.sessionId, transport, {
+        sessionRegistry: f.registry,
+        eventStore: f.store,
+      }),
+    ).toBe(location === 'local' ? 'authorized' : 'denied');
   },
 );

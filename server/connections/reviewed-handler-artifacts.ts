@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.546-journaled-host-bundle-upgrade';
+  'v1.0.547-local-operator-control-scope';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -541,7 +541,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/SymposiumReviewPanel.tsx':
     '32be2e13877a0db2e2d8531718b9410138471c01cebc963592df3ed69cdf710a',
   '../owned-local-codex-control.ts':
-    '274f18f15fef21ba5ddbde3a6ab0e25cee90c8409f534a3b4db7d448eaacfc00',
+    '563b9c6529d7d429225585f5f600363899c425df34a358234eb1dfc214cd209b',
   '../permissions.ts': 'c402e63e948be047adef546c858129aaf218168a41114dd4235d62a23da530ae',
   '../symposium-director-configuration.ts':
     '2fb41b14d1bf19af75f4b6a3dde81e65ad58e4aeab773612f8819b7d6b70c3ca',

@@ -26,7 +26,7 @@ export function ownedLocalControlStatus(
   const boundLocal = binding?.execution?.location === 'local';
   if (!owner && !boundLocal) return 'unrestricted';
   return owner &&
-    (binding?.harness.implementation === 'codex'
+    (binding?.execution.location === 'local' && binding.harness.implementation === 'codex'
       ? ordinaryOperatorOwnsConversation(owner, liveTransportAuthSessionId(connectionId))
       : liveTransportAuthSessionId(connectionId) === owner) &&
     transport?.isOpen()
