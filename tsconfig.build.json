@@ -4,7 +4,9 @@
     "noEmit": false,
     "declaration": false,
     "module": "node16",
-    "moduleResolution": "node16"
+    "moduleResolution": "node16",
+    "allowJs": true
   },
-  "exclude": ["server/__tests__/**"]
+  "exclude": ["server/__tests__/**"],
+  "include": ["server/**/*.ts", "server/**/*.cjs"]
 }

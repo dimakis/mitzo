@@ -380,7 +380,13 @@ export class SendOutbox {
         this.config.fetch(
           entry.ordinaryDelivery?.version === 2
             ? '/api/ordinary/workspaces/commands/' + entry.ordinaryDelivery.phase
-            : entry.body.runOn === 'openshell'
+            : entry.body.runOn === 'openshell' ||
+                (entry.body.runtime &&
+                  typeof entry.body.runtime === 'object' &&
+                  'harness' in entry.body.runtime &&
+                  ['claude-sdk', 'responses', 'gemini'].includes(
+                    String(entry.body.runtime.harness),
+                  ))
               ? typeof entry.body.sessionId === 'string'
                 ? '/api/chat/runtime/continue'
                 : '/api/chat/runtime/send'
