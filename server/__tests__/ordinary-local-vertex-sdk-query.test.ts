@@ -23,6 +23,8 @@ it('retires old native hooks and permissions without executing or aborting the s
   const owner = createOrdinaryLocalVertexSdkQuery({
     options: {
       sessionId: 'original',
+      extraArgs: { 'offline-existing-flag': null },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: 'Original profile context.' },
       hooks: { PreToolUse: [{ hooks: [effect] }] },
       canUseTool: permission as never,
     },
@@ -37,6 +39,17 @@ it('retires old native hooks and permissions without executing or aborting the s
     settings: (selection) => ({ model: selection.model, effort: selection.thinking as never }),
     inputChanged: () => {},
   });
+  expect(requests[0].options.extraArgs).toEqual({
+    'offline-existing-flag': null,
+    'replay-user-messages': null,
+  });
+  expect(requests[0].options.systemPrompt).toMatchObject({
+    type: 'preset',
+    preset: 'claude_code',
+    append: expect.stringContaining('Original profile context.'),
+  });
+  expect((requests[0].options.systemPrompt as { append: string }).append).toContain('gws --help');
+  expect(requests[0].options.tools).toBeUndefined();
   await owner.apply({ model: 'first' } as never);
   await owner.apply({ model: 'second', thinking: 'high' } as never);
   const signal = new AbortController().signal;
@@ -61,6 +74,7 @@ it('retires old native hooks and permissions without executing or aborting the s
     effort: 'high',
   });
   expect(requests[1].options).not.toHaveProperty('sessionId');
+  expect(requests[1].options.extraArgs?.['replay-user-messages']).toBeNull();
   controller.abort();
 });
 it('refuses old native approval completions after retirement even when the SDK reuses an abort signal', async () => {
