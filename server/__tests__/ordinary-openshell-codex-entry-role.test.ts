@@ -53,9 +53,14 @@ afterEach(() => {
   state.packets = [];
   vi.unstubAllEnvs();
 });
-it.each([false, true])(
-  'includes retained host mandate in actual OpenShell packet; malformed=%s refuses',
-  async (malformed) => {
+it.each([
+  { malformed: false, ordinary: false },
+  { malformed: true, ordinary: false },
+  { malformed: false, ordinary: true },
+  { malformed: true, ordinary: true },
+])(
+  'includes retained host mandate in OpenShell packet and preserves workspace kind: %j',
+  async ({ malformed, ordinary }) => {
     vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED', '1');
     const events = (state.events = new EventStore(':memory:'));
     const binding = {
@@ -117,7 +122,9 @@ it.each([false, true])(
       meta: {
         sessionId: 'session',
         accountBinding: binding,
-        repositoryWorkspaceId: 'workspace',
+        ...(ordinary
+          ? { ordinaryWorkspaceId: 'workspace' }
+          : { repositoryWorkspaceId: 'workspace' }),
         agentProfile: {
           profileId: 'agent',
           revision: 1,

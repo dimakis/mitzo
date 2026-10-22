@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import { CollaborationSettingsSchema } from '@mitzo/protocol';
-import { AccountBindingSchema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
+import {
+  AccountBindingSchema,
+  SessionRuntimeBindingV2Schema,
+  OrdinaryOpenShellCommandAdmissionSchema,
+} from '@mitzo/protocol';
 import { z } from 'zod';
 
 /** Intent only; the server resolves every identity and captures private source proof. */
@@ -20,6 +24,7 @@ export const OrdinaryRepositoryPreparationSchema = z.strictObject({
   version: z.literal(1),
   originalBinding: AccountBindingSchema,
   runtimeBinding: SessionRuntimeBindingV2Schema,
+  sandboxWorkdir: OrdinaryOpenShellCommandAdmissionSchema.shape.workspace.shape.cwd.optional(),
   credentialDigest: z.string().regex(/^[a-f0-9]{64}$/),
   sourceIdentity: z
     .strictObject({ dev: z.number().int().nonnegative(), ino: z.number().int().nonnegative() })

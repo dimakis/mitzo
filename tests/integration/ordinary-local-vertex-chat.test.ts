@@ -155,6 +155,8 @@ it('routes first, queued future and cold commands through the actual SDK owner w
     chat.eventStore.close();
   });
   const transport = { send: vi.fn(), isOpen: () => true };
+  // Freeze the request clock while invoking its deadline callback explicitly.
+  vi.spyOn(performance, 'now').mockReturnValue(Math.trunc(performance.now()));
   const preparationTimers = vi.spyOn(globalThis, 'setTimeout');
   const { createOwnedLocalCodexEntryRouter } =
     await import('../../server/ordinary-local-codex-entry.js');
@@ -728,6 +730,8 @@ it('a qualified preparation A starts model B on its original checkout and exact 
   // acknowledgement is pending. No user input exists for this allocated turn.
   deferSettingsClose = true;
   let expireSettings!: () => void;
+  // Freeze the request clock while invoking its deadline callback explicitly.
+  vi.spyOn(performance, 'now').mockReturnValue(Math.trunc(performance.now()));
   const originalTimer = globalThis.setTimeout;
   const timerProbe = vi
     .spyOn(globalThis, 'setTimeout')
