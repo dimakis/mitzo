@@ -165,7 +165,16 @@ export function DesktopChatView() {
     !savedLaunch &&
     !launchDeliveryPending;
   const newChatDraft = useNewChatDraft(searchParams.get('draft'), chatDraftRevision, draftEnabled);
-  const localCommand = useMitzoStore((s) => s.localCommand);
+  const retainedLocalCommand = useMitzoStore((s) => s.localCommand);
+  const selectLocalCommandDraft = useMitzoStore((s) => s.selectLocalCommandDraft);
+  const ownsLocalCommand =
+    !draftEnabled ||
+    retainedLocalCommand?.state === 'blocked' ||
+    retainedLocalCommand?.originDraftId === newChatDraft.draft.id;
+  const localCommand = ownsLocalCommand ? retainedLocalCommand : null;
+  useEffect(() => {
+    if (draftEnabled) selectLocalCommandDraft(newChatDraft.draft.id);
+  }, [draftEnabled, newChatDraft.draft.id, selectLocalCommandDraft]);
   const localTransportAvailable = useMitzoStore((s) => s.localFirstCommandTransportAvailable);
   const sendLocalFirstCommand = useMitzoStore((s) => s.sendLocalFirstCommand);
   const sendPreparedRepositoryCommand = useMitzoStore((s) => s.sendPreparedRepositoryCommand);
@@ -1578,7 +1587,10 @@ export function DesktopChatView() {
                   <CodexQueueStatus
                     sessionId={controlsBlocked ? null : activeSessionId}
                     deliveryStatus={
-                      localCommand && localCommand.state !== 'consumed' ? null : sendStatus
+                      (retainedLocalCommand && !ownsLocalCommand) ||
+                      (localCommand && localCommand.state !== 'consumed')
+                        ? null
+                        : sendStatus
                     }
                     deliveryError={sendError}
                     deliveryBusy={

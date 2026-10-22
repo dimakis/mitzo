@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.524-draft-scoped-first-send';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.525-first-send-draft-ownership';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -597,13 +598,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '89c3593476f8ee0e99ab1ad1f8b0879626e731a8581cf755f5090624cb8ceedd',
   '../../frontend/src/pages/ChatView.tsx':
-    '8be70300a44886643dc7428ee7a996ee49a18abd0820a3a8748027b9fc302192',
+    '5b66274f48eb7f82fe22b7140e067b57744dbb1aceb41778d354dfcef2438290',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    'baa296b6fd8195354d5cea7295641c8578e5c76266385c9697b541cc63ce7bc8',
+    'd4cc39d1d87bfdf9d8f02eca9d9888c1d54f33c79e11f00264fa89baa06c1023',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    '5a6d5fdca239be4162f778277241fd470354a9526cd792136e9e4ca89b33a70c',
+    'f47458e84175527b0ee9653a7632566d978ebc407da65ab4b4d06a184c0656d3',
   '../../packages/protocol/src/local-codex-first-command.ts':
     'ae2191a80acd48295afaf9c1d3941f643d9c4b73dd7d5a6ce574887a433a0a93',
   '../ordinary-local-codex-entry.ts':
@@ -662,7 +663,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
   '../../packages/client/src/store.ts':
-    'f9a3a52ae99e7756eca57113bd06de720874cb28be8674715dfbfc7672255555',
+    '10ebd05fb8779b149cb34d17b4878bba7a99cfb334131fa17c43c581369d468b',
   '../../packages/harness/src/permission-handler.ts':
     '78c076abbede0240b4695b4dc93a4fd14c02b8ee65fa8788fecd42d74f27dbc4',
   '../../packages/harness/src/permissions.ts':

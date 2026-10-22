@@ -166,7 +166,13 @@ export class SendOutbox {
     if (!this.config.localFirstCommand || this.invalidLocalRecovery) return;
     this.selectedLocalDraft = draftId;
     const entry = this.selectedLocalEntry();
-    if (entry) this.notifyLocal(entry, 'uncertain');
+    if (entry)
+      this.notifyLocal(
+        entry,
+        this.activeLocalEntry === entry || this.localReady.includes(entry)
+          ? 'pending'
+          : 'uncertain',
+      );
     else this.config.notify({ type: '_local_command_state', state: 'idle', draftId });
   }
 

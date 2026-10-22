@@ -380,7 +380,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             if (event.type !== '_local_command_state') return;
             if (event.state === 'idle') {
               visibleLocalCommandId = undefined;
-              store.setState({ localCommand: null });
+              store.setState({ localCommand: null, sendStatus: null });
               return;
             }
             let request: LocalCommandRequest | undefined;
