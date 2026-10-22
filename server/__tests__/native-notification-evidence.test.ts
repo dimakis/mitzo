@@ -3,7 +3,7 @@ import { expect, it } from 'vitest';
 
 it('uploads only failed native fixture evidence immediately after its smoke test', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
-  const native = workflow.split('\n  native:')[1].split('\n  ci:')[0];
+  const native = workflow.split('\n  native:')[1].split(/\n {2}[\w-]+:/)[0];
   expect(native).toContain('id: native-notification');
   expect(native).toContain('--diagnostics-dir test-results/native-notification');
   const smoke = native.indexOf('- name: Test real notification bridge');

@@ -270,7 +270,8 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
-  ci:
+  static:
+    name: Static checks and builds
     runs-on: ubuntu-latest
 
     steps:
@@ -344,23 +345,6 @@ jobs:
         if: ${{ !cancelled() }}
         run: cd frontend && npx tsc -b
 
-      - name: Test
-        shell: bash
-        id: test
-        if: ${{ !cancelled() }}
-        run: npm test 2>&1 | tee test-output.txt
-
-      - name: Test count guard
-        id: test-count
-        if: ${{ !cancelled() }}
-        run: |
-          COUNT=$(grep 'Tests' test-output.txt | grep -oE '[0-9]+ passed' | grep -oE '[0-9]+')
-          echo "Test count: $COUNT"
-          if [ -z "$COUNT" ] || [ "$COUNT" -lt 250 ]; then
-            echo "::error::Test count dropped below 250 (got ${COUNT:-0}). Did you accidentally delete tests?"
-            exit 1
-          fi
-
       - name: Audit
         id: audit
         if: ${{ !cancelled() }}
@@ -430,11 +414,76 @@ jobs:
              [ "${{ steps.design.outcome }}" = "failure" ] || \
              [ "${{ steps.typecheck-server.outcome }}" = "failure" ] || \
              [ "${{ steps.typecheck-frontend.outcome }}" = "failure" ] || \
-             [ "${{ steps.test.outcome }}" = "failure" ] || \
-             [ "${{ steps.test-count.outcome }}" = "failure" ] || \
              [ "${{ steps.secret-scan.outcome }}" = "failure" ] || \
              [ "${{ steps.build-mcp.outcome }}" = "failure" ] || \
              [ "${{ steps.build.outcome }}" = "failure" ]; then
             echo "One or more CI steps failed."
             exit 1
           fi
+
+  unit:
+    name: Unit tests (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      # Finish every shard to retain complete coverage and failure evidence.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --global npm@11.18.0
+      - run: npm install --no-audit
+      # Preserve the former unit suite's compiled-artifact prerequisites.
+      - name: Build server and verify reviewed runtime artifacts
+        run: npm run build:server
+      - name: Discover the complete unit test suite without executing tests
+        run: |
+          mkdir -p unit-results
+          npx vitest list --filesOnly --json=unit-results/files-${{ matrix.shard }}.json
+      - name: Test
+        id: test
+        if: ${{ !cancelled() }}
+        run: >-
+          npm test -- --shard=${{ matrix.shard }}/4
+          --reporter=default --reporter=json
+          --outputFile=unit-results/report-${{ matrix.shard }}.json
+      - name: Retain unit shard evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          # Re-running a failed job replaces only that shard in this run.
+          name: unit-tests-${{ matrix.shard }}-${{ github.sha }}
+          path: unit-results/
+          overwrite: true
+          retention-days: 7
+          if-no-files-found: error
+
+  ci:
+    needs: [static, unit]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Collect every unit shard from this workflow run
+        if: ${{ needs.unit.result == 'success' }}
+        uses: actions/download-artifact@v8
+        with:
+          pattern: unit-tests-*-${{ github.sha }}
+          path: unit-results
+          merge-multiple: true
+      - name: Require static checks and complete unit coverage
+        if: always()
+        env:
+          CI_CORE_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-unit-gate.mjs unit-results
