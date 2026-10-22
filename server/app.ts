@@ -3941,8 +3941,12 @@ const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 
 function isRemoteSessionArtifact(sessionId: string) {
   const meta = eventStore.getSession(sessionId);
-  // The ordinary owner is local and must fail closed there, never as a sandbox fallback.
-  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) return false;
+  // Ordinary identity covers both host and sandbox workspaces. Its retained
+  // runtime binding selects the reader; custody validation still owns access.
+  if (hasOrdinaryWorkspaceArtifactScope(eventStore, sessionId)) {
+    const runtime = eventStore.getSessionRuntimeBinding(sessionId);
+    return runtime?.version === 2 && runtime.execution.location === 'openshell';
+  }
   if (!meta?.accountBinding)
     return Boolean(meta?.cwd?.startsWith('/sandbox/') && !isConfiguredAllowedPath(meta.cwd));
   if (!['openai', 'openai-codex'].includes(meta.accountBinding.provider)) return false;
