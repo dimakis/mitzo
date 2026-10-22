@@ -241,3 +241,7 @@ evidence of model execution, production deployment or OpenShell egress approval.
 Size failures return a specific 512 MiB diagnostic (HTTP 413), and low-space
 failures return a capacity diagnostic (HTTP 507), through the existing picker
 error display. Other failures retain sanitized account/access guidance.
+
+Failed repository-tool results keep their error status and their source-chat-bound recovery card. The card decoder accepts only a validated failed receipt from an error-marked tool; it still rejects error-marked ready receipts, unrelated source chats and noncanonical links. Opening the original recovery link reads its retained failed status without repeating acquisition or starting a conversation. Shared card links use the existing control-height token for a 44px target.
+
+The intercepted `repository-failure-card` browser fixture covers collapsed error groups, both preparation/recovery calls, keyboard activation, the actual recovery hook and status notice, narrow/large-text layouts and zero execution requests on mobile WebKit/Chromium and desktop Chromium in dark Mint/System and light Teal/Georgia. Inspected captures: [mobile recovery card](../design/assets/repository-failure-card-mobile-dark.png) and [desktop recovery card](../design/assets/repository-failure-card-desktop-light.png).

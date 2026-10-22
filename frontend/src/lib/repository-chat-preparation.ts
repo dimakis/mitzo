@@ -44,16 +44,12 @@ const tools = new Set([
 ]);
 
 export function repositoryChatPreparationResult(block: ToolBlock, sessionId?: string) {
-  if (
-    !sessionId ||
-    !tools.has(block.toolName ?? '') ||
-    getToolStatus(block).hasError ||
-    !block.toolResult
-  )
-    return null;
+  if (!sessionId || !tools.has(block.toolName ?? '') || !block.toolResult) return null;
   try {
     const parsed = repositoryChatPreparationResultSchema.safeParse(JSON.parse(block.toolResult));
-    return parsed.success && parsed.data.repositoryChat.sourceConversationId === sessionId
+    return parsed.success &&
+      parsed.data.repositoryChat.sourceConversationId === sessionId &&
+      (!getToolStatus(block).hasError || parsed.data.repositoryChat.state === 'failed')
       ? parsed.data.repositoryChat
       : null;
   } catch {

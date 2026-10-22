@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.529-repository-failure-decoder';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.530-repository-failed-card';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1080,7 +1079,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':
     '21b62231f1f15b14e874be59d01bd23316f4b7ee516d514500d7599c7c653fde',
   '../../frontend/src/lib/repository-chat-preparation.ts':
-    '1493f53cba5dd9922ff4dd7679715c26568e7b7831a68070ade0c3880ce78898',
+    'ac1c621aa445c844ecc18e04c106f3cd2e414a8ca4f9115183e6bc32e6d42c98',
   '../ordinary-command-historical-ack.ts':
     '06fe3d509676e6d59a685b3ab89395a51751ad082b06ada02312a872b7aee7ed',
   '../../frontend/src/components/RepositoryChatPicker.css':
