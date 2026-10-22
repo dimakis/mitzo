@@ -113,8 +113,9 @@ export function createOrdinaryLocalVertexSdkQuery<
       // The command owner requires the native stdin acknowledgement before a
       // terminal result can settle its exact FIFO entry. The SDK omits this flag.
       extraArgs: { ...owners.options.extraArgs, 'replay-user-messages': null },
-      systemPrompt:
-        typeof systemPrompt === 'object'
+      systemPrompt: Array.isArray(systemPrompt)
+        ? [...systemPrompt, cliGuidance]
+        : typeof systemPrompt === 'object'
           ? { ...systemPrompt, append: (systemPrompt.append ?? '') + cliGuidance }
           : (systemPrompt ?? '') + cliGuidance,
       hooks,

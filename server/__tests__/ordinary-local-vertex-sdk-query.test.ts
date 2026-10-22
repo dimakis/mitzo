@@ -184,3 +184,34 @@ it('does not replace a native query until its exact spawned process closes and f
   controller.abort();
   processes[1].emit('close', 0, null);
 });
+
+it('preserves segmented SDK system prompts when appending local CLI guidance', () => {
+  const requests: Array<{ options: Options }> = [];
+  vi.mocked(query).mockImplementation((request) => {
+    requests.push({ options: request.options! });
+    return { close: vi.fn(), async *[Symbol.asyncIterator]() {} } as never;
+  });
+  const controller = new AbortController();
+  createOrdinaryLocalVertexSdkQuery({
+    options: {
+      sessionId: 'original',
+      systemPrompt: ['Original profile.', 'Original instructions.'],
+    },
+    input: new AsyncQueue(),
+    lifetime: new SdkHookLifetime(),
+    sdkSessionId: 'original',
+    cwd: '/task',
+    controller,
+    authorize: async () => {},
+    authorizeSync: () => {},
+    adapt: (q) => q as never,
+    settings: (selection) => ({ model: selection.model }),
+    inputChanged: () => {},
+  });
+  expect(requests[0].options.systemPrompt).toEqual([
+    'Original profile.',
+    'Original instructions.',
+    expect.stringContaining('gws --help'),
+  ]);
+  controller.abort();
+});

@@ -1063,7 +1063,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-vertex-replay.ts':
     'd7ecdd21c89be167a1b627b024687df00ead20df98c349f51b114d98a8800a75',
   '../ordinary-local-vertex-sdk-query.ts':
-    '5dadf78ebafc91bbb26937986c2c982f2270eff4936fedd234a38c01c4909908',
+    '6556cbacc22a34e1457d37ad1172f66330e7e51cdfa84653e6604a9418281f84',
   '../ordinary-local-vertex-command-owner.ts':
     '7a631c564810af3198bde300697e5ed13c07e9185a85d10e1859c6678919fa5e',
   '../ordinary-local-vertex-capabilities.ts':
