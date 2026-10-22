@@ -14,6 +14,33 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
 });
+it('keeps one short failure with Retry while preserving the edited draft and blocking replacement sends', async () => {
+  const send = vi.fn(() => true),
+    retry = vi.fn();
+  const props = {
+    onSend: send,
+    onStop: vi.fn(),
+    running: false,
+    initialText: 'Keep this message',
+    sendDisabledReason: 'Something went wrong.',
+    sendDisabledAction: { label: 'Retry', onClick: retry },
+  };
+  const view = render(<ChatInput {...props} />);
+  const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+  await waitFor(() => expect(input).toHaveValue('Keep this message'));
+  expect(screen.getAllByText('Something went wrong.')).toHaveLength(1);
+  expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+  fireEvent.change(input, { target: { value: 'Keep my later edits too' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Retry', exact: true }));
+  expect(retry).toHaveBeenCalledOnce();
+  expect(send).not.toHaveBeenCalled();
+  expect(input).toHaveValue('Keep my later edits too');
+  expect(screen.queryByRole('button', { name: 'Stop generation' })).toBeNull();
+  view.rerender(
+    <ChatInput {...props} sendDisabledAction={{ ...props.sendDisabledAction, disabled: true }} />,
+  );
+  expect(screen.getByRole('button', { name: 'Retry', exact: true })).toBeDisabled();
+});
 it('keeps bounded running drafts and retained queues intact, exposes only Stop, and never drains at completion', async () => {
   localStorage.setItem(
     'mitzo-queue-bound',

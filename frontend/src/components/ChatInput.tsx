@@ -1,4 +1,4 @@
-import { ChatStatusMessage } from './ChatStatusMessage';
+import { ChatStatusMessage, type ChatStatusAction } from './ChatStatusMessage';
 import { MotionPresence } from './MotionPresence';
 import { ComposerResponders, type ComposerResponderSelection } from './ComposerResponders';
 import {
@@ -73,6 +73,7 @@ interface Props {
   savedChatDraft?: ChatDraft;
   draftControl?: RefObject<ChatInputDraftControl | null>;
   sendDisabledReason?: string;
+  sendDisabledAction?: ChatStatusAction;
   boundedFirstCommand?: boolean;
   /** Admit queued commands immediately with frozen settings through the owning runtime. */
   guardedConversation?: boolean;
@@ -118,6 +119,7 @@ export function ChatInput({
   savedChatDraft,
   draftControl,
   sendDisabledReason: suppliedSendDisabledReason,
+  sendDisabledAction,
   boundedFirstCommand = false,
   guardedConversation = false,
   validateSend,
@@ -946,7 +948,7 @@ export function ChatInput({
           </button>
         </div>
       ))}
-      <ChatStatusMessage status={sendDisabledReason} />
+      <ChatStatusMessage status={sendDisabledReason} action={sendDisabledAction} />
       <div className="chat-input-row">
         <textarea
           ref={textareaRef}
