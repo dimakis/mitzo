@@ -32,7 +32,6 @@ import {
   OpenShellRuntimeManager,
   openShellRuntimeConfig,
   verifiedOpenShellPolicy,
-  verifiedOpenShellSeed,
 } from './openshell-runtime.js';
 import { assertOrdinaryOpenShellPhysicalOwner } from './openshell-lifecycle-controller.js';
 import {
@@ -112,7 +111,9 @@ export function loadOrdinaryOpenShellCodexTarget(env: NodeJS.ProcessEnv = proces
     if (!isAbsolute(config.cli) || !config.seedStackManifest) throw unavailable();
     const measurement = measureHostCodexExecutable(config.cli);
     verifiedOpenShellPolicy(config);
-    verifiedOpenShellSeed(config);
+    // Discovery and retained identity checks do not consume upload bytes.
+    // The runtime manager verifies the selected publication and frozen seed
+    // before create/upload; rescanning it here repeats that work at each fence.
     if (
       declaration.runtimeContractRevision !==
       ordinaryOpenShellCodexContractRevision(config, measurement.sha256)

@@ -689,220 +689,252 @@ it.each(['knowledge', 'inventory'] as const)(
   },
 );
 
-it('starts the ordinary OpenShell default through its real native queue and managed MGMT seed without a repository selection', async () => {
-  const f = fixture();
-  const taskRoot = realpathSync(root);
-  const { RepositoryWorkspaces } = await import('../repository-workspaces.js');
-  const { OrdinaryOpenShellCodexOwnedRuntime } =
-    await import('../ordinary-openshell-codex-owned-runtime.js');
-  const { ordinaryOpenShellCodexTarget, projectOrdinaryOpenShellCodexCapabilities } =
-    await import('../ordinary-openshell-codex-route.js');
-  const { readBuiltinAgentLibraryProfile } = await import('../agent-library-transport.js');
-  const { assertOrdinaryOpenShellPhysicalOwner } =
-    await import('../openshell-lifecycle-controller.js');
-  const config = openShellRuntimeConfig(process.env)!;
-  const profiles = loadAccountProfiles();
-  const target = ordinaryOpenShellCodexTarget({
-    targetId: 'default-shell',
-    runtimeContractRevision: 'offline-reviewed-runtime',
-    config,
-    openaiApi: 'enabled',
-  });
-  const projection = projectOrdinaryOpenShellCodexCapabilities({
-    profiles,
-    target,
-    deployment: 'ordinary',
-  });
-  const { resolveOrdinarySessionRuntime } = await import('../ordinary-session-runtime.js');
-  const resolved = resolveOrdinarySessionRuntime(
-    {
-      account: {
-        accountId: binding.accountId,
-        provider: binding.provider,
-        profileRevision: binding.profileRevision,
-      },
-      harness: 'codex',
-      targetId: target.targetId,
-      mode: 'agent',
-    },
-    projection.catalog,
-  );
-  expect(resolved.status).toBe('compatible');
-  if (resolved.status !== 'compatible') throw Error('Offline target unavailable');
-  const runtimeBinding = resolved.binding;
-  const agentProfile = readBuiltinAgentLibraryProfile({
-    kind: 'builtin',
-    profileId: 'default-mitzo',
-    revision: 1,
-  })!;
-  const selection = {
-    version: 1 as const,
-    agent: { kind: 'builtin' as const, profileId: 'default-mitzo', revision: 1 },
-    context: { source: 'none' as const, revision: null },
-    permission: { mode: 'agent' as const, revision: 0 as const },
-    model: binding.model,
-    thinking: null,
-  };
-  const forbiddenRepository = vi.fn(async () => {
-    throw Error('Repository preparation is forbidden for the default');
-  });
-  const workspaces = new RepositoryWorkspaces(join(taskRoot, 'ordinary-default-' + randomUUID()), {
-    authorize: forbiddenRepository,
-    inspect: forbiddenRepository,
-    prepare: forbiddenRepository,
-    ordinaryPreparation: {
-      capture: async () =>
-        OrdinaryRepositoryPreparationSchema.parse({
-          version: 1,
-          originalBinding: binding,
-          runtimeBinding,
-          credentialDigest: 'a'.repeat(64),
-          sandboxWorkdir: config.workdir,
-        }),
-      assert: async () => {},
-    },
-  });
-  const prepared = await workspaces.prepareOrdinaryWorkspace({
-    binding,
-    selection: {
-      runOn: 'openshell',
-      runtime: { account: runtimeBinding.account, harness: 'codex', targetId: target.targetId },
-    },
-    signal: f.abort.signal,
-  });
-  const reserved = await workspaces.reserveOrdinaryWorkspace({
-    preparationId: prepared.preparationId,
-    allocationOperationId: randomUUID(),
-    binding,
-    taskRoot,
-    agentProfile,
-    settings: {
-      version: 2,
-      binding: runtimeBinding,
-      selection,
-      workspace: { kind: 'ordinary', preparationId: prepared.preparationId },
-    },
-    signal: f.abort.signal,
-  });
-  const meta = {
-    sessionId: reserved.conversationId,
-    ordinaryWorkspaceId: reserved.id,
-    cwd: reserved.directory,
-    accountBinding: binding,
-    agentProfile,
-    selectedModel: binding.model,
-    reasoningEffort: null,
-    mode: 'agent' as const,
-  };
-  eventStore.prepareOrdinaryWorkspaceSession(meta, {
-    allocationOperationId: reserved.allocationOperationId,
-    preparationFingerprint: reserved.preparationFingerprint,
-    settings: reserved.settings,
-  });
-  const session = registry.get(f.id)!;
-  session.sessionId = reserved.conversationId;
-  session.cwd = config.workdir;
-  const nativeStore = getCodexConversationStore();
-  const readRetained = () => {
-    try {
-      return nativeStore.readArtifactRuntime(reserved.conversationId, binding) ?? undefined;
-    } catch {
-      return undefined;
-    }
-  };
-  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext');
-  repositorySeeds.verify.mockClear();
-  let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
-  const driver = new OrdinaryOpenShellCodexOwnedRuntime({
-    enabled: true,
-    workspaceKind: 'ordinary',
-    nativeStore,
-    authSessionId: 'offline-signed-operator',
-    events: eventStore,
-    profiles,
-    workspace: workspaces,
-    sessionId: reserved.conversationId,
-    workspaceId: reserved.id,
-    taskRoot,
-    target,
-    config,
-    projection,
-    capabilitiesCurrent: () => ({ profiles, projection }),
-    account: binding,
-    assertCurrentSync: () => {
-      workspaces.validateRetainedOrdinaryWorkspace(reserved.conversationId);
-    },
-    assertCurrentIdentitySync: () => {
-      workspaces.validateRetainedOrdinaryWorkspace(reserved.conversationId);
-    },
-    assertCurrent: async () => {
-      await workspaces.revalidateOrdinaryWorkspace({
-        id: reserved.id,
-        conversationId: reserved.conversationId,
-        binding,
-        taskRoot,
-        signal: f.abort.signal,
-      });
-    },
-    readRetained,
-    assertRetainedAuthority: (artifact) =>
-      assertOrdinaryOpenShellPhysicalOwner(reserved.conversationId, artifact, binding),
-    signal: f.abort.signal,
-    close: () => {},
-    dispatch: async (input) => {
-      query = await openCodexChat({
-        ...f.options,
-        session,
-        conversationId: reserved.conversationId,
-        ownedOpenShell: input.admission,
-        messageId: input.commandId,
-        profile: input.profile,
-        agentProfile,
-        ordinaryWorkspace: input.workspace as typeof reserved,
-        repositoryWorkspace: undefined,
-        model: binding.model,
-        reasoningEffort: null,
-        prompt: input.payload.text,
-        systemPrompt: input.payload.systemPrompt,
-      });
-    },
-    dispatchContinuation: async () => {
-      throw Error('No continuation in initial-send qualification');
-    },
-  });
-  try {
-    const result = await driver.admitPreparedFirst(reserved.allocationOperationId, meta, {
-      clientMsgId: f.options.messageId,
-      capabilityRevision: projection.inventory.capabilityRevision,
-      runtime: {
-        account: runtimeBinding.account,
+it.each([false, true])(
+  'starts the ordinary OpenShell default through its real native queue and MGMT seed (real credential gate: %s)',
+  async (realCredentialGate) => {
+    const f = fixture();
+    const taskRoot = realpathSync(root);
+    const { RepositoryWorkspaces } = await import('../repository-workspaces.js');
+    const { OrdinaryOpenShellCodexOwnedRuntime } =
+      await import('../ordinary-openshell-codex-owned-runtime.js');
+    const { ordinaryOpenShellCodexTarget, projectOrdinaryOpenShellCodexCapabilities } =
+      await import('../ordinary-openshell-codex-route.js');
+    const { readBuiltinAgentLibraryProfile } = await import('../agent-library-transport.js');
+    const { assertOrdinaryOpenShellPhysicalOwner } =
+      await import('../openshell-lifecycle-controller.js');
+    const config = openShellRuntimeConfig(process.env)!;
+    const profiles = loadAccountProfiles();
+    const target = ordinaryOpenShellCodexTarget({
+      targetId: 'default-shell',
+      runtimeContractRevision: 'offline-reviewed-runtime',
+      config,
+      openaiApi: 'enabled',
+    });
+    const projection = projectOrdinaryOpenShellCodexCapabilities({
+      profiles,
+      target,
+      deployment: 'ordinary',
+    });
+    const { resolveOrdinarySessionRuntime } = await import('../ordinary-session-runtime.js');
+    const resolved = resolveOrdinarySessionRuntime(
+      {
+        account: {
+          accountId: binding.accountId,
+          provider: binding.provider,
+          profileRevision: binding.profileRevision,
+        },
         harness: 'codex',
         targetId: target.targetId,
         mode: 'agent',
       },
-      selection,
-      payload: { text: f.options.prompt, systemPrompt: f.options.systemPrompt },
-    });
-    expect(result.dispatched).toBe(true);
-    expect(f.requests.filter((method) => method === 'turn/start')).toHaveLength(1);
-    expect(compile).toHaveBeenCalledOnce();
-    expect(repositorySeeds.verify).not.toHaveBeenCalled();
-    expect(forbiddenRepository).not.toHaveBeenCalled();
-    expect(
-      native.cli.mock.calls.some(
-        ([args]) =>
-          args.includes('--upload') && args.includes(config.seed + ':/sandbox/workspaces'),
-      ),
-    ).toBe(true);
-    expect(eventStore.getSession(reserved.conversationId)?.ordinaryWorkspaceId).toBe(reserved.id);
-    expect(nativeStore.readOpenShellCustody(reserved.conversationId, binding)?.workspaceKind).toBe(
-      'ordinary',
+      projection.catalog,
     );
-  } finally {
-    compile.mockRestore();
-    query?.close();
-    driver.close();
-    await sharedOpenShellLifecycleCoordinator.admit(reserved.conversationId, async () => {});
-    workspaces.close();
-  }
-});
+    expect(resolved.status).toBe('compatible');
+    if (resolved.status !== 'compatible') throw Error('Offline target unavailable');
+    const runtimeBinding = resolved.binding;
+    const agentProfile = readBuiltinAgentLibraryProfile({
+      kind: 'builtin',
+      profileId: 'default-mitzo',
+      revision: 1,
+    })!;
+    const selection = {
+      version: 1 as const,
+      agent: { kind: 'builtin' as const, profileId: 'default-mitzo', revision: 1 },
+      context: { source: 'none' as const, revision: null },
+      permission: { mode: 'agent' as const, revision: 0 as const },
+      model: binding.model,
+      thinking: null,
+    };
+    const forbiddenRepository = vi.fn(async () => {
+      throw Error('Repository preparation is forbidden for the default');
+    });
+    const workspaces = new RepositoryWorkspaces(
+      join(taskRoot, 'ordinary-default-' + randomUUID()),
+      {
+        authorize: forbiddenRepository,
+        inspect: forbiddenRepository,
+        prepare: forbiddenRepository,
+        ordinaryPreparation: {
+          capture: async () =>
+            OrdinaryRepositoryPreparationSchema.parse({
+              version: 1,
+              originalBinding: binding,
+              runtimeBinding,
+              credentialDigest: 'a'.repeat(64),
+              sandboxWorkdir: config.workdir,
+            }),
+          assert: async () => {},
+        },
+      },
+    );
+    const prepared = await workspaces.prepareOrdinaryWorkspace({
+      binding,
+      selection: {
+        runOn: 'openshell',
+        runtime: { account: runtimeBinding.account, harness: 'codex', targetId: target.targetId },
+      },
+      signal: f.abort.signal,
+    });
+    const reserved = await workspaces.reserveOrdinaryWorkspace({
+      preparationId: prepared.preparationId,
+      allocationOperationId: randomUUID(),
+      binding,
+      taskRoot,
+      agentProfile,
+      settings: {
+        version: 2,
+        binding: runtimeBinding,
+        selection,
+        workspace: { kind: 'ordinary', preparationId: prepared.preparationId },
+      },
+      signal: f.abort.signal,
+    });
+    const meta = {
+      sessionId: reserved.conversationId,
+      ordinaryWorkspaceId: reserved.id,
+      cwd: reserved.directory,
+      accountBinding: binding,
+      agentProfile,
+      selectedModel: binding.model,
+      reasoningEffort: null,
+      mode: 'agent' as const,
+    };
+    eventStore.prepareOrdinaryWorkspaceSession(meta, {
+      allocationOperationId: reserved.allocationOperationId,
+      preparationFingerprint: reserved.preparationFingerprint,
+      settings: reserved.settings,
+    });
+    const session = registry.get(f.id)!;
+    session.sessionId = reserved.conversationId;
+    session.cwd = config.workdir;
+    const nativeStore = getCodexConversationStore();
+    const readRetained = () => {
+      try {
+        return nativeStore.readArtifactRuntime(reserved.conversationId, binding) ?? undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    const { ConnectionsService } = await import('../connections-service.js');
+    const { getConnectionsRuntime, setConnectionsRuntime } =
+      await import('../connections-runtime.js');
+    const { openAIAccountKeyAuthority } = await import('../openai-account-key-authority.js');
+    const previousRuntime = getConnectionsRuntime();
+    const ready = vi.fn(async () => {});
+    if (realCredentialGate) {
+      const service = new ConnectionsService(
+        { list: () => [] } as never,
+        {
+          sandbox: async (name: string) => sandboxes.get(name),
+          sandboxProviders: async () => [],
+        } as never,
+        { accountCredentialReady: ready },
+      );
+      setConnectionsRuntime({
+        service,
+        assertOpenAIKeyReady: ready,
+      } as unknown as import('../connections-runtime.js').ConnectionsRuntime);
+    }
+    const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext');
+    repositorySeeds.verify.mockClear();
+    let query: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    const driver = new OrdinaryOpenShellCodexOwnedRuntime({
+      enabled: true,
+      workspaceKind: 'ordinary',
+      nativeStore,
+      authSessionId: 'offline-signed-operator',
+      events: eventStore,
+      profiles,
+      workspace: workspaces,
+      sessionId: reserved.conversationId,
+      workspaceId: reserved.id,
+      taskRoot,
+      target,
+      config,
+      projection,
+      capabilitiesCurrent: () => ({ profiles, projection }),
+      account: binding,
+      assertCurrentSync: () => {
+        workspaces.validateRetainedOrdinaryWorkspace(reserved.conversationId);
+      },
+      assertCurrentIdentitySync: () => {
+        workspaces.validateRetainedOrdinaryWorkspace(reserved.conversationId);
+      },
+      assertCurrent: async () => {
+        if (realCredentialGate)
+          await openAIAccountKeyAuthority(binding, profiles).assertReady(f.abort.signal);
+        await workspaces.revalidateOrdinaryWorkspace({
+          id: reserved.id,
+          conversationId: reserved.conversationId,
+          binding,
+          taskRoot,
+          signal: f.abort.signal,
+        });
+      },
+      readRetained,
+      assertRetainedAuthority: (artifact) =>
+        assertOrdinaryOpenShellPhysicalOwner(reserved.conversationId, artifact, binding),
+      signal: f.abort.signal,
+      close: () => {},
+      dispatch: async (input) => {
+        query = await openCodexChat({
+          ...f.options,
+          session,
+          conversationId: reserved.conversationId,
+          ownedOpenShell: input.admission,
+          messageId: input.commandId,
+          profile: input.profile,
+          agentProfile,
+          ordinaryWorkspace: input.workspace as typeof reserved,
+          repositoryWorkspace: undefined,
+          model: binding.model,
+          reasoningEffort: null,
+          prompt: input.payload.text,
+          systemPrompt: input.payload.systemPrompt,
+        });
+      },
+      dispatchContinuation: async () => {
+        throw Error('No continuation in initial-send qualification');
+      },
+    });
+    try {
+      const result = await bounded(
+        driver.admitPreparedFirst(reserved.allocationOperationId, meta, {
+          clientMsgId: f.options.messageId,
+          capabilityRevision: projection.inventory.capabilityRevision,
+          runtime: {
+            account: runtimeBinding.account,
+            harness: 'codex',
+            targetId: target.targetId,
+            mode: 'agent',
+          },
+          selection,
+          payload: { text: f.options.prompt, systemPrompt: f.options.systemPrompt },
+        }),
+      );
+      expect(result.dispatched).toBe(true);
+      if (realCredentialGate) expect(ready.mock.calls.length).toBeGreaterThan(2);
+      expect(f.requests.filter((method) => method === 'turn/start')).toHaveLength(1);
+      expect(compile).toHaveBeenCalledOnce();
+      expect(repositorySeeds.verify).not.toHaveBeenCalled();
+      expect(forbiddenRepository).not.toHaveBeenCalled();
+      expect(
+        native.cli.mock.calls.some(
+          ([args]) =>
+            args.includes('--upload') && args.includes(config.seed + ':/sandbox/workspaces'),
+        ),
+      ).toBe(true);
+      expect(eventStore.getSession(reserved.conversationId)?.ordinaryWorkspaceId).toBe(reserved.id);
+      expect(
+        nativeStore.readOpenShellCustody(reserved.conversationId, binding)?.workspaceKind,
+      ).toBe('ordinary');
+    } finally {
+      compile.mockRestore();
+      query?.close();
+      driver.close();
+      await sharedOpenShellLifecycleCoordinator.admit(reserved.conversationId, async () => {});
+      workspaces.close();
+      setConnectionsRuntime(previousRuntime ?? null);
+    }
+  },
+);
