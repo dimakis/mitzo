@@ -344,11 +344,16 @@ edited draft content. Retry stays disabled while disconnected. No diagnostic pan
 repeated payload, account/model summary or duplicate delivery row is shown.
 Unassigned optimistic progress stops on uncertainty; real conversation progress
 keeps its owner and the edited draft remains intact.
-Retained delivery belongs to its originating draft. New chat and a different saved
-draft get independent first-send controls and commands; an older uncertain attempt
+Retained delivery belongs to its originating draft or conversation. New chat, a
+different saved draft and a prepared conversation get independent first-send
+controls and commands; an older uncertain attempt
 cannot disable their Send button or substitute its payload. Opening the original
 draft selects its exact recovery request without dispatching it. Only deliberately
 submitted or explicitly retried entries enter the serial delivery queue.
+Authentication loss retains queued first sends for manual recovery without replay.
+Inspected current application captures: [phone initial send](assets/local-initial-send-mobile-dark.png)
+and [desktop initial send](assets/local-initial-send-desktop-light.png). Traffic is
+intercepted; these verify composer state and HTTP delivery, not a model response.
 
 `ChatStatusMessage` shares this optional action pattern with `ChatInput`, using the
 existing `home-secondary` control, semantic colors, shared spacing and 44px touch
