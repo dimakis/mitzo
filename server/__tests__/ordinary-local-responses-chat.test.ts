@@ -521,6 +521,8 @@ it('dispatches consumed API commands through the actual chat owner and retains t
       }
       return originalCurrent.call(this, expected);
     });
+  // Freeze the request clock while invoking its deadline callback explicitly.
+  vi.spyOn(performance, 'now').mockReturnValue(Math.trunc(performance.now()));
   const originalTimer = globalThis.setTimeout;
   const timerProbe = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
     callback: () => void,

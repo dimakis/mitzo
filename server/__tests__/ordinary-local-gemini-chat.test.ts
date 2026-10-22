@@ -338,6 +338,8 @@ it.each([false, true, 'cold-queue'] as const)(
           await validationGate;
           return originalCurrent.call(this, expected);
         });
+      // Freeze the request clock while invoking its deadline callback explicitly.
+      vi.spyOn(performance, 'now').mockReturnValue(Math.trunc(performance.now()));
       const originalTimer = globalThis.setTimeout;
       const timerProbe = vi
         .spyOn(globalThis, 'setTimeout')
