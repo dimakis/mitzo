@@ -1,4 +1,10 @@
-import { settingsHome, settingRow, openChatSetting, chooseSetting } from '../support/chat-settings';
+import {
+  settingsHome,
+  settingRow,
+  openChatSetting,
+  chooseSetting,
+  chooseAgent,
+} from '../support/chat-settings';
 import { multiRuntimeInventoryFixture } from '../../frontend/src/test-utils/multi-runtime-inventory-fixture';
 import {
   DEFAULT_MITZO_PROFILE_ID,
@@ -624,8 +630,13 @@ for (const workspaceChoice of ['select', 'default'] as const) {
   }
 }
 
-for (const theme of ['dark', 'light'] as const) {
-  test(`default OpenShell sends fresh and restored drafts without preparing a repository (${theme})`, async ({
+for (const [theme, unsupportedContext] of [
+  ['dark', false],
+  ['light', false],
+  ['dark', true],
+  ['light', true],
+] as const) {
+  test(`${unsupportedContext ? 'default OpenShell blocks an unsupported context agent before sending' : 'default OpenShell sends fresh and restored drafts without preparing a repository'} (${theme})`, async ({
     page,
   }, info) => {
     const files = (await output).outputFiles!;
@@ -639,6 +650,23 @@ for (const theme of ['dark', 'light'] as const) {
       definition: defaultMitzoProfileDefinition,
       contentHash: sha256Hex(JSON.stringify(defaultMitzoProfileDefinition)),
     } as never);
+    if (unsupportedContext) {
+      const definition = {
+        ...defaultMitzoProfileDefinition,
+        name: 'Context helper',
+        contextRecipe: {
+          version: 1 as const,
+          source: 'contexgin' as const,
+          agentName: 'configured',
+        },
+      };
+      inventory.agentProfiles.push({
+        profileId: 'context-helper',
+        revision: 1,
+        definition,
+        contentHash: sha256Hex(JSON.stringify(definition)),
+      } as never);
+    }
     const commands: Array<{
       runOn: string;
       repositoryWorkspaceId?: string;
@@ -739,10 +767,43 @@ for (const theme of ['dark', 'light'] as const) {
       );
     });
     for (const accountId of ['api', 'personal']) {
-      await page.goto(`/chat?offlineAccount=${accountId}`);
+      await page.goto(
+        `/chat?offlineAccount=${accountId}${unsupportedContext ? '&agentProfile=context-helper&profileRevision=1' : ''}`,
+      );
       const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
       await expect(composer).toBeVisible();
       await composer.fill('Hello from the regular mgmt sandbox');
+      if (unsupportedContext) {
+        const reason =
+          'This agent’s saved context isn’t available in the default sandbox. Choose another agent.';
+        await expect(page.getByText(reason, { exact: true })).toBeVisible();
+        await expect(
+          page.getByRole('button', { name: 'Start session', exact: true }),
+        ).toBeDisabled();
+        await page.screenshot({
+          path: info.outputPath(`default-context-blocked-${accountId}-${theme}.png`),
+          fullPage: true,
+        });
+        await page.reload();
+        await expect(composer).toHaveValue('Hello from the regular mgmt sandbox');
+        await expect(page.getByText(reason, { exact: true })).toBeVisible();
+        await expect(
+          page.getByRole('button', { name: 'Start session', exact: true }),
+        ).toBeDisabled();
+        expect(commands).toEqual([]);
+        await chooseAgent(
+          page,
+          JSON.stringify(['builtin', DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION]),
+        );
+        await page.getByRole('button', { name: 'Done', exact: true }).click();
+        await expect(page.getByText(reason, { exact: true })).toHaveCount(0);
+        await expect(
+          page.getByRole('button', { name: 'Start session', exact: true }),
+        ).toBeEnabled();
+        await expect(composer).toHaveValue('Hello from the regular mgmt sandbox');
+        expect(commands).toEqual([]);
+        continue;
+      }
       await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeEnabled();
       await expect(page.getByText('Prepare a repository before sending the command.')).toHaveCount(
         0,

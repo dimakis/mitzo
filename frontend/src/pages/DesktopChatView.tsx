@@ -24,6 +24,7 @@ import { AgentSettingsFields } from '../components/AgentSettingsPicker';
 import { ChatExecutionPicker } from '../components/ChatExecutionPicker';
 import {
   buildLocalFirstCommand,
+  defaultOpenShellWorkspaceReason,
   prepareLocalFirstCommand,
   prepareLocalContinuationCommand,
   prepareOrdinaryWorkspaceCommand,
@@ -383,6 +384,13 @@ export function DesktopChatView() {
               savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
             ? { blocked: true }
             : null;
+  const defaultWorkspaceReason = explicitNew
+    ? defaultOpenShellWorkspaceReason(
+        localRuntime.intent,
+        localRuntime.inventory,
+        repositorySelection?.repositoryWorkspaceId,
+      )
+    : undefined;
   const preparedModelEditable =
     explicitNew &&
     !localCommand?.request &&
@@ -795,6 +803,7 @@ export function DesktopChatView() {
       if (
         !localFirstCommand ||
         localRuntime.reason ||
+        defaultWorkspaceReason ||
         (localCommand && localCommand.state !== 'consumed') ||
         (!defaultWorkspaceAvailable && !repositorySelection?.repositoryWorkspaceId) ||
         repositorySelection?.blocked ||
@@ -1736,6 +1745,7 @@ export function DesktopChatView() {
                           : undefined) ??
                       builderSourceReason ??
                       localRuntime.reason ??
+                      defaultWorkspaceReason ??
                       (controlsBlocked ? 'Loading conversation settings…' : undefined) ??
                       (localRuntime.commandAvailable &&
                       localCommand &&

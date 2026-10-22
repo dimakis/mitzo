@@ -317,12 +317,38 @@ function prepareExplicitCommand<T>(
   return { request: null, reason };
 }
 
+/** The default non-Git sandbox currently admits agents without saved recipes.
+ * Repository-backed contexts retain their existing owning admission path. */
+export function defaultOpenShellWorkspaceReason(
+  selection: ChatRuntimeSelection,
+  inventory: ExplicitLocalInventory | null,
+  repositoryWorkspaceId?: string,
+): string | undefined {
+  if (repositoryWorkspaceId || selection.execution.location !== 'openshell') return;
+  const profile = inventory?.agentProfiles.find(
+    (entry) =>
+      entry.profileId === selection.agentProfile?.profileId &&
+      entry.revision === selection.agentProfile?.revision &&
+      entry.kind === selection.agentProfile?.kind,
+  );
+  if (profile?.definition.contextRecipe)
+    return 'This agent’s saved context isn’t available in the default sandbox. Choose another agent.';
+}
+
 export function prepareLocalFirstCommand(
   selection: ChatRuntimeSelection,
   inventory: ExplicitLocalInventory | null,
   input: RepositoryCommandContent,
 ) {
-  return prepareExplicitCommand(selection, inventory, input, OrdinaryRuntimeFirstCommandSchema);
+  const result = prepareExplicitCommand(
+    selection,
+    inventory,
+    input,
+    OrdinaryRuntimeFirstCommandSchema,
+  );
+  if (!result.request) return result;
+  const reason = defaultOpenShellWorkspaceReason(selection, inventory, input.repositoryWorkspaceId);
+  return reason ? { request: null, reason } : result;
 }
 const ordinarySelectionSchema = z.strictObject({
   runOn: z.enum(['local', 'openshell']),
