@@ -8,12 +8,14 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
 import { DesktopChatView } from '../DesktopChatView';
+import { multiRuntimeInventoryFixture } from '../../test-utils/multi-runtime-inventory-fixture';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { getChatDraft } from '../../lib/chat-drafts';
 import '@testing-library/jest-dom/vitest';
 import userEvent from '@testing-library/user-event';
 import {
+  OrdinaryRuntimeFirstCommandSchema,
   DEFAULT_MITZO_PROFILE_ID,
   DEFAULT_MITZO_PROFILE_REVISION,
   defaultMitzoProfileDefinition,
@@ -367,56 +369,78 @@ for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
-  it(`${name}: sends the initial message of a fresh draft without inheriting another draft's failure`, async () => {
-    const { store, localSend, draft, fixture } = setup(Screen, true);
-    const settings = await screen.findByRole('button', { name: /^Workspace controls/ });
-    if (settings.getAttribute('aria-expanded') !== 'true') fireEvent.click(settings);
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Account' }), {
-      target: { value: 'personal' },
-    });
-    fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
-    const send = screen.getByRole('button', { name: 'Test send' });
-    await waitFor(() => expect(send).toBeEnabled());
-    act(() =>
-      store.setState({
-        localCommand: {
-          state: 'uncertain',
-          originDraftId: 'another-draft',
-          request: {
-            runOn: 'local',
-            clientMsgId: 'older-first',
-            capabilityRevision: fixture.capabilityRevision,
-            runtime: {
-              account: fixture.accounts[0].account,
-              harness: 'codex',
-              targetId: 'mac',
-              mode: 'agent',
-            },
-            selection: {
-              version: 1,
-              agent: { profileId: 'agent', revision: 1 },
-              model: 'luna-fixture',
-              thinking: 'low',
-              context: { source: 'none', revision: null },
-              permission: { mode: 'agent', revision: 0 },
-            },
-            payload: { text: 'An older failed command' },
+  it.each(['local', 'openshell'] as const)(
+    `${name}: fresh %s chat does not instantly inherit another draft's failure`,
+    async (runOn) => {
+      const { store, localSend, draft, fixture } = setup(
+        Screen,
+        true,
+        false,
+        false,
+        false,
+        false,
+        runOn === 'openshell' ? multiRuntimeInventoryFixture() : undefined,
+      );
+      const settings = await screen.findByRole('button', { name: /^Workspace controls/ });
+      if (settings.getAttribute('aria-expanded') !== 'true') fireEvent.click(settings);
+      if (runOn === 'openshell')
+        fireEvent.click(await screen.findByRole('button', { name: 'OpenShell' }));
+      fireEvent.change(await screen.findByRole('combobox', { name: 'Account' }), {
+        target: { value: runOn === 'openshell' ? 'api' : 'personal' },
+      });
+      if (runOn === 'openshell') {
+        fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+          target: { value: 'shell-model' },
+        });
+        fireEvent.change(screen.getByRole('combobox', { name: 'Thinking level' }), {
+          target: { value: 'low' },
+        });
+      }
+      fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
+      const send = screen.getByRole('button', { name: 'Test send' });
+      await waitFor(() => expect(send).toBeEnabled());
+      act(() =>
+        store.setState({
+          localCommand: {
+            state: 'uncertain',
+            originDraftId: 'another-draft',
+            request: OrdinaryRuntimeFirstCommandSchema.parse({
+              runOn: 'local',
+              clientMsgId: 'older-first',
+              capabilityRevision: fixture.capabilityRevision,
+              runtime: {
+                account: fixture.accounts[0].account,
+                harness: 'codex',
+                targetId: 'mac',
+                mode: 'agent',
+              },
+              selection: {
+                version: 1,
+                agent: { profileId: 'agent', revision: 1 },
+                model: 'luna-fixture',
+                thinking: 'low',
+                context: { source: 'none', revision: null },
+                permission: { mode: 'agent', revision: 0 },
+              },
+              payload: { text: 'An older failed command' },
+            }),
           },
-        },
-        sendStatus: 'Local command retained. Review before retrying.',
-      }),
-    );
-    expect(send).toBeEnabled();
-    expect(screen.queryByText('Something went wrong.')).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
-    expect(screen.queryByText('Local command retained. Review before retrying.')).toBeNull();
-    expect(localSend).not.toHaveBeenCalled();
-    fireEvent.click(send);
-    expect(localSend).toHaveBeenCalledExactlyOnceWith(
-      expect.objectContaining({ payload: { text: 'hello' } }),
-      expect.objectContaining({ draftId: draft.id }),
-    );
-  });
+          sendStatus: 'Local command retained. Review before retrying.',
+        }),
+      );
+      expect(send).toBeEnabled();
+      expect(screen.queryByText('Something went wrong.')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+      expect(screen.queryByText('Local command retained. Review before retrying.')).toBeNull();
+      expect(localSend).not.toHaveBeenCalled();
+      fireEvent.click(send);
+      expect(localSend.mock.calls[0][0].runOn).toBe(runOn);
+      expect(localSend).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ payload: { text: 'hello' } }),
+        expect.objectContaining({ draftId: draft.id }),
+      );
+    },
+  );
 
   it(`${name}: shows one short failure and Retry beside the composer with settings closed`, async () => {
     const { store, localSend, draft } = setup(Screen, true);

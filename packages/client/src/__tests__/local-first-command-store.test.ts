@@ -112,9 +112,14 @@ function setup(
   });
   return { store, fetch, readStorage: () => JSON.parse(raw ?? '[]') };
 }
-it.each([false, true])(
-  'admits a genuinely new first send after New Chat when an older local attempt exists: %s',
-  async (hasOlderAttempt) => {
+it.each([
+  ['local', false],
+  ['local', true],
+  ['openshell', false],
+  ['openshell', true],
+] as const)(
+  'admits a fresh %s first send when an older attempt exists: %s',
+  async (runOn, hasOlderAttempt) => {
     const saved = hasOlderAttempt
       ? JSON.stringify([
           {
@@ -127,8 +132,9 @@ it.each([false, true])(
       : null;
     const { store, fetch, readStorage } = setup(saved);
     channel.id = 'fresh-local-sse';
+    const sendUrl = runOn === 'openshell' ? '/api/chat/runtime/send' : '/local/send';
     fetch.mockImplementation((url: string, init?: RequestInit) => {
-      if (url !== '/local/send') return Promise.resolve(new Response('[]'));
+      if (url !== sendUrl) return Promise.resolve(new Response('[]'));
       const body = JSON.parse(String(init?.body));
       return Promise.resolve(
         new Response(
@@ -146,12 +152,13 @@ it.each([false, true])(
     store.getState().newSession();
     const fresh = {
       ...request,
+      runOn,
       clientMsgId: 'fresh-first',
       payload: { text: 'A genuinely new initial message' },
     };
     expect(store.getState().sendLocalFirstCommand(fresh, { draftId: 'fresh-draft' })).toBe(true);
     await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
-    const sent = fetch.mock.calls.filter(([url]) => url === '/local/send');
+    const sent = fetch.mock.calls.filter(([url]) => url === sendUrl);
     expect(sent).toHaveLength(1);
     expect(JSON.parse(sent[0][1].body)).toEqual(fresh);
     if (hasOlderAttempt)
