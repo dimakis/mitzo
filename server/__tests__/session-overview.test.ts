@@ -811,6 +811,86 @@ describe('SessionOverviewEmitter', () => {
 
   // ─── Idle transition timer ──────────────────────────────────────────────
 
+  it('stops idle-transition timers and attention reads after the final deadline', async () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [makeActiveSession({ hasSnapshot: false })]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    await vi.advanceTimersByTimeAsync(200); // Settle the initial worktree refresh.
+    emitter.touch('client-1');
+    const touchedAt = Date.now();
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 - 1);
+    expect(emitter.getSnapshot()[0].state).toBe('done');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(emitter.getSnapshot()[0].state).toBe('idle');
+    await vi.advanceTimersByTimeAsync(200);
+    expect(emitter.getSnapshot()[0]).toMatchObject({ state: 'idle', lastEventAt: touchedAt });
+    vi.mocked(deps.eventStore.getAttentionSessions).mockClear();
+    vi.mocked(deps.sseRegistry.broadcast).mockClear();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(deps.eventStore.getAttentionSessions).not.toHaveBeenCalled();
+    expect(deps.sseRegistry.broadcast).not.toHaveBeenCalled();
+    // Only the legitimate minute worktree-refresh interval remains.
+    expect(vi.getTimerCount()).toBe(1);
+    emitter.scheduleBroadcast(); // A real event still refreshes current data.
+    await vi.advanceTimersByTimeAsync(200);
+    expect(deps.eventStore.getAttentionSessions).toHaveBeenCalledOnce();
+    expect(deps.sseRegistry.broadcast).toHaveBeenCalledOnce();
+
+    emitter.touch('client-1');
+    expect(emitter.getSnapshot()[0].state).toBe('done');
+    expect(vi.getTimerCount()).toBe(2);
+    emitter.forget('client-1', 'session-1');
+    expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it('schedules only the next future session deadline after a staggered transition', async () => {
+    deps = makeDeps({
+      registry: {
+        getActiveSessions: vi.fn(() => [
+          makeActiveSession({ clientId: 'client-a', sessionId: 'sess-a', hasSnapshot: false }),
+          makeActiveSession({ clientId: 'client-b', sessionId: 'sess-b', hasSnapshot: false }),
+        ]),
+      } as unknown as SessionOverviewDeps['registry'],
+    });
+    emitter = new SessionOverviewEmitter(deps);
+    await vi.advanceTimersByTimeAsync(200);
+    emitter.touch('client-a');
+    await vi.advanceTimersByTimeAsync(3 * 60 * 1000);
+    emitter.touch('client-b');
+    const secondDeadline = Date.now() + 5 * 60 * 1000;
+    await vi.advanceTimersByTimeAsync(2 * 60 * 1000 + 200);
+    expect(emitter.getSnapshot().map((activity) => activity.state)).toEqual(['idle', 'done']);
+    vi.mocked(deps.eventStore.getAttentionSessions).mockClear();
+    vi.mocked(deps.sseRegistry.broadcast).mockClear();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(deps.eventStore.getAttentionSessions).not.toHaveBeenCalled();
+    expect(deps.sseRegistry.broadcast).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(secondDeadline - Date.now() + 200);
+    expect(emitter.getSnapshot().map((activity) => activity.state)).toEqual(['idle', 'idle']);
+    expect(vi.getTimerCount()).toBe(1);
+    emitter.destroy();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cancels a forgotten deadline without cancelling another session transition', async () => {
+    deps = makeDeps();
+    emitter = new SessionOverviewEmitter(deps);
+    await vi.advanceTimersByTimeAsync(200);
+    emitter.touch('forgotten');
+    await vi.advanceTimersByTimeAsync(1000);
+    emitter.touch('kept');
+    expect(vi.getTimerCount()).toBe(2);
+    emitter.forget('forgotten');
+    expect(vi.getTimerCount()).toBe(2); // The kept deadline remains armed.
+    const transitions = vi.spyOn(globalThis, 'setTimeout');
+    emitter.forget('kept');
+    expect(vi.getTimerCount()).toBe(1);
+    expect(transitions).not.toHaveBeenCalled();
+  });
+
   it('broadcasts idle transition after DONE_TIMEOUT_MS', () => {
     deps = makeDeps({
       registry: {
