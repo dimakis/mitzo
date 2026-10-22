@@ -125,11 +125,11 @@ export function ComposerTools({
             onAttach();
           }}
           disabled={attachmentDisabled}
-          title="Attach image"
-          aria-label="Attach image"
+          title="Attach images or PDF"
+          aria-label="Attach images or PDF"
         >
           <UiIcon name="plus" size={16} />
-          <span className="composer-tools-label">Attach image</span>
+          <span className="composer-tools-label">Attach images or PDF</span>
         </button>
         {terminalHref &&
           (inRouter ? (

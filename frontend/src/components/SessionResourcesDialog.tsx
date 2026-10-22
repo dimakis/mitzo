@@ -390,7 +390,7 @@ export function SessionResourcesDialog(props: SessionTrayProps) {
                         }}
                       >
                         <img src={image.preview} alt="" />
-                        <span>Pasted image {index + 1}</span>
+                        <span>{image.name ?? `Pasted image ${index + 1}`}</span>
                       </button>
                       <button
                         type="button"
