@@ -448,26 +448,27 @@ export class OrdinaryWorkspaceCustody {
     this.assertClaimScope(original, selected);
     if (original.state === 'claimed')
       return this.validate(original.conversationId, original.directory);
+    if (original.sandbox) {
+      // This reservation has no filesystem, sandbox or provider effect. Keep
+      // readiness failures recoverable, then commit its logical claim atomically.
+      await this.assertReadiness(
+        original.preparationId,
+        binding,
+        input.signal,
+        original.settings.selection,
+      );
+      this.unchanged(original);
+      this.assertClaimScope(original, selected);
+      input.signal.throwIfAborted();
+      return this.db
+        .transaction(() => this.save(original, { ...original, state: 'claimed' }))
+        .immediate();
+    }
     const claiming = this.db
       .transaction(() => this.save(original, { ...original, state: 'claiming' }))
       .immediate();
     this.assertClaimScope(claiming, selected);
     input.signal.throwIfAborted();
-    if (claiming.sandbox) {
-      // This is the logical workspace reservation only. The existing OpenShell
-      // lifecycle owner creates and attests the physical mgmt sandbox later.
-      await this.assertReadiness(
-        claiming.preparationId,
-        binding,
-        input.signal,
-        claiming.settings.selection,
-      );
-      this.assertClaimScope(claiming, selected);
-      input.signal.throwIfAborted();
-      return this.db
-        .transaction(() => this.save(claiming, { ...claiming, state: 'claimed' }))
-        .immediate();
-    }
     // Exclusive creation after the uncertainty journal. Never adopt, remove or
     // overwrite an existing directory when materialization is interrupted.
     mkdirSync(claiming.directory, { mode: 0o700 });

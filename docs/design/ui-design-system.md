@@ -47,6 +47,14 @@ the approved chat-settings rows, shared controls, tokens, keyboard interaction
 and motion remain unchanged. Offline picker and prepared-chat regressions cover
 both built-ins on Host Mac API and subscription routes without model calls.
 
+Default OpenShell chats use the existing composer status for workspace-specific
+agent eligibility. An unsupported saved-context agent is explained before Send
+is enabled; choosing Default Mitzo preserves the draft without sending it.
+Explicit repository contexts retain their existing admission. Intercepted browser
+checks cover both account routes, both themes and mobile/desktop layouts.
+Inspected offline captures: [phone](assets/default-openshell-context-mobile-dark.png)
+and [desktop](assets/default-openshell-context-desktop-light.png).
+
 `frontend/src/styles/tokens.css` owns every app palette literal and font stack. It loads before component styles in the production and fixture entry points. Components use semantic variables in CSS and React inline styles. The old `--accent`, `--ui-font`, `--text`, `--bg`, and `--workspace-*` names are aliases to that same source; never give them a second palette.
 
 - Actions and selection: `--color-accent`, with `--color-on-accent` for filled controls. Accent panels derive from the accent and background using `color-mix`.

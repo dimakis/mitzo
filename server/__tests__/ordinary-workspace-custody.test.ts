@@ -491,6 +491,42 @@ it.each(['openai', 'openai-codex'] as const)(
   },
 );
 
+it.each(['readiness failure', 'startup abort'] as const)(
+  'recovers the original logical sandbox reservation after %s before any physical effect',
+  async (failure) => {
+    const f = await fixture({ location: 'openshell', provider: 'openai' });
+    const prepared = await f.prepare();
+    const input = f.input(prepared.preparationId);
+    const reserved = await f.owner.reserveOrdinaryWorkspace(input);
+    const controller = new AbortController();
+    const claim = {
+      id: reserved.id,
+      conversationId: reserved.conversationId,
+      binding: f.binding,
+      taskRoot: f.taskRoot,
+      signal: controller.signal,
+    };
+    f.assert.mockResolvedValueOnce(undefined).mockImplementationOnce(async () => {
+      if (failure === 'startup abort') controller.abort();
+      else throw Error('Transient readiness failure');
+    });
+    await expect(f.owner.claimOrdinaryWorkspace(claim)).rejects.toThrow();
+    expect(f.owner.getOrdinaryWorkspace(reserved.id)).toMatchObject({
+      state: 'reserved',
+      conversationId: reserved.conversationId,
+      directory: reserved.directory,
+    });
+    f.reopen();
+    const recovered = await f.owner.claimOrdinaryWorkspace({
+      ...claim,
+      signal: new AbortController().signal,
+    });
+    expect(recovered).toMatchObject({ id: reserved.id, state: 'claimed', sandbox: true });
+    expect(recovered).not.toHaveProperty('taskIdentity');
+    expect(f.forbidden).not.toHaveBeenCalled();
+  },
+);
+
 it('refuses a changed logical sandbox path before claiming its reservation', async () => {
   const f = await fixture({ location: 'openshell', provider: 'openai' });
   const prepared = await f.prepare();
