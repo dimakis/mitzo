@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.550-combined-reviewed-host-repair';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.551-durable-receipt-handoff';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -612,7 +611,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    '2dcdec9e33878b51fa207afe8bb0fc22bec1d5da757fc0dcb5f051e797d32c48',
+    'f7363d75f6446bd68c9f0d1edf119f61eebb0569b236b4ee478e7d4320421992',
   '../../packages/protocol/src/local-codex-first-command.ts':
     '9e383cf9c96a3cb8ea5bfe732c7ca7c4070cc52c051d80d9d3246fa718a28a0c',
   '../ordinary-local-codex-entry.ts':

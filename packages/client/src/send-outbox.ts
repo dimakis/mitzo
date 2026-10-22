@@ -57,6 +57,7 @@ export class SendOutbox {
   private localReady: Entry[] = [];
   private activeLocalEntry?: Entry;
   private receiptReads = new Map<Entry, AbortController>();
+  private completingLocal = new Map<Entry, number>();
 
   constructor(private config: Config) {
     this.key = `mitzo-send-outbox:${config.url}`;
@@ -409,7 +410,6 @@ export class SendOutbox {
       entry.localReceipt = { sessionId: receipt.data.sessionId, state: 'consumed' };
       if (!this.persist()) return;
       this.retireLocal(entry, true);
-      this.notifyLocal(entry, 'consumed', true);
     } catch {
       // Observation failure never resends a command or overwrites its UI state.
     } finally {
@@ -419,8 +419,23 @@ export class SendOutbox {
   }
   private retireLocal(entry: Entry, releaseTransport = false): void {
     const index = this.entries.indexOf(entry);
-    if (index >= 0) this.entries.splice(index, 1);
-    this.persist();
+    if (index < 0) return;
+    this.completingLocal.set(entry, index);
+    this.entries.splice(index, 1);
+    try {
+      // Hide only this entry from reentrant UI callbacks, while retaining its
+      // durable receipt until the source handoff has successfully committed.
+      this.notifyLocal(entry, 'consumed', true);
+      this.completingLocal.delete(entry);
+      if (!this.persist()) throw Error('Local completion could not be retained');
+    } catch {
+      this.completingLocal.delete(entry);
+      if (!this.entries.includes(entry))
+        this.entries.splice(Math.min(index, this.entries.length), 0, entry);
+      this.persist();
+      this.notifyLocal(entry, 'uncertain');
+      return;
+    }
     // Exact consumed acceptance releases only this original HTTP wait. Its
     // finally block can then admit the next explicit command immediately.
     if (releaseTransport && this.activeLocalEntry === entry) this.activeAbort?.abort();
@@ -491,7 +506,7 @@ export class SendOutbox {
         entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };
         if (!this.persist()) throw Error('Local receipt could not be retained');
         if (success.data.state === 'consumed') this.retireLocal(entry);
-        this.notifyLocal(entry, success.data.state, true);
+        else this.notifyLocal(entry, success.data.state, true);
         this.persist();
       } else if (matching && response.status === 409 && observation.success) {
         entry.localReceipt = {
@@ -518,7 +533,10 @@ export class SendOutbox {
   private persist(): boolean {
     try {
       if (!this.config.storage) return false;
-      this.config.storage.setItem(this.key, JSON.stringify(this.entries));
+      const retained = [...this.entries];
+      for (const [entry, index] of this.completingLocal)
+        if (!retained.includes(entry)) retained.splice(Math.min(index, retained.length), 0, entry);
+      this.config.storage.setItem(this.key, JSON.stringify(retained));
       return true;
     } catch {
       // Ordinary sends retain their existing in-memory fallback.

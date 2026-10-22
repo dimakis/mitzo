@@ -2257,14 +2257,12 @@ describe('handlePermissionResponseV2', () => {
     const ctx = createContext({
       sessionRegistry: sessions as unknown as V2HandlerContext['sessionRegistry'],
     });
-    ctx.eventStore.getSessionRuntimeBinding = vi
-      .fn()
-      .mockReturnValue({
-        version: 2,
-        account: { accountId: 'fixture', provider: 'openai-codex', profileRevision: 'r1' },
-        harness: { implementation: 'codex' },
-        execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
-      });
+    ctx.eventStore.getSessionRuntimeBinding = vi.fn().mockReturnValue({
+      version: 2,
+      account: { accountId: 'fixture', provider: 'openai-codex', profileRevision: 'r1' },
+      harness: { implementation: 'codex' },
+      execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+    });
     ctx.connRegistry.register('web-device', mockTransport());
     ctx.connRegistry.watch('web-device', 'local-permission');
     claimTransportConnection('phone-owner', 'phone-login');

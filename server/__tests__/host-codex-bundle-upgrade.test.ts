@@ -89,7 +89,7 @@ it.each(['after-intent', 'partial-copy', 'after-copy', 'custody-commit'] as cons
             })
           : vi
               .spyOn(FrozenHostCodexExecutable.prototype, 'completeRuntimeBundle')
-              .mockImplementationOnce(function (...args) {
+              .mockImplementationOnce(function (this: FrozenHostCodexExecutable, ...args) {
                 if (phase === 'partial-copy')
                   writeFileSync(join(f.home, 'codex-code-mode-host'), f.bytes.subarray(0, 2), {
                     mode: 0o500,
