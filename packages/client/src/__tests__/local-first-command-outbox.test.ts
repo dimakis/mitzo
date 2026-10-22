@@ -42,6 +42,75 @@ const receipt = (state = 'consumed') =>
     { status: 202 },
   );
 afterEach(() => vi.useRealTimers());
+it.each([
+  ['claude-sdk', 'anthropic-vertex'],
+  ['responses', 'openai'],
+  ['gemini', 'google-vertex'],
+] as const)(
+  'delivers local %s through the general runtime route for first and continuation commands',
+  async (harness, provider) => {
+    const storage = disk(),
+      notify = vi.fn();
+    const fetch = vi.fn().mockImplementation(async (url, init) => {
+      const body = JSON.parse(init.body);
+      if (url.includes('/local-codex/'))
+        return new Response(
+          JSON.stringify({ code: 'invalid_request', error: 'Invalid local first command' }),
+          { status: 400 },
+        );
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          clientMsgId: body.clientMsgId,
+          sessionId: 'runtime-session',
+          state: 'consumed',
+          dispatched: true,
+        }),
+        { status: 202 },
+      );
+    });
+    const outbox = new SendOutbox({
+      url: '/api/chat/local-codex/send',
+      storage,
+      notify,
+      fetch,
+      localFirstCommand: true,
+    });
+    outbox.start();
+    const first = {
+      ...command,
+      runtime: { ...command.runtime, harness, account: { ...command.runtime.account, provider } },
+    };
+    expect(outbox.enqueue(first, 1, 'runtime-draft')).toBe(true);
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'consumed', clientMsgId: first.clientMsgId }),
+      ),
+    );
+    const continuation = {
+      ...first,
+      sessionId: 'runtime-session',
+      clientMsgId: 'runtime-continuation',
+    };
+    expect(outbox.enqueue(continuation, 2)).toBe(true);
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'consumed', clientMsgId: continuation.clientMsgId }),
+      ),
+    );
+    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+      '/api/chat/runtime/send',
+      '/api/chat/runtime/continue',
+    ]);
+    expect(fetch.mock.calls.map(([, init]) => JSON.parse(init.body))).toEqual([
+      first,
+      continuation,
+    ]);
+    expect(JSON.parse(storage.getItem()!)).toEqual([]);
+    outbox.stop();
+  },
+);
+
 it('lets a new draft send independently while retaining another draft’s frozen uncertain request', async () => {
   const storage = disk();
   const notify = vi.fn();

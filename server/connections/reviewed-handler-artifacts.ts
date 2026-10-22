@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.527-first-send-conversation-ownership';
+  'v1.0.528-runtime-command-http-routing';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -604,7 +604,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    'a37d91d3dfa18ee334cb24f015f7ed8313632bd9566fcf158a8618f1565440e4',
+    '08f5f558e18090403b201788042ef9e56ddab964965a7f71564f2f8c58593ab1',
   '../../packages/protocol/src/local-codex-first-command.ts':
     'ae2191a80acd48295afaf9c1d3941f643d9c4b73dd7d5a6ce574887a433a0a93',
   '../ordinary-local-codex-entry.ts':
