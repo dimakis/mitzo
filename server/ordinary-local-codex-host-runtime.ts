@@ -17,11 +17,15 @@ import type { OrdinaryLocalCodexCapabilityCatalog } from './ordinary-local-codex
 
 const unavailable = () => new Error('Host Codex runtime observation unavailable');
 const Native = z.strictObject({
-  version: z.literal(1),
+  version: z.literal(2),
   executablePath: z.string().max(4096).refine(isAbsolute),
   executableSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  codeModeHostSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
-export function ordinaryLocalCodexHostContractRevision(executableSha256: string): string {
+export function ordinaryLocalCodexHostContractRevision(
+  executableSha256: string,
+  codeModeHostSha256: string,
+): string {
   const codeClosure = createHash('sha256')
     .update(
       JSON.stringify(
@@ -34,11 +38,12 @@ export function ordinaryLocalCodexHostContractRevision(executableSha256: string)
   return createHash('sha256')
     .update(
       JSON.stringify([
-        'ordinary-local-codex-host-v1',
+        'ordinary-local-codex-host-v2',
         reviewedConnectionsRuntimeImplementationRevision,
         codeClosure,
         SUPPORTED_CODEX_CLI_VERSION,
         executableSha256,
+        codeModeHostSha256,
       ]),
     )
     .digest('hex');
@@ -164,11 +169,13 @@ export class OrdinaryLocalCodexHostRuntime {
     if (
       native.executablePath !== this.#native.executablePath ||
       native.executableSha256 !== this.#native.executableSha256 ||
+      native.codeModeHostSha256 !== this.#native.codeModeHostSha256 ||
+      this.#codeModeHost.sha256 !== native.codeModeHostSha256 ||
       this.#measurement.sha256 !== native.executableSha256 ||
       JSON.stringify(original) !== JSON.stringify(current) ||
       current.hostId !== hostname() ||
       current.runtimeContractRevision !==
-        ordinaryLocalCodexHostContractRevision(native.executableSha256)
+        ordinaryLocalCodexHostContractRevision(native.executableSha256, native.codeModeHostSha256)
     )
       throw unavailable();
     this.#measurement.assertCurrent();
@@ -182,12 +189,14 @@ export class OrdinaryLocalCodexHostRuntime {
         hostId: hostname(),
         runtimeContractRevision: ordinaryLocalCodexHostContractRevision(
           this.#native.executableSha256,
+          this.#native.codeModeHostSha256,
         ),
         targetId: declaration.targetId,
         targetRevision: declaration.targetRevision,
         compatibleTargetRevisions: this.#target.compatibleTargetRevisions(this.#measurement.sha256),
         executablePath: this.#native.executablePath,
         executableSha256: this.#measurement.sha256,
+        codeModeHostSha256: this.#codeModeHost.sha256,
       };
     } catch {
       throw unavailable();

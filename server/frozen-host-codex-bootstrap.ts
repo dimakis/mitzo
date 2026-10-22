@@ -36,6 +36,10 @@ const Runtime = z.strictObject({
   compatibleTargetRevisions: z.array(z.string().min(1).max(200)).max(8).optional(),
   executablePath: z.string().min(1).max(4096),
   executableSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  codeModeHostSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
 });
 export type FrozenHostCodexRuntimeObservation = z.infer<typeof Runtime>;
 export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease<FrozenHostCodexClient> {
@@ -173,7 +177,10 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       runtime.targetId !== expected.binding.execution.targetId ||
       (runtime.targetRevision !== expected.binding.execution.targetRevision &&
         !runtime.compatibleTargetRevisions?.includes(expected.binding.execution.targetRevision)) ||
-      (executable && runtime.executableSha256 !== executable.sha256)
+      (executable &&
+        (runtime.executableSha256 !== executable.sha256 ||
+          (runtime.codeModeHostSha256 !== undefined &&
+            runtime.codeModeHostSha256 !== executable.custodySnapshot().codeModeHost?.sha256)))
     )
       throw unavailable();
     return runtime;
@@ -276,6 +283,11 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         this.assertSync(expected, undefined, executable);
       }
       if (executable.sha256 !== observed.executableSha256) throw unavailable();
+      if (
+        observed.codeModeHostSha256 !== undefined &&
+        executable.custodySnapshot().codeModeHost?.sha256 !== observed.codeModeHostSha256
+      )
+        throw unavailable();
       const launch =
         this.owners.launch ??
         ((home, selected) =>

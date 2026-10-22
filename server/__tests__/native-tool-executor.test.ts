@@ -392,7 +392,12 @@ describe('native tool execution through session permissions', () => {
     await writeFile(companion, bytes, { mode: 0o755 });
     await writeFile(
       nativeFile,
-      JSON.stringify({ version: 1, executablePath: executable, executableSha256: sha256 }),
+      JSON.stringify({
+        version: 2,
+        executablePath: executable,
+        executableSha256: sha256,
+        codeModeHostSha256: sha256,
+      }),
       { mode: 0o600 },
     );
     await writeFile(
@@ -402,7 +407,7 @@ describe('native tool execution through session permissions', () => {
         targetId: 'fixture-mac',
         label: 'Fixture Mac',
         hostId: hostname(),
-        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256),
+        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, sha256),
       }),
       { mode: 0o600 },
     );

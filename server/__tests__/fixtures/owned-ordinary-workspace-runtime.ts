@@ -76,7 +76,12 @@ export async function ownedOrdinaryRuntimeFixture(
   await writeFile(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
   await writeFile(
     nativePath,
-    JSON.stringify({ version: 1, executablePath, executableSha256: sha256 }),
+    JSON.stringify({
+      version: 2,
+      executablePath,
+      executableSha256: sha256,
+      codeModeHostSha256: sha256,
+    }),
     { mode: 0o600 },
   );
   await writeFile(
@@ -86,7 +91,7 @@ export async function ownedOrdinaryRuntimeFixture(
       targetId: 'ordinary-fixture-local',
       label: 'Offline local',
       hostId: hostname(),
-      runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256),
+      runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, sha256),
     }),
     { mode: 0o600 },
   );

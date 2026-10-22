@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { EventStore } from '../../event-store.js';
 import { AgentLibraryStore } from '../../agent-library-store.js';
 import { RepositoryWorkspaces } from '../../repository-workspaces.js';
@@ -81,6 +81,11 @@ export async function ownedRuntimeFixture(
     ? await readFile(options.nativeExecutablePath)
     : Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
+  const codeModeHostSha256 = options.nativeExecutablePath
+    ? createHash('sha256')
+        .update(await readFile(join(dirname(executablePath), 'codex-code-mode-host')))
+        .digest('hex')
+    : sha256;
   if (!options.nativeExecutablePath) {
     await writeFile(executablePath, bytes, { mode: 0o755 });
     await writeFile(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
@@ -91,11 +96,11 @@ export async function ownedRuntimeFixture(
     targetId: 'local-mac',
     label: 'Local Mac',
     hostId: hostname(),
-    runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256),
+    runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, codeModeHostSha256),
   };
   await writeFile(
     nativePath,
-    JSON.stringify({ version: 1, executablePath, executableSha256: sha256 }),
+    JSON.stringify({ version: 2, executablePath, executableSha256: sha256, codeModeHostSha256 }),
     { mode: 0o600 },
   );
   await writeFile(targetPath, JSON.stringify(target), { mode: 0o600 });

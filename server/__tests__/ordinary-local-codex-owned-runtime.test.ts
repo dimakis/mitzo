@@ -1546,6 +1546,7 @@ it('continues the same native thread from a new signed login after a compatible 
     await import('../ordinary-local-codex-host-runtime.js');
   target.runtimeContractRevision = ordinaryLocalCodexHostContractRevision(
     nativeSettings.executableSha256,
+    nativeSettings.codeModeHostSha256,
   );
   writeFileSync(targetPath, JSON.stringify(target), { mode: 0o600 });
   const web = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
