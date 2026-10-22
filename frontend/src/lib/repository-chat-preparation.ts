@@ -21,8 +21,15 @@ export const repositoryChatPreparationSchema = z
     setupUrl: z.string(),
     conversationId: z.string().min(1).max(200).optional(),
     ordinaryRuntime: SessionRuntimeBindingV2Schema.optional(),
+    failure: z
+      .strictObject({
+        code: z.enum(['repository_source_limit', 'repository_space']),
+        message: z.string().min(1).max(512),
+      })
+      .optional(),
   })
   .refine((value) => value.setupUrl === `/chat?repositoryPreparation=${value.id}`)
+  .refine((value) => !value.failure || value.state === 'failed')
   .refine((value) => value.state !== 'claimed' || !!value.conversationId);
 
 export const repositoryChatPreparationResultSchema = z.strictObject({

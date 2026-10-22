@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import { RepositorySourceLimitError, RepositorySpaceError } from '../github-repository-source.js';
+import { repositoryChatPreparationResultSchema } from '../../frontend/src/lib/repository-chat-preparation';
 
 const runtime = vi.hoisted(() => ({
   enabled: vi.fn(),
@@ -123,6 +124,9 @@ it.each([
     const result = await tools.execute('PrepareRepositoryChat', input, signal());
     expect(result?.isError).toBe(true);
     const failed = JSON.parse(result!.content).repositoryChat;
+    expect(
+      repositoryChatPreparationResultSchema.safeParse({ repositoryChat: failed }).success,
+    ).toBe(true);
     expect(failed.state).toBe('failed');
     if (code) expect(failed.failure).toEqual({ code, message: expect.stringContaining(message) });
     else expect(failed).not.toHaveProperty('failure');
