@@ -6,7 +6,7 @@ import type { AccountBinding } from '@mitzo/protocol';
 import { loadAccountProfiles } from './account-profiles.js';
 import { OpenShellRuntimeManager } from './openshell-runtime.js';
 import { loadOrdinaryOpenShellCodexTarget } from './ordinary-openshell-codex-entry-owner.js';
-import { getConnectionsRuntime } from './connections-runtime.js';
+import { openAIAccountKeyAuthority } from './openai-account-key-authority.js';
 import { VertexAdcCustody } from './ordinary-local-vertex-custody.js';
 import {
   readPrivateRuntimeSettings,
@@ -71,17 +71,10 @@ async function credentialDigest(
       native: await new OrdinaryLocalCodexHostRuntime().observe(),
     };
   } else if (binding.provider === 'openai' && selection.runOn === 'local') {
-    const runtime = getConnectionsRuntime();
-    const manager = runtime?.openAIEnrollmentAuthority;
-    if (
-      !profiles.isEnrolledOpenAIAccount(binding.accountId) ||
-      !manager?.manages(binding.accountId)
-    )
-      throw unavailable();
-    await manager.assertReady(binding.accountId, signal);
+    const manager = openAIAccountKeyAuthority(binding, profiles);
+    await manager.assertReady(signal);
     credential = digest(await manager.resolveKey(binding.accountId, signal));
-    await manager.assertReady(binding.accountId, signal);
-    if (!manager.manages(binding.accountId)) throw unavailable();
+    await manager.assertReady(signal);
   } else {
     const configured = loadOrdinaryOpenShellCodexTarget();
     if (!configured) throw unavailable();
@@ -132,18 +125,10 @@ async function credentialDigest(
         grantId: route.grantId,
       };
     } else {
-      const runtime = getConnectionsRuntime();
-      if (
-        !profiles.isEnrolledOpenAIAccount(binding.accountId) ||
-        !runtime?.openAIEnrollmentAuthority?.manages(binding.accountId) ||
-        !runtime.assertOpenAIKeyReady
-      )
-        throw unavailable();
-      await runtime.assertOpenAIKeyReady(binding.accountId, signal);
-      credential = digest(
-        await runtime.openAIEnrollmentAuthority.resolveKey(binding.accountId, signal),
-      );
-      await runtime.assertOpenAIKeyReady(binding.accountId, signal);
+      const manager = openAIAccountKeyAuthority(binding, profiles);
+      await manager.assertReady(signal);
+      credential = digest(await manager.resolveKey(binding.accountId, signal));
+      await manager.assertReady(signal);
     }
     const current = loadOrdinaryOpenShellCodexTarget();
     if (!current || !isDeepStrictEqual(current.target, configured.target)) throw unavailable();

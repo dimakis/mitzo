@@ -362,7 +362,7 @@ export class AccountProfiles {
   }
 
   ordinaryLocalCodexInventory() {
-    return this.ordinaryLocalCodexAccounts().map((account) => {
+    const subscriptions = this.ordinaryLocalCodexAccounts().map((account) => {
       const profile = this.profiles.find((candidate) => candidate.id === account.accountId)!;
       const discovered = cachedModels(JSON.stringify(profile));
       const { accountId, provider, profileRevision, planType } = account;
@@ -378,6 +378,15 @@ export class AccountProfiles {
         },
       };
     });
+    return this.options.codexEnabled
+      ? [
+          ...subscriptions,
+          ...this.ordinaryLocalResponsesInventory().map((account) => ({
+            ...account,
+            planType: 'api' as const,
+          })),
+        ]
+      : subscriptions;
   }
 
   /** Local API configuration projection; enrollment custody remains the owning gate. */
@@ -1017,6 +1026,20 @@ export class AccountProfiles {
   codexProfile(binding: AccountBinding): CodexAccountProfile {
     this.resume(binding);
     return this.projectCodexProfile(binding);
+  }
+  /** Shared local Codex engine; API billing retains its existing credential owner. */
+  localCodexProfile(binding: AccountBinding, historical = false): CodexAccountProfile {
+    if (binding.provider !== 'openai')
+      return historical ? this.codexRoutingProfile(binding) : this.codexProfile(binding);
+    if (historical) this.apiRoutingProfile(binding);
+    else this.apiProfile(binding);
+    return {
+      accountId: binding.accountId,
+      accountLabel: binding.accountLabel,
+      email: 'api',
+      planType: 'api',
+      model: binding.model,
+    };
   }
   /** Physical/native routing only; callers must validate the actual command model separately. */
   codexRoutingProfile(binding: AccountBinding): CodexAccountProfile {

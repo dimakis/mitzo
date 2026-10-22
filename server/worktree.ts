@@ -74,6 +74,61 @@ export function detectDefaultBranch(repoPath: string): string {
   return 'HEAD';
 }
 
+function worktreeBase(repoPath: string) {
+  const read = (...args: string[]) =>
+    execFileSync('git', ['-C', repoPath, ...args], {
+      encoding: 'utf8',
+      stdio: 'pipe',
+      timeout: WORKTREE_GIT_TIMEOUT_MS,
+    }).trim();
+  const branch = detectDefaultBranch(repoPath);
+  const remotes = read('remote').split('\n');
+  const tracking = read('for-each-ref', '--format=%(upstream:remotename)', `refs/heads/${branch}`);
+  const remote =
+    tracking ||
+    (remotes.includes('origin') ? 'origin' : remotes.includes('upstream') ? 'upstream' : undefined);
+  const ref = remote ? `refs/remotes/${remote}/${branch}` : branch;
+  const args = [
+    '-C',
+    repoPath,
+    '-c',
+    'core.hooksPath=/dev/null',
+    'fetch',
+    '--no-tags',
+    '--no-write-fetch-head',
+    '--',
+    remote!,
+    `+refs/heads/${branch}:${ref}`,
+  ];
+  const environment = Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')),
+  );
+  const options = {
+    env: { ...environment, GIT_TERMINAL_PROMPT: '0' },
+    timeout: 60000,
+    maxBuffer: 65536,
+  };
+  return {
+    remote,
+    args,
+    options,
+    commit: () => read('rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`),
+  };
+}
+/** Shared by all local providers. Refresh remote refs; leave local branches and working files alone. */
+export async function fetchWorktreeBase(repoPath: string, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted();
+  const base = worktreeBase(repoPath);
+  if (base.remote) await execFileAsync('git', base.args, { ...base.options, signal });
+  signal?.throwIfAborted();
+  return base.commit();
+}
+function fetchWorktreeBaseSync(repoPath: string): string {
+  const base = worktreeBase(repoPath);
+  if (base.remote) execFileSync('git', base.args, base.options);
+  return base.commit();
+}
+
 /** Worktrees live inside each repo at .claude/worktrees/<sessionId>. */
 function worktreesDir(baseRepo: string): string {
   return join(baseRepo, '.claude', 'worktrees');
@@ -151,7 +206,6 @@ export function createWorktree(
 
   const worktreePath = join(dir, sessionId);
   const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
-  const startPoint = opts?.startPoint ?? detectDefaultBranch(baseRepo);
 
   // Validation failure is not proof that a directory is disposable. Preserve it
   // and let the caller report the failure instead of attempting destructive repair.
@@ -171,6 +225,7 @@ export function createWorktree(
     return worktreePath;
   }
 
+  const startPoint = opts?.startPoint ?? fetchWorktreeBaseSync(baseRepo);
   try {
     execFileSync(
       'git',
@@ -209,7 +264,6 @@ export async function createWorktreeAsync(
 
   const worktreePath = join(dir, sessionId);
   const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
-  const startPoint = opts?.startPoint ?? detectDefaultBranch(baseRepo);
 
   if (existsSync(worktreePath)) {
     const { stdout: identity } = await execFileAsync(
@@ -227,6 +281,7 @@ export async function createWorktreeAsync(
     return worktreePath;
   }
 
+  const startPoint = opts?.startPoint ?? (await fetchWorktreeBase(baseRepo));
   try {
     await execFileAsync(
       'git',

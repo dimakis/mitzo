@@ -16,6 +16,13 @@ Versioned imports verify the source content hash and create a new local draft id
 
 ## Using a profile
 
+Default Mitzo is a code-owned built-in choice in the runtime picker, including
+when the user Library has no published profiles. Fresh chats select its exact
+revision; retained missing or explicitly cleared selections are not replaced.
+Agent Builder and Default Mitzo retain their built-in namespace through picker
+selection and URL updates. A saved profile with the same ID cannot substitute
+for a built-in revision. Neither choice grants account, tool or workspace access.
+
 New chats select a published profile alongside account/model selection. The v2 send message carries only profile ID and revision. Before provider dispatch, the server resolves that exact revision through the authenticated transport, verifies its identity/hash and provider compatibility, stores the full portable snapshot on the conversation, and appends its behavioral guidance to the existing platform prompt. Missing or incompatible selections fail explicitly.
 
 Manual profile choices update the current chat URL, including an explicit return to Default Mitzo. Switching between desktop and mobile layouts preserves that choice and the other chat parameters.

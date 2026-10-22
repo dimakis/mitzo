@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { it, expect, vi, beforeEach } from 'vitest';
-import { cleanup, render } from '@testing-library/react';
+import { it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, cleanup, render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import { TelosWorkApiClient } from '@mitzo/client';
 import { TodoView } from '../TodoView';
 
 const mockNavigate = vi.fn();
@@ -23,9 +24,16 @@ vi.mock('@mitzo/client/hooks', () => ({
 beforeEach(() => {
   cleanup();
   vi.clearAllMocks();
+  // This protected contract covers settled original-field ordering; canonical
+  // readiness is separate and must not depend on an implicit fetch rejection.
+  vi.spyOn(TelosWorkApiClient.prototype, 'readRecord').mockRejectedValue(
+    new Error('Canonical workspace unavailable in the original-field ordering fixture'),
+  );
 });
 
-it('preserves the approved grouping and urgency order when numeric priorities differ', () => {
+afterEach(() => vi.restoreAllMocks());
+
+it('preserves the approved grouping and urgency order when numeric priorities differ', async () => {
   const makeItem = (id: string, priority: number, starred: boolean, urgency: number) => ({
     id,
     summary: id,
@@ -71,6 +79,7 @@ it('preserves the approved grouping and urgency order when numeric priorities di
       <TodoView />
     </MemoryRouter>,
   );
+  await act(async () => {});
   const sections = [...container.querySelectorAll('.todo-section')];
   expect(sections[0].textContent).toContain('Focus');
   expect(sections[0].textContent).toContain('Existing focus');

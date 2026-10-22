@@ -17,6 +17,8 @@ import { contextDigest } from '../agent-context-compiler.js';
 import {
   LocalCodexFirstCommandSchema,
   PROFILE_BUILDER_ID,
+  DEFAULT_MITZO_PROFILE_ID,
+  DEFAULT_MITZO_PROFILE_REVISION,
   PROFILE_BUILDER_REVISION,
 } from '@mitzo/protocol';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
@@ -262,14 +264,23 @@ beforeEach(() => {
   fixtures.reserveSandbox.mockResolvedValue(undefined);
   fixtures.reserve.mockResolvedValue({ state: 'reserved' });
   fixtures.start.mockImplementation(async (_transport, _client, args) => {
-    const resolved = catalog.resolve(args.command.runtime);
+    const activeProfiles = fixtures.profiles() as AccountProfiles;
+    const resolved = new OrdinaryLocalCodexCapabilityCatalog(
+      activeProfiles,
+      target,
+      'ordinary',
+    ).resolve(args.command.runtime);
+    const activeBinding = activeProfiles.resolve(
+      args.command.runtime.account.accountId,
+      args.command.selection.model,
+    );
     if (resolved.status !== 'compatible') throw Error('Fixture route incompatible');
     store.admitOrdinaryLocalCommand(
       {
         sessionId: args.reservation.conversationId,
         cwd: '/offline/checkout',
         repositoryWorkspaceId: workspaceId,
-        accountBinding: binding,
+        accountBinding: activeBinding,
       },
       resolved.binding,
       {
@@ -342,6 +353,47 @@ const invoke = (method: string, url: string, body: unknown, login: string | null
 
 const send = (body: unknown = input(), login: string | null = auth.id) =>
   invoke('POST', '/send', body, login);
+
+it('exposes and dispatches API billing through the actual Local Codex entry', async () => {
+  const api = new AccountProfiles(
+    [
+      {
+        id: 'work',
+        label: 'Work API',
+        provider: 'openai',
+        credentialRef: { provider: 'keychain', service: 'offline-test', account: 'work' },
+        models: [{ id: 'fixture', label: 'Offline' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  fixtures.profiles.mockReturnValue(api);
+  fixtures.library.mockReturnValue({
+    version: () => publishedProfile,
+    list: () => ({ versions: [publishedProfile] }),
+  });
+  const apiCatalog = new OrdinaryLocalCodexCapabilityCatalog(api, target, 'ordinary');
+  const request = {
+    ...input(),
+    capabilityRevision: apiCatalog.inventory().capabilityRevision,
+    runtime: { ...input().runtime, account: apiCatalog.inventory().accounts[0].account },
+  };
+  const capabilities = await invoke('GET', '/capabilities', undefined);
+  expect(capabilities.status).toBe(200);
+  expect((capabilities.body as { accounts: Array<{ account: unknown }> }).accounts).toContainEqual(
+    expect.objectContaining({ account: request.runtime.account }),
+  );
+  expect((await send(request)).status).toBe(202);
+  expect(fixtures.start).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.any(String),
+    expect.objectContaining({
+      command: expect.objectContaining({
+        runtime: expect.objectContaining({ harness: 'codex', account: request.runtime.account }),
+      }),
+    }),
+  );
+});
 
 it('dispatches explicit Local with server-owned identities through the existing wrapper', async () => {
   const response = await send();
@@ -572,6 +624,11 @@ it('projects configuration-only eligible account tuples and published profiles w
     authority: 'configuration-only',
     defaultLocation: 'openshell',
     agentProfiles: [
+      expect.objectContaining({
+        kind: 'builtin',
+        profileId: DEFAULT_MITZO_PROFILE_ID,
+        revision: DEFAULT_MITZO_PROFILE_REVISION,
+      }),
       expect.objectContaining({
         kind: 'builtin',
         profileId: PROFILE_BUILDER_ID,

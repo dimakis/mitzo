@@ -40,6 +40,13 @@ The Connections inventory is the starting point: quiet surfaces, clear type, gro
 
 ## One theme source
 
+The existing Agent field includes the code-owned Default Mitzo choice even with
+an empty user Library. Built-in Agent Builder selections retain their namespace
+in the control and chat URL. This changes option identity and availability only;
+the approved chat-settings rows, shared controls, tokens, keyboard interaction
+and motion remain unchanged. Offline picker and prepared-chat regressions cover
+both built-ins on Host Mac API and subscription routes without model calls.
+
 `frontend/src/styles/tokens.css` owns every app palette literal and font stack. It loads before component styles in the production and fixture entry points. Components use semantic variables in CSS and React inline styles. The old `--accent`, `--ui-font`, `--text`, `--bg`, and `--workspace-*` names are aliases to that same source; never give them a second palette.
 
 - Actions and selection: `--color-accent`, with `--color-on-accent` for filled controls. Accent panels derive from the accent and background using `color-mix`.
@@ -1671,6 +1678,15 @@ large text, keyboard activation and reduced motion. Inspected captures show
 [desktop activity](assets/research-activity-desktop-light.png). These isolated
 renders use intercepted traffic and no backend, credentials or model calls.
 
+Operator-origin pause receipts use the existing control card, stage labels and
+recorded evidence. They explicitly say “Requested by operator”; null coordinator
+conversation and priority identities do not become placeholder names or record
+requests. These cards retain actual requested/acknowledged/applied/released stages
+and publication revalidation warnings. Their root-wide Resume action belongs to
+the lifecycle controls; an individual card does not expose the coordinator-only
+“Release held leads” action for an operator pause. Existing coordinator cards keep
+their priority, conversation and release behavior.
+
 ## Telos outcomes and item workspace (S7)
 
 The approved r1 Telos tree remains pinned by artifact identity and SHA-256 in
@@ -1748,6 +1764,33 @@ The item itself is a query container: below 48rem of available reading width, th
 enlarged text. The boundary leaves room for both reading columns plus gutters;
 viewport width alone cannot establish that room. Controls are checked against their
 main-column bounds so clipped overflow cannot hide an overlap.
+
+The October 21 corrective increment keeps the outcomes shell during initial
+record discovery, publishes ready records while sibling reads remain pending and
+retains the mounted workspace during refresh. Detail navigation without an original
+snapshot uses a loading frame; a retained original snapshot stays usable during
+pending reads, including the accepted Home/parent/Milestones return contract. Failed reads retain their item IDs,
+API status/code or validation/identity category and explicit retry; available
+original fields remain navigable alongside ready records. These diagnostics do
+not establish the cause of a production failure.
+When all canonical reads fail, the original cards remain the primary content.
+A compact control row pairs a visible unavailable summary and retry; it includes
+a failure count only when individual failed records are known. The native
+disclosure starts collapsed; exact IDs/status/codes remain
+available inside. Partial failures keep their failed original titles and diagnostics
+upfront. Text retries use the shared labelled secondary action, whose width follows
+the label, rather than the collection's square refresh-icon control. This keeps
+original item actions reachable while preserving error visibility and recovery.
+Search/category/filter context reveals matching paths initially; explicit collapse,
+expand and collapse-all choices override that reveal and persist with the context.
+Changing the context clears those collapse overrides.
+The user-requested mobile item masthead now uses `MobileShell`'s existing branding,
+top safe area and tab clearance. Its detail body stays inside that shell's available
+height. Long titles retain the chosen UI font, wrap at the shared title scale and
+have explicit line height. Overview sections have scoped shared type/spacing;
+missing intent reads “Not recorded” rather than leaving two adjacent headings.
+Focused component/read-owner tests cover state and semantics; S9 owns independent
+actual-App/mobile geometry verification against the final official bundle.
 
 The brief's 20rem column is structural reading geometry. Search wraps before the
 actions at phone widths and uses five shared control heights as its preferred
@@ -1973,3 +2016,50 @@ Pending chat-type qualification renders only pure progress/error feedback beside
 the disabled input; it does not mount the ordinary queue or send owner early.
 Outline warnings use the semantic warning foreground on a transparent background;
 filled controls retain their existing paired foreground contrast checks.
+
+## Repository settings editor
+
+The ordinary Repository editor uses the current Chat settings sheet's surface,
+padding and scrolling owner. Its settings variant removes the nested repository
+card and duplicate heading, uses the shared secondary controls and semantic
+type/spacing/radius tokens, and puts branch/commit metadata in the existing native
+Checkout details disclosure. Pending preparation shows the original repository,
+its status and read-only refresh action without repeating source-selection or
+prepare controls. The main approved settings rows and ledger revision are retained.
+
+Local Mac offers the repositories already configured on the host through the same
+editor. Use repository fetches upstream main and selects the local checkout; no
+GitHub connection, source preview or import step is shown. The existing workspace
+owner creates a linked worktree for the command and retains it for continuation.
+The editor displays the repository's name and keeps branch/commit details in the
+shared disclosure. This workspace behavior is independent of the account provider.
+Selecting a repository is optional for a new local chat: first send uses the
+configured default checkout and creates its isolated worktree. Clearing a local
+selection therefore says Use default repository. The composer validates this
+path before a repository is selected; OpenShell still requires its sandbox source.
+
+The all-intercept repository-preparation-recovery browser fixture renders the real
+responsive chat route, MobileShell/DesktopShell, settings, picker and composer. It
+covers 320px mobile WebKit/Chromium and 1280px desktop Chromium, dark Mint/System
+and light Teal/Georgia, fresh defaults without repeated account confirmation,
+runtime-change invalidation, lost-response recovery, keyboard focus, reachable
+44px actions and retained draft text. Its local-settings-default and
+local-repository captures are retained by the existing Local first-command CI
+artifact upload. These are offline application renders, not live provider evidence.
+The existing-local captures additionally cover ChatGPT, OpenAI API, Claude Vertex
+and Gemini selections in the same real mobile/desktop routes and themes.
+The same fixture verifies first send without a selected repository for all four
+accounts and preserves the draft when the intercepted send loses its response.
+Inspected final captures: [local phone](assets/local-repository-mobile-dark.png)
+and [local desktop](assets/local-repository-desktop-light.png).
+
+## Telos lifecycle actions
+
+The [Telos lifecycle workspace controls](telos-lifecycle-ui.md) reuse the quiet
+shared action menu, `HomeDialog`, semantic danger controls and existing motion.
+The item row follows the retained heading; the tree's native sort selector uses
+shared type, surface, radius and control-height tokens. Original order, hierarchy,
+priority, unknown dates, navigation context and owner-reported pause stages remain
+explicit. Destructive reviews close when authentication changes; uncertain requests
+retain their original verified login/server scope. Source-level fixture evidence
+and pending matching-source App/browser qualification are recorded separately.

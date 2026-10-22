@@ -1,6 +1,11 @@
 import { expect, it } from 'vitest';
 import { contextDigest } from '../agent-context-compiler.js';
-import { PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION } from '@mitzo/protocol';
+import {
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+  DEFAULT_MITZO_PROFILE_ID,
+  DEFAULT_MITZO_PROFILE_REVISION,
+} from '@mitzo/protocol';
 import {
   readOrdinaryCodexAgentProfile,
   ordinaryCodexAgentProfiles,
@@ -160,15 +165,54 @@ it('capabilities retain supported recipes and exclude native packs', () => {
   packs.contentHash = contextDigest(packs.definition);
   expect(
     ordinaryCodexAgentProfiles([workspace, packs]).map((profile) => profile.profileId),
-  ).toEqual([PROFILE_BUILDER_ID, PROFILE_BUILDER_ID, PROFILE_BUILDER_ID, 'workspace']);
+  ).toEqual([
+    DEFAULT_MITZO_PROFILE_ID,
+    PROFILE_BUILDER_ID,
+    PROFILE_BUILDER_ID,
+    PROFILE_BUILDER_ID,
+    'workspace',
+  ]);
 });
 
 it('keeps historical Builder revision one eligible without replacing its captured definition', () => {
   const inventory = ordinaryCodexAgentProfiles([]);
-  expect(inventory.map(({ revision }) => revision)).toEqual([PROFILE_BUILDER_REVISION, 2, 1]);
-  const historical = inventory.find((profile) => profile.revision === 1)!;
+  expect(
+    inventory.filter((p) => p.profileId === PROFILE_BUILDER_ID).map(({ revision }) => revision),
+  ).toEqual([PROFILE_BUILDER_REVISION, 2, 1]);
+  const historical = inventory.find(
+    (profile) => profile.profileId === PROFILE_BUILDER_ID && profile.revision === 1,
+  )!;
   expect(historical.definition.instructions).not.toContain('AgentProposeTask');
   expect(
     ordinaryCodexAgentProfileRouteProjection(inventory, 'openai-codex', 'local').agentProfiles,
   ).toContainEqual({ kind: 'builtin', profileId: PROFILE_BUILDER_ID, revision: 1 });
+});
+
+it('provides Default Mitzo from code with an empty Library and keeps user identity separate', () => {
+  const selection = {
+    kind: 'builtin' as const,
+    profileId: DEFAULT_MITZO_PROFILE_ID,
+    revision: DEFAULT_MITZO_PROFILE_REVISION,
+  };
+  const library = { version: () => null };
+  const profile = readOrdinaryCodexAgentProfile(library, selection)!;
+  expect(profile.definition.name).toBe('Default Mitzo');
+  expect(profile.contentHash).toBe(contextDigest(profile.definition));
+  expect(ordinaryCodexAgentProfiles([])).toContainEqual(profile);
+  for (const provider of ['openai', 'openai-codex', 'anthropic-vertex', 'google-vertex'])
+    for (const location of ['local', 'openshell'] as const)
+      expect(
+        ordinaryCodexAgentProfileRouteProjection([profile], provider, location).agentProfiles,
+      ).toEqual([selection]);
+  expect(readOrdinaryCodexAgentProfile(library, { ...selection, revision: 999 })).toBeNull();
+  expect(
+    readOrdinaryCodexAgentProfile(library, {
+      profileId: selection.profileId,
+      revision: selection.revision,
+    }),
+  ).toBeNull();
+  profile.definition.instructions = 'Changed returned copy';
+  expect(readOrdinaryCodexAgentProfile(library, selection)?.definition.instructions).not.toBe(
+    'Changed returned copy',
+  );
 });

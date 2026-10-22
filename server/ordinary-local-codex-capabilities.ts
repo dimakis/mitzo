@@ -126,26 +126,34 @@ const Model = z
   });
 const InventoryAccounts = z
   .array(
-    z.strictObject({
-      account: SessionRuntimeBindingV1Schema.shape.account
-        .extend({ provider: z.literal('openai-codex') })
-        .strict(),
-      planType: z
-        .string()
-        .max(200)
-        .refine((plan) => plan.trim().length > 0 && plan.trim().toLowerCase() !== 'api'),
-      label,
-      models: z
-        .array(Model)
-        .min(1)
-        .max(256)
-        .refine((models) => new Set(models.map((model) => model.id)).size === models.length),
-      modelDiscovery: z.strictObject({
-        source: z.enum(['cached', 'configured']),
-        stale: z.boolean(),
-        updatedAt: z.number().finite().nonnegative().optional(),
+    z
+      .strictObject({
+        account: SessionRuntimeBindingV1Schema.shape.account
+          .extend({ provider: z.enum(['openai-codex', 'openai']) })
+          .strict(),
+        planType: z
+          .string()
+          .max(200)
+          .refine((plan) => plan.trim().length > 0),
+        label,
+        models: z
+          .array(Model)
+          .min(1)
+          .max(256)
+          .refine((models) => new Set(models.map((model) => model.id)).size === models.length),
+        modelDiscovery: z.strictObject({
+          source: z.enum(['cached', 'configured']),
+          stale: z.boolean(),
+          updatedAt: z.number().finite().nonnegative().optional(),
+        }),
+      })
+      .superRefine((entry, context) => {
+        if (
+          (entry.planType.trim().toLowerCase() === 'api') !==
+          (entry.account.provider === 'openai')
+        )
+          context.addIssue({ code: 'custom', message: 'Account billing class mismatch' });
       }),
-    }),
   )
   .max(64)
   .refine(
@@ -181,11 +189,20 @@ export class OrdinaryLocalCodexCapabilityCatalog {
     this.#catalog = {
       deployment,
       enabledHarnesses: source.length ? ['codex'] : [],
-      accounts: source.map(({ account, planType }) => ({
-        ...account,
-        planType,
-        auth: { kind: 'host-login' },
-      })),
+      accounts: source.map(({ account, planType }) =>
+        account.provider === 'openai'
+          ? {
+              ...account,
+              provider: 'openai' as const,
+              auth: { kind: 'api-credential', openshellTargetIds: [] },
+            }
+          : {
+              ...account,
+              provider: 'openai-codex' as const,
+              planType,
+              auth: { kind: 'host-login' },
+            },
+      ),
       targets: targets.map(({ targetId, targetRevision, location }) => ({
         targetId,
         targetRevision,

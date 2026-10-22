@@ -3,6 +3,77 @@ import request from 'supertest';
 import { expect, it, vi } from 'vitest';
 import { createRepositoryWorkspaceRouter } from '../repository-workspace-router.js';
 import type { AccountBinding } from '@mitzo/protocol';
+it('selects a configured Mac repository without preview/import and refuses paths or sandbox selection', async () => {
+  const binding = {
+    accountId: 'work',
+    model: 'model',
+    provider: 'openai',
+    profileRevision: 'rev',
+  } as AccountBinding;
+  const selectLocal = vi.fn(async () => ({ state: 'ready' }));
+  const catalog = vi.fn(() => ({ available: true, repositories: [] }));
+  const preview = vi.fn(),
+    prepare = vi.fn();
+  const app = express();
+  app.use(express.json());
+  app.use((_req, res, next) => {
+    res.locals.authSession = { id: 'operator', expiresAt: Date.now() + 60000 };
+    next();
+  });
+  app.use(
+    '/repositories',
+    createRepositoryWorkspaceRouter({
+      resolveBinding: () => binding,
+      catalog,
+      preview,
+      prepare,
+      selectLocal,
+    }),
+  );
+  const ordinaryRuntime = {
+    runOn: 'local',
+    runtime: {
+      account: { accountId: 'work', provider: 'openai', profileRevision: 'rev' },
+      harness: 'responses',
+      targetId: 'mac',
+    },
+  };
+  const body = {
+    accountId: 'work',
+    model: 'model',
+    repositoryId: 'primary',
+    ordinaryRuntime,
+    requestId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+  };
+  expect(
+    (await request(app).get('/repositories/catalog?accountId=work&model=model&runOn=local')).status,
+  ).toBe(200);
+  expect(catalog).toHaveBeenCalledWith(binding, 'local');
+  expect((await request(app).post('/repositories/local').send(body)).status).toBe(200);
+  expect(selectLocal).toHaveBeenCalledWith(
+    binding,
+    'primary',
+    ordinaryRuntime,
+    expect.any(AbortSignal),
+    body.requestId,
+  );
+  expect(
+    (
+      await request(app)
+        .post('/repositories/local')
+        .send({ ...body, directory: '/anywhere' })
+    ).status,
+  ).toBe(400);
+  expect(
+    (
+      await request(app)
+        .post('/repositories/local')
+        .send({ ...body, ordinaryRuntime: { ...ordinaryRuntime, runOn: 'openshell' } })
+    ).status,
+  ).toBe(400);
+  expect(preview).not.toHaveBeenCalled();
+  expect(prepare).not.toHaveBeenCalled();
+});
 it('requires an authenticated same-origin operator and resolves account binding on the server', async () => {
   const binding = { accountId: 'account', model: 'model', provider: 'openai' } as AccountBinding;
   const preview = vi.fn(async () => ({ id: 'prepared', repository: 'example/repo' }));

@@ -1,6 +1,10 @@
 import { resolveRuntimeTarget } from '../lib/chat-runtime-route';
 import { z } from 'zod';
-import { getDefaultAccountModel } from '../lib/account-preference';
+import {
+  getDefaultAccountModel,
+  getDefaultAccountReference,
+  rememberDefaultAccountReference,
+} from '../lib/account-preference';
 import type { AccountSelection } from '../types/account-selection';
 import { ChatRuntimeDraftContext } from './chat-runtime-draft-context';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
@@ -9,6 +13,8 @@ import {
   OrdinaryWorkspaceFirstCommandSchema,
   LocalCodexFirstCommandSchema,
   AgentLibraryVersionSchema,
+  DEFAULT_MITZO_PROFILE_ID,
+  DEFAULT_MITZO_PROFILE_REVISION,
   AgentContextSnapshotSchema,
   type AgentLibraryVersion,
   type AgentContextSnapshot,
@@ -52,17 +58,30 @@ export function useExplicitLocalChat(
 ) {
   const retained = useContext(ChatRuntimeDraftContext);
   const seed = useCallback(() => {
-    // Preferences supply editable intent, never a confirmed public billing identity.
+    // Defaults retain editable intent and its last observed public identity.
     // Saved runtime intent (including an empty account) and session metadata win.
     const preferred = ChatRuntimeSelectionSchema.safeParse({
       ...createChatRuntimeSelection(),
+      agentProfile: sessionId
+        ? null
+        : {
+            kind: 'builtin',
+            profileId: DEFAULT_MITZO_PROFILE_ID,
+            revision: DEFAULT_MITZO_PROFILE_REVISION,
+          },
       account: sessionId
         ? null
         : savedAccount === undefined
           ? getDefaultAccountModel()
           : savedAccount,
     });
-    const initial = saved ?? (preferred.success ? preferred.data : createChatRuntimeSelection());
+    const reference = sessionId || savedAccount !== undefined ? null : getDefaultAccountReference();
+    const preferredIntent = preferred.success ? preferred.data : createChatRuntimeSelection();
+    const initial = saved ?? {
+      ...preferredIntent,
+      accountReference:
+        reference?.accountId === preferredIntent.account?.accountId ? reference : null,
+    };
     const params = new URLSearchParams(search);
     const requested =
       params.has('agentProfile') || params.has('profileRevision') || params.has('agentProfileKind');
@@ -70,6 +89,9 @@ export function useExplicitLocalChat(
       ? retainChatRuntimeSelection(initial, initial.account, chatAgentProfileFromSearch(search))!
       : initial;
   }, [saved, savedAccount, search, sessionId]);
+  const preferenceScope = useRef({ draftId, fresh: !saved && savedAccount === undefined });
+  if (preferenceScope.current.draftId !== draftId)
+    preferenceScope.current = { draftId, fresh: !saved && savedAccount === undefined };
   const [choice, setChoice] = useState(() => ({ draftId, intent: seed() }));
   const intent = retained?.selection ?? (choice.draftId === draftId ? choice.intent : seed());
   const latestIntent = useRef(intent);
@@ -152,16 +174,26 @@ export function useExplicitLocalChat(
         const next = ExplicitLocalInventorySchema.parse(body);
         setInventory(next);
         const pendingIntent = latestIntent.current;
-        const pendingReference = pendingIntent.accountReference ?? null;
+        // A fresh default is an instruction to use this exact account ID.
+        // Resolve its first public identity once; retain saved identities and
+        // legacy draft intent so refresh cannot adopt a changed billing route.
+        const configured = next.accounts.find(
+          (entry) => entry.account.accountId === pendingIntent.account?.accountId,
+        );
+        const pendingReference =
+          pendingIntent.accountReference ??
+          (preferenceScope.current.fresh ? (configured?.account ?? null) : null);
+        if (!pendingIntent.accountReference && pendingReference)
+          rememberDefaultAccountReference(pendingReference);
         const targetId =
           pendingIntent.account?.accountId && !pendingReference
             ? null
-            : resolveRuntimeTarget(pendingIntent, next);
+            : resolveRuntimeTarget({ ...pendingIntent, accountReference: pendingReference }, next);
         if (
           !scope.current.sessionId &&
           pendingIntent.capabilityRevision === null &&
           pendingIntent.execution.targetId === null &&
-          targetId !== null
+          (targetId !== null || (!pendingIntent.accountReference && pendingReference !== null))
         ) {
           const resolved = {
             ...pendingIntent,
@@ -181,7 +213,7 @@ export function useExplicitLocalChat(
         }
       });
     return () => controller.abort();
-  }, [enabled, sessionId, attempt]);
+  }, [draftId, enabled, sessionId, attempt]);
   useEffect(() => {
     if (!sessionId) return;
     setMetaFailure(null);
@@ -211,6 +243,7 @@ export function useExplicitLocalChat(
         const preparedRepository =
           preparedFirst &&
           ordinaryWorkspaceId === undefined &&
+          body.repositoryWorkspaceId !== undefined &&
           LocalCodexFirstCommandSchema.shape.repositoryWorkspaceId.safeParse(
             body.repositoryWorkspaceId,
           ).success;
@@ -339,7 +372,9 @@ export function useExplicitLocalChat(
     selectedLocal ||
     !!saved ||
     !!selectedIntent.execution.targetId ||
-    (!!selectedIntent.account && (!!selectedIntent.accountReference || !!retained?.selection));
+    (!!selectedIntent.account &&
+      ((!preferenceScope.current.fresh && !!selectedIntent.accountReference) ||
+        !!retained?.selection));
   const visible =
     bound ||
     metadataUnavailable ||
@@ -411,6 +446,7 @@ export function useExplicitLocalChat(
         entry.account.profileRevision === selectedIntent.accountReference?.profileRevision,
     );
   const update = (next: ChatRuntimeSelection, explicitAccountChoice = false) => {
+    if (explicitAccountChoice) preferenceScope.current.fresh = false;
     const identityChanged =
       explicitAccountChoice ||
       next.account?.accountId !== selectedIntent.account?.accountId ||
@@ -429,6 +465,8 @@ export function useExplicitLocalChat(
         : next.accountReference?.accountId === next.account.accountId
           ? next.accountReference
           : null;
+    if (explicitAccountChoice && accountReference)
+      rememberDefaultAccountReference(accountReference);
     const referenced = { ...next, accountReference };
     const reviewed = inventory
       ? {
