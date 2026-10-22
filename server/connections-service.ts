@@ -1,4 +1,5 @@
 import { warmPoolConnectionAccount } from './openshell-warm-pool-binding.js';
+import { CredentialOperationGate } from './credential-operation-gate.js';
 import {
   ConnectionStore,
   ConnectionAssignmentConflictError,
@@ -77,7 +78,7 @@ function legacyCredentials(value: Credentials | string) {
 /** One control-plane gate orders runtime creation against consent/credential changes.
  * Durable intent is written before gateway effects, so restart can complete cleanup. */
 export class ConnectionsService {
-  private queue: Promise<unknown> = Promise.resolve();
+  private readonly credentialGate = new CredentialOperationGate();
   constructor(
     private readonly store: ConnectionStore,
     private readonly gateway: ConnectionGateway,
@@ -88,18 +89,18 @@ export class ConnectionsService {
       accountCredentialReady?: (accountId: string, signal: AbortSignal) => Promise<void>;
     } = {},
   ) {}
-  private async serial<T>(work: () => Promise<T>): Promise<T> {
-    const prior = this.queue;
-    let release!: () => void;
-    this.queue = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await prior;
-    try {
-      return await work();
-    } finally {
-      release();
-    }
+  private serial<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    return this.credentialGate.run(work, signal);
+  }
+  /** Fixed controller readiness check; nested reads reuse only their live owner. */
+  async assertAccountCredentialReady(accountId: string, signal: AbortSignal): Promise<void> {
+    await this.withCredentialRead(async () => {
+      signal.throwIfAborted();
+      if (!this.options.accountCredentialReady)
+        throw new Error('OpenAI account controller unavailable');
+      await this.options.accountCredentialReady(accountId, signal);
+      signal.throwIfAborted();
+    }, signal);
   }
   catalog(ownerId = 'operator') {
     return this.store.list(ownerId);
@@ -107,6 +108,11 @@ export class ConnectionsService {
   /** Controller credential operations share the runtime admission/rotation gate. */
   withCredentialMutation<T>(work: () => Promise<T>): Promise<T> {
     return this.serial(work);
+  }
+  /** Qualification may already be inside this service's runtime reservation.
+   * Joining it is read-only; rotations and connection mutations cannot reenter. */
+  withCredentialRead<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    return this.credentialGate.read(work, signal);
   }
   /** The gateway, not the browser, is authoritative for provisionable templates. */
   supportsTemplate(templateId: string, templateVersion: number) {
@@ -338,13 +344,13 @@ export class ConnectionsService {
     work: (connection: Connection | null) => Promise<T>,
     signal = AbortSignal.timeout(120_000),
   ) {
-    return this.serial(async () => {
+    return this.credentialGate.read(async () => {
       signal.throwIfAborted();
       await this.options.accountCredentialReady?.(accountId, signal);
       const c = this.resolveForAccount(accountId);
       if (c) await this.boundProvider(c, signal);
       return work(c);
-    });
+    }, signal);
   }
   async withAccountRuntimes<T>(
     accountId: string,
@@ -354,7 +360,7 @@ export class ConnectionsService {
       candidates: readonly Connection[],
     ) => readonly Connection[] | Promise<readonly Connection[]>,
   ) {
-    return this.serial(async () => {
+    return this.credentialGate.read(async () => {
       signal.throwIfAborted();
       await this.options.accountCredentialReady?.(accountId, signal);
       const candidates = this.resolveAutomaticForAccount(accountId);
@@ -363,7 +369,7 @@ export class ConnectionsService {
         throw new Error('Selected connection is not eligible for this account');
       for (const connection of connections) await this.boundProvider(connection, signal);
       return work(connections);
-    });
+    }, signal);
   }
   /** Called inside withAccountRuntime before ensure. Existing sessions cannot gain new grants. */
   async verifyRuntimeSandbox(

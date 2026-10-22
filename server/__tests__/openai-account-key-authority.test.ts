@@ -18,6 +18,7 @@ vi.mock('../account-profiles.js', () => ({
 vi.mock('../credentials.js', () => ({ credentials: { resolve: state.key } }));
 vi.mock('../connections-runtime.js', () => ({ getConnectionsRuntime: () => state.runtime }));
 vi.mock('../openai-key-controller.js', () => ({ assertOpenAIKeyController: state.fence }));
+import { ConnectionsService } from '../connections-service.js';
 import { openAIAccountKeyAuthority } from '../openai-account-key-authority.js';
 const binding = {
   accountId: 'work',
@@ -74,16 +75,16 @@ it('selects controller-fenced host custody while preserving sandbox readiness fo
 });
 it('checks existing gateway custody without resolving or copying a host key', async () => {
   let gated = false;
-  const ready = vi.fn(async () => {
+  const ready = vi.fn(async (_id: string, _signal: AbortSignal) => {
     expect(gated).toBe(true);
   });
   state.runtime = {
     assertOpenAIKeyReady: ready,
     service: {
-      withCredentialMutation: async (work: () => Promise<void>) => {
+      assertAccountCredentialReady: async (_id: string, _signal: AbortSignal) => {
         gated = true;
         try {
-          await work();
+          await ready(_id, _signal);
         } finally {
           gated = false;
         }
@@ -105,7 +106,7 @@ it('rejects controller drift or cancellation during gateway custody checks', asy
   });
   const runtime = {
     assertOpenAIKeyReady: ready,
-    service: { withCredentialMutation: async (work: () => Promise<void>) => work() },
+    service: { assertAccountCredentialReady: async () => ready() },
   };
   state.runtime = runtime;
   await expect(openAIAccountKeyAuthority(binding).assertReady(signal())).rejects.toThrow(
@@ -143,7 +144,7 @@ it('runs legacy readiness and credential lookup inside the same mutation gate', 
   state.runtime = {
     assertOpenAIKeyReady: ready,
     service: {
-      withCredentialMutation: async (work: () => Promise<string>) => {
+      withCredentialRead: async (work: () => Promise<string>) => {
         gated = true;
         try {
           return await work();
@@ -213,4 +214,30 @@ it('rejects controller replacement and cancellation before returning a key', asy
   await expect(
     openAIAccountKeyAuthority(binding).resolveKey('work', controller.signal),
   ).rejects.toThrow();
+});
+
+it('completes OpenShell readiness inside the real account startup gate', async () => {
+  const ready = vi.fn(async () => {});
+  const service = new ConnectionsService({ list: () => [] } as never, {} as never, {
+    accountCredentialReady: ready,
+  });
+  state.runtime = { service, assertOpenAIKeyReady: ready };
+  const startup = service.withAccountRuntimes('work', async () => {
+    await openAIAccountKeyAuthority(binding).assertReady(signal());
+    return 'native startup reached';
+  });
+  let timer: ReturnType<typeof setTimeout>;
+  try {
+    const result = await Promise.race([
+      startup,
+      new Promise<string>((resolve) => {
+        timer = setTimeout(() => resolve('deadlocked'), 100);
+      }),
+    ]);
+    expect(result).toBe('native startup reached');
+    expect(ready).toHaveBeenCalledTimes(2);
+    expect(state.key).not.toHaveBeenCalled();
+  } finally {
+    clearTimeout(timer!);
+  }
 });

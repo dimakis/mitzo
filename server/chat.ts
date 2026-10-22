@@ -1,3 +1,4 @@
+import { restoreOwnedVertexInitialPrompt } from './ordinary-local-vertex-replay.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import type { LocalWorkspaceRecord } from './ordinary-local-workspace-owner.js';
 import type { LocalWorkspaceKind } from './ordinary-local-workspace-owner.js';
@@ -1824,10 +1825,15 @@ async function _startChatInner(
         apiKey = await manager.resolveKey(accountBinding.accountId, AbortSignal.timeout(30000));
       } else if (runtime?.assertOpenAIKeyReady && accountBinding) {
         const selectedReference = apiCredentialRef;
-        apiKey = await runtime.service.withCredentialMutation(async () => {
-          await runtime.assertOpenAIKeyReady!(accountBinding.accountId, AbortSignal.timeout(30000));
-          return credentials.resolve(selectedReference);
-        });
+        const signal = AbortSignal.any([abortController.signal, AbortSignal.timeout(30_000)]);
+        apiKey = await runtime.service.withCredentialRead(async () => {
+          signal.throwIfAborted();
+          await runtime.assertOpenAIKeyReady!(accountBinding.accountId, signal);
+          signal.throwIfAborted();
+          const key = await credentials.resolve(selectedReference);
+          signal.throwIfAborted();
+          return key;
+        }, signal);
       } else apiKey = await credentials.resolve(apiCredentialRef);
     } catch (err: unknown) {
       if (initialProviderAdmission) {
@@ -1967,7 +1973,8 @@ async function _startChatInner(
       ...(agentProfile ? { agentProfile } : {}),
       cwd,
       mode,
-      initialPrompt: options.sourceSnapshots?.length ? prompt : fullPrompt,
+      initialPrompt:
+        options.ordinarySdkAuthority || options.sourceSnapshots?.length ? prompt : fullPrompt,
       ...(accountBinding ? { accountBinding } : {}),
       selectedModel: options.model ?? accountBinding?.model ?? null,
       reasoningEffort: options.reasoningEffort ?? null,
@@ -2889,7 +2896,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       registry,
       abortController,
       eventStore,
-      options.resume || codexProfile || apiKey || gemini
+      options.resume || codexProfile || apiKey || gemini || options.ordinarySdkAuthority
         ? undefined
         : options.sourceSnapshots?.length
           ? prompt
@@ -6242,6 +6249,24 @@ async function recoverSessionWorkspace(sessionId: string, dirs?: string[]) {
   }
 }
 
+function sessionReplayProjection(
+  sessionId: string,
+  events: import('./event-store.js').StoredEvent[],
+) {
+  const session = eventStore.getSession(sessionId);
+  if (session?.accountBinding?.provider !== 'anthropic-vertex')
+    return { events, initialPrompt: session?.initialPrompt ?? undefined };
+  const custody = eventStore.getOrdinaryLocalVertexCustody(sessionId);
+  const command = custody ? eventStore.getSendCommand(custody.initialCommandId) : undefined;
+  return restoreOwnedVertexInitialPrompt(
+    events,
+    session?.initialPrompt ?? undefined,
+    custody && command?.sessionId === sessionId && typeof command.payload.text === 'string'
+      ? { sessionId, commandId: custody.initialCommandId, text: command.payload.text }
+      : undefined,
+  );
+}
+
 export async function getMessages(sessionId: string, throughSeq?: number) {
   if (!eventStore.getSession(sessionId)) return [];
   // Primary: replay from durable event store
@@ -6251,8 +6276,8 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
       : eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
   if (events.length > 0) {
     if (throughSeq === undefined) await recoverSessionWorkspace(sessionId);
-    const session = eventStore.getSession(sessionId);
-    return replayEventsToMessages(events, session?.initialPrompt ?? undefined);
+    const projection = sessionReplayProjection(sessionId, events);
+    return replayEventsToMessages(projection.events, projection.initialPrompt);
   }
 
   // A bounded request must never fall through to a mutable SDK transcript.
@@ -6295,8 +6320,8 @@ export async function getMessages(sessionId: string, throughSeq?: number) {
 export function getReconnectTranscript(sessionId: string, throughSeq: number) {
   if (!eventStore.getSession(sessionId)) return { messages: [], current: null, currents: [] };
   const events = eventStore.getSessionEventsThroughCursor(sessionId, throughSeq);
-  const session = eventStore.getSession(sessionId);
-  return replayEventsToTranscript(events, session?.initialPrompt ?? undefined);
+  const projection = sessionReplayProjection(sessionId, events);
+  return replayEventsToTranscript(projection.events, projection.initialPrompt);
 }
 
 /** Full durable transcript and its high-water mark for opening an active session. */
@@ -6307,9 +6332,9 @@ export async function getSessionTranscript(sessionId: string) {
   if (events.length === 0)
     return { messages: await getMessages(sessionId), current: null, currents: [], cursor: 0 };
   await recoverSessionWorkspace(sessionId);
-  const session = eventStore.getSession(sessionId);
+  const projection = sessionReplayProjection(sessionId, events);
   return {
-    ...replayEventsToTranscript(events, session?.initialPrompt ?? undefined),
+    ...replayEventsToTranscript(projection.events, projection.initialPrompt),
     cursor: events[events.length - 1].seq,
   };
 }

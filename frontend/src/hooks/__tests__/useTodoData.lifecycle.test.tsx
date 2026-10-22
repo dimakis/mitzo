@@ -87,5 +87,5 @@ it('clears stale view snapshots and revalidates every mounted collection only af
   act(() => notifyTodoLifecycleChange());
   await waitFor(() => expect(first.result.current.items).toEqual([]));
   await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(before + 2));
-  expect(second.result.current.items[0]?.id).toBe('archived');
+  await waitFor(() => expect(second.result.current.items[0]?.id).toBe('archived'));
 });

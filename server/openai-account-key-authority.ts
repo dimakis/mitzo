@@ -49,12 +49,12 @@ export function openAIAccountKeyAuthority(
     const key = manager
       ? await manager.resolveHostKey(binding.accountId, signal)
       : runtime?.assertOpenAIKeyReady
-        ? await runtime.service.withCredentialMutation(async () => {
+        ? await runtime.service.withCredentialRead(async () => {
             signal.throwIfAborted();
             assertCurrent();
             await runtime.assertOpenAIKeyReady!(binding.accountId, signal);
             return credentials.resolve(profile.credentialRef);
-          })
+          }, signal)
         : await credentials.resolve(profile.credentialRef);
     signal.throwIfAborted();
     assertCurrent();
@@ -71,13 +71,9 @@ export function openAIAccountKeyAuthority(
       signal.throwIfAborted();
       assertCurrent();
       if (runtime?.assertOpenAIKeyReady) {
-        await runtime.service.withCredentialMutation(async () => {
-          signal.throwIfAborted();
-          assertCurrent();
-          await runtime.assertOpenAIKeyReady!(binding.accountId, signal);
-          signal.throwIfAborted();
-          assertCurrent();
-        });
+        await runtime.service.assertAccountCredentialReady(binding.accountId, signal);
+        signal.throwIfAborted();
+        assertCurrent();
       } else if (manager) throw Error('OpenAI account controller unavailable');
       signal.throwIfAborted();
       assertCurrent();
@@ -90,12 +86,12 @@ export function openAIAccountKeyAuthority(
       const key = manager
         ? await manager.resolveKey(accountId, signal)
         : runtime?.assertOpenAIKeyReady
-          ? await runtime.service.withCredentialMutation(async () => {
+          ? await runtime.service.withCredentialRead(async () => {
               signal.throwIfAborted();
               assertCurrent();
               await runtime.assertOpenAIKeyReady!(accountId, signal);
               return credentials.resolve(profile.credentialRef);
-            })
+            }, signal)
           : await credentials.resolve(profile.credentialRef);
       signal.throwIfAborted();
       assertCurrent();
