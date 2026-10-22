@@ -92,6 +92,60 @@ it('scopes unresolved nonterminal Task Board ownership to the lifecycle record',
   }).protect({ ...record, ownerClientId: 'client-c' }, AbortSignal.timeout(10));
   expect(unrelated.blockers).toEqual([]);
 });
+it.each([undefined, ''])(
+  'does not treat a live client with unresolved conversation %s as unrelated to an ownerless record',
+  async (sessionId) => {
+    const protection = await adapter({
+      registry: {
+        findBySessionId: () => null,
+        entries: function* () {
+          yield ['client-c', { sessionId }];
+        },
+      },
+      taskStore: {
+        getTree: () => [{ id: 'task', sessionId: 'client-c', status: 'blocked', children: [] }],
+        getTelosExecutionBinding: () => null,
+      },
+      eventStore: { getSession: () => ({}) },
+    }).protect({ ...record, ownerClientId: null }, AbortSignal.timeout(1000));
+    expect(protection.blockers).toEqual(
+      expect.arrayContaining(['task_board', 'ambiguous_ownership']),
+    );
+  },
+);
+it.each(['conversation', 'durable-client', 'live-client'])(
+  'preserves %s ownership even when another delegated worker binding conflicts',
+  async (kind) => {
+    const owner = kind === 'conversation' ? 'c' : 'client-c';
+    const protection = await adapter({
+      registry: {
+        findBySessionId: () => null,
+        entries: function* () {
+          if (kind === 'live-client') yield ['client-c', { sessionId: 'c' }];
+        },
+      },
+      taskStore: {
+        getTree: () => [{ id: 'task', sessionId: owner, status: 'blocked', children: [] }],
+        getTelosExecutionBinding: () => ({ workerConversationId: 'other-conversation' }),
+      },
+      eventStore: { getSession: () => ({}) },
+    }).protect(
+      { ...record, ownerClientId: kind === 'durable-client' ? owner : null },
+      AbortSignal.timeout(1000),
+    );
+    expect(protection.blockers).toContain('task_board');
+  },
+);
+it('does not assign unclaimed Task Board work to an ownerless lifecycle record', async () => {
+  const protection = await adapter({
+    taskStore: {
+      getTree: () => [{ id: 'task', sessionId: null, status: 'pending', children: [] }],
+      getTelosExecutionBinding: () => null,
+    },
+    eventStore: { getSession: () => ({}) },
+  }).protect({ ...record, ownerClientId: null }, AbortSignal.timeout(1000));
+  expect(protection.blockers).toEqual([]);
+});
 it.each(['pending', 'pending_review', 'done', 'skipped', 'failed'] as const)(
   'preserves durable delegated worker custody for %s tasks without claiming or dispatching them',
   async (status) => {
