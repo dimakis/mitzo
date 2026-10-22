@@ -1606,6 +1606,12 @@ export class EventStore {
       db.exec('ALTER TABLE sessions ADD COLUMN last_speaker_at INTEGER');
       this.log.info('migrated sessions table: added last_speaker_at');
     }
+    // Attention refreshes need only the newest visible assistant sessions.
+    // Order candidates before reading their potentially large context payloads;
+    // registration and internal-SDK exclusion still run freshly in the query.
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_attention
+      ON sessions(last_speaker_at DESC)
+      WHERE is_hidden = 0 AND last_speaker = 'assistant'`);
   }
 
   private migrateSessionState(db: Database.Database): void {
