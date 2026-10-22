@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.527-first-send-conversation-ownership';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.529-compiled-child-preload';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../ipv4-preload.cjs': 'd3b66d61f4d214ba508c78147ecfc6787c245d5c2ca6921bce71fa389eb40b5c',
   '../codex-startup-error.ts': 'd335f78ed2e0e7d414132c7d9f1d7d0db46473580c24abb2fb9e5071c8dabac3',
   '../../frontend/src/components/TelosItemLifecycle.tsx':
     '74cbe49b6b9e66b73de2f7b7492bc23de40f6e31f03b0068bdb5858e79f8e10e',
@@ -227,7 +227,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'ac071496fb4986ec4b4395384ed7777b96a01a2706ec31ef5766464362363bd4',
   '../../frontend/src/pages/TodoView.tsx':
     '698a1276db76272bc56eac4cfd8156870f6f6260479c2ffb216ef276da589405',
-  '../../tsconfig.build.json': '88fd99085eaecacd39e0d1464b42f00d622a0a5c356ca8ae035ff72ca7336434',
+  '../../tsconfig.build.json': 'c83304ab66e7691fcf1af562f226581eddfec5765deb9cac309bc9c8c33cfba4',
   '../../tsconfig.json': 'cae7a19ce257dcbee4915ea3e51c78f131323bb9ca98d7b4302ea9a0de1b2f66',
   '../tool-builder-test-runner.ts':
     '609f8a11772a4c4762113a3a398347b1b23b4626890d2e23990f39fccbc4993a',
@@ -604,7 +604,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    'a37d91d3dfa18ee334cb24f015f7ed8313632bd9566fcf158a8618f1565440e4',
+    '08f5f558e18090403b201788042ef9e56ddab964965a7f71564f2f8c58593ab1',
   '../../packages/protocol/src/local-codex-first-command.ts':
     'ae2191a80acd48295afaf9c1d3941f643d9c4b73dd7d5a6ce574887a433a0a93',
   '../ordinary-local-codex-entry.ts':
