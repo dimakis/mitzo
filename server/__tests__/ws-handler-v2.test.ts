@@ -2247,6 +2247,65 @@ describe('handleStopV2', () => {
 // ─── handlePermissionResponseV2 ──────────────────────────────────────────────
 
 describe('handlePermissionResponseV2', () => {
+  it('allows a verified primary-operator device to answer its watched Local Codex approval without moving execution', async () => {
+    const { login, authenticateToken, revokeAuthSession } = await import('../auth.js');
+    const auth = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+    if (!auth) throw Error('Fixture authentication failed');
+    const session = { ownerConnectionId: 'phone-owner', ownedLocalAuthSessionId: 'phone-login' };
+    const sessions = mockSessionRegistry();
+    sessions.findBySessionId.mockReturnValue({ clientId: 'phone-owner:local-permission', session });
+    const ctx = createContext({
+      sessionRegistry: sessions as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    ctx.eventStore.getSessionRuntimeBinding = vi
+      .fn()
+      .mockReturnValue({
+        version: 2,
+        account: { accountId: 'fixture', provider: 'openai-codex', profileRevision: 'r1' },
+        harness: { implementation: 'codex' },
+        execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+      });
+    ctx.connRegistry.register('web-device', mockTransport());
+    ctx.connRegistry.watch('web-device', 'local-permission');
+    claimTransportConnection('phone-owner', 'phone-login');
+    claimTransportConnection('web-device', auth.id);
+    vi.mocked(getPendingSessionId).mockReturnValue('local-permission');
+    vi.mocked(resolvePending).mockReturnValue(true);
+    try {
+      expect(
+        handlePermissionResponseV2(
+          'web-device',
+          {
+            type: 'permission_response',
+            sessionId: 'local-permission',
+            permId: 'local-card',
+            decision: 'once',
+          },
+          ctx,
+        ),
+      ).toBe(true);
+      expect(session.ownerConnectionId).toBe('phone-owner');
+      revokeAuthSession(auth);
+      expect(
+        handlePermissionResponseV2(
+          'web-device',
+          {
+            type: 'permission_response',
+            sessionId: 'local-permission',
+            permId: 'local-card',
+            decision: 'once',
+          },
+          ctx,
+        ),
+      ).toBe(false);
+    } finally {
+      releaseTransportConnection('phone-owner', 'phone-login');
+      releaseTransportConnection('web-device', auth.id);
+      vi.mocked(getPendingSessionId).mockReset();
+      vi.mocked(resolvePending).mockReset();
+    }
+  });
+
   it('lets authenticated operator devices respond without transferring ownership', async () => {
     vi.mocked(getPendingSessionId).mockReturnValue('shared-approval-session');
     vi.mocked(resolvePending).mockReturnValue(true);

@@ -1,4 +1,4 @@
-import { SignJWT, jwtVerify } from 'jose';
+import { SignJWT, jwtVerify, decodeJwt } from 'jose';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Request } from 'express';
 
@@ -147,7 +147,12 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
       if (!session || isSessionRevoked(session)) return null;
       for (const [id, saved] of authenticatedOperators)
         if (saved.expiresAt <= Date.now()) authenticatedOperators.delete(id);
-      authenticatedOperators.set(session.id, session);
+      // Classification follows successful signature/revocation verification.
+      // A legacy token accepted by ordinary auth must not expand a different
+      // signing realm into cross-login primary-operator authority.
+      const claims = decodeJwt(token);
+      if (config.realm || (claims.iss === undefined && claims.aud === undefined))
+        authenticatedOperators.set(session.id, session);
       return session;
     } catch {
       return null;

@@ -1,3 +1,4 @@
+import { SignJWT } from 'jose';
 import { afterEach, expect, it } from 'vitest';
 import { login, authenticateToken, revokeAuthSession } from '../auth.js';
 import { ordinaryOperatorOwnsConversation } from '../ordinary-operator-identity.js';
@@ -24,4 +25,21 @@ it('does not accept a forged, internal or revoked login as the interactive opera
   expect(ordinaryOperatorOwnsConversation('original', 'forged-client-id')).toBe(false);
   revokeAuthSession(actor);
   expect(ordinaryOperatorOwnsConversation('original', actor.id)).toBe(false);
+});
+
+it('does not turn a token carrying another realm into cross-login primary-operator authority', async () => {
+  const token = await new SignJWT({
+    sub: 'user',
+    iss: 'isolated-custodian',
+    aud: 'isolated-custodian',
+  })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setJti('other-realm-offline')
+    .setExpirationTime('1h')
+    .sign(new TextEncoder().encode(process.env.AUTH_SECRET!));
+  const actor = await authenticateToken(token);
+  if (actor) {
+    sessions.push(actor);
+    expect(ordinaryOperatorOwnsConversation('original-primary-login', actor.id)).toBe(false);
+  }
 });
