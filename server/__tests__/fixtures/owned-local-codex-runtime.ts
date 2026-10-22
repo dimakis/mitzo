@@ -43,6 +43,9 @@ export async function ownedRuntimeFixture(
     builtinPreparation?: boolean;
     api?: boolean;
     localRepository?: boolean;
+    /** Explicit offline native diagnostic; real model turns must still be intercepted. */
+    nativeExecutablePath?: string;
+    modelId?: string;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -69,12 +72,15 @@ export async function ownedRuntimeFixture(
     }),
     { mode: 0o600 },
   );
-  const executablePath = join(root, 'codex'),
+  const modelId = options.modelId ?? 'fixture-model';
+  const executablePath = options.nativeExecutablePath ?? join(root, 'codex'),
     nativePath = join(root, 'native.json'),
     targetPath = join(root, 'target.json');
-  const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
+  const bytes = options.nativeExecutablePath
+    ? await readFile(options.nativeExecutablePath)
+    : Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  await writeFile(executablePath, bytes, { mode: 0o755 });
+  if (!options.nativeExecutablePath) await writeFile(executablePath, bytes, { mode: 0o755 });
   const target = {
     version: 1,
     targetId: 'local-mac',
@@ -98,7 +104,7 @@ export async function ownedRuntimeFixture(
       email: 'fixture@example.test',
       planType: 'plus',
       ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
-      models: [{ id: 'fixture-model', label: 'Fixture model', reasoningEfforts: ['low'] }],
+      models: [{ id: modelId, label: 'Fixture model', reasoningEfforts: ['low'] }],
     },
   ];
   if (options.api)
@@ -107,7 +113,7 @@ export async function ownedRuntimeFixture(
       label: 'Work API',
       provider: 'openai',
       credentialRef: { provider: 'keychain', service: 'offline-test', account: 'work' },
-      models: [{ id: 'fixture-model', label: 'Fixture model', reasoningEfforts: ['low'] }],
+      models: [{ id: modelId, label: 'Fixture model', reasoningEfforts: ['low'] }],
     } as never;
   const writeProfiles = () =>
     writeFileSync(configPath, JSON.stringify(configuration), { mode: 0o600 });
@@ -115,7 +121,7 @@ export async function ownedRuntimeFixture(
   vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', configPath);
   vi.stubEnv('MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB', '');
   vi.stubEnv('MITZO_CODEX_ENABLED', '1');
-  const binding = loadAccountProfiles().resolve(options.api ? 'work' : 'personal', 'fixture-model');
+  const binding = loadAccountProfiles().resolve(options.api ? 'work' : 'personal', modelId);
   const eventPath = options.chatRoute ? join(root, '.mitzo', 'events.db') : join(root, 'events.db');
   const events = new EventStore(eventPath);
   const library = new AgentLibraryStore(eventPath);
@@ -312,7 +318,7 @@ export async function ownedRuntimeFixture(
       },
       context: { source: 'none' as const, revision: null },
       permission: { mode: 'agent' as const, revision: 0 },
-      model: 'fixture-model',
+      model: modelId,
       thinking: 'low',
     },
     payload: { text: 'Implement the task', intent: 'Original user intent' },
@@ -363,7 +369,7 @@ export async function ownedRuntimeFixture(
           return {
             data: [
               {
-                model: 'fixture-model',
+                model: modelId,
                 displayName: 'Fixture',
                 supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
               },

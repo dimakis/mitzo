@@ -36,3 +36,16 @@ export function parseLocalCommandDelivery(
   }
   return legacy.parse(body);
 }
+
+/** Conversation ownership survives prepared first commands and later receipt assignment. */
+export function localCommandSessionId(
+  body: unknown,
+  preparedSessionId?: string,
+): string | undefined {
+  return body &&
+    typeof body === 'object' &&
+    'sessionId' in body &&
+    typeof body.sessionId === 'string'
+    ? body.sessionId
+    : preparedSessionId;
+}

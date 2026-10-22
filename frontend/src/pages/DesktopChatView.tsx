@@ -1,3 +1,4 @@
+import { localCommandSessionId } from '@mitzo/client';
 import { useTelosChatRoute } from '../hooks/useTelosChatRoute';
 import { TelosChatRouteLayout } from '../components/TelosChatRouteLayout';
 import { TelosWorkControls } from '../components/TelosWorkControls';
@@ -165,7 +166,31 @@ export function DesktopChatView() {
     !savedLaunch &&
     !launchDeliveryPending;
   const newChatDraft = useNewChatDraft(searchParams.get('draft'), chatDraftRevision, draftEnabled);
-  const localCommand = useMitzoStore((s) => s.localCommand);
+  const retainedLocalCommand = useMitzoStore((s) => s.localCommand);
+  const selectLocalCommandDraft = useMitzoStore((s) => s.selectLocalCommandDraft);
+  const selectLocalCommandSession = useMitzoStore((s) => s.selectLocalCommandSession);
+  const commandSessionId = sessionId || activeSessionId;
+  const ownsLocalCommand =
+    retainedLocalCommand?.state === 'blocked' ||
+    (draftEnabled
+      ? retainedLocalCommand?.originDraftId === newChatDraft.draft.id
+      : commandSessionId
+        ? localCommandSessionId(
+            retainedLocalCommand?.request,
+            retainedLocalCommand?.preparedSessionId ?? retainedLocalCommand?.sessionId,
+          ) === commandSessionId
+        : true);
+  const localCommand = ownsLocalCommand ? retainedLocalCommand : null;
+  useEffect(() => {
+    if (draftEnabled) selectLocalCommandDraft(newChatDraft.draft.id);
+    else if (commandSessionId) selectLocalCommandSession(commandSessionId);
+  }, [
+    draftEnabled,
+    newChatDraft.draft.id,
+    commandSessionId,
+    selectLocalCommandDraft,
+    selectLocalCommandSession,
+  ]);
   const localTransportAvailable = useMitzoStore((s) => s.localFirstCommandTransportAvailable);
   const sendLocalFirstCommand = useMitzoStore((s) => s.sendLocalFirstCommand);
   const sendPreparedRepositoryCommand = useMitzoStore((s) => s.sendPreparedRepositoryCommand);
@@ -1578,7 +1603,10 @@ export function DesktopChatView() {
                   <CodexQueueStatus
                     sessionId={controlsBlocked ? null : activeSessionId}
                     deliveryStatus={
-                      localCommand && localCommand.state !== 'consumed' ? null : sendStatus
+                      (retainedLocalCommand && !ownsLocalCommand) ||
+                      (localCommand && localCommand.state !== 'consumed')
+                        ? null
+                        : sendStatus
                     }
                     deliveryError={sendError}
                     deliveryBusy={

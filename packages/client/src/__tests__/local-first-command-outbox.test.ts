@@ -42,6 +42,116 @@ const receipt = (state = 'consumed') =>
     { status: 202 },
   );
 afterEach(() => vi.useRealTimers());
+it('lets a new draft send independently while retaining another draft’s frozen uncertain request', async () => {
+  const storage = disk();
+  const notify = vi.fn();
+  const fetch = vi
+    .fn()
+    .mockRejectedValueOnce(Error('old response lost'))
+    .mockImplementation(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          clientMsgId: body.clientMsgId,
+          sessionId: 'fresh-session',
+          dispatched: true,
+          state: 'consumed',
+        }),
+        { status: 202 },
+      );
+    });
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    fetch,
+    notify,
+    storage,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  expect(outbox.enqueue(command, 1, 'old-draft')).toBe(true);
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ state: 'uncertain' })),
+  );
+  const fresh = { ...command, clientMsgId: 'fresh-first', payload: { text: 'Fresh initial send' } };
+  outbox.selectLocalDraft('fresh-draft');
+  expect(outbox.enqueue(fresh, 2, 'fresh-draft')).toBe(true);
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'consumed', clientMsgId: 'fresh-first' }),
+    ),
+  );
+  expect(JSON.parse(storage.getItem()!)).toEqual([
+    expect.objectContaining({ body: command, localDraftId: 'old-draft', uncertain: true }),
+  ]);
+  expect(fetch.mock.calls.map(([, init]) => JSON.parse(init.body))).toEqual([command, fresh]);
+  outbox.selectLocalDraft('old-draft');
+  expect(notify).toHaveBeenLastCalledWith(
+    expect.objectContaining({ request: command, originDraftId: 'old-draft', state: 'uncertain' }),
+  );
+  expect(outbox.enqueue({ ...command, clientMsgId: 'replacement' }, 3, 'old-draft')).toBe(false);
+  expect(fetch).toHaveBeenCalledTimes(2);
+});
+
+it('serializes independently submitted first commands without replaying an older retained entry', async () => {
+  const storage = disk(),
+    notify = vi.fn();
+  let release!: (response: Response) => void;
+  const fetch = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          release = resolve;
+        }),
+    )
+    .mockImplementation(async (_url, init) => {
+      const body = JSON.parse(init.body);
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          clientMsgId: body.clientMsgId,
+          sessionId: 'fresh-session',
+          dispatched: true,
+          state: 'consumed',
+        }),
+        { status: 202 },
+      );
+    });
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    fetch,
+    notify,
+    storage,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  expect(outbox.enqueue(command, 1, 'old-draft')).toBe(true);
+  const fresh = { ...command, clientMsgId: 'fresh-first' };
+  expect(outbox.enqueue(fresh, 2, 'fresh-draft')).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  release(
+    new Response(
+      JSON.stringify({
+        ok: false,
+        code: 'retained_command',
+        error: 'Local Codex entry unavailable',
+        clientMsgId: command.clientMsgId,
+        sessionId: 'old-session',
+        state: 'uncertain',
+      }),
+      { status: 409 },
+    ),
+  );
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ clientMsgId: 'fresh-first', state: 'consumed' }),
+    ),
+  );
+  expect(fetch.mock.calls.map(([, init]) => JSON.parse(init.body))).toEqual([command, fresh]);
+  expect(JSON.parse(storage.getItem()!)[0].body).toEqual(command);
+});
+
 it('requires durable exact intent before any request and rejects forged local bodies', () => {
   const fetch = vi.fn();
   const outbox = new SendOutbox({
@@ -124,6 +234,32 @@ it.each(['reserved', 'uncertain'])(
     expect(outbox.enqueue({ ...command, clientMsgId: 'different' }, 2)).toBe(false);
   },
 );
+it('preserves an accepted but undispatched first send when authentication changes', async () => {
+  const storage = disk(),
+    notify = vi.fn();
+  const fetch = vi.fn().mockImplementation(() => new Promise<Response>(() => {}));
+  const outbox = new SendOutbox({ url: '/local', storage, notify, fetch, localFirstCommand: true });
+  outbox.start();
+  expect(outbox.enqueue(command, 1, 'draft-a')).toBe(true);
+  const queued = { ...command, clientMsgId: 'queued-first' };
+  expect(outbox.enqueue(queued, 2, 'draft-b')).toBe(true);
+  expect(fetch).toHaveBeenCalledOnce();
+  outbox.rejectAll('authentication changed');
+  expect(JSON.parse(storage.getItem()!).map((entry: { body: unknown }) => entry.body)).toEqual([
+    command,
+    queued,
+  ]);
+  outbox.start();
+  outbox.selectLocalDraft('draft-b');
+  expect(notify).toHaveBeenLastCalledWith(
+    expect.objectContaining({ state: 'uncertain', request: queued }),
+  );
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(outbox.retryLocalCommand('queued-first')).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  outbox.rejectAll('done');
+});
+
 it('keeps exact request after bounded409 and authentication loss; explicit recovery never rewrites it', async () => {
   const fetch = vi.fn().mockResolvedValue(
     new Response(
