@@ -46,6 +46,7 @@ export async function ownedRuntimeFixture(
     /** Explicit offline native diagnostic; real model turns must still be intercepted. */
     nativeExecutablePath?: string;
     modelId?: string;
+    continuityV2?: boolean;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -80,9 +81,13 @@ export async function ownedRuntimeFixture(
     ? await readFile(options.nativeExecutablePath)
     : Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  if (!options.nativeExecutablePath) await writeFile(executablePath, bytes, { mode: 0o755 });
+  if (!options.nativeExecutablePath) {
+    await writeFile(executablePath, bytes, { mode: 0o755 });
+    await writeFile(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
+  }
   const target = {
-    version: 1,
+    version: options.continuityV2 ? 2 : 1,
+    ...(options.continuityV2 ? { continuityContract: 'codex-native-thread-v1' } : {}),
     targetId: 'local-mac',
     label: 'Local Mac',
     hostId: hostname(),

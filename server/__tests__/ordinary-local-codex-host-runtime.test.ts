@@ -53,6 +53,7 @@ function fixture() {
   const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   writeFileSync(executable, bytes, { mode: 0o755 });
+  writeFileSync(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
   const nativePath = join(root, 'settings/native.json'),
     targetPath = join(root, 'settings/target.json');
   const writeNative = (extra = {}) =>
@@ -134,4 +135,53 @@ it('refuses a private settings leaf replaced during its bounded read', async () 
     return content;
   });
   expect(() => runtime.assertCurrentSync()).toThrow('Host Codex runtime observation unavailable');
+});
+
+it('keeps v2 conversation identity stable across attested deployments and qualifies only reviewed legacy transitions', async () => {
+  const f = fixture();
+  f.writeTarget({ version: 2, continuityContract: 'codex-native-thread-v1' });
+  const first = new OrdinaryLocalCodexHostRuntime(f.env);
+  const identity = first.target().descriptor().targetRevision;
+  const oldAttestation = ordinaryLocalCodexHostContractRevision(f.sha256);
+  const actual = await vi.importActual<
+    typeof import('../connections/reviewed-handler-artifacts.js')
+  >('../connections/reviewed-handler-artifacts.js');
+  manifest.artifacts = {
+    ...actual.reviewedHandlerSourceArtifacts,
+    '../unrelated-ui.tsx': 'f'.repeat(64),
+  };
+  expect(ordinaryLocalCodexHostContractRevision(f.sha256)).not.toBe(oldAttestation);
+  expect(() => first.assertCurrentSync()).toThrow();
+  f.writeTarget({ version: 2, continuityContract: 'codex-native-thread-v1' });
+  const next = new OrdinaryLocalCodexHostRuntime(f.env);
+  expect(next.target().descriptor().targetRevision).toBe(identity);
+  expect(next.continuationDeclaration(identity).targetRevision).toBe(identity);
+  expect(() => next.continuationDeclaration('unreviewed-legacy')).toThrow();
+  const legacy = createHash('sha256')
+    .update(
+      JSON.stringify([
+        'ordinary-local-codex-host-v1',
+        'v1.0.531-repository-recovery-integration',
+        '24f1c83ffc3759a76095f3072edcc9fdebbe5087c874469d60e286d728160462',
+        '0.160.0',
+        f.sha256,
+      ]),
+    )
+    .digest('hex');
+  const revision = createHash('sha256')
+    .update(JSON.stringify(['ordinary-local-codex-target-v1', 'local-mac', hostname(), legacy]))
+    .digest('hex');
+  expect(next.continuationDeclaration(revision).targetRevision).toBe(revision);
+  expect(await next.observe()).toMatchObject({
+    targetRevision: identity,
+    compatibleTargetRevisions: expect.arrayContaining([revision]),
+  });
+});
+
+it('refuses native startup before dispatch when the bundled code-mode host is missing', () => {
+  const f = fixture();
+  rmSync(join(f.root, 'codex-code-mode-host'), { force: true });
+  expect(() => new OrdinaryLocalCodexHostRuntime(f.env)).toThrow(
+    'Host Codex runtime observation unavailable',
+  );
 });

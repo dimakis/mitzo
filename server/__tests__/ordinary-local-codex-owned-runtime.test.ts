@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { agentLibrarySource } from './fixtures/agent-library-source.js';
 
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { revokeAuthSession, login, authenticateToken } from '../auth.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
@@ -39,8 +39,20 @@ vi.mock('../symposium-custodian-mode.js', async (importOriginal) => ({
     return deployment.owner;
   },
 }));
+const manifest = vi.hoisted(() => ({ artifacts: undefined as Record<string, string> | undefined }));
+vi.mock('../connections/reviewed-handler-artifacts.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('../connections/reviewed-handler-artifacts.js')>();
+  return {
+    ...actual,
+    get reviewedHandlerSourceArtifacts() {
+      return manifest.artifacts ?? actual.reviewedHandlerSourceArtifacts;
+    },
+  };
+});
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
+  manifest.artifacts = undefined;
   vi.useRealTimers();
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.unstubAllEnvs();
@@ -54,6 +66,7 @@ const fixture = (options?: {
   contextRecipe?: boolean | 'workspace';
   silentPreparation?: boolean;
   builtinPreparation?: boolean;
+  continuityV2?: boolean;
 }) => ownedRuntimeFixture(cleanups, options);
 
 it('renews run authority only on an explicit send from another verified operator login', async () => {
@@ -1501,4 +1514,77 @@ it('refuses unsupported published tools through actual owned profile resolution 
   expect(f.dispatch).not.toHaveBeenCalled();
   expect(f.launch).not.toHaveBeenCalled();
   expect(f.rpc.request).not.toHaveBeenCalled();
+});
+
+it('continues the same native thread from a new signed login after a compatible deployment, without replacing original custody', async () => {
+  const f = await fixture({ continuityV2: true });
+  const first = f.create();
+  await first.admit(f.request);
+  const original = f.dispatch.mock.calls[0][0];
+  const native = new CodexConversationStore(join(f.root, 'native-continuity.db'));
+  cleanups.push(() => native.close());
+  native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+  original.admission.persistCustody(native);
+  native.bindThread(original.sessionId, original.lease.binding, 'same-native-thread');
+  const custody = native.readHostCustody(original.sessionId, original.lease.binding);
+  const bound = f.events.getSessionRuntimeBinding(original.sessionId);
+  first.close();
+  const actual = await vi.importActual<
+    typeof import('../connections/reviewed-handler-artifacts.js')
+  >('../connections/reviewed-handler-artifacts.js');
+  manifest.artifacts = {
+    ...actual.reviewedHandlerSourceArtifacts,
+    '../unrelated-change.ts': 'e'.repeat(64),
+  };
+  const env = f.dependencies.env!;
+  const targetPath = env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE!;
+  const target = JSON.parse(readFileSync(targetPath, 'utf8'));
+  const nativeSettings = JSON.parse(
+    readFileSync(env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE!, 'utf8'),
+  );
+  const { ordinaryLocalCodexHostContractRevision } =
+    await import('../ordinary-local-codex-host-runtime.js');
+  target.runtimeContractRevision = ordinaryLocalCodexHostContractRevision(
+    nativeSettings.executableSha256,
+  );
+  writeFileSync(targetPath, JSON.stringify(target), { mode: 0o600 });
+  const web = await authenticateToken((await login(process.env.AUTH_PASSPHRASE!))!);
+  if (!web) throw Error('Fixture login failed');
+  const connection = randomUUID();
+  cleanups.push(bindAgentLibraryTransport(connection, web), () => revokeAuthSession(web));
+  const catalog = new OrdinaryLocalCodexCapabilityCatalog(
+    loadAccountProfiles(),
+    new OrdinaryLocalCodexHostRuntime(env).target(),
+    'ordinary',
+  );
+  const next = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    capabilityRevision: catalog.inventory().capabilityRevision,
+    payload: { text: 'Continue on web' },
+  };
+  const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
+    expect(value.resume).toBe(true);
+    expect(value.expected.binding).toEqual(bound);
+    expect(value.expected.workspace).toEqual(original.expected.workspace);
+    value.admission.persistCustody(native);
+  });
+  const cold = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    operatorConnectionId: connection,
+    commandId: next.clientMsgId,
+    nativeStore: native,
+    launch: () => f.rpc,
+    dispatch,
+  });
+  cleanups.push(() => cold.close());
+  await expect(cold.admitResume(next)).resolves.toEqual({ dispatched: true });
+  expect(dispatch).toHaveBeenCalledOnce();
+  expect(native.read(original.sessionId, original.lease.binding).threadId).toBe(
+    'same-native-thread',
+  );
+  expect(native.readHostCustody(original.sessionId, original.lease.binding)).toEqual(custody);
+  expect(f.events.getSessionRuntimeBinding(original.sessionId)).toEqual(bound);
+  await expect(cold.admitResume(next)).resolves.toEqual({ dispatched: false });
+  expect(dispatch).toHaveBeenCalledOnce();
 });

@@ -296,6 +296,25 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       };
       const target = this.#runtime.target();
       const catalog = new OrdinaryLocalCodexCapabilityCatalog(profiles, target, 'ordinary');
+      const retainedRuntime = resume
+        ? this.owners.eventStore.getSessionRuntimeBinding(this.#reservation.conversationId)
+        : undefined;
+      if (
+        resume &&
+        (!retainedRuntime ||
+          retainedRuntime.version !== 2 ||
+          retainedRuntime.execution.location !== 'local' ||
+          retainedRuntime.harness.implementation !== 'codex' ||
+          retainedRuntime.execution.targetId !== target.descriptor().targetId)
+      )
+        throw unavailable();
+      const configuration =
+        retainedRuntime?.version === 2
+          ? this.#runtime.continuationConfiguration(
+              catalog,
+              retainedRuntime.execution.targetRevision,
+            )
+          : { catalog, declaration: target.admissionDeclaration() };
       const selection = new OrdinaryLocalCodexSelectionOwner({
         events: this.owners.eventStore,
         library: this.owners.library,
@@ -363,8 +382,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
         enabled: this.owners.enabled,
         store: this.owners.eventStore,
-        catalog,
-        declaration: target.admissionDeclaration(),
+        ...configuration,
         bootstrapAuthority: bootstrap,
       });
       let claimedWorkspace: LocalWorkspaceRecord<K> | undefined;
@@ -598,8 +616,10 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
             return this.owners.eventStore.completeOrdinaryLocalCommand(...args);
           },
         },
-        catalog: new OrdinaryLocalCodexCapabilityCatalog(profiles, target, 'ordinary'),
-        declaration: target.admissionDeclaration(),
+        ...this.#runtime.continuationConfiguration(
+          new OrdinaryLocalCodexCapabilityCatalog(profiles, target, 'ordinary'),
+          original.binding.execution.targetRevision,
+        ),
         authority: {
           withAdmission: async (expected, operation) => {
             await assertSelection(expected);

@@ -33,6 +33,7 @@ const Runtime = z.strictObject({
   runtimeContractRevision: z.string().min(1).max(200),
   targetId: z.string().min(1).max(200),
   targetRevision: z.string().min(1).max(200),
+  compatibleTargetRevisions: z.array(z.string().min(1).max(200)).max(8).optional(),
   executablePath: z.string().min(1).max(4096),
   executableSha256: z.string().regex(/^[a-f0-9]{64}$/),
 });
@@ -169,7 +170,8 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       runtime.hostId !== expected.hostId ||
       runtime.runtimeContractRevision !== expected.runtimeContractRevision ||
       runtime.targetId !== expected.binding.execution.targetId ||
-      runtime.targetRevision !== expected.binding.execution.targetRevision ||
+      (runtime.targetRevision !== expected.binding.execution.targetRevision &&
+        !runtime.compatibleTargetRevisions?.includes(expected.binding.execution.targetRevision)) ||
       (executable && runtime.executableSha256 !== executable.sha256)
     )
       throw unavailable();

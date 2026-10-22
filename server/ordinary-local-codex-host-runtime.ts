@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, lstatSync, openSync, realpathSync } from 'node:fs';
 import { hostname } from 'node:os';
-import { isAbsolute } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import { readBoundedFile } from './bounded-file-read.js';
 import { SUPPORTED_CODEX_CLI_VERSION } from './codex-app-server-client.js';
@@ -13,6 +13,7 @@ import { OrdinaryLocalCodexTarget } from './ordinary-local-codex-capabilities.js
 import { measureHostCodexExecutable } from './frozen-host-codex-executable.js';
 import type { FrozenHostCodexRuntimeObservation } from './frozen-host-codex-bootstrap.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
+import type { OrdinaryLocalCodexCapabilityCatalog } from './ordinary-local-codex-capabilities.js';
 
 const unavailable = () => new Error('Host Codex runtime observation unavailable');
 const Native = z.strictObject({
@@ -87,6 +88,7 @@ export class OrdinaryLocalCodexHostRuntime {
   readonly #env: Readonly<NodeJS.ProcessEnv>;
   readonly #native: z.infer<typeof Native>;
   readonly #measurement: ReturnType<typeof measureHostCodexExecutable>;
+  readonly #codeModeHost: ReturnType<typeof measureHostCodexExecutable>;
   readonly #target: OrdinaryLocalCodexTarget;
   constructor(env: Readonly<NodeJS.ProcessEnv> = process.env) {
     try {
@@ -98,6 +100,9 @@ export class OrdinaryLocalCodexHostRuntime {
         readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
       );
       this.#measurement = measureHostCodexExecutable(this.#native.executablePath);
+      this.#codeModeHost = measureHostCodexExecutable(
+        join(dirname(this.#native.executablePath), 'codex-code-mode-host'),
+      );
       this.assertCurrentSync();
       const selectors = [
         this.#env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE!,
@@ -116,6 +121,36 @@ export class OrdinaryLocalCodexHostRuntime {
       readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
     );
   }
+  /** Current measured host qualifies a retained identity without rewriting it. */
+  continuationDeclaration(targetRevision: string) {
+    this.assertCurrentSync();
+    const target = this.target();
+    if (!target.compatibleTargetRevisions(this.#measurement.sha256).includes(targetRevision))
+      throw unavailable();
+    return { ...target.admissionDeclaration(), targetRevision };
+  }
+  continuationConfiguration(catalog: OrdinaryLocalCodexCapabilityCatalog, targetRevision: string) {
+    const declaration = this.continuationDeclaration(targetRevision);
+    return {
+      declaration,
+      catalog: {
+        inventory: () => catalog.inventory(),
+        resolve: (input: unknown) => {
+          const resolved = catalog.resolve(input);
+          return resolved.status === 'compatible' &&
+            resolved.binding.execution.targetId === declaration.targetId
+            ? {
+                ...resolved,
+                binding: {
+                  ...resolved.binding,
+                  execution: { ...resolved.binding.execution, targetRevision },
+                },
+              }
+            : resolved;
+        },
+      },
+    };
+  }
   assertCurrentSync(): void {
     const native = Native.parse(
       readPrivateRuntimeSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE),
@@ -133,6 +168,7 @@ export class OrdinaryLocalCodexHostRuntime {
     )
       throw unavailable();
     this.#measurement.assertCurrent();
+    this.#codeModeHost.assertCurrent();
   }
   async observe(): Promise<FrozenHostCodexRuntimeObservation> {
     try {
@@ -145,6 +181,7 @@ export class OrdinaryLocalCodexHostRuntime {
         ),
         targetId: declaration.targetId,
         targetRevision: declaration.targetRevision,
+        compatibleTargetRevisions: this.#target.compatibleTargetRevisions(this.#measurement.sha256),
         executablePath: this.#native.executablePath,
         executableSha256: this.#measurement.sha256,
       };
