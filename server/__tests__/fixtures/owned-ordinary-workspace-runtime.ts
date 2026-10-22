@@ -73,6 +73,7 @@ export async function ownedOrdinaryRuntimeFixture(
   const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   await writeFile(executablePath, bytes, { mode: 0o755 });
+  await writeFile(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
   await writeFile(
     nativePath,
     JSON.stringify({ version: 1, executablePath, executableSha256: sha256 }),

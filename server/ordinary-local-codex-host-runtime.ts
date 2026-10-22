@@ -109,7 +109,11 @@ export class OrdinaryLocalCodexHostRuntime {
         this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE!,
       ];
       registerWorkspaceRuntimeAuthorityPaths(
-        [...selectors, this.#native.executablePath],
+        [
+          ...selectors,
+          this.#native.executablePath,
+          join(dirname(this.#native.executablePath), 'codex-code-mode-host'),
+        ],
         selectors,
       );
     } catch {

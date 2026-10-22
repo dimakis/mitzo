@@ -119,6 +119,7 @@ async function fixture() {
   const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]),
     sha = createHash('sha256').update(bytes).digest('hex');
   writeFileSync(executablePath, bytes, { mode: 0o755 });
+  writeFileSync(join(directory, 'codex-code-mode-host'), bytes, { mode: 0o755 });
   writeFileSync(nativePath, JSON.stringify({ version: 1, executablePath, executableSha256: sha }), {
     mode: 0o600,
   });
