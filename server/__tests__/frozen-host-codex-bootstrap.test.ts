@@ -163,6 +163,31 @@ function fixture() {
     runtime,
   };
 }
+it('qualifies config/models once and keeps repeated current-authority checks free of discovery', async () => {
+  const f = fixture();
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      const before = f.rpc.request.mock.calls.map(([method]) => method);
+      await lease.assertCurrent();
+      await lease.assertCurrent();
+      const after = f.rpc.request.mock.calls.map(([method]) => method);
+      expect(after.filter((method) => method === 'model/list')).toHaveLength(1);
+      expect(after.filter((method) => method === 'config/read')).toHaveLength(1);
+      expect(after.filter((method) => method === 'model/list').length).toBe(
+        before.filter((method) => method === 'model/list').length,
+      );
+      await lease.qualifyModelSelection!('fixture-model', 'low');
+      expect(f.rpc.request.mock.calls.filter(([method]) => method === 'model/list')).toHaveLength(
+        2,
+      );
+      f.rpc.request.mockImplementation(async () => ({ data: [], nextCursor: null }) as never);
+      await expect(lease.qualifyModelSelection!('fixture-model', 'low')).rejects.toThrow();
+    });
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
 it('claims SQLite uncertainty before custody/launch and supplies the same verified native client', async () => {
   const f = fixture();
   try {
@@ -183,9 +208,7 @@ it('claims SQLite uncertainty before custody/launch and supplies the same verifi
       f.store.completeOrdinaryLocalCommand('command');
     });
     expect(f.store.getOrdinaryLocalCommandAdmission('command')?.state).toBe('consumed');
-    expect(
-      f.rpc.request.mock.calls.filter(([method]) => method === 'model/list').length,
-    ).toBeGreaterThan(1);
+    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'model/list').length).toBe(1);
     expect(f.rpc.close).not.toHaveBeenCalled();
     f.authority.currentLease()?.close();
   } finally {

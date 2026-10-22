@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { isDeepStrictEqual } from 'node:util';
 import { custodianControllerMode } from './symposium-custodian-mode.js';
@@ -48,6 +49,8 @@ export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease
   privateHome: string;
   executableSha256: string;
   assertModelSelectionCurrentSync?(model: string, thinking: string | null): void;
+  assertToolCurrent?(signal: AbortSignal): Promise<void>;
+  qualifyModelSelection?(model: string, thinking: string | null): Promise<void>;
   custodySnapshot?(): {
     login: HostCodexAuthenticationCustody;
     executable: HostCodexExecutableCustody;
@@ -74,6 +77,8 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
        * cached catalog metadata cannot supply this synchronous authority. */
       assertRuntimeCurrentSync(): void;
       assertSelectionCurrent(expected: Readonly<Expected>): Promise<void>;
+      /** Current physical checkout only; full preparation was qualified at bootstrap. */
+      assertToolSelectionCurrent?(expected: Readonly<Expected>): Promise<void>;
       assertSelectionCurrentSync(expected: Readonly<Expected>): void;
       signal: AbortSignal;
       privateRoot?: string;
@@ -343,11 +348,32 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         }
       };
       let qualifiedModels: Array<{ id: string; reasoningEfforts?: string[] }> = [];
-      const assertCurrent = async () => {
+      const assertToolCurrent = async (signal: AbortSignal = this.owners.signal) => {
         try {
-          await this.observe(expected, ownedLogin, executable);
-          await ownedLogin.assertCurrent();
+          signal.throwIfAborted();
           assertCurrentSync();
+          await observeLocalCodexPhase('workspace_check', () =>
+            (this.owners.assertToolSelectionCurrent ?? this.owners.assertSelectionCurrent)(
+              expected,
+            ),
+          );
+          await observeLocalCodexPhase('credential_check', () =>
+            ownedLogin.assertCredentialCurrent
+              ? ownedLogin.assertCredentialCurrent(signal)
+              : ownedLogin.assertCurrent(),
+          );
+          signal.throwIfAborted();
+          assertCurrentSync();
+        } catch {
+          ownedLogin.close();
+          throw unavailable();
+        }
+      };
+      const qualifyModels = async (
+        selections: Array<{ model: string; thinking: string | null }>,
+      ) => {
+        try {
+          await assertToolCurrent();
           const config = await ownedLogin.client.request('config/read', {
             // Bootstrap does not create the reserved checkout. Inspect only
             // this real private home; CodexConversation separately validates
@@ -377,8 +403,13 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             },
           });
           assertCurrentSync();
-          qualifiedModels = models;
-          for (const selection of this.selections(expected)) {
+          for (const selection of selections) {
+            const profiles = this.owners.loadProfiles();
+            profiles.validateModelSelection(
+              profiles.resolve(expected.binding.account.accountId, selection.model),
+              selection.model,
+              selection.thinking,
+            );
             const model = models.find((entry) => entry.id === selection.model);
             if (
               !model ||
@@ -388,6 +419,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             )
               throw unavailable();
           }
+          qualifiedModels = models;
         } catch {
           ownedLogin.close();
           throw unavailable();
@@ -420,10 +452,17 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           executable: executable.custodySnapshot(),
         }),
         close: ownedLogin.close,
-        assertCurrent,
+        assertCurrent: assertToolCurrent,
+        assertToolCurrent,
+        qualifyModelSelection: (model, thinking) =>
+          observeLocalCodexPhase('model_qualification', () =>
+            qualifyModels([{ model, thinking }, ...this.selections(expected)]),
+          ),
         assertCurrentSync,
       };
-      await assertCurrent();
+      await observeLocalCodexPhase('model_qualification', () =>
+        qualifyModels(this.selections(expected)),
+      );
       return await operation(this.#lease);
     } catch {
       loginLease?.close();

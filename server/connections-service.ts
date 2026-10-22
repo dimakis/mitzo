@@ -334,13 +334,13 @@ export class ConnectionsService {
     work: (connection: Connection | null) => Promise<T>,
     signal = AbortSignal.timeout(120_000),
   ) {
-    return this.serial(async () => {
+    return this.credentialGate.read(async () => {
       signal.throwIfAborted();
       await this.options.accountCredentialReady?.(accountId, signal);
       const c = this.resolveForAccount(accountId);
       if (c) await this.boundProvider(c, signal);
       return work(c);
-    });
+    }, signal);
   }
   async withAccountRuntimes<T>(
     accountId: string,
@@ -350,7 +350,7 @@ export class ConnectionsService {
       candidates: readonly Connection[],
     ) => readonly Connection[] | Promise<readonly Connection[]>,
   ) {
-    return this.serial(async () => {
+    return this.credentialGate.read(async () => {
       signal.throwIfAborted();
       await this.options.accountCredentialReady?.(accountId, signal);
       const candidates = this.resolveAutomaticForAccount(accountId);
@@ -359,7 +359,7 @@ export class ConnectionsService {
         throw new Error('Selected connection is not eligible for this account');
       for (const connection of connections) await this.boundProvider(connection, signal);
       return work(connections);
-    });
+    }, signal);
   }
   /** Called inside withAccountRuntime before ensure. Existing sessions cannot gain new grants. */
   async verifyRuntimeSandbox(

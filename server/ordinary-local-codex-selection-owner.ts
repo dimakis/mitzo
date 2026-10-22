@@ -223,4 +223,12 @@ export class OrdinaryLocalCodexSelectionOwner {
       throw unavailable();
     }
   }
+  async assertToolCurrent(
+    expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+  ): Promise<void> {
+    this.assertCurrentSync(expected);
+    if (this.#workspace.get().state === 'claimed')
+      await this.#workspace.validate(expected.workspace.cwd);
+    this.assertCurrentSync(expected);
+  }
 }

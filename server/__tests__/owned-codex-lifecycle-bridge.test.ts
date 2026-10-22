@@ -51,6 +51,41 @@ function fixture() {
 }
 
 describe('owned Codex lifecycle bridge', () => {
+  it('uses the qualified tool fence without repeating bootstrap discovery', async () => {
+    const f = fixture();
+    f.lease.assertToolCurrent = vi.fn(async () => {});
+    f.bridge.attach(f.owner);
+    await f.bridge.lifecycle.onRequest('item/tool/call', {}, new AbortController().signal);
+    expect(f.lease.assertToolCurrent).toHaveBeenCalledOnce();
+    expect(f.lease.assertCurrent).not.toHaveBeenCalled();
+    expect(f.owner.onRequest).toHaveBeenCalledOnce();
+  });
+  it('bounds stalled admission and cannot dispatch after its deadline', async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    let release!: () => void;
+    f.lease.assertToolCurrent = vi.fn(
+      () =>
+        new Promise<void>((done) => {
+          release = done;
+        }),
+    );
+    const bridge = new OwnedCodexLifecycleBridge(() => f.lease, { admissionTimeoutMs: 100 });
+    bridge.attach(f.owner);
+    const pending = expect(
+      bridge.lifecycle.onRequest('item/tool/call', {}, new AbortController().signal),
+    ).rejects.toThrow('Owned Codex lifecycle unavailable');
+    try {
+      await vi.advanceTimersByTimeAsync(100);
+      await pending;
+      release();
+      await Promise.resolve();
+      expect(f.owner.onRequest).not.toHaveBeenCalled();
+      expect(f.lease.close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('hands the existing preflight client to exactly one owner without initializing or launching it', () => {
     const f = fixture();
     expect(f.bridge.attach(f.owner)).toBe(f.client);

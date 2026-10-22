@@ -139,6 +139,31 @@ Explicit sends can renew the retained driver's current login authority under its
 existing revocation controller. Reading or subscribing does not silently transfer
 execution authority. Logout/expiry still closes authority owned by that login.
 
+## Local host-tool admission
+
+Runtime allocation and canonical credential observations use shared read
+reservations. Rotation, revocation and connection mutations retain exclusive
+reservations; a queued mutation prevents newer unrelated reads from overtaking it.
+A nested read can reuse only its active owning reservation. Cancelled queued reads
+never execute later, and running work retains its reservation until it settles.
+Recursive mutations fail explicitly rather than waiting on their own reservation.
+
+Bootstrap qualifies native configuration and model availability once for each
+explicit command. Tool admission retains current operator, profile, permission,
+runtime, executable, private-home, credential digest and claimed-workspace fences,
+but does not repeat configuration/model discovery. API custody resolves the
+canonical controller-qualified key once per check; it does not borrow sandbox
+replica authority. Each later explicit command refreshes its selected model and
+thinking before dispatch.
+
+Host-tool admission has a 15-second ceiling independent of the tool execution
+budget. Cancellation or expired qualification closes the owner; late completion
+cannot invoke the host tool. Bounded phase telemetry distinguishes workspace,
+credential and model qualification, admission and execution, without recording
+prompts, paths, credentials or provider error bodies. These source changes require
+accepted runtime declarations at a separately authorized deployment and do not
+establish live latency.
+
 ## Credential renewal limitation
 
 Auth-file renewal remains a strict refusal. The current native account proof

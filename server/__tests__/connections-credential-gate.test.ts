@@ -85,6 +85,29 @@ it('keeps unrelated rotation excluded while allowing nested read-only custody ch
   await bounded(Promise.all([outer, rotation]));
   expect(order).toEqual(['read', 'runtime', 'rotation']);
 });
+it('allows Mac custody reads while sandbox allocation is waiting, but fences rotation until both finish', async () => {
+  const service = fixture(),
+    started = deferred(),
+    finish = deferred();
+  const runtime = service.withAccountRuntimes('sandbox', async () => {
+    started.resolve();
+    await finish.promise;
+  });
+  await started.promise;
+  try {
+    await bounded(service.withCredentialRead(async () => 'mac-key'));
+    const mutation = vi.fn(async () => {});
+    const rotation = service.withCredentialMutation(mutation);
+    await Promise.resolve();
+    expect(mutation).not.toHaveBeenCalled();
+    finish.resolve();
+    await bounded(Promise.all([runtime, rotation]));
+    expect(mutation).toHaveBeenCalledOnce();
+  } finally {
+    finish.resolve();
+    await runtime;
+  }
+});
 
 it('resolves a managed Mac key under an existing reservation without reacquiring mutation authority', async () => {
   const service = fixture();

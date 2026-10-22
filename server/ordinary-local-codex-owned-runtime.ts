@@ -334,6 +334,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         observeRuntime: () => this.#runtime.observe(),
         assertRuntimeCurrentSync: () => this.#runtime.assertCurrentSync(),
         assertSelectionCurrent: (expected) => selection.assertCurrent(expected),
+        assertToolSelectionCurrent: (expected) => selection.assertToolCurrent(expected),
         assertSelectionCurrentSync: (expected) => selection.assertCurrentSync(expected),
         signal: this.#signal,
         privateRoot: this.owners.privateRoot,
@@ -552,6 +553,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           buildAgentProfilePrompt(original.agentProfile!.definition),
         ),
       };
+      let modelQualification: Promise<void> | undefined;
       const assertSelection = async (
         expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
       ) => {
@@ -586,30 +588,41 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         );
         await lease.assertCurrent();
         assertAdmissionCurrent();
-        let pages = 0;
-        const models = await readCodexModels({
-          request: async (method, params) => {
-            assertAdmissionCurrent();
-            if (++pages > 16) throw unavailable();
-            const response = await lease.client.request(method, params);
-            assertAdmissionCurrent();
-            admission.assertCurrentSync();
-            if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1048576) throw unavailable();
-            z.object({
-              data: z.array(z.unknown()).max(100),
-              nextCursor: z.string().min(1).max(200).nullable().optional(),
-            }).parse(response);
-            return response;
-          },
-        });
-        const model = models.find((entry) => entry.id === expected.selection.model);
-        if (
-          !model ||
-          (expected.selection.thinking === null
-            ? !!model.reasoningEfforts?.length
-            : !model.reasoningEfforts?.includes(expected.selection.thinking))
-        )
-          throw unavailable();
+        const qualifyModels = async () => {
+          if (lease.qualifyModelSelection) {
+            await lease.qualifyModelSelection(
+              expected.selection.model,
+              expected.selection.thinking,
+            );
+            return;
+          }
+          let pages = 0;
+          const models = await readCodexModels({
+            request: async (method, params) => {
+              assertAdmissionCurrent();
+              if (++pages > 16) throw unavailable();
+              const response = await lease.client.request(method, params);
+              assertAdmissionCurrent();
+              admission.assertCurrentSync();
+              if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1048576)
+                throw unavailable();
+              z.object({
+                data: z.array(z.unknown()).max(100),
+                nextCursor: z.string().min(1).max(200).nullable().optional(),
+              }).parse(response);
+              return response;
+            },
+          });
+          const model = models.find((entry) => entry.id === expected.selection.model);
+          if (
+            !model ||
+            (expected.selection.thinking === null
+              ? !!model.reasoningEfforts?.length
+              : !model.reasoningEfforts?.includes(expected.selection.thinking))
+          )
+            throw unavailable();
+        };
+        await (modelQualification ??= qualifyModels());
         assertAdmissionCurrent();
         admission.assertCurrentSync();
       };
