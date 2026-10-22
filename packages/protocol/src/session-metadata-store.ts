@@ -1,3 +1,4 @@
+import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
 import type Database from 'better-sqlite3';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
@@ -130,7 +131,7 @@ export class SessionMetadataStore {
     const binding = SessionRuntimeBindingSchema.parse(input);
     assertRuntimeAccount(binding, meta.accountBinding);
     assertRuntimeWorkspace(sessionWorkspaceId(meta), meta.cwd);
-    assertOrdinaryWorkspaceRoute(binding, meta.ordinaryWorkspaceId);
+    assertOrdinaryWorkspaceRoute(binding, meta.ordinaryWorkspaceId, meta.cwd);
     this.db!.transaction(() => {
       const existing = this.stmts.getSession.get(meta.sessionId) as SessionRow | undefined;
       if (existing) {
@@ -673,14 +674,21 @@ export function sessionWorkspaceId(meta: {
   }
   return meta.repositoryWorkspaceId;
 }
-function assertOrdinaryWorkspaceRoute(binding: SessionRuntimeBinding, ordinaryId: unknown) {
+function assertOrdinaryWorkspaceRoute(
+  binding: SessionRuntimeBinding,
+  ordinaryId: unknown,
+  cwd: unknown,
+) {
   if (
     ordinaryId !== undefined &&
     ordinaryId !== null &&
     (binding.version !== 2 ||
-      binding.account.provider !== 'openai-codex' ||
       binding.harness.implementation !== 'codex' ||
-      binding.execution.location !== 'local')
+      !(binding.execution.location === 'local'
+        ? binding.account.provider === 'openai-codex'
+        : ['openai', 'openai-codex'].includes(binding.account.provider)) ||
+      (binding.execution.location === 'openshell' &&
+        !OrdinaryOpenShellCommandAdmissionSchema.shape.workspace.shape.cwd.safeParse(cwd).success))
   )
     throw Error('Ordinary workspace runtime route is unsupported');
 }
@@ -712,7 +720,7 @@ function runtimeBindingFromRow(row: SessionRow): SessionRuntimeBinding | null {
       }),
       row.cwd,
     );
-    assertOrdinaryWorkspaceRoute(binding, row.ordinary_workspace_id);
+    assertOrdinaryWorkspaceRoute(binding, row.ordinary_workspace_id, row.cwd);
     return binding;
   } catch (error) {
     throw new Error('Invalid or unsupported session runtime binding', { cause: error });

@@ -361,6 +361,9 @@ export class RepositoryWorkspaces {
   reserveOrdinaryWorkspace(input: Parameters<OrdinaryWorkspaceCustody['reserve']>[0]) {
     return this.runOperation(() => this.ordinaryWorkspaceProvider().reserve(input));
   }
+  getOrdinaryWorkspaceForOperation(operationId: string) {
+    return this.ordinaryWorkspaceProvider().forOperation(operationId);
+  }
   validateRetainedOrdinaryWorkspace(conversationId: string) {
     return this.ordinaryWorkspaceProvider().validateRetained(conversationId);
   }

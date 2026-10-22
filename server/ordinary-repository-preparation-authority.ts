@@ -178,6 +178,9 @@ export async function captureOrdinaryRepositoryPreparation(
     version: 1,
     originalBinding: binding,
     runtimeBinding: resolved.binding,
+    ...(selection.runOn === 'openshell'
+      ? { sandboxWorkdir: loadOrdinaryOpenShellCodexTarget()?.config.workdir }
+      : {}),
     credentialDigest: await credentialDigest(binding, selection, signal),
   });
   signal.throwIfAborted();
@@ -238,7 +241,8 @@ export async function assertOrdinaryRepositoryPreparation(
   );
   if (
     !isDeepStrictEqual(current.runtimeBinding, saved.runtimeBinding) ||
-    current.credentialDigest !== saved.credentialDigest
+    current.credentialDigest !== saved.credentialDigest ||
+    (saved.sandboxWorkdir !== undefined && current.sandboxWorkdir !== saved.sandboxWorkdir)
   )
     throw unavailable();
   assertSelectionCurrent();

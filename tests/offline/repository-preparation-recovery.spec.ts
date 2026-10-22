@@ -623,3 +623,156 @@ for (const workspaceChoice of ['select', 'default'] as const) {
     });
   }
 }
+
+for (const theme of ['dark', 'light'] as const) {
+  test(`default OpenShell sends fresh and restored drafts without preparing a repository (${theme})`, async ({
+    page,
+  }, info) => {
+    const files = (await output).outputFiles!;
+    const inventory = multiRuntimeInventoryFixture();
+    inventory.defaultOpenShellWorkspace = true;
+    inventory.routes.push({ ...inventory.routes[0], targetId: 'shell' });
+    inventory.agentProfiles.push({
+      kind: 'builtin',
+      profileId: DEFAULT_MITZO_PROFILE_ID,
+      revision: DEFAULT_MITZO_PROFILE_REVISION,
+      definition: defaultMitzoProfileDefinition,
+      contentHash: sha256Hex(JSON.stringify(defaultMitzoProfileDefinition)),
+    } as never);
+    const commands: Array<{
+      runOn: string;
+      repositoryWorkspaceId?: string;
+      payload: { text: string };
+      runtime: { harness: string; account: { accountId: string } };
+    }> = [];
+    const unexpected: string[] = [],
+      errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
+    await page.setViewportSize({
+      width: info.project.name.startsWith('mobile') ? 320 : 1280,
+      height: 844,
+    });
+    await page.route('**/*', async (route) => {
+      const url = new URL(route.request().url()),
+        path = url.pathname;
+      if (url.hostname !== 'mitzo-ui.test') {
+        unexpected.push(url.href);
+        return route.abort();
+      }
+      if (path.endsWith('/catalog') && route.request().method() === 'GET')
+        return route.fulfill({
+          json: {
+            available: true,
+            repositories: [{ connectionId: 'github', label: 'GitHub', repository: 'example/repo' }],
+          },
+        });
+      if (path === '/api/chat/runtime/send') {
+        commands.push(route.request().postDataJSON());
+        return route.abort('failed');
+      }
+      if (path.startsWith('/api/')) {
+        if (route.request().method() !== 'GET' || /repository-workspaces/.test(path)) {
+          unexpected.push(path);
+          return route.abort();
+        }
+        const fixtures: Record<string, unknown> = {
+          '/api/auth/check': { authenticated: true },
+          '/api/config': { quickActions: [], contextBlocks: {} },
+          '/api/chat/runtime/capabilities': inventory,
+          '/api/agent-library': { drafts: [], versions: inventory.agentProfiles },
+          '/api/service-health': { services: [], checkedAt: 0 },
+          '/api/tasks/loop': { state: 'idle' },
+          '/api/version': {
+            version: 'offline',
+            branch: 'fixture',
+            hash: 'a'.repeat(40),
+            updateAvailable: false,
+          },
+          '/api/home/preferences': {
+            revision: 1,
+            names: { briefing: 'Jeeves', terminal: 'Minion' },
+            pins: [],
+          },
+        };
+        if (path === '/api/chat/runtime/capabilities')
+          expect(url.searchParams.get('workspaceDefaults')).toBe('1');
+        return route.fulfill({ json: fixtures[path] ?? [] });
+      }
+      if (/\.(png|svg)$/.test(path)) {
+        try {
+          return route.fulfill({
+            body: await readFile(resolve('frontend/public', path.slice(1))),
+            contentType: path.endsWith('.svg') ? 'image/svg+xml' : 'image/png',
+          });
+        } catch {
+          return route.fulfill({ status: 404, body: '' });
+        }
+      }
+      const asset = files.find((file) =>
+        path.endsWith(file.path.endsWith('.css') ? '.css' : '.js'),
+      );
+      if (asset)
+        return route.fulfill({
+          contentType: asset.path.endsWith('.css') ? 'text/css' : 'text/javascript',
+          body: asset.text,
+        });
+      if (path !== '/chat') return route.abort();
+      return route.fulfill({
+        contentType: 'text/html',
+        body: `<!doctype html><html data-theme="${theme}" data-accent="${theme === 'dark' ? 'mint' : 'teal'}" data-font="${theme === 'dark' ? 'system' : 'georgia'}"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script type="module" src="/fixture.js"></script></html>`,
+      });
+    });
+    await page.addInitScript(() => {
+      const id = new URL(location.href).searchParams.get('offlineAccount')!;
+      if (localStorage.getItem('offline-initialized-account') === id) return;
+      localStorage.clear();
+      sessionStorage.clear();
+      localStorage.setItem('offline-initialized-account', id);
+      localStorage.setItem(
+        'mitzo-default-account-model',
+        JSON.stringify({
+          accountId: id,
+          model: id === 'api' ? 'shell-model' : 'luna-fixture',
+          reasoningEffort: 'low',
+        }),
+      );
+    });
+    for (const accountId of ['api', 'personal']) {
+      await page.goto(`/chat?offlineAccount=${accountId}`);
+      const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+      await expect(composer).toBeVisible();
+      await composer.fill('Hello from the regular mgmt sandbox');
+      await expect(page.getByRole('button', { name: 'Start session', exact: true })).toBeEnabled();
+      await expect(page.getByText('Prepare a repository before sending the command.')).toHaveCount(
+        0,
+      );
+      await settingsHome(page);
+      await expect(page.locator('[data-quick-setting="execution"]')).toContainText('OpenShell');
+      await expect(page.locator('[data-quick-setting="repository"]')).toContainText(
+        'Add repository',
+      );
+      await page.getByRole('button', { name: 'Done', exact: true }).click();
+      await page.screenshot({
+        path: info.outputPath(`default-openshell-${accountId}-${theme}.png`),
+        fullPage: true,
+      });
+      await page.reload();
+      await expect(composer).toHaveValue('Hello from the regular mgmt sandbox');
+      await page.getByRole('button', { name: 'Start session', exact: true }).click();
+      await expect.poll(() => commands.length).toBe(accountId === 'api' ? 1 : 2);
+      expect(commands.at(-1)).toMatchObject({
+        runOn: 'openshell',
+        runtime: { harness: 'codex', account: { accountId } },
+        payload: { text: 'Hello from the regular mgmt sandbox' },
+      });
+      expect(commands.at(-1)?.repositoryWorkspaceId).toBeUndefined();
+      await expect(composer).toHaveValue('Hello from the regular mgmt sandbox');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+    }
+    expect(errors).toEqual([]);
+    expect(unexpected).toEqual([]);
+  });
+}

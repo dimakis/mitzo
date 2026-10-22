@@ -226,9 +226,10 @@ export function ChatView() {
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
   const localFirstCommand = explicitNew || localRuntime.preparedFirst;
-  const defaultLocalRepository =
-    localRuntime.intent.execution.location === 'local' &&
-    localRuntime.inventory?.defaultLocalRepository === true;
+  const defaultWorkspaceAvailable =
+    localRuntime.intent.execution.location === 'local'
+      ? localRuntime.inventory?.defaultLocalRepository === true
+      : localRuntime.inventory?.defaultOpenShellWorkspace === true;
   const refreshedFirstCommand = useRef<string | null>(null);
   const { preparedFirst, refresh: refreshRuntimeMetadata } = localRuntime;
   useEffect(() => {
@@ -807,7 +808,7 @@ export function ChatView() {
         !localFirstCommand ||
         localRuntime.reason ||
         (localCommand && localCommand.state !== 'consumed') ||
-        (!defaultLocalRepository && !repositorySelection?.repositoryWorkspaceId) ||
+        (!defaultWorkspaceAvailable && !repositorySelection?.repositoryWorkspaceId) ||
         repositorySelection?.blocked ||
         ctxBlocks?.length ||
         launching ||
@@ -1725,7 +1726,7 @@ export function ChatView() {
                             },
                           ).reason
                       : localFirstCommand &&
-                          (repositorySelection?.repositoryWorkspaceId || defaultLocalRepository)
+                          (repositorySelection?.repositoryWorkspaceId || defaultWorkspaceAvailable)
                         ? (text, images) =>
                             prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
                               clientMsgId: createBrowserId(),
@@ -1800,7 +1801,7 @@ export function ChatView() {
                     ? 'Execution connection is unavailable. Reconnect before sending.'
                     : undefined) ??
                   (explicitNew &&
-                  !defaultLocalRepository &&
+                  !defaultWorkspaceAvailable &&
                   !repositorySelection?.repositoryWorkspaceId
                     ? 'Prepare a repository before sending the command.'
                     : undefined) ??

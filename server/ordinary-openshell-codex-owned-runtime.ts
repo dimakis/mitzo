@@ -10,6 +10,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { AccountProfiles } from './account-profiles.js';
+import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
 import type { CodexAccountProfile } from './codex-account.js';
 import type { OpenShellRuntimeConfig } from './openshell-runtime.js';
@@ -37,7 +38,7 @@ export interface OrdinaryOpenShellCodexOwnedDispatch {
   commandId: string;
   preparationSignal?: AbortSignal;
   expected: OrdinaryOpenShellCodexExpectation;
-  workspace: Awaited<ReturnType<RepositoryWorkspaces['claim']>>;
+  workspace: Awaited<ReturnType<RepositoryWorkspaces['claim']>> | OrdinaryWorkspaceRecord;
   payload: ReturnType<typeof OwnedOpenShellCodexPayloadSchema.parse>;
   profile: CodexAccountProfile;
   account: AccountBinding;
@@ -61,6 +62,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       events: EventStore;
       profiles: AccountProfiles;
       workspace: RepositoryWorkspaces;
+      workspaceKind?: 'repository' | 'ordinary';
       sessionId: string;
       workspaceId: string;
       taskRoot: string;
@@ -115,7 +117,9 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     const meta = structuredClone(metaInput);
     if (
       meta.sessionId !== o.sessionId ||
-      meta.repositoryWorkspaceId !== o.workspaceId ||
+      (o.workspaceKind === 'ordinary'
+        ? meta.ordinaryWorkspaceId !== o.workspaceId || meta.repositoryWorkspaceId != null
+        : meta.repositoryWorkspaceId !== o.workspaceId || meta.ordinaryWorkspaceId != null) ||
       meta.cwd !== o.config.workdir ||
       request.runtime.mode !== request.selection.permission.mode ||
       request.capabilityRevision !== current.projection.inventory.capabilityRevision ||
@@ -219,12 +223,20 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       )
       .digest('hex')}`;
     if (preparationOperationId) {
-      const receipt = o.events.assertPreparedOrdinarySession(
-        preparationOperationId,
-        meta,
-        binding,
-        expected.selection,
-      );
+      const receipt =
+        o.workspaceKind === 'ordinary'
+          ? o.events.assertPreparedOrdinaryWorkspaceSession(
+              preparationOperationId,
+              meta,
+              binding,
+              expected.selection,
+            )
+          : o.events.assertPreparedOrdinarySession(
+              preparationOperationId,
+              meta,
+              binding,
+              expected.selection,
+            );
       if (receipt.firstCommandId !== null && receipt.firstCommandId !== request.clientMsgId)
         throw unavailable();
     }
@@ -270,13 +282,16 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     o.assertCurrentSync(expected);
     // claim(true) CAS-reserves exact account/conversation/source before sandbox
     // allocation; it makes no provider launch and uses the existing workspace ledger.
-    const workspace = await o.workspace.claim(
-      o.workspaceId,
-      o.account,
-      o.sessionId,
-      o.taskRoot,
-      true,
-    );
+    const workspace =
+      o.workspaceKind === 'ordinary'
+        ? await o.workspace.claimOrdinaryWorkspace({
+            id: o.workspaceId,
+            binding: o.account,
+            conversationId: o.sessionId,
+            taskRoot: o.taskRoot,
+            signal: preparationSignal ? AbortSignal.any([o.signal, preparationSignal]) : o.signal,
+          })
+        : await o.workspace.claim(o.workspaceId, o.account, o.sessionId, o.taskRoot, true);
     preparationSignal?.throwIfAborted();
     if (
       workspace.state !== 'claimed' ||
@@ -297,7 +312,19 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
     };
     preparationSignal?.throwIfAborted();
     const receipt = preparationOperationId
-      ? o.events.admitPreparedOrdinaryCommand(preparationOperationId, admittedMeta, binding, input)
+      ? o.workspaceKind === 'ordinary'
+        ? o.events.admitPreparedOrdinaryWorkspaceCommand(
+            preparationOperationId,
+            admittedMeta,
+            binding,
+            input,
+          )
+        : o.events.admitPreparedOrdinaryCommand(
+            preparationOperationId,
+            admittedMeta,
+            binding,
+            input,
+          )
       : this.#origin || o.resume
         ? o.events.admitOrdinaryOpenShellContinuation(admittedMeta, binding, input)
         : o.events.admitOrdinaryOpenShellCommand(admittedMeta, binding, input);
@@ -317,6 +344,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       this.#admission = capture(
         {
           events: o.events,
+          workspaceKind: o.workspaceKind,
           nativeStore: o.nativeStore,
           authSessionId: o.authSessionId,
           expectedRetained: o.resume ? o.readRetained() : undefined,

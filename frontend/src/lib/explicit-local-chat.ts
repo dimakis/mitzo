@@ -36,6 +36,7 @@ export const ExplicitLocalInventorySchema = z
     authority: z.literal('configuration-only'),
     defaultLocation: z.literal('openshell'),
     defaultLocalRepository: z.boolean().optional(),
+    defaultOpenShellWorkspace: z.boolean().optional(),
     capabilityRevision: ref,
     accounts: z
       .array(
@@ -324,7 +325,7 @@ export function prepareLocalFirstCommand(
   return prepareExplicitCommand(selection, inventory, input, OrdinaryRuntimeFirstCommandSchema);
 }
 const ordinarySelectionSchema = z.strictObject({
-  runOn: LocalCodexFirstCommandSchema.shape.runOn,
+  runOn: z.enum(['local', 'openshell']),
   clientMsgId: LocalCodexFirstCommandSchema.shape.clientMsgId,
   capabilityRevision: LocalCodexFirstCommandSchema.shape.capabilityRevision,
   runtime: LocalCodexFirstCommandSchema.shape.runtime,
@@ -336,10 +337,12 @@ function ordinaryRouteReason(
   inventory: ExplicitLocalInventory | null,
 ) {
   const route = inventory && selectedRuntimeRoute(selection, inventory);
-  return selection.execution.location !== 'local' ||
-    route?.harness !== 'codex' ||
-    selection.accountReference?.provider !== 'openai-codex'
-    ? 'Ordinary workspaces currently require a supported Local Mac Codex account and target. Choose those settings to continue.'
+  const provider = selection.accountReference?.provider;
+  return route?.harness !== 'codex' ||
+    !(selection.execution.location === 'local'
+      ? provider === 'openai-codex'
+      : provider === 'openai' || provider === 'openai-codex')
+    ? 'Ordinary workspaces require a supported Local Mac Codex or OpenShell Codex account and target.'
     : undefined;
 }
 export function prepareOrdinaryWorkspaceSelection(
@@ -347,6 +350,14 @@ export function prepareOrdinaryWorkspaceSelection(
   inventory: ExplicitLocalInventory | null,
   input: ExplicitCommandContent,
 ) {
+  // Telos allocation uses the separately enrolled Local Mac preparation API.
+  // OpenShell default chat admission does not enroll that role-allocation flow.
+  if (selection.execution.location !== 'local')
+    return {
+      request: null,
+      reason:
+        'Ordinary workspaces currently require a supported Local Mac Codex account and target. Choose those settings to continue.',
+    };
   const reason = ordinaryRouteReason(selection, inventory);
   if (reason) return { request: null, reason };
   const result = prepareExplicitCommand(selection, inventory, input, ordinarySelectionSchema);

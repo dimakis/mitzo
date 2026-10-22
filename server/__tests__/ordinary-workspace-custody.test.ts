@@ -54,7 +54,7 @@ const commandSelection = {
   version: 1 as const,
   agent: { profileId: 'ordinary-agent', revision: 1 },
   context: { source: 'none' as const, revision: null },
-  permission: { mode: 'agent' as const, revision: 0 },
+  permission: { mode: 'agent' as const, revision: 0 as const },
   model: binding.model,
   thinking: null,
 };
@@ -73,7 +73,16 @@ const agentProfile = {
   definition,
   contentHash: contextDigest(definition),
 };
-async function fixture() {
+async function fixture(
+  options: { location?: 'local' | 'openshell'; provider?: 'openai' | 'openai-codex' } = {},
+) {
+  const selectedBinding = { ...binding, provider: options.provider ?? binding.provider };
+  const selectedRuntime = {
+    ...runtimeBinding,
+    account: { ...runtimeBinding.account, provider: selectedBinding.provider },
+    execution: { ...runtimeBinding.execution, location: options.location ?? 'local' },
+  };
+
   const root = await realpath(await mkdtemp(join(tmpdir(), 'ordinary-no-git-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   vi.stubEnv('REPO_PATH', join(root, 'forbidden-repository-fallback'));
@@ -84,8 +93,9 @@ async function fixture() {
   });
   const proof = {
     version: 1 as const,
-    originalBinding: binding,
-    runtimeBinding,
+    originalBinding: selectedBinding,
+    runtimeBinding: selectedRuntime,
+    ...(options.location === 'openshell' ? { sandboxWorkdir: '/sandbox/workspaces/mgmt' } : {}),
     credentialDigest: 'a'.repeat(64),
   };
   const capture = vi.fn(async () => structuredClone(proof));
@@ -101,22 +111,22 @@ async function fixture() {
   cleanups.push(() => owner.close());
   const prepare = () =>
     owner.prepareOrdinaryWorkspace({
-      binding,
+      binding: selectedBinding,
       selection: {
-        runOn: 'local',
-        runtime: { account: runtimeBinding.account, harness: 'codex', targetId: 'offline-target' },
+        runOn: selectedRuntime.execution.location,
+        runtime: { account: selectedRuntime.account, harness: 'codex', targetId: 'offline-target' },
       },
       signal: new AbortController().signal,
     });
   const input = (preparationId: string, allocationOperationId = randomUUID()) => ({
     preparationId,
     allocationOperationId,
-    binding,
+    binding: selectedBinding,
     taskRoot,
     agentProfile,
     settings: {
       version: 2 as const,
-      binding: runtimeBinding,
+      binding: selectedRuntime,
       selection: commandSelection,
       workspace: { kind: 'ordinary' as const, preparationId },
     },
@@ -125,6 +135,8 @@ async function fixture() {
   return {
     root,
     taskRoot,
+    binding: selectedBinding,
+    runtimeBinding: selectedRuntime,
     get owner() {
       return owner;
     },
@@ -222,8 +234,12 @@ it('refuses unsupported isolation and Git capability requirements before any dur
     f.owner.prepareOrdinaryWorkspace({
       binding,
       selection: {
-        runOn: 'openshell',
-        runtime: { account: runtimeBinding.account, harness: 'codex', targetId: 'offline-target' },
+        runOn: 'local',
+        runtime: {
+          account: runtimeBinding.account,
+          harness: 'responses',
+          targetId: 'offline-target',
+        },
       },
       signal: new AbortController().signal,
     }),
@@ -434,4 +450,142 @@ it('fences ordinary entrypoints after shared persistence is released without rea
   );
   expect(f.capture).not.toHaveBeenCalled();
   expect(f.assert).not.toHaveBeenCalled();
+});
+
+it.each(['openai', 'openai-codex'] as const)(
+  'retains the configured default OpenShell workspace for %s without preparing a repository or creating its sandbox path on the host',
+  async (provider) => {
+    const f = await fixture({ location: 'openshell', provider });
+    const prepared = await f.prepare();
+    expect(prepared.runtimeBinding).toEqual(f.runtimeBinding);
+    const input = f.input(prepared.preparationId);
+    const reserved = await f.owner.reserveOrdinaryWorkspace(input);
+    expect(reserved).toMatchObject({
+      kind: 'ordinary',
+      sandbox: true,
+      directory: '/sandbox/workspaces/mgmt',
+      state: 'reserved',
+    });
+    const claim = {
+      id: reserved.id,
+      conversationId: reserved.conversationId,
+      binding: f.binding,
+      taskRoot: f.taskRoot,
+      signal: input.signal,
+    };
+    const claimed = await f.owner.claimOrdinaryWorkspace(claim);
+    expect(claimed).toMatchObject({ id: reserved.id, sandbox: true, state: 'claimed' });
+    expect(claimed).not.toHaveProperty('taskIdentity');
+    f.reopen();
+    expect(await f.owner.claimOrdinaryWorkspace(claim)).toEqual(claimed);
+    expect(f.owner.validateOrdinaryWorkspace(claimed.conversationId, claimed.directory)).toEqual(
+      claimed,
+    );
+    await expect(
+      f.owner.revalidateOrdinaryWorkspace({
+        ...claim,
+        binding: { ...f.binding, accountId: 'another-account' },
+      }),
+    ).rejects.toThrow();
+    expect(f.forbidden).not.toHaveBeenCalled();
+  },
+);
+
+it('refuses a changed logical sandbox path before claiming its reservation', async () => {
+  const f = await fixture({ location: 'openshell', provider: 'openai' });
+  const prepared = await f.prepare();
+  const input = f.input(prepared.preparationId);
+  const reserved = await f.owner.reserveOrdinaryWorkspace(input);
+  const { default: Database } = await import('better-sqlite3');
+  const db = new Database(join(f.root, 'private', 'workspaces.db'));
+  try {
+    const changed = { ...reserved, directory: '/sandbox/workspaces/another-task' };
+    db.prepare('UPDATE ordinary_workspaces SET record=? WHERE id=?').run(
+      JSON.stringify(changed),
+      reserved.id,
+    );
+    await expect(
+      f.owner.claimOrdinaryWorkspace({
+        id: reserved.id,
+        conversationId: reserved.conversationId,
+        binding: f.binding,
+        taskRoot: f.taskRoot,
+        signal: input.signal,
+      }),
+    ).rejects.toThrow(/identity|custody|scope/i);
+    const row = db
+      .prepare('SELECT record FROM ordinary_workspaces WHERE id=?')
+      .get(reserved.id) as { record: string };
+    expect(JSON.parse(row.record).state).toBe('reserved');
+  } finally {
+    db.close();
+  }
+});
+
+it('recovers the original default allocation after owner restart without new preparation or repository access', async () => {
+  const f = await fixture({ location: 'openshell', provider: 'openai' });
+  const prepared = await f.prepare();
+  const input = f.input(prepared.preparationId);
+  expect(f.owner.getOrdinaryWorkspaceForOperation(input.allocationOperationId)).toBeUndefined();
+  const original = await f.owner.reserveOrdinaryWorkspace(input);
+  f.reopen();
+  expect(f.owner.getOrdinaryWorkspaceForOperation(input.allocationOperationId)).toEqual(original);
+  expect(f.capture).toHaveBeenCalledOnce();
+  expect(f.forbidden).not.toHaveBeenCalled();
+});
+
+it('normalizes a fresh default OpenShell send once and recovers its exact workspace and session after restart', async () => {
+  const f = await fixture({ location: 'openshell', provider: 'openai' });
+  const { EventStore } = await import('../event-store.js');
+  const { prepareDefaultOpenShellCommand } =
+    await import('../ordinary-openshell-default-workspace.js');
+  const events = new EventStore(':memory:');
+  cleanups.push(() => events.close());
+  const qualify = vi.fn(() => ({ binding: f.binding, agentProfile }));
+  const input = {
+    runOn: 'openshell' as const,
+    clientMsgId: randomUUID(),
+    capabilityRevision: 'offline-capability',
+    runtime: {
+      account: f.runtimeBinding.account,
+      harness: 'codex' as const,
+      targetId: 'offline-target',
+      mode: 'agent' as const,
+    },
+    selection: commandSelection,
+    payload: { text: 'Hello without a repository' },
+  };
+  const options = {
+    input,
+    authSessionId: 'original-operator',
+    events,
+    taskRoot: () => f.taskRoot,
+    qualify,
+    signal: new AbortController().signal,
+  };
+  const original = await prepareDefaultOpenShellCommand({ ...options, workspaces: f.owner });
+  f.reopen();
+  expect(await prepareDefaultOpenShellCommand({ ...options, workspaces: f.owner })).toEqual(
+    original,
+  );
+  expect(events.getSession(original.sessionId)).toMatchObject({
+    ordinaryWorkspaceId: original.workspace.workspaceId,
+  });
+  expect(events.getOrdinaryInitialCommandId(original.sessionId)).toBeUndefined();
+  expect(qualify).toHaveBeenCalledOnce();
+  expect(f.capture).toHaveBeenCalledOnce();
+  expect(f.forbidden).not.toHaveBeenCalled();
+  await expect(
+    prepareDefaultOpenShellCommand({
+      ...options,
+      workspaces: f.owner,
+      input: { ...input, selection: { ...input.selection, model: 'different' } },
+    }),
+  ).rejects.toThrow('Original default OpenShell settings');
+  const differentOperator = await prepareDefaultOpenShellCommand({
+    ...options,
+    authSessionId: 'other-operator',
+    workspaces: f.owner,
+  });
+  expect(differentOperator.sessionId).not.toBe(original.sessionId);
 });

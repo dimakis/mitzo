@@ -32,7 +32,7 @@ export const OrdinaryWorkspacePreparationReceiptSchema = z.strictObject({
 export const OrdinaryWorkspaceFirstCommandSchema = z
   .strictObject({
     version: z.literal(2),
-    runOn: LocalCodexFirstCommandSchema.shape.runOn,
+    runOn: z.enum(['local', 'openshell']),
     sessionId: reference,
     workspace: z.strictObject({ kind: z.literal('ordinary'), workspaceId: z.uuid() }),
     clientMsgId: LocalCodexFirstCommandSchema.shape.clientMsgId,
