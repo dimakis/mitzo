@@ -3,7 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk';
 import { afterEach, expect, it, vi } from 'vitest';
-import { agentLibrarySource } from './fixtures/agent-library-source.js';
+import { agentLibrarySource } from '../../server/__tests__/fixtures/agent-library-source.js';
 const services = vi.hoisted(() => ({
   authId: '',
   workspace: undefined as unknown,
@@ -14,29 +14,29 @@ const services = vi.hoisted(() => ({
     prompt: AsyncIterable<Record<string, unknown>>;
   }>,
 }));
-vi.mock('../repository-workspace-runtime.js', async (original) => ({
+vi.mock('../../server/repository-workspace-runtime.js', async (original) => ({
   ...(await original<object>()),
   getRepositoryWorkspaces: () => services.workspace,
 }));
-vi.mock('../agent-library-runtime.js', async (original) => ({
+vi.mock('../../server/agent-library-runtime.js', async (original) => ({
   ...(await original<object>()),
   getAgentLibrary: () => services.library,
 }));
-vi.mock('../auth.js', async (original) => ({
+vi.mock('../../server/auth.js', async (original) => ({
   ...(await original<object>()),
   hasPersistentRevocationAuthority: () => true,
   operatorAuthMiddleware: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
-vi.mock('../connections-router.js', async (original) => ({
+vi.mock('../../server/connections-router.js', async (original) => ({
   ...(await original<object>()),
   requireSameOriginJson: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
-vi.mock('../transport-auth-ownership.js', async (original) => ({
+vi.mock('../../server/transport-auth-ownership.js', async (original) => ({
   ...(await original<object>()),
   liveTransportAuthSessionId: () => services.authId,
 }));
-vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
-vi.mock('../credential-sdk-boundary.js', async (original) => ({
+vi.mock('../../server/mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+vi.mock('../../server/credential-sdk-boundary.js', async (original) => ({
   ...(await original<object>()),
   credentialSdkBoundary: () => ({ spawnClaudeCodeProcess: () => new EventEmitter() }),
 }));
@@ -54,7 +54,9 @@ vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
     { type: 'user', uuid: 'original-input', message: { role: 'user', content: 'retained input' } },
   ]),
 }));
-vi.mock('../account-use-store.js', () => ({ getAccountUseStore: () => ({ record() {} }) }));
+vi.mock('../../server/account-use-store.js', () => ({
+  getAccountUseStore: () => ({ record() {} }),
+}));
 const cleanups: Array<() => void | Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -65,7 +67,8 @@ afterEach(async () => {
   services.query.mockReset();
 });
 it('routes first, queued future and cold commands through the actual SDK owner with terminal-only effort options and original thread', async () => {
-  const { ownedVertexRuntimeFixture } = await import('./fixtures/owned-local-vertex-runtime.js');
+  const { ownedVertexRuntimeFixture } =
+    await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
   const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true });
   Object.assign(f.request.payload, { sourceSnapshots: [agentLibrarySource] });
   vi.stubEnv('WORKTREE_ENABLED', 'false');
@@ -142,7 +145,7 @@ it('routes first, queued future and cold commands through the actual SDK owner w
     };
     return instance;
   });
-  const chat = await import('../chat.js');
+  const chat = await import('../../server/chat.js');
   cleanups.push(async () => {
     const live = chat.registry.findBySessionId(f.reservation.conversationId);
     live?.session.ordinaryRuntimeOwner?.close();
@@ -153,7 +156,8 @@ it('routes first, queued future and cold commands through the actual SDK owner w
   });
   const transport = { send: vi.fn(), isOpen: () => true };
   const preparationTimers = vi.spyOn(globalThis, 'setTimeout');
-  const { createOwnedLocalCodexEntryRouter } = await import('../ordinary-local-codex-entry.js');
+  const { createOwnedLocalCodexEntryRouter } =
+    await import('../../server/ordinary-local-codex-entry.js');
   const router = createOwnedLocalCodexEntryRouter(
     { isOpen: () => true, isOwnedBy: () => true } as never,
     {
@@ -271,7 +275,7 @@ it('routes first, queued future and cold commands through the actual SDK owner w
     sourceSnapshots: [agentLibrarySource],
   });
   const { OrdinaryLocalCodexSelectionOwner } =
-    await import('../ordinary-local-codex-selection-owner.js');
+    await import('../../server/ordinary-local-codex-selection-owner.js');
   const assertSelection = OrdinaryLocalCodexSelectionOwner.prototype.assertCurrent;
   let releaseAdmission!: () => void;
   let admissionWaiting = false;
@@ -486,7 +490,8 @@ it('routes first, queued future and cold commands through the actual SDK owner w
 
 it('a qualified preparation A starts model B on its original checkout and exact retry cannot launch again', async () => {
   vi.resetModules();
-  const { ownedVertexRuntimeFixture } = await import('./fixtures/owned-local-vertex-runtime.js');
+  const { ownedVertexRuntimeFixture } =
+    await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
   const f = await ownedVertexRuntimeFixture(cleanups, {
     chatRoute: true,
     ordinaryPreparation: true,
@@ -501,7 +506,7 @@ it('a qualified preparation A starts model B on its original checkout and exact 
       throw Error('No offline network');
     }),
   );
-  const { nativeStartupSessionId } = await import('../ordinary-repository-startup.js');
+  const { nativeStartupSessionId } = await import('../../server/ordinary-repository-startup.js');
   const selection = {
     runOn: 'local' as const,
     runtime: {
@@ -563,14 +568,15 @@ it('a qualified preparation A starts model B on its original checkout and exact 
       },
     };
   });
-  const chat = await import('../chat.js');
+  const chat = await import('../../server/chat.js');
   const sessionId = nativeStartupSessionId(`repository:${ready.id}`);
   cleanups.push(async () => {
     chat.registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner?.close();
     await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
     chat.eventStore.close();
   });
-  const { createOwnedLocalCodexEntryRouter } = await import('../ordinary-local-codex-entry.js');
+  const { createOwnedLocalCodexEntryRouter } =
+    await import('../../server/ordinary-local-codex-entry.js');
   const router = createOwnedLocalCodexEntryRouter(
     { isOpen: () => true, isOwnedBy: () => true } as never,
     {
@@ -584,7 +590,11 @@ it('a qualified preparation A starts model B on its original checkout and exact 
     },
     true,
   );
-  const invoke = (body: unknown, url = '/send', auth: import('../auth.js').AuthSession = f.auth) =>
+  const invoke = (
+    body: unknown,
+    url = '/send',
+    auth: import('../../server/auth.js').AuthSession = f.auth,
+  ) =>
     new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
       let status = 200;
       const req = {
@@ -691,10 +701,10 @@ it('a qualified preparation A starts model B on its original checkout and exact 
     body: { state: 'consumed', sessionId },
   });
 
-  const { loadAccountProfiles } = await import('../account-profiles.js');
+  const { loadAccountProfiles } = await import('../../server/account-profiles.js');
   expect(loadAccountProfiles().resolve('personal', 'future-C').profileRevision).toBe(revision);
   const { localVertexCapabilities, OrdinaryLocalVertexTarget } =
-    await import('../ordinary-local-vertex-capabilities.js');
+    await import('../../server/ordinary-local-vertex-capabilities.js');
   const current = localVertexCapabilities(loadAccountProfiles(), new OrdinaryLocalVertexTarget(), [
     f.agentProfile,
   ]).inventory();
@@ -834,12 +844,13 @@ it.each(['checkout', 'SDK setup'] as const)(
   'holds an aborted entry preparation without dispatching after deferred %s returns',
   async (stage) => {
     vi.resetModules();
-    const { ownedVertexRuntimeFixture } = await import('./fixtures/owned-local-vertex-runtime.js');
+    const { ownedVertexRuntimeFixture } =
+      await import('../../server/__tests__/fixtures/owned-local-vertex-runtime.js');
     const f = await ownedVertexRuntimeFixture(cleanups, { chatRoute: true });
     services.workspace = f.workspace;
     services.library = f.library;
     services.authId = f.auth.id;
-    const chat = await import('../chat.js');
+    const chat = await import('../../server/chat.js');
     cleanups.push(() => chat.eventStore.close());
     vi.stubEnv('WORKTREE_ENABLED', 'false');
     vi.stubGlobal(
@@ -863,7 +874,7 @@ it.each(['checkout', 'SDK setup'] as const)(
       });
     } else {
       const { OrdinaryLocalVertexSdkAuthority } =
-        await import('../ordinary-local-vertex-sdk-authority.js');
+        await import('../../server/ordinary-local-vertex-sdk-authority.js');
       const original = OrdinaryLocalVertexSdkAuthority.prototype.assertCurrent;
       let calls = 0;
       vi.spyOn(OrdinaryLocalVertexSdkAuthority.prototype, 'assertCurrent').mockImplementation(
@@ -876,7 +887,8 @@ it.each(['checkout', 'SDK setup'] as const)(
         },
       );
     }
-    const { startOwnedLocalVertexCommand } = await import('../ordinary-local-vertex-entry.js');
+    const { startOwnedLocalVertexCommand } =
+      await import('../../server/ordinary-local-vertex-entry.js');
     const pending = startOwnedLocalVertexCommand(
       { send: vi.fn(), isOpen: () => true },
       'offline-client',
