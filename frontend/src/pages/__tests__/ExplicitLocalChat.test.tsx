@@ -387,6 +387,7 @@ for (const [name, Screen] of [
     const review = await screen.findByText('Review retained Local command');
     expect(review.closest('.workspace-controls')).toBeNull();
     expect(review.closest('.conversation-composer')).toBeTruthy();
+    expect(screen.queryByText('Local command retained. Review before retrying.')).toBeNull();
     fireEvent.click(review);
     const recovery = screen.getByRole('button', { name: 'Recover original Local command' });
     expect(recovery).toBeEnabled();

@@ -1591,7 +1591,11 @@ export function DesktopChatView() {
 
                   <CodexQueueStatus
                     sessionId={controlsBlocked ? null : activeSessionId}
-                    deliveryStatus={sendStatus}
+                    deliveryStatus={
+                      localCommand && !['pending', 'consumed'].includes(localCommand.state)
+                        ? null
+                        : sendStatus
+                    }
                     deliveryError={sendError}
                     deliveryBusy={
                       localCommand ? localCommand.state === 'pending' : messages.running
