@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.540-default-openshell-repository-integration';
+  'v1.0.541-default-openshell-overall-deadline';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -611,7 +611,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     '9e383cf9c96a3cb8ea5bfe732c7ca7c4070cc52c051d80d9d3246fa718a28a0c',
   '../ordinary-local-codex-entry.ts':
-    '3b7514b52d14d177b592fae5d24e224b098c5455792fc30f862b1baf672b9142',
+    '4204c3c300ad5b67771d5e24166aece6e898cff907c199751770c1c407faa2ec',
   '../ordinary-local-codex-metadata.ts':
     '0ccfe315aa4bd8b5360608a3a588c3c0545c3fb7a34b3673c9db0156c610283a',
   '../ordinary-repository-startup.ts':

@@ -406,6 +406,14 @@ function createOwnedCodexEntryRouter(
   const sendCommand =
     (continuation: boolean): import('express').RequestHandler =>
     async (req, res) => {
+      // Workspace normalization and provider startup consume the same request
+      // budget. A second phase must not restart the clock after preparation.
+      const startupDeadline = performance.now() + 120000;
+      const abortAtStartupDeadline = (controller: AbortController) => {
+        const remaining = Math.max(0, startupDeadline - performance.now());
+        if (remaining === 0) controller.abort();
+        return setTimeout(() => controller.abort(), remaining);
+      };
       const auth = res.locals.authSession as AuthSession | undefined;
       const connectionId = req.headers['x-connection-id'];
       const transport =
@@ -472,7 +480,7 @@ function createOwnedCodexEntryRouter(
       ) {
         const controller = new AbortController();
         let authority: ReturnType<typeof retainAgentContextAuthority> | undefined;
-        const timer = setTimeout(() => controller.abort(), 120000);
+        const timer = abortAtStartupDeadline(controller);
         try {
           const captured = captureAgentLibraryAuthorization(connectionId);
           captured.assertCurrent();
@@ -699,7 +707,7 @@ function createOwnedCodexEntryRouter(
         const operatorConnectionId = `owned-local-entry:${randomUUID()}`;
         releaseBinding = bindAgentLibraryTransport(operatorConnectionId, { ...captured.auth });
         releaseStartup = reserveRepositoryStartup(sessionId);
-        timer = setTimeout(() => controller.abort(), 120000);
+        timer = abortAtStartupDeadline(controller);
         authority.assertCurrent();
         const { profiles, catalog, result, agentContextPresets } = inventory(
           input.runOn,

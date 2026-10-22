@@ -1316,7 +1316,7 @@ it('reserves a qualified OpenShell preparation model B before admission and an e
   }
 }, 15000);
 
-it('starts a fresh OpenShell chat through ordinary mgmt custody without selecting a repository', async () => {
+async function configuredDefaultShell() {
   const shell = configuredShell();
   const root = await realpath(await mkdtemp(join(tmpdir(), 'default-shell-public-')));
   const taskRoot = join(root, 'tasks');
@@ -1344,6 +1344,39 @@ it('starts a fresh OpenShell chat through ordinary mgmt custody without selectin
   fixtures.ordinaryWorkspace.mockReturnValue(workspaces);
   const request = { ...shell.request };
   Reflect.deleteProperty(request, 'repositoryWorkspaceId');
+  return { shell, root, taskRoot, binding, forbidden, capture, workspaces, request };
+}
+
+it('bounds default OpenShell preparation and dispatch by one overall startup deadline', async () => {
+  vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] });
+  const { root, capture, workspaces, request } = await configuredDefaultShell();
+  const originalCapture = capture.getMockImplementation()!;
+  capture.mockImplementation(async () => {
+    await vi.advanceTimersByTimeAsync(90_000);
+    return originalCapture();
+  });
+  let abortedAtDeadline = false;
+  fixtures.startShell.mockImplementation(async (_transport, _client, args) => {
+    await vi.advanceTimersByTimeAsync(30_001);
+    abortedAtDeadline = args.signal.aborted;
+    args.signal.throwIfAborted();
+    return { dispatched: true, sessionId: args.meta.sessionId };
+  });
+  try {
+    const response = await invoke('POST', '/send', request);
+    expect(fixtures.startShell).toHaveBeenCalledOnce();
+    expect(abortedAtDeadline).toBe(true);
+    expect(response.status).toBe(409);
+  } finally {
+    vi.useRealTimers();
+    workspaces.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('starts a fresh OpenShell chat through ordinary mgmt custody without selecting a repository', async () => {
+  const { shell, root, taskRoot, binding, forbidden, capture, workspaces, request } =
+    await configuredDefaultShell();
   fixtures.startShell.mockImplementation(async (_transport, _client, args) => {
     const record = workspaces.getOrdinaryWorkspace(args.meta.ordinaryWorkspaceId);
     await workspaces.claimOrdinaryWorkspace({
