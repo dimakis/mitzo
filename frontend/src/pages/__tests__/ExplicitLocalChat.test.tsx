@@ -359,6 +359,54 @@ for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it(`${name}: exposes exact Local command recovery beside the composer with settings closed`, async () => {
+    const { store, localSend } = setup(Screen, true);
+    const settings = await screen.findByRole('button', { name: /^Workspace controls/ });
+    if (settings.getAttribute('aria-expanded') !== 'true') fireEvent.click(settings);
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Account' }), {
+      target: { value: 'personal' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    if (settings.getAttribute('aria-expanded') === 'true') fireEvent.click(settings);
+    const request = localSend.mock.calls[0][0];
+    const recover = vi.fn(() => true);
+    act(() =>
+      store.setState({
+        localCommand: {
+          state: 'retained',
+          request,
+          sessionId: 'retained-session',
+          originDraftId: 'original-draft',
+        },
+        recoverLocalCommand: recover,
+        sendStatus: 'Local command retained. Review before retrying.',
+      }),
+    );
+    const review = await screen.findByText('Review retained Local command');
+    expect(review.closest('.workspace-controls')).toBeNull();
+    expect(review.closest('.conversation-composer')).toBeTruthy();
+    fireEvent.click(review);
+    const recovery = screen.getByRole('button', { name: 'Recover original Local command' });
+    expect(recovery).toBeEnabled();
+    expect(screen.getByText('Personal ChatGPT · luna-fixture · low · Local Mac')).toBeTruthy();
+    expect(document.querySelector('.conversation-composer [data-icon="loading"]')).toBeNull();
+    fireEvent.click(recovery);
+    expect(recover).toHaveBeenCalledOnce();
+    expect(localSend).toHaveBeenCalledOnce();
+    expect(screen.getByRole('link', { name: 'Open original draft' })).toHaveAttribute(
+      'href',
+      '/chat?draft=original-draft',
+    );
+    expect(screen.getByRole('link', { name: 'Open retained conversation' })).toHaveAttribute(
+      'href',
+      '/chat/retained-session',
+    );
+    act(() => store.setState({ connection: { status: 'disconnected', clientId: null } }));
+    expect(recovery).toBeDisabled();
+    expect(screen.getByText('Reconnect before checking the original command.')).toBeTruthy();
+  });
   for (const apiHost of [false, true])
     it.each([
       [DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION, defaultMitzoProfileDefinition],

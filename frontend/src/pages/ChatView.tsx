@@ -1,3 +1,4 @@
+import { LocalCommandRecovery } from '../components/LocalCommandRecovery';
 import { useTelosChatRoute } from '../hooks/useTelosChatRoute';
 import { TelosChatRouteLayout } from '../components/TelosChatRouteLayout';
 import { TelosWorkControls } from '../components/TelosWorkControls';
@@ -1306,7 +1307,7 @@ export function ChatView() {
         {isSymposium && accountModelControl}
         {isSymposium && agentControl}
         {isSymposium && executionControl}
-        {localCommand && (
+        {localCommand?.state === 'consumed' && (
           <div className="chat-agent-profile" role="status">
             <span>
               {localCommand.state === 'consumed'
@@ -1620,10 +1621,23 @@ export function ChatView() {
                 </div>
               )}
 
+              <LocalCommandRecovery
+                command={localCommand}
+                accountLabel={
+                  localRuntime.inventory?.accounts.find(
+                    (entry) =>
+                      entry.account.accountId === localCommand?.request?.runtime.account.accountId,
+                  )?.label
+                }
+                connected={connected}
+                onRecover={recoverLocalCommand}
+              />
+
               <CodexQueueStatus
                 sessionId={controlsBlocked ? null : activeSessionId}
                 deliveryStatus={sendStatus}
                 deliveryError={sendError}
+                deliveryBusy={localCommand ? localCommand.state === 'pending' : messages.running}
               />
               {invalidRoleSetup && (
                 <p role="alert">

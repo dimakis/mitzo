@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.517-local-command-progress';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.518-local-command-recovery';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/components/LocalCommandRecovery.css':
+    '1a549655b1afbb5abede40883b59368119262c3c53d72ec3bbd922f36a19ef7e',
+  '../../frontend/src/components/LocalCommandRecovery.tsx':
+    '8daace667ed6735e6bccdc3c06873963f2834f0c250b99874eb455c4320304be',
   '../../frontend/src/components/TelosItemLifecycle.tsx':
     '74cbe49b6b9e66b73de2f7b7492bc23de40f6e31f03b0068bdb5858e79f8e10e',
   '../../frontend/src/components/WorkspaceActionMenu.tsx':
@@ -596,9 +600,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '89c3593476f8ee0e99ab1ad1f8b0879626e731a8581cf755f5090624cb8ceedd',
   '../../frontend/src/pages/ChatView.tsx':
-    'fded706bdfcd92283ae72527fcd0976e802d63e2b8bac2fb9066f6d43cf5bb09',
+    '5fbfd6b77e49722b0531ab5a7348d28fe4b5bbe743613f0cc6f85a5c579d04b9',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '0e2c36a7616bca15df87d334937b89016a3ec0a7774502abff7964049123bd55',
+    'b5589aafec94b3ed9e007e2e98e28c4b7e59ac8b0cf050e0b2ad897f0db0b627',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -1068,7 +1072,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ShareButton.tsx':
     '3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411',
   '../../frontend/src/components/CodexQueueStatus.tsx':
-    '3cfcd679e62a78d6520813feefdb9c792643e822c75e7a32fa0b91ff04bdbbe3',
+    '5017c336dba0dc7e4d95d2e57af46d13d808be0bb8b22710919edd345003df78',
   '../ordinary-repository-preparation.ts':
     '2cf559fe9360a8d48e51413bf7f0d7a6b2d2bbfb89dc4675f595a2875216eed0',
   '../ordinary-repository-preparation-authority.ts':
