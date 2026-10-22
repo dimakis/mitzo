@@ -26,13 +26,16 @@ export function reviewedLegacyHostTargetRevisions(
   hostId: string,
   executableSha256: string,
 ): string[] {
-  if (SUPPORTED_CODEX_CLI_VERSION !== '0.160.0') return [];
-  const contract = digest([
+  const contract = reviewedLegacyHostContractRevision(executableSha256);
+  return contract ? [digest(['ordinary-local-codex-target-v1', targetId, hostId, contract])] : [];
+}
+export function reviewedLegacyHostContractRevision(executableSha256: string): string | undefined {
+  if (SUPPORTED_CODEX_CLI_VERSION !== '0.160.0') return undefined;
+  return digest([
     'ordinary-local-codex-host-v1',
     'v1.0.531-repository-recovery-integration',
     '24f1c83ffc3759a76095f3072edcc9fdebbe5087c874469d60e286d728160462',
     '0.160.0',
     executableSha256,
   ]);
-  return [digest(['ordinary-local-codex-target-v1', targetId, hostId, contract])];
 }

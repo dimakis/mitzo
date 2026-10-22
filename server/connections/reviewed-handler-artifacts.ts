@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.548-pinned-native-companion-attestation';
+  'v1.0.549-compatible-preparation-authority';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../host-codex-continuity.ts': '4753f3d4dc9dd1f46aa76cd4d9a79fc94bc2fa7f94cf2574b89270122d55db73',
+  '../host-codex-continuity.ts': 'e35d7bb97c14d57b152630741dd8576d914799e974f50e06d5c54a2eeb614e88',
   '../../packages/protocol/src/ordinary-command-timeouts.ts':
     'ff8b5788ce0d3504d4b0ec497f027a2e1b8e4a1cc0b4f8eb0b5ed8cf9454498a',
   '../ordinary-operator-identity.ts':
@@ -642,7 +642,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-capabilities.ts':
     '6aa1d7edd2466719bd8766209dd6a6786b37436fc381c672ad4b42e260ad0d03',
   '../ordinary-local-codex-host-runtime.ts':
-    'f90588d9933c3af6c7be00c97839107faff0ad87969b0134f476fce48fe31dbf',
+    'bd5c43d070f2acc3783914677270a4bf38aa0d90e02635276fe79c0e8906decb',
   '../ordinary-local-codex-selection-owner.ts':
     '2cbc9994f11738234789a56cac5143254e7d08b819fba217e12e15dc3b79b9e3',
   '../ordinary-local-codex-owned-runtime.ts':
@@ -1080,9 +1080,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/CodexQueueStatus.tsx':
     '5017c336dba0dc7e4d95d2e57af46d13d808be0bb8b22710919edd345003df78',
   '../ordinary-repository-preparation.ts':
-    '8bc7983ba2e486781b272fddcc21eafbe4201789837b5bf919e55e06790fb795',
+    'c9d0113da17201ee421c4bdadb9108ae6817460ffab82cdb6eb4de888ecb0d9e',
   '../ordinary-repository-preparation-authority.ts':
-    '441b489d00a04986b4bb1fd18f930c05813875e36f85f2522468e295f5945bed',
+    '3a525d52334b78df762b198f0f78811d2b1bc7e89b81d8a71a2d3fd3433c7c89',
   '../../frontend/src/components/RepositoryChatPicker.tsx':
     '1b67d8ac02bfe47ed49b404e8733b7a28b0a81be71cc2a6ef85a640863d794f1',
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':

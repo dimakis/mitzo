@@ -67,6 +67,9 @@ const fixture = (options?: {
   silentPreparation?: boolean;
   builtinPreparation?: boolean;
   continuityV2?: boolean;
+  chatRoute?: boolean;
+  localRepository?: boolean;
+  realPreparationAuthority?: boolean;
 }) => ownedRuntimeFixture(cleanups, options);
 
 it('renews run authority only on an explicit send from another verified operator login', async () => {
@@ -1517,7 +1520,12 @@ it('refuses unsupported published tools through actual owned profile resolution 
 });
 
 it('continues the same native thread from a new signed login after a compatible deployment, without replacing original custody', async () => {
-  const f = await fixture({ continuityV2: true });
+  const f = await fixture({
+    continuityV2: true,
+    chatRoute: true,
+    localRepository: true,
+    realPreparationAuthority: true,
+  });
   const first = f.create();
   await first.admit(f.request);
   const original = f.dispatch.mock.calls[0][0];

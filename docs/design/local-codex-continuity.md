@@ -78,8 +78,12 @@ models or target revisions fail explicitly rather than choosing another route.
 Strict target configuration version 2 adds `continuityContract: "codex-native-thread-v1"`.
 The target revision binds the host, configured target, reviewed compatibility family
 and supported native CLI version. `runtimeContractRevision` still binds the exact
-current reviewed implementation, full source closure and selected native bytes;
+current reviewed implementation, full source closure and both selected native binaries;
 each accepted deployment must generate that declaration from its accepted sources.
+The private native selector must be version 2 and explicitly pin both
+`executableSha256` and `codeModeHostSha256`; the containing directory is not
+implicit authority for another executable. Version 1 native selectors are refused
+by this source until the separately authorized deployment prepares a v2 successor.
 A stale or edited declaration fails the independent host observer. Code changes do
 not by themselves replace a conversation's native target identity.
 
@@ -93,6 +97,15 @@ workspace and context. Actual native/source custody still must match; compatibil
 is not credential renewal or permission to replace a binary. The current deployment
 must explicitly adopt the v2 declaration at an independently authorized deployment;
 this source change does not edit a running installation.
+
+The real repository and ordinary-workspace preparation owner applies the same
+reviewed target compatibility check. New subscription preparation proofs mark
+credential digest version 2 and bind the source login root/auth file independently
+of deployment attestation; current native/code attestation remains requalified.
+Known legacy proofs are checked against freshly measured current authority and
+the exact six-field published v1 observation reconstructed only for accepted
+8c3e5062c5df. The original preparation proof remains unchanged. Changed source
+credentials, keys, accounts, unknown targets and native custody remain refused.
 
 This migration is Local Codex only. OpenShell's source-bound target revision remains
 an independent migration requirement; PR #1091 changes workspace selection and its
@@ -119,6 +132,8 @@ reply prompts a read-only exact-receipt lookup, which returns acceptance only fo
 the original consumed command after current authentication and historical custody
 validation. It cannot reserve, prepare, bootstrap, replay or dispatch anything.
 Only that receipt clears submitted input; independent later edits remain drafts.
+It also retires its obsolete HTTP wait so a subsequent explicit send is not
+held behind that transport until its deadline. No command is automatically resent.
 
 Explicit sends can renew the retained driver's current login authority under its
 existing revocation controller. Reading or subscribing does not silently transfer

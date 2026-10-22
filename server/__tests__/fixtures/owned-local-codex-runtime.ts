@@ -47,6 +47,10 @@ export async function ownedRuntimeFixture(
     nativeExecutablePath?: string;
     modelId?: string;
     continuityV2?: boolean;
+    realPreparationAuthority?: boolean;
+    historicalPreparation?: (
+      proof: import('../../ordinary-repository-preparation.js').OrdinaryRepositoryPreparation,
+    ) => Promise<import('../../ordinary-repository-preparation.js').OrdinaryRepositoryPreparation>;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -219,6 +223,9 @@ export async function ownedRuntimeFixture(
   git(source, 'commit', '-qm', 'offline base');
   const baseOid = git(source, 'rev-parse', 'HEAD');
   const inspect = async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid });
+  const readiness = options.realPreparationAuthority
+    ? await import('../../ordinary-repository-preparation-authority.js')
+    : undefined;
   const workspace = new RepositoryWorkspaces(join(root, 'repositories'), {
     localRepositories: () => ({ primary: source }),
     authorize: async (selected) => {
@@ -233,7 +240,15 @@ export async function ownedRuntimeFixture(
     },
     verify: async () => {},
     ordinaryPreparation: {
-      capture: async (account, selection) => {
+      capture: async (account, selection, signal) => {
+        if (readiness) {
+          const proof = await readiness.captureOrdinaryRepositoryPreparation(
+            account,
+            selection,
+            signal,
+          );
+          return options.historicalPreparation ? options.historicalPreparation(proof) : proof;
+        }
         const resolved = catalog.resolve({ ...selection.runtime, mode: 'agent' });
         if (resolved.status !== 'compatible') throw Error('Offline runtime unavailable');
         return OrdinaryRepositoryPreparationSchema.parse({
@@ -243,9 +258,11 @@ export async function ownedRuntimeFixture(
           credentialDigest: 'a'.repeat(64),
         });
       },
-      assert: async (_proof, account) => {
-        loadAccountProfiles().resumeRouting(account);
-      },
+      assert:
+        readiness?.assertOrdinaryRepositoryPreparation ??
+        (async (_proof, account) => {
+          loadAccountProfiles().resumeRouting(account);
+        }),
     },
   });
   cleanups.push(() => workspace.close());

@@ -13,6 +13,10 @@ import { OrdinaryLocalCodexTarget } from './ordinary-local-codex-capabilities.js
 import { measureHostCodexExecutable } from './frozen-host-codex-executable.js';
 import type { FrozenHostCodexRuntimeObservation } from './frozen-host-codex-bootstrap.js';
 import { registerWorkspaceRuntimeAuthorityPaths } from './workspace-runtime-private-paths.js';
+import {
+  reviewedLegacyHostContractRevision,
+  reviewedLegacyHostTargetRevisions,
+} from './host-codex-continuity.js';
 import type { OrdinaryLocalCodexCapabilityCatalog } from './ordinary-local-codex-capabilities.js';
 
 const unavailable = () => new Error('Host Codex runtime observation unavailable');
@@ -158,6 +162,32 @@ export class OrdinaryLocalCodexHostRuntime {
             : resolved;
         },
       },
+    };
+  }
+  /** Exact published v1 observation format for rechecking its original private
+   * credential digest. Only the reviewed legacy target qualifies; current
+   * deployment/native authority is independently verified before reconstruction.
+   */
+  async legacyObservation(targetRevision: string) {
+    this.continuationDeclaration(targetRevision);
+    const current = await this.observe();
+    if (
+      !reviewedLegacyHostTargetRevisions(
+        current.targetId,
+        current.hostId,
+        current.executableSha256,
+      ).includes(targetRevision)
+    )
+      throw unavailable();
+    const runtimeContractRevision = reviewedLegacyHostContractRevision(current.executableSha256);
+    if (!runtimeContractRevision) throw unavailable();
+    return {
+      hostId: current.hostId,
+      runtimeContractRevision,
+      targetId: current.targetId,
+      targetRevision,
+      executablePath: current.executablePath,
+      executableSha256: current.executableSha256,
     };
   }
   assertCurrentSync(): void {
