@@ -159,6 +159,7 @@ export interface MitzoStoreState {
     observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string },
   ): boolean;
   recoverLocalCommand(): boolean;
+  selectLocalCommandDraft(draftId: string): void;
   // Actions — chat
   dispatchMessages(action: MessagesAction): void;
   getConnectionId(): string | null;
@@ -333,6 +334,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     ? new SseConnection(options.sseConfig)
     : new MitzoConnection(options.wsConfig);
 
+  let localDraftScope: string | null | undefined;
+  let visibleLocalCommandId: string | undefined;
   let reviewedAuthenticated = options.initiallyAuthenticated !== false;
   let reviewedSendScope = Date.now();
   let taskReadSequence = 0;
@@ -375,6 +378,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           headers: () => ({ 'X-Connection-ID': connection.getConnectionId() ?? '' }),
           notify(event) {
             if (event.type !== '_local_command_state') return;
+            if (event.state === 'idle') {
+              visibleLocalCommandId = undefined;
+              store.setState({ localCommand: null });
+              return;
+            }
             let request: LocalCommandRequest | undefined;
             let ordinaryDelivery: OrdinaryCommandDelivery | undefined;
             try {
@@ -399,26 +407,34 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 running: store.getState().messages.running,
               });
             const locationLabel = request?.runOn === 'openshell' ? 'OpenShell' : 'Local';
-            store.setState({
-              localCommand: {
-                request,
-                ...(ordinaryDelivery ? { ordinaryPhase: ordinaryDelivery.phase } : {}),
-                ...(ordinaryDelivery?.version === 1
-                  ? { preparedSessionId: ordinaryDelivery.sessionId }
-                  : {}),
-                state,
-                sessionId,
-                ...(typeof event.originDraftId === 'string'
-                  ? { originDraftId: event.originDraftId }
-                  : {}),
-              },
-              sendStatus:
-                state === 'consumed'
-                  ? `${locationLabel} command dispatched.`
-                  : state === 'pending'
-                    ? `Sending ${locationLabel} command…`
-                    : `${locationLabel} command retained. Review before retrying.`,
-            });
+            const visible =
+              localDraftScope == null
+                ? visibleLocalCommandId === undefined ||
+                  visibleLocalCommandId === request?.clientMsgId
+                : localDraftScope !== null && localDraftScope === event.originDraftId;
+            if (visible) {
+              visibleLocalCommandId = request?.clientMsgId;
+              store.setState({
+                localCommand: {
+                  request,
+                  ...(ordinaryDelivery ? { ordinaryPhase: ordinaryDelivery.phase } : {}),
+                  ...(ordinaryDelivery?.version === 1
+                    ? { preparedSessionId: ordinaryDelivery.sessionId }
+                    : {}),
+                  state,
+                  sessionId,
+                  ...(typeof event.originDraftId === 'string'
+                    ? { originDraftId: event.originDraftId }
+                    : {}),
+                },
+                sendStatus:
+                  state === 'consumed'
+                    ? `${locationLabel} command dispatched.`
+                    : state === 'pending'
+                      ? `Sending ${locationLabel} command…`
+                      : `${locationLabel} command retained. Review before retrying.`,
+              });
+            }
             if (!request) return;
             // Only a validated202 acknowledges this submitted request; a retained409
             // session is an observation and must not consume its launch identity.
@@ -911,11 +927,20 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         : 'sessionId' in frozen
           ? parserState.currentSessionId !== frozen.sessionId
           : !!parserState.currentSessionId) ||
-      (store.getState().localCommand && store.getState().localCommand!.state !== 'consumed')
+      (store.getState().localCommand &&
+        store.getState().localCommand!.state !== 'consumed' &&
+        !(
+          opts.draftId &&
+          (localDraftScope === null ||
+            (store.getState().localCommand!.originDraftId &&
+              opts.draftId !== store.getState().localCommand!.originDraftId))
+        ))
     )
       return false;
     if (frozen.payload.sourceSnapshots?.length && options.sendHandoff?.prepare(frozen) === false)
       return false;
+    localDraftScope = opts.draftId;
+    visibleLocalCommandId = frozen.clientMsgId;
     observeDelivery(frozen.clientMsgId, opts, 'send', 'local');
     const sent = localOutbox.enqueue(frozen, Date.now(), opts.draftId, ordinaryDelivery);
     if (!sent) {
@@ -1093,6 +1118,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
+      localDraftScope = null;
+      visibleLocalCommandId = undefined;
       ++launchGeneration;
       set({ pendingSession: null, pendingSessionSending: false });
       unconfirmedPermissionResponses.clear();
@@ -1140,11 +1167,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     sendOrdinaryWorkspaceCommand(request, phase, opts = {}) {
       return sendOwnedLocalCommand(request, opts, { version: 2, phase });
     },
+    selectLocalCommandDraft(draftId) {
+      localDraftScope = draftId;
+      visibleLocalCommandId = undefined;
+      localOutbox?.selectLocalDraft(draftId);
+    },
     recoverLocalCommand() {
       return (
         !!reviewedAuthenticated &&
         !!connection.getConnectionId() &&
-        !!localOutbox?.retryLocalCommand()
+        !!localOutbox?.retryLocalCommand(get().localCommand?.request?.clientMsgId)
       );
     },
     sendMessage(text: string, opts?: SendMessageOptions) {

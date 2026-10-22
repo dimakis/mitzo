@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.523-local-retry-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.524-draft-scoped-first-send';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -603,7 +603,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    'cc6601ea07ccc4398835154261424b9cda6a631d28d36adc283261644486a963',
+    '5a6d5fdca239be4162f778277241fd470354a9526cd792136e9e4ca89b33a70c',
   '../../packages/protocol/src/local-codex-first-command.ts':
     'ae2191a80acd48295afaf9c1d3941f643d9c4b73dd7d5a6ce574887a433a0a93',
   '../ordinary-local-codex-entry.ts':
@@ -662,7 +662,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
   '../../packages/client/src/store.ts':
-    '360cc5fe9a755c5dfdae156e3efe900f6970e628d3ef379203d10cd5d3808624',
+    'f9a3a52ae99e7756eca57113bd06de720874cb28be8674715dfbfc7672255555',
   '../../packages/harness/src/permission-handler.ts':
     '78c076abbede0240b4695b4dc93a4fd14c02b8ee65fa8788fecd42d74f27dbc4',
   '../../packages/harness/src/permissions.ts':

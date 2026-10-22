@@ -51,6 +51,9 @@ export class SendOutbox {
   private activeAbort?: AbortController;
   private readonly key: string;
   private invalidLocalRecovery = false;
+  private selectedLocalDraft: string | null | undefined;
+  private localReady: Entry[] = [];
+  private activeLocalEntry?: Entry;
 
   constructor(private config: Config) {
     this.key = `mitzo-send-outbox:${config.url}`;
@@ -125,7 +128,10 @@ export class SendOutbox {
     if (this.config.localFirstCommand) {
       if (this.invalidLocalRecovery)
         this.config.notify({ type: '_local_command_state', state: 'blocked' });
-      else if (this.entries[0]) this.notifyLocal(this.entries[0], 'uncertain');
+      else {
+        const entry = this.selectedLocalEntry();
+        if (entry) this.notifyLocal(entry, 'uncertain');
+      }
       return;
     }
     void this.pump();
@@ -147,22 +153,44 @@ export class SendOutbox {
     void this.pump();
   }
 
+  private selectedLocalEntry(): Entry | undefined {
+    return this.selectedLocalDraft === undefined
+      ? this.entries[0]
+      : this.selectedLocalDraft === null
+        ? undefined
+        : this.entries.find((entry) => entry.localDraftId === this.selectedLocalDraft);
+  }
+
+  /** Change the visible draft owner without discarding or dispatching another intent. */
+  selectLocalDraft(draftId: string | null): void {
+    if (!this.config.localFirstCommand || this.invalidLocalRecovery) return;
+    this.selectedLocalDraft = draftId;
+    const entry = this.selectedLocalEntry();
+    if (entry) this.notifyLocal(entry, 'uncertain');
+    else this.config.notify({ type: '_local_command_state', state: 'idle', draftId });
+  }
+
   /** Deliberate recovery resubmits only the frozen request, never a rebuilt draft. */
-  retryLocalCommand(): boolean {
+  retryLocalCommand(commandId?: string): boolean {
     if (
       !this.config.localFirstCommand ||
       !this.active ||
       this.invalidLocalRecovery ||
-      !this.entries.length ||
-      this.busyGeneration !== null
+      !this.entries.length
     )
       return false;
+    const entry = commandId
+      ? this.entries.find((entry) => entry.body.clientMsgId === commandId)
+      : this.selectedLocalEntry();
+    if (!entry || this.activeLocalEntry === entry || this.localReady.includes(entry)) return false;
+    this.localReady.push(entry);
     void this.pump();
     return true;
   }
 
   stop(): void {
     this.active = false;
+    this.localReady = [];
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     // Pause new work; the bounded in-flight request may still acknowledge.
@@ -177,7 +205,17 @@ export class SendOutbox {
     if (this.config.durableLaunches && body.sessionId !== null) return false;
     if (this.config.localFirstCommand) {
       if (localDraftId !== undefined && !/^\S{1,200}$/.test(localDraftId)) return false;
-      if (this.invalidLocalRecovery || this.entries.length || !this.active) return false;
+      if (
+        this.invalidLocalRecovery ||
+        !this.active ||
+        this.entries.some(
+          (entry) =>
+            entry.body.clientMsgId === body.clientMsgId ||
+            localDraftId === undefined ||
+            entry.localDraftId === localDraftId,
+        )
+      )
+        return false;
       try {
         body = structuredClone(parseLocalCommandDelivery(body, ordinaryDelivery));
         if (ordinaryDelivery)
@@ -188,13 +226,14 @@ export class SendOutbox {
     }
     if (ordinaryDelivery && !this.config.localFirstCommand) return false;
     if (this.entries.length >= 100) return false;
-    this.entries.push({
+    const entry: Entry = {
       body: { ...body },
       scope,
       ...(this.config.localFirstCommand ? { uncertain: false } : {}),
       ...(this.config.localFirstCommand && localDraftId ? { localDraftId } : {}),
       ...(ordinaryDelivery ? { ordinaryDelivery: structuredClone(ordinaryDelivery) } : {}),
-    });
+    };
+    this.entries.push(entry);
     const durable = this.persist();
     if (
       (this.config.localFirstCommand ||
@@ -205,8 +244,11 @@ export class SendOutbox {
       this.entries.pop();
       return false;
     }
-    if (this.config.localFirstCommand) this.notifyLocal(this.entries[0], 'pending');
-    else
+    if (this.config.localFirstCommand) {
+      this.selectedLocalDraft = localDraftId;
+      this.localReady.push(entry);
+      this.notifyLocal(entry, 'pending');
+    } else
       this.config.notify({
         type: '_send_pending',
         clientMsgId: body.clientMsgId,
@@ -220,6 +262,8 @@ export class SendOutbox {
   rejectAll(error: string): void {
     this.active = false;
     this.generation++;
+    this.localReady = [];
+    this.activeLocalEntry = undefined;
     const hadInFlight = this.busyGeneration !== null;
     this.busyGeneration = null;
     this.activeAbort?.abort();
@@ -275,11 +319,13 @@ export class SendOutbox {
     if (
       !this.active ||
       this.busyGeneration !== null ||
-      !this.entries.length ||
+      !this.localReady.length ||
       this.invalidLocalRecovery
     )
       return;
-    const entry = this.entries[0];
+    const entry = this.localReady.shift()!;
+    if (!this.entries.includes(entry)) return;
+    this.activeLocalEntry = entry;
     const generation = this.generation;
     const abort = new AbortController();
     this.busyGeneration = generation;
@@ -326,10 +372,8 @@ export class SendOutbox {
         entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };
         if (!this.persist()) throw Error('Local receipt could not be retained');
         this.notifyLocal(entry, success.data.state, true);
-        if (success.data.state === 'consumed') this.entries.shift();
+        if (success.data.state === 'consumed') this.entries.splice(this.entries.indexOf(entry), 1);
         this.persist();
-        if (success.data.state === 'consumed' && this.entries[0])
-          this.notifyLocal(this.entries[0], 'uncertain');
       } else if (matching && response.status === 409 && observation.success) {
         entry.localReceipt = {
           sessionId: observation.data.sessionId,
@@ -345,6 +389,8 @@ export class SendOutbox {
       if (generation === this.generation) {
         this.busyGeneration = null;
         this.activeAbort = undefined;
+        this.activeLocalEntry = undefined;
+        if (this.active && this.localReady.length) void this.pumpLocal();
       }
     }
   }

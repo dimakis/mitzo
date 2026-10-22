@@ -112,6 +112,59 @@ function setup(
   });
   return { store, fetch, readStorage: () => JSON.parse(raw ?? '[]') };
 }
+it.each([false, true])(
+  'admits a genuinely new first send after New Chat when an older local attempt exists: %s',
+  async (hasOlderAttempt) => {
+    const saved = hasOlderAttempt
+      ? JSON.stringify([
+          {
+            body: request,
+            scope: 1,
+            uncertain: true,
+            localDraftId: 'older-draft',
+          },
+        ])
+      : null;
+    const { store, fetch, readStorage } = setup(saved);
+    channel.id = 'fresh-local-sse';
+    fetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url !== '/local/send') return Promise.resolve(new Response('[]'));
+      const body = JSON.parse(String(init?.body));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            clientMsgId: body.clientMsgId,
+            sessionId: 'fresh-session',
+            dispatched: true,
+            state: 'consumed',
+          }),
+          { status: 202 },
+        ),
+      );
+    });
+    store.getState().newSession();
+    const fresh = {
+      ...request,
+      clientMsgId: 'fresh-first',
+      payload: { text: 'A genuinely new initial message' },
+    };
+    expect(store.getState().sendLocalFirstCommand(fresh, { draftId: 'fresh-draft' })).toBe(true);
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+    const sent = fetch.mock.calls.filter(([url]) => url === '/local/send');
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0][1].body)).toEqual(fresh);
+    if (hasOlderAttempt)
+      expect(readStorage()).toContainEqual(
+        expect.objectContaining({
+          body: request,
+          localDraftId: 'older-draft',
+          uncertain: true,
+        }),
+      );
+  },
+);
+
 it('delivers a prepared repository first command through the existing outbox without assigning or switching the already selected chat', async () => {
   const { store, fetch, readStorage } = setup();
   channel.id = 'prepared-sse';
