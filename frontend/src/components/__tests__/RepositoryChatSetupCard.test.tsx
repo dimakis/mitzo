@@ -4,6 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { RepositoryChatSetupCard } from '../RepositoryChatSetupCard';
 import { ToolGroup } from '../ToolGroup';
+import { getToolStatus } from '../../lib/tool-status';
 
 const preparation = {
   id: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
@@ -41,6 +42,7 @@ it('offers a reviewed repository draft without starting a conversation', () => {
   expect(screen.getByText(preparation.prompt)).toBeTruthy();
 });
 it.each([
+  { ...block, toolError: true },
   { ...block, toolName: 'Read' },
   { ...block, toolResult: 'invalid' },
   {
@@ -64,6 +66,33 @@ it.each([
   );
   expect(screen.queryByRole('link')).toBeNull();
 });
+it.each(['PrepareRepositoryChat', 'GetRepositoryChatPreparation'])(
+  'keeps the recovery link for a validated failed %s result without clearing its error status',
+  (toolName) => {
+    const failed = Object.freeze({
+      ...block,
+      toolName,
+      toolError: true,
+      toolResult: JSON.stringify({
+        repositoryChat: {
+          ...preparation,
+          state: 'failed',
+          failure: { code: 'repository_space', message: 'Free at least 3 GiB, then retry.' },
+        },
+      }),
+    });
+    render(
+      <MemoryRouter>
+        <ToolGroup tools={[failed, { ...failed, blockId: 'recovered' }]} sessionId="parent-chat" />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('link', { name: 'Open repository chat' }).getAttribute('href')).toBe(
+      preparation.setupUrl,
+    );
+    expect(screen.getByRole('button', { name: /2 tool calls.*2 failed/ })).toBeTruthy();
+    expect(getToolStatus(failed).hasError).toBe(true);
+  },
+);
 it('keeps only the latest preparation card visible in a collapsed tool group', () => {
   render(
     <MemoryRouter>

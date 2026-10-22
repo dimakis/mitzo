@@ -5,7 +5,16 @@ import { executeTrustedGitCommit } from '../trusted-native-operation.js';
 import { inspectHostGithubRepository, exportHostGithubBundle } from '../github-host-source.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, realpath, rm, writeFile, readFile, access, mkdir } from 'node:fs/promises';
+import {
+  mkdtemp,
+  realpath,
+  rm,
+  writeFile,
+  readFile,
+  access,
+  mkdir,
+  truncate,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -94,6 +103,120 @@ it('previews the canonical default branch and exact remote commit without clonin
   });
   expect(f.run.mock.calls.every(([command]) => command === 'gh')).toBe(true);
 });
+
+it('prepares a retained repository-chat draft with Mitzo-sized metadata and expanded source', async () => {
+  const f = await fixture();
+  // Mitzo measured 73,054 KiB on GitHub and about 87 MiB expanded on 21 October.
+  // A compressible real blob exercises materialization without network or a large Git history.
+  await writeFile(join(f.source, 'large.txt'), Buffer.alloc(90 * 1024 * 1024, 'x'));
+  f.git(f.source, 'add', 'large.txt');
+  f.git(f.source, 'commit', '-qm', 'representative expanded source');
+  const oid = f.git(f.source, 'rev-parse', 'HEAD');
+  const runGit = f.run.getMockImplementation()!;
+  f.run.mockImplementation(async (command, args) =>
+    command === 'gh'
+      ? {
+          stdout: JSON.stringify(
+            args.at(-1)!.includes('/branches/')
+              ? { name: 'main', commit: { sha: oid } }
+              : { full_name: 'example/repo', default_branch: 'main', size: 73054, archived: false },
+          ),
+          stderr: '',
+        }
+      : await (async () => {
+          const result = await runGit(command, args);
+          if (args[0] === 'clone') {
+            const padding = join(args.at(-1)!, 'history-padding');
+            await writeFile(padding, '');
+            await truncate(padding, 40 * 1024 * 1024);
+          }
+          return result;
+        })(),
+  );
+  const binding = {
+    accountId: 'offline',
+    provider: 'openai',
+    model: 'fixture',
+    profileRevision: 'v1',
+  } as AccountBinding;
+  const service = new RepositoryWorkspaces(join(f.root, 'private'), {
+    authorize: async () => ({ revision: 1, allowedBaseBranches: ['main'] }),
+    inspect: (repository, signal) => inspectGithubRepositorySource(repository, signal, f.run),
+    prepare: (preview, directory, branch, signal) =>
+      prepareGithubRepositorySource(preview, directory, branch, signal, f.run),
+  });
+  services.push(service);
+  const draft = await service.prepareChat(
+    binding,
+    'source-chat',
+    'github',
+    'example/repo',
+    'Develop this repository',
+    f.signal,
+  );
+  expect(draft).toMatchObject({
+    state: 'ready',
+    sourceConversationId: 'source-chat',
+    baseOid: oid,
+  });
+  expect(service.chatPreparation(draft.id, binding, 'source-chat')).toEqual(draft);
+  const tasks = join(f.root, 'tasks');
+  await mkdir(tasks);
+  const claimed = await service.claim(draft.id, binding, 'development-chat', tasks, false);
+  expect(f.git(claimed.directory!, 'rev-parse', 'HEAD')).toBe(oid);
+  expect((await readFile(join(claimed.directory!, 'large.txt'))).length).toBe(90 * 1024 * 1024);
+}, 30000);
+
+it('rejects metadata over the bounded 512 MiB limit before fetching the branch', async () => {
+  const run = vi.fn(async () => ({
+    stdout: JSON.stringify({
+      full_name: 'example/repo',
+      default_branch: 'main',
+      size: 512 * 1024 + 1,
+      archived: false,
+    }),
+    stderr: '',
+  }));
+  await expect(
+    inspectGithubRepositorySource('example/repo', new AbortController().signal, run),
+  ).rejects.toThrow('512 MiB');
+  expect(run).toHaveBeenCalledTimes(1);
+});
+
+it.each(['storage', 'expanded source'])(
+  'rejects oversized %s before checkout and cleans its own destination',
+  async (kind) => {
+    const f = await fixture();
+    const runGit = f.run.getMockImplementation()!;
+    f.run.mockImplementation(async (command, args) => {
+      if (kind === 'expanded source' && args.includes('ls-tree'))
+        return {
+          stdout: `100644 blob ${'a'.repeat(40)} ${512 * 1024 * 1024 + 1}\tlarge.txt\0`,
+          stderr: '',
+        };
+      const result = await runGit(command, args);
+      if (kind === 'storage' && args[0] === 'clone') {
+        const padding = join(args.at(-1)!, 'oversized-storage');
+        await writeFile(padding, '');
+        await truncate(padding, 512 * 1024 * 1024 + 1);
+      }
+      return result;
+    });
+    const target = join(f.root, 'oversized-task');
+    await expect(
+      prepareGithubRepositorySource(
+        { repository: 'example/repo', baseBranch: 'main', baseOid: f.oid },
+        target,
+        'mitzo/task',
+        f.signal,
+        f.run,
+      ),
+    ).rejects.toThrow('512 MiB');
+    expect(f.run.mock.calls.some(([, args]) => args.includes('checkout-index'))).toBe(false);
+    await expect(access(target)).rejects.toThrow();
+    expect(await readFile(join(f.source, 'file.txt'), 'utf8')).toBe('original\n');
+  },
+);
 
 it('creates an independent feature checkout pinned to the preview without executing repository code', async () => {
   const f = await fixture();
