@@ -1171,13 +1171,16 @@ test('Library keeps fresh setup when a hidden conversation receives its delayed 
   await expect(page).toHaveURL(/\/chat\?/);
   const freshUrl = page.url();
   expect(new URL(freshUrl).searchParams.get('draft')).not.toBe(oldDraft);
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
   fixture.lifecycle.commandState = 'consumed';
+  await page.goto(`/chat?draft=${oldDraft}`);
   const recover = page.getByRole('button', { name: 'Retry', exact: true });
   await expect(recover).toBeEnabled();
   await recover.click();
   await expect.poll(() => fixture.commands.length).toBe(2);
   await expect(recover).toHaveCount(0);
   expect(fixture.commands[1]).toEqual(fixture.commands[0]);
+  await page.goto(freshUrl);
   await expect(page).toHaveURL(freshUrl);
   await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toHaveValue(
     'Help me refine this agent.',

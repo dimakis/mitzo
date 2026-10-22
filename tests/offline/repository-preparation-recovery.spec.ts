@@ -553,6 +553,71 @@ for (const workspaceChoice of ['select', 'default'] as const) {
       expect(
         (workspaceChoice === 'select' ? selected : commands).map((entry) => entry.runtime.harness),
       ).toEqual(['codex', 'codex', 'claude-sdk', 'gemini']);
+      if (workspaceChoice === 'default') {
+        const original = commands.at(-1)!;
+        const retained = await page.evaluate(
+          (id) =>
+            Object.keys(localStorage)
+              .filter((key) => key.startsWith('mitzo-local-first-command-outbox:'))
+              .map((key) => JSON.parse(localStorage.getItem(key)!))
+              .find((entry) => entry.body.clientMsgId === id),
+          original.clientMsgId,
+        );
+        expect(retained.body).toEqual(original);
+        const models = {
+          personal: 'luna-fixture',
+          api: 'local-model',
+          vertex: 'claude-model',
+          gemini: 'gemini-model',
+        };
+        for (const freshAccount of ['personal', 'api', 'vertex', 'gemini'] as const) {
+          await page
+            .getByRole('button', { name: /^New chat$/i })
+            .first()
+            .click();
+          const composer = page.getByRole('textbox', { name: 'Message Mitzo' });
+          await expect(composer).toHaveValue('');
+          await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+          await expect(page.getByText('Something went wrong.', { exact: true })).toHaveCount(0);
+          await settingsHome(page);
+          await chooseSetting(page, 'Account', freshAccount);
+          await openChatSetting(page, 'execution');
+          await page.getByRole('button', { name: 'Local Mac', exact: true }).click();
+          await chooseSetting(page, 'Model', models[freshAccount]);
+          if (freshAccount !== 'gemini')
+            await chooseSetting(page, 'Thinking', freshAccount === 'vertex' ? 'high' : 'low');
+          await page.getByRole('button', { name: 'Done', exact: true }).click();
+          await composer.fill(`Fresh initial send for ${freshAccount}`);
+          const send = page.getByRole('button', { name: 'Start session', exact: true });
+          await expect(send).toBeEnabled();
+          if (freshAccount === 'api')
+            await page.screenshot({
+              path: info.outputPath(`fresh-local-initial-send-${theme}.png`),
+              fullPage: true,
+            });
+          const before = commands.length;
+          await send.click();
+          await expect.poll(() => commands.length).toBe(before + 1);
+          expect(commands.at(-1)).toMatchObject({
+            runOn: 'local',
+            runtime: { account: { accountId: freshAccount } },
+          });
+          expect(commands.at(-1)!.clientMsgId).not.toBe(original.clientMsgId);
+        }
+        expect(commands.filter((entry) => entry.clientMsgId === original.clientMsgId)).toHaveLength(
+          1,
+        );
+        expect(
+          await page.evaluate(
+            (id) =>
+              Object.keys(localStorage)
+                .filter((key) => key.startsWith('mitzo-local-first-command-outbox:'))
+                .map((key) => JSON.parse(localStorage.getItem(key)!))
+                .find((entry) => entry.body.clientMsgId === id),
+            original.clientMsgId,
+          ),
+        ).toEqual(retained);
+      }
       expect(errors).toEqual([]);
       expect(unexpected).toEqual([]);
     });
