@@ -95,11 +95,26 @@ it('starts local API Codex from the composer without selecting or importing a re
   const launch = vi
     .spyOn(CodexAppServerClient, 'launchIsolatedApi')
     .mockImplementation(async (options) => {
+      // Pinned 0.160.0 startup ordering, captured with a synthetic key and no
+      // provider/model calls. Bootstrap must accept these before owner attachment.
+      options.lifecycle.onNotification('remoteControl/status/changed', {
+        status: 'disabled',
+        serverName: 'offline-host',
+        installationId: 'offline-installation',
+        environmentId: null,
+      });
       writeFileSync(
         join(options.privateHome, 'auth.json'),
         JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
         { mode: 0o600, flag: 'wx' },
       );
+      options.lifecycle.onNotification('account/login/completed', {
+        loginId: null,
+        success: true,
+        error: null,
+        onboardingEntrypoint: null,
+      });
+      options.lifecycle.onNotification('account/updated', { authMode: 'apikey', planType: null });
       return { client: f.rpc as never, binding: options.binding };
     });
   const connectionId = f.dependencies.operatorConnectionId;

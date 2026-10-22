@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.517-new-chat-perf';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.523-local-retry-integration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -56,9 +56,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '716f889418970118c872d70c8718f4d268077fedc299f002b72446c205ef3b7d',
   '../telos-work-controls.ts': '684ebfd505612cd01074773b468bd11439909b85da8562ae2c167c0207bddf97',
   '../../frontend/src/components/ChatStatusMessage.css':
-    '1d0b6c7958295038207dfb7d2bd310e0be2e897b25f81094569003bee210ee53',
+    'b2d59e64bcd29465cc2ff0e3458cfb139d663ea5852fc64246a08a7de7830aaa',
   '../../frontend/src/components/ChatStatusMessage.tsx':
-    '1af936451abe0baf0f0a28536acaf66d5aaba3c10c83996286f4ca627732675d',
+    'fc38550628984a03fd5f93299380f44643e518243b1afa32d801919b45a61f78',
   '../../frontend/src/components/CodexQueueStatus.css':
     'e6fe728282f4c522a33bc71128880ceec14c0bee1814f061d88975d699295032',
   '../../frontend/src/hooks/useFileNavigation.ts':
@@ -555,7 +555,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    'bfbecbf9591e473d830e8c7544c236aa10150a77a168e3f2c7435298c36123f8',
+    '5d45e214886c01c1cb39023981ffaca95d0e55673e0fb6fa66f09c3146eb1251',
   '../../frontend/src/components/ComposerTools.tsx':
     '932d2f492cb6f82d8bd5fe45223ac61386390774249e73c2d64b649a8419cd6a',
   '../../frontend/src/components/ContextPanel.tsx':
@@ -597,9 +597,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/reviewed-outbox-storage.ts':
     '89c3593476f8ee0e99ab1ad1f8b0879626e731a8581cf755f5090624cb8ceedd',
   '../../frontend/src/pages/ChatView.tsx':
-    'fded706bdfcd92283ae72527fcd0976e802d63e2b8bac2fb9066f6d43cf5bb09',
+    '8be70300a44886643dc7428ee7a996ee49a18abd0820a3a8748027b9fc302192',
   '../../frontend/src/pages/DesktopChatView.tsx':
-    '0e2c36a7616bca15df87d334937b89016a3ec0a7774502abff7964049123bd55',
+    'baa296b6fd8195354d5cea7295641c8578e5c76266385c9697b541cc63ce7bc8',
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
@@ -647,7 +647,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-bootstrap.ts':
     '51c9661ffb78ad881e1f24128d768b4026570dd63b02b5ee6f8b5df11768304d',
   '../owned-codex-lifecycle-bridge.ts':
-    '784da43bccb37c0ec044ddddfebf547c6d72f94737e32b35378ac761376d0f1c',
+    '51fcf724b65efc92e8b819fb9920d9134595aebc6b5a3d604e222f80369538b3',
   '../owned-local-codex-chat-admission.ts':
     '8f610e04aed917d7d41f550344bb2837e7c77959a0e973fb01858a00297e06e4',
   '../codex-account.ts': 'dc2ac5efec915495b6af3c7a3001ea4856427ca2d185648a864d2ceeb6593e71',
@@ -662,7 +662,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
   '../../packages/client/src/store.ts':
-    '306c66c168775fccf60a44889fa7d1d79ea1cbf6ff81ede22b69889494aee178',
+    '360cc5fe9a755c5dfdae156e3efe900f6970e628d3ef379203d10cd5d3808624',
   '../../packages/harness/src/permission-handler.ts':
     '78c076abbede0240b4695b4dc93a4fd14c02b8ee65fa8788fecd42d74f27dbc4',
   '../../packages/harness/src/permissions.ts':
@@ -1069,7 +1069,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/ShareButton.tsx':
     '3f43fa3098cd0fd83b80bab6c42877ccfddeeef80b9ab0a8ec4e058240a94411',
   '../../frontend/src/components/CodexQueueStatus.tsx':
-    '3cfcd679e62a78d6520813feefdb9c792643e822c75e7a32fa0b91ff04bdbbe3',
+    '5017c336dba0dc7e4d95d2e57af46d13d808be0bb8b22710919edd345003df78',
   '../ordinary-repository-preparation.ts':
     '2cf559fe9360a8d48e51413bf7f0d7a6b2d2bbfb89dc4675f595a2875216eed0',
   '../ordinary-repository-preparation-authority.ts':

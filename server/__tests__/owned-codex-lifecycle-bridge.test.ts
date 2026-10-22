@@ -96,6 +96,43 @@ describe('owned Codex lifecycle bridge', () => {
     expect(f.bridge.attach(f.owner)).toBe(f.client);
   });
 
+  it('accepts the pinned runtime’s disabled remote-control and completed API login observations before attachment', () => {
+    const f = fixture();
+    f.setCurrent(undefined);
+    f.bridge.lifecycle.onNotification('remoteControl/status/changed', {
+      status: 'disabled',
+      serverName: 'offline-host',
+      installationId: 'offline-installation',
+      environmentId: null,
+    });
+    f.bridge.lifecycle.onNotification('account/login/completed', {
+      loginId: null,
+      success: true,
+      error: null,
+      onboardingEntrypoint: null,
+    });
+    f.bridge.lifecycle.onNotification('account/updated', { authMode: 'apikey', planType: null });
+    expect(f.owner.onNotification).not.toHaveBeenCalled();
+    expect(f.lease.close).not.toHaveBeenCalled();
+    f.setCurrent(f.lease);
+    expect(f.bridge.attach(f.owner)).toBe(f.client);
+  });
+
+  it.each([
+    ['remoteControl/status/changed', { status: 'connected', environmentId: 'other-host' }],
+    ['remoteControl/status/changed', { status: 'disabled', environmentId: 'other-host' }],
+    ['account/login/completed', { loginId: null, success: false, error: 'private failure' }],
+    ['account/login/completed', { loginId: 'other-login', success: true, error: null }],
+  ])('refuses an unexpected bootstrap observation: %s %j', (method, params) => {
+    const f = fixture();
+    expect(() => f.bridge.lifecycle.onNotification(method, params)).toThrow(
+      'Owned Codex lifecycle unavailable',
+    );
+    expect(f.owner.onNotification).not.toHaveBeenCalled();
+    expect(f.lease.close).toHaveBeenCalledOnce();
+    expect(() => f.bridge.attach(f.owner)).toThrow('Owned Codex lifecycle unavailable');
+  });
+
   it('retains transport closure received before a lease exists, closes a delayed lease and refuses binding', () => {
     const f = fixture();
     f.setCurrent(undefined);

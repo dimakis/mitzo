@@ -1,10 +1,11 @@
-import { ChatStatusMessage } from './ChatStatusMessage';
+import { ChatStatusMessage, type ChatStatusAction } from './ChatStatusMessage';
 import { MotionPresence } from './MotionPresence';
 import { ComposerResponders, type ComposerResponderSelection } from './ComposerResponders';
 import {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useImperativeHandle,
   type RefObject,
@@ -73,6 +74,7 @@ interface Props {
   savedChatDraft?: ChatDraft;
   draftControl?: RefObject<ChatInputDraftControl | null>;
   sendDisabledReason?: string;
+  sendDisabledAction?: ChatStatusAction;
   boundedFirstCommand?: boolean;
   /** Admit queued commands immediately with frozen settings through the owning runtime. */
   guardedConversation?: boolean;
@@ -118,6 +120,7 @@ export function ChatInput({
   savedChatDraft,
   draftControl,
   sendDisabledReason: suppliedSendDisabledReason,
+  sendDisabledAction,
   boundedFirstCommand = false,
   guardedConversation = false,
   validateSend,
@@ -272,7 +275,8 @@ export function ChatInput({
     failed: boolean;
     stored: boolean;
   } | null>(null);
-  useEffect(() => {
+  // Keep the save acknowledgement and composer geometry settled before paint.
+  useLayoutEffect(() => {
     if (!savedChatDraft || savedOwnerChanging) return;
     const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
     const draft = {
@@ -396,7 +400,8 @@ export function ChatInput({
     }
   }, [initialText, autoResize]);
 
-  useEffect(() => {
+  // A passive resize can paint the new text at the previous draft’s height.
+  useLayoutEffect(() => {
     autoResize();
   }, [text, autoResize]);
 
@@ -946,7 +951,7 @@ export function ChatInput({
           </button>
         </div>
       ))}
-      <ChatStatusMessage status={sendDisabledReason} />
+      <ChatStatusMessage status={sendDisabledReason} action={sendDisabledAction} />
       <div className="chat-input-row">
         <textarea
           ref={textareaRef}

@@ -1326,7 +1326,7 @@ export function DesktopChatView() {
       <div className="workspace-session-settings">
         {isSymposium && agentControl}
         {isSymposium && executionControl}
-        {localCommand && (
+        {localCommand?.state === 'consumed' && (
           <div className="chat-agent-profile" role="status">
             <span>
               {localCommand.state === 'consumed'
@@ -1577,8 +1577,13 @@ export function DesktopChatView() {
 
                   <CodexQueueStatus
                     sessionId={controlsBlocked ? null : activeSessionId}
-                    deliveryStatus={sendStatus}
+                    deliveryStatus={
+                      localCommand && localCommand.state !== 'consumed' ? null : sendStatus
+                    }
                     deliveryError={sendError}
+                    deliveryBusy={
+                      localCommand ? localCommand.state === 'pending' : messages.running
+                    }
                   />
                   {invalidRoleSetup && (
                     <p role="alert">
@@ -1679,6 +1684,20 @@ export function DesktopChatView() {
                         ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
                         : undefined
                     }
+                    sendDisabledAction={
+                      localCommand && !['pending', 'consumed'].includes(localCommand.state)
+                        ? {
+                            label: 'Retry',
+                            onClick: () => {
+                              recoverLocalCommand();
+                            },
+                            disabled:
+                              !connected ||
+                              !localCommand.request ||
+                              localCommand.state === 'blocked',
+                          }
+                        : undefined
+                    }
                     sendDisabledReason={
                       (invalidRoleSetup
                         ? 'This work conversation setup is unavailable. Return to the work item and choose a supported role.'
@@ -1691,10 +1710,14 @@ export function DesktopChatView() {
                       (localRuntime.commandAvailable &&
                       localCommand &&
                       localCommand.state !== 'consumed'
-                        ? 'Review the retained Local command before sending.'
+                        ? localCommand.state === 'pending'
+                          ? 'Sending…'
+                          : 'Something went wrong.'
                         : undefined) ??
                       (explicitNew && localCommand && localCommand.state !== 'consumed'
-                        ? 'Review the retained Local command before sending.'
+                        ? localCommand.state === 'pending'
+                          ? 'Sending…'
+                          : 'Something went wrong.'
                         : undefined) ??
                       (localFirstCommand && (!localTransportAvailable || !connected)
                         ? 'Execution connection is unavailable. Reconnect before sending.'

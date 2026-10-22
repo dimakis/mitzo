@@ -163,6 +163,7 @@ vi.mock('../../components/ChatInput', () => ({
     onStop,
     running,
     sendDisabledReason,
+    sendDisabledAction,
     composerGeneration,
     settings,
   }: {
@@ -178,6 +179,7 @@ vi.mock('../../components/ChatInput', () => ({
       assigned?: (id: string) => void,
     ) => boolean;
     sendDisabledReason?: string;
+    sendDisabledAction?: { label: string; onClick(): void; disabled?: boolean };
     composerGeneration?: number;
     settings?: React.ReactNode;
   }) => (
@@ -188,6 +190,12 @@ vi.mock('../../components/ChatInput', () => ({
       <div data-testid="draft">{initialText ?? savedChatDraft?.text}</div>
       <span data-testid="composer-running">{String(running)}</span>
       <span data-testid="composer-generation">{composerGeneration}</span>
+      {sendDisabledReason && <span>{sendDisabledReason}</span>}
+      {sendDisabledAction && (
+        <button disabled={sendDisabledAction.disabled} onClick={sendDisabledAction.onClick}>
+          {sendDisabledAction.label}
+        </button>
+      )}
       <button onClick={onStop}>Test Stop</button>
       <button
         disabled={!!sendDisabledReason}
@@ -359,6 +367,49 @@ for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it(`${name}: shows one short failure and Retry beside the composer with settings closed`, async () => {
+    const { store, localSend } = setup(Screen, true);
+    const settings = await screen.findByRole('button', { name: /^Workspace controls/ });
+    if (settings.getAttribute('aria-expanded') !== 'true') fireEvent.click(settings);
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Account' }), {
+      target: { value: 'personal' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    if (settings.getAttribute('aria-expanded') === 'true') fireEvent.click(settings);
+    const request = localSend.mock.calls[0][0];
+    const recover = vi.fn(() => true);
+    act(() =>
+      store.setState({
+        localCommand: {
+          state: 'retained',
+          request,
+          sessionId: 'retained-session',
+          originDraftId: 'original-draft',
+        },
+        recoverLocalCommand: recover,
+        sendStatus: 'Local command retained. Review before retrying.',
+      }),
+    );
+    const recovery = await screen.findByRole('button', { name: 'Retry' });
+    expect(recovery.closest('.workspace-controls')).toBeNull();
+    expect(recovery.closest('.conversation-composer')).toBeTruthy();
+    expect(recovery).toBeEnabled();
+    expect(screen.getAllByText('Something went wrong.')).toHaveLength(1);
+    expect(
+      screen.queryByText(
+        /command retained|Review retained|Review the retained|Delivery was not confirmed/,
+      ),
+    ).toBeNull();
+    expect(screen.queryByText('Personal ChatGPT · luna-fixture · low · Local Mac')).toBeNull();
+    expect(document.querySelector('.conversation-composer [data-icon="loading"]')).toBeNull();
+    fireEvent.click(recovery);
+    expect(recover).toHaveBeenCalledOnce();
+    expect(localSend).toHaveBeenCalledOnce();
+    act(() => store.setState({ connection: { status: 'disconnected', clientId: null } }));
+    expect(recovery).toBeDisabled();
+  });
   for (const apiHost of [false, true])
     it.each([
       [DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION, defaultMitzoProfileDefinition],

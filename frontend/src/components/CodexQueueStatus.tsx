@@ -61,10 +61,12 @@ export function CodexQueueStatus({
   sessionId,
   deliveryStatus,
   deliveryError,
+  deliveryBusy = true,
 }: {
   sessionId: string | null;
   deliveryStatus?: string | null;
   deliveryError?: string | null;
+  deliveryBusy?: boolean;
 }) {
   const getTransportConnectionId = useMitzoStore((state) => state.getTransportConnectionId);
   const queueRevision = useMitzoStore((state) => state.queueRevision);
@@ -302,7 +304,9 @@ export function CodexQueueStatus({
     else hideButton.current?.focus();
   }, [collapsed]);
 
-  const delivery = <ChatStatusMessage status={deliveryStatus} error={deliveryError} busy />;
+  const delivery = (
+    <ChatStatusMessage status={deliveryStatus} error={deliveryError} busy={deliveryBusy} />
+  );
   if (!queue) return delivery;
   const actionable =
     !!queue.recovering ||
