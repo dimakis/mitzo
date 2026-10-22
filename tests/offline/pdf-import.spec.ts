@@ -83,6 +83,12 @@ for (const theme of ['dark', 'light']) {
     await page.goto('/');
     const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     await input.fill('Summarize the attached report');
+    const more = page.getByRole('button', { name: 'More composer actions', exact: true });
+    if (await more.isVisible()) await more.click();
+    await expect(
+      page.getByRole('button', { name: 'Attach images or PDF', exact: true }),
+    ).toBeVisible();
+    if (await more.isVisible()) await page.keyboard.press('Escape');
     const picker = page.locator('input[type=file]');
     await picker.setInputFiles({
       name: 'report.pdf',
