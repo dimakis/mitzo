@@ -80,7 +80,7 @@ it('checks existing gateway custody without resolving or copying a host key', as
   state.runtime = {
     assertOpenAIKeyReady: ready,
     service: {
-      withCredentialMutation: async (work: () => Promise<void>) => {
+      withCredentialRead: async (work: () => Promise<void>) => {
         gated = true;
         try {
           await work();
@@ -105,7 +105,7 @@ it('rejects controller drift or cancellation during gateway custody checks', asy
   });
   const runtime = {
     assertOpenAIKeyReady: ready,
-    service: { withCredentialMutation: async (work: () => Promise<void>) => work() },
+    service: { withCredentialRead: async (work: () => Promise<void>) => work() },
   };
   state.runtime = runtime;
   await expect(openAIAccountKeyAuthority(binding).assertReady(signal())).rejects.toThrow(
@@ -143,7 +143,7 @@ it('runs legacy readiness and credential lookup inside the same mutation gate', 
   state.runtime = {
     assertOpenAIKeyReady: ready,
     service: {
-      withCredentialMutation: async (work: () => Promise<string>) => {
+      withCredentialRead: async (work: () => Promise<string>) => {
         gated = true;
         try {
           return await work();
