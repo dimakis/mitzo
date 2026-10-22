@@ -9,6 +9,9 @@ allowed-tools:
   - Grep
   - Glob
   - Bash
+  - Agent
+  - TaskOutput
+  - TaskStop
 ---
 
 # Land PR
@@ -29,9 +32,13 @@ Resolve `$ARGUMENTS` as a PR URL, repository plus number, or the current branch'
 2. Integrate the base when required by a dependency, an actual conflict, a known upstream fix, or when this PR reaches its final landing turn and strict protection requires it. Do not rebase every waiting PR whenever main moves. Prefer a merge of the base that preserves remote history; never force-push as a routine shepherd action.
 3. Investigate every active finding against the code. Fix valid in-scope blockers and verify them. Reject invalid or already resolved findings only with concrete evidence. Distinguish blocking findings from explicitly non-blocking follow-ups; record follow-ups without manufacturing another blocking review round. Do not silently downgrade a blocker.
 4. Ask only when a genuine unresolved product/security/data decision prevents a correct fix. Routine implementation fixes already within the user's task do not need another approval. Reply to and resolve review threads only where authorized by the task or invoked workflow; never pretend a reviewer approved a fix.
-5. Run focused offline checks that prove the fix, respecting repository resource limits, then push and wait for required CI. Never remove coverage, weaken checks or mark failures green to get through the gate. CI optimizations may change how checks run while retaining their coverage.
+5. Run focused offline checks that prove the fix, respecting repository resource limits, and complete the local review phase below before pushing the reviewable candidate. Then push and wait for required CI. Never remove coverage, weaken checks or mark failures green to get through the gate. CI optimizations may change how checks run while retaining their coverage.
 
 Repository deployment and live-test restrictions continue to apply. Landing is not deployment authorization. Real model-backed tests require the user's configured test model and account rules; ordinary code review is a separate workflow.
+
+## Local review before push
+
+Before the first reviewable push, read and follow [the local review procedure](references/local-review.md): two concurrent independent subagents examine correctness/integration and behavior/test adequacy, with security review for concrete risks. Reuse qualifying coverage and verify batched fixes through focused follow-ups. Missing delegation is explicit unfinished coverage, never self-approval. Local reviews do not replace Centaur or change its timing/configuration or final gate.
 
 ## Review convergence
 
