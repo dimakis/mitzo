@@ -272,7 +272,7 @@ it.each(['openai', 'openai-codex'] as const)(
         .get('/api/files/read')
         .set('Authorization', 'Bearer ' + f.token)
         .query({ sessionId: reserved.conversationId, path: 'global.txt' });
-      expect(rejected.status).toBe(409);
+      expect(rejected.status, JSON.stringify(rejected.body)).toBe(409);
       expect(services.remoteRead).toHaveBeenCalledTimes(3);
       expect(forbidden).not.toHaveBeenCalled();
     } finally {

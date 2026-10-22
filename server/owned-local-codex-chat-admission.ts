@@ -1,4 +1,5 @@
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { SourceSnapshotsSchema } from '@mitzo/protocol';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import {
@@ -102,7 +103,7 @@ export class OwnedLocalCodexChatAdmission {
       const session = owner.eventStore.getSession(owner.sessionId);
       if (
         !owner.authSessionId ||
-        custody.authSessionId !== owner.authSessionId ||
+        !ordinaryOperatorOwnsConversation(custody.authSessionId, owner.authSessionId) ||
         !session?.accountBinding ||
         !isDeepStrictEqual(session.accountBinding, owner.lease.binding) ||
         !isDeepStrictEqual(
@@ -440,7 +441,7 @@ export class OwnedLocalCodexChatAdmission {
     if (!this.owner.authSessionId || !this.#expected.bootstrapId) throw unavailable();
     store.setHostCustody(this.owner.sessionId, this.#binding, {
       version: 1,
-      authSessionId: this.owner.authSessionId,
+      authSessionId: this.owner.custody?.authSessionId ?? this.owner.authSessionId,
       bootstrapId: this.owner.custody?.bootstrapId ?? this.#expected.bootstrapId,
       ...this.owner.lease.custodySnapshot(),
       ...(this.owner.custody

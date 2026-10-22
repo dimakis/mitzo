@@ -26,6 +26,7 @@ export const OrdinaryRepositoryPreparationSchema = z.strictObject({
   runtimeBinding: SessionRuntimeBindingV2Schema,
   sandboxWorkdir: OrdinaryOpenShellCommandAdmissionSchema.shape.workspace.shape.cwd.optional(),
   credentialDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  credentialDigestVersion: z.literal(2).optional(),
   sourceIdentity: z
     .strictObject({ dev: z.number().int().nonnegative(), ino: z.number().int().nonnegative() })
     .optional(),

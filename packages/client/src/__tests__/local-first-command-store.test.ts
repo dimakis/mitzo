@@ -661,82 +661,149 @@ it('keeps validated202 uncertain delivery recoverable despite its persisted SSE 
   expect(store.getState().localCommand?.state).toBe('uncertain');
 });
 
-it('hydrates fast successful output after the validated202 without accepting its earlier SSE echo', async () => {
-  const { store, fetch } = setup();
-  channel.id = 'live-sse';
-  let complete!: (response: Response) => void;
-  const output = {
-    messageId: 'fast-answer',
-    role: 'assistant',
-    blocks: [{ blockId: 'answer-text', blockType: 'text', content: 'Finished before HTTP.' }],
-    timestamp: 2,
-  };
-  fetch.mockImplementation((path) =>
-    path === '/local/send'
-      ? new Promise<Response>((resolve) => {
-          complete = resolve;
-        })
-      : Promise.resolve(
-          path === '/api/sessions/owned-session/messages?transcript=1'
-            ? new Response(JSON.stringify({ messages: [output], current: null, cursor: 5 }))
-            : new Response('[]'),
+it.each([0, 60_000, 119_000])(
+  'shows completed output in the open chat after a %ims startup without navigation or resending',
+  async (startupMs) => {
+    vi.useFakeTimers();
+    try {
+      const { store, fetch } = setup();
+      channel.id = 'live-sse';
+      let complete!: (response: Response) => void;
+      const output = {
+        messageId: 'fast-answer',
+        role: 'assistant',
+        blocks: [{ blockId: 'answer-text', blockType: 'text', content: 'Finished before HTTP.' }],
+        timestamp: 2,
+      };
+      fetch.mockImplementation((path) =>
+        path === '/local/send'
+          ? new Promise<Response>((resolve) => {
+              complete = resolve;
+            })
+          : Promise.resolve(
+              path === '/api/sessions/owned-session/messages?transcript=1'
+                ? new Response(JSON.stringify({ messages: [output], current: null, cursor: 5 }))
+                : new Response('[]'),
+            ),
+      );
+      // The existing switch handler emits current durable state even after completion.
+      channel.send.mockImplementation((body) => {
+        if (body.type === 'switch_session')
+          channel.listener({
+            type: 'session_state_changed',
+            sessionId: body.sessionId,
+            state: 'idle',
+          });
+        return true;
+      });
+      const assigned = vi.fn();
+      const delivered = vi.fn();
+      store
+        .getState()
+        .sendLocalFirstCommand(request, { onSessionAssigned: assigned, onDelivery: delivered });
+      channel.listener({
+        type: 'session_id',
+        sessionId: 'owned-session',
+        clientMsgId: request.clientMsgId,
+      });
+      channel.listener({
+        type: 'user_message',
+        sessionId: 'owned-session',
+        messageId: request.clientMsgId,
+        text: request.payload.text,
+      });
+      channel.listener({
+        type: 'message_end',
+        sessionId: 'owned-session',
+        messageId: output.messageId,
+      });
+      expect(
+        channel.listener({
+          type: 'session_state_changed',
+          sessionId: 'owned-session',
+          state: 'idle',
+        }),
+      ).toBe(true);
+      expect(delivered).not.toHaveBeenCalledWith('accepted');
+      expect(assigned).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(startupMs);
+      expect(delivered).not.toHaveBeenCalledWith('uncertain');
+      expect(store.getState().localCommand?.state).toBe('pending');
+      complete(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            clientMsgId: request.clientMsgId,
+            sessionId: 'owned-session',
+            dispatched: true,
+            state: 'consumed',
+          }),
+          { status: 202 },
         ),
-  );
-  // The existing switch handler emits current durable state even after completion.
-  channel.send.mockImplementation((body) => {
-    if (body.type === 'switch_session')
-      channel.listener({ type: 'session_state_changed', sessionId: body.sessionId, state: 'idle' });
-    return true;
-  });
-  const assigned = vi.fn();
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.getState().messages.messages).toContainEqual(output);
+      expect(store.getState().messages.running).toBe(false);
+      expect(assigned).toHaveBeenCalledExactlyOnceWith('owned-session');
+      expect(delivered.mock.calls.filter(([state]) => state === 'accepted')).toHaveLength(1);
+      expect(channel.send).toHaveBeenCalledWith({
+        type: 'switch_session',
+        sessionId: 'owned-session',
+        historyCursor: 5,
+      });
+      expect(store.getState().localCommand?.state).toBe('consumed');
+      expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+it('recovers the reply and submitted input in the open chat after losing the HTTP acknowledgement', async () => {
+  const { store, fetch, readStorage } = setup();
+  channel.id = 'live-sse';
   const delivered = vi.fn();
-  store
-    .getState()
-    .sendLocalFirstCommand(request, { onSessionAssigned: assigned, onDelivery: delivered });
+  const output = {
+    messageId: 'recovered-reply',
+    role: 'assistant',
+    timestamp: 2,
+    blocks: [{ blockId: 'text', blockType: 'text', content: 'Visible without navigating.' }],
+  };
+  fetch.mockImplementation(async (path: string) => {
+    if (path === '/local/send') throw Error('Lost acknowledgement');
+    if (path === '/local/send/receipt')
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          clientMsgId: request.clientMsgId,
+          sessionId: 'owned-session',
+          dispatched: false,
+          state: 'consumed',
+        }),
+        { status: 202 },
+      );
+    if (path === '/api/sessions/owned-session/messages?transcript=1')
+      return new Response(JSON.stringify({ messages: [output], current: null, cursor: 8 }));
+    return new Response('[]');
+  });
+  store.getState().sendLocalFirstCommand(request, { onDelivery: delivered });
+  await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('uncertain'));
   channel.listener({
     type: 'session_id',
     sessionId: 'owned-session',
     clientMsgId: request.clientMsgId,
   });
   channel.listener({
-    type: 'user_message',
-    sessionId: 'owned-session',
-    messageId: request.clientMsgId,
-    text: request.payload.text,
-  });
-  channel.listener({
-    type: 'message_end',
+    type: 'message_start',
     sessionId: 'owned-session',
     messageId: output.messageId,
   });
-  expect(
-    channel.listener({ type: 'session_state_changed', sessionId: 'owned-session', state: 'idle' }),
-  ).toBe(true);
-  expect(delivered).not.toHaveBeenCalledWith('accepted');
-  expect(assigned).not.toHaveBeenCalled();
-  complete(
-    new Response(
-      JSON.stringify({
-        ok: true,
-        clientMsgId: request.clientMsgId,
-        sessionId: 'owned-session',
-        dispatched: true,
-        state: 'consumed',
-      }),
-      { status: 202 },
-    ),
-  );
+  await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
   await vi.waitFor(() => expect(store.getState().messages.messages).toContainEqual(output));
-  expect(store.getState().messages.running).toBe(false);
-  expect(assigned).toHaveBeenCalledExactlyOnceWith('owned-session');
-  expect(delivered.mock.calls.filter(([state]) => state === 'accepted')).toHaveLength(1);
-  expect(channel.send).toHaveBeenCalledWith({
-    type: 'switch_session',
-    sessionId: 'owned-session',
-    historyCursor: 5,
-  });
+  expect(store.getState().localCommand?.state).toBe('consumed');
+  expect(readStorage()).toEqual([]);
+  expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
 });
-
 it('preserves generic uncorrelated assignment and echo acceptance without a pending Local launch', () => {
   const { store } = setup();
   channel.id = 'live-sse';

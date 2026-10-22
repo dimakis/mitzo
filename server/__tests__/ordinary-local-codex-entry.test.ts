@@ -574,6 +574,22 @@ it('aborts retained preparation on logout before bootstrap/dispatch', async () =
   expect(preparationSignal?.aborted).toBe(true);
   expect(fixtures.start).not.toHaveBeenCalled();
 });
+it('observes exact consumed receipts without reserving, starting or resubmitting a command', async () => {
+  expect((await invoke('POST', '/send/receipt', input())).status).toBe(409);
+  expect(fixtures.reserve).not.toHaveBeenCalled();
+  expect(fixtures.start).not.toHaveBeenCalled();
+  await send();
+  const starts = fixtures.start.mock.calls.length,
+    reservations = fixtures.reserve.mock.calls.length;
+  const result = await invoke('POST', '/send/receipt', input());
+  expect(result.status).toBe(202);
+  expect(result.body).toMatchObject({ state: 'consumed', dispatched: false });
+  expect(fixtures.start).toHaveBeenCalledTimes(starts);
+  expect(fixtures.reserve).toHaveBeenCalledTimes(reservations);
+  expect(
+    (await invoke('POST', '/send/receipt', { ...input(), payload: { text: 'changed' } })).status,
+  ).toBe(409);
+});
 it('returns an exact consumed duplicate without changing original receipt', async () => {
   expect((await send()).status).toBe(202);
   const original = store.getOrdinaryLocalCommandAdmission(input().clientMsgId);
@@ -1456,6 +1472,10 @@ it('starts a fresh OpenShell chat through ordinary mgmt custody without selectin
     expect(meta.repositoryWorkspaceId).toBeUndefined();
     expect(meta.cwd).toBe(shell.config.workdir);
     expect(fixtures.startShell.mock.calls[0][2].preparationOperationId).toBeTruthy();
+    expect(await invoke('POST', '/send/receipt', request)).toMatchObject({
+      status: 202,
+      body: { dispatched: false, state: 'consumed', sessionId: meta.sessionId },
+    });
     expect(await invoke('POST', '/send', request)).toMatchObject({
       status: 202,
       body: { dispatched: false },
@@ -1469,6 +1489,25 @@ it('starts a fresh OpenShell chat through ordinary mgmt custody without selectin
     expect(forbidden).not.toHaveBeenCalled();
     expect(fixtures.reserveSandbox).not.toHaveBeenCalled();
     expect(fixtures.reserve).not.toHaveBeenCalled();
+  } finally {
+    workspaces.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('observes an unknown default OpenShell receipt without preparing or allocating a workspace', async () => {
+  const { root, capture, workspaces, request } = await configuredDefaultShell();
+  const reserve = vi.spyOn(workspaces, 'reserveOrdinaryWorkspace');
+  const prepare = vi.spyOn(store, 'prepareOrdinaryWorkspaceSession');
+  try {
+    expect(await invoke('POST', '/send/receipt', request)).toMatchObject({
+      status: 409,
+      body: { code: 'receipt_pending' },
+    });
+    expect(capture).not.toHaveBeenCalled();
+    expect(reserve).not.toHaveBeenCalled();
+    expect(prepare).not.toHaveBeenCalled();
+    expect(fixtures.startShell).not.toHaveBeenCalled();
   } finally {
     workspaces.close();
     await rm(root, { recursive: true, force: true });

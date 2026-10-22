@@ -41,7 +41,7 @@ const Metadata = z.strictObject({
   sha256: Hash,
 });
 const Directory = z.strictObject({ dev: Integer, ino: Integer, uid: Integer, mode: Integer });
-export const HostCodexExecutableCustodySchema = z.strictObject({
+const HostCodexExecutableFileCustodySchema = z.strictObject({
   path: Path,
   source: Path,
   sha256: Hash,
@@ -50,6 +50,13 @@ export const HostCodexExecutableCustodySchema = z.strictObject({
   sourceDirectory: Directory,
   ownedDirectory: Directory,
 });
+export const HostCodexCompanionUpgradePlanSchema = HostCodexExecutableFileCustodySchema.omit({
+  ownedIdentity: true,
+});
+export type HostCodexCompanionUpgradePlan = z.infer<typeof HostCodexCompanionUpgradePlanSchema>;
+export const HostCodexExecutableCustodySchema = HostCodexExecutableFileCustodySchema.extend({
+  codeModeHost: HostCodexExecutableFileCustodySchema.optional(),
+}).strict();
 /** Internal physical custody evidence in the existing native conversation row.
  * Never projected into client inventory or supplied by request JSON.
  */

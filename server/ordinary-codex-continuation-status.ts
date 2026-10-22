@@ -1,3 +1,5 @@
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import { OrdinaryLocalCodexHostRuntime } from './ordinary-local-codex-host-runtime.js';
 import {
   OrdinaryLocalVertexTarget,
   localVertexCapabilities,
@@ -96,14 +98,42 @@ export function ordinaryCodexContinuationStatus(
       });
       resolved = resolveOrdinarySessionRuntime(request, projection.catalog);
     }
+    if (
+      resolved.status === 'compatible' &&
+      !isDeepStrictEqual(resolved.binding, binding) &&
+      location === 'local' &&
+      binding.harness.implementation === 'codex'
+    ) {
+      // Only the independently measured host may qualify an explicit reviewed
+      // legacy transition. Original receipts and native custody stay unchanged.
+      try {
+        const current = new OrdinaryLocalCodexHostRuntime();
+        const declaration = current.continuationDeclaration(binding.execution.targetRevision);
+        if (declaration.targetId === resolved.binding.execution.targetId)
+          resolved = {
+            ...resolved,
+            binding: {
+              ...resolved.binding,
+              execution: {
+                ...resolved.binding.execution,
+                targetRevision: declaration.targetRevision,
+              },
+            },
+          };
+      } catch {
+        return blocked('The original account or execution configuration has changed.');
+      }
+    }
     if (resolved.status !== 'compatible' || !isDeepStrictEqual(resolved.binding, binding))
       return blocked('The original account or execution configuration has changed.');
     if (!authSessionId)
       return blocked('Sign in with the original login to resume this conversation.');
     const live = registry.findBySessionId(sessionId)?.session;
     if (live)
-      return live.ordinaryRuntimeOwner?.authSessionId === authSessionId &&
-        live.ordinaryRuntimeOwner.location === location
+      return (location === 'local' && binding.harness.implementation === 'codex'
+        ? ordinaryOperatorOwnsConversation(live.ordinaryRuntimeOwner?.authSessionId, authSessionId)
+        : live.ordinaryRuntimeOwner?.authSessionId === authSessionId) &&
+        live.ordinaryRuntimeOwner?.location === location
         ? { available: true }
         : blocked('This conversation belongs to another login.');
     if (

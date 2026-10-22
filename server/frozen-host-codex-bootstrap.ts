@@ -33,8 +33,13 @@ const Runtime = z.strictObject({
   runtimeContractRevision: z.string().min(1).max(200),
   targetId: z.string().min(1).max(200),
   targetRevision: z.string().min(1).max(200),
+  compatibleTargetRevisions: z.array(z.string().min(1).max(200)).max(8).optional(),
   executablePath: z.string().min(1).max(4096),
   executableSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  codeModeHostSha256: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
 });
 export type FrozenHostCodexRuntimeObservation = z.infer<typeof Runtime>;
 export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease<FrozenHostCodexClient> {
@@ -74,6 +79,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       privateRoot?: string;
       /** Native ledger evidence, supplied only by the original cold-resume owner. */
       retainedCustody?: HostCodexCustody;
+      completeRetainedRuntimeBundle?(executable: FrozenHostCodexExecutable): void;
       /** Native history retains its original model-keyed binding independently of command settings. */
       retainedAccountBinding?: AccountBinding;
       /** Completed history is not a current inference allowlist. */
@@ -169,8 +175,12 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       runtime.hostId !== expected.hostId ||
       runtime.runtimeContractRevision !== expected.runtimeContractRevision ||
       runtime.targetId !== expected.binding.execution.targetId ||
-      runtime.targetRevision !== expected.binding.execution.targetRevision ||
-      (executable && runtime.executableSha256 !== executable.sha256)
+      (runtime.targetRevision !== expected.binding.execution.targetRevision &&
+        !runtime.compatibleTargetRevisions?.includes(expected.binding.execution.targetRevision)) ||
+      (executable &&
+        (runtime.executableSha256 !== executable.sha256 ||
+          (runtime.codeModeHostSha256 !== undefined &&
+            runtime.codeModeHostSha256 !== executable.custodySnapshot().codeModeHost?.sha256)))
     )
       throw unavailable();
     return runtime;
@@ -241,7 +251,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         this.owners.retainedAccountBinding ??
         this.owners.loadProfiles().resolve(expected.binding.account.accountId, ownedProfile.model);
       const keyAuthority = api
-        ? openAIAccountKeyAuthority(authBinding, this.owners.loadProfiles())
+        ? openAIAccountKeyAuthority(authBinding, this.owners.loadProfiles(), { consumer: 'host' })
         : undefined;
       const login = api
         ? retained
@@ -267,7 +277,17 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       const executable = retained
         ? FrozenHostCodexExecutable.reopen(retained.executable)
         : FrozenHostCodexExecutable.capture(observed.executablePath, login.privateHome);
+      if (retained && executable.companionUpgradePlan()) {
+        if (!this.owners.completeRetainedRuntimeBundle) throw unavailable();
+        this.owners.completeRetainedRuntimeBundle(executable);
+        this.assertSync(expected, undefined, executable);
+      }
       if (executable.sha256 !== observed.executableSha256) throw unavailable();
+      if (
+        observed.codeModeHostSha256 !== undefined &&
+        executable.custodySnapshot().codeModeHost?.sha256 !== observed.codeModeHostSha256
+      )
+        throw unavailable();
       const launch =
         this.owners.launch ??
         ((home, selected) =>

@@ -494,4 +494,33 @@ export class OpenAIAccountEnrollment {
   resolveKey(id: string, signal: AbortSignal) {
     return this.withVerifiedCredential(id, signal, async (key) => key);
   }
+  /** Canonical host custody, independent of live sandbox replica availability. */
+  resolveHostKey(id: string, signal: AbortSignal): Promise<string> {
+    return this.options.gate(async () => {
+      signal.throwIfAborted();
+      const row = this.options.store.account(id);
+      if (
+        !row ||
+        row.phase !== 'ready' ||
+        !row.provider ||
+        row.controllerBinding !== this.controllerBinding() ||
+        row.provider.workspace !== this.options.workspace
+      )
+        throw new Error('OpenAI enrolled account needs attention');
+      const key = await this.options.keychain.read(
+        openAIEnrollmentCredentialReference(row.operationId),
+        signal,
+      );
+      signal.throwIfAborted();
+      if (
+        key.version !== row.operationId ||
+        key.managed !== true ||
+        !key.value.trim() ||
+        !isDeepStrictEqual(this.options.store.account(id), row) ||
+        row.controllerBinding !== this.controllerBinding()
+      )
+        throw new Error('OpenAI enrolled account needs attention');
+      return key.value;
+    });
+  }
 }

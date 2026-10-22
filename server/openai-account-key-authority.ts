@@ -13,6 +13,7 @@ import { openAIKeyResourceBindings } from './openai-key-operation-store.js';
 export function openAIAccountKeyAuthority(
   binding: AccountBinding,
   profiles = loadAccountProfiles(),
+  options?: { consumer: 'host' },
 ) {
   const profile = profiles.apiRoutingProfile(binding);
   const runtime = getConnectionsRuntime();
@@ -41,9 +42,32 @@ export function openAIAccountKeyAuthority(
     if (manager && !manager.manages(binding.accountId))
       throw Error('OpenAI account controller changed');
   }
+  async function hostKey(signal: AbortSignal): Promise<string> {
+    signal.throwIfAborted();
+    assertCurrent();
+    // A managed credential never falls back to a raw Keychain lookup.
+    const key = manager
+      ? await manager.resolveHostKey(binding.accountId, signal)
+      : runtime?.assertOpenAIKeyReady
+        ? await runtime.service.withCredentialMutation(async () => {
+            signal.throwIfAborted();
+            assertCurrent();
+            await runtime.assertOpenAIKeyReady!(binding.accountId, signal);
+            return credentials.resolve(profile.credentialRef);
+          })
+        : await credentials.resolve(profile.credentialRef);
+    signal.throwIfAborted();
+    assertCurrent();
+    if (!key.trim()) throw Error('OpenAI account credential unavailable');
+    return key;
+  }
   return {
     /** Gateway consumers check retained custody without copying the host key. */
     async assertReady(signal: AbortSignal): Promise<void> {
+      if (options?.consumer === 'host') {
+        await hostKey(signal);
+        return;
+      }
       signal.throwIfAborted();
       assertCurrent();
       if (runtime?.assertOpenAIKeyReady) {
@@ -60,6 +84,7 @@ export function openAIAccountKeyAuthority(
     },
     async resolveKey(accountId: string, signal: AbortSignal): Promise<string> {
       if (accountId !== binding.accountId) throw Error('OpenAI account changed');
+      if (options?.consumer === 'host') return hostKey(signal);
       signal.throwIfAborted();
       assertCurrent();
       const key = manager

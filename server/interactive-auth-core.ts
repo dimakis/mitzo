@@ -1,4 +1,4 @@
-import { SignJWT, jwtVerify } from 'jose';
+import { SignJWT, jwtVerify, decodeJwt } from 'jose';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Request } from 'express';
 
@@ -81,6 +81,7 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
   const revokedSessions = new Map<string, number>();
   let revocationStore: AuthRevocationStore | undefined;
   const activeSessions = new Map<string, Set<AuthInvalidationListener>>();
+  const authenticatedOperators = new Map<string, AuthSession>();
   const MAX_TIMER_DELAY_MS = 2_147_000_000;
 
   async function login(passphrase: string): Promise<string | null> {
@@ -143,7 +144,16 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
   async function authenticateToken(token: string): Promise<AuthSession | null> {
     try {
       const session = await verifyLogoutToken(token);
-      return session && !isSessionRevoked(session) ? session : null;
+      if (!session || isSessionRevoked(session)) return null;
+      for (const [id, saved] of authenticatedOperators)
+        if (saved.expiresAt <= Date.now()) authenticatedOperators.delete(id);
+      // Classification follows successful signature/revocation verification.
+      // A legacy token accepted by ordinary auth must not expand a different
+      // signing realm into cross-login primary-operator authority.
+      const claims = decodeJwt(token);
+      if (config.realm || (claims.iss === undefined && claims.aud === undefined))
+        authenticatedOperators.set(session.id, session);
+      return session;
     } catch {
       return null;
     }
@@ -318,6 +328,11 @@ export function createInteractiveAuth(input: InteractiveAuthConfig) {
       for (const [id, expiresAt] of revokedSessions) store.revokeAuthSession({ id, expiresAt });
     },
     hasPersistentRevocationAuthority: () => revocationStore !== undefined,
+    /** Only the verified `user` subject in this factory's signing realm. */
+    isAuthenticatedOperatorSessionId: (id: string) => {
+      const session = authenticatedOperators.get(id);
+      return !!session && session.expiresAt > Date.now() && !isSessionRevoked(session);
+    },
     login,
     verifyPassphrase,
     authenticateToken,

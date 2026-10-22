@@ -44,9 +44,15 @@ export async function configureApplicationReviewTarget(root: string, fresh: bool
     const { ordinaryLocalCodexHostContractRevision } =
       await import('../../ordinary-local-codex-host-runtime.js');
     await writeFile(executable, bytes, { mode: 0o755 });
+    await writeFile(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
     await writeFile(
       nativePath,
-      JSON.stringify({ version: 1, executablePath: executable, executableSha256: sha256 }),
+      JSON.stringify({
+        version: 2,
+        executablePath: executable,
+        executableSha256: sha256,
+        codeModeHostSha256: sha256,
+      }),
       { mode: 0o600 },
     );
     await writeFile(
@@ -56,7 +62,7 @@ export async function configureApplicationReviewTarget(root: string, fresh: bool
         targetId: 'offline-observation',
         label: 'Offline observation',
         hostId: hostname(),
-        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256),
+        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, sha256),
       }),
       { mode: 0o600 },
     );
