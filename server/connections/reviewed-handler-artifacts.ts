@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.551-durable-receipt-handoff';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.552-pdf-chat-import';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../frontend/src/lib/constants.ts':
+    'cd8ff3b6e0624b6c01652aedba30fa03710fcee433029895eec87c6fa88ec9c3',
+  '../../frontend/src/lib/pdf-to-images.ts':
+    '5856e80c6cb79e4318766e1e7f515ec2e111fe0a1349e3a82e88d7531de39e92',
   '../host-codex-continuity.ts': 'e35d7bb97c14d57b152630741dd8576d914799e974f50e06d5c54a2eeb614e88',
   '../../packages/protocol/src/ordinary-command-timeouts.ts':
     'ff8b5788ce0d3504d4b0ec497f027a2e1b8e4a1cc0b4f8eb0b5ed8cf9454498a',
@@ -499,7 +503,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/CompactionMarker.tsx':
     '46cdcf5b79952216b2a134a47a1605d7e9c7872377dab8505779366f6955c173',
   '../../frontend/src/components/SessionResourcesDialog.tsx':
-    'b9aab7e260578927a0582296440038fcb9b7a9d14a847c11559ac1dcf2bfb3a3',
+    'ba19df25f11d2ddcab34c8e8dfcd7716089a11787e5d8eac4b1be8680c858f05',
   '../../frontend/src/components/SessionAccess.tsx':
     'ea432fe32be3cd61aedc2d4fd8035950e2a3f0eda949733356b22512b9d9db33',
   '../../frontend/src/components/SessionBanner.tsx':
@@ -563,9 +567,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    '5d45e214886c01c1cb39023981ffaca95d0e55673e0fb6fa66f09c3146eb1251',
+    '1bf2180fa56c081ea7b91d8eb94b3af38c34a2d5ef353e7e80bc27a2a3f803e7',
   '../../frontend/src/components/ComposerTools.tsx':
-    '932d2f492cb6f82d8bd5fe45223ac61386390774249e73c2d64b649a8419cd6a',
+    'f939155993b0783c1a231a693de30c13d9594ff558cacc27a23c17a781315245',
   '../../frontend/src/components/ContextPanel.tsx':
     'e64b65ff9dbb4e5d7e686f189f92c9105b18a8b8edf5433de772515c1d374107',
   '../../frontend/src/components/ResponsiveChatView.tsx':
@@ -597,7 +601,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/useBriefingChat.ts':
     'd0b124d3acf747c6a2605cdf23a7a0bfa59fc87d2aed1d3cd230e440d2c69996',
   '../../frontend/src/lib/chat-drafts.ts':
-    '0d497a601cc88f92c3d6ef28fd2f05dba28d9beb86f7c7398800c713f28a193a',
+    'afbd9d90269e8168450b29fc89404f7f84ccc7611d4e2f216baf210e90c5ed6a',
   '../../frontend/src/lib/chat-runtime-selection.ts':
     'b47f7b6cc1bd0d261c7c57560204a1e5d18edd72f58e34e7e9fd63eba1244de0',
   '../../frontend/src/lib/explicit-local-chat.ts':
@@ -918,7 +922,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-runtime-binding.ts':
     '074c03124322359a02795c7865a718205f80f8aa9fc6b4e0b5a8f43746d6ca4d',
   '../../packages/protocol/src/types.ts':
-    'c431dcf57377fc97ed38af3be33bee555cd4934bd9d250ee54ff285c9272f177',
+    'c2372bf36f2b869f3b2f0cb1f7bc15c0b24109957f1b1512a3bfe17e4f0fdf7f',
   '../repository-workspace-runtime.ts':
     'e1cb8bcd6240471fb9895121c683d76fee298f9a734c6c9cc34b1417aa4989eb',
   '../repository-workspace-router.ts':
@@ -1315,7 +1319,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/pages/NotificationsView.tsx':
     '1afed3130687c531b27802fcefad0c57cf5003c9e0ffe3ec382b40f7d79ac2a4',
   '../../frontend/vite.config.ts':
-    'd16fdd1ae58a1e47b00ffd3a34830e73dbb5a24bd78006cbe9a2f840f80310be',
+    '54659199fbb1fa9f61705435512ac1b3a30969df3f37a149fe551db3c6c7dbab',
   '../../frontend/production-bundle-evidence.ts':
     'b6a57cad11c1b602605f2b1407965e10122218082f17dfc8510c38b3a54f6759',
   '../../scripts/retain-production-bundle.mjs':

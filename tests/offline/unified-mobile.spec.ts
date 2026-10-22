@@ -601,7 +601,9 @@ test('motion: a wide mobile composer keeps inline actions accessible', async ({
   const tools = composer.locator('.composer-tools');
   await expect(tools).not.toHaveAttribute('inert');
   await expect(tools).not.toHaveAttribute('aria-hidden', 'true');
-  await expect(page.getByRole('button', { name: 'Attach image', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Attach images or PDF', exact: true }),
+  ).toBeVisible();
   const isolation = page.getByRole('button', { name: 'Worktree isolation', exact: true });
   await expect(isolation).toBeVisible();
   const isolated = await isolation.getAttribute('aria-pressed');
@@ -656,7 +658,9 @@ test('motion: a narrow desktop composer opens, closes, and follows container res
   await expect(toggle).toBeVisible();
   await expect(tools).toBeHidden();
   await toggle.click();
-  await expect(page.getByRole('button', { name: 'Attach image', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Attach images or PDF', exact: true }),
+  ).toBeVisible();
   await expect(draft).toHaveValue('Keep this container draft');
   await page.evaluate(() => {
     document.documentElement.dataset.theme = 'light';

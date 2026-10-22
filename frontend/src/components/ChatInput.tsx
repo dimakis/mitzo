@@ -39,6 +39,17 @@ import {
   consumeChatDraft,
 } from '../lib/chat-drafts';
 
+function attachmentPrompt(text: string, images: ImageAttachment[]): string {
+  const pages = images.flatMap((image, index) =>
+    image.name ? [`Attachment ${index + 1}: ${image.name.replace(/[\r\n]/g, ' ')}`] : [],
+  );
+  const prompt =
+    text || (pages.length ? 'Please read the attached PDF.' : 'What do you see in this image?');
+  return pages.length
+    ? `${prompt}\n\nPDF pages are attached as images in this order:\n${pages.join('\n')}`
+    : prompt;
+}
+
 export interface ChatInputDraftControl {
   storageKey: string | undefined;
   clear: () => void;
@@ -172,6 +183,12 @@ export function ChatInput({
   );
 
   const [images, setImages] = useState<ImageAttachment[]>(savedChatDraft?.images ?? []);
+  const [attachmentImport, setAttachmentImport] = useState<{
+    scope: number;
+    error?: string;
+    busy: boolean;
+  } | null>(null);
+  const importPending = useRef<{ scope: number } | null>(null);
   const [preview, setPreview] = useState<{
     image: ImageAttachment;
     sessionId: string | undefined;
@@ -363,6 +380,9 @@ export function ChatInput({
   }, []);
 
   const composerScope = latestDraft.current.scope;
+  const importing = attachmentImport?.scope === composerScope && attachmentImport.busy;
+  const attachmentError =
+    attachmentImport?.scope === composerScope ? attachmentImport.error : undefined;
   const cancelRecording = voice?.cancelRecording;
   useEffect(
     () => () => {
@@ -448,7 +468,7 @@ export function ChatInput({
         }
       };
       const sent = onSend(
-        payload.text,
+        attachmentPrompt(payload.text, payload.images),
         payload.images.length ? payload.images : undefined,
         payload.contextBlocks.length ? payload.contextBlocks : undefined,
         onDelivery,
@@ -540,6 +560,7 @@ export function ChatInput({
   }
 
   function handleSend() {
+    if (importPending.current?.scope === composerScope) return;
     if (
       previewOpen ||
       sendGuard.current ||
@@ -553,7 +574,11 @@ export function ChatInput({
     sendGuard.current = true;
     if (draftStorageKey !== undefined) flushDraft();
     const sent = sendOrdinary({
-      text: trimmed || 'What do you see in this image?',
+      text:
+        trimmed ||
+        (images.some((image) => image.name)
+          ? 'Please read the attached PDF.'
+          : 'What do you see in this image?'),
       images: [...images],
       contextBlocks: [...activeContextBlocks],
     });
@@ -609,62 +634,65 @@ export function ChatInput({
     }
   }
 
-  async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    if (textOnly) return;
-    const files = e.target.files;
-    if (!files) return;
-
-    const remaining = MAX_IMAGE_ATTACHMENTS - images.length;
-    const toProcess = Array.from(files).slice(0, remaining);
-    const ownerScope = latestDraft.current.scope;
-
-    for (const file of toProcess) {
-      try {
-        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
-        const attachment = await resizeImage(file);
-        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
+  async function importFiles(files: File[]) {
+    if (textOnly || importPending.current?.scope === composerScope) return;
+    const operation = { scope: composerScope };
+    importPending.current = operation;
+    setAttachmentImport({ scope: composerScope, busy: true });
+    const isCurrent = () =>
+      mounted.current &&
+      latestDraft.current.scope === operation.scope &&
+      importPending.current === operation;
+    let remaining = MAX_IMAGE_ATTACHMENTS - images.length;
+    try {
+      for (const file of files) {
+        if (!isCurrent()) return;
+        if (remaining <= 0)
+          throw new Error(
+            `Up to ${MAX_IMAGE_ATTACHMENTS} images or PDF pages can be attached per message.`,
+          );
+        const attachments =
+          file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+            ? await (await import('../lib/pdf-to-images')).pdfToImages(file, remaining)
+            : [await resizeImage(file)];
+        if (!isCurrent()) return;
+        remaining -= attachments.length;
         setImages((prev) =>
-          mounted.current &&
-          latestDraft.current.scope === ownerScope &&
-          prev.length < MAX_IMAGE_ATTACHMENTS
-            ? [...prev, attachment]
+          mounted.current && latestDraft.current.scope === operation.scope
+            ? [...prev, ...attachments]
             : prev,
         );
-      } catch {
-        // Image resize failed — skip this attachment silently
+      }
+    } catch (error: unknown) {
+      if (isCurrent())
+        setAttachmentImport({
+          scope: operation.scope,
+          busy: false,
+          error: error instanceof Error ? error.message : 'Could not import the attachment.',
+        });
+    } finally {
+      if (isCurrent()) {
+        importPending.current = null;
+        setAttachmentImport((state) =>
+          state?.scope === operation.scope ? { ...state, busy: false } : state,
+        );
+        if (fileInputRef.current) fileInputRef.current.value = '';
       }
     }
+  }
 
-    if (mounted.current && latestDraft.current.scope === ownerScope && fileInputRef.current)
-      fileInputRef.current.value = '';
+  async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    if (e.target.files) await importFiles(Array.from(e.target.files));
   }
 
   async function handlePaste(e: React.ClipboardEvent) {
     if (textOnly) return;
     const remaining = MAX_IMAGE_ATTACHMENTS - images.length;
     if (remaining <= 0) return;
-
     const files = extractImageFiles(e.clipboardData.items, remaining);
-    if (files.length === 0) return;
-
+    if (!files.length) return;
     e.preventDefault();
-    const ownerScope = latestDraft.current.scope;
-    for (const file of files) {
-      try {
-        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
-        const attachment = await resizeImage(file);
-        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
-        setImages((prev) =>
-          mounted.current &&
-          latestDraft.current.scope === ownerScope &&
-          prev.length < MAX_IMAGE_ATTACHMENTS
-            ? [...prev, attachment]
-            : prev,
-        );
-      } catch {
-        // Image resize failed — skip silently
-      }
-    }
+    await importFiles(files);
   }
 
   function removeImage(index: number) {
@@ -687,6 +715,7 @@ export function ChatInput({
       !latestDraft.current.images.includes(selected.image)
     )
       return;
+    if (selected.image.name) updated = { ...updated, name: selected.image.name };
     imageKeys.current.set(updated, imageKey(selected.image));
     setImages((draft) => draft.map((image) => (image === selected.image ? updated : image)));
     setPreview(null);
@@ -740,6 +769,7 @@ export function ChatInput({
     : null;
 
   function handleQueue() {
+    if (importPending.current?.scope === composerScope) return;
     if (
       boundedFirstCommand ||
       sendDisabledReason ||
@@ -752,14 +782,22 @@ export function ChatInput({
     if (!trimmed && images.length === 0) return;
     if (guardedConversation) {
       sendOrdinary({
-        text: trimmed || 'What do you see in this image?',
+        text:
+          trimmed ||
+          (images.some((image) => image.name)
+            ? 'Please read the attached PDF.'
+            : 'What do you see in this image?'),
         images: [...images],
         contextBlocks: [],
       });
       return;
     }
     const added = enqueue({
-      text: trimmed || 'What do you see in this image?',
+      text:
+        trimmed ||
+        (images.some((image) => image.name)
+          ? 'Please read the attached PDF.'
+          : 'What do you see in this image?'),
       images: [...images],
       contextBlocks: [...activeContextBlocks],
     });
@@ -775,6 +813,7 @@ export function ChatInput({
   }
 
   function editQueuedMessage(index: number) {
+    if (importPending.current?.scope === composerScope) return;
     const q = editQueued(index);
     if (!q) return;
     setText(q.text);
@@ -802,7 +841,7 @@ export function ChatInput({
     const retained = restoreRejected(q);
     let settled = false;
     onInterrupt(
-      q.text,
+      attachmentPrompt(q.text, q.images),
       q.images.length > 0 ? q.images : undefined,
       q.contextBlocks.length > 0 ? q.contextBlocks : undefined,
       (status) => {
@@ -815,6 +854,7 @@ export function ChatInput({
   }
 
   function handleInterrupt() {
+    if (importPending.current?.scope === composerScope) return;
     if (
       boundedFirstCommand ||
       previewOpen ||
@@ -832,7 +872,7 @@ export function ChatInput({
     interruptPending.current = pending;
     const submitted = latestDraft.current;
     onInterrupt(
-      trimmed || 'What do you see in this image?',
+      attachmentPrompt(trimmed, images),
       images.length > 0 ? images : undefined,
       activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
       (status) => {
@@ -869,6 +909,17 @@ export function ChatInput({
             : 'Draft saved on this device'}
         </p>
       )}
+      {attachmentError && (
+        <p className="chat-draft-save-status" role="alert">
+          {attachmentError}
+        </p>
+      )}
+      {importing && (
+        <p className="chat-draft-save-status" role="status">
+          Importing attachment… PDFs become page images (up to {MAX_IMAGE_ATTACHMENTS} pages per
+          message).
+        </p>
+      )}
       {images.length > 0 && (
         <div className="chat-input-previews">
           {images.map((image, index) => (
@@ -876,13 +927,16 @@ export function ChatInput({
               <button
                 type="button"
                 className="chat-input-preview-open"
-                aria-label={`Preview attachment ${index + 1}`}
+                aria-label={
+                  image.name ? `Preview ${image.name}` : `Preview attachment ${index + 1}`
+                }
+                title={image.name}
                 onClick={(event) => {
                   event.currentTarget.focus();
                   previewImage(image);
                 }}
               >
-                <img src={image.preview} alt={`Attachment ${index + 1}`} />
+                <img src={image.preview} alt={image.name ?? `Attachment ${index + 1}`} />
               </button>
               <button
                 type="button"
@@ -932,7 +986,7 @@ export function ChatInput({
           {onInterrupt && !boundedFirstCommand && (
             <button
               className="chat-input-queued-btn chat-input-queued-btn--fire"
-              disabled={!!sendDisabledReason}
+              disabled={!!sendDisabledReason || importing}
               onClick={() => fireQueuedAsInterrupt(i)}
               title={running ? 'Send now (interrupt)' : 'Send now'}
             >
@@ -1003,7 +1057,7 @@ export function ChatInput({
               commandsExpanded={showSlashPicker}
               commandsDisabled={boundedFirstCommand || guardedConversation || textOnly}
               onAttach={() => fileInputRef.current?.click()}
-              attachmentDisabled={textOnly || images.length >= MAX_IMAGE_ATTACHMENTS}
+              attachmentDisabled={textOnly || importing || images.length >= MAX_IMAGE_ATTACHMENTS}
               onDismiss={() => textareaRef.current?.focus()}
               isolation={isolation}
               onIsolationChange={onIsolationChange}
@@ -1014,9 +1068,8 @@ export function ChatInput({
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/gif,image/webp"
+              accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,.pdf"
               multiple
-              capture="environment"
               onChange={handleFileChange}
               className="sr-only"
             />
@@ -1077,7 +1130,7 @@ export function ChatInput({
                   <button
                     className="chat-input-btn chat-input-btn--interrupt"
                     aria-label="Interrupt and send now"
-                    disabled={!!sendDisabledReason}
+                    disabled={!!sendDisabledReason || importing}
                     onClick={handleInterrupt}
                     title="Interrupt — send now, mid-thinking"
                   >
@@ -1088,7 +1141,7 @@ export function ChatInput({
                   <button
                     className="chat-input-btn chat-input-btn--queue"
                     aria-label="Queue message"
-                    disabled={!!sendDisabledReason}
+                    disabled={!!sendDisabledReason || importing}
                     onClick={handleQueue}
                     title="Queue — send after current turn"
                   >
@@ -1109,7 +1162,7 @@ export function ChatInput({
                 className={`chat-input-btn chat-input-btn--send${sendLabel === 'Start session' ? ' chat-input-btn--start' : ''}`}
                 onClick={handleSend}
                 aria-label={sendLabel}
-                disabled={!canSend || !!sendDisabledReason}
+                disabled={!canSend || !!sendDisabledReason || importing}
               >
                 <UiIcon name="sendPrompt" />
               </button>
