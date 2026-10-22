@@ -1,13 +1,14 @@
 import { execFile } from 'node:child_process';
 import { lstat, realpath } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
+import { MAX_REPOSITORY_CHECKOUT_BYTES } from './github-repository-source.js';
 
 // Python provides openat on supported hosts. Keep the asset in the compiled module.
 // Request data travels over stdin; it never becomes Python source or shell input.
 const helper = String.raw`
 import json, os, stat, sys
 
-MAX_BYTES = 128 * 1024 * 1024
+MAX_BYTES = ${MAX_REPOSITORY_CHECKOUT_BYTES}
 MAX_ENTRIES = 100000
 DIRECTORY_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
@@ -47,6 +48,8 @@ def execute(request):
             raise RuntimeError('Repository task copy identity changed')
         if parent_info.st_mode & 0o077:
             raise RuntimeError('Repository task copy requires a private canonical container')
+        if os.fstatvfs(parent).f_bavail * os.fstatvfs(parent).f_frsize < MAX_BYTES + 2 * 1024 * 1024 * 1024:
+            raise RuntimeError('Not enough free space for the repository checkout and dependencies; free at least 2 GiB and retry')
         name = request['name']
         if not name or name in ('.', '..') or '/' in name:
             raise RuntimeError('Invalid repository copy destination')

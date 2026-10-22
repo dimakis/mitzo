@@ -87,6 +87,13 @@ it('refuses an existing destination and preserves its files', async () => {
   expect(await readFile(join(f.destination, 'owned.txt'), 'utf8')).toBe('retained work');
   await expect(access(join(f.destination, 'file.txt'))).rejects.toThrow();
 });
+it('refuses insufficient destination space before creating a task directory', async () => {
+  const f = await fixture();
+  seam.transform = (helper) =>
+    helper.replace('os.fstatvfs(parent).f_bavail * os.fstatvfs(parent).f_frsize', '0');
+  await expect(copyRepositoryTaskCheckout(f.source, f.destination)).rejects.toThrow('space');
+  await expect(access(f.destination)).rejects.toThrow();
+});
 it('rejects a destination outside a private canonical container before creating it', async () => {
   const f = await fixture();
   await chmod(f.parent, 0o755);
@@ -198,7 +205,7 @@ it('refuses a source FIFO without waiting for a writer', async () => {
 });
 
 it.each([
-  ['MAX_BYTES = 128 * 1024 * 1024', 'MAX_BYTES = 65536'],
+  ['MAX_BYTES = 1073741824', 'MAX_BYTES = 65536'],
   ['MAX_ENTRIES = 100000', 'MAX_ENTRIES = 2'],
 ])('enforces streamed copy bounds (%s)', async (setting, reduced) => {
   const f = await fixture();

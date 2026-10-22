@@ -52,6 +52,9 @@ import {
   GithubRepositoryPreviewSchema,
   inspectGithubRepositorySource,
   prepareGithubRepositorySource,
+  MAX_REPOSITORY_CHECKOUT_BYTES,
+  RepositorySourceLimitError,
+  RepositorySpaceError,
   type GithubRepositoryPreview,
 } from './github-repository-source.js';
 
@@ -76,6 +79,7 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   previewIntentFingerprint?: string;
   sourceDigest?: string;
   sourceReleased?: boolean;
+  preparationFailure?: 'repository_source_limit' | 'repository_space';
   conversationId?: string;
   directory?: string;
   sandbox?: boolean;
@@ -100,6 +104,7 @@ export interface RepositoryChatPreparation extends PublicRepositoryWorkspace {
   model: string;
   prompt: string;
   setupUrl: string;
+  failure?: { code: 'repository_source_limit' | 'repository_space'; message: string };
 }
 export type PublicRepositoryWorkspace = Omit<
   Pick<
@@ -211,7 +216,7 @@ export async function repositorySourceDigest(directory: string): Promise<string>
       if (before.isDirectory()) await walk(child, relative + '/');
       else if (before.isFile()) {
         bytes += before.size;
-        if (bytes > 128 * 1024 * 1024)
+        if (bytes > MAX_REPOSITORY_CHECKOUT_BYTES)
           throw new Error('Repository source exceeds supported bounds');
         const file = await open(child, constants.O_RDONLY | constants.O_NOFOLLOW);
         try {
@@ -765,6 +770,17 @@ export class RepositoryWorkspaces {
       model: record.binding.model,
       prompt: record.handoff.prompt,
       setupUrl: `/chat?repositoryPreparation=${record.id}`,
+      ...(record.state === 'failed' && record.preparationFailure
+        ? {
+            failure: {
+              code: record.preparationFailure,
+              message:
+                record.preparationFailure === 'repository_space'
+                  ? new RepositorySpaceError().message
+                  : new RepositorySourceLimitError().message,
+            },
+          }
+        : {}),
     };
   }
   prepareChat(
@@ -1269,6 +1285,9 @@ export class RepositoryWorkspaces {
         return publicRepositoryWorkspace(record);
       } catch (error) {
         record.state = 'failed';
+        if (error instanceof RepositorySpaceError) record.preparationFailure = 'repository_space';
+        else if (error instanceof RepositorySourceLimitError)
+          record.preparationFailure = 'repository_source_limit';
         const ownsFailure = this.db
           .transaction(() => {
             return (
