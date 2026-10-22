@@ -144,3 +144,14 @@ it('retains ordinary OpenShell identity across metadata hydration and continuati
   expect(result.current.continuation).toBe(true);
   expect(result.current.reason).toBeUndefined();
 });
+
+it('negotiates default workspace support without adding an unsupported cross-origin header', async () => {
+  fixture();
+  const { result } = renderHook(() => useExplicitLocalChat('draft', null, null, true));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  const call = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([url]) => String(url).includes('/capabilities'))!;
+  expect(call[0]).toBe('/api/chat/runtime/capabilities?workspaceDefaults=1');
+  expect(new Headers(call[1]?.headers).has('X-Mitzo-Workspace-Defaults')).toBe(false);
+});

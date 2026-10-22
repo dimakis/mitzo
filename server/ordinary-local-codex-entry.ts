@@ -350,7 +350,7 @@ function createOwnedCodexEntryRouter(
       }
       const response = {
         ...result,
-        ...(req.headers['x-mitzo-workspace-defaults'] === '1'
+        ...(req.query?.workspaceDefaults === '1'
           ? {
               defaultOpenShellWorkspace: result.routes.some(
                 (route) =>

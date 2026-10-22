@@ -154,8 +154,7 @@ export function useExplicitLocalChat(
     setError('');
     void Promise.resolve()
       .then(async () => {
-        const response = await apiFetch('/api/chat/runtime/capabilities', {
-          headers: { 'X-Mitzo-Workspace-Defaults': '1' },
+        const response = await apiFetch('/api/chat/runtime/capabilities?workspaceDefaults=1', {
           signal: controller.signal,
         });
         return response.status === 404

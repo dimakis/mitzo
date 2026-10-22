@@ -276,7 +276,7 @@ function setup(
   }
   saveChatDraft(draft);
   vi.mocked(apiFetch).mockImplementation(async (url) => {
-    if (url === '/api/chat/runtime/capabilities')
+    if (url === '/api/chat/runtime/capabilities?workspaceDefaults=1')
       return disabled
         ? new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 })
         : new Response(JSON.stringify(fixture));
@@ -945,7 +945,7 @@ for (const [name, Screen] of [
           });
         return new Response(JSON.stringify(metadata));
       }
-      if (url === '/api/chat/runtime/capabilities')
+      if (url === '/api/chat/runtime/capabilities?workspaceDefaults=1')
         return new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 });
       if (String(url).endsWith('/symposium/status'))
         return new Response(JSON.stringify({ sessionId: 'existing', config: null, seats: [] }));

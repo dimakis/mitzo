@@ -696,7 +696,7 @@ for (const theme of ['dark', 'light'] as const) {
           },
         };
         if (path === '/api/chat/runtime/capabilities')
-          expect(route.request().headers()['x-mitzo-workspace-defaults']).toBe('1');
+          expect(url.searchParams.get('workspaceDefaults')).toBe('1');
         return route.fulfill({ json: fixtures[path] ?? [] });
       }
       if (/\.(png|svg)$/.test(path)) {

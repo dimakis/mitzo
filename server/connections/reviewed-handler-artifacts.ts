@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.537-default-openshell-type-contract';
+  'v1.0.538-default-openshell-mobile-negotiation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -579,7 +579,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
     '32660ff240dd5f62c2a8ab976941553a84b7f3809ed3455ffe4e64ccfcd2613d',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
-    '2db32ebe9f73d48b9d710492136cbd71612451070a8cd11113f6362b76cbf69f',
+    'b7f0147f39e820a23d76272aac173f6595fef8cc997f1a19bce8be0ff25949c0',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '4791a0f7870378d7353134e2a93972f1f7b5ef8197f20cfdc7304d0fd8adfb75',
   '../../frontend/src/lib/launch-draft-delivery.ts':
@@ -611,7 +611,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     '9e383cf9c96a3cb8ea5bfe732c7ca7c4070cc52c051d80d9d3246fa718a28a0c',
   '../ordinary-local-codex-entry.ts':
-    'f4fb045ad27e8f7d7a7ff869118a807c479de492ac60ac95c5342cb6d5881d54',
+    '3b7514b52d14d177b592fae5d24e224b098c5455792fc30f862b1baf672b9142',
   '../ordinary-local-codex-metadata.ts':
     '0ccfe315aa4bd8b5360608a3a588c3c0545c3fb7a34b3673c9db0156c610283a',
   '../ordinary-repository-startup.ts':

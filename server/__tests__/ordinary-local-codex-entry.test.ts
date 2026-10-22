@@ -337,9 +337,9 @@ const invoke = (
     const req = {
       method,
       url,
+      query: workspaceDefaults ? { workspaceDefaults: '1' } : {},
       headers: {
         'x-connection-id': 'entry-stream',
-        ...(workspaceDefaults ? { 'x-mitzo-workspace-defaults': '1' } : {}),
       },
       body,
     } as unknown as express.Request;
