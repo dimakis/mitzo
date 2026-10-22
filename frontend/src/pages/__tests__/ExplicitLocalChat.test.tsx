@@ -392,7 +392,7 @@ for (const [name, Screen] of [
         sendStatus: 'Local command retained. Review before retrying.',
       }),
     );
-    const recovery = await screen.findByRole('button', { name: 'Retry', exact: true });
+    const recovery = await screen.findByRole('button', { name: 'Retry' });
     expect(recovery.closest('.workspace-controls')).toBeNull();
     expect(recovery.closest('.conversation-composer')).toBeTruthy();
     expect(recovery).toBeEnabled();

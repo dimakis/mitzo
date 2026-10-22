@@ -31,7 +31,7 @@ it('keeps one short failure with Retry while preserving the edited draft and blo
   expect(screen.getAllByText('Something went wrong.')).toHaveLength(1);
   expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   fireEvent.change(input, { target: { value: 'Keep my later edits too' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Retry', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
   expect(retry).toHaveBeenCalledOnce();
   expect(send).not.toHaveBeenCalled();
   expect(input).toHaveValue('Keep my later edits too');
@@ -39,7 +39,7 @@ it('keeps one short failure with Retry while preserving the edited draft and blo
   view.rerender(
     <ChatInput {...props} sendDisabledAction={{ ...props.sendDisabledAction, disabled: true }} />,
   );
-  expect(screen.getByRole('button', { name: 'Retry', exact: true })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled();
 });
 it('keeps bounded running drafts and retained queues intact, exposes only Stop, and never drains at completion', async () => {
   localStorage.setItem(
