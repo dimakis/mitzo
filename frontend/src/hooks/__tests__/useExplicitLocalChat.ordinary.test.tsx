@@ -129,3 +129,18 @@ it('withholds a prior ordinary command surface immediately on navigation and ign
   expect(result.current.ordinaryWorkspaceId).toBeUndefined();
   expect(result.current.binding).toBeUndefined();
 });
+
+it('retains ordinary OpenShell identity across metadata hydration and continuation', async () => {
+  const f = fixture();
+  Object.assign(f.inventory.targets[0], { location: 'openshell', label: 'OpenShell' });
+  Object.assign(f.inventory.locations[0], { status: 'configured' });
+  Object.assign(f.metadata.runtimeBinding.execution, { location: 'openshell' });
+  f.metadata.runtimeCommandScope = 'conversation';
+  const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'shell-chat', true));
+  await waitFor(() => expect(result.current.metadataPending).toBe(false));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.ordinaryWorkspaceId).toBe(workspaceId);
+  expect(result.current.binding?.execution.location).toBe('openshell');
+  expect(result.current.continuation).toBe(true);
+  expect(result.current.reason).toBeUndefined();
+});

@@ -84,3 +84,20 @@ it('retains a missing identity, stale profile or oversized draft as an actionabl
   const inventory = { ...f.inventory, agentProfiles: [] };
   expect(prepareOrdinaryWorkspaceCommand(f.selection, inventory, content).request).toBeNull();
 });
+
+it('builds an ordinary OpenShell continuation from a configured route without a repository grant', () => {
+  const f = fixture();
+  Object.assign(f.inventory.targets[0], { location: 'openshell', label: 'OpenShell' });
+  Object.assign(f.inventory.locations[0], { status: 'configured' });
+  const selection = {
+    ...f.selection,
+    execution: { ...f.selection.execution, location: 'openshell' as const },
+  };
+  const result = prepareOrdinaryWorkspaceCommand(selection, f.inventory, content);
+  expect(result.request).toMatchObject({
+    version: 2,
+    runOn: 'openshell',
+    workspace: { kind: 'ordinary' },
+  });
+  expect(result.request).not.toHaveProperty('repositoryWorkspaceId');
+});

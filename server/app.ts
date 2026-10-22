@@ -3578,7 +3578,9 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
           !isAuthSessionCurrent(auth) ||
           custodianControllerClient ||
           custodianOwnerMode ||
-          process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1'
+          (eventStore.getSessionRuntimeBinding(meta.sessionId)?.execution.location === 'openshell'
+            ? process.env.MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED
+            : process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED) !== '1'
         )
           throw Error('Current ordinary operator unavailable');
         resolveTelosWorkCommandScope(

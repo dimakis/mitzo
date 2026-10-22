@@ -324,13 +324,22 @@ afterEach(() => {
   store.close();
   vi.unstubAllEnvs();
 });
-const invoke = (method: string, url: string, body: unknown, login: string | null = auth.id) =>
+const invoke = (
+  method: string,
+  url: string,
+  body: unknown,
+  login: string | null = auth.id,
+  workspaceDefaults = false,
+) =>
   new Promise<{ status: number; body: unknown }>((resolve, reject) => {
     let status = 200;
     const req = {
       method,
       url,
-      headers: { 'x-connection-id': 'entry-stream' },
+      headers: {
+        'x-connection-id': 'entry-stream',
+        ...(workspaceDefaults ? { 'x-mitzo-workspace-defaults': '1' } : {}),
+      },
       body,
     } as unknown as express.Request;
     const res = {
@@ -1356,7 +1365,9 @@ it('starts a fresh OpenShell chat through ordinary mgmt custody without selectin
     return { dispatched: true, sessionId: record.conversationId };
   });
   try {
-    const capabilities = await invoke('GET', '/capabilities', undefined);
+    const legacyCapabilities = await invoke('GET', '/capabilities', undefined);
+    expect(legacyCapabilities.body).not.toHaveProperty('defaultOpenShellWorkspace');
+    const capabilities = await invoke('GET', '/capabilities', undefined, auth.id, true);
     expect(capabilities.body).toMatchObject({ defaultOpenShellWorkspace: true });
     const accepted = await invoke('POST', '/send', request);
     expect(accepted.status).toBe(202);

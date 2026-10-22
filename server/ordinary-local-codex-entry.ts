@@ -242,7 +242,6 @@ export function ordinaryCodexCapabilities() {
     authority: 'configuration-only',
     defaultLocation: 'openshell',
     defaultLocalRepository: !!BASE_REPO && isAbsolute(BASE_REPO),
-    defaultOpenShellWorkspace: !!shell?.routes.length,
     capabilityRevision: createHash('sha256')
       .update(
         JSON.stringify([
@@ -328,7 +327,7 @@ function createOwnedCodexEntryRouter(
     next();
   });
   router.use(operatorAuthMiddleware);
-  router.get('/capabilities', (_req, res) => {
+  router.get('/capabilities', (req, res) => {
     try {
       const auth = res.locals.authSession as AuthSession | undefined;
       if (!auth || auth.expiresAt <= Date.now())
@@ -351,6 +350,16 @@ function createOwnedCodexEntryRouter(
       }
       const response = {
         ...result,
+        ...(req.headers['x-mitzo-workspace-defaults'] === '1'
+          ? {
+              defaultOpenShellWorkspace: result.routes.some(
+                (route) =>
+                  'location' in route &&
+                  route.location === 'openshell' &&
+                  route.harness === 'codex',
+              ),
+            }
+          : {}),
         agentProfiles,
         routes: result.routes.map((route) => {
           const location = 'location' in route ? route.location : 'local';

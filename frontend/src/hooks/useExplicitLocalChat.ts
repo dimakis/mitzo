@@ -155,6 +155,7 @@ export function useExplicitLocalChat(
     void Promise.resolve()
       .then(async () => {
         const response = await apiFetch('/api/chat/runtime/capabilities', {
+          headers: { 'X-Mitzo-Workspace-Defaults': '1' },
           signal: controller.signal,
         });
         return response.status === 404
@@ -253,8 +254,10 @@ export function useExplicitLocalChat(
             (ordinaryWorkspaceId !== undefined && body.repositoryWorkspaceId != null) ||
             parsed?.version !== 2 ||
             parsed.harness.implementation !== 'codex' ||
-            parsed.execution.location !== 'local' ||
-            parsed.account.provider !== 'openai-codex')
+            !(parsed.execution.location === 'local'
+              ? parsed.account.provider === 'openai-codex'
+              : ordinaryWorkspaceId !== undefined &&
+                ['openai', 'openai-codex'].includes(parsed.account.provider)))
         )
           throw Error('Ordinary conversation identity unavailable');
         const repository = RepositoryContextSchema.safeParse(body.repositoryContext);
