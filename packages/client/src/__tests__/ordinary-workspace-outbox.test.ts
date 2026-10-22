@@ -85,6 +85,43 @@ it('retains and retries a prepared repository first command with its exact local
   expect(restored.fetch.mock.calls[0][0]).toBe('/api/chat/local-codex/send');
   expect(JSON.parse(restored.fetch.mock.calls[0][1].body)).toEqual(request);
 });
+it.each(['prepared', 'first', 'continue'] as const)(
+  'admits %s for a different conversation while preserving same-session exclusion',
+  async (phase) => {
+    const f = fixture(
+      JSON.stringify([
+        {
+          body: command,
+          scope: 1,
+          uncertain: true,
+          ordinaryDelivery: { version: 2, phase: 'first' },
+          localDraftId: 'older-draft',
+        },
+      ]),
+    );
+    const fresh = { ...command, sessionId: 'new-session', clientMsgId: 'new-first' };
+    const { version, workspace, sessionId, ...body } = fresh;
+    const request =
+      phase === 'prepared' ? { ...body, repositoryWorkspaceId: workspace.workspaceId } : fresh;
+    const delivery =
+      phase === 'prepared'
+        ? { version: 1 as const, phase: 'first' as const, sessionId }
+        : { version: 2 as const, phase };
+    expect(f.outbox.enqueue(request, 2, undefined, delivery)).toBe(true);
+    await vi.waitFor(() => expect(f.fetch).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(f.notify).toHaveBeenCalledWith(
+        expect.objectContaining({ state: 'uncertain', clientMsgId: 'new-first' }),
+      ),
+    );
+    expect(
+      f.outbox.enqueue({ ...request, clientMsgId: 'replacement' }, 3, 'another-draft', delivery),
+    ).toBe(false);
+    expect(f.saved().map((entry: { body: unknown }) => entry.body)).toEqual([command, request]);
+    f.outbox.stop();
+  },
+);
+
 it('a repository first-command acknowledgement cannot consume another prepared chat identity', async () => {
   const { version, workspace, sessionId, ...body } = command;
   const request = { ...body, repositoryWorkspaceId: workspace.workspaceId };

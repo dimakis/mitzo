@@ -1,6 +1,7 @@
 import {
   OrdinaryCommandDeliverySchema,
   parseLocalCommandDelivery,
+  localCommandSessionId,
   type OrdinaryCommandDelivery,
 } from './local-command-delivery.js';
 import {
@@ -51,7 +52,7 @@ export class SendOutbox {
   private activeAbort?: AbortController;
   private readonly key: string;
   private invalidLocalRecovery = false;
-  private selectedLocalDraft: string | null | undefined;
+  private selectedLocalScope: { draftId: string } | { sessionId: string } | null | undefined;
   private localReady: Entry[] = [];
   private activeLocalEntry?: Entry;
 
@@ -153,18 +154,40 @@ export class SendOutbox {
     void this.pump();
   }
 
-  private selectedLocalEntry(): Entry | undefined {
-    return this.selectedLocalDraft === undefined
-      ? this.entries[0]
-      : this.selectedLocalDraft === null
-        ? undefined
-        : this.entries.find((entry) => entry.localDraftId === this.selectedLocalDraft);
+  private localSession(entry: Entry): string | undefined {
+    return localCommandSessionId(
+      entry.body,
+      entry.ordinaryDelivery?.version === 1
+        ? entry.ordinaryDelivery.sessionId
+        : entry.localReceipt?.sessionId,
+    );
   }
 
-  /** Change the visible draft owner without discarding or dispatching another intent. */
+  private selectedLocalEntry(): Entry | undefined {
+    const scope = this.selectedLocalScope;
+    return scope === undefined
+      ? this.entries[0]
+      : scope === null
+        ? undefined
+        : this.entries.find((entry) =>
+            'draftId' in scope
+              ? entry.localDraftId === scope.draftId
+              : this.localSession(entry) === scope.sessionId,
+          );
+  }
+
+  /** Change the visible owner without discarding or dispatching another intent. */
   selectLocalDraft(draftId: string | null): void {
+    this.selectLocalScope(draftId === null ? null : { draftId });
+  }
+
+  selectLocalSession(sessionId: string): void {
+    this.selectLocalScope({ sessionId });
+  }
+
+  private selectLocalScope(scope: typeof this.selectedLocalScope): void {
     if (!this.config.localFirstCommand || this.invalidLocalRecovery) return;
-    this.selectedLocalDraft = draftId;
+    this.selectedLocalScope = scope;
     const entry = this.selectedLocalEntry();
     if (entry)
       this.notifyLocal(
@@ -173,7 +196,7 @@ export class SendOutbox {
           ? 'pending'
           : 'uncertain',
       );
-    else this.config.notify({ type: '_local_command_state', state: 'idle', draftId });
+    else this.config.notify({ type: '_local_command_state', state: 'idle' });
   }
 
   /** Deliberate recovery resubmits only the frozen request, never a rebuilt draft. */
@@ -211,14 +234,19 @@ export class SendOutbox {
     if (this.config.durableLaunches && body.sessionId !== null) return false;
     if (this.config.localFirstCommand) {
       if (localDraftId !== undefined && !/^\S{1,200}$/.test(localDraftId)) return false;
+      const sessionId = localCommandSessionId(
+        body,
+        ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : undefined,
+      );
       if (
         this.invalidLocalRecovery ||
         !this.active ||
         this.entries.some(
           (entry) =>
             entry.body.clientMsgId === body.clientMsgId ||
-            localDraftId === undefined ||
-            entry.localDraftId === localDraftId,
+            (!localDraftId && !sessionId) ||
+            (localDraftId !== undefined && entry.localDraftId === localDraftId) ||
+            (sessionId !== undefined && this.localSession(entry) === sessionId),
         )
       )
         return false;
@@ -251,7 +279,11 @@ export class SendOutbox {
       return false;
     }
     if (this.config.localFirstCommand) {
-      this.selectedLocalDraft = localDraftId;
+      this.selectedLocalScope = localDraftId
+        ? { draftId: localDraftId }
+        : this.localSession(entry)
+          ? { sessionId: this.localSession(entry)! }
+          : undefined;
       this.localReady.push(entry);
       this.notifyLocal(entry, 'pending');
     } else

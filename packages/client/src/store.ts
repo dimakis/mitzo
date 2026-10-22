@@ -1,5 +1,6 @@
 import {
   parseLocalCommandDelivery,
+  localCommandSessionId,
   OrdinaryCommandDeliverySchema,
   type OrdinaryCommandPhase,
   type OrdinaryCommandDelivery,
@@ -160,6 +161,7 @@ export interface MitzoStoreState {
   ): boolean;
   recoverLocalCommand(): boolean;
   selectLocalCommandDraft(draftId: string): void;
+  selectLocalCommandSession(sessionId: string): void;
   // Actions — chat
   dispatchMessages(action: MessagesAction): void;
   getConnectionId(): string | null;
@@ -334,7 +336,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     ? new SseConnection(options.sseConfig)
     : new MitzoConnection(options.wsConfig);
 
-  let localDraftScope: string | null | undefined;
+  let localCommandScope: { draftId: string } | { sessionId: string } | null | undefined;
   let visibleLocalCommandId: string | undefined;
   let reviewedAuthenticated = options.initiallyAuthenticated !== false;
   let reviewedSendScope = Date.now();
@@ -408,10 +410,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               });
             const locationLabel = request?.runOn === 'openshell' ? 'OpenShell' : 'Local';
             const visible =
-              localDraftScope == null
+              localCommandScope == null
                 ? visibleLocalCommandId === undefined ||
                   visibleLocalCommandId === request?.clientMsgId
-                : localDraftScope !== null && localDraftScope === event.originDraftId;
+                : 'draftId' in localCommandScope
+                  ? localCommandScope.draftId === event.originDraftId
+                  : localCommandScope.sessionId ===
+                    localCommandSessionId(
+                      request,
+                      ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : sessionId,
+                    );
             if (visible) {
               visibleLocalCommandId = request?.clientMsgId;
               store.setState({
@@ -926,20 +934,20 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         ? parserState.currentSessionId !== ordinaryDelivery.sessionId
         : 'sessionId' in frozen
           ? parserState.currentSessionId !== frozen.sessionId
-          : !!parserState.currentSessionId) ||
-      (store.getState().localCommand &&
-        store.getState().localCommand!.state !== 'consumed' &&
-        !(
-          opts.draftId &&
-          (localDraftScope === null ||
-            (store.getState().localCommand!.originDraftId &&
-              opts.draftId !== store.getState().localCommand!.originDraftId))
-        ))
+          : !!parserState.currentSessionId)
     )
       return false;
     if (frozen.payload.sourceSnapshots?.length && options.sendHandoff?.prepare(frozen) === false)
       return false;
-    localDraftScope = opts.draftId;
+    const sessionId = localCommandSessionId(
+      frozen,
+      ordinaryDelivery?.version === 1 ? ordinaryDelivery.sessionId : undefined,
+    );
+    localCommandScope = opts.draftId
+      ? { draftId: opts.draftId }
+      : sessionId
+        ? { sessionId }
+        : undefined;
     visibleLocalCommandId = frozen.clientMsgId;
     observeDelivery(frozen.clientMsgId, opts, 'send', 'local');
     const sent = localOutbox.enqueue(frozen, Date.now(), opts.draftId, ordinaryDelivery);
@@ -1118,7 +1126,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
-      localDraftScope = null;
+      localCommandScope = null;
       visibleLocalCommandId = undefined;
       ++launchGeneration;
       set({ pendingSession: null, pendingSessionSending: false });
@@ -1168,9 +1176,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       return sendOwnedLocalCommand(request, opts, { version: 2, phase });
     },
     selectLocalCommandDraft(draftId) {
-      localDraftScope = draftId;
+      localCommandScope = { draftId };
       visibleLocalCommandId = undefined;
       localOutbox?.selectLocalDraft(draftId);
+    },
+    selectLocalCommandSession(sessionId) {
+      localCommandScope = { sessionId };
+      visibleLocalCommandId = undefined;
+      localOutbox?.selectLocalSession(sessionId);
     },
     recoverLocalCommand() {
       return (

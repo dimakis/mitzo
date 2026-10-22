@@ -165,28 +165,88 @@ it.each([false, true])(
   },
 );
 
-it('delivers a prepared repository first command through the existing outbox without assigning or switching the already selected chat', async () => {
-  const { store, fetch, readStorage } = setup();
-  channel.id = 'prepared-sse';
-  await store.getState().switchSession('owned-session');
-  channel.send.mockClear();
-  const assigned = vi.fn();
-  expect(store.getState().sendLocalFirstCommand(request)).toBe(false);
-  expect(store.getState().sendPreparedRepositoryCommand(request, 'another-session')).toBe(false);
-  expect(
-    store
-      .getState()
-      .sendPreparedRepositoryCommand(request, 'owned-session', { onSessionAssigned: assigned }),
-  ).toBe(true);
-  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
-  expect(JSON.parse(fetch.mock.calls.find(([url]) => url === '/local/send')![1].body)).toEqual(
-    request,
-  );
-  expect(store.getState().sessions.active).toBe('owned-session');
-  expect(assigned).not.toHaveBeenCalled();
-  expect(channel.send.mock.calls.some(([body]) => body.type === 'switch_session')).toBe(false);
-  expect(readStorage()).toEqual([]);
-});
+it.each([false, true])(
+  'delivers a prepared repository first command independently of another retained draft: %s',
+  async (hasOlderAttempt) => {
+    const { store, fetch, readStorage } = setup(
+      hasOlderAttempt
+        ? JSON.stringify([
+            {
+              body: { ...request, clientMsgId: 'older-first' },
+              scope: 1,
+              uncertain: true,
+              localDraftId: 'older-draft',
+            },
+          ])
+        : null,
+    );
+    channel.id = 'prepared-sse';
+    await store.getState().switchSession('owned-session');
+    channel.send.mockClear();
+    const assigned = vi.fn();
+    expect(store.getState().sendLocalFirstCommand(request)).toBe(false);
+    expect(store.getState().sendPreparedRepositoryCommand(request, 'another-session')).toBe(false);
+    expect(
+      store
+        .getState()
+        .sendPreparedRepositoryCommand(request, 'owned-session', { onSessionAssigned: assigned }),
+    ).toBe(true);
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+    expect(JSON.parse(fetch.mock.calls.find(([url]) => url === '/local/send')![1].body)).toEqual(
+      request,
+    );
+    expect(store.getState().sessions.active).toBe('owned-session');
+    expect(assigned).not.toHaveBeenCalled();
+    expect(channel.send.mock.calls.some(([body]) => body.type === 'switch_session')).toBe(false);
+    expect(readStorage()).toHaveLength(hasOlderAttempt ? 1 : 0);
+  },
+);
+it.each(['first', 'continue'] as const)(
+  'delivers ordinary %s without a draft id behind a different retained conversation',
+  async (phase) => {
+    const { store, fetch, readStorage } = setup(
+      JSON.stringify([
+        {
+          body: { ...request, clientMsgId: 'older-first' },
+          scope: 1,
+          uncertain: true,
+          ordinaryDelivery: { version: 1, phase: 'first', sessionId: 'older-session' },
+        },
+      ]),
+    );
+    channel.id = 'ordinary-sse';
+    await store.getState().switchSession('owned-session');
+    const { repositoryWorkspaceId, ...body } = request;
+    const ordinary = {
+      ...body,
+      version: 2 as const,
+      sessionId: 'owned-session',
+      workspace: { kind: 'ordinary' as const, workspaceId: repositoryWorkspaceId },
+    };
+    fetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes('/commands/')
+          ? new Response(
+              JSON.stringify({
+                ok: true,
+                clientMsgId: ordinary.clientMsgId,
+                sessionId: ordinary.sessionId,
+                dispatched: true,
+                state: 'consumed',
+              }),
+              { status: 202 },
+            )
+          : new Response('[]'),
+      ),
+    );
+    expect(store.getState().sendOrdinaryWorkspaceCommand(ordinary, phase)).toBe(true);
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+    expect(readStorage()).toHaveLength(1);
+    expect(readStorage()[0].body.clientMsgId).toBe('older-first');
+    expect(fetch.mock.calls.filter(([url]) => url.includes('/commands/'))).toHaveLength(1);
+  },
+);
+
 it('binds exact initial Library sources to the durable command owner before admission and acknowledges assignment', async () => {
   const source = {
     kind: 'agent-library' as const,

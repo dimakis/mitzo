@@ -565,6 +565,30 @@ for (const [name, Screen] of [
     expect(legacySend).not.toHaveBeenCalled();
     expect(store.getState().sessions.active).toBe('bound-session');
   });
+  it(`${name}: an older draft cannot disable an existing conversation's initial send`, async () => {
+    const { store, ordinarySend } = setup(
+      Screen,
+      false,
+      false,
+      true,
+      false,
+      false,
+      undefined,
+      'prepared',
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    act(() =>
+      store.setState({
+        localCommand: { state: 'retained', originDraftId: 'older-draft' },
+        sendStatus: 'Local command retained. Review before retrying.',
+      }),
+    );
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(ordinarySend).toHaveBeenCalledOnce();
+    expect(ordinarySend.mock.calls[0][1]).toBe('first');
+  });
   it(`${name}: refuses malformed ordinary scope without repository or legacy send fallback`, async () => {
     const { ordinarySend, localSend, legacySend } = setup(
       Screen,
