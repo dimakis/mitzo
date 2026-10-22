@@ -237,6 +237,22 @@ export class OrdinaryWorkspaceCustody {
       throw Error('Ordinary workspace identity changed');
     return value;
   }
+  forOperation(operationId: string) {
+    z.uuid().parse(operationId);
+    const allocation = this.db
+      .prepare(
+        'SELECT workspace_id,fingerprint FROM ordinary_preparation_allocations WHERE operation_id=?',
+      )
+      .get(operationId) as { workspace_id: string; fingerprint: string } | undefined;
+    if (!allocation) return undefined;
+    const record = this.get(allocation.workspace_id);
+    if (
+      record.allocationOperationId !== operationId ||
+      record.preparationFingerprint !== allocation.fingerprint
+    )
+      throw Error('Ordinary allocation identity changed');
+    return record;
+  }
   forConversation(conversationId: string) {
     const row = this.db
       .prepare('SELECT id FROM ordinary_workspaces WHERE conversation_id=?')

@@ -521,3 +521,15 @@ it('refuses a changed logical sandbox path before claiming its reservation', asy
     db.close();
   }
 });
+
+it('recovers the original default allocation after owner restart without new preparation or repository access', async () => {
+  const f = await fixture({ location: 'openshell', provider: 'openai' });
+  const prepared = await f.prepare();
+  const input = f.input(prepared.preparationId);
+  expect(f.owner.getOrdinaryWorkspaceForOperation(input.allocationOperationId)).toBeUndefined();
+  const original = await f.owner.reserveOrdinaryWorkspace(input);
+  f.reopen();
+  expect(f.owner.getOrdinaryWorkspaceForOperation(input.allocationOperationId)).toEqual(original);
+  expect(f.capture).toHaveBeenCalledOnce();
+  expect(f.forbidden).not.toHaveBeenCalled();
+});
