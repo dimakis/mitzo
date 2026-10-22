@@ -5,6 +5,7 @@ import {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useImperativeHandle,
   type RefObject,
@@ -274,7 +275,8 @@ export function ChatInput({
     failed: boolean;
     stored: boolean;
   } | null>(null);
-  useEffect(() => {
+  // Keep the save acknowledgement and composer geometry settled before paint.
+  useLayoutEffect(() => {
     if (!savedChatDraft || savedOwnerChanging) return;
     const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
     const draft = {
@@ -398,7 +400,8 @@ export function ChatInput({
     }
   }, [initialText, autoResize]);
 
-  useEffect(() => {
+  // A passive resize can paint the new text at the previous draft’s height.
+  useLayoutEffect(() => {
     autoResize();
   }, [text, autoResize]);
 

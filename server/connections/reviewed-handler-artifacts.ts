@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.520-quiet-send-retry';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.521-composer-draft-layout';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -554,7 +554,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/keyboard.ts':
     '1e4c48c258c5e1c73be9f9df03a0491499210b9c24baf2fc6d134de41a9c3008',
   '../../frontend/src/components/ChatInput.tsx':
-    '7f10eb15dbef54e6cee6ff9f9d8fdc2f6e7bd555d29cf4f47444dc34ee8f4c6d',
+    '5d45e214886c01c1cb39023981ffaca95d0e55673e0fb6fa66f09c3146eb1251',
   '../../frontend/src/components/ComposerTools.tsx':
     '932d2f492cb6f82d8bd5fe45223ac61386390774249e73c2d64b649a8419cd6a',
   '../../frontend/src/components/ContextPanel.tsx':

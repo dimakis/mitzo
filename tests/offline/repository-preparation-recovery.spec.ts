@@ -505,6 +505,30 @@ for (const workspaceChoice of ['select', 'default'] as const) {
           await expect.poll(() => recoveries.length).toBe(commands.length);
           expect(recoveries.at(-1)).toEqual(commands.at(-1));
           await expect(composer).toHaveValue('Develop Mitzo from latest main');
+          if (accountId === 'api') {
+            const longDraft = Array.from(
+              { length: 40 },
+              (_, index) => `Earlier draft line ${index + 1}.`,
+            ).join('\n');
+            await composer.fill(longDraft);
+            await composer.evaluate((input: HTMLTextAreaElement) => {
+              input.focus();
+              input.setSelectionRange(input.value.length, input.value.length);
+              input.scrollTop = input.scrollHeight;
+            });
+            for (const character of ' fresh text') {
+              await composer.pressSequentially(character);
+              const position = await composer.evaluate((input: HTMLTextAreaElement) => ({
+                scrollTop: input.scrollTop,
+                bottom: input.scrollHeight - input.clientHeight,
+                caret: input.selectionStart,
+                length: input.value.length,
+              }));
+              expect(position.caret).toBe(position.length);
+              expect(position.scrollTop).toBeGreaterThanOrEqual(position.bottom - 2);
+            }
+            await expect(composer).toHaveValue(longDraft + ' fresh text');
+          }
           continue;
         }
         await openChatSetting(page, 'repository');
