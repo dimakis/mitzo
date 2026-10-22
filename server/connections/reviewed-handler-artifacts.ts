@@ -735,7 +735,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     'de139a8dae52cc0294f50e13fdb96d0666c81e376e282e84c640a0b187dc3014',
-  '../chat.ts': 'a06af9f4f796fbd29450c1ae6cd73a99fa51c56702eb5043ca06af98a961e89e',
+  '../chat.ts': '5607c13a45a607bfe3fc1ee87f4defa64fe5d5ea5286d9a8560a6de5acf6becb',
   '../../packages/harness/src/session-registry.ts':
     'af896f917aca74debf5f02bdbf87904a0037fda31a259d62a047c7b15f3586c8',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',

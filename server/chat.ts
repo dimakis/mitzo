@@ -6249,6 +6249,8 @@ function sessionReplayProjection(
   events: import('./event-store.js').StoredEvent[],
 ) {
   const session = eventStore.getSession(sessionId);
+  if (session?.accountBinding?.provider !== 'anthropic-vertex')
+    return { events, initialPrompt: session?.initialPrompt ?? undefined };
   const custody = eventStore.getOrdinaryLocalVertexCustody(sessionId);
   const command = custody ? eventStore.getSendCommand(custody.initialCommandId) : undefined;
   return restoreOwnedVertexInitialPrompt(

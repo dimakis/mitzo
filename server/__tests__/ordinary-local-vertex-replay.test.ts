@@ -77,6 +77,7 @@ it('serves the saved conversation over actual history and reconnect HTTP reads a
   vi.spyOn(eventStore, 'getSession').mockReturnValue({
     sessionId: 'saved',
     cwd: '/original-task',
+    accountBinding: { provider: 'anthropic-vertex' },
     initialPrompt: envelope,
   } as never);
   vi.spyOn(eventStore, 'getOrdinaryLocalVertexCustody').mockReturnValue({
