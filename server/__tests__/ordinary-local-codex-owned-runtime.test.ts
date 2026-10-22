@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { agentLibrarySource } from './fixtures/agent-library-source.js';
 
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 
 import { revokeAuthSession, login, authenticateToken } from '../auth.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
@@ -1587,4 +1587,57 @@ it('continues the same native thread from a new signed login after a compatible 
   expect(f.events.getSessionRuntimeBinding(original.sessionId)).toEqual(bound);
   await expect(cold.admitResume(next)).resolves.toEqual({ dispatched: false });
   expect(dispatch).toHaveBeenCalledOnce();
+});
+
+it('commits a retained legacy companion upgrade in the native owner before launch and keeps the original thread', async () => {
+  const f = await fixture();
+  const first = f.create();
+  await first.admit(f.request);
+  const original = f.dispatch.mock.calls[0][0];
+  const captured = original.lease.custodySnapshot!();
+  const { codeModeHost, ...legacyExecutable } = captured.executable;
+  expect(codeModeHost).toBeDefined();
+  const custody = {
+    version: 1 as const,
+    authSessionId: f.auth.id,
+    bootstrapId: original.expected.bootstrapId!,
+    login: captured.login,
+    executable: legacyExecutable,
+  };
+  const native = new CodexConversationStore(join(f.root, 'legacy-native.db'));
+  cleanups.push(() => native.close());
+  native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+  native.setHostCustody(original.sessionId, original.lease.binding, custody);
+  native.bindThread(original.sessionId, original.lease.binding, 'legacy-thread');
+  first.close();
+  unlinkSync(codeModeHost!.path);
+  const next = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    payload: { text: 'Continue legacy bundle' },
+  };
+  const launch = vi.fn(() => {
+    expect(
+      native.readHostCustody(original.sessionId, original.lease.binding)?.executable.codeModeHost,
+    ).toBeDefined();
+    return f.rpc;
+  });
+  const dispatch = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) =>
+    value.admission.persistCustody(native),
+  );
+  const cold = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    commandId: next.clientMsgId,
+    nativeStore: native,
+    launch,
+    dispatch,
+  });
+  cleanups.push(() => cold.close());
+  await expect(cold.admitResume(next)).resolves.toEqual({ dispatched: true });
+  expect(launch).toHaveBeenCalledOnce();
+  expect(native.read(original.sessionId, original.lease.binding).threadId).toBe('legacy-thread');
+  const completed = native.readHostCustody(original.sessionId, original.lease.binding)!;
+  const { codeModeHost: helper, ...main } = completed.executable;
+  expect({ ...completed, executable: main }).toEqual(custody);
+  expect(helper?.path).toBe(codeModeHost!.path);
 });

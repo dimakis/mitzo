@@ -75,6 +75,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       privateRoot?: string;
       /** Native ledger evidence, supplied only by the original cold-resume owner. */
       retainedCustody?: HostCodexCustody;
+      completeRetainedRuntimeBundle?(executable: FrozenHostCodexExecutable): void;
       /** Native history retains its original model-keyed binding independently of command settings. */
       retainedAccountBinding?: AccountBinding;
       /** Completed history is not a current inference allowlist. */
@@ -269,7 +270,11 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       const executable = retained
         ? FrozenHostCodexExecutable.reopen(retained.executable)
         : FrozenHostCodexExecutable.capture(observed.executablePath, login.privateHome);
-      if (retained) executable.completeRuntimeBundle();
+      if (retained && executable.companionUpgradePlan()) {
+        if (!this.owners.completeRetainedRuntimeBundle) throw unavailable();
+        this.owners.completeRetainedRuntimeBundle(executable);
+        this.assertSync(expected, undefined, executable);
+      }
       if (executable.sha256 !== observed.executableSha256) throw unavailable();
       const launch =
         this.owners.launch ??

@@ -3,15 +3,20 @@ import {
   closeSync,
   constants,
   fstatSync,
+  fsyncSync,
   lstatSync,
   openSync,
   readSync,
   realpathSync,
   writeSync,
+  unlinkSync,
   type BigIntStats,
 } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import {
+  HostCodexCompanionUpgradePlanSchema,
+  type HostCodexCompanionUpgradePlan,
   HostCodexExecutableCustodySchema,
   type HostCodexExecutableCustody,
 } from './host-codex-custody.js';
@@ -163,11 +168,21 @@ export class FrozenHostCodexExecutable {
         0o500,
       );
       const sourceIdentity = inspect(source, fd);
+      fsyncSync(fd);
       closeSync(fd);
       fd = undefined;
       const ownedIdentity = inspect(path);
       if (sourceIdentity.sha256 !== ownedIdentity.sha256 || ownedIdentity.nlink !== 1n)
         throw unavailable();
+      const homeFd = openSync(
+        privateHome,
+        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+      );
+      try {
+        fsyncSync(homeFd);
+      } finally {
+        closeSync(homeFd);
+      }
       return new FrozenHostCodexExecutable(
         path,
         sourceIdentity.sha256,
@@ -229,13 +244,42 @@ export class FrozenHostCodexExecutable {
   /** Explicit cold bootstrap only, after original custody and command admission.
    * Existing unexplained files are never adopted or overwritten.
    */
-  completeRuntimeBundle(): void {
+  companionUpgradePlan(): HostCodexCompanionUpgradePlan | undefined {
     this.assertLaunchCurrent();
     if (this.codeModeHost) return;
     const source = join(dirname(this.source), 'codex-code-mode-host');
     if (!lstatSync(source, { throwIfNoEntry: false })) return;
-    this.codeModeHost = FrozenHostCodexExecutable.captureFile(
+    const selected = inspect(source);
+    const encode = (value: Identity | DirectoryIdentity) =>
+      Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, String(entry)]));
+    return HostCodexCompanionUpgradePlanSchema.parse({
+      path: join(dirname(this.path), 'codex-code-mode-host'),
       source,
+      sha256: selected.sha256,
+      sourceIdentity: encode(selected),
+      sourceDirectory: encode(directory(dirname(source))),
+      ownedDirectory: encode(directory(dirname(this.path))),
+    });
+  }
+  completeRuntimeBundle(ownedUpgrade?: HostCodexCompanionUpgradePlan): void {
+    const plan = this.companionUpgradePlan();
+    if (!plan) return;
+    if (ownedUpgrade) {
+      if (!isDeepStrictEqual(HostCodexCompanionUpgradePlanSchema.parse(ownedUpgrade), plan))
+        throw unavailable();
+      if (lstatSync(plan.path, { throwIfNoEntry: false })) {
+        // Only a durably recorded upgrade may retire its exact interrupted
+        // copy. Unexplained destinations still take the exclusive-create path.
+        const partial = metadata(plan.path);
+        if (partial.uid !== BigInt(process.getuid!()) || (partial.mode & 0o777n) !== 0o500n)
+          throw unavailable();
+        sameDirectory(dirname(plan.path), this.ownedDirectory);
+        sameMetadata(metadata(plan.path), partial);
+        unlinkSync(plan.path);
+      }
+    }
+    this.codeModeHost = FrozenHostCodexExecutable.captureFile(
+      plan.source,
       dirname(this.path),
       'codex-code-mode-host',
     );

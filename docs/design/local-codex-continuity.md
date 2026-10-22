@@ -102,8 +102,12 @@ The supported Mac native distribution contains both `codex` and its sibling
 `codex-code-mode-host`. The host observer preflights both. Private runtime capture
 pins both with the same physical custody and launch hashing. A retained single-file
 runtime can append only the missing companion, from the original installed sibling,
-after original custody and explicit command admission. Existing untracked artifacts
-are never overwritten or adopted; interruption retains uncertainty. Existing main,
+after original custody and explicit command admission. The existing native row records
+a FULL-synchronous upgrade intent before file effects, bound to exact original custody,
+source metadata/hash and private directory identity. Only that journal permits rebuilding
+its interrupted partial copy. The append and journal retirement commit before native
+launch; a crash or failed launch can reopen the completed custody. Unexplained artifacts
+remain refused and command uncertainty is preserved. Existing main,
 login, context and thread evidence cannot be rewritten by that append.
 
 ## Send acceptance and recovery

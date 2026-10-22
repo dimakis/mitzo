@@ -76,7 +76,7 @@ it('retains original operator and physical custody across reopened competing nat
     reopened.close();
   }
 });
-it('permits only an append-only companion upgrade while preserving existing conversation custody', () => {
+it('refuses unjournaled companion custody and preserves existing conversation custody', () => {
   const store = new CodexConversationStore(':memory:');
   try {
     store.create('retained', binding, '/task');
@@ -89,10 +89,10 @@ it('permits only an append-only companion upgrade while preserving existing conv
       source: '/private/codex-code-mode-host',
     };
     const upgraded = { ...original, executable: { ...original.executable, codeModeHost: helper } };
-    store.setHostCustody('retained', binding, upgraded);
-    expect(store.readHostCustody('retained', binding)).toEqual(upgraded);
+    expect(() => store.setHostCustody('retained', binding, upgraded)).toThrow();
+    expect(store.readHostCustody('retained', binding)).toEqual(original);
     expect(store.read('retained', binding).threadId).toBe('same-thread');
-    expect(() => store.setHostCustody('retained', binding, original)).toThrow();
+    expect(() => store.setHostCustody('retained', binding, original)).not.toThrow();
     expect(() =>
       store.setHostCustody('retained', binding, { ...upgraded, authSessionId: 'other' }),
     ).toThrow();

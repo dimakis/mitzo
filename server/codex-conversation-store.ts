@@ -4,15 +4,25 @@ import {
   type OpenShellCodexCustody,
 } from './openshell-codex-custody.js';
 import type { RuntimeMigration } from './openshell-runtime-migration.js';
-import { HostCodexCustodySchema, type HostCodexCustody } from './host-codex-custody.js';
+import {
+  HostCodexCustodySchema,
+  HostCodexCompanionUpgradePlanSchema,
+  type HostCodexCustody,
+} from './host-codex-custody.js';
+import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { dirname, join } from 'node:path';
-import { chmodSync, closeSync, openSync } from 'node:fs';
+import { chmodSync, closeSync, openSync, lstatSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import { AgentSandboxContextScopeSchema } from '@mitzo/protocol';
 import { z } from 'zod';
+const HostBundleUpgrade = z.strictObject({
+  version: z.literal(1),
+  custody: HostCodexCustodySchema,
+  plan: HostCodexCompanionUpgradePlanSchema,
+});
 import type { OpenShellRuntime, OpenShellAccountRoute } from './openshell-runtime.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import type { PersistedWebSearchGrant, WebSearchGrant } from './web-search-policy.js';
@@ -356,6 +366,8 @@ export class CodexConversationStore {
         this.db.exec('ALTER TABLE codex_conversations ADD COLUMN openshell_custody TEXT');
       if (!conversationColumns.some((column) => column.name === 'host_custody'))
         this.db.exec('ALTER TABLE codex_conversations ADD COLUMN host_custody TEXT');
+      if (!conversationColumns.some((column) => column.name === 'host_bundle_upgrade'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN host_bundle_upgrade TEXT');
       if (!conversationColumns.some((column) => column.name === 'artifact_runtime'))
         this.db.exec('ALTER TABLE codex_conversations ADD COLUMN artifact_runtime TEXT');
       if (!conversationColumns.some((column) => column.name === 'owner_kind'))
@@ -703,11 +715,17 @@ export class CodexConversationStore {
         if (previous) {
           if (!isDeepStrictEqual(previous, snapshot)) {
             const { codeModeHost, ...originalExecutable } = snapshot.executable;
+            const journal = this.hostBundleUpgrade(id, binding);
+            const companionPlan =
+              codeModeHost && (({ ownedIdentity: _owned, ...plan }) => plan)(codeModeHost);
             // A reviewed cold bootstrap can complete the runtime distribution.
             // This never replaces an owner, credential, main binary or history,
             // and cannot repair unknown/running work by adopting another bundle.
             if (
               previous.executable.codeModeHost ||
+              !journal ||
+              !isDeepStrictEqual(journal.custody, previous) ||
+              !isDeepStrictEqual(journal.plan, companionPlan) ||
               !codeModeHost ||
               this.hasRunningCommand(id, binding) ||
               !isDeepStrictEqual({ ...snapshot, executable: originalExecutable }, previous) ||
@@ -736,6 +754,70 @@ export class CodexConversationStore {
           )
           .run(JSON.stringify(snapshot), id).changes;
         if (changed !== 1) throw new Error('Host Codex custody changed concurrently');
+      })
+      .immediate();
+  }
+  private hostBundleUpgrade(id: string, binding: AccountBinding) {
+    this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT host_bundle_upgrade FROM codex_conversations WHERE id=?')
+      .get(id) as { host_bundle_upgrade: string | null };
+    return row.host_bundle_upgrade === null
+      ? undefined
+      : HostBundleUpgrade.parse(JSON.parse(row.host_bundle_upgrade));
+  }
+  /** Durable intent precedes every companion file effect. No native launch or
+   * provider await occurs before completion CAS commits. Interrupted copies can
+   * be rebuilt only under this exact original custody/source/home journal.
+   */
+  completeHostRuntimeBundle(
+    id: string,
+    binding: AccountBinding,
+    raw: HostCodexCustody,
+    executable: FrozenHostCodexExecutable,
+  ): void {
+    const custody = HostCodexCustodySchema.parse(raw);
+    const plan = executable.companionUpgradePlan();
+    if (
+      !plan ||
+      custody.executable.codeModeHost ||
+      !isDeepStrictEqual(executable.custodySnapshot(), custody.executable)
+    )
+      throw Error('Original host bundle upgrade required');
+    const intended = HostBundleUpgrade.parse({ version: 1, custody, plan });
+    this.db
+      .transaction(() => {
+        if (
+          !isDeepStrictEqual(this.readHostCustody(id, binding), custody) ||
+          this.hasRunningCommand(id, binding)
+        )
+          throw Error('Original host bundle upgrade required');
+        this.assertNoPendingThreadDispatch(id, binding);
+        this.assertNoPendingThreadOwnership(id, binding);
+        const previous = this.hostBundleUpgrade(id, binding);
+        if (previous) {
+          if (!isDeepStrictEqual(previous, intended)) throw Error('Host bundle upgrade changed');
+        } else {
+          if (lstatSync(plan.path, { throwIfNoEntry: false }))
+            throw Error('Unexplained host bundle artifact');
+          this.db
+            .prepare('UPDATE codex_conversations SET host_bundle_upgrade=? WHERE id=?')
+            .run(JSON.stringify(intended), id);
+        }
+      })
+      .immediate();
+    executable.completeRuntimeBundle(plan);
+    this.db
+      .transaction(() => {
+        if (
+          !isDeepStrictEqual(this.hostBundleUpgrade(id, binding), intended) ||
+          !isDeepStrictEqual(this.readHostCustody(id, binding), custody)
+        )
+          throw Error('Host bundle upgrade changed');
+        this.setHostCustody(id, binding, { ...custody, executable: executable.custodySnapshot() });
+        this.db
+          .prepare('UPDATE codex_conversations SET host_bundle_upgrade=NULL WHERE id=?')
+          .run(id);
       })
       .immediate();
   }

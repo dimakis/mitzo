@@ -222,7 +222,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       const profile = profiles.localCodexProfile(binding);
       if (profile.workspaceId !== undefined) throw unavailable();
       const descriptor = this.#workspaceOwner.get();
-      const custody = resume
+      let custody = resume
         ? this.owners.nativeStore?.readHostCustody(
             this.#reservation.conversationId,
             this.#reservation.binding,
@@ -328,6 +328,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         preparationOperationId,
       });
       const bridge = new OwnedCodexLifecycleBridge(() => bootstrap?.currentLease());
+      const originalCustody = custody;
       bootstrap = new FrozenHostCodexBootstrapAuthority({
         loadProfiles: loadAccountProfiles,
         observeRuntime: () => this.#runtime.observe(),
@@ -337,6 +338,23 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         signal: this.#signal,
         privateRoot: this.owners.privateRoot,
         retainedCustody: custody ?? undefined,
+        completeRetainedRuntimeBundle:
+          originalCustody && this.owners.nativeStore
+            ? (executable) => {
+                this.assertCurrent();
+                this.owners.nativeStore!.completeHostRuntimeBundle(
+                  this.#reservation.conversationId,
+                  this.#reservation.binding,
+                  originalCustody,
+                  executable,
+                );
+                custody = this.owners.nativeStore!.readHostCustody(
+                  this.#reservation.conversationId,
+                  this.#reservation.binding,
+                );
+                this.assertCurrent();
+              }
+            : undefined,
         retainedAccountBinding: resume ? this.#reservation.binding : undefined,
         isSelectionPending: () => {
           const receipt = this.owners.eventStore.getOrdinaryLocalCommandAdmission(

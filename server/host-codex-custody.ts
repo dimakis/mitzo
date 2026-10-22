@@ -50,6 +50,10 @@ const HostCodexExecutableFileCustodySchema = z.strictObject({
   sourceDirectory: Directory,
   ownedDirectory: Directory,
 });
+export const HostCodexCompanionUpgradePlanSchema = HostCodexExecutableFileCustodySchema.omit({
+  ownedIdentity: true,
+});
+export type HostCodexCompanionUpgradePlan = z.infer<typeof HostCodexCompanionUpgradePlanSchema>;
 export const HostCodexExecutableCustodySchema = HostCodexExecutableFileCustodySchema.extend({
   codeModeHost: HostCodexExecutableFileCustodySchema.optional(),
 }).strict();
