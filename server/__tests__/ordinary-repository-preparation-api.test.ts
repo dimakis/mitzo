@@ -73,19 +73,26 @@ it.each(['local', 'openshell'] as const)(
 it('keeps a managed legacy account inside its existing credential and mutation owners', async () => {
   const { f, binding, selection, authority } = await fixture('local');
   const ready = vi.fn(async () => {}),
-    resolveKey = vi.fn(async () => 'offline-managed-key');
+    resolveKey = vi.fn();
   const mutate = vi.fn(async (work: () => Promise<unknown>) => work());
+  const resolveHostKey = vi.fn(async (_account: string, signal: AbortSignal) =>
+    mutate(async () => {
+      signal.throwIfAborted();
+      return 'offline-managed-key';
+    }),
+  );
   state.runtime = {
-    openAIKeys: { manages: () => true, resolveKey },
+    openAIKeys: { manages: () => true, resolveKey, resolveHostKey },
     assertOpenAIKeyReady: ready,
     service: { withCredentialMutation: mutate },
   };
   await authority.captureOrdinaryRepositoryPreparation(binding, selection, f.signal.signal);
-  expect(ready).toHaveBeenCalledWith(binding.accountId, f.signal.signal);
+  expect(ready).not.toHaveBeenCalled();
   expect(mutate).toHaveBeenCalled();
-  expect(resolveKey).toHaveBeenCalledWith(binding.accountId, f.signal.signal);
+  expect(resolveHostKey).toHaveBeenCalledWith(binding.accountId, f.signal.signal);
+  expect(resolveKey).not.toHaveBeenCalled();
   expect(state.key).not.toHaveBeenCalled();
-  resolveKey.mockRejectedValueOnce(Error('managed credential unavailable'));
+  resolveHostKey.mockRejectedValueOnce(Error('managed credential unavailable'));
   await expect(
     authority.captureOrdinaryRepositoryPreparation(binding, selection, f.signal.signal),
   ).rejects.toThrow('managed credential unavailable');
