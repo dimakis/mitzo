@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { localInventoryFixture } from '../../frontend/src/test-utils/local-inventory-fixture';
 import { OrdinaryWorkspaceFirstCommandSchema } from '../../packages/protocol/src/ordinary-workspace-public';
 import { sha256Hex } from '../../frontend/src/lib/browser-crypto';
-import { settingsHome, settingRow, openChatSetting } from '../support/chat-settings';
+import { settingsHome, settingRow } from '../support/chat-settings';
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const compiled = build({
   entryPoints: [resolve('tests/fixtures/telos-ordinary-chat.tsx')],
@@ -268,9 +268,8 @@ for (const theme of ['dark', 'light'] as const)
     await page.reload();
     await expect(composer).toHaveValue('Newer unsent continuation draft.');
     expect(requests).toHaveLength(1);
-    await openChatSetting(page, 'more');
     const recover = page.getByRole('button', {
-      name: 'Recover original Local command',
+      name: 'Retry',
       exact: true,
     });
     await expect(recover).toBeEnabled();
