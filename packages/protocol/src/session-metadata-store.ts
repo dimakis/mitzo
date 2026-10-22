@@ -678,9 +678,10 @@ function assertOrdinaryWorkspaceRoute(binding: SessionRuntimeBinding, ordinaryId
     ordinaryId !== undefined &&
     ordinaryId !== null &&
     (binding.version !== 2 ||
-      binding.account.provider !== 'openai-codex' ||
       binding.harness.implementation !== 'codex' ||
-      binding.execution.location !== 'local')
+      !(binding.execution.location === 'local'
+        ? binding.account.provider === 'openai-codex'
+        : ['openai', 'openai-codex'].includes(binding.account.provider)))
   )
     throw Error('Ordinary workspace runtime route is unsupported');
 }
