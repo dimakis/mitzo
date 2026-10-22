@@ -1,9 +1,8 @@
 import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import type { ImageAttachment } from '../types/chat';
 
 // Bundle the worker locally: importing a private PDF must not contact a CDN.
-GlobalWorkerOptions.workerSrc = workerUrl;
+GlobalWorkerOptions.workerSrc = `${import.meta.env.BASE_URL}pdfjs/pdf.worker.min.mjs`;
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 const MAX_PAGE_DIMENSION = 2000;
 const MAX_RENDERED_BYTES = 12 * 1024 * 1024;

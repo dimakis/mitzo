@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import type { AccountBinding, SessionRuntimeBinding } from '@mitzo/protocol';
 import { hasPersistentRevocationAuthority, registerAuthSession, type AuthSession } from './auth.js';
 interface Custody {
@@ -39,7 +40,9 @@ export function assertOwnedCodexQueueControl(owners: Owners, id: string, auth?: 
     const custody = owners.custody(id, account, binding);
     if (
       !custody ||
-      custody.authSessionId !== auth.id ||
+      !(binding.execution.location === 'local' && binding.harness.implementation === 'codex'
+        ? ordinaryOperatorOwnsConversation(custody.authSessionId, auth.id)
+        : custody.authSessionId === auth.id) ||
       (custody.binding && !isDeepStrictEqual(custody.binding, binding))
     )
       throw Error('Original signed operator required');

@@ -47,6 +47,14 @@ the approved chat-settings rows, shared controls, tokens, keyboard interaction
 and motion remain unchanged. Offline picker and prepared-chat regressions cover
 both built-ins on Host Mac API and subscription routes without model calls.
 
+Default OpenShell chats use the existing composer status for workspace-specific
+agent eligibility. An unsupported saved-context agent is explained before Send
+is enabled; choosing Default Mitzo preserves the draft without sending it.
+Explicit repository contexts retain their existing admission. Intercepted browser
+checks cover both account routes, both themes and mobile/desktop layouts.
+Inspected offline captures: [phone](assets/default-openshell-context-mobile-dark.png)
+and [desktop](assets/default-openshell-context-desktop-light.png).
+
 `frontend/src/styles/tokens.css` owns every app palette literal and font stack. It loads before component styles in the production and fixture entry points. Components use semantic variables in CSS and React inline styles. The old `--accent`, `--ui-font`, `--text`, `--bg`, and `--workspace-*` names are aliases to that same source; never give them a second palette.
 
 - Actions and selection: `--color-accent`, with `--color-on-accent` for filled controls. Accent panels derive from the accent and background using `color-mix`.
@@ -2080,7 +2088,10 @@ shared disclosure. This workspace behavior is independent of the account provide
 Selecting a repository is optional for a new local chat: first send uses the
 configured default checkout and creates its isolated worktree. Clearing a local
 selection therefore says Use default repository. The composer validates this
-path before a repository is selected; OpenShell still requires its sandbox source.
+path before a repository is selected. OpenShell also permits a new chat without a
+repository: the existing runtime manager builds the configured mgmt-enabled
+sandbox. Selecting a repository instead prepares that source for the task sandbox.
+The Repository editor and approved settings hierarchy remain unchanged.
 
 The all-intercept repository-preparation-recovery browser fixture renders the real
 responsive chat route, MobileShell/DesktopShell, settings, picker and composer. It
@@ -2096,6 +2107,14 @@ The same fixture verifies first send without a selected repository for all four
 accounts and preserves the draft when the intercepted send loses its response.
 Inspected final captures: [local phone](assets/local-repository-mobile-dark.png)
 and [local desktop](assets/local-repository-desktop-light.png).
+
+The default-OpenShell fixture additionally checks API and subscription first sends,
+restored drafts, optional Repository settings and lost-response draft retention
+in both themes on all three browsers. It renders the actual responsive app and
+intercepts all traffic; it does not start a live sandbox or call a model. The new
+workspace-default capability is explicitly negotiated so existing client builds
+retain their supported inventory shape. Inspected captures: [OpenShell phone](assets/default-openshell-mobile-dark.png)
+and [OpenShell desktop](assets/default-openshell-desktop-light.png).
 
 ## Telos lifecycle actions
 

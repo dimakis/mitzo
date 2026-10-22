@@ -13,11 +13,18 @@ export default defineConfig({
     react(),
     ...productionBundleEvidence(),
     viteStaticCopy({
-      targets: ['cmaps', 'standard_fonts', 'wasm'].map((directory) => ({
-        src: join(pdfjsDirectory, directory, '*'),
-        dest: `pdfjs/${directory}`,
-        rename: { stripBase: true },
-      })),
+      targets: [
+        {
+          src: join(pdfjsDirectory, 'build/pdf.worker.min.mjs'),
+          dest: 'pdfjs',
+          rename: { stripBase: true },
+        },
+        ...['cmaps', 'standard_fonts', 'wasm'].map((directory) => ({
+          src: join(pdfjsDirectory, directory, '*'),
+          dest: `pdfjs/${directory}`,
+          rename: { stripBase: true as const },
+        })),
+      ],
     }),
   ],
   server: {

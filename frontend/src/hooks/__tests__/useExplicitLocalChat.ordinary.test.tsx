@@ -129,3 +129,29 @@ it('withholds a prior ordinary command surface immediately on navigation and ign
   expect(result.current.ordinaryWorkspaceId).toBeUndefined();
   expect(result.current.binding).toBeUndefined();
 });
+
+it('retains ordinary OpenShell identity across metadata hydration and continuation', async () => {
+  const f = fixture();
+  Object.assign(f.inventory.targets[0], { location: 'openshell', label: 'OpenShell' });
+  Object.assign(f.inventory.locations[0], { status: 'configured' });
+  Object.assign(f.metadata.runtimeBinding.execution, { location: 'openshell' });
+  f.metadata.runtimeCommandScope = 'conversation';
+  const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'shell-chat', true));
+  await waitFor(() => expect(result.current.metadataPending).toBe(false));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.ordinaryWorkspaceId).toBe(workspaceId);
+  expect(result.current.binding?.execution.location).toBe('openshell');
+  expect(result.current.continuation).toBe(true);
+  expect(result.current.reason).toBeUndefined();
+});
+
+it('negotiates default workspace support without adding an unsupported cross-origin header', async () => {
+  fixture();
+  const { result } = renderHook(() => useExplicitLocalChat('draft', null, null, true));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  const call = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([url]) => String(url).includes('/capabilities'))!;
+  expect(call[0]).toBe('/api/chat/runtime/capabilities?workspaceDefaults=1');
+  expect(new Headers(call[1]?.headers).has('X-Mitzo-Workspace-Defaults')).toBe(false);
+});

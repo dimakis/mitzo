@@ -108,6 +108,38 @@ function fixture() {
   };
 }
 describe('OpenAI key replacement and recovery', () => {
+  it('reads host credentials through their controller without inspecting the sandbox replica', async () => {
+    const f = fixture();
+    f.gateway.inspect.mockRejectedValue(Error('sandbox unavailable'));
+    expect(await f.manager.resolveHostKey('work', signal())).toBe('old-key');
+    expect(f.gateway.inspect).not.toHaveBeenCalled();
+  });
+  it('uses the completed host key when the sandbox replica is unavailable', async () => {
+    const f = fixture();
+    await f.replace();
+    f.gateway.inspect.mockClear().mockRejectedValue(Error('sandbox unavailable'));
+    expect(await f.manager.resolveHostKey('work', signal())).toBe('new-key');
+    expect(f.gateway.inspect).not.toHaveBeenCalled();
+    await expect(f.manager.resolveKey('work', signal())).rejects.toThrow();
+  });
+  it.each(['pending', 'key-drift', 'binding-drift', 'resource-alias', 'cancelled'] as const)(
+    'fails host credential custody closed on %s without probing or repairing a sandbox',
+    async (failure) => {
+      const f = fixture();
+      await f.replace();
+      if (failure === 'pending') {
+        f.gateway.replace.mockRejectedValue(Error('interrupted rotation'));
+        await f.replace('second-key');
+      } else if (failure === 'key-drift') f.driftKeychain();
+      else if (failure === 'binding-drift') f.setAccounts([{ ...account, providerId: 'changed' }]);
+      else if (failure === 'resource-alias') f.setAccounts([account, { ...account, id: 'alias' }]);
+      const controller = new AbortController();
+      if (failure === 'cancelled') controller.abort();
+      f.gateway.inspect.mockClear();
+      await expect(f.manager.resolveHostKey('work', controller.signal)).rejects.toThrow();
+      expect(f.gateway.inspect).not.toHaveBeenCalled();
+    },
+  );
   it.each(['credential', 'provider id', 'provider name'])(
     'blocks an unjournaled account reusing a recorded %s after the owning account is removed',
     async (shared) => {

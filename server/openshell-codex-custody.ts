@@ -8,6 +8,7 @@ export const OpenShellCodexCustodySchema = z.strictObject({
   authSessionId: z.string().min(1).max(200),
   binding: OrdinaryOpenShellCommandAdmissionSchema.shape.binding,
   workspace: OrdinaryOpenShellCommandAdmissionSchema.shape.workspace,
+  workspaceKind: z.literal('ordinary').optional(),
   physicalIdentitySha256: z.string().regex(/^[a-f0-9]{64}$/),
   agentProfileSha256: z
     .string()

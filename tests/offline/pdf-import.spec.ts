@@ -22,21 +22,6 @@ const output = build({
     '@mitzo/client': resolve('packages/client/src/index.ts'),
     '@mitzo/protocol': resolve('packages/protocol/src/index.ts'),
   },
-  plugins: [
-    {
-      name: 'offline-pdf-worker',
-      setup(build) {
-        build.onResolve({ filter: /pdf\.worker\.min\.mjs\?url$/ }, () => ({
-          path: 'pdf-worker',
-          namespace: 'pdf-worker',
-        }));
-        build.onLoad({ filter: /.*/, namespace: 'pdf-worker' }, () => ({
-          contents: 'export default "/pdf.worker.min.mjs";',
-          loader: 'js',
-        }));
-      },
-    },
-  ],
 });
 
 for (const theme of ['dark', 'light']) {
@@ -50,7 +35,7 @@ for (const theme of ['dark', 'light']) {
       const path = url.pathname;
       if (path.startsWith('/api/'))
         return route.fulfill({ json: path === '/api/config' ? { contextBlocks: [] } : [] });
-      if (path === '/pdf.worker.min.mjs')
+      if (path === '/pdfjs/pdf.worker.min.mjs')
         return route.fulfill({
           body: await readFile(resolve(pdfRoot, 'build/pdf.worker.min.mjs')),
           contentType: 'application/javascript',
