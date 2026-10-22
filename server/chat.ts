@@ -1824,10 +1824,15 @@ async function _startChatInner(
         apiKey = await manager.resolveKey(accountBinding.accountId, AbortSignal.timeout(30000));
       } else if (runtime?.assertOpenAIKeyReady && accountBinding) {
         const selectedReference = apiCredentialRef;
-        apiKey = await runtime.service.withCredentialMutation(async () => {
-          await runtime.assertOpenAIKeyReady!(accountBinding.accountId, AbortSignal.timeout(30000));
-          return credentials.resolve(selectedReference);
-        });
+        const signal = AbortSignal.any([abortController.signal, AbortSignal.timeout(30_000)]);
+        apiKey = await runtime.service.withCredentialRead(async () => {
+          signal.throwIfAborted();
+          await runtime.assertOpenAIKeyReady!(accountBinding.accountId, signal);
+          signal.throwIfAborted();
+          const key = await credentials.resolve(selectedReference);
+          signal.throwIfAborted();
+          return key;
+        }, signal);
       } else apiKey = await credentials.resolve(apiCredentialRef);
     } catch (err: unknown) {
       if (initialProviderAdmission) {

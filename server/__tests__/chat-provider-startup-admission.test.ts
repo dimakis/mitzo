@@ -85,6 +85,147 @@ function stubBootContext() {
   );
 }
 
+async function legacyApiStartup() {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-legacy-startup-read-'));
+  await writeFile(join(root, '.mitzo.json'), '{}');
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+  stubBootContext();
+  const { ConnectionsService } = await import('../connections-service.js');
+  const service = new ConnectionsService({ list: () => [] } as never, {} as never);
+  const ready = vi.fn(async (_id: string, _signal: AbortSignal) => {});
+  const runtime = await import('../connections-runtime.js');
+  runtime.setConnectionsRuntime({ service, assertOpenAIKeyReady: ready } as never);
+  const chat = await import('../chat.js');
+  const clientId = 'legacy-startup-read';
+  const sent = vi.fn();
+  const admission = vi.fn();
+  const start = () =>
+    chat.startChat({ send: sent, isOpen: () => true }, clientId, 'Read safely', {
+      cwd: root,
+      isolation: false,
+      accountId: 'work-api',
+      model: 'gpt-test',
+      accountProfiles: profiles(),
+      clientMsgId: 'legacy-read-command',
+      onStartupAdmission: admission,
+      onQueryEvent: () => chat.stopChat(clientId),
+    });
+  return {
+    service,
+    ready,
+    sent,
+    admission,
+    start,
+    async close() {
+      chat.stopChat(clientId);
+      runtime.setConnectionsRuntime(null);
+      chat.registry.dispose();
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    },
+  };
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+it('starts a legacy API read beside an active sandbox allocation while keeping rotation exclusive', async () => {
+  const f = await legacyApiStartup();
+  const entered = deferred(),
+    finish = deferred();
+  const allocation = f.service.withAccountRuntimes('sandbox', async () => {
+    entered.resolve();
+    await finish.promise;
+  });
+  await entered.promise;
+  const running = f.start();
+  let rotation: Promise<unknown> | undefined;
+  try {
+    await vi.waitFor(() => expect(native.prompts).toEqual(['Read safely']), { timeout: 1000 });
+    expect(f.ready).toHaveBeenCalledOnce();
+    expect(native.credentialResolve).toHaveBeenCalledOnce();
+    const mutate = vi.fn(async () => {});
+    rotation = f.service.withCredentialMutation(mutate);
+    await Promise.resolve();
+    expect(mutate).not.toHaveBeenCalled();
+    finish.resolve();
+    await allocation;
+    await rotation;
+    expect(mutate).toHaveBeenCalledOnce();
+  } finally {
+    finish.resolve();
+    await allocation;
+    await rotation;
+    await running;
+    await f.close();
+  }
+});
+
+it.each(['queued', 'readiness', 'lookup'] as const)(
+  'refuses a cancelled legacy API credential read during %s without late dispatch',
+  async (phase) => {
+    const f = await legacyApiStartup();
+    const deadline = new AbortController();
+    const originalTimeout = AbortSignal.timeout;
+    const timeout = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation((ms) => (ms === 30_000 ? deadline.signal : originalTimeout(ms)));
+    const entered = deferred(),
+      finish = deferred();
+    const holder =
+      phase === 'queued'
+        ? f.service.withCredentialMutation(async () => {
+            entered.resolve();
+            await finish.promise;
+          })
+        : Promise.resolve();
+    if (phase === 'queued') await entered.promise;
+    const read = vi.spyOn(f.service, 'withCredentialRead');
+    const write = vi.spyOn(f.service, 'withCredentialMutation');
+    if (phase === 'readiness')
+      f.ready.mockImplementationOnce(async () => {
+        deadline.abort();
+      });
+    if (phase === 'lookup')
+      native.credentialResolve.mockImplementationOnce(async () => {
+        deadline.abort();
+        return 'expired-key';
+      });
+    const running = f.start();
+    try {
+      if (phase === 'queued') {
+        await vi.waitFor(() => expect(read.mock.calls.length + write.mock.calls.length).toBe(1));
+        deadline.abort();
+      }
+      await vi.waitFor(() => expect(f.admission).toHaveBeenCalledWith(expect.any(Error)), {
+        timeout: 1000,
+      });
+      expect(timeout.mock.calls.filter(([ms]) => ms === 30_000)).toHaveLength(1);
+      expect(native.construct).not.toHaveBeenCalled();
+      expect(native.prompts).toEqual([]);
+      expect(native.credentialResolve).toHaveBeenCalledTimes(phase === 'lookup' ? 1 : 0);
+      expect(f.ready).toHaveBeenCalledTimes(phase === 'queued' ? 0 : 1);
+      if (phase !== 'queued') expect(f.ready.mock.calls[0][1]).toBe(read.mock.calls[0][1]);
+    } finally {
+      finish.resolve();
+      await holder;
+      await running;
+      await f.close();
+    }
+    // The queued callback must remain unexecuted even after its old holder exits.
+    expect(native.construct).not.toHaveBeenCalled();
+    expect(native.prompts).toEqual([]);
+  },
+);
+
 afterEach(() => {
   native.prompts.length = 0;
   native.construct.mockReset();
