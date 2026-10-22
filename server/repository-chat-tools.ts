@@ -65,6 +65,7 @@ function publicPreparation(value: RepositoryChatPreparation) {
     prompt,
     setupUrl,
     conversationId,
+    failure,
   } = value;
   return {
     id,
@@ -79,6 +80,7 @@ function publicPreparation(value: RepositoryChatPreparation) {
     prompt,
     setupUrl,
     ...(conversationId ? { conversationId } : {}),
+    ...(failure ? { failure } : {}),
   };
 }
 
@@ -202,7 +204,7 @@ export function sessionRepositoryTools(
           return current()
             ? {
                 content: JSON.stringify({ repositoryChat: publicPreparation(preparation) }),
-                isError: false,
+                isError: preparation.state === 'failed',
               }
             : unavailable();
         }
@@ -224,7 +226,7 @@ export function sessionRepositoryTools(
         if (!current() || selectConnection(repository) !== connectionId) return unavailable();
         return {
           content: JSON.stringify({ repositoryChat: publicPreparation(preparation) }),
-          isError: false,
+          isError: preparation.state === 'failed',
         };
       } catch (error) {
         if (!current()) return unavailable();

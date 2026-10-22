@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareDevelopment } from '../prepare-development.mjs';
@@ -11,14 +11,20 @@ afterEach(async () => {
 async function fixture() {
   const cwd = await mkdtemp(join(tmpdir(), 'mitzo-development-'));
   roots.push(cwd);
-  await writeFile(join(cwd, 'package.json'), '{}');
+  await writeFile(
+    join(cwd, 'package.json'),
+    JSON.stringify({ engines: { node: '>=24', npm: '>=11.18.0' } }),
+  );
   await writeFile(join(cwd, 'package-lock.json'), '{}');
   const run = vi.fn(
     async (command: string, args: readonly string[], options: { env: Record<string, string> }) => {
       expect(command).toBeTruthy();
       expect(Array.isArray(args)).toBe(true);
       expect(options.env).toBeDefined();
-      return { stdout: '', stderr: '' };
+      return {
+        stdout: args[0] === '--version' ? (command.endsWith('npm') ? '11.18.0' : 'v24.22.0') : '',
+        stderr: '',
+      };
     },
   );
   return { cwd, run, freeBytes: async () => 8 * 1024 ** 3 };
@@ -62,7 +68,7 @@ it('reports dependency installation failure without exposing npm stderr or crede
   const f = await fixture();
   f.run.mockImplementation(async (_command, args) => {
     if (args[0] === 'ci') throw Error('token=secret');
-    return { stdout: '', stderr: '' };
+    return { stdout: _command.endsWith('npm') ? '11.18.0' : 'v24.22.0', stderr: '' };
   });
   await expect(prepareDevelopment({ ...f, install: true })).rejects.toThrow(
     'Dependency installation failed',
@@ -74,4 +80,45 @@ it('checks existing dependencies without installing unless explicitly requested'
   await prepareDevelopment(f);
   expect(f.run.mock.calls.some(([, args]) => args[0] === 'ci')).toBe(false);
   expect(f.run.mock.calls.some(([, args]) => args[0] === 'ls')).toBe(true);
+});
+
+it.each([
+  [false, 'node', 'v22.20.0'],
+  [false, 'npm', '11.17.9'],
+  [true, 'node', 'v23.10.0'],
+  [true, 'npm', '10.9.0'],
+  [true, 'npm', 'unrecognized'],
+] as const)(
+  'refuses incompatible %s-local %s %s before declaring readiness',
+  async (local, tool, version) => {
+    const f = await fixture();
+    if (local) {
+      const bin = join(f.cwd, '.mitzo-devtools', 'node_modules', '.bin');
+      await mkdir(bin, { recursive: true });
+      await writeFile(join(bin, 'node'), 'fixture');
+    }
+    f.run.mockImplementation(async (command, args) => ({
+      stdout:
+        args[0] === '--version'
+          ? command.endsWith(tool)
+            ? version
+            : command.endsWith('npm')
+              ? '11.18.0'
+              : 'v24.22.0'
+          : '',
+      stderr: '',
+    }));
+    await expect(prepareDevelopment(f)).rejects.toThrow(/Node.js.*>=24.*npm.*>=11.18.0/);
+    expect(f.run.mock.calls.some(([, args]) => args[0] === 'ls')).toBe(false);
+  },
+);
+
+it('validates installed tools and reads minimum versions from the project engines', async () => {
+  const f = await fixture();
+  await writeFile(
+    join(f.cwd, 'package.json'),
+    JSON.stringify({ engines: { node: '>=25', npm: '>=12.0.0' } }),
+  );
+  await expect(prepareDevelopment({ ...f, install: true })).rejects.toThrow(/>=25.*>=12.0.0/);
+  expect(f.run.mock.calls.some(([, args]) => args[0] === 'ci')).toBe(false);
 });

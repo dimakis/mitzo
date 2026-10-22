@@ -8,6 +8,19 @@ import process from 'node:process';
 import console from 'node:console';
 
 const execute = promisify(execFile);
+
+// This project's engines declare minimum stable versions. Fail closed if a
+// future manifest changes that contract rather than guessing at a semver range.
+function meetsMinimum(version, requirement) {
+  const actual = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version);
+  const minimum = /^>=(\d+)(?:\.(\d+))?(?:\.(\d+))?$/.exec(requirement);
+  if (!actual || !minimum) return false;
+  for (let i = 1; i <= 3; i++) {
+    const difference = Number(actual[i]) - Number(minimum[i] ?? 0);
+    if (difference !== 0) return difference > 0;
+  }
+  return true;
+}
 /** Run inside the selected development workspace; never use a host node_modules copy. */
 export async function prepareDevelopment({
   cwd = process.cwd(),
@@ -26,7 +39,10 @@ export async function prepareDevelopment({
     throw Error(
       'Development setup needs at least 2 GiB free for dependencies and builds. Free space in this sandbox and retry.',
     );
-  await Promise.all(['package.json', 'package-lock.json'].map((name) => readFile(join(cwd, name))));
+  const [manifest] = await Promise.all(
+    ['package.json', 'package-lock.json'].map((name) => readFile(join(cwd, name), 'utf8')),
+  );
+  const { engines } = JSON.parse(manifest);
   // Package lifecycle code receives no inference/API tokens or host Git config.
   const env = Object.fromEntries(
     ['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'SystemRoot'].flatMap((key) =>
@@ -95,9 +111,12 @@ export async function prepareDevelopment({
       env.PATH = `${bin}:${env.PATH ?? ''}`;
       npm = join(bin, 'npm');
       node = join(bin, 'node');
-    } else if (Number(process.versions.node.split('.')[0]) < 24) {
+    }
+    const nodeVersion = (await run(node, ['--version'], options)).stdout.trim();
+    const npmVersion = (await run(npm, ['--version'], options)).stdout.trim();
+    if (!meetsMinimum(nodeVersion, engines?.node) || !meetsMinimum(npmVersion, engines?.npm)) {
       throw Error(
-        'Development needs Node.js 24 and npm 11.18. Run npm run setup:dev -- --install to prepare them inside this workspace.',
+        `Development needs Node.js ${engines?.node} and npm ${engines?.npm}. Run npm run setup:dev -- --install to prepare them inside this workspace.`,
       );
     }
     if (install) {
@@ -129,8 +148,8 @@ export async function prepareDevelopment({
       ready: true,
       platform: process.platform,
       arch: process.arch,
-      node: (await run(node, ['--version'], options)).stdout.trim(),
-      npm: (await run(npm, ['--version'], options)).stdout.trim(),
+      node: nodeVersion,
+      npm: npmVersion,
       toolchainPath: install || local ? bin : null,
       availableBytes: available,
     };
