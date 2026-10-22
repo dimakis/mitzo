@@ -234,6 +234,32 @@ it.each(['reserved', 'uncertain'])(
     expect(outbox.enqueue({ ...command, clientMsgId: 'different' }, 2)).toBe(false);
   },
 );
+it('preserves an accepted but undispatched first send when authentication changes', async () => {
+  const storage = disk(),
+    notify = vi.fn();
+  const fetch = vi.fn().mockImplementation(() => new Promise<Response>(() => {}));
+  const outbox = new SendOutbox({ url: '/local', storage, notify, fetch, localFirstCommand: true });
+  outbox.start();
+  expect(outbox.enqueue(command, 1, 'draft-a')).toBe(true);
+  const queued = { ...command, clientMsgId: 'queued-first' };
+  expect(outbox.enqueue(queued, 2, 'draft-b')).toBe(true);
+  expect(fetch).toHaveBeenCalledOnce();
+  outbox.rejectAll('authentication changed');
+  expect(JSON.parse(storage.getItem()!).map((entry: { body: unknown }) => entry.body)).toEqual([
+    command,
+    queued,
+  ]);
+  outbox.start();
+  outbox.selectLocalDraft('draft-b');
+  expect(notify).toHaveBeenLastCalledWith(
+    expect.objectContaining({ state: 'uncertain', request: queued }),
+  );
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(outbox.retryLocalCommand('queued-first')).toBe(true);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  outbox.rejectAll('done');
+});
+
 it('keeps exact request after bounded409 and authentication loss; explicit recovery never rewrites it', async () => {
   const fetch = vi.fn().mockResolvedValue(
     new Response(

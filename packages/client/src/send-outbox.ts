@@ -278,6 +278,10 @@ export class SendOutbox {
     this.timer = undefined;
     const rejected = this.entries.splice(0);
     this.entries = rejected.filter((entry, index) => {
+      if (this.config.localFirstCommand) {
+        entry.uncertain = true;
+        return true;
+      }
       if (
         (!this.config.localFirstCommand &&
           !this.config.durableLaunches &&
