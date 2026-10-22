@@ -562,6 +562,22 @@ it('aborts retained preparation on logout before bootstrap/dispatch', async () =
   expect(preparationSignal?.aborted).toBe(true);
   expect(fixtures.start).not.toHaveBeenCalled();
 });
+it('observes exact consumed receipts without reserving, starting or resubmitting a command', async () => {
+  expect((await invoke('POST', '/send/receipt', input())).status).toBe(409);
+  expect(fixtures.reserve).not.toHaveBeenCalled();
+  expect(fixtures.start).not.toHaveBeenCalled();
+  await send();
+  const starts = fixtures.start.mock.calls.length,
+    reservations = fixtures.reserve.mock.calls.length;
+  const result = await invoke('POST', '/send/receipt', input());
+  expect(result.status).toBe(202);
+  expect(result.body).toMatchObject({ state: 'consumed', dispatched: false });
+  expect(fixtures.start).toHaveBeenCalledTimes(starts);
+  expect(fixtures.reserve).toHaveBeenCalledTimes(reservations);
+  expect(
+    (await invoke('POST', '/send/receipt', { ...input(), payload: { text: 'changed' } })).status,
+  ).toBe(409);
+});
 it('returns an exact consumed duplicate without changing original receipt', async () => {
   expect((await send()).status).toBe(202);
   const original = store.getOrdinaryLocalCommandAdmission(input().clientMsgId);

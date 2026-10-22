@@ -6,7 +6,7 @@ import { agentLibrarySource } from './fixtures/agent-library-source.js';
 
 import { existsSync, writeFileSync } from 'node:fs';
 
-import { revokeAuthSession } from '../auth.js';
+import { revokeAuthSession, login, authenticateToken } from '../auth.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { join } from 'node:path';
 import { bindAgentLibraryTransport } from '../agent-library-transport.js';
@@ -55,6 +55,27 @@ const fixture = (options?: {
   silentPreparation?: boolean;
   builtinPreparation?: boolean;
 }) => ownedRuntimeFixture(cleanups, options);
+
+it('renews run authority only on an explicit send from another verified operator login', async () => {
+  const f = await fixture();
+  const runtime = f.create();
+  await runtime.admit(f.request);
+  const token = await login(process.env.AUTH_PASSPHRASE!);
+  const web = await authenticateToken(token!);
+  if (!web) throw Error('Fixture login failed');
+  const connectionId = randomUUID();
+  const release = bindAgentLibraryTransport(connectionId, web);
+  cleanups.push(release, () => revokeAuthSession(web));
+  const launches = f.launch.mock.calls.length;
+  const dispatches = f.dispatch.mock.calls.length;
+  runtime.reauthorize(connectionId);
+  revokeAuthSession(f.auth);
+  await expect(runtime.admit(f.request)).resolves.toEqual({ dispatched: false });
+  expect(f.launch).toHaveBeenCalledTimes(launches);
+  expect(f.dispatch).toHaveBeenCalledTimes(dispatches);
+  revokeAuthSession(web);
+  await expect(runtime.admit(f.request)).rejects.toThrow();
+});
 
 it('rejects altered reviewed Library source bytes before native startup effects', async () => {
   const f = await fixture();

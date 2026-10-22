@@ -50,6 +50,28 @@ it('uses the existing configured key without creating another enrollment', async
     expect.objectContaining({ credentialBinding: expect.any(String) }),
   );
 });
+it('selects controller-fenced host custody while preserving sandbox readiness for gateway consumers', async () => {
+  const resolveHostKey = vi.fn(async () => 'host-key');
+  const resolveKey = vi.fn(async () => {
+    throw Error('sandbox unavailable');
+  });
+  const ready = vi.fn(async () => {
+    throw Error('sandbox unavailable');
+  });
+  state.runtime = {
+    openAIKeys: { manages: () => true, resolveHostKey, resolveKey },
+    assertOpenAIKeyReady: ready,
+  };
+  const host = openAIAccountKeyAuthority(binding, undefined, { consumer: 'host' });
+  await host.assertReady(signal());
+  expect(await host.resolveKey('work', signal())).toBe('host-key');
+  expect(resolveHostKey).toHaveBeenCalledTimes(2);
+  expect(resolveKey).not.toHaveBeenCalled();
+  expect(ready).not.toHaveBeenCalled();
+  await expect(openAIAccountKeyAuthority(binding).resolveKey('work', signal())).rejects.toThrow(
+    'sandbox unavailable',
+  );
+});
 it('checks existing gateway custody without resolving or copying a host key', async () => {
   let gated = false;
   const ready = vi.fn(async () => {

@@ -241,7 +241,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         this.owners.retainedAccountBinding ??
         this.owners.loadProfiles().resolve(expected.binding.account.accountId, ownedProfile.model);
       const keyAuthority = api
-        ? openAIAccountKeyAuthority(authBinding, this.owners.loadProfiles())
+        ? openAIAccountKeyAuthority(authBinding, this.owners.loadProfiles(), { consumer: 'host' })
         : undefined;
       const login = api
         ? retained
@@ -267,6 +267,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       const executable = retained
         ? FrozenHostCodexExecutable.reopen(retained.executable)
         : FrozenHostCodexExecutable.capture(observed.executablePath, login.privateHome);
+      if (retained) executable.completeRuntimeBundle();
       if (executable.sha256 !== observed.executableSha256) throw unavailable();
       const launch =
         this.owners.launch ??

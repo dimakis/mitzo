@@ -717,7 +717,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   }
   function confirmPersistedDelivery(sessionId: string, messages: FinishedMessage[]) {
     for (const message of messages)
-      if (message.role === 'user' && matchesDeliverySession(message.messageId, sessionId))
+      if (message.role === 'user' && isLocalDelivery(message.messageId))
+        void localOutbox?.reconcileLocalCommand(message.messageId);
+      else if (message.role === 'user' && matchesDeliverySession(message.messageId, sessionId))
         settleDelivery(message.messageId, 'accepted');
   }
 
@@ -1954,6 +1956,20 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const eventSessionId = msg.sessionId as string | undefined;
+    if (
+      eventSessionId &&
+      ['message_start', 'session_end', 'ordinary_provider_dispatch_started'].includes(
+        String(msg.type),
+      )
+    ) {
+      for (const [id, origin] of deliveryOrigins)
+        if (
+          origin.delivery === 'local' &&
+          (origin.sessionId ?? origin.observedSessionId) === eventSessionId
+        )
+          void localOutbox?.reconcileLocalCommand(id);
+    }
+
     // Explicit view selection owns rendering and controls, independently of
     // the originating Local draft's pending HTTP acknowledgement.
     const selectedEventSession =

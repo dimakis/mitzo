@@ -71,7 +71,7 @@ async function credentialDigest(
       native: await new OrdinaryLocalCodexHostRuntime().observe(),
     };
   } else if (binding.provider === 'openai' && selection.runOn === 'local') {
-    const manager = openAIAccountKeyAuthority(binding, profiles);
+    const manager = openAIAccountKeyAuthority(binding, profiles, { consumer: 'host' });
     await manager.assertReady(signal);
     credential = digest(await manager.resolveKey(binding.accountId, signal));
     await manager.assertReady(signal);

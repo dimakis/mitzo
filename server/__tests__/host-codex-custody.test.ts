@@ -76,6 +76,39 @@ it('retains original operator and physical custody across reopened competing nat
     reopened.close();
   }
 });
+it('permits only an append-only companion upgrade while preserving existing conversation custody', () => {
+  const store = new CodexConversationStore(':memory:');
+  try {
+    store.create('retained', binding, '/task');
+    const original = snapshot();
+    store.setHostCustody('retained', binding, original);
+    store.bindThread('retained', binding, 'same-thread');
+    const helper = {
+      ...original.executable,
+      path: '/private/home/codex-code-mode-host',
+      source: '/private/codex-code-mode-host',
+    };
+    const upgraded = { ...original, executable: { ...original.executable, codeModeHost: helper } };
+    store.setHostCustody('retained', binding, upgraded);
+    expect(store.readHostCustody('retained', binding)).toEqual(upgraded);
+    expect(store.read('retained', binding).threadId).toBe('same-thread');
+    expect(() => store.setHostCustody('retained', binding, original)).toThrow();
+    expect(() =>
+      store.setHostCustody('retained', binding, { ...upgraded, authSessionId: 'other' }),
+    ).toThrow();
+    expect(() =>
+      store.setHostCustody('retained', binding, {
+        ...upgraded,
+        executable: {
+          ...upgraded.executable,
+          codeModeHost: { ...helper, sha256: 'f'.repeat(64) },
+        },
+      }),
+    ).toThrow();
+  } finally {
+    store.close();
+  }
+});
 it('refuses to invent custody for legacy native history or queued commands', () => {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-custody-legacy-'));
   roots.push(root);

@@ -3,6 +3,7 @@ import {
   type LocalWorkspaceKind,
   type LocalWorkspaceRecord,
 } from './ordinary-local-workspace-owner.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import {
   resolveTelosWorkRoleContext,
   resolveTelosWorkSystemPrompt,
@@ -117,7 +118,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   readonly #runtime: OrdinaryLocalCodexHostRuntime;
   readonly #controller = new AbortController();
   readonly #signal: AbortSignal;
-  readonly #operator: ReturnType<typeof retainAgentContextAuthority>;
+  #operator: ReturnType<typeof retainAgentContextAuthority>;
   #lease?: FrozenHostCodexBootstrapLease;
   #admission?: OwnedLocalCodexChatAdmission;
   #expected?: Readonly<OrdinaryLocalCodexAdmissionExpectation>;
@@ -161,6 +162,25 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     }
   }
 
+  /** Explicit sends renew run authority; reading never transfers execution. */
+  reauthorize(operatorConnectionId: string): void {
+    this.assertCurrent();
+    const captured = captureAgentLibraryAuthorization(operatorConnectionId);
+    captured.assertCurrent();
+    if (!ordinaryOperatorOwnsConversation(this.#authSessionId, captured.auth.id))
+      throw unavailable();
+    const next = retainAgentContextAuthority({ ...captured.auth }, this.#controller);
+    try {
+      next.assertCurrent();
+    } catch (error) {
+      next.release();
+      throw error;
+    }
+    const previous = this.#operator;
+    this.#operator = next;
+    this.#authSessionId = captured.auth.id;
+    previous.release();
+  }
   async admit(raw: unknown): Promise<{ dispatched: boolean }> {
     return this.admitCommand(raw, false);
   }
@@ -212,7 +232,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         resume &&
         (!hasPersistentRevocationAuthority() ||
           !custody ||
-          custody.authSessionId !== this.#authSessionId ||
+          !ordinaryOperatorOwnsConversation(custody.authSessionId, this.#authSessionId) ||
           !this.owners.nativeStore?.read(
             this.#reservation.conversationId,
             this.#reservation.binding,

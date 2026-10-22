@@ -5,6 +5,7 @@ import {
   type OrdinaryCommandDelivery,
 } from './local-command-delivery.js';
 import {
+  ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS,
   SourceSnapshotsSchema,
   LocalCodexFirstCommandReceiptSchema,
   OrdinaryCodexRetainedCommandObservationSchema,
@@ -55,6 +56,7 @@ export class SendOutbox {
   private selectedLocalScope: { draftId: string } | { sessionId: string } | null | undefined;
   private localReady: Entry[] = [];
   private activeLocalEntry?: Entry;
+  private receiptReads = new Map<Entry, AbortController>();
 
   constructor(private config: Config) {
     this.key = `mitzo-send-outbox:${config.url}`;
@@ -218,6 +220,8 @@ export class SendOutbox {
   }
 
   stop(): void {
+    for (const controller of this.receiptReads.values()) controller.abort();
+    this.receiptReads.clear();
     this.active = false;
     this.localReady = [];
     if (this.timer) clearTimeout(this.timer);
@@ -298,6 +302,8 @@ export class SendOutbox {
 
   /** Reject queued prompts and surface an in-flight prompt as delivery-ambiguous. */
   rejectAll(error: string): void {
+    for (const controller of this.receiptReads.values()) controller.abort();
+    this.receiptReads.clear();
     this.active = false;
     this.generation++;
     this.localReady = [];
@@ -357,6 +363,77 @@ export class SendOutbox {
     });
   }
 
+  /** A streamed/persisted reply is a hint to observe acceptance, never a grant
+   * to resubmit intent. Only the server's exact consumed receipt clears input.
+   */
+  async reconcileLocalCommand(commandId: string): Promise<void> {
+    const entry = this.entries.find((item) => item.body.clientMsgId === commandId);
+    if (!this.active || !this.config.localFirstCommand || !entry || this.receiptReads.has(entry))
+      return;
+    const generation = this.generation;
+    const controller = new AbortController();
+    this.receiptReads.set(entry, controller);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const { response, raw } = await Promise.race([
+        this.config
+          .fetch(this.localUrl(entry) + '/receipt', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...this.config.headers?.() },
+            body: JSON.stringify(entry.body),
+            signal: controller.signal,
+          })
+          .then(async (response) => ({ response, raw: await response.json() })),
+        new Promise<never>((_, reject) => {
+          controller.signal.addEventListener(
+            'abort',
+            () => reject(Error('Receipt read interrupted')),
+            { once: true },
+          );
+          timer = setTimeout(() => controller.abort(), 15_000);
+        }),
+      ]);
+      if (generation !== this.generation || !this.active || !this.entries.includes(entry)) return;
+      const receipt = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
+      if (
+        response.status !== 202 ||
+        !receipt.success ||
+        receipt.data.state !== 'consumed' ||
+        receipt.data.clientMsgId !== entry.body.clientMsgId ||
+        (entry.ordinaryDelivery?.version === 1 &&
+          receipt.data.sessionId !== entry.ordinaryDelivery.sessionId) ||
+        (typeof entry.body.sessionId === 'string' &&
+          receipt.data.sessionId !== entry.body.sessionId)
+      )
+        return;
+      entry.localReceipt = { sessionId: receipt.data.sessionId, state: 'consumed' };
+      if (!this.persist()) return;
+      this.notifyLocal(entry, 'consumed', true);
+      this.entries.splice(this.entries.indexOf(entry), 1);
+      this.persist();
+    } catch {
+      // Observation failure never resends a command or overwrites its UI state.
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (this.receiptReads.get(entry) === controller) this.receiptReads.delete(entry);
+    }
+  }
+  private localUrl(entry: Entry): string {
+    return entry.ordinaryDelivery?.version === 2
+      ? '/api/ordinary/workspaces/commands/' + entry.ordinaryDelivery.phase
+      : entry.body.runOn === 'openshell' ||
+          (entry.body.runtime &&
+            typeof entry.body.runtime === 'object' &&
+            'harness' in entry.body.runtime &&
+            ['claude-sdk', 'responses', 'gemini'].includes(String(entry.body.runtime.harness)))
+        ? typeof entry.body.sessionId === 'string'
+          ? '/api/chat/runtime/continue'
+          : '/api/chat/runtime/send'
+        : typeof entry.body.sessionId === 'string'
+          ? this.config.url.replace(/\/send$/, '/continue')
+          : this.config.url;
+  }
+
   private async pumpLocal(): Promise<void> {
     if (
       !this.active ||
@@ -376,39 +453,26 @@ export class SendOutbox {
     try {
       entry.uncertain = true;
       if (!this.persist()) throw Error('Local intent could not be retained');
-      const response = await Promise.race([
-        this.config.fetch(
-          entry.ordinaryDelivery?.version === 2
-            ? '/api/ordinary/workspaces/commands/' + entry.ordinaryDelivery.phase
-            : entry.body.runOn === 'openshell' ||
-                (entry.body.runtime &&
-                  typeof entry.body.runtime === 'object' &&
-                  'harness' in entry.body.runtime &&
-                  ['claude-sdk', 'responses', 'gemini'].includes(
-                    String(entry.body.runtime.harness),
-                  ))
-              ? typeof entry.body.sessionId === 'string'
-                ? '/api/chat/runtime/continue'
-                : '/api/chat/runtime/send'
-              : typeof entry.body.sessionId === 'string'
-                ? this.config.url.replace(/\/send$/, '/continue')
-                : this.config.url,
-          {
+      const { response, raw } = await Promise.race([
+        this.config
+          .fetch(this.localUrl(entry), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...this.config.headers?.() },
             body: JSON.stringify(entry.body),
             signal: abort.signal,
-          },
-        ),
+          })
+          .then(async (response) => ({ response, raw: await response.json() })),
         new Promise<never>((_, reject) => {
           abort.signal.addEventListener('abort', () => reject(Error('Delivery interrupted')), {
             once: true,
           });
-          timeout = setTimeout(() => abort.abort(), this.config.timeoutMs ?? 15000);
+          timeout = setTimeout(
+            () => abort.abort(),
+            this.config.timeoutMs ?? ORDINARY_COMMAND_RECEIPT_TIMEOUT_MS,
+          );
         }),
       ]);
-      const raw = await response.json();
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || !this.entries.includes(entry)) return;
       const success = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
       const observation = OrdinaryCodexRetainedCommandObservationSchema.safeParse(raw);
       const matching =
@@ -431,7 +495,8 @@ export class SendOutbox {
         this.notifyLocal(entry, 'retained');
       } else this.notifyLocal(entry, 'uncertain');
     } catch {
-      if (generation === this.generation) this.notifyLocal(entry, 'uncertain');
+      if (generation === this.generation && this.entries.includes(entry))
+        this.notifyLocal(entry, 'uncertain');
     } finally {
       if (timeout) clearTimeout(timeout);
       if (generation === this.generation) {

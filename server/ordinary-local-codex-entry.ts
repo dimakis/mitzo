@@ -1,3 +1,4 @@
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import {
   assertOrdinaryHistoricalAcknowledgement,
@@ -33,6 +34,7 @@ import { join, isAbsolute } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import { Router } from 'express';
 import {
+  ORDINARY_COMMAND_STARTUP_TIMEOUT_MS,
   OrdinaryWorkspaceFirstCommandSchema,
   OrdinaryWorkspaceContinuationCommandSchema,
   LocalCodexFirstCommandSchema,
@@ -391,7 +393,7 @@ function createOwnedCodexEntryRouter(
     }
   });
   const sendCommand =
-    (continuation: boolean): import('express').RequestHandler =>
+    (continuation: boolean, observeOnly = false): import('express').RequestHandler =>
     async (req, res) => {
       const auth = res.locals.authSession as AuthSession | undefined;
       const connectionId = req.headers['x-connection-id'];
@@ -439,9 +441,12 @@ function createOwnedCodexEntryRouter(
         input.runOn === 'local' &&
         (!('repositoryWorkspaceId' in input) || input.repositoryWorkspaceId === undefined);
       if (automaticLocalRepository) {
-        const id = nativeStartupSessionId(
-          `local-repository:${auth.id}:${input.runtime.account.accountId}:${input.clientMsgId}`,
-        );
+        const id =
+          (observeOnly &&
+            ctx.eventStore.getOrdinaryCommandAdmission(input.clientMsgId)?.workspace.workspaceId) ||
+          nativeStartupSessionId(
+            `local-repository:${auth.id}:${input.runtime.account.accountId}:${input.clientMsgId}`,
+          );
         // Normalize through the same public shape so exact retries retain the
         // original canonical reservation and command fingerprints.
         input = (general ? OrdinaryRuntimeFirstCommandSchema : LocalCodexFirstCommandSchema).parse({
@@ -481,7 +486,12 @@ function createOwnedCodexEntryRouter(
             ).parse(req.body).sessionId
           : nativeStartupSessionId(`repository:${repositoryWorkspaceId}`);
       const existingOwner = ctx.sessionRegistry.findBySessionId(sessionId);
-      if (existingOwner && existingOwner.session.ownedLocalAuthSessionId !== auth.id)
+      if (
+        existingOwner &&
+        !(input.runOn === 'local' && input.runtime.harness === 'codex'
+          ? ordinaryOperatorOwnsConversation(existingOwner.session.ownedLocalAuthSessionId, auth.id)
+          : existingOwner.session.ownedLocalAuthSessionId === auth.id)
+      )
         return res
           .status(403)
           .json({ ok: false, code: 'connection_unavailable', error: unavailable });
@@ -552,6 +562,12 @@ function createOwnedCodexEntryRouter(
           sessionId,
         });
       }
+      // This endpoint observes exact durable acceptance only. In particular it
+      // cannot reserve workspaces, bootstrap a provider or dispatch a retry.
+      if (observeOnly)
+        return res
+          .status(409)
+          .json({ ok: false, code: 'receipt_pending', clientMsgId: input.clientMsgId, sessionId });
       if (continuation) {
         const meta = ctx.eventStore.getSession(sessionId);
         const binding = ctx.eventStore.getSessionRuntimeBinding(sessionId);
@@ -596,7 +612,7 @@ function createOwnedCodexEntryRouter(
         const operatorConnectionId = `owned-local-entry:${randomUUID()}`;
         releaseBinding = bindAgentLibraryTransport(operatorConnectionId, { ...captured.auth });
         releaseStartup = reserveRepositoryStartup(sessionId);
-        timer = setTimeout(() => controller.abort(), 120000);
+        timer = setTimeout(() => controller.abort(), ORDINARY_COMMAND_STARTUP_TIMEOUT_MS);
         authority.assertCurrent();
         const { profiles, catalog, result, agentContextPresets } = inventory(
           input.runOn,
@@ -754,7 +770,13 @@ function createOwnedCodexEntryRouter(
           });
         authority.assertCurrent();
         const live = ctx.sessionRegistry.findBySessionId(sessionId);
-        if (live && live.session.ownedLocalAuthSessionId !== auth.id) throw Error(unavailable);
+        if (
+          live &&
+          !(input.runOn === 'local' && input.runtime.harness === 'codex'
+            ? ordinaryOperatorOwnsConversation(live.session.ownedLocalAuthSessionId, auth.id)
+            : live.session.ownedLocalAuthSessionId === auth.id)
+        )
+          throw Error(unavailable);
         ctx.connRegistry.watch(connectionId, sessionId);
         ctx.connRegistry.setActive(connectionId, sessionId);
         const command = {
@@ -895,6 +917,12 @@ function createOwnedCodexEntryRouter(
     };
   router.post(ordinary ? '/first' : '/send', requireSameOriginJson, sendCommand(false));
   router.post('/continue', requireSameOriginJson, sendCommand(true));
+  router.post(
+    ordinary ? '/first/receipt' : '/send/receipt',
+    requireSameOriginJson,
+    sendCommand(false, true),
+  );
+  router.post('/continue/receipt', requireSameOriginJson, sendCommand(true, true));
   return router;
 }
 

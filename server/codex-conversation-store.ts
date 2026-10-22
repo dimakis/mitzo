@@ -8,6 +8,7 @@ import { HostCodexCustodySchema, type HostCodexCustody } from './host-codex-cust
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { dirname, join } from 'node:path';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import { AgentSandboxContextScopeSchema } from '@mitzo/protocol';
@@ -700,8 +701,31 @@ export class CodexConversationStore {
         const conversation = this.read(id, binding);
         const previous = this.readHostCustody(id, binding);
         if (previous) {
-          if (!isDeepStrictEqual(previous, snapshot))
-            throw new Error('Host Codex custody cannot be replaced');
+          if (!isDeepStrictEqual(previous, snapshot)) {
+            const { codeModeHost, ...originalExecutable } = snapshot.executable;
+            // A reviewed cold bootstrap can complete the runtime distribution.
+            // This never replaces an owner, credential, main binary or history,
+            // and cannot repair unknown/running work by adopting another bundle.
+            if (
+              previous.executable.codeModeHost ||
+              !codeModeHost ||
+              this.hasRunningCommand(id, binding) ||
+              !isDeepStrictEqual({ ...snapshot, executable: originalExecutable }, previous) ||
+              codeModeHost.path !==
+                join(dirname(previous.executable.path), 'codex-code-mode-host') ||
+              codeModeHost.source !==
+                join(dirname(previous.executable.source), 'codex-code-mode-host') ||
+              !isDeepStrictEqual(
+                codeModeHost.sourceDirectory,
+                previous.executable.sourceDirectory,
+              ) ||
+              !isDeepStrictEqual(codeModeHost.ownedDirectory, previous.executable.ownedDirectory)
+            )
+              throw new Error('Host Codex custody cannot be replaced');
+            this.db
+              .prepare('UPDATE codex_conversations SET host_custody=? WHERE id=?')
+              .run(JSON.stringify(snapshot), id);
+          }
           return;
         }
         if (conversation.threadId || this.commands(id, binding).length)

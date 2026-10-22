@@ -42,6 +42,89 @@ const receipt = (state = 'consumed') =>
     { status: 202 },
   );
 afterEach(() => vi.useRealTimers());
+it('recovers a lost acknowledgement through a read-only exact receipt without resending', async () => {
+  const storage = disk(),
+    notify = vi.fn();
+  const fetch = vi
+    .fn()
+    .mockRejectedValueOnce(Error('HTTP response lost'))
+    .mockResolvedValueOnce(receipt());
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    fetch,
+    storage,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  outbox.enqueue(command, 1, 'draft');
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'uncertain' })),
+  );
+  await outbox.reconcileLocalCommand(command.clientMsgId);
+  expect(fetch.mock.calls.map(([url]) => url)).toEqual(['/local/send', '/local/send/receipt']);
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual(command);
+  expect(notify).toHaveBeenLastCalledWith(
+    expect.objectContaining({ state: 'consumed', acknowledged: true }),
+  );
+  expect(JSON.parse(storage.getItem()!)).toEqual([]);
+  outbox.stop();
+});
+it('bounds the entire receipt including a stalled HTTP body, retaining the exact command', async () => {
+  vi.useFakeTimers();
+  const storage = disk(),
+    notify = vi.fn();
+  let finishBody!: (value: unknown) => void;
+  const fetch = vi.fn().mockResolvedValue({
+    status: 202,
+    json: () =>
+      new Promise((resolve) => {
+        finishBody = resolve;
+      }),
+  });
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    fetch,
+    storage,
+    notify,
+    localFirstCommand: true,
+    timeoutMs: 50,
+  });
+  outbox.start();
+  outbox.enqueue(command, 1, 'draft');
+  await vi.advanceTimersByTimeAsync(50);
+  expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'uncertain' }));
+  finishBody(await receipt().json());
+  await vi.advanceTimersByTimeAsync(0);
+  expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ acknowledged: true }));
+  expect(JSON.parse(storage.getItem()!)[0].body).toEqual(command);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  outbox.stop();
+});
+
+it('allows the server startup budget but still times out an unacknowledged command', async () => {
+  vi.useFakeTimers();
+  const storage = disk(),
+    notify = vi.fn();
+  const fetch = vi.fn().mockImplementation(() => new Promise<Response>(() => {}));
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    fetch,
+    storage,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  outbox.enqueue(command, 1, 'draft');
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'pending' }));
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(notify).toHaveBeenLastCalledWith(expect.objectContaining({ state: 'uncertain' }));
+  expect(JSON.parse(storage.getItem()!)[0].body).toEqual(command);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  outbox.stop();
+});
+
 it.each([
   ['claude-sdk', 'anthropic-vertex'],
   ['responses', 'openai'],

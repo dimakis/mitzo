@@ -1,6 +1,7 @@
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
 import type { LocalWorkspaceRecord } from './ordinary-local-workspace-owner.js';
 import type { LocalWorkspaceKind } from './ordinary-local-workspace-owner.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { resolveTelosWorkRoleContext } from './telos-work-role-context.js';
 import {
   resolveTelosWorkCommandScope,
@@ -3034,7 +3035,10 @@ export function canResumeOwnedLocalCodexDriver(sessionId: string, authSessionId:
       return false;
     const native = getCodexConversationStore();
     return (
-      native.readHostCustody(sessionId, meta.accountBinding)?.authSessionId === authSessionId &&
+      ordinaryOperatorOwnsConversation(
+        native.readHostCustody(sessionId, meta.accountBinding)?.authSessionId,
+        authSessionId,
+      ) &&
       Boolean(native.read(sessionId, meta.accountBinding).threadId) &&
       !native.hasRunningCommand(sessionId, meta.accountBinding)
     );
@@ -3063,16 +3067,27 @@ export async function sendOwnedLocalCodexCommand(input: {
     const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
     captured.assertCurrent();
     const retained = registry.findBySessionId(input.sessionId)?.session.ordinaryRuntimeOwner;
-    if (!retained || retained.location !== 'local' || retained.authSessionId !== captured.auth.id)
+    if (
+      !retained ||
+      retained.location !== 'local' ||
+      !ordinaryOperatorOwnsConversation(retained.authSessionId, captured.auth.id)
+    )
       throw unavailable();
     resolveOwnedTelosWorkCommandScope(input.sessionId);
+    retained.reauthorize?.(input.operatorConnectionId);
     const result = await retained.admit(structuredClone(input.command), input.signal);
     captured.assertCurrent();
     resolveOwnedTelosWorkCommandScope(input.sessionId);
     if (result.dispatched) {
       const current = registry.findBySessionId(input.sessionId);
       const native = current && getCodexRuntime(current.session);
-      if (!native || current!.session.ownedLocalAuthSessionId !== captured.auth.id)
+      if (
+        !native ||
+        !ordinaryOperatorOwnsConversation(
+          current!.session.ownedLocalAuthSessionId,
+          captured.auth.id,
+        )
+      )
         throw unavailable();
       await native.resumeAfterExplicitSend();
     }
@@ -3250,6 +3265,7 @@ export async function startOwnedLocalCodexCommand(
     liveSession.ordinaryRuntimeOwner = {
       location: 'local',
       authSessionId: ownerAuthSessionId,
+      reauthorize: (connectionId) => retainedDriver.reauthorize(connectionId),
       identity: retainedDriver,
       initialCommandId: commandId,
       initialPreparationOperationId: preparationOperationId,

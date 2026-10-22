@@ -5,6 +5,7 @@ import type { EventStore } from './event-store.js';
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { getPendingSessionId } from './permissions.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 
 export type OwnedLocalControlContext = {
   sessionRegistry: Pick<SessionRegistry, 'get' | 'findBySessionId'>;
@@ -24,7 +25,11 @@ export function ownedLocalControlStatus(
   const binding = ctx.eventStore.getSessionRuntimeBinding?.(sessionId);
   const boundLocal = binding?.execution?.location === 'local';
   if (!owner && !boundLocal) return 'unrestricted';
-  return owner && liveTransportAuthSessionId(connectionId) === owner && transport?.isOpen()
+  return owner &&
+    (binding?.harness.implementation === 'codex'
+      ? ordinaryOperatorOwnsConversation(owner, liveTransportAuthSessionId(connectionId))
+      : liveTransportAuthSessionId(connectionId) === owner) &&
+    transport?.isOpen()
     ? 'authorized'
     : 'denied';
 }

@@ -1,3 +1,4 @@
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import {
   OrdinaryLocalVertexTarget,
   localVertexCapabilities,
@@ -102,8 +103,10 @@ export function ordinaryCodexContinuationStatus(
       return blocked('Sign in with the original login to resume this conversation.');
     const live = registry.findBySessionId(sessionId)?.session;
     if (live)
-      return live.ordinaryRuntimeOwner?.authSessionId === authSessionId &&
-        live.ordinaryRuntimeOwner.location === location
+      return (location === 'local' && binding.harness.implementation === 'codex'
+        ? ordinaryOperatorOwnsConversation(live.ordinaryRuntimeOwner?.authSessionId, authSessionId)
+        : live.ordinaryRuntimeOwner?.authSessionId === authSessionId) &&
+        live.ordinaryRuntimeOwner?.location === location
         ? { available: true }
         : blocked('This conversation belongs to another login.');
     if (
