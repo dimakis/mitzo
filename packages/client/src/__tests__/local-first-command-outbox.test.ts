@@ -625,3 +625,61 @@ it('retains a finite generic OpenShell observation without treating it as an ack
   expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ acknowledged: true }));
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+it('releases a stalled original HTTP send after exact receipt recovery so the next explicit command is not delayed', async () => {
+  const storage = disk(),
+    notify = vi.fn();
+  const fresh = {
+    ...command,
+    clientMsgId: 'fresh-after-recovery',
+    payload: { text: 'Next explicit command' },
+  };
+  const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith('/receipt')) return receipt();
+    const body = JSON.parse(String(init?.body));
+    if (body.clientMsgId === command.clientMsgId) return new Promise<Response>(() => {});
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        clientMsgId: fresh.clientMsgId,
+        sessionId: 'next-session',
+        dispatched: true,
+        state: 'consumed',
+      }),
+      { status: 202 },
+    );
+  });
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    fetch,
+    storage,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  try {
+    outbox.enqueue(command, 1, 'original-draft');
+    await outbox.reconcileLocalCommand(command.clientMsgId);
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({
+        clientMsgId: command.clientMsgId,
+        state: 'consumed',
+        acknowledged: true,
+      }),
+    );
+    outbox.enqueue(fresh, 2, 'fresh-draft');
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        expect.objectContaining({ clientMsgId: fresh.clientMsgId, state: 'consumed' }),
+      ),
+    );
+    expect(
+      fetch.mock.calls
+        .filter(([url]) => url === '/local/send')
+        .map(([, init]) => JSON.parse(String(init?.body))),
+    ).toEqual([command, fresh]);
+    expect(JSON.parse(storage.getItem()!)).toEqual([]);
+  } finally {
+    outbox.rejectAll('Fixture ended');
+  }
+});

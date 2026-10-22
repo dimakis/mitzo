@@ -408,15 +408,22 @@ export class SendOutbox {
         return;
       entry.localReceipt = { sessionId: receipt.data.sessionId, state: 'consumed' };
       if (!this.persist()) return;
+      this.retireLocal(entry, true);
       this.notifyLocal(entry, 'consumed', true);
-      this.entries.splice(this.entries.indexOf(entry), 1);
-      this.persist();
     } catch {
       // Observation failure never resends a command or overwrites its UI state.
     } finally {
       if (timer) clearTimeout(timer);
       if (this.receiptReads.get(entry) === controller) this.receiptReads.delete(entry);
     }
+  }
+  private retireLocal(entry: Entry, releaseTransport = false): void {
+    const index = this.entries.indexOf(entry);
+    if (index >= 0) this.entries.splice(index, 1);
+    this.persist();
+    // Exact consumed acceptance releases only this original HTTP wait. Its
+    // finally block can then admit the next explicit command immediately.
+    if (releaseTransport && this.activeLocalEntry === entry) this.activeAbort?.abort();
   }
   private localUrl(entry: Entry): string {
     return entry.ordinaryDelivery?.version === 2
@@ -483,8 +490,8 @@ export class SendOutbox {
       if (matching && response.status === 202 && success.success) {
         entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };
         if (!this.persist()) throw Error('Local receipt could not be retained');
+        if (success.data.state === 'consumed') this.retireLocal(entry);
         this.notifyLocal(entry, success.data.state, true);
-        if (success.data.state === 'consumed') this.entries.splice(this.entries.indexOf(entry), 1);
         this.persist();
       } else if (matching && response.status === 409 && observation.success) {
         entry.localReceipt = {
