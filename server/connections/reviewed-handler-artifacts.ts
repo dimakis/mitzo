@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.529-compiled-child-preload';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.530-default-openshell-workspace-custody';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -99,7 +100,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/ordinary-workspace.ts':
     'c4431b3fef376cf17142c07764c032d0147915893c0b49c1776b0ccccc08c808',
   '../ordinary-workspace-custody.ts':
-    '12340f543594f8a4304b7e59c86e02e8ce146cda7f9fce2e645e47b8ad8fd947',
+    'b2381432c4f318127fe595342bc64113bed4c4cdca340f3b7d37a143a3b8299f',
   '../connection-request-error.ts':
     'baedef9cc52b1ace3c705fe396f4a11e938cf7f018d8ccd2ad28f699f69d098c',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-model-publication-guard-clone.patch':
@@ -1072,9 +1073,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/components/CodexQueueStatus.tsx':
     '5017c336dba0dc7e4d95d2e57af46d13d808be0bb8b22710919edd345003df78',
   '../ordinary-repository-preparation.ts':
-    '2cf559fe9360a8d48e51413bf7f0d7a6b2d2bbfb89dc4675f595a2875216eed0',
+    '8bc7983ba2e486781b272fddcc21eafbe4201789837b5bf919e55e06790fb795',
   '../ordinary-repository-preparation-authority.ts':
-    'cdc69081e652ecc0f8928282849cdaccf5528060d3cbb450779793eadd0065ea',
+    '2531e3021578af1a691e35f633506e15ff2ef4fb9c20bb35f11d571312bc7f76',
   '../../frontend/src/components/RepositoryChatPicker.tsx':
     '1b67d8ac02bfe47ed49b404e8733b7a28b0a81be71cc2a6ef85a640863d794f1',
   '../../frontend/src/hooks/useRepositoryChatPreparation.ts':
