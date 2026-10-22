@@ -3,6 +3,61 @@ import request from 'supertest';
 import { expect, it, vi } from 'vitest';
 import { createRepositoryWorkspaceRouter } from '../repository-workspace-router.js';
 import type { AccountBinding } from '@mitzo/protocol';
+import { RepositorySourceLimitError, RepositorySpaceError } from '../github-repository-source.js';
+
+it.each([
+  ['preview', false],
+  ['prepare', false],
+  ['preview', true],
+  ['prepare', true],
+] as const)(
+  'reports a useful preparation error for %s (space=%s) without exposing arbitrary failures',
+  async (operation, space) => {
+    const app = express();
+    app.use(express.json());
+    app.use((_req, res, next) => {
+      res.locals.authSession = { id: 'operator', expiresAt: Date.now() + 60000 };
+      next();
+    });
+    const effect = vi.fn(async () => {
+      throw space ? new RepositorySpaceError() : new RepositorySourceLimitError();
+    });
+    app.use(
+      '/repositories',
+      createRepositoryWorkspaceRouter({
+        resolveBinding: () =>
+          ({ accountId: 'account', model: 'model', provider: 'openai' }) as AccountBinding,
+        catalog: vi.fn(),
+        preview: effect,
+        prepare: effect,
+      }),
+    );
+    const path =
+      operation === 'preview'
+        ? '/repositories/preview'
+        : '/repositories/8ca30b0d-3e65-4eeb-8244-f6277350818f/prepare';
+    const body = {
+      accountId: 'account',
+      model: 'model',
+      ...(operation === 'preview'
+        ? { connectionId: 'connection', repository: 'example/repo' }
+        : {}),
+    };
+    const response = await request(app).post(path).send(body);
+    expect(response.status).toBe(space ? 507 : 413);
+    expect(response.body).toMatchObject({
+      code: space ? 'repository_space' : 'repository_source_limit',
+      error: expect.stringContaining(space ? 'free space' : '512 MiB'),
+    });
+    expect(response.body.error).toContain(space ? '3 GiB' : 'smaller repository');
+    effect.mockImplementationOnce(async () => {
+      throw Error('private credential and path');
+    });
+    const unknown = await request(app).post(path).send(body);
+    expect(unknown.status).toBe(409);
+    expect(JSON.stringify(unknown.body)).not.toContain('private credential');
+  },
+);
 it('selects a configured Mac repository without preview/import and refuses paths or sandbox selection', async () => {
   const binding = {
     accountId: 'work',
