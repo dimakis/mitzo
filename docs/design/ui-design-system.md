@@ -529,6 +529,24 @@ The settings body owns scrolling between those actions. A 60dvh cap is
 the fallback before measurement, bounded by the viewport. These bounds are structural overlay geometry;
 colors, type, spacing and controls remain shared.
 
+## PDF imports
+
+The existing Attach action accepts PDFs alongside images. PDFs render locally into
+ordered page images, preserving scanned pages and diagrams through the existing
+provider image transport. Imports share the ten-image/page message budget and
+reject PDFs over 20 MB or rendered pages over 12 MB without silently truncating a
+document. Filename/page labels survive saved drafts and image edits and accompany
+the submitted prompt.
+
+This reuses ComposerTools, the thumbnail strip, SessionResourcesDialog,
+ImageAttachmentEditor and the existing composer status row. No palette, type,
+spacing, motion or approved Chat settings layout changes. Loading blocks submission;
+errors preserve the question and prior attachments. Pending work remains bound to
+its originating composer. The all-intercept PDF fixture checks actual PDF.js worker
+rendering, text/vector and scanned pages, preview, errors and submitted page count
+in 320px mobile WebKit/Chromium and 1280px desktop Chromium, dark Mint/System and
+light Teal/Georgia, using the deployed CSP. It invokes no backend or model.
+
 ## Draft image preview and drawing
 
 The shared composer opens draft images from its thumbnail strip and Sources drawer
