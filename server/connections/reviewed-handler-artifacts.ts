@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.531-default-openshell-command-owner';
+  'v1.0.532-default-openshell-workdir-fence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -900,7 +900,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
   '../repository-workspaces.ts': '26cebe118255d53ce43eabbddee6f6b4e9e9f28a6e2f91097377596e42ad0cc0',
   '../../packages/protocol/src/session-metadata-store.ts':
-    '9ff60da5be163fe19cc4c1c8a022a2e77bd71bdc3efd38876b5148e55461a9f5',
+    '23b46bb4ae5cca126db5ddbbfcb6dffb0cef98895e6d74a0b0700c5098b39a04',
   '../../packages/protocol/src/event-store.ts':
     '6eba8ae7c813ff07a1ae0dfbe2d7932d6f9fb469d4a1ad228ee0d616741cffc8',
   '../../packages/protocol/src/session-lifecycle-store.ts':
