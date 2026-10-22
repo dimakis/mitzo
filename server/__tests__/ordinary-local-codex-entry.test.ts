@@ -1339,7 +1339,8 @@ it('starts a fresh OpenShell chat through ordinary mgmt custody without selectin
     ordinaryPreparation: { capture, assert: async () => {} },
   });
   fixtures.ordinaryWorkspace.mockReturnValue(workspaces);
-  const { repositoryWorkspaceId: _unused, ...request } = shell.request;
+  const request = { ...shell.request };
+  Reflect.deleteProperty(request, 'repositoryWorkspaceId');
   fixtures.startShell.mockImplementation(async (_transport, _client, args) => {
     const record = workspaces.getOrdinaryWorkspace(args.meta.ordinaryWorkspaceId);
     await workspaces.claimOrdinaryWorkspace({
@@ -1349,15 +1350,58 @@ it('starts a fresh OpenShell chat through ordinary mgmt custody without selectin
       taskRoot,
       signal: new AbortController().signal,
     });
+    const artifact = {
+      runtime: {
+        sandboxName: 'default-mgmt-owned',
+        sandboxId: 'default-resource',
+        workdir: shell.config.workdir,
+        appServerCommand: '/sandbox/run-mitzo-subscription-app-server',
+        cli: shell.config.cli,
+        gateway: shell.config.gateway,
+        workspace: shell.config.workspace,
+        gatewayInsecure: false,
+      },
+      route: {
+        kind: 'chatgpt-subscription',
+        provider: 'provider',
+        providerType: 'openai-codex-oauth',
+        providerId: 'provider-id',
+        grantId: 'grant-id',
+        model: 'fixture',
+      },
+    } satisfies ArtifactRuntime;
+    fixtures.shellArtifact.mockReturnValue(artifact);
+    fixtures.shellCustody.mockReturnValue({
+      workspaceKind: 'ordinary',
+      authSessionId: auth.id,
+      binding: shell.admittedBinding,
+      workspace: { workspaceId: record.id, cwd: shell.config.workdir },
+      physicalIdentitySha256: openShellPhysicalCustodyFingerprint(artifact),
+    });
+    const command = {
+      ...args.command,
+      payload: {
+        ...args.command.payload,
+        systemPrompt: buildAgentProfilePrompt(args.meta.agentProfile.definition),
+      },
+    };
+    const expected = {
+      binding: shell.admittedBinding,
+      workspace: { workspaceId: record.id, cwd: shell.config.workdir },
+      selection: command.selection,
+      agentProfile: args.meta.agentProfile,
+    };
     store.admitPreparedOrdinaryWorkspaceCommand(
       args.preparationOperationId,
       args.meta,
       shell.admittedBinding,
       {
         clientMsgId: args.command.clientMsgId,
-        requestFingerprint: 'offline-boundary-receipt',
+        requestFingerprint: `ordinary-openshell-codex-v1:${createHash('sha256')
+          .update(canonicalJson(JSON.parse(JSON.stringify({ request: command, expected }))))
+          .digest('hex')}`,
         selection: args.command.selection,
-        payload: args.command.payload,
+        payload: command.payload,
       },
     );
     store.claimOrdinaryOpenShellCommandDispatch(args.command.clientMsgId);
@@ -1376,6 +1420,15 @@ it('starts a fresh OpenShell chat through ordinary mgmt custody without selectin
     expect(meta.repositoryWorkspaceId).toBeUndefined();
     expect(meta.cwd).toBe(shell.config.workdir);
     expect(fixtures.startShell.mock.calls[0][2].preparationOperationId).toBeTruthy();
+    expect(await invoke('POST', '/send', request)).toMatchObject({
+      status: 202,
+      body: { dispatched: false },
+    });
+    expect(
+      (await invoke('POST', '/send', { ...request, payload: { text: 'Changed frozen command' } }))
+        .status,
+    ).toBe(409);
+    expect(fixtures.startShell).toHaveBeenCalledOnce();
     expect(capture).toHaveBeenCalledOnce();
     expect(forbidden).not.toHaveBeenCalled();
     expect(fixtures.reserveSandbox).not.toHaveBeenCalled();
