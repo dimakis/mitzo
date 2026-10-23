@@ -3,6 +3,7 @@ import { AccountProfiles, loadAccountProfiles } from '../account-profiles.js';
 import { ownedResponsesRuntimeFixture } from './fixtures/owned-local-responses-runtime.js';
 import {
   localResponsesCapabilities,
+  newLocalResponsesCapabilities,
   OrdinaryLocalResponsesTarget,
 } from '../ordinary-local-responses-capabilities.js';
 import { projectOrdinaryOpenShellCodexCapabilities } from '../ordinary-openshell-codex-route.js';
@@ -12,6 +13,35 @@ afterEach(async () => {
   for (const close of cleanups.splice(0).reverse()) await close();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+});
+it('rejects new Responses work without disabling the exact retained legacy route', async () => {
+  const f = await ownedResponsesRuntimeFixture(cleanups);
+  const profiles = loadAccountProfiles();
+  const target = new OrdinaryLocalResponsesTarget(f.dependencies.env);
+  const fresh = newLocalResponsesCapabilities(profiles, target);
+  const retained = localResponsesCapabilities(profiles, target);
+  expect(fresh.inventory().routes).toEqual([]);
+  expect(fresh.inventory().capabilityRevision).not.toBe(retained.inventory().capabilityRevision);
+  expect(fresh.resolve(f.request.runtime)).toEqual({
+    status: 'rejected',
+    code: 'new_work_harness_unsupported',
+  });
+  expect(retained.resolve(f.request.runtime)).toMatchObject({
+    status: 'compatible',
+    binding: { account: f.request.runtime.account, harness: { implementation: 'responses' } },
+  });
+});
+it('keeps deferred Gemini available without borrowing an OpenAI route', async () => {
+  const f = await ownedResponsesRuntimeFixture(cleanups, { gemini: true });
+  const catalog = newLocalResponsesCapabilities(
+    loadAccountProfiles(),
+    new OrdinaryLocalResponsesTarget(f.dependencies.env, 'gemini'),
+  );
+  expect(catalog.inventory().routes).toHaveLength(1);
+  expect(catalog.resolve(f.request.runtime)).toMatchObject({
+    status: 'compatible',
+    binding: { account: f.request.runtime.account, harness: { implementation: 'gemini' } },
+  });
 });
 it('offers an existing configured API account locally without managed re-enrollment', async () => {
   const f = await ownedResponsesRuntimeFixture(cleanups, { dual: true });

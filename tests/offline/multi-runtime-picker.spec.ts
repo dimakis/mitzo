@@ -23,7 +23,7 @@ async function offlinePicker(
     holdCapabilities?: boolean;
   } = {},
 ) {
-  const inventory = options.inventory ?? multiRuntimeInventoryFixture();
+  const inventory = options.inventory ?? multiRuntimeInventoryFixture({ nativeLocalApi: true });
   const forbidden: string[] = [];
   const errors: string[] = [];
   let releaseCapabilities: () => void = () => undefined;
@@ -258,7 +258,7 @@ test('Runtime defaults: save, fresh New chat without repeated confirmation, clea
 
 /** Fixture-only Google enrollment; no production catalogue or provider is consulted. */
 function mixedGoogleInventory() {
-  const inventory = multiRuntimeInventoryFixture();
+  const inventory = multiRuntimeInventoryFixture({ nativeLocalApi: true });
   const account = {
     accountId: 'google',
     provider: 'google-vertex' as const,
@@ -403,7 +403,7 @@ test('Approved composer clean saved-design reference aligns Agent and Account fi
 test('Approved composer retains a long trusted agent name without horizontal overflow', async ({
   page,
 }, testInfo) => {
-  const inventory = multiRuntimeInventoryFixture();
+  const inventory = multiRuntimeInventoryFixture({ nativeLocalApi: true });
   const profile = inventory.agentProfiles[0];
   // The portable name schema requires nonempty trimmed text, with no upper cap.
   // Keep this representative unbroken name valid and rehash its trusted definition.
@@ -473,7 +473,7 @@ for (const appearance of ['light', 'dark'] as const) {
   test(`Approved composer Agent settings structure, dismissal and bounded scrolling (${appearance})`, async ({
     page,
   }, testInfo) => {
-    const inventory = multiRuntimeInventoryFixture();
+    const inventory = multiRuntimeInventoryFixture({ nativeLocalApi: true });
     const draftId = `approved-picker-${appearance}`;
     const image = {
       data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4V0AAAAASUVORK5CYII=',
@@ -626,7 +626,7 @@ for (const appearance of ['light', 'dark'] as const) {
   test(`A prepared checkout retains its identity when the first-message model changes (${appearance})`, async ({
     page,
   }, testInfo) => {
-    const inventory = multiRuntimeInventoryFixture();
+    const inventory = multiRuntimeInventoryFixture({ nativeLocalApi: true });
     inventory.accounts[0].models.push({
       id: 'supported-next',
       label: 'Supported next',
@@ -932,7 +932,7 @@ for (const appearance of ['light', 'dark'] as const) {
     ).toHaveCount(0);
 
     await local.click();
-    await expect(page.getByText('Runs with Mitzo Responses', { exact: true })).toBeVisible();
+    await expect(page.getByText('Runs with Codex', { exact: true })).toBeVisible();
     await expect(account).toHaveAttribute('data-value', 'api');
     await expect(model).toHaveAttribute('data-value', 'shell-model');
     await expect(thinking).toHaveAttribute('data-value', 'high');

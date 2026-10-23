@@ -1,3 +1,13 @@
+import {
+  enableBriefingRuntime,
+  reviewBriefingRuntime,
+  installBriefingSse,
+} from '../support/briefing-owned-runtime';
+import {
+  DEFAULT_MITZO_PROFILE_ID,
+  DEFAULT_MITZO_PROFILE_REVISION,
+} from '../../packages/protocol/src/index';
+import { OrdinaryRuntimeFirstCommandSchema } from '../../packages/protocol/src/local-codex-first-command';
 import { settingRow, openChatSetting } from '../support/chat-settings';
 import { HTML_PREVIEW_BOOTSTRAP, htmlPreviewPolicy } from '../../server/html-preview-shell';
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
@@ -2046,6 +2056,8 @@ async function exerciseBriefingReloadRecovery(
   nativeMode?: 'unready' | 'lost-ack' | 'sse',
 ) {
   test.setTimeout(60_000);
+  const retainedGeneric = !!nativeMode && nativeMode !== 'sse';
+  const inventory = retainedGeneric ? null : await enableBriefingRuntime(page);
   // Today must reopen this historical fixture's date, including after reload.
   // Fix Date at browser-local midday while HTTP/reload timers continue running.
   await page.clock.setFixedTime(await page.evaluate(() => new Date(2026, 9, 10, 12).getTime()));
@@ -2126,6 +2138,37 @@ async function exerciseBriefingReloadRecovery(
   let slowMetadata = false;
   let sockets = 0;
   let chatSseRequests = 0;
+  await page.exposeFunction('briefingFixtureSseOpened', () => {
+    chatSseRequests++;
+  });
+  await page.addInitScript(() => {
+    // Keep this receiver alive across a finite intercepted response. The
+    // constructor reports each real transport selection, including reload.
+    class FixtureEventSource extends EventTarget {
+      readyState = 1;
+      constructor(url: string) {
+        super();
+        if (url.includes('/api/chat/events')) {
+          void (
+            window as unknown as { briefingFixtureSseOpened(): Promise<void> }
+          ).briefingFixtureSseOpened();
+          setTimeout(
+            () =>
+              this.dispatchEvent(
+                new MessageEvent('welcome', {
+                  data: JSON.stringify({ connectionId: 'offline-sse-restoration' }),
+                }),
+              ),
+            0,
+          );
+        }
+      }
+      close() {
+        this.readyState = 2;
+      }
+    }
+    window.EventSource = FixtureEventSource as unknown as typeof EventSource;
+  });
   const websocketSends: unknown[] = [];
   await page.routeWebSocket('**/*', (socket) => {
     sockets += 1;
@@ -2160,9 +2203,15 @@ async function exerciseBriefingReloadRecovery(
     }
     if (url.pathname === '/api/events')
       return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
-    if (url.pathname === '/api/chat/send' && method === 'POST') {
-      const command = route.request().postDataJSON();
-      expect(route.request().headers()['x-connection-id']).toBeUndefined();
+    if (
+      url.pathname === (retainedGeneric ? '/api/chat/send' : '/api/chat/local-codex/send') &&
+      method === 'POST'
+    ) {
+      const command = retainedGeneric
+        ? route.request().postDataJSON()
+        : OrdinaryRuntimeFirstCommandSchema.parse(route.request().postDataJSON());
+      if (retainedGeneric) expect(route.request().headers()['x-connection-id']).toBeUndefined();
+      else expect(route.request().headers()['x-connection-id']).toBeTruthy();
       sends.push(command);
       turns.add(command.clientMsgId);
       if (sends.length === 1) {
@@ -2170,7 +2219,20 @@ async function exerciseBriefingReloadRecovery(
           releaseFirst = resolve;
         });
         await route
-          .fulfill({ json: { accepted: true, clientMsgId: command.clientMsgId, sessionId } })
+          .fulfill({
+            ...(retainedGeneric
+              ? { json: { accepted: true, clientMsgId: command.clientMsgId, sessionId } }
+              : {
+                  status: 202,
+                  json: {
+                    ok: true,
+                    clientMsgId: command.clientMsgId,
+                    sessionId,
+                    state: 'consumed',
+                    dispatched: true,
+                  },
+                }),
+          })
           .catch(() => {});
         return;
       }
@@ -2179,7 +2241,18 @@ async function exerciseBriefingReloadRecovery(
           releaseSecond = resolve;
         });
       return route.fulfill({
-        json: { accepted: true, clientMsgId: command.clientMsgId, sessionId },
+        ...(retainedGeneric
+          ? { json: { accepted: true, clientMsgId: command.clientMsgId, sessionId } }
+          : {
+              status: 202,
+              json: {
+                ok: true,
+                clientMsgId: command.clientMsgId,
+                sessionId,
+                state: 'consumed',
+                dispatched: true,
+              },
+            }),
       });
     }
     if (url.pathname === '/api/home/briefing-chats') {
@@ -2216,6 +2289,17 @@ async function exerciseBriefingReloadRecovery(
       return route.fulfill({
         json: {
           sessionType: 'chat',
+          ...(inventory
+            ? {
+                runtimeBinding: {
+                  version: 2,
+                  account: inventory.accounts[0].account,
+                  harness: { implementation: 'codex' },
+                  execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+                },
+                runtimeCommandScope: 'first-command-only',
+              }
+            : {}),
           isHidden: hidden,
           accountBinding: {
             accountId: 'work-account',
@@ -2245,22 +2329,43 @@ async function exerciseBriefingReloadRecovery(
   const picker = page.getByRole('dialog');
   await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
   const launchDraftId = new URL(page.url()).searchParams.get('draft')!;
+  if (!retainedGeneric) await reviewBriefingRuntime(page);
   await page
     .getByRole('textbox', { name: 'Message Mitzo', exact: true })
     .fill('Keep my unsent follow-up');
-  await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
+  if (retainedGeneric) {
+    // Materialize the pre-migration generic queue through its actual owner.
+    // The current page never translates this retained receipt into owned work.
+    await page.evaluate(() => {
+      const state = (
+        window as unknown as { __mitzoStore: { getState(): { sendPendingSession(): boolean } } }
+      ).__mitzoStore.getState();
+      if (!state.sendPendingSession()) throw Error('Retained generic fixture could not be queued');
+    });
+  } else await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
   await expect.poll(() => sends.length).toBe(1);
-  expect(sends[0].sessionId).toBeNull();
-  expect(sends[0].accountId).toBe(binding.accountId);
-  expect(sends[0].model).toBe(binding.model);
-  expect(sends[0].sourceSnapshots).toEqual([
-    expect.objectContaining({ kind: 'briefing', date: binding.date, revision: binding.revision }),
-  ]);
+  if (retainedGeneric) {
+    expect(sends[0].sessionId).toBeNull();
+    expect(sends[0].accountId).toBe(binding.accountId);
+    expect(sends[0].model).toBe(binding.model);
+    expect(sends[0].sourceSnapshots).toEqual([
+      expect.objectContaining({ kind: 'briefing', date: binding.date, revision: binding.revision }),
+    ]);
+  } else {
+    const firstCommand = OrdinaryRuntimeFirstCommandSchema.parse(sends[0]);
+    expect(firstCommand.runtime.account).toEqual(inventory!.accounts[0].account);
+    expect(firstCommand.selection.model).toBe(binding.model);
+    expect(firstCommand.payload.sourceSnapshots).toEqual([
+      expect.objectContaining({ kind: 'briefing', date: binding.date, revision: binding.revision }),
+    ]);
+  }
   expect(registrations).toHaveLength(0);
   // HTTP delivery does not wait for the receiver's asynchronous socket startup.
   if (nativeMode && nativeMode !== 'sse')
     await expect.poll(() => sockets).toBeGreaterThanOrEqual(1);
   await page.reload();
+  // Owned uncertain commands require an explicit retry of their frozen identity.
+  if (!retainedGeneric) await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect.poll(() => sends.length).toBe(2);
   await expect(
     page.getByRole('button', { name: 'Send launch prompt', exact: true }),
@@ -2336,6 +2441,13 @@ async function exerciseBriefingReloadRecovery(
   await expect(settingRow(page, 'Thinking level')).toHaveAttribute('data-readonly', 'true');
   await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
   expect(registrations).toEqual([binding]);
+  if (retainedGeneric) {
+    // Legacy consent remains with the retained generic session; owned Codex
+    // never inherits that legacy control or permission authority.
+    await openChatSetting(page, 'more');
+    await expect(page.getByRole('button', { name: 'Web search permission: Denied' })).toBeVisible();
+    await openWorkspace();
+  }
   // Confirm authoritative visibility before reusing a locally retained assignment.
   hidden = hideAssigned;
   await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
@@ -2345,6 +2457,7 @@ async function exerciseBriefingReloadRecovery(
     .click();
   if (hideAssigned) {
     await expect(page).toHaveURL(/\/chat\?draft=[^&]+$/);
+    await reviewBriefingRuntime(page);
     await expect(
       page.getByRole('button', { name: 'Send launch prompt', exact: true }),
     ).toBeEnabled();
@@ -2412,6 +2525,7 @@ test('reviewed launches let users dismiss Agent settings and reach Send at a sho
   page,
   isMobile,
 }, testInfo) => {
+  await enableBriefingRuntime(page);
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 640 });
   await page.addInitScript(() => localStorage.removeItem('mitzo-workspace-controls-expanded'));
   await page.route('**/api/home/preferences', (route) =>
@@ -2427,6 +2541,7 @@ test('reviewed launches let users dismiss Agent settings and reach Send at a sho
     .getByRole('dialog')
     .getByRole('button', { name: 'Use selection', exact: true })
     .click();
+  await reviewBriefingRuntime(page);
   await page.evaluate(() => {
     document.documentElement.dataset.theme = 'light';
     document.documentElement.dataset.font = 'georgia';
@@ -2462,6 +2577,8 @@ test('failed briefing registration survives a completed turn and reload without 
   isMobile,
 }, testInfo) => {
   test.setTimeout(60_000);
+  const inventory = await enableBriefingRuntime(page);
+  await installBriefingSse(page);
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
   await page.addInitScript(() => localStorage.setItem('mitzo-workspace-controls-expanded', '1'));
   const sessionId = 'assigned-briefing-registration';
@@ -2486,7 +2603,10 @@ test('failed briefing registration survives a completed turn and reload without 
   const websocketSends: unknown[] = [];
   function accept(command: Record<string, unknown>) {
     turns.push(command);
-    const assignedId = command.model === changedBinding.model ? changedSessionId : sessionId;
+    const assignedId =
+      OrdinaryRuntimeFirstCommandSchema.parse(command).selection.model === changedBinding.model
+        ? changedSessionId
+        : sessionId;
     accepted.set(assignedId, command);
     return assignedId;
   }
@@ -2517,8 +2637,9 @@ test('failed briefing registration survives a completed turn and reload without 
             type: 'user_message',
             sessionId: message.sessionId,
             messageId: command.clientMsgId,
-            text: command.prompt,
-            sourceSnapshots: command.sourceSnapshots,
+            text: OrdinaryRuntimeFirstCommandSchema.parse(command).payload.text,
+            sourceSnapshots:
+              OrdinaryRuntimeFirstCommandSchema.parse(command).payload.sourceSnapshots,
           }),
         );
         socket.send(
@@ -2535,14 +2656,52 @@ test('failed briefing registration survives a completed turn and reload without 
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
-    if (url.pathname === '/api/chat/send' && route.request().method() === 'POST') {
-      expect(route.request().headers()['x-connection-id']).toBeUndefined();
-      const command = route.request().postDataJSON();
+    if (url.pathname === '/api/chat/local-codex/send' && route.request().method() === 'POST') {
+      expect(route.request().headers()['x-connection-id']).toBeTruthy();
+      const command = OrdinaryRuntimeFirstCommandSchema.parse(route.request().postDataJSON());
       return route.fulfill({
-        json: { accepted: true, clientMsgId: command.clientMsgId, sessionId: accept(command) },
+        status: 202,
+        json: {
+          ok: true,
+          clientMsgId: command.clientMsgId,
+          sessionId: accept(command),
+          state: 'consumed',
+          dispatched: true,
+        },
       });
     }
 
+    if (url.pathname === '/api/chat/switch') {
+      const id = route.request().postDataJSON().sessionId;
+      const command = accepted.get(id);
+      if (command) {
+        const request = OrdinaryRuntimeFirstCommandSchema.parse(command);
+        await page.evaluate(
+          ({ id, request }) => {
+            const receiver = (
+              window as unknown as {
+                briefingFixtureSse: { onmessage: ((event: MessageEvent) => void) | null };
+              }
+            ).briefingFixtureSse;
+            for (const message of [
+              { type: 'session_state_changed', sessionId: id, state: 'running' },
+              {
+                type: 'user_message',
+                sessionId: id,
+                messageId: request.clientMsgId,
+                text: request.payload.text,
+                sourceSnapshots: request.payload.sourceSnapshots,
+              },
+              { type: 'session_state_changed', sessionId: id, state: 'idle' },
+            ])
+              receiver.onmessage?.(new MessageEvent('message', { data: JSON.stringify(message) }));
+          },
+          { id, request },
+        );
+        completed = true;
+      }
+      return route.fulfill({ json: { ok: true } });
+    }
     if (url.pathname === '/api/home/briefing-chats') {
       if (route.request().method() === 'POST') {
         posts.push(route.request().postDataJSON());
@@ -2588,6 +2747,13 @@ test('failed briefing registration survives a completed turn and reload without 
       return route.fulfill({
         json: {
           sessionType: 'chat',
+          runtimeBinding: {
+            version: 2,
+            account: inventory.accounts[0].account,
+            harness: { implementation: 'codex' },
+            execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+          },
+          runtimeCommandScope: 'first-command-only',
           isHidden: false,
           accountBinding: {
             accountId: 'work-account',
@@ -2608,15 +2774,18 @@ test('failed briefing registration survives a completed turn and reload without 
   const picker = page.getByRole('dialog');
   await expect(picker).toBeVisible();
   await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await reviewBriefingRuntime(page);
   await openAgentSettings(page);
   const profile = page.locator('select[aria-label="Agent"]');
   await expect(profile).toBeEnabled();
-  await expect(profile).toHaveValue('');
+  await expect(profile).toHaveValue(
+    JSON.stringify(['builtin', DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION]),
+  );
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
   const retry = page.getByRole('button', { name: 'Retry saving briefing link', exact: true });
   await expect(retry).toBeVisible();
-  expect(completed).toBe(true);
+  await expect.poll(() => completed).toBe(true);
   expect(turns).toHaveLength(1);
   expect(posts).toEqual([binding]);
   await page.getByRole('button', { name: 'Change account or model', exact: true }).click();
@@ -2682,7 +2851,9 @@ test('failed briefing registration survives a completed turn and reload without 
   await expect(retry).toBeVisible();
   await retained();
   await openChatSetting(page, 'more');
-  await expect(page.getByRole('button', { name: 'Web search permission: Denied' })).toBeVisible();
+  // Owned runtime permissions cannot inherit the legacy web-search control.
+  // Its Denied state remains covered by both retained generic WS journeys.
+  await expect(page.getByRole('button', { name: 'Web search permission: Denied' })).toHaveCount(0);
   const alert = page.getByRole('alert').filter({ has: retry });
   const geometry = await alert.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
@@ -2766,14 +2937,19 @@ test('failed briefing registration survives a completed turn and reload without 
     path: testInfo.outputPath('briefing-launch-access-large-text.png'),
     animations: 'disabled',
   });
+  await reviewBriefingRuntime(page);
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/chat/${changedSessionId}$`));
   await expect.poll(() => posts.length).toBe(3);
   expect(posts).toEqual([binding, binding, changedBinding]);
   expect(turns).toHaveLength(2);
   expect(websocketSends).toHaveLength(0);
-  expect(turns[1].sourceSnapshots).toEqual(turns[0].sourceSnapshots);
-  expect(turns[1].model).toBe(changedBinding.model);
+  expect(OrdinaryRuntimeFirstCommandSchema.parse(turns[1]).payload.sourceSnapshots).toEqual(
+    OrdinaryRuntimeFirstCommandSchema.parse(turns[0]).payload.sourceSnapshots,
+  );
+  expect(OrdinaryRuntimeFirstCommandSchema.parse(turns[1]).selection.model).toBe(
+    changedBinding.model,
+  );
   await expect(retry).toHaveCount(0);
 });
 

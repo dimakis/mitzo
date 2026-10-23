@@ -48,6 +48,9 @@ it('refuses an unqualified native artifact without silently launching legacy hos
       version: 1,
     })),
   });
+  // Select the Mac branch while retaining the real artifact classifier and the
+  // actual host dependencies; unqualified bytes must still refuse before RPC.
+  vi.stubGlobal('process', Object.create(process, { platform: { value: 'darwin' } }));
   const chat = await import('../chat.js');
   const native = await import('../codex-chat-session.js');
   setAuthRevocationStore(chat.eventStore);

@@ -1,4 +1,50 @@
-# Account profiles: first mobile slice
+# Account profiles
+
+## Shared Codex connection configuration
+
+Account identity, billing custody and endpoint configuration belong to the existing account profile, independently of the execution target. OpenAI API and subscription accounts use embedded Codex for supported new work. Claude/Vertex retains the Claude Agent SDK. The accepted architecture consolidation supersedes historical plans below that proposed separate API/adviser execution paths.
+
+Existing API profiles without `connection` retain the official `https://api.openai.com/v1` endpoint, model discovery and routing revision. Subscription profiles cannot configure an endpoint. An API profile can explicitly configure a previously operator-qualified Responses endpoint:
+
+```json
+{
+  "id": "qualified-work-gateway",
+  "label": "Work gateway",
+  "provider": "openai",
+  "credentialRef": {
+    "provider": "keychain",
+    "service": "mitzo-qualified-work-gateway",
+    "account": "api-key"
+  },
+  "connection": {
+    "endpoint": "https://qualified-gateway.example/v1",
+    "protocol": "responses",
+    "qualification": {
+      "source": "operator",
+      "streaming": true,
+      "toolCalls": true,
+      "continuation": true,
+      "cancellation": true
+    }
+  },
+  "models": [{ "id": "qualified-model", "label": "Qualified model" }]
+}
+```
+
+`provider: "openai"` selects existing API-key custody and the Codex Responses adapter. The explicit endpoint identifies the destination; it does not assert that the operator is OpenAI. Saving this configuration does not qualify an endpoint or model. The operator's prior evidence must cover streaming, tool-call/result pairing, continuation and cancellation for the actual endpoint/model combination. This slice selects no gateway product and runs no live qualification. It does not claim native automatic-review model availability or billing support for a gateway.
+
+Endpoints must use HTTPS and cannot contain URL credentials, query parameters or fragments. Keep secrets in the selected credential reference. Endpoint, protocol and qualification changes invalidate the saved routing revision; a resumed conversation cannot silently select another destination or credential. Historical model IDs remain readable through routing-only custody checks, while new inference must select a currently configured model.
+
+| Connection                                                         | Mac Codex                                        | OpenShell                                              | Model catalog                           |
+| ------------------------------------------------------------------ | ------------------------------------------------ | ------------------------------------------------------ | --------------------------------------- |
+| Existing official ChatGPT subscription                             | Existing enrolled host-login route               | Existing explicitly brokered route                     | Existing native metadata                |
+| Existing official OpenAI API                                       | Existing API-key route                           | Existing explicitly bound provider route               | Official account-scoped discovery       |
+| Explicit operator-qualified Responses endpoint                     | Endpoint-bound API-key bootstrap and cold resume | Unavailable until target/provider mapping is qualified | Configured models only                  |
+| Chat Completions, Messages, missing/false qualification capability | Explicit unsupported-capability failure          | Unavailable                                            | Configuration is not execution evidence |
+
+Custom endpoint keys never enter official OpenAI catalog discovery, legacy Responses continuation, existing OpenShell providers or official OpenAI key rotation/validation. Unsupported paths fail before credential resolution; there is no account, endpoint or legacy-engine fallback. Custom key replacement and broader target/permission qualification remain operator work for a later slice. Native history ownership, private API authentication custody and selected-account revocation fences remain with their existing owners.
+
+## Historical first mobile slice
 
 ## OpenAI API model refresh
 

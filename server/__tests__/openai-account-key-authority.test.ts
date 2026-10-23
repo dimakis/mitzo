@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
   enrolled: false,
+  connection: undefined as unknown,
   runtime: undefined as unknown,
   validate: vi.fn(),
   key: vi.fn(async () => 'existing-key'),
@@ -10,7 +11,10 @@ vi.mock('../account-profiles.js', () => ({
   loadAccountProfiles: () => ({
     apiRoutingProfile: (binding: unknown) => {
       state.validate(binding);
-      return { credentialRef: { provider: 'keychain', service: 'existing', account: 'work' } };
+      return {
+        credentialRef: { provider: 'keychain', service: 'existing', account: 'work' },
+        ...(state.connection ? { connection: state.connection } : {}),
+      };
     },
     isEnrolledOpenAIAccount: () => state.enrolled,
   }),
@@ -30,6 +34,7 @@ const binding = {
 const signal = () => new AbortController().signal;
 afterEach(() => {
   state.enrolled = false;
+  state.connection = undefined;
   state.runtime = undefined;
   vi.resetAllMocks();
   state.key.mockResolvedValue('existing-key');
@@ -157,7 +162,13 @@ it('runs legacy readiness and credential lookup inside the same mutation gate', 
   await expect(openAIAccountKeyAuthority(binding).resolveKey('work', signal())).resolves.toBe(
     'existing-key',
   );
-  expect(ready).toHaveBeenCalledWith('work', expect.any(AbortSignal));
+  expect(ready).toHaveBeenCalledWith('work', expect.any(AbortSignal), {
+    id: 'work',
+    profileRevision: binding.profileRevision,
+    credentialRef: { provider: 'keychain', service: 'existing', account: 'work' },
+    providerName: undefined,
+    providerId: undefined,
+  });
 });
 it('does not downgrade an enrolled account when its controller is absent', () => {
   state.enrolled = true;
@@ -197,6 +208,26 @@ it('rejects profile drift while the credential lookup is pending', async () => {
     'profile changed',
   );
 });
+it.each(['host', 'gateway'] as const)(
+  'rejects source drift during %s readiness before reading the selected credential',
+  async (consumer) => {
+    state.runtime = {
+      assertOpenAIKeyReady: vi.fn(async () => {
+        state.validate.mockImplementation(() => {
+          throw Error('profile changed');
+        });
+      }),
+      service: { withCredentialRead: (work: () => Promise<string>) => work() },
+    };
+    const authority = openAIAccountKeyAuthority(
+      binding,
+      undefined,
+      consumer === 'host' ? { consumer: 'host' } : undefined,
+    );
+    await expect(authority.resolveKey('work', signal())).rejects.toThrow('profile changed');
+    expect(state.key).not.toHaveBeenCalled();
+  },
+);
 it('rejects controller replacement and cancellation before returning a key', async () => {
   state.key.mockImplementation(async () => {
     state.runtime = {};
@@ -240,4 +271,34 @@ it('completes OpenShell readiness inside the real account startup gate', async (
   } finally {
     clearTimeout(timer!);
   }
+});
+
+it('requires an explicit endpoint-bound native consumer before exposing custom endpoint credentials', async () => {
+  state.connection = {
+    endpoint: 'https://gateway.example.test/v1',
+    protocol: 'responses',
+    qualification: {
+      source: 'operator',
+      streaming: true,
+      toolCalls: true,
+      continuation: true,
+      cancellation: true,
+    },
+  };
+  expect(() => openAIAccountKeyAuthority(binding)).toThrow(/endpoint|Codex/i);
+  expect(() => openAIAccountKeyAuthority(binding, undefined, { consumer: 'host' })).toThrow(
+    /endpoint|Codex/i,
+  );
+  expect(() =>
+    openAIAccountKeyAuthority(binding, undefined, {
+      consumer: 'host',
+      endpoint: 'https://other.example.test/v1',
+    } as never),
+  ).toThrow(/endpoint|Codex/i);
+  expect(state.key).not.toHaveBeenCalled();
+  const authority = openAIAccountKeyAuthority(binding, undefined, {
+    consumer: 'host',
+    endpoint: 'https://gateway.example.test/v1',
+  } as never);
+  await expect(authority.resolveKey('work', signal())).resolves.toBe('existing-key');
 });

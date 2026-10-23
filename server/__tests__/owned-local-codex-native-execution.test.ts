@@ -55,6 +55,9 @@ it('enables native tools and fixed scoped permissions on the actual admitted Mac
       version: 1,
     })),
   });
+  // The runtime/transport are synthetic; qualify this fixture's Mac host identity
+  // after loading the actual host dependencies, including SQLite.
+  vi.stubGlobal('process', Object.create(process, { platform: { value: 'darwin' } }));
   const chat = await import('../chat.js');
   const native = await import('../codex-chat-session.js');
   setAuthRevocationStore(chat.eventStore);

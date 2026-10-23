@@ -4,6 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { useExplicitLocalChat } from '../useExplicitLocalChat';
 import { apiFetch } from '../../lib/api-fetch';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
+import { multiRuntimeInventoryFixture } from '../../test-utils/multi-runtime-inventory-fixture';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
   cleanup();
@@ -32,6 +33,66 @@ function fixture() {
   );
   return { metadata, inventory };
 }
+it('leaves saved legacy metadata without a runtime binding on its existing surface', async () => {
+  const f = fixture();
+  Object.assign(f.metadata, {
+    runtimeBinding: undefined,
+    runtimeCommandScope: 'conversation',
+    ordinaryWorkspaceId: undefined,
+  });
+  const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'legacy-unbound', true));
+  await waitFor(() => expect(result.current.metadataPending).toBe(false));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.metadataUnavailable).toBe(false);
+  expect(result.current.bound).toBe(false);
+  expect(result.current.visible).toBe(false);
+  expect(result.current.continuation).toBe(false);
+});
+it('requests retained Responses choices for the exact saved session and keeps its original capability revision', async () => {
+  const inventory = multiRuntimeInventoryFixture();
+  const route = inventory.routes.find((entry) => entry.harness === 'responses')!;
+  const target = inventory.targets.find((entry) => entry.harness === 'responses')!;
+  const retained = { ...inventory, capabilityRevision: 'retained-revision', routes: [route] };
+  const fresh = { ...inventory, capabilityRevision: 'fresh-revision', routes: [] };
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).includes('/meta')
+            ? {
+                runtimeBinding: {
+                  version: 2,
+                  account: route.account,
+                  harness: { implementation: 'responses' },
+                  execution: {
+                    location: 'local',
+                    targetId: target.targetId,
+                    targetRevision: target.targetRevision,
+                  },
+                },
+                runtimeCommandScope: 'conversation',
+                repositoryWorkspaceId: workspaceId,
+                modelSelection: { model: 'local-model', reasoningEffort: 'low' },
+                agentProfile: inventory.agentProfiles[0],
+                mode: 'agent',
+              }
+            : String(url).includes('sessionId=retained-session')
+              ? retained
+              : fresh,
+        ),
+      ),
+  );
+  const { result } = renderHook(() =>
+    useExplicitLocalChat('draft', null, 'retained-session', true),
+  );
+  await waitFor(() =>
+    expect(result.current.inventory?.capabilityRevision).toBe('retained-revision'),
+  );
+  await waitFor(() => expect(result.current.continuation).toBe(true));
+  expect(result.current.intent.execution.targetId).toBe(target.targetId);
+  expect(result.current.intent.capabilityRevision).toBe('retained-revision');
+  expect(result.current.reason).toBeUndefined();
+});
 it('recognizes the server-qualified repository preparation as a first command while preserving its original repository identity', async () => {
   const f = fixture();
   Object.assign(f.metadata, { ordinaryWorkspaceId: undefined, repositoryWorkspaceId: workspaceId });
