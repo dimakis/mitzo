@@ -174,16 +174,10 @@ export async function captureLocalRepositoryPreparationObjects(
       )
         throw unavailable();
     }
-    // Successful shard input is already bounded to 4096 canonical hex names.
-    // A fixed native entry is <500 encoded bytes (name<=62, decimal fields<=32),
-    // so all successful shard entries plus eight envelopes stay below the
-    // existing 2 MiB batch cap. Pack accelerators do NOT share that input cap;
-    // retain ordinary per-directory listing there rather than narrow coverage.
-    const shards = directories.filter((entry) => entry.name !== 'pack');
-    for (let index = 0; index < shards.length; index += 8)
-      await access.preloadDirectories(
-        shards.slice(index, index + 8).map((entry) => join(objects, entry.name)),
-      );
+    // Retain ordinary directory limits: even 4096 valid fixed shard names
+    // can exceed the batch helper's conservative 2 MiB pre-allocation guard.
+    // A directory inode/size is not a bound on its children. All listings finish
+    // before byte waves; no generic-limit/authorization fallback is needed.
     const inputs: Array<{ source: string; destination: string; size: number }> = [];
     for (const directory of directories) {
       const source = join(objects, directory.name),

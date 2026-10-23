@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.617-preserved-listing-read-waves';
+  'v1.0.618-ordinary-directory-read-waves';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -60,9 +60,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/qualified-local-repository-task.test.ts':
     'c396349876138a7a85038166817adcc6df657dc75a036fcb21022ee66d17905b',
   '../local-repository-preparation-objects.ts':
-    '12dbdbce2116aa88e3900429a542e52940c5aa3b94669ec3fcee2fd9b2a71300',
+    '339da43edf776ab9a9f18efc6fdf0c2d4aa28e87342c25dc07389dde9a48556c',
   '../__tests__/local-repository-preparation-objects.test.ts':
-    'dbb18cd988059383ff4e7b973a005b168c60bef3dc31f685a267538230e53fc2',
+    'd9e6ea2805d88e89a442c6af9dd2ff7df3c682dae44e0512b0a217d288f80f5a',
   '../__tests__/native-exclusive-file.test.ts':
     'b53aeb6f1d3a83790c45393225354ffb4f9923fb243759d57d212f9b5766e124',
   '../__tests__/sandboxed-command-worker.test.ts':

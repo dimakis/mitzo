@@ -265,15 +265,22 @@ it('retains a foreign replacement when failed actor cleanup sees changed private
   }
 }, 30000);
 
-it('preloads only known object frontiers and joins at most two independent byte reads per wave', async () => {
+it('observes object parents before joining at most two independent byte reads per wave', async () => {
   const f = await fixture();
   const preload = vi.spyOn(f.access, 'preloadDirectories');
   const original = f.access.read.bind(f.access);
+  const originalList = f.access.list.bind(f.access);
+  const observedParents = new Set<string>();
   let active = 0,
     peak = 0;
-  const starts: string[] = [];
+  vi.spyOn(f.access, 'list').mockImplementation(async (...args) => {
+    expect(active).toBe(0);
+    const entries = await originalList(...args);
+    observedParents.add(args[0]);
+    return entries;
+  });
   vi.spyOn(f.access, 'read').mockImplementation(async (path, limit) => {
-    starts.push(path);
+    expect(observedParents.has(path.slice(0, path.lastIndexOf('/')))).toBe(true);
     active++;
     peak = Math.max(peak, active);
     try {
@@ -286,13 +293,7 @@ it('preloads only known object frontiers and joins at most two independent byte 
   await withLocalRepositoryPreparationObjects(f.metadata, f.options, async () => {});
   expect(peak).toBe(2);
   expect(active).toBe(0);
-  expect(preload).toHaveBeenCalled();
-  expect(preload.mock.calls.every(([paths]) => paths.length >= 1 && paths.length <= 8)).toBe(true);
-  const frontiers = preload.mock.calls.flatMap(([paths]) => [...paths]);
-  expect(starts.every((path) => frontiers.includes(path.slice(0, path.lastIndexOf('/'))))).toBe(
-    true,
-  );
-  expect(frontiers.some((path) => path.endsWith('/info'))).toBe(false);
+  expect(preload).not.toHaveBeenCalled();
 }, 30000);
 
 it.each(['failure', 'abort'] as const)(
