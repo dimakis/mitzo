@@ -89,7 +89,7 @@ describe.each(['roots', 'host-wide'] as const)('effective denied roots with %s a
     const alias = join(root, 'denied-alias');
     await symlink(selected, alias);
     expect(
-      await discoverLocalRepository({ explicitPath: alias, accessScope: scope([alias]) }),
+      await discoverLocalRepository({ explicitPath: alias, accessScope: scope([alias, selected]) }),
     ).toMatchObject({
       state: 'access-required',
       candidates: [],
@@ -97,7 +97,10 @@ describe.each(['roots', 'host-wide'] as const)('effective denied roots with %s a
     });
     // Denial aliases remain excluded through their resolved storage name too.
     expect(
-      await discoverLocalRepository({ explicitPath: selected, accessScope: scope([alias]) }),
+      await discoverLocalRepository({
+        explicitPath: selected,
+        accessScope: scope([alias, selected]),
+      }),
     ).toMatchObject({
       state: 'access-required',
       candidates: [],

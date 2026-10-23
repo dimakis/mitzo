@@ -11,7 +11,9 @@ import {
   type LocalRepositoryGitMetadata,
 } from './local-repository-git-inspection.js';
 
-/** A projection of existing target read access, never a request to grant access. */
+/** A projection of existing target read access, never a request to grant access.
+ * The owner includes effective canonical denials and relevant lexical aliases;
+ * readers must not probe denied locations to normalize policy. */
 export type LocalRepositoryReadScope =
   | { kind: 'roots'; roots: readonly string[]; deniedRoots?: readonly string[] }
   | { kind: 'host-wide'; deniedRoots?: readonly string[] };
@@ -30,6 +32,9 @@ interface ReadRequest {
   accessScope: LocalRepositoryReadScope;
   limits?: LocalRepositoryLimits;
   signal?: AbortSignal;
+  /** Private current-owner ceiling; mandatory in the native tool adapter.
+   * This is ANDed with projected scope, never accepted from tool JSON. */
+  assertReadAccess?(path: string, signal: AbortSignal | undefined): Promise<void>;
 }
 export interface LocalRepositoryDiscoveryRequest extends ReadRequest {
   query?: string;
@@ -154,6 +159,24 @@ async function context(request: ReadRequest) {
     maxInstructionDirectories: integer(request.limits?.maxInstructionDirectories, 32, 128),
   };
   const deadline = Date.now() + limits.timeoutMs;
+  const check = () => {
+    request.signal?.throwIfAborted();
+    if (Date.now() >= deadline) throw new LocalRepositoryGitInspectionError('limit', 'timeout');
+  };
+  const assertReadAccess = request.assertReadAccess;
+  if (assertReadAccess !== undefined && typeof assertReadAccess !== 'function')
+    throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+  const authorize = async (path: string) => {
+    check();
+    try {
+      await assertReadAccess?.(path, request.signal);
+    } catch (error) {
+      request.signal?.throwIfAborted();
+      if (error instanceof LocalRepositoryGitInspectionError) throw error;
+      throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+    }
+    check();
+  };
   const roots: string[] = [];
   const deniedRoots = new Set<string>();
   const diagnostics: LocalRepositoryDiagnostic[] = [];
@@ -164,14 +187,6 @@ async function context(request: ReadRequest) {
       throw new LocalRepositoryGitInspectionError('access', 'absolute-denied-root-required');
     const lexical = resolve(root);
     deniedRoots.add(lexical);
-    try {
-      deniedRoots.add(await realpath(lexical));
-    } catch (error) {
-      // Retain lexical exclusions for paths that do not exist yet. A failed
-      // policy projection must never silently remove an effective denial.
-      if (!['ENOENT', 'ENOTDIR'].includes(errorCode(error) ?? ''))
-        throw new LocalRepositoryGitInspectionError('access', 'denied-root-unavailable');
-    }
   }
   const denied = (path: string) => [...deniedRoots].some((root) => within(resolve(path), root));
   if (!hostWide) {
@@ -187,7 +202,12 @@ async function context(request: ReadRequest) {
         continue;
       }
       try {
-        roots.push(await realpath(root));
+        await authorize(root);
+        const canonicalRoot = await realpath(root);
+        if (denied(canonicalRoot))
+          throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+        await authorize(canonicalRoot);
+        roots.push(canonicalRoot);
       } catch {
         diagnostics.push({ path: root, reason: 'unavailable-access-root' });
       }
@@ -197,10 +217,6 @@ async function context(request: ReadRequest) {
     !credentialPath(path) &&
     !denied(path) &&
     (hostWide || roots.some((root) => within(path, root)));
-  const check = () => {
-    request.signal?.throwIfAborted();
-    if (Date.now() >= deadline) throw new LocalRepositoryGitInspectionError('limit', 'timeout');
-  };
   const canonical = async (path: string) => {
     check();
     if (!isAbsolute(path))
@@ -208,13 +224,16 @@ async function context(request: ReadRequest) {
     if (credentialPath(path))
       throw new LocalRepositoryGitInspectionError('access', 'credential-directory-excluded');
     if (denied(path)) throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+    await authorize(path);
     const result = await realpath(path);
     if (!allowed(result))
       throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+    await authorize(result);
     return result;
   };
   const git = async (cwd: string, ...args: string[]) => {
     check();
+    await authorize(cwd);
     await metadata(cwd);
     const result = await execute(
       'git',
@@ -244,6 +263,7 @@ async function context(request: ReadRequest) {
         },
       },
     );
+    await authorize(cwd);
     return result.stdout;
   };
   const inspected = new Map<string, LocalRepositoryGitMetadata>();
@@ -276,6 +296,7 @@ async function context(request: ReadRequest) {
     git,
     metadata,
     deniedContent,
+    authorize,
   };
 }
 
@@ -381,6 +402,7 @@ export async function discoverLocalRepository(
       const markerPath = join(current.path, '.git');
       if (!ctx.allowed(markerPath))
         throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+      await ctx.authorize(markerPath);
       const marker = await lstat(markerPath).catch(() => null);
       if (
         marker &&
@@ -393,9 +415,11 @@ export async function discoverLocalRepository(
           break;
         }
       }
+      await ctx.authorize(current.path);
       const directory = await opendir(current.path);
       for await (const entry of directory) {
         request.signal?.throwIfAborted();
+        await ctx.authorize(current.path);
         if (++entries > ctx.limits.maxEntries) {
           limit('entries');
           break;
@@ -477,12 +501,14 @@ export async function inspectLocalRepository(
     // Git status rehashes repository files. Its private config protects against
     // executable filters, but cannot enforce path exclusions inside that tree.
     if (ctx.deniedContent(path)) throw Error('Dirty inspection contains denied paths');
+    await ctx.authorize(path);
     const entries = (
       await readLocalRepositoryStatus(metadata, {
         signal: request.signal,
         timeoutMs: Math.max(1, ctx.deadline - Date.now()),
       })
     ).split('\0');
+    await ctx.authorize(path);
     for (let index = 0; index < entries.length; index++) {
       const entry = entries[index];
       if (!entry) continue;
@@ -551,7 +577,9 @@ export async function inspectLocalRepository(
       }
       request.signal?.throwIfAborted();
       try {
+        await ctx.authorize(file);
         const stat = await lstat(file);
+        await ctx.authorize(file);
         if (!stat.isFile() && !stat.isSymbolicLink()) {
           instructions.omitted.push({ path: file, reason: 'not-regular-file' });
           continue;
@@ -575,18 +603,21 @@ export async function inspectLocalRepository(
           constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
         );
         try {
+          await ctx.authorize(resolvedPath);
           const opened = await handle.stat();
           if (!opened.isFile()) {
             instructions.omitted.push({ path: file, reason: 'not-regular-file' });
             continue;
           }
-          if ((await realpath(file)) !== resolvedPath) {
+          if ((await ctx.canonical(file)) !== resolvedPath) {
             instructions.omitted.push({ path: file, reason: 'changed-during-read' });
             continue;
           }
           const cap = Math.min(remaining, ctx.limits.maxInstructionBytes);
           const buffer = Buffer.alloc(Math.min(opened.size, cap));
+          await ctx.authorize(resolvedPath);
           const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+          await ctx.authorize(resolvedPath);
           const truncated = opened.size > bytesRead;
           remaining -= bytesRead;
           instructions.files.push({
