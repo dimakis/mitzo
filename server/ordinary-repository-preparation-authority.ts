@@ -159,11 +159,25 @@ export async function captureOrdinaryRepositoryPreparation(
   signal: AbortSignal,
   requireModelReadiness = true,
 ): Promise<OrdinaryRepositoryPreparation> {
+  return captureCurrentPreparation(binding, selection, signal, requireModelReadiness);
+}
+
+/** Retained context is private to assertion of an existing owner-store proof.
+ * Fresh capture never receives this argument and cannot mint a legacy route.
+ */
+async function captureCurrentPreparation(
+  binding: AccountBinding,
+  selection: OrdinaryRepositoryRuntimeSelection,
+  signal: AbortSignal,
+  requireModelReadiness: boolean,
+  retainedBinding?: OrdinaryRepositoryPreparation['runtimeBinding'],
+): Promise<OrdinaryRepositoryPreparation> {
   signal.throwIfAborted();
   const { ordinaryRepositoryRuntimeInventory } = await import('./ordinary-local-codex-entry.js');
   const { profiles, catalog } = ordinaryRepositoryRuntimeInventory(
     selection.runOn,
     selection.runtime.harness,
+    retainedBinding,
   );
   const resolved = catalog.resolve({ ...selection.runtime, mode: 'agent' });
   if (
@@ -195,6 +209,7 @@ export async function captureOrdinaryRepositoryPreparation(
   const current = ordinaryRepositoryRuntimeInventory(
     selection.runOn,
     selection.runtime.harness,
+    retainedBinding,
   ).catalog.resolve({ ...selection.runtime, mode: 'agent' });
   if (current.status !== 'compatible' || !isDeepStrictEqual(current.binding, proof.runtimeBinding))
     throw unavailable();
@@ -233,7 +248,7 @@ export async function assertOrdinaryRepositoryPreparation(
       throw unavailable();
   };
   assertSelectionCurrent();
-  const current = await captureOrdinaryRepositoryPreparation(
+  const current = await captureCurrentPreparation(
     binding,
     {
       runOn: saved.runtimeBinding.execution.location,
@@ -245,6 +260,7 @@ export async function assertOrdinaryRepositoryPreparation(
     },
     signal,
     requireModelReadiness,
+    saved.runtimeBinding,
   );
   let sameRuntime = isDeepStrictEqual(current.runtimeBinding, saved.runtimeBinding);
   const localCodex =

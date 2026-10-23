@@ -1,4 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { lstatSync, writeFileSync } from 'node:fs';
+import { hostname } from 'node:os';
+import { join } from 'node:path';
+import Database from 'better-sqlite3';
 const state = vi.hoisted(() => ({
   runtime: undefined as unknown,
   key: vi.fn(async () => 'offline-existing-key'),
@@ -33,7 +37,25 @@ afterEach(async () => {
 async function fixture(runOn: 'local' | 'openshell') {
   const { ownedResponsesRuntimeFixture } =
     await import('./fixtures/owned-local-responses-runtime.js');
-  const f = await ownedResponsesRuntimeFixture(cleanup, { chatRoute: true, dual: true });
+  const f = await ownedResponsesRuntimeFixture(cleanup, {
+    chatRoute: true,
+    dual: true,
+    ordinaryPreparation: true,
+  });
+  const codexTargetPath = join(f.root, 'ordinary-codex-target.json');
+  writeFileSync(
+    codexTargetPath,
+    JSON.stringify({
+      version: 1,
+      targetId: 'api-codex',
+      label: 'Local Codex',
+      hostId: hostname(),
+      runtimeContractRevision: 'offline-contract',
+    }),
+    { mode: 0o600 },
+  );
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE', codexTargetPath);
+  vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
   vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED', '1');
   const { loadAccountProfiles } = await import('../account-profiles.js');
   const binding = loadAccountProfiles().resolve('personal', 'fixture-model');
@@ -42,8 +64,8 @@ async function fixture(runOn: 'local' | 'openshell') {
     runOn,
     runtime: {
       account: f.request.runtime.account,
-      harness: runOn === 'local' ? ('responses' as const) : ('codex' as const),
-      targetId: runOn === 'local' ? 'local-mac' : 'shell',
+      harness: 'codex' as const,
+      targetId: runOn === 'local' ? 'api-codex' : 'shell',
     },
   };
   const authority = await import('../ordinary-repository-preparation-authority.js');
@@ -97,6 +119,76 @@ it('keeps a managed legacy account inside its existing credential and mutation o
     authority.captureOrdinaryRepositoryPreparation(binding, selection, f.signal.signal),
   ).rejects.toThrow('managed credential unavailable');
   expect(state.key).not.toHaveBeenCalled();
+});
+it('requalifies a persisted legacy workspace proof through its owner without admitting fresh Responses work', async () => {
+  const { f, binding, selection, authority } = await fixture('local');
+  const fresh = await authority.captureOrdinaryRepositoryPreparation(
+    binding,
+    selection,
+    f.signal.signal,
+  );
+  const legacySelection = {
+    runOn: 'local' as const,
+    runtime: {
+      account: f.request.runtime.account,
+      harness: 'responses' as const,
+      targetId: 'local-mac',
+    },
+  };
+  const { localResponsesCapabilities, OrdinaryLocalResponsesTarget } =
+    await import('../ordinary-local-responses-capabilities.js');
+  const { loadAccountProfiles } = await import('../account-profiles.js');
+  const resolved = localResponsesCapabilities(
+    loadAccountProfiles(),
+    new OrdinaryLocalResponsesTarget(f.dependencies.env),
+  ).resolve({ ...legacySelection.runtime, mode: 'agent' });
+  if (resolved.status !== 'compatible') throw Error('Expected historical Responses binding');
+  const source = lstatSync(join(f.root, 'repositories', f.reservation.id, 'mgmt'));
+  // Seed the existing private owner row as a historical preparation. The same
+  // account/key custody was captured above; no new Responses capture is used.
+  const proof = {
+    ...fresh,
+    runtimeBinding: resolved.binding,
+    sourceIdentity: { dev: source.dev, ino: source.ino },
+  };
+  const database = new Database(join(f.root, 'repositories', 'workspaces.db'));
+  const row = database
+    .prepare('SELECT record FROM repository_workspaces WHERE id=?')
+    .get(f.reservation.id) as { record: string };
+  database
+    .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+    .run(
+      JSON.stringify({ ...JSON.parse(row.record), ordinaryPreparation: proof }),
+      f.reservation.id,
+    );
+  database.close();
+  state.key.mockClear();
+  await expect(
+    authority.captureOrdinaryRepositoryPreparation(binding, legacySelection, f.signal.signal),
+  ).rejects.toThrow('preparation authority unavailable');
+  expect(state.key).not.toHaveBeenCalled();
+  await expect(f.workspace.qualifiedStatus(f.reservation.id, binding)).resolves.toMatchObject({
+    id: f.reservation.id,
+  });
+  expect(f.workspace.get(f.reservation.id).ordinaryPreparation).toEqual(proof);
+  await expect(
+    f.workspace.qualifiedStatus(f.reservation.id, { ...binding, accountId: 'foreign' }),
+  ).rejects.toThrow();
+  state.key.mockResolvedValue('offline-changed-key');
+  await expect(f.workspace.qualifiedStatus(f.reservation.id, binding)).rejects.toThrow(
+    'preparation authority unavailable',
+  );
+  expect(f.workspace.get(f.reservation.id).ordinaryPreparation).toEqual(proof);
+  state.key.mockResolvedValue('offline-existing-key');
+  state.key.mockClear();
+  writeFileSync(f.targetPath, JSON.stringify({ ...f.target, label: 'Rotated target revision' }), {
+    mode: 0o600,
+  });
+  await expect(f.workspace.qualifiedStatus(f.reservation.id, binding)).rejects.toThrow(
+    'preparation authority unavailable',
+  );
+  expect(state.key).not.toHaveBeenCalled();
+  expect(f.workspace.get(f.reservation.id).ordinaryPreparation).toEqual(proof);
 });
 it('does not downgrade an enrolled account after controller loss', async () => {
   const { f, binding, selection, authority } = await fixture('local');
