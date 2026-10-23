@@ -11,6 +11,8 @@ import { openShellSecretService } from './openshell-secret-protocol.js';
 import { SecretRelays } from './secret-relay.js';
 export function secretRelayConfig(env: NodeJS.ProcessEnv) {
   if (env.MITZO_SECRET_RELAY_ENABLED !== '1') return null;
+  if (env.NODE_DEBUG || env.NODE_DEBUG_NATIVE)
+    throw new Error('Private secret relay requires host network debug logging to be disabled');
   const name = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/);
   return z
     .object({

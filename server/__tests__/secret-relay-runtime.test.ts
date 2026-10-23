@@ -18,3 +18,13 @@ it('requires explicit Gateway, workspace and compatible credential-export protoc
   ).toThrow();
   expect(() => secretRelayConfig({ ...env, MITZO_SECRET_RELAY_GATEWAY: '../other' })).toThrow();
 });
+it('refuses host network debug logging when private relay credentials are enabled', () => {
+  const env = {
+    MITZO_SECRET_RELAY_ENABLED: '1',
+    MITZO_SECRET_RELAY_GATEWAY: 'g',
+    MITZO_SECRET_RELAY_WORKSPACE: 'w',
+    MITZO_SECRET_RELAY_PROTOCOL: 'openshell-operator-credentials-v1',
+  };
+  expect(() => secretRelayConfig({ ...env, NODE_DEBUG: 'http,https' })).toThrow();
+  expect(() => secretRelayConfig({ ...env, NODE_DEBUG_NATIVE: 'TLS' })).toThrow();
+});

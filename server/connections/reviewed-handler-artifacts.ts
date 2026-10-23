@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../secret-relay-browser-driver.ts':
-    '32014cb817824122a64783b2895caf6798b2287e6a0c5d48b697f522d28f0ab0',
+    '5af888c096231267e8ac7c59524ffe6b6b0b7d6f91ea77d210a0e9685c84dc7c',
   '../secret-relay-browser.ts': '3da18091f444a4b87ceeb4097c09708f95988ff0192f9be743019d597afc1f2e',
   '../secret-relay-mqtt.ts': '0364c29a9f84f7c8709850e64315472be39a1ca781ecf55d3afc88dacf4b4660',
   '../../packages/protocol/src/agent-communication-store.ts':
@@ -1305,7 +1305,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'd04a21a711eb8c7118491d94b1363f02b36b0f7457bbe711906f3d67bdbb6e8d',
   '../secret-relay.ts': 'f3a2c9768e41bb3efd3d1812168a1aee85371940ec7d3b5d41b26d21133e70d0',
   '../secret-relay-lan.ts': '03442b04b8a16ddc3146813f43ed45d9b4ae8fa0a64971a100de48d9a791a812',
-  '../secret-relay-runtime.ts': '3e9985e05b5e5128565bd8d88810cb8585ea5a95c921740925c725986ff65450',
+  '../secret-relay-runtime.ts': '9cc241b6fd22ca948021e0db06346e81718e12f5eaf340742d42c7b0a172711f',
   '../openshell-secret-vault.ts':
     'dd0346a13927ed22f468d573695bb082d866d0d5f2d2dc72180a4c86f0f22838',
   '../openshell-secret-protocol.ts':

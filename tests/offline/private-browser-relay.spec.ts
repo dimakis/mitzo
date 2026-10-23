@@ -7,6 +7,7 @@ test('private browser authenticates with CSRF cookies, requests MFA and continue
     'Private browser adapter uses Chromium on the controller.',
   );
   const seen: Array<{ url: string; method: string; body: string; cookie: string }> = [];
+  let retainedScopeCheck: (() => void) | undefined;
   let signedIn = false;
   let saved = false;
   const target = BrowserRelayTargetSchema.parse({
@@ -45,8 +46,9 @@ test('private browser authenticates with CSRF cookies, requests MFA and continue
           headless: true,
           proxy: { server: 'http://127.0.0.1:9', bypass: '<-loopback>' },
         }),
-      send: async (_target, url, method, headers, body) => {
+      send: async (_target, url, method, headers, body, gate) => {
         const path = new URL(url).pathname;
+        if (path === '/login' && method === 'GET') retainedScopeCheck = gate.check;
         const entry = { url, method, body: body?.toString() ?? '', cookie: headers.cookie ?? '' };
         seen.push(entry);
         if (path === '/extra')
@@ -133,6 +135,8 @@ test('private browser authenticates with CSRF cookies, requests MFA and continue
       gate(),
     );
     expect(receipt).toEqual({ outcome: 'challenge_required' });
+    expect(retainedScopeCheck).toBeDefined();
+    expect(() => retainedScopeCheck!()).toThrow();
     await sessions.completeCode('relay:0', '123456', gate());
     expect(await sessions.action('relay:0', 0, gate())).toEqual({ outcome: 'confirmed' });
     expect(seen.some((e) => e.url.includes('blocked.example'))).toBe(false);

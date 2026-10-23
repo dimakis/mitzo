@@ -251,13 +251,20 @@ export async function createPrivateRelayBrowser(
           if (writes.has(key)) throw new Error('Private browser duplicate write blocked');
           writes.add(key);
         }
+        const requestGate = {
+          ...gate,
+          check: () => {
+            if (active !== gate) throw new Error('Private browser request scope ended');
+            gate.check();
+          },
+        };
         const response = await send(
           target,
           req.url(),
           req.method(),
           headers,
           req.postDataBuffer() ?? undefined,
-          gate,
+          requestGate,
         );
         await assertBrowserGate(gate);
         if (active !== gate) throw new Error();
