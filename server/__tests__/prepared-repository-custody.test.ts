@@ -756,3 +756,115 @@ it('rolls back an intervening third current pointer together with both selected 
     f.db.prepare('SELECT id FROM repository_workspaces WHERE id=?').get('intervening'),
   ).toBeUndefined();
 });
+
+it.each(['before', 'during', 'after'] as const)(
+  'refuses cross-table ordinary pointer resurrection %s repository transfer',
+  async (phase) => {
+    const f = await fixture('ordinary'),
+      first = await f.pending();
+    f.service.adoptPreparedRepositoryTransition(first.facts, first.childId, () => {});
+    const next = await f.pending({
+      kind: 'repository',
+      id: first.record.id,
+      directory: first.facts.newWorkspace.directory,
+    });
+    const ordinaryBefore = f.db
+      .prepare('SELECT * FROM ordinary_workspaces WHERE id=?')
+      .get(f.old.id);
+    const retired = f.service.getOrdinaryWorkspace(f.old.id);
+    const current = {
+      ...retired,
+      primaryDisposition: { version: 1, revision: 2, currentConversationId: f.conversationId },
+    };
+    const restore = (db: Database.Database) =>
+      db
+        .prepare('UPDATE ordinary_workspaces SET record=?,conversation_id=? WHERE id=?')
+        .run(JSON.stringify(current), f.conversationId, f.old.id);
+    if (phase === 'after') {
+      f.service.adoptPreparedRepositoryTransition(next.facts, next.childId, () => {});
+      restore(f.db);
+      expect(() =>
+        f.service.assertPreparedRepositoryTransitionAdopted(next.facts, next.childId),
+      ).toThrow();
+      expect(() => f.service.getForConversation(f.conversationId)).toThrow();
+      expect(() =>
+        f.service.getHostReservation({
+          id: next.record.id,
+          binding,
+          conversationId: f.conversationId,
+          taskRoot: f.taskRoot,
+          runtimeBinding: runtime,
+        }),
+      ).toThrow();
+      expect(() => f.service.getOrdinaryWorkspaceForConversation(f.conversationId)).toThrow();
+      await expect(
+        f.service.claimOrdinaryWorkspace({
+          id: f.old.id,
+          binding,
+          conversationId: f.conversationId,
+          taskRoot: f.taskRoot,
+          signal: signal(),
+        }),
+      ).rejects.toThrow();
+    } else {
+      if (phase === 'before') restore(f.db);
+      const guard = vi.fn(() => {
+        if (phase === 'during') restore((f.service as unknown as { db: Database.Database }).db);
+      });
+      expect(() =>
+        f.service.adoptPreparedRepositoryTransition(next.facts, next.childId, guard),
+      ).toThrow();
+      if (phase === 'before') expect(guard).not.toHaveBeenCalled();
+      else
+        expect(f.db.prepare('SELECT * FROM ordinary_workspaces WHERE id=?').get(f.old.id)).toEqual(
+          ordinaryBefore,
+        );
+      expect(f.raw(next.record.id)).toEqual(next.before);
+      expect(f.raw(first.record.id).conversation_id).toBe(f.conversationId);
+    }
+  },
+);
+
+it('initializes and migrates legacy ordinary custody at RepositoryWorkspaces construction without changing retained bytes', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-custody-constructor-')));
+  cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+  const db = new Database(join(root, 'workspaces.db'));
+  cleanups.push(() => db.close());
+  db.exec(
+    'CREATE TABLE ordinary_workspaces (id TEXT PRIMARY KEY, record TEXT NOT NULL, conversation_id TEXT NOT NULL UNIQUE); CREATE TABLE ordinary_workspace_preparations (id TEXT PRIMARY KEY, record TEXT NOT NULL)',
+  );
+  const raw = ' { "historical": [ 1, 2 ], "retained": "exact bytes" } ';
+  db.prepare('INSERT INTO ordinary_workspaces VALUES (?,?,?)').run(
+    'historical',
+    raw,
+    'old-conversation',
+  );
+  db.prepare('INSERT INTO ordinary_workspace_preparations VALUES (?,?)').run('preparation', raw);
+  writeFileSync(join(root, 'dirty-task.txt'), 'Original unfinished task');
+  const deps = {
+    authorize: vi.fn(async () => {
+      throw Error('No remote access');
+    }),
+  };
+  const service = new RepositoryWorkspaces(root, deps);
+  cleanups.push(() => service.close());
+  const reopened = new RepositoryWorkspaces(root, deps);
+  cleanups.push(() => reopened.close());
+  expect(
+    (
+      db.prepare('PRAGMA table_info(ordinary_workspaces)').all() as Array<{
+        name: string;
+        notnull: number;
+      }>
+    ).find((c) => c.name === 'conversation_id')?.notnull,
+  ).toBe(0);
+  expect(db.prepare('SELECT record,conversation_id FROM ordinary_workspaces').get()).toEqual({
+    record: raw,
+    conversation_id: 'old-conversation',
+  });
+  expect(db.prepare('SELECT record FROM ordinary_workspace_preparations').get()).toEqual({
+    record: raw,
+  });
+  expect(readFileSync(join(root, 'dirty-task.txt'), 'utf8')).toBe('Original unfinished task');
+  expect(deps.authorize).not.toHaveBeenCalled();
+});

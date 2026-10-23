@@ -492,6 +492,12 @@ export class RepositoryWorkspaces {
     );
     this.db.exec(`CREATE TABLE IF NOT EXISTS ordinary_preparation_allocations (
       operation_id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL UNIQUE, fingerprint TEXT NOT NULL);`);
+    try {
+      this.ordinaryWorkspaceProvider();
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
   }
   private ordinaryWorkspaceProvider() {
     this.assertAvailable();
@@ -863,12 +869,21 @@ export class RepositoryWorkspaces {
       .run(JSON.stringify(record), record.id, expectedRecord, primaryConversation(expected));
     if (changed.changes !== 1) throw Error('Repository persistence owner changed');
   }
+  private assertNoOrdinaryPrimary(conversationId: string) {
+    if (
+      this.db
+        .prepare('SELECT id FROM ordinary_workspaces WHERE conversation_id=?')
+        .get(conversationId)
+    )
+      throw Error('Ambiguous local workspace primary custody');
+  }
   getForConversation(conversationId: string) {
     this.assertAvailable();
     const row = this.db
       .prepare('SELECT id FROM repository_workspaces WHERE conversation_id=?')
       .get(conversationId) as { id: string } | undefined;
     if (!row) return undefined;
+    this.assertNoOrdinaryPrimary(conversationId);
     const record = this.getHostRecord(row.id);
     if (primaryConversation(record) !== conversationId)
       throw Error('Current repository primary changed');
@@ -1648,6 +1663,7 @@ export class RepositoryWorkspaces {
   ): HostRepositoryReservation {
     this.assertAvailable();
     const expected = this.snapshotHostInput(input);
+    this.assertNoOrdinaryPrimary(expected.conversationId);
     const record = this.getHostRecord(expected.id);
     if (primaryConversation(record) !== expected.conversationId)
       throw Error('Historical repository ownership is not current custody');
@@ -1922,13 +1938,15 @@ export class RepositoryWorkspaces {
         const changed = this.db
           .prepare(
             `UPDATE repository_workspaces SET record=?,conversation_id=? WHERE id=? AND record=? AND conversation_id IS NULL
-        AND NOT EXISTS(SELECT 1 FROM repository_workspaces WHERE conversation_id=?)`,
+        AND NOT EXISTS(SELECT 1 FROM repository_workspaces WHERE conversation_id=?)
+        AND NOT EXISTS(SELECT 1 FROM ordinary_workspaces WHERE conversation_id=?)`,
           )
           .run(
             JSON.stringify(next),
             request.conversationId,
             record.id,
             raw.record,
+            request.conversationId,
             request.conversationId,
           );
         if (changed.changes !== 1) throw Error('Materialized custody changed before transfer');

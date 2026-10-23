@@ -347,7 +347,19 @@ export class OrdinaryWorkspaceCustody {
     const row = this.db
       .prepare('SELECT id FROM ordinary_workspaces WHERE conversation_id=?')
       .get(conversationId) as { id: string } | undefined;
-    return row ? this.get(row.id) : undefined;
+    if (!row) return undefined;
+    if (
+      this.db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='repository_workspaces'",
+        )
+        .get() &&
+      this.db
+        .prepare('SELECT id FROM repository_workspaces WHERE conversation_id=?')
+        .get(conversationId)
+    )
+      throw Error('Ambiguous local workspace primary custody');
+    return this.get(row.id);
   }
   private unchanged(record: OrdinaryWorkspaceRecord) {
     if (!isDeepStrictEqual(this.get(record.id), record))
@@ -472,6 +484,7 @@ export class OrdinaryWorkspaceCustody {
   private assertClaimScope(record: OrdinaryWorkspaceRecord, input: OrdinaryWorkspaceClaimInput) {
     if (
       record.primaryDisposition?.currentConversationId === null ||
+      this.forConversation(record.conversationId)?.id !== record.id ||
       record.conversationId !== input.conversationId ||
       record.hostReservation.taskRoot !== input.taskRoot ||
       !isDeepStrictEqual(record.binding, input.binding)
