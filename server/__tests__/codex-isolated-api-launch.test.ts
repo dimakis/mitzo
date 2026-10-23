@@ -293,3 +293,69 @@ it.each(['auth.json', 'config.toml'])(
     expect(processes.spawn).not.toHaveBeenCalled();
   },
 );
+
+const gateway = {
+  endpoint: 'https://gateway.example.test/v1',
+  protocol: 'responses' as const,
+  qualification: {
+    source: 'operator' as const,
+    streaming: true,
+    toolCalls: true,
+    continuation: true,
+    cancellation: true,
+  },
+};
+it('pins a qualified endpoint through bootstrap and cold resume without inheriting another destination', async () => {
+  const o = { ...options(), connection: structuredClone(gateway) };
+  o.resolveKey.mockImplementation(async () => {
+    o.connection.endpoint = 'https://mutated.example.test/v1';
+    return 'SYNTHETIC_SELECTED_KEY';
+  });
+  const launched = await CodexAppServerClient.launchIsolatedApi(o);
+  closes.push(() => launched.client.close());
+  expect(processes.spawn.mock.calls[0][1]).toContain(
+    'openai_base_url="https://gateway.example.test/v1"',
+  );
+  expect(processes.spawn.mock.calls[0][1]).toContain('model_provider="openai"');
+  expect(processes.spawn.mock.calls[0][1]).not.toContain(
+    'openai_base_url="https://api.openai.com/v1"',
+  );
+  const resumed = CodexAppServerClient.launchIsolatedApiResume(
+    o.privateHome,
+    o.base,
+    o.lifecycle,
+    o.executable,
+    gateway,
+  );
+  closes.push(() => resumed.close());
+  expect(processes.spawn.mock.calls[1][1]).toContain(
+    'openai_base_url="https://gateway.example.test/v1"',
+  );
+  expect(children[1].sent).toEqual([]);
+});
+it.each([
+  { ...gateway, protocol: 'messages' },
+  { ...gateway, qualification: undefined },
+  { ...gateway, endpoint: 'https://user:secret@gateway.example.test/v1' },
+  { ...gateway, qualification: { ...gateway.qualification, continuation: false } },
+])(
+  'rejects unsupported launch connection before credentials or process effects %j',
+  async (connection) => {
+    const o = { ...options(), connection };
+    await expect(CodexAppServerClient.launchIsolatedApi(o as never)).rejects.toThrow(
+      'API Codex authentication unavailable',
+    );
+    expect(o.resolveKey).not.toHaveBeenCalled();
+    expect(processes.spawn).not.toHaveBeenCalled();
+    expect(() =>
+      CodexAppServerClient.launchIsolatedApiResume(
+        o.privateHome,
+        o.base,
+        o.lifecycle,
+        o.executable,
+        connection as never,
+      ),
+    ).toThrow();
+    expect(processes.spawn).not.toHaveBeenCalled();
+  },
+);

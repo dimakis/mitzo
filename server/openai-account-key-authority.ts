@@ -1,3 +1,4 @@
+import { apiHarnessConnection } from './account-harness-connection.js';
 import { join } from 'node:path';
 import type { AccountBinding } from '@mitzo/protocol';
 import { loadAccountProfiles } from './account-profiles.js';
@@ -13,9 +14,16 @@ import { openAIKeyResourceBindings } from './openai-key-operation-store.js';
 export function openAIAccountKeyAuthority(
   binding: AccountBinding,
   profiles = loadAccountProfiles(),
-  options?: { consumer: 'host' },
+  options?: { consumer: 'host'; endpoint?: string },
 ) {
   const profile = profiles.apiRoutingProfile(binding);
+  function assertConnection(current: typeof profile) {
+    if (!current.connection) return;
+    const selected = apiHarnessConnection(current.connection);
+    if (options?.consumer !== 'host' || options.endpoint !== selected.endpoint)
+      throw Error('Custom endpoint requires an endpoint-bound native Codex consumer');
+  }
+  assertConnection(profile);
   const runtime = getConnectionsRuntime();
   const enrolled = profiles.isEnrolledOpenAIAccount(binding.accountId);
   const enrollment = runtime?.openAIEnrollmentAuthority;
@@ -37,7 +45,7 @@ export function openAIAccountKeyAuthority(
       ? runtime.openAIKeys
       : undefined;
   function assertCurrent() {
-    loadAccountProfiles().apiRoutingProfile(binding);
+    assertConnection(loadAccountProfiles().apiRoutingProfile(binding));
     if (getConnectionsRuntime() !== runtime) throw Error('OpenAI account controller changed');
     if (manager && !manager.manages(binding.accountId))
       throw Error('OpenAI account controller changed');
