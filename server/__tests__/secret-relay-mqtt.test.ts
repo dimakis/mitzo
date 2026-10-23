@@ -49,7 +49,9 @@ it('sends private CONNECT and one QoS1 PUBLISH, then requires matching PUBACK', 
   expect(dispatched).toHaveBeenCalledOnce();
   expect(f.packets[0][0]).toBe(0x10);
   let payload = 1;
-  while ((f.packets[0][payload++] & 0x80) !== 0) {}
+  while ((f.packets[0][payload++] & 0x80) !== 0) {
+    // Skip the remaining-length continuation bytes before the protocol header.
+  }
   payload += 10;
   const clientLength = f.packets[0].readUInt16BE(payload);
   const clientId = f.packets[0].subarray(payload + 2, payload + 2 + clientLength).toString();
