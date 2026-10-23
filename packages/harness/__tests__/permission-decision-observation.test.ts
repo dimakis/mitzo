@@ -17,6 +17,7 @@ const cleanups: Array<() => void> = [];
 afterEach(() => {
   for (const close of cleanups.splice(0).reverse()) close();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 function fixture() {
   const registry = new SessionRegistry();
@@ -137,6 +138,95 @@ describe('private one-shot decision observation', () => {
       });
     },
   );
+
+  it.each([
+    'abort',
+    'mode',
+    'skill',
+    'input',
+    'session',
+    'owner',
+    'options',
+    'callback',
+    'signal',
+    'toolUseID',
+    'controlPlane',
+    'expiry',
+  ] as const)(
+    'denies observer-side %s changes before any source effect while retaining observed evidence',
+    async (change) => {
+      const f = fixture();
+      const sourceEffect = vi.fn();
+      let retained: Decision | undefined;
+      const observer = vi.fn((decision: Decision) => {
+        retained = decision;
+        if (change === 'abort') f.abort.abort();
+        if (change === 'mode') f.registry.setMode('client', 'ask');
+        if (change === 'skill') setSkillPolicy(f.registry, 'client', []);
+        if (change === 'input') (pending.input.repo as { path: string }).path = '/different';
+        if (change === 'session') f.registry.get('client')!.sessionId = 'different-session';
+        if (change === 'owner') f.registry.abort('client');
+        if (change === 'options') pending.options.approvalScope = 'session';
+        if (change === 'callback') pending.options.onDecision = vi.fn();
+        if (change === 'signal') pending.options.signal = new AbortController().signal;
+        if (change === 'toolUseID') pending.options.toolUseID = 'different-tool-use';
+        if (change === 'controlPlane') {
+          pending.options.controlPlane = true;
+          setSkillPolicy(f.registry, 'client', []);
+        }
+        if (change === 'expiry') vi.spyOn(Date, 'now').mockReturnValue(decision.expiresAt);
+      });
+      const pending = f.start(observer);
+      const sourceOwner = pending.result.then((decision) => {
+        if (decision.behavior === 'allow') sourceEffect();
+        return decision;
+      });
+      await Promise.resolve();
+      const card = f.card();
+      const lifecycle = vi.fn();
+      cleanups.push(onPermissionLifecycle(lifecycle));
+      expect(resolvePending(card.permId as string, 'once', undefined, 'original-session')).toBe(
+        true,
+      );
+      expect(await sourceOwner).toMatchObject({ behavior: 'deny' });
+      expect(sourceEffect).not.toHaveBeenCalled();
+      expect(observer).toHaveBeenCalledTimes(1);
+      expect(retained).toMatchObject({
+        permId: card.permId,
+        input: { repo: { path: '/fixture/source' } },
+      });
+      expect(lifecycle).toHaveBeenLastCalledWith({
+        type: 'resolved',
+        permId: card.permId,
+        resolution: change === 'expiry' ? 'expired' : 'denied',
+      });
+      expect(hasPending(card.permId as string)).toBe(false);
+      expect(resolvePending(card.permId as string, 'once')).toBe(false);
+    },
+  );
+
+  it('shows every exact Bash parameter on an observation card without changing ordinary Bash display', async () => {
+    const f = fixture();
+    const observer = vi.fn();
+    const input = { command: 'echo offline-fixture', cwd: '/fixture/explicit-directory' };
+    const pending = f.start(observer, input, {}, 'Bash');
+    await Promise.resolve();
+    const card = f.card();
+    expect(JSON.parse(card.toolInput as string)).toEqual(input);
+    expect(resolvePending(card.permId as string, 'once', undefined, 'original-session')).toBe(true);
+    expect(await pending.result).toMatchObject({ behavior: 'allow', updatedInput: input });
+    expect(observer).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ input }));
+    const ordinary = buildPermissionHandler('client', f.registry)('Bash', input, {
+      signal: f.abort.signal,
+      toolUseID: 'ordinary-bash',
+      forcePrompt: true,
+    });
+    await Promise.resolve();
+    const ordinaryCard = f.sent.filter((event) => event.type === 'permission_request').at(-1)!;
+    expect(ordinaryCard.toolInput).toBe(input.command);
+    resolvePending(ordinaryCard.permId as string, 'deny', undefined, 'original-session');
+    expect((await ordinary).behavior).toBe('deny');
+  });
 
   it('captures input before the first worktree await and never prompts with mutated input', async () => {
     const f = fixture();

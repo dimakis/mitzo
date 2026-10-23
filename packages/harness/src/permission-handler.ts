@@ -173,10 +173,12 @@ function snapshotDecisionInput(input: Record<string, unknown>) {
   };
   const snapshot = copy(input, 0) as Readonly<Record<string, unknown>>;
   const serialized = JSON.stringify(snapshot);
-  if (serialized.length > PERMISSION_INPUT_MAX_CHARS) throw Error('Input exceeds review bounds');
+  const display = JSON.stringify(snapshot, null, 2);
+  if (display.length > PERMISSION_INPUT_MAX_CHARS) throw Error('Input exceeds review bounds');
   return {
     input: snapshot,
     serialized,
+    display,
     sha256: createHash('sha256').update(serialized).digest('hex'),
   };
 }
@@ -237,12 +239,14 @@ export function buildPermissionHandler(
     const originalInput = _toolInput;
     const originalSignal = opts.signal;
     const originalToolUseID = opts.toolUseID;
+    const originalControlPlane = opts.controlPlane;
     const originalSessionId = session.sessionId;
     let decisionInput: ReturnType<typeof snapshotDecisionInput> | undefined;
     const observationOptionsCurrent = () =>
       opts.onDecision === onDecision &&
       opts.signal === originalSignal &&
       opts.toolUseID === originalToolUseID &&
+      opts.controlPlane === originalControlPlane &&
       session.sessionId === originalSessionId &&
       opts.forcePrompt === true &&
       opts.allowSessionGrant === false &&
@@ -278,8 +282,6 @@ export function buildPermissionHandler(
       try {
         decisionInput = snapshotDecisionInput(originalInput);
         _toolInput = decisionInput.input;
-        if (permissionDisplayInput(toolName, _toolInput) === undefined)
-          throw Error('Input exceeds review bounds');
       } catch {
         return { behavior: 'deny', message: 'Exact decision input is unavailable for review' };
       }
@@ -405,22 +407,26 @@ export function buildPermissionHandler(
       };
     }
 
-    const displayInput = questions
-      ? ''
-      : telosReview
-        ? JSON.stringify(
-            {
-              operation: toolName,
-              summary: _toolInput.summary ?? null,
-              itemId: _toolInput.itemId ?? null,
-              proposalSha256: createHash('sha256').update(JSON.stringify(_toolInput)).digest('hex'),
-              review:
-                'Review the complete host proposal and select its original exchange before saving.',
-            },
-            null,
-            2,
-          )
-        : permissionDisplayInput(toolName, _toolInput);
+    const displayInput = decisionInput
+      ? decisionInput.display
+      : questions
+        ? ''
+        : telosReview
+          ? JSON.stringify(
+              {
+                operation: toolName,
+                summary: _toolInput.summary ?? null,
+                itemId: _toolInput.itemId ?? null,
+                proposalSha256: createHash('sha256')
+                  .update(JSON.stringify(_toolInput))
+                  .digest('hex'),
+                review:
+                  'Review the complete host proposal and select its original exchange before saving.',
+              },
+              null,
+              2,
+            )
+          : permissionDisplayInput(toolName, _toolInput);
     if (displayInput === undefined)
       return {
         behavior: 'deny',
@@ -453,30 +459,19 @@ export function buildPermissionHandler(
       let untrackScope = () => {};
       let notificationTimer: ReturnType<typeof setTimeout> | undefined;
       let timeout: ReturnType<typeof setTimeout> | undefined = undefined;
-      const wrappedResolve = (result: PermissionResult) => {
-        if (settled) return settledResult;
-        settled = true;
-        clearTimeout(timeout);
-        clearTimeout(notificationTimer);
-        originalSignal.removeEventListener('abort', onAbort);
-        untrackScope();
-        // An approval cannot override a later mode downgrade or skill ceiling.
-        if (result.behavior === 'allow') {
-          const activeClient = currentClientId();
-          const modeDenial = askDenial();
-          if (!nativeScopeCurrent())
-            result = { behavior: 'deny', message: 'Original native source scope changed' };
-          else if (!activeClient)
-            result = { behavior: 'deny', message: 'Session permissions changed; retry the tool' };
-          else if (modeDenial) result = modeDenial;
-          else if (
-            !opts.controlPlane &&
-            checkSkillPolicy(registry, activeClient, toolName) === 'deny'
-          ) {
-            result = { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
-          }
-        }
-        if (onDecision && result.behavior === 'allow') {
+      // Shared pre/post-observer fence; callbacks cannot make a checked allow stale.
+      const revalidateAllow = (result: PermissionResult): PermissionResult => {
+        if (result.behavior !== 'allow') return result;
+        const activeClient = currentClientId();
+        const modeDenial = askDenial();
+        if (!nativeScopeCurrent())
+          return { behavior: 'deny', message: 'Original native source scope changed' };
+        if (!activeClient)
+          return { behavior: 'deny', message: 'Session permissions changed; retry the tool' };
+        if (modeDenial) return modeDenial;
+        if (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')
+          return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
+        if (onDecision) {
           try {
             if (
               !observationCurrent() ||
@@ -488,6 +483,26 @@ export function buildPermissionHandler(
               request.expiresAt! <= Date.now()
             )
               throw Error('Original one-shot decision is no longer current');
+          } catch {
+            return {
+              behavior: 'deny',
+              message: 'Original one-shot approval changed; reconcile before retrying',
+            };
+          }
+        }
+        return result;
+      };
+      const wrappedResolve = (result: PermissionResult) => {
+        if (settled) return settledResult;
+        settled = true;
+        clearTimeout(timeout);
+        clearTimeout(notificationTimer);
+        originalSignal.removeEventListener('abort', onAbort);
+        untrackScope();
+        result = revalidateAllow(result);
+        if (onDecision && result.behavior === 'allow') {
+          try {
+            if (!decisionInput) throw Error('Exact approval input is unavailable');
             const returned: unknown = onDecision(
               Object.freeze({
                 permId,
@@ -514,6 +529,9 @@ export function buildPermissionHandler(
             };
           }
         }
+        // Observation may have committed evidence and then changed current policy.
+        // Keep that evidence for reconciliation; never allow its source effects here.
+        if (onDecision) result = revalidateAllow(result);
         settledResult = result;
         if (
           opts.allowSessionGrant !== false &&
