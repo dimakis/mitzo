@@ -98,10 +98,18 @@ function draftFixture() {
     accountReference: account,
     agentProfile: command.selection.agent,
     execution: { location: 'local', targetId: 'mac' },
-    capabilityRevision: 'caps-r1',
+    capabilityRevision: 'combined-inventory-r1',
   };
   draft.settings.launch = {
     prompt: draft.text,
+    reviewedRoute: {
+      inventoryRevision: 'combined-inventory-r1',
+      capabilityRevision: command.capabilityRevision,
+      account,
+      location: 'local',
+      targetId: 'mac',
+      harness: 'codex',
+    },
     context: 'Morning briefing',
     sourceSnapshots: [source],
     accountSelection: selection,
