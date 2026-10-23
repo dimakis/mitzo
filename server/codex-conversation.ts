@@ -1991,6 +1991,7 @@ export class CodexConversation {
   private async beginNext() {
     if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
       const boundary = this.opts.beforeRuntimeAdmission;
+      const boundaryAdmit = typeof boundary === 'function' ? undefined : boundary.admit;
       const client = this.client;
       const generation = this.transportGeneration;
       const threadId = this.threadId;
@@ -2001,7 +2002,7 @@ export class CodexConversation {
         if (typeof boundary !== 'function') {
           if (!boundary || boundary.kind !== 'prepared-repository-primary' || !this.ready)
             throw Error('Retained primary admission requires the original transport');
-          const admit = boundary.admit;
+          const admit = boundaryAdmit!;
           let boundaryOpen = true;
           const assertBoundaryCurrentSync = () => {
             startupSignal?.throwIfAborted();
