@@ -3,6 +3,12 @@ import { constants } from 'node:fs';
 import { lstat, open, opendir, realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
+import {
+  inspectLocalRepositoryGitMetadata,
+  isLocalRepositoryCredentialPath,
+  readLocalRepositoryStatus,
+  type LocalRepositoryGitMetadata,
+} from './local-repository-git-inspection.js';
 
 /** A projection of existing target read access, never a request to grant access. */
 export type LocalRepositoryReadScope =
@@ -115,10 +121,7 @@ const within = (path: string, root: string) => {
     suffix === '' || (!suffix.startsWith(`..${sep}`) && suffix !== '..' && !isAbsolute(suffix))
   );
 };
-const credentialPath = (path: string) =>
-  resolve(path)
-    .split(sep)
-    .some((part) => credentials.has(part));
+const credentialPath = isLocalRepositoryCredentialPath;
 const integer = (value: number | undefined, fallback: number, ceiling: number) =>
   value !== undefined && Number.isFinite(value)
     ? Math.max(1, Math.min(ceiling, Math.floor(value)))
@@ -143,6 +146,7 @@ async function context(request: ReadRequest) {
   if (request.accessScope.kind === 'roots') {
     for (const root of request.accessScope.roots) {
       request.signal?.throwIfAborted();
+      if (Date.now() >= deadline) throw Error('Repository inspection time limit reached');
       if (!isAbsolute(root)) {
         diagnostics.push({ path: root, reason: 'absolute-path-required' });
         continue;
@@ -171,6 +175,7 @@ async function context(request: ReadRequest) {
   };
   const git = async (cwd: string, ...args: string[]) => {
     check();
+    await metadata(cwd);
     const result = await execute(
       'git',
       [
@@ -201,7 +206,25 @@ async function context(request: ReadRequest) {
     );
     return result.stdout;
   };
-  return { roots, limits, deadline, diagnostics, allowed, check, canonical, git };
+  const inspected = new Map<string, LocalRepositoryGitMetadata>();
+  const metadata = async (cwd: string) => {
+    if (!inspected.has(cwd)) {
+      inspected.set(
+        cwd,
+        await inspectLocalRepositoryGitMetadata({
+          path: cwd,
+          assertReadable: async (path) => {
+            await canonical(path);
+          },
+          signal: request.signal,
+          maxEntries: limits.maxEntries,
+          timeoutMs: Math.max(1, deadline - Date.now()),
+        }),
+      );
+    }
+    return inspected.get(cwd)!;
+  };
+  return { roots, limits, deadline, diagnostics, allowed, check, canonical, git, metadata };
 }
 
 /** Read-only bounded discovery. A partial scan never silently chooses a unique match. */
@@ -288,6 +311,8 @@ export async function discoverLocalRepository(
     visited.add(current.path);
     result.visitedDirectories++;
     try {
+      if ((await ctx.canonical(current.path)) !== current.path)
+        throw Error('Discovery path changed');
       const marker = await lstat(join(current.path, '.git')).catch(() => null);
       if (
         marker &&
@@ -354,6 +379,7 @@ export async function inspectLocalRepository(
 ): Promise<LocalRepositoryInspection> {
   const ctx = await context(request);
   const cwd = await ctx.canonical(request.path);
+  const metadata = await ctx.metadata(cwd);
   const path = await ctx.canonical((await ctx.git(cwd, 'rev-parse', '--show-toplevel')).trim());
   const gitDirectory = (await ctx.git(path, 'rev-parse', '--absolute-git-dir')).trim();
   const commonDirectory = (
@@ -370,7 +396,10 @@ export async function inspectLocalRepository(
   const dirty: LocalRepositoryInspection['dirty'] = { state: 'unknown', entries: [] };
   try {
     const entries = (
-      await ctx.git(path, 'status', '--porcelain=v1', '-z', '--untracked-files=normal')
+      await readLocalRepositoryStatus(metadata, {
+        signal: request.signal,
+        timeoutMs: Math.max(1, ctx.deadline - Date.now()),
+      })
     ).split('\0');
     for (let index = 0; index < entries.length; index++) {
       const entry = entries[index];

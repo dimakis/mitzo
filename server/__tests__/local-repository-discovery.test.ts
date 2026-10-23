@@ -240,4 +240,78 @@ describe('read-only repository inspection', () => {
     );
     expect(JSON.stringify(result)).not.toContain('must not expose');
   });
+
+  it('does not execute clean filters or recurse into configured submodules while checking dirty work', async () => {
+    const selected = await repo(join(root, 'filtered'));
+    const marker = join(root, 'executed');
+    git(selected, 'config', 'filter.danger.clean', `touch '${marker}'; cat`);
+    git(selected, 'config', 'filter.danger.required', 'true');
+    await writeFile(join(selected, '.gitattributes'), 'source.txt filter=danger\n');
+    await writeFile(
+      join(selected, '.gitmodules'),
+      '[submodule "escape"]\npath = nested\nurl = /outside\n',
+    );
+    git(selected, 'config', 'submodule.escape.update', `!touch '${marker}'`);
+    await writeFile(join(selected, 'source.txt'), 'modified\n');
+    const result = await inspectLocalRepository({ path: selected, accessScope: scope() });
+    expect(await readFile(marker, 'utf8').catch(() => null)).toBeNull();
+    expect(result.dirty).toMatchObject({
+      state: 'dirty',
+      entries: expect.arrayContaining([expect.objectContaining({ path: 'source.txt' })]),
+    });
+  });
+
+  it('rejects include configuration before Git can read its target', async () => {
+    const selected = await repo(join(root, 'included'));
+    await mkdir(join(root, '.ssh'));
+    await writeFile(join(root, '.ssh', 'private'), '[filter "danger"]\nclean = false\n');
+    git(selected, 'config', 'include.path', join(root, '.ssh', 'private'));
+    await expect(inspectLocalRepository({ path: selected, accessScope: scope() })).rejects.toThrow(
+      /include|configuration/i,
+    );
+  });
+
+  it('rejects linked, symlinked and common Git directories outside the current read scope', async () => {
+    const selected = await repo(join(root, 'source'));
+    const worktree = join(root, 'limited', 'task');
+    await mkdir(join(root, 'limited'));
+    git(selected, 'worktree', 'add', '-qb', 'session/limited', worktree);
+    const limited = { kind: 'roots' as const, roots: [join(root, 'limited')] };
+    await expect(inspectLocalRepository({ path: worktree, accessScope: limited })).rejects.toThrow(
+      /access|metadata/i,
+    );
+    expect(
+      (await discoverLocalRepository({ explicitPath: worktree, accessScope: limited })).state,
+    ).toBe('access-required');
+    const linked = join(root, 'limited', 'linked');
+    await mkdir(linked);
+    await symlink(join(selected, '.git'), join(linked, '.git'));
+    await expect(inspectLocalRepository({ path: linked, accessScope: limited })).rejects.toThrow(
+      /symlink|metadata/i,
+    );
+    const indirect = join(root, 'limited', 'indirect');
+    git(selected, 'worktree', 'add', '-qb', 'session/indirect', indirect);
+    // Its worktree metadata is inside the limited scope; commondir remains outside.
+    const ownedMetadata = join(root, 'limited', 'metadata');
+    await mkdir(ownedMetadata);
+    await writeFile(join(ownedMetadata, 'HEAD'), 'ref: refs/heads/session/indirect\n');
+    await writeFile(join(ownedMetadata, 'commondir'), join(selected, '.git') + '\n');
+    await writeFile(join(indirect, '.git'), `gitdir: ${ownedMetadata}\n`);
+    await expect(inspectLocalRepository({ path: indirect, accessScope: limited })).rejects.toThrow(
+      /access|metadata/i,
+    );
+  });
+
+  it('allows explicit managed worktrees without scanning agent credential directories', async () => {
+    const selected = await repo(join(root, 'source'));
+    const worktree = join(selected, '.claude', 'worktrees', 'owned');
+    git(selected, 'worktree', 'add', '-qb', 'session/owned', worktree);
+    expect(
+      await discoverLocalRepository({ explicitPath: worktree, accessScope: scope() }),
+    ).toMatchObject({ state: 'selected', candidates: [{ path: worktree }] });
+    expect(await inspectLocalRepository({ path: worktree, accessScope: scope() })).toMatchObject({
+      path: worktree,
+      branch: 'session/owned',
+    });
+  });
 });
