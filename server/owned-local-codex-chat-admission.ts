@@ -315,7 +315,7 @@ export class OwnedLocalCodexChatAdmission {
       void Promise.resolve(value).catch(() => {});
       throw unavailable();
     };
-    const assert = (command?: Readonly<CodexCommand>) => {
+    const validateContext = () => {
       if (
         !live ||
         this.#closed ||
@@ -351,8 +351,16 @@ export class OwnedLocalCodexChatAdmission {
         !isDeepStrictEqual(meta.agentContext ?? undefined, expected.agentContext)
       )
         throw unavailable();
+      return meta;
+    };
+    const assert = (command?: Readonly<CodexCommand>) => {
+      validateContext();
       sync(assertConversationCurrentSync());
+      validateContext();
       sync(assertLease.call(lease));
+      validateContext();
+      sync(assertConversationCurrentSync());
+      const meta = validateContext();
       if (
         nativeStore
           .commands(sessionId, this.#binding)

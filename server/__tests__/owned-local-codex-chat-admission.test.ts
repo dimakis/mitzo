@@ -374,6 +374,10 @@ it.each([
   'expired scope',
   'async lease',
   'value barrier',
+  'callback replacement',
+  'callback session mode',
+  'callback metadata mode',
+  'callback closes admission',
 ] as const)(
   'continues only the exact original task from its prepared-primary source: %s',
   async (scenario) => {
@@ -505,6 +509,29 @@ it.each([
         },
         assertCurrentSync: () => f.admission.assertCurrentSync(),
       };
+      if (
+        [
+          'callback replacement',
+          'callback session mode',
+          'callback metadata mode',
+          'callback closes admission',
+        ].includes(scenario)
+      ) {
+        vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
+          if (scenario === 'callback replacement') f.lease.assertCurrentSync = () => {};
+          if (scenario === 'callback session mode') f.options.session.mode = 'ask';
+          if (scenario === 'callback metadata mode')
+            f.store.upsertSession({ sessionId: 'session', mode: 'ask' });
+          if (scenario === 'callback closes admission') f.admission.close();
+        });
+        try {
+          expect(() => sourceFence.assertCurrentSync()).toThrow();
+        } finally {
+          sourceFence.dispose();
+        }
+        expect(proof.adopt).not.toHaveBeenCalled();
+        return;
+      }
       if (scenario !== 'success') {
         if (scenario === 'cancelled barrier')
           proof.revalidate.mockImplementation(async () => {
