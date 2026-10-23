@@ -1,0 +1,15 @@
+{
+  "version": "codex-cli 0.160.0",
+  "executableSha256": "112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b",
+  "modelCalls": 0,
+  "workspaceWrite": "allowed",
+  "outsideWrite": "denied",
+  "exactAddedRootWrite": "allowed",
+  "credentialReadAfterGrant": "denied",
+  "helperWithNarrowCredentialFence": "allowed",
+  "helperWithBroadHomeDenyWithoutException": "denied",
+  "helperWithBroadHomeDenyAndReadableChild": "allowed",
+  "credentialReadWithHelperException": "denied",
+  "hostileCredentialChildGrant": "readable: adapter must reject intersecting grants",
+  "scope": "standalone command/exec profile union; request_permissions lifecycle remains source/adapter-fixture qualification"
+}

@@ -43,7 +43,10 @@ Native source evidence (paths relative to upstream `codex-rs/`):
   against the originating turn and environment, or the session and environment.
 - `sandboxing/src/policy_transforms.rs`,
   `merge_file_system_policy_with_additional_permissions`: clones the base policy
-  and appends overlay entries, retaining base denials.
+  and appends overlay entries, retaining base denials. Retaining a denial is not
+  an immutable ceiling: a more-specific readable child can override a denied
+  parent. Reject grants intersecting credential roots (including their ancestors)
+  before forwarding them upstream.
 - `core/src/tools/sandboxing_tests.rs`,
   `deny_read_blocks_explicit_escalation_and_policy_bypass`: deny-read restrictions
   prevent unsandboxed escalation; additional permissions keep sandbox enforcement.
@@ -65,3 +68,50 @@ Automatic review availability, selected reviewer model/account/billing, and
 actual provider execution remain unqualified by these offline schema fixtures.
 Consumers must surface unavailable review and offer explicit human review rather
 than assume approval. Transport loss or recovery must not replay uncertain effects.
+
+## macOS kernel qualification
+
+Run `node scripts/qualify-codex-native-permissions.mjs /absolute/pinned/codex`
+outside any existing Seatbelt sandbox. It rejects an unqualified binary digest,
+uses a temporary empty account environment and synthetic paths, and exercises
+standalone `command/exec` without a thread, turn, account login or model call.
+The checked-in JSON under `implementation-evidence/` records the actual outcome.
+
+The base profile allows workspace writes and rejects outside writes. An otherwise
+identical named profile with an exact extra writable root permits that action while
+credential reads remain denied. This proves the configured kernel boundary can
+change; `command/exec` has no `additionalPermissions` parameter, so it does not prove
+the engine's `request_permissions` round trip or turn/session expiry. Those paths
+need lifecycle adapter fixtures and the upstream source evidence above.
+
+A broad private-home denial blocks a synthetic helper inside that home. A more
+specific read allowance for its runtime directory permits execution while a
+credential sibling stays unreadable. The adversarial control also demonstrates
+that an exact child file read allowance inside a denied credential directory makes
+that file readable. Therefore private credential overlap validation is mandatory;
+only explicit immutable directories containing no credentials may receive helper
+exceptions. This fixture uses the official release binary, not a separately frozen
+host binary, and does not qualify the host's executable/wrapper custody.
+
+## Other pinned capability findings
+
+The public `thread/start` and `turn/start` schemas have no universal tool allowlist
+or `toolChoice` ceiling. An empty dynamic tool list plus disabling shell, unified
+execution and web does not establish a tool-free adviser. The internal Rust
+`ext/extension-api/src/tool_policy.rs` supports startup
+`ToolPolicy { allowed_tools: Some(vec![]) }`, with reinjection on resume; the
+`core/src/tools/spec_plan_tests.rs` test
+`allowed_tools_filter_sources_before_code_mode_and_discovery` covers core, MCP,
+dynamic, hosted and code-mode tools. The public App Server RPC does not expose that
+extension policy. Treat complete no-tools execution as unsupported until a reviewed
+bridge provides it.
+
+`DynamicToolCallResponse` supports `{contentItems,success}`, with items
+`{type:"inputText",text}`, `{type:"inputImage",imageUrl}` and
+`{type:"inputAudio",audioUrl}`. In
+`app-server/tests/suite/v2/dynamic_tools.rs`, a valid inline PNG reaches model output;
+`dynamic_tool_remote_image_response_becomes_model_visible_error` proves HTTPS
+images fail. Use validated inline bytes, with an explicit product size cap.
+Native MCP content conversion in `protocol/src/models.rs` preserves image
+`data`/`mimeType` as an inline URL and honors `_meta["codex/imageDetail"]`.
+These are source qualifications, not real-model tests or multimedia implementation.
