@@ -117,4 +117,17 @@ describe('Codex product tool image results', () => {
       }),
     ).toThrow(/invalid/i);
   });
+
+  it('includes text separators in the rich text bound', () => {
+    expect(() =>
+      normalizeCodexToolResult({
+        content: 'x'.repeat(65_536) + '\n',
+        isError: false,
+        contentItems: [
+          { type: 'inputText', text: 'x'.repeat(65_536) },
+          { type: 'inputText', text: '' },
+        ],
+      }),
+    ).toThrow(/bound/);
+  });
 });

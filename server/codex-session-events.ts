@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { CodexTurnUsage, observedCodexUsage } from './codex-turn-usage.js';
 import type { StreamEvent } from '@mitzo/harness';
 import type { ProviderFailure } from '@mitzo/protocol';
+import { normalizeCodexToolResult, type CodexToolContentItem } from './codex-tool-result.js';
 type ObjectValue = Record<string, unknown>;
 function object(value: unknown): ObjectValue {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as ObjectValue) : {};
@@ -462,11 +463,32 @@ export class CodexSessionEvents {
     });
     return id;
   }
-  toolResult(id: string, content: string, isError: boolean) {
+  toolResult(id: string, content: string, isError: boolean, contentItems?: CodexToolContentItem[]) {
+    const result = normalizeCodexToolResult({
+      content,
+      isError,
+      ...(contentItems ? { contentItems } : {}),
+    });
+    const blocks = result.contentItems?.map((item) => {
+      if (item.type === 'inputText') return { type: 'text', text: item.text };
+      const split = item.imageUrl.indexOf(';base64,');
+      return {
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: item.imageUrl.slice(5, split),
+          data: item.imageUrl.slice(split + 8),
+        },
+      };
+    });
     this.emit({
       type: 'user',
       parent_tool_use_id: null,
-      message: { content: [{ type: 'tool_result', tool_use_id: id, content, is_error: isError }] },
+      message: {
+        content: [
+          { type: 'tool_result', tool_use_id: id, content: blocks ?? content, is_error: isError },
+        ],
+      },
     });
   }
 }

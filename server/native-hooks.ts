@@ -4,6 +4,11 @@ import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { tmpdir } from 'node:os';
 import { createWorkspaceRuntimeCommandRunner } from './protected-sdk-command.js';
+import {
+  appendCodexToolFeedback,
+  normalizeCodexToolResult,
+  type CodexToolResult,
+} from './codex-tool-result.js';
 
 const Events = ['SessionStart', 'PreToolUse', 'PostToolUse', 'Stop', 'SessionEnd'] as const;
 type Event = (typeof Events)[number];
@@ -74,12 +79,9 @@ export class NativeHooks {
     name: string,
     input: Record<string, unknown>,
     signal: AbortSignal,
-    execute: (
-      input: Record<string, unknown>,
-      forcePrompt: boolean,
-    ) => Promise<{ content: string; isError: boolean }>,
+    execute: (input: Record<string, unknown>, forcePrompt: boolean) => Promise<CodexToolResult>,
     options: { normalizeFilePath?: boolean } = {},
-  ): Promise<{ content: string; isError: boolean }> {
+  ): Promise<CodexToolResult> {
     let executed = false;
     try {
       const normalized =
@@ -89,8 +91,10 @@ export class NativeHooks {
       const pre = await this.run('PreToolUse', { tool_name: name, tool_input: normalized }, signal);
       const checked = pre.input ?? normalized;
       signal.throwIfAborted();
-      const result = await execute(checked, pre.forcePrompt);
+      const rawResult = await execute(checked, pre.forcePrompt);
       executed = true;
+      signal.throwIfAborted();
+      const result = normalizeCodexToolResult(rawResult);
       if (result.isError) return result;
       const post = await this.run(
         'PostToolUse',
@@ -98,10 +102,8 @@ export class NativeHooks {
         signal,
       );
       const context = [pre.context, post.context].filter(Boolean).join('\n');
-      return {
-        content: result.content + (context ? `\n\nProject hook feedback:\n${context}` : ''),
-        isError: false,
-      };
+      signal.throwIfAborted();
+      return appendCodexToolFeedback(result, context);
     } catch (error) {
       return {
         content: executed

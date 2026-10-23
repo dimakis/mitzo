@@ -52,6 +52,8 @@ export function normalizeCodexToolResult(result: CodexToolResult): CodexToolResu
     return { content: result.content, isError: result.isError };
   if (!Array.isArray(result.contentItems) || result.contentItems.length > MAX_ITEMS)
     throw Error('Tool content exceeds item bound');
+  if (Buffer.byteLength(result.content) > MAX_TEXT_BYTES)
+    throw Error('Tool text exceeds result bound');
   let textBytes = 0;
   const contentItems = result.contentItems.map((item): CodexToolContentItem => {
     if (!item || typeof item !== 'object') throw invalid();
@@ -116,13 +118,13 @@ export function normalizeMcpToolResult(content: unknown, isError: boolean): Code
       };
     }
     if (content.length > MAX_ITEMS) throw Error('Tool content exceeds item bound');
-    let remaining = MAX_TEXT_BYTES;
+    let remaining =
+      MAX_TEXT_BYTES - Math.max(0, content.filter((block) => block?.type === 'text').length - 1);
     const contentItems: CodexToolContentItem[] = content.map((block) => {
       if (!block || typeof block !== 'object') throw invalid();
       if (block.type === 'text' && typeof block.text === 'string') {
         const text = boundedText(block.text, remaining);
-        // Reserve separators in the text projection too.
-        remaining = Math.max(0, remaining - Buffer.byteLength(text) - 1);
+        remaining -= Buffer.byteLength(text);
         return { type: 'inputText', text };
       }
       if (block.type === 'image')
@@ -156,7 +158,9 @@ export function appendCodexToolFeedback(result: CodexToolResult, context: string
     return { content: checked.content + feedback, isError: checked.isError };
   // Append to the last text block to keep the legacy content string exact.
   const items = checked.contentItems;
-  const lastText = items.findLastIndex((item) => item.type === 'inputText');
+  let lastText = -1;
+  for (let index = 0; index < items.length; index++)
+    if (items[index].type === 'inputText') lastText = index;
   if (lastText >= 0) (items[lastText] as { type: 'inputText'; text: string }).text += feedback;
   else items.push({ type: 'inputText', text: feedback });
   return normalizeCodexToolResult({

@@ -1,5 +1,19 @@
 import { expect, it } from 'vitest';
 import { CodexSessionEvents } from '../codex-session-events.js';
+import { extractToolResultImages } from '../../packages/protocol/src/content-blocks.js';
+
+it('projects native image tool results into existing query-loop image blocks', () => {
+  const events: Record<string, unknown>[] = [];
+  const mapper = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));
+  const data =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+  mapper.toolResult('call', 'screen', false, [
+    { type: 'inputText', text: 'screen' },
+    { type: 'inputImage', imageUrl: `data:image/png;base64,${data}` },
+  ]);
+  const blocks = (events[0].message as { content: { content: unknown }[] }).content[0].content;
+  expect(extractToolResultImages(blocks as never)).toEqual([{ data, mediaType: 'image/png' }]);
+});
 it('maps streamed text and completion using application identity and ignores other threads', () => {
   const events: Record<string, unknown>[] = [];
   const mapper = new CodexSessionEvents('app-id', 'provider-id', 'model', (e) => events.push(e));
