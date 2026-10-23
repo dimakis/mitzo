@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.613-qualified-workspace-read-owner';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.614-qualified-task-topology';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -1613,4 +1612,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'd1b877c87ce31b16eb535fa700b1921fb182c97b60056f1d4a47e3cb6c700620',
   '../__tests__/native-local-repository-read-tools.test.ts':
     'a75414d44906ede0855d2bc592f738081f171ed22ba8aaf5b23560118f82d4fd',
+  '../prepared-repository-workspace-owner.ts':
+    '7d62d04b7838329827a1abf362d6c17b4a0c4a1202aad448946f98231181d10a',
+  '../__tests__/prepared-repository-workspace-owner.test.ts':
+    '2ebdf73907120d6f5049e350410e6664f84b2f0dfad71edb94b21abe26227888',
 });
