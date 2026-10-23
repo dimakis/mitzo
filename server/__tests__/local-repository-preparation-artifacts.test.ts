@@ -15,6 +15,7 @@ it('pins the private preparation decision producer, same-row custody and signed 
     '../__tests__/native-host-read-owner.test.ts',
     '../__tests__/local-repository-reference-metadata.test.ts',
     '../__tests__/local-repository-cached-stat.test.ts',
+    '../__tests__/local-repository-read-ceiling.test.ts',
     '../__tests__/local-repository-verification.test.ts',
     '../__tests__/native-directory-verification-batch.test.ts',
     '../local-repository-allocation-facts.ts',

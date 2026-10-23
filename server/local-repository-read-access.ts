@@ -50,6 +50,12 @@ export interface LocalRepositoryReadAuthority {
   signal?: AbortSignal;
   deadline: number;
 }
+/** Additional operation-specific restriction. This never replaces the actual
+ * owner's authority, transport or final physical-owner revalidation. */
+export interface LocalRepositoryReadCeiling {
+  assertReadable(path: string): Promise<void>;
+  revalidate(): Promise<void>;
+}
 const contains = (path: string, root: string) => {
   const value = relative(root, path);
   return !isAbsolute(value) && value !== '..' && !value.startsWith(`..${sep}`);
@@ -92,7 +98,34 @@ export class LocalRepositoryReadAccess {
   }
   private totalBytes = 0;
   private totalEntries = 0;
-  constructor(private readonly authority: LocalRepositoryReadAuthority) {
+  private readonly ceiling?: Readonly<{
+    owner: LocalRepositoryReadCeiling;
+    assertReadable: LocalRepositoryReadCeiling['assertReadable'];
+    revalidate: LocalRepositoryReadCeiling['revalidate'];
+  }>;
+  constructor(
+    private readonly authority: LocalRepositoryReadAuthority,
+    ceiling?: LocalRepositoryReadCeiling,
+  ) {
+    if (ceiling !== undefined) {
+      if (!ceiling || typeof ceiling !== 'object' || Array.isArray(ceiling)) throw unavailable();
+      const readable = Object.getOwnPropertyDescriptor(ceiling, 'assertReadable');
+      const revalidate = Object.getOwnPropertyDescriptor(ceiling, 'revalidate');
+      if (
+        !readable ||
+        !('value' in readable) ||
+        typeof readable.value !== 'function' ||
+        !revalidate ||
+        !('value' in revalidate) ||
+        typeof revalidate.value !== 'function'
+      )
+        throw unavailable();
+      this.ceiling = Object.freeze({
+        owner: ceiling,
+        assertReadable: readable.value,
+        revalidate: revalidate.value,
+      });
+    }
     this.deniedRoots = freezeNativeReadExclusions(authority.deniedRoots);
   }
   private check() {
@@ -108,12 +141,23 @@ export class LocalRepositoryReadAccess {
     if (this.deniedRoots.some((root) => contains(path, root)))
       throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
     try {
+      await this.assertCeiling(path);
       await this.authority.assertReadable(path);
+      this.check();
+      await this.assertCeiling(path);
     } catch (error) {
       this.authority.signal?.throwIfAborted();
       if (error instanceof LocalRepositoryGitInspectionError) throw error;
       throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
     }
+    this.check();
+  }
+  private async assertCeiling(path: string) {
+    if (
+      this.ceiling &&
+      (await this.ceiling.assertReadable.call(this.ceiling.owner, path)) !== undefined
+    )
+      throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
     this.check();
   }
   private anchor(path: string) {
@@ -525,5 +569,15 @@ export class LocalRepositoryReadAccess {
     }
     await this.authority.revalidate?.();
     this.check();
+    if (this.ceiling) {
+      try {
+        if ((await this.ceiling.revalidate.call(this.ceiling.owner)) !== undefined)
+          throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+      } catch {
+        this.authority.signal?.throwIfAborted();
+        throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+      }
+      this.check();
+    }
   }
 }

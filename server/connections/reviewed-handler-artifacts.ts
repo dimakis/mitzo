@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.592-prepared-custody-read-integration';
+  'v1.0.593-local-repository-read-ceiling';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/local-repository-read-ceiling.test.ts':
+    '6d57f15983fa4fa03a6e6d461fa05dcc02142bf19bb3bcf1b1e6faf2e7d8c326',
   '../__tests__/prepared-repository-native-read.test.ts':
     'c36cd93271211e3f22dd164da78af35ad442884004fb562db19550a52aa065d5',
   '../local-repository-allocation-facts.ts':
@@ -67,7 +69,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-git-snapshot.ts':
     '4d788b944d9698345858493a508c4f065a8f014c9c9cdd6510a37f63ee87dfe7',
   '../local-repository-read-access.ts':
-    'c616fbef9e4d4ba5f5080848076a96ca619532d9dc05f1d1f941a0e1ccec90cf',
+    'b54b10e2222501bebfc8d575d0e195dcf6c3d00b038cb4c14134de0eb0f026ae',
   '../__tests__/native-anchored-read.test.ts':
     '7322ab8566b3649a90876e253f5d66a8cc631ac7148ee47602c71eaed5123628',
   '../__tests__/local-repository-read-security.test.ts':
@@ -85,7 +87,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-authorization.test.ts':
     'b112bfe74d265c4abeefaf30ce82e07d344f84ba13a83b1f7fd9c85c63ef1523',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
-    'daf999c770516d7b5e13008d7e1ec09765d9941419a4c20cd8847ee0c7cd72c9',
+    '31e111111044b0b32ddf44d5d7f399e56e9dfb01588f3505c9f601453a3c9a2b',
   '../pending-host-task.ts': '8a7883bbee6a9b29d0fdfca7b0c5d1e2b169d7bf33df67c76bf706dff5a196ae',
   '../__tests__/pending-host-task.test.ts':
     '286badb71f54d57b77e7b57116a566d1772d6c27b520131262ef58551f2ce01d',
