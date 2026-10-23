@@ -16,6 +16,7 @@ import * as childProcess from 'node:child_process';
 import { localRepositoryNativeToolFixture } from './fixtures/local-repository-native-tools.js';
 import { EventStore } from '../event-store.js';
 import { setAuthRevocationStore, revokeAuthSession } from '../auth.js';
+import { CodexTransportError } from '../codex-app-server-client.js';
 
 vi.mock('node:child_process', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:child_process')>();
@@ -42,6 +43,7 @@ it.skipIf(
   'registered owned Discover and Inspect use the actual SRT reader and retain denial/current/cleanup fences',
   async () => {
     const inspectOnly = process.env.MITZO_NATIVE_READ_TOOLS_INSPECT_ONLY === '1';
+    const revocationOnly = process.env.MITZO_NATIVE_READ_TOOLS_REVOCATION_ONLY === '1';
     const setupStarted = performance.now();
     vi.stubEnv('TMPDIR', '/private/tmp');
     const artifacts = await mkdtemp('/private/tmp/mitzo-read-tools-artifact-');
@@ -196,41 +198,44 @@ it.skipIf(
       },
     );
     const enforced = sandbox.executeSandboxedCommand;
-    vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(async (...args) => {
-      const start = performance.now();
-      expect(args[0].timeoutMs).toBeLessThanOrEqual(30000);
-      const phase: (typeof phases)[number] = {
-        commandSha: sha256(Buffer.from(args[0].command)),
-        started: start,
-        timeoutMs: args[0].timeoutMs!,
-        operation: args[0].command.match(/"operation":"([A-Za-z]+)"/)?.[1] ?? 'unknown',
-      };
-      phases.push(phase);
-      trace.helpers++;
-      trace.scratch.push(args[0].cwd);
-      try {
-        const result = await enforced(...args);
-        phase.stdoutBytes = Buffer.byteLength(result.stdout ?? '');
-        phase.stderrBytes = Buffer.byteLength(result.stderr ?? '');
-        if (result.isError) {
-          trace.helperErrors++;
-          phase.error = /timed? out/i.test(result.content)
-            ? 'timeout'
-            : /permission|denied/i.test(result.content)
-              ? 'denied'
-              : /output/i.test(result.content)
-                ? 'output-bound'
-                : /unavailable/i.test(result.content)
-                  ? 'unavailable'
-                  : 'worker-error';
+    const helperTransport = vi
+      .spyOn(sandbox, 'executeSandboxedCommand')
+      .mockImplementation(async (...args) => {
+        if (revocationOnly) throw Error('Protocol-only control forbids native helpers');
+        const start = performance.now();
+        expect(args[0].timeoutMs).toBeLessThanOrEqual(30000);
+        const phase: (typeof phases)[number] = {
+          commandSha: sha256(Buffer.from(args[0].command)),
+          started: start,
+          timeoutMs: args[0].timeoutMs!,
+          operation: args[0].command.match(/"operation":"([A-Za-z]+)"/)?.[1] ?? 'unknown',
+        };
+        phases.push(phase);
+        trace.helpers++;
+        trace.scratch.push(args[0].cwd);
+        try {
+          const result = await enforced(...args);
+          phase.stdoutBytes = Buffer.byteLength(result.stdout ?? '');
+          phase.stderrBytes = Buffer.byteLength(result.stderr ?? '');
+          if (result.isError) {
+            trace.helperErrors++;
+            phase.error = /timed? out/i.test(result.content)
+              ? 'timeout'
+              : /permission|denied/i.test(result.content)
+                ? 'denied'
+                : /output/i.test(result.content)
+                  ? 'output-bound'
+                  : /unavailable/i.test(result.content)
+                    ? 'unavailable'
+                    : 'worker-error';
+          }
+          return result;
+        } finally {
+          phase.totalMs = performance.now() - start;
+          phase.postMs = phase.totalMs - (phase.prefixMs ?? phase.totalMs) - (phase.childMs ?? 0);
+          trace.helperMs += phase.totalMs;
         }
-        return result;
-      } finally {
-        phase.totalMs = performance.now() - start;
-        phase.postMs = phase.totalMs - (phase.prefixMs ?? phase.totalMs) - (phase.childMs ?? 0);
-        trace.helperMs += phase.totalMs;
-      }
-    });
+      });
     const metadataBudgets: number[] = [];
     const factsBudgets: number[] = [];
     const inspect = metadata.inspectLocalRepositoryGitMetadata;
@@ -312,6 +317,7 @@ it.skipIf(
           {
             compilation,
             inspectOnly,
+            revocationOnly,
             phase,
             setupMs,
             operationTimings,
@@ -332,7 +338,7 @@ it.skipIf(
     };
     recordCleanup = writeEvidence;
     await writeEvidence();
-    if (!inspectOnly) {
+    if (!inspectOnly && !revocationOnly) {
       phase = 'discover';
       const discoverStarted = performance.now();
       const discovery = await f.a.call({ path: join(f.f.root, 'source') });
@@ -355,44 +361,48 @@ it.skipIf(
         truncated: false,
       });
     }
-    phase = 'inspect';
-    await writeEvidence();
-    const inspectStarted = performance.now();
-    const inspection = await f.a.call(
-      { path: join(f.f.root, 'source') },
-      { tool: 'InspectLocalRepository' },
-    );
-    operationTimings.InspectLocalRepository = performance.now() - inspectStarted;
-    outcomes.InspectLocalRepository = outcome(inspection);
-    await writeEvidence();
-    expect(declaredBudgets).toEqual(inspectOnly ? [60000] : [30000, 60000]);
-    expect(factsBudgets).toHaveLength(inspectOnly ? 1 : 2);
-    expect(inspection.response.success, JSON.stringify(inspection.value)).toBe(true);
-    expect(inspection.value).toMatchObject({
-      path: join(f.f.root, 'source'),
-      branch: 'main',
-      dirty: { state: 'unknown' },
-    });
-    expect(inspection.value.instructions.files).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ path: join(join(f.f.root, 'source'), 'AGENTS.md') }),
-      ]),
-    );
-    phase = 'denied';
-    const denied = await f.a.call(
-      { path: join(f.f.root, 'login') },
-      { tool: 'InspectLocalRepository' },
-    );
-    outcomes.denied = outcome(denied);
-    await writeEvidence();
-    expect(JSON.stringify(denied.value)).not.toContain('access_token');
-    expect(denied.response.success).toBe(false);
-    phase = 'revoked';
-    revokeAuthSession(f.auth);
-    const revoked = await f.a.call({ path: join(f.f.root, 'source') });
-    outcomes.revoked = outcome(revoked);
-    await writeEvidence();
-    expect(revoked.response.success).toBe(false);
+    if (revocationOnly) {
+      phase = 'invalid-input';
+      const invalid = await f.a.call({ path: 42 }, { tool: 'InspectLocalRepository' });
+      outcomes.invalid = outcome(invalid);
+      await writeEvidence();
+      expect(invalid.response.success).toBe(false);
+      expect(helperTransport).not.toHaveBeenCalled();
+      expect(factsBudgets).toHaveLength(0);
+    } else {
+      phase = 'inspect';
+      await writeEvidence();
+      const inspectStarted = performance.now();
+      const inspection = await f.a.call(
+        { path: join(f.f.root, 'source') },
+        { tool: 'InspectLocalRepository' },
+      );
+      operationTimings.InspectLocalRepository = performance.now() - inspectStarted;
+      outcomes.InspectLocalRepository = outcome(inspection);
+      await writeEvidence();
+      expect(declaredBudgets).toEqual(inspectOnly ? [60000] : [30000, 60000]);
+      expect(factsBudgets).toHaveLength(inspectOnly ? 1 : 2);
+      expect(inspection.response.success, JSON.stringify(inspection.value)).toBe(true);
+      expect(inspection.value).toMatchObject({
+        path: join(f.f.root, 'source'),
+        branch: 'main',
+        dirty: { state: 'unknown' },
+      });
+      expect(inspection.value.instructions.files).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: join(join(f.f.root, 'source'), 'AGENTS.md') }),
+        ]),
+      );
+      phase = 'denied';
+      const denied = await f.a.call(
+        { path: join(f.f.root, 'login') },
+        { tool: 'InspectLocalRepository' },
+      );
+      outcomes.denied = outcome(denied);
+      await writeEvidence();
+      expect(JSON.stringify(denied.value)).not.toContain('access_token');
+      expect(denied.response.success).toBe(false);
+    }
     expect(
       processBoundary.mock.calls.some((args) =>
         /\/codex(?:-runtime|-code-mode-host)?$/.test(String(args[0])),
@@ -401,12 +411,31 @@ it.skipIf(
     expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
     for (const scratch of new Set(trace.scratch))
       await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(sourceSettings.length).toBeGreaterThan(0);
+    if (!revocationOnly) expect(sourceSettings.length).toBeGreaterThan(0);
     for (const settings of sourceSettings)
       await expect(stat(settings)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(join(join(f.f.root, 'source'), 'task.txt'), 'utf8')).toBe(
       'accepted source',
     );
+    outcomes.custody = { sourcePreserved: true, scratchRemoved: true, settingsRemoved: true };
+    const helpersBeforeRevoke = helperTransport.mock.calls.length;
+    const factsBeforeRevoke = factsBudgets.length;
+    phase = 'revoked';
+    revokeAuthSession(f.auth);
+    try {
+      const revoked = await f.a.call({ path: join(f.f.root, 'source') });
+      outcomes.revoked = outcome(revoked);
+      await writeEvidence();
+      expect(revoked.response.success).toBe(false);
+    } catch (error) {
+      // Actual revocation can retire the original transport before dispatch.
+      // Only that fixed typed closure is equivalent to a refused response.
+      if (!(error instanceof CodexTransportError) || error.category !== 'connection') throw error;
+      outcomes.revoked = { success: false, transport: 'connection-closed' };
+      await writeEvidence();
+    }
+    expect(helperTransport).toHaveBeenCalledTimes(helpersBeforeRevoke);
+    expect(factsBudgets).toHaveLength(factsBeforeRevoke);
     phase = 'completed';
     await writeEvidence();
   },

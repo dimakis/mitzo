@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.603-owned-inspect-operation-budget';
+  'v1.0.604-native-read-revocation-evidence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,7 +32,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-local-repository-read-projection.test.ts':
     'e78286f66f12951fd228c86e7044e17d3e5023294087aa0b4b16ec0b6af44571',
   '../__tests__/native-local-repository-read-registration.test.ts':
-    '9f4517de0d257e2f0012c85f43675fecbd486020b1a940ae67756830073f79a7',
+    'dc0f392a2379050ae0aa6f325c7e25ad69cc147dce9e1223f1960dd7755327a9',
   '../__tests__/native-local-repository-read-tools.test.ts':
     'a75414d44906ede0855d2bc592f738081f171ed22ba8aaf5b23560118f82d4fd',
 
