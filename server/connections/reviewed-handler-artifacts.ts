@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.575-preparation-read-integration';
+  'v1.0.576-exclusive-directory-effect';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/native-exclusive-directory.test.ts':
+    '9658de84032b1561f32dedc4c819b34a5d2a850b79f92151bc0db440885c13ab',
   '../__tests__/local-repository-domain-read.test.ts':
     '114efb143794b10fe69dfaae07c38d981320dab347a147a2ac2e0a1666422768',
   '../local-repository-native-read.ts':
@@ -737,7 +739,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-permission-revision.ts':
     'cf71bb38e2008352cbccfd22aae88f747625a3533c26aad22537d9509c11a26a',
   '../auth.ts': '5486a4a5312d8214d94d981278a08aaf30e3a24c116023d954aa83b010bb0c14',
-  '../native-file-operation.ts': '48670cf4850152dc629b697cd450e0ddcadd6d9c9c516e91a0f4e0f2a1e4ec97',
+  '../native-file-operation.ts': 'e18d560d1bb8a66f8f08e2ee5361cae4ec97354105ac8c8198b3d9e732114acd',
   '../sandboxed-command.ts': '8971204f19d4c7d8b945ed30c4494d24f73a7f0b99d477ca257a3b2419ea884d',
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
@@ -1451,7 +1453,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-authorization.test.ts':
     '13f24258131a03ae7eaae07e67da46b760c81cfb3fea4b43d857c891a9e4761c',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
-    '0b9d452a91103f147007bbeb972053b0c40ac9aa99ca3a423fa438abc914dc77',
+    'bf83f89df7656b8b0572b1ee7f046e85e6a53149f9c963196650c1260f13c863',
   '../pending-host-task.ts': '5ec53a29d5e5a32167efd9f901c6bef27f5e1f07b4c0a1c4f26ada699a621542',
   '../__tests__/pending-host-task.test.ts':
     '286badb71f54d57b77e7b57116a566d1772d6c27b520131262ef58551f2ce01d',

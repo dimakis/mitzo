@@ -32,6 +32,52 @@ def capture_read_anchor(request):
     finally:
         os.close(directory)
 
+def create_directory(request):
+    # Private fixed effect only: no listing, file bytes, cleanup or Git execution.
+    path = request['file_path']
+    parts = [part for part in path.split('/') if part]
+    anchor = request['rootAnchor']
+    root_parts = [part for part in anchor['rootPath'].split('/') if part]
+    deadline = time.monotonic() + request['timeoutMs'] / 1000
+    def check():
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Exclusive directory deadline exceeded')
+    def matches(info, expected):
+        return str(info.st_dev) == expected['dev'] and str(info.st_ino) == expected['ino']
+    if os.open not in os.supports_dir_fd or os.mkdir not in os.supports_dir_fd or not hasattr(os, 'O_NOFOLLOW'):
+        raise RuntimeError('Exclusive directory unavailable')
+    if request['expectedAbsent'] is not True or not parts or parts[:-1][:len(root_parts)] != root_parts:
+        raise RuntimeError('Exclusive directory unavailable')
+    if any(path == root or path.startswith(root.rstrip('/') + '/') for root in request['deniedRoots']):
+        raise RuntimeError('Exclusive directory unavailable')
+    directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    child = None
+    try:
+        if not root_parts and not matches(os.fstat(directory), anchor['identity']):
+            raise RuntimeError('Exclusive directory root changed')
+        for index, part in enumerate(parts[:-1]):
+            check()
+            next_directory = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = next_directory
+            if index + 1 == len(root_parts) and not matches(os.fstat(directory), anchor['identity']):
+                raise RuntimeError('Exclusive directory root changed')
+        if not matches(os.fstat(directory), request['parentIdentity']):
+            raise RuntimeError('Exclusive directory parent changed')
+        check()
+        # mkdirat is exclusive: EEXIST is a refusal, never an adoption path.
+        os.mkdir(parts[-1], 0o700, dir_fd=directory)
+        child = os.open(parts[-1], os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+        info = os.fstat(child)
+        check()
+        if not stat.S_ISDIR(info.st_mode) or not matches(os.fstat(directory), request['parentIdentity']):
+            raise RuntimeError('Exclusive directory changed')
+        return json.dumps({'directory': path, 'identity': {'dev': str(info.st_dev), 'ino': str(info.st_ino)}})
+    finally:
+        if child is not None:
+            os.close(child)
+        os.close(directory)
+
 def anchored_read(request):
     deadline = time.monotonic() + request['timeoutMs'] / 1000
     def check():
@@ -166,6 +212,8 @@ def anchored_read(request):
         os.close(directory)
 
 def execute(request):
+    if request['operation'] == 'CreateDirectory':
+        return create_directory(request)
     if request['operation'] == 'CaptureReadAnchor':
         return capture_read_anchor(request)
     if request['operation'] in ('ReadBytes', 'ListDirectory', 'ReadLink'):
@@ -278,20 +326,23 @@ export function executeNativeFileOperation(
     /** Private CaptureReadAnchor arguments, never legacy model-tool options. */
     deniedRoots?: readonly string[];
     timeoutMs?: number;
+    rootAnchor?: NativeReadAnchor;
+    expectedAbsent?: true;
   },
   signal: AbortSignal,
   timeoutMs = 30_000,
   privateTransport?: NativeFileHelperTransport,
 ): Promise<{ content: string; is_error: boolean }> {
   signal.throwIfAborted();
-  const maxBuffer =
-    request.operation === 'CaptureReadAnchor'
-      ? 32768
-      : request.operation === 'ListDirectory'
-        ? 8 * 1024 * 1024
-        : request.operation === 'ReadBytes'
-          ? Math.ceil(request.limit / 3) * 4 + 1024
-          : Math.max(1024 * 1024, request.limit * 12 + 1024);
+  if (request.operation === 'CreateDirectory' && typeof privateTransport !== 'function')
+    return Promise.reject(Error('Private helper transport unavailable'));
+  const maxBuffer = ['CaptureReadAnchor', 'CreateDirectory'].includes(request.operation)
+    ? 32768
+    : request.operation === 'ListDirectory'
+      ? 8 * 1024 * 1024
+      : request.operation === 'ReadBytes'
+        ? Math.ceil(request.limit / 3) * 4 + 1024
+        : Math.max(1024 * 1024, request.limit * 12 + 1024);
   const decode = (stdout: string, canonical = false) => {
     const result: unknown = JSON.parse(stdout);
     if (
@@ -590,5 +641,99 @@ export async function executeNativeAnchoredReadOperation(
     return { content: value.bytes, truncated: value.truncated, is_error: false };
   } catch {
     return { content: 'Anchored native read unavailable', is_error: true };
+  }
+}
+
+/** Original pre-effect facts only; these are neither authority nor a grant.
+ * The original current owner supplies the enforced actor transport separately. */
+export interface NativeExclusiveDirectoryRequest {
+  readonly file_path: string;
+  readonly rootAnchor: NativeReadAnchor;
+  readonly parentIdentity: NativeReadIdentity;
+  readonly expectedAbsent: true;
+  readonly deniedRoots: readonly string[];
+}
+
+/** Private same-helper mkdirat effect. Never falls back to a host executor and
+ * never removes anything, including an uncertain effect after cancellation. */
+export async function createNativeExclusiveDirectory(
+  request: NativeExclusiveDirectoryRequest,
+  signal: AbortSignal,
+  timeoutMs: number,
+  privateTransport: NativeFileHelperTransport,
+): Promise<Readonly<{ directory: string; identity: NativeReadIdentity }>> {
+  signal.throwIfAborted();
+  const unavailable = () => Error('Exclusive native directory unavailable');
+  try {
+    // Validate and project the bounded fields before copying. Unrelated caller
+    // objects, getters, buffers and credential-bearing material never enter IPC.
+    const deniedRoots = freezeNativeReadExclusions(request.deniedRoots);
+    const path = request.file_path;
+    const root = request.rootAnchor?.rootPath;
+    const rootIdentity = {
+      dev: request.rootAnchor?.identity?.dev,
+      ino: request.rootAnchor?.identity?.ino,
+    };
+    const parentIdentity = { dev: request.parentIdentity?.dev, ino: request.parentIdentity?.ino };
+    const validIdentity = (value: unknown): value is NativeReadIdentity =>
+      !!value &&
+      typeof value === 'object' &&
+      Object.keys(value).length === 2 &&
+      'dev' in value &&
+      typeof value.dev === 'string' &&
+      /^\d{1,32}$/.test(value.dev) &&
+      'ino' in value &&
+      typeof value.ino === 'string' &&
+      /^\d{1,32}$/.test(value.ino);
+    if (
+      typeof privateTransport !== 'function' ||
+      !validNativeReadPath(path) ||
+      !validNativeReadPath(root) ||
+      !validIdentity(rootIdentity) ||
+      !validIdentity(parentIdentity) ||
+      request.expectedAbsent !== true ||
+      path === root ||
+      !path.startsWith(root === '/' ? '/' : root + '/') ||
+      !Number.isSafeInteger(timeoutMs) ||
+      timeoutMs <= 0 ||
+      timeoutMs > 30000 ||
+      deniedRoots.some(
+        (denied) => path === denied || path.startsWith(denied === '/' ? '/' : denied + '/'),
+      )
+    )
+      throw unavailable();
+    const result = await executeNativeFileOperation(
+      {
+        file_path: path,
+        rootAnchor: { rootPath: root, identity: rootIdentity },
+        parentIdentity,
+        expectedAbsent: true,
+        deniedRoots,
+        operation: 'CreateDirectory',
+        identity: null,
+        limit: 1,
+        timeoutMs,
+      },
+      signal,
+      timeoutMs,
+      privateTransport,
+    );
+    signal.throwIfAborted();
+    if (result.is_error || result.content.length > 8192) throw unavailable();
+    const value: unknown = JSON.parse(result.content);
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Object.keys(value).length !== 2 ||
+      !('directory' in value) ||
+      value.directory !== path ||
+      !('identity' in value) ||
+      !validIdentity(value.identity)
+    )
+      throw unavailable();
+    return Object.freeze({ directory: path, identity: Object.freeze({ ...value.identity }) });
+  } catch {
+    signal.throwIfAborted();
+    throw unavailable();
   }
 }
