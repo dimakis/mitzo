@@ -14,8 +14,9 @@ import {
   readlinkSync,
   unlinkSync,
 } from 'fs';
-import { mkdir } from 'fs/promises';
+import { mkdir, mkdtemp, rm } from 'fs/promises';
 import { join, basename, resolve } from 'path';
+import { tmpdir } from 'os';
 
 const execFileAsync = promisify(execFileCb);
 import {
@@ -160,6 +161,94 @@ export interface CreateWorktreeOptions {
   prefix?: '.claude' | '.cursor';
   /** Git ref to branch from. Defaults to the repo's default branch (detected dynamically, falls back to 'main'). */
   startPoint?: string;
+  /** Existing arbitrary repositories may supply content, never executable Git
+   * configuration during allocation. Requires an explicit, already pinned ref. */
+  safeLocalPreparation?: boolean;
+}
+
+function safeLocalWorktreeGit() {
+  const config = [
+    '-c',
+    'core.hooksPath=/dev/null',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.attributesFile=/dev/null',
+    '-c',
+    'gc.auto=0',
+    '-c',
+    'maintenance.auto=false',
+    '-c',
+    'submodule.recurse=false',
+    '-c',
+    'core.sparseCheckout=false',
+  ];
+  const options = {
+    cwd: '/',
+    timeout: WORKTREE_GIT_TIMEOUT_MS,
+    maxBuffer: 65536,
+    env: {
+      PATH: '/usr/bin:/bin',
+      GIT_CONFIG_SYSTEM: '/dev/null',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_NO_LAZY_FETCH: '1',
+      GIT_ATTR_NOSYSTEM: '1',
+    },
+  };
+  return (args: string[], environment: Readonly<Record<string, string>> = {}) =>
+    execFileAsync('git', ['--no-replace-objects', ...config, ...args], {
+      ...options,
+      env: { ...options.env, ...environment },
+    });
+}
+
+/** Register with the existing owner, then let Git materialize through a private
+ * config/index view. Source filters, includes and hooks never own checkout. */
+async function materializeLocalWorktree(
+  git: ReturnType<typeof safeLocalWorktreeGit>,
+  baseRepo: string,
+  worktreePath: string,
+  branch: string,
+) {
+  const { stdout: common } = await git([
+    '-C',
+    baseRepo,
+    'rev-parse',
+    '--path-format=absolute',
+    '--git-common-dir',
+  ]);
+  const { stdout: identity } = await git(['-C', worktreePath, ...WORKTREE_IDENTITY_ARGS]);
+  assertWorktreeIdentity(worktreePath, branch, identity, common);
+  const linkedGitDirectory = identity.trim().split('\n')[2]!;
+  const head = (await git(['-C', worktreePath, 'rev-parse', '--verify', 'HEAD'])).stdout.trim();
+  if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(head)) throw Error('Invalid local worktree HEAD');
+  const format = (await git(['-C', baseRepo, 'rev-parse', '--show-object-format'])).stdout.trim();
+  if (!['sha1', 'sha256'].includes(format)) throw Error('Unsupported local Git object format');
+  const scratch = await mkdtemp(join(tmpdir(), 'mitzo-worktree-materialization-'));
+  try {
+    await git([
+      'init',
+      '--quiet',
+      '--template=',
+      '--initial-branch=mitzo-materialize',
+      `--object-format=${format}`,
+      scratch,
+    ]);
+    const environment = {
+      GIT_DIR: join(scratch, '.git'),
+      GIT_WORK_TREE: worktreePath,
+      GIT_INDEX_FILE: join(linkedGitDirectory, 'index'),
+      GIT_OBJECT_DIRECTORY: join(common.trim(), 'objects'),
+    };
+    // Match the existing repository-source checkout pattern: only Git-generated
+    // private config is loaded; .gitattributes cannot install a filter driver.
+    await git(['read-tree', head], environment);
+    await git(['checkout-index', '--all'], environment);
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
+  }
 }
 
 // Request absolute paths so linked base checkouts and symlinked repo paths
@@ -258,6 +347,12 @@ export async function createWorktreeAsync(
   baseRepo: string,
   opts?: CreateWorktreeOptions,
 ): Promise<string> {
+  if (opts?.safeLocalPreparation && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(opts.startPoint ?? ''))
+    throw Error('Safe local repository preparation requires a pinned source ref');
+  const safeGit = opts?.safeLocalPreparation ? safeLocalWorktreeGit() : undefined;
+  const runGit = safeGit
+    ? safeGit
+    : (args: string[]) => execFileAsync('git', args, { timeout: WORKTREE_GIT_TIMEOUT_MS });
   const prefix = opts?.prefix ?? '.claude';
   const dir = opts?.dir ?? join(baseRepo, prefix, 'worktrees');
   await mkdir(dir, { recursive: true });
@@ -266,39 +361,44 @@ export async function createWorktreeAsync(
   const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
 
   if (existsSync(worktreePath)) {
-    const { stdout: identity } = await execFileAsync(
-      'git',
-      ['-C', worktreePath, ...WORKTREE_IDENTITY_ARGS],
-      { timeout: WORKTREE_GIT_TIMEOUT_MS },
-    );
-    const { stdout: baseCommonDir } = await execFileAsync(
-      'git',
-      ['-C', baseRepo, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-      { timeout: WORKTREE_GIT_TIMEOUT_MS },
-    );
+    const { stdout: identity } = await runGit(['-C', worktreePath, ...WORKTREE_IDENTITY_ARGS]);
+    const { stdout: baseCommonDir } = await runGit([
+      '-C',
+      baseRepo,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    ]);
     assertWorktreeIdentity(worktreePath, branch, identity, baseCommonDir);
     log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
     return worktreePath;
   }
 
   const startPoint = opts?.startPoint ?? (await fetchWorktreeBase(baseRepo));
+  const checkout = safeGit ? ['--no-checkout'] : [];
   try {
-    await execFileAsync(
-      'git',
-      ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath, startPoint],
-      { timeout: WORKTREE_GIT_TIMEOUT_MS },
-    );
+    await runGit([
+      '-C',
+      baseRepo,
+      'worktree',
+      'add',
+      ...checkout,
+      '-b',
+      branch,
+      worktreePath,
+      startPoint,
+    ]);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('already exists')) {
       // Reattach at its existing tip: it may contain unfinished session commits.
-      await execFileAsync('git', ['-C', baseRepo, 'worktree', 'add', worktreePath, branch], {
-        timeout: WORKTREE_GIT_TIMEOUT_MS,
-      });
+      await runGit(['-C', baseRepo, 'worktree', 'add', ...checkout, worktreePath, branch]);
     } else {
       throw err;
     }
   }
+
+  if (safeGit) await materializeLocalWorktree(safeGit, baseRepo, worktreePath, branch);
 
   log.info(`created: ${worktreePath} (${branch}) from ${startPoint}`);
   return worktreePath;

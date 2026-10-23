@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.563-native-base-read-consumer';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.570-native-read-composition';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -67,6 +66,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '9f0090fa908f306c95110e928dc64fd5a7324a7aa3cfed3c1572c8d23bedbf48',
   '../owned-local-codex-native-policy.ts':
     'f05b8372ab2c9c81bc3a99b0d3ba95a6a17515b57a5d6cdca5617e1cb3c0c88b',
+  '../__tests__/local-repository-worktree-facts.test.ts':
+    '21e3d764392027039872d0f66c0954bc5be9b843587fdc70ee6642442f2e3c66',
+  '../__tests__/local-repository-status-semantics.test.ts':
+    '82925f3ea489fc6196f620753bb0503ad5e5c6d3d0e18420ea0d92a47aee5f3e',
   '../__tests__/chat-provider-startup-admission.test.ts':
     '2d56b8f9bf1a510324983852152d5d38fd596879ee78dd2b9f9af011139cec4b',
   '../__tests__/connections-credential-readiness.test.ts':
@@ -723,7 +726,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-permission-revision.ts':
     'cf71bb38e2008352cbccfd22aae88f747625a3533c26aad22537d9509c11a26a',
   '../auth.ts': '5486a4a5312d8214d94d981278a08aaf30e3a24c116023d954aa83b010bb0c14',
-  '../native-file-operation.ts': '0bdd92a554e86f5adc56f3607ba053eca7de22281343f97a9e6cc5e6c046f1cc',
+  '../native-file-operation.ts': 'e816dd0eb4f632ecbb696026ea1e36170c5540a3cccdab8a8c4c3306772257f8',
   '../sandboxed-command.ts': '1847ef9f75569471a2b03830e12a5f26dce9cbefaec76a19b90942237f85c464',
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',
@@ -944,9 +947,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':
     '02e1a872e4f24c7fd42ddd4c9a1e535be847f3e1c16ab34593e3511a22003fe5',
-  '../worktree.ts': 'e5b247359f3e080a59f4cfe6c60bfd19eb1076b8cf06002929becd50d66aa96f',
+  '../worktree.ts': 'aad0cf8b0da6013480abe18a7f3253f6b8942e4e1c493c7cc0938fa2c73fd1ca',
   '../local-repository-worktree.ts':
-    'e0b81be7a0fc8002eab0c05da3bb76d4b4ceb8c9aa2b79d88ed9d72a5176bb35',
+    '50cf4cf31ca4a767bc4d3ebe64b1d5598f5436b98644a864768ba1750c6660c7',
+  '../local-repository-git-inspection.ts':
+    '94a455640cee53d0817ed8a28edc223d638f3a163dc01cf933f1c1482a51a27d',
+  '../__tests__/existing-local-repository-workspaces.test.ts':
+    '5f33af94efe047dbac10317ba60e9461e0e7e7d598fabaab5d11eac476669e46',
   '../repository-task-checkout.ts':
     'b0b651d3b866577188d51b45cc414d45039e941b29cf7ad7f103237a0dc3e1f5',
   '../workspace-runtime-private-paths.ts':
@@ -962,7 +969,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '4c29712dd8c80db92f6872815848aac37858a4d59b8861700aefc8c8c97e185a',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
-  '../repository-workspaces.ts': '2e7297c2105a3f603823aea4e903cebb1aa00ed290eecabb6218ee3f5169408f',
+  '../repository-workspaces.ts': '0005286a35fb46ab6993d3e594f955212a63e769a6d463714285c9857c200040',
   '../../packages/protocol/src/session-metadata-store.ts':
     '019598b360106c0dd8babc08e9366e40c95c1dd4dca9ea649c37bc7d096b8358',
   '../../packages/protocol/src/event-store.ts':
@@ -1402,4 +1409,28 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-history-authorization.ts':
     '8c232f932469a9a39c3913b261d968bc051c800125895fbc22805cff44f2a7b8',
   '../session-history-tools.ts': '97ae8c0e606a4df76788afd44d3703c033f964028de9e836c87b4f74ec1f12d3',
+  '../local-repository-discovery.ts':
+    'b2e3411e90202295d07ebd44fe4a550e70e0a1f9f4eaf60dfc6de9d3c33298f9',
+  '../session-local-repository-tools.ts':
+    '713ae50491f21c54ab1f15348e706f0423165ef1940fe7983296a5b7de926f57',
+  '../__tests__/local-repository-read-scope.test.ts':
+    '0dd53bb296da45edd27d421ee174a19c83f98b68eb6a7f92dc084f3db620167b',
+  '../__tests__/session-local-repository-tools.test.ts':
+    '121426d1d52b002f7fbe1423b55a83217b0ba9c3808462cc7602a15be860cd1e',
+  '../__tests__/local-repository-read-artifacts.test.ts':
+    '63e1a31b4a31b9612e02f7384321cf5d81e9b2d3a32eaa5d2dffa8f33dff2a74',
+  '../local-repository-git-snapshot.ts':
+    '4b59bad41191bd769c5834c84346260fe0e806daa057389cb4e2e0c1066be7d9',
+  '../local-repository-read-access.ts':
+    '295ea8d5f50a230568978aa460d6db5f76d896a003e2eae3fee9cf5bcd973ddd',
+  '../__tests__/native-anchored-read.test.ts':
+    '7322ab8566b3649a90876e253f5d66a8cc631ac7148ee47602c71eaed5123628',
+  '../__tests__/local-repository-read-security.test.ts':
+    'afc7822c1db6bdad7a99941846d02161fbbb7afb7ed9c8b7bb876b3f4baf4570',
+  '../__tests__/local-repository-discovery.test.ts':
+    '7df2b3e253226d8115701e19d7e35865a18bfde199d273883b944e40f000dc0a',
+  '../__tests__/local-repository-racy-status.test.ts':
+    '9128e4ec7f0921b119f257536550cc8b6ca9cccb33a711a3d15b1058057a28b8',
+  '../__tests__/fixtures/local-repository-read-owner.ts':
+    '588b17e16773537a57613b0e0af769091f13cab237433be0b4182ab2992fed31',
 });
