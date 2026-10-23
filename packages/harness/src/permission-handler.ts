@@ -130,6 +130,57 @@ function trackScopeApproval(
   };
 }
 
+interface PermissionDecisionObservation {
+  readonly permId: string;
+  readonly toolUseID: string;
+  readonly sessionId: string;
+  readonly toolName: string;
+  readonly input: Readonly<Record<string, unknown>>;
+  readonly inputSha256: string;
+  readonly approvalScope: 'request';
+  readonly decisionClassification: 'user_temporary';
+  readonly expiresAt: number;
+}
+
+/** Lossless bounded plain JSON only: never invoke caller getters or toJSON. */
+function snapshotDecisionInput(input: Record<string, unknown>) {
+  let remaining = PERMISSION_INPUT_MAX_CHARS;
+  const ancestors = new Set<object>();
+  const copy = (value: unknown, depth: number): unknown => {
+    if (--remaining < 0 || depth > 64) throw Error('Input exceeds review bounds');
+    if (value === null || typeof value === 'boolean') return value;
+    if (typeof value === 'string' && value.length <= PERMISSION_INPUT_MAX_CHARS) return value;
+    if (typeof value === 'number' && Number.isFinite(value) && !Object.is(value, -0)) return value;
+    if (!value || typeof value !== 'object' || ancestors.has(value))
+      throw Error('Invalid JSON input');
+    const array = Array.isArray(value);
+    if (Object.getPrototypeOf(value) !== (array ? Array.prototype : Object.prototype))
+      throw Error('Input must contain plain JSON values');
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(value).filter((key) => !(array && key === 'length'));
+    if (array && keys.length !== value.length) throw Error('Sparse or extended JSON array');
+    ancestors.add(value);
+    const entries = keys.map((key, index) => {
+      if (typeof key !== 'string' || (array && key !== String(index)))
+        throw Error('Invalid JSON key');
+      const descriptor = descriptors[key];
+      if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value'))
+        throw Error('Invalid JSON property');
+      return [key, copy(descriptor.value, depth + 1)] as const;
+    });
+    ancestors.delete(value);
+    return Object.freeze(array ? entries.map(([, entry]) => entry) : Object.fromEntries(entries));
+  };
+  const snapshot = copy(input, 0) as Readonly<Record<string, unknown>>;
+  const serialized = JSON.stringify(snapshot);
+  if (serialized.length > PERMISSION_INPUT_MAX_CHARS) throw Error('Input exceeds review bounds');
+  return {
+    input: snapshot,
+    serialized,
+    sha256: createHash('sha256').update(serialized).digest('hex'),
+  };
+}
+
 export interface PermissionHandlerOptions {
   onDemandCreate?: OnDemandCreateFn;
 }
@@ -160,6 +211,8 @@ export function buildPermissionHandler(
       /** The caller may store a narrower account-bound consent instead of a tool-wide grant. */
       rememberSessionGrant?: boolean;
       approvalScope?: 'session' | 'conversation' | 'request';
+      /** Private synchronous observation of a final explicit request approval. */
+      onDecision?: (decision: PermissionDecisionObservation) => void;
       /**
        * A server-owned control-plane approval (for example, attaching a
        * reviewed integration) may bypass a skill's model-tool ceiling. It
@@ -180,6 +233,57 @@ export function buildPermissionHandler(
       'TelosAdoptSource',
       'mcp__telos__TelosAdoptSource',
     ].includes(toolName);
+    const onDecision = opts.onDecision;
+    const originalInput = _toolInput;
+    const originalSignal = opts.signal;
+    const originalToolUseID = opts.toolUseID;
+    const originalSessionId = session.sessionId;
+    let decisionInput: ReturnType<typeof snapshotDecisionInput> | undefined;
+    const observationOptionsCurrent = () =>
+      opts.onDecision === onDecision &&
+      opts.signal === originalSignal &&
+      opts.toolUseID === originalToolUseID &&
+      session.sessionId === originalSessionId &&
+      opts.forcePrompt === true &&
+      opts.allowSessionGrant === false &&
+      opts.rememberSessionGrant === false &&
+      opts.approvalScope === 'request' &&
+      !opts.questions &&
+      !telosReview &&
+      !toolName.startsWith('Telos') &&
+      !toolName.startsWith('mcp__telos__') &&
+      toolName !== 'AskUserQuestion' &&
+      !handlerOpts?.onDemandCreate &&
+      typeof originalSessionId === 'string' &&
+      !!originalSessionId.trim() &&
+      typeof originalToolUseID === 'string' &&
+      !!originalToolUseID.trim();
+    const observationCurrent = () => {
+      if (!onDecision) return true;
+      try {
+        return (
+          observationOptionsCurrent() &&
+          snapshotDecisionInput(originalInput).serialized === decisionInput?.serialized
+        );
+      } catch {
+        return false;
+      }
+    };
+    if (onDecision !== undefined) {
+      if (typeof onDecision !== 'function' || !observationOptionsCurrent())
+        return {
+          behavior: 'deny',
+          message: 'Decision observation requires an explicit one-shot request',
+        };
+      try {
+        decisionInput = snapshotDecisionInput(originalInput);
+        _toolInput = decisionInput.input;
+        if (permissionDisplayInput(toolName, _toolInput) === undefined)
+          throw Error('Input exceeds review bounds');
+      } catch {
+        return { behavior: 'deny', message: 'Exact decision input is unavailable for review' };
+      }
+    }
     const nativeScope = opts.nativeSourceScope;
     const nativeOperatorId = nativeScope?.operatorId;
     const nativeAssertion = nativeScope?.assertCurrentSync;
@@ -274,6 +378,8 @@ export function buildPermissionHandler(
     // The mode may have changed while the worktree check was awaiting I/O.
     const deniedAfterWorktree = askDenial();
     if (deniedAfterWorktree) return deniedAfterWorktree;
+    if (!observationCurrent())
+      return { behavior: 'deny', message: 'Original approval input or invocation changed' };
 
     if (
       !questions &&
@@ -336,18 +442,23 @@ export function buildPermissionHandler(
       };
 
     return new Promise<PermissionResult>((resolve) => {
-      if (opts.signal.aborted || !nativeScopeCurrent()) {
+      if (originalSignal.aborted || !nativeScopeCurrent()) {
         resolve({ behavior: 'deny', message: 'Aborted' });
         return;
       }
 
+      let settled = false;
+      let settledResult: PermissionResult;
       let resolutionEvent = 'permission_resolved';
       let untrackScope = () => {};
       let notificationTimer: ReturnType<typeof setTimeout> | undefined;
+      let timeout: ReturnType<typeof setTimeout> | undefined = undefined;
       const wrappedResolve = (result: PermissionResult) => {
+        if (settled) return settledResult;
+        settled = true;
         clearTimeout(timeout);
         clearTimeout(notificationTimer);
-        opts.signal.removeEventListener('abort', onAbort);
+        originalSignal.removeEventListener('abort', onAbort);
         untrackScope();
         // An approval cannot override a later mode downgrade or skill ceiling.
         if (result.behavior === 'allow') {
@@ -365,6 +476,45 @@ export function buildPermissionHandler(
             result = { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
           }
         }
+        if (onDecision && result.behavior === 'allow') {
+          try {
+            if (
+              !observationCurrent() ||
+              result.decisionClassification !== 'user_temporary' ||
+              !decisionInput ||
+              snapshotDecisionInput(result.updatedInput ?? {}).serialized !==
+                decisionInput.serialized ||
+              originalSignal.aborted ||
+              request.expiresAt! <= Date.now()
+            )
+              throw Error('Original one-shot decision is no longer current');
+            const returned: unknown = onDecision(
+              Object.freeze({
+                permId,
+                toolUseID: originalToolUseID,
+                sessionId: originalSessionId!,
+                toolName,
+                input: decisionInput.input,
+                inputSha256: decisionInput.sha256,
+                approvalScope: 'request' as const,
+                decisionClassification: 'user_temporary' as const,
+                expiresAt: request.expiresAt!,
+              }),
+            );
+            if (returned !== undefined) {
+              void Promise.resolve(returned).catch(() => {});
+              throw Error('Decision observer must finish synchronously');
+            }
+          } catch {
+            // A producer may already have persisted its existing approval row.
+            // Deny here; retain that producer-owned evidence for reconciliation.
+            result = {
+              behavior: 'deny',
+              message: 'Explicit approval observation failed; reconcile before retrying',
+            };
+          }
+        }
+        settledResult = result;
         if (
           opts.allowSessionGrant !== false &&
           opts.rememberSessionGrant !== false &&
@@ -393,7 +543,7 @@ export function buildPermissionHandler(
           });
         }
       };
-      opts.signal.addEventListener('abort', onAbort, { once: true });
+      originalSignal.addEventListener('abort', onAbort, { once: true });
 
       const approvalScope =
         opts.approvalScope ?? (opts.allowSessionGrant === false ? 'request' : 'session');
@@ -433,7 +583,7 @@ export function buildPermissionHandler(
               ...(nativeScope ? { operatorId: nativeOperatorId } : {}),
               canApprove: () =>
                 nativeScopeCurrent() &&
-                !opts.signal.aborted &&
+                !originalSignal.aborted &&
                 !!currentClientId() &&
                 !askDenial() &&
                 (opts.controlPlane ||
@@ -441,6 +591,9 @@ export function buildPermissionHandler(
             }
           : undefined,
       );
+
+      // Lifecycle listeners may resolve synchronously during registration.
+      if (settled) return;
 
       if (ntfyConfigured() || pushoverConfigured()) {
         notificationTimer = setTimeout(() => {
@@ -453,7 +606,7 @@ export function buildPermissionHandler(
         }, NTFY_NOTIFICATION_DELAY_MS);
       }
 
-      const timeout = setTimeout(() => {
+      timeout = setTimeout(() => {
         if (hasPending(permId)) {
           resolutionEvent = 'permission_timeout';
           removePending(permId);
