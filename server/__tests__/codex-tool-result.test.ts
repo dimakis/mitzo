@@ -4,6 +4,7 @@ import {
   codexToolResultContentItems,
   normalizeCodexToolResult,
   normalizeMcpToolResult,
+  type CodexToolResult,
 } from '../codex-tool-result.js';
 
 const png =
@@ -112,13 +113,14 @@ describe('Codex product tool image results', () => {
         contentItems: [{ type: 'inputText', text: 'text' }],
       }),
     ).toThrow(/projection/);
-    expect(() =>
-      normalizeCodexToolResult({
-        content: '',
-        isError: false,
-        contentItems: [{ type: 'inputAudio', audioUrl: 'data:audio/wav;base64,AAAA' }],
-      }),
-    ).toThrow(/invalid/i);
+    const unsupportedWireResult: unknown = {
+      content: '',
+      isError: false,
+      contentItems: [{ type: 'inputAudio', audioUrl: 'data:audio/wav;base64,AAAA' }],
+    };
+    expect(() => normalizeCodexToolResult(unsupportedWireResult as CodexToolResult)).toThrow(
+      /invalid/i,
+    );
   });
 
   it('includes text separators in the rich text bound', () => {
