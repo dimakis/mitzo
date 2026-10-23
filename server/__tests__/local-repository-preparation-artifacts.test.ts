@@ -10,6 +10,8 @@ it('pins the private preparation decision producer, same-row custody and signed 
   for (const file of [
     '../local-repository-preparation-authorization.ts',
     '../local-repository-preparation-source.ts',
+    '../local-repository-preparation-objects.ts',
+    '../__tests__/local-repository-preparation-objects.test.ts',
     '../__tests__/local-repository-preparation-source.test.ts',
     '../__tests__/local-repository-preparation-references.test.ts',
     '../__tests__/native-host-read-owner.test.ts',

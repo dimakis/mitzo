@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.601-private-exclusive-file-actor';
+  'v1.0.602-private-preparation-required-objects';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../local-repository-preparation-objects.ts':
+    'b7e685384b27409dc68663b88c6b03bbfcbc76ac66fc397756e7ab47a7de8800',
+  '../__tests__/local-repository-preparation-objects.test.ts':
+    '9c38a059950e2a1dadf103cb1919057cebf7a7b3fdbfffb49d2ed112ba270e34',
   '../__tests__/native-exclusive-file.test.ts':
     'fa14000ef058a62feea3d94b1f1294fbed24ca429a3330176ac109109980d07e',
   '../__tests__/sandboxed-command-worker.test.ts':
@@ -99,7 +103,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-authorization.test.ts':
     '3621d87762c222c8500b49b4e89ce5890e6fe6a6945208bbebfe85bcb9f897ee',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
-    '3d58f2b993f6acadcd952b70987aa36c9a3c390e33d3a2e481f2bd8cccd61891',
+    '984b937571ec28b74fb4d93ad2d5aefe24ecaea78a5e318fc5b9b398d566252e',
   '../pending-host-task.ts': 'bb9bc4a4a1962390d07b26e4c4f175464d291aeb73bf0ba2b444ed70c944a910',
   '../__tests__/pending-host-task.test.ts':
     '286badb71f54d57b77e7b57116a566d1772d6c27b520131262ef58551f2ce01d',
