@@ -61,6 +61,49 @@ describe('buildPermissionHandler', () => {
     },
   );
 
+  it('offers native session scope explicitly without using or adding a generic tool grant', async () => {
+    const registry = new SessionRegistry();
+    const transport = fakeTransport();
+    registry.register('native-client', {
+      transport,
+      abortController: new AbortController(),
+      mode: 'ask',
+      sessionId: 'native-session',
+      sessionAllowList: new Set(['NativePermissionsApproval']),
+    });
+    try {
+      const result = buildPermissionHandler('native-client', registry)(
+        'NativePermissionsApproval',
+        { permissions: { fileSystem: { read: ['/approved'] } } },
+        {
+          signal: new AbortController().signal,
+          toolUseID: 'scope-rpc',
+          nativeApproval: { assertCurrentSync() {}, allowSessionScope: true },
+          sessionGrantDescription: 'Only this exact native permission profile',
+        },
+      );
+      await vi.waitFor(() =>
+        expect(transport.sent[0]).toMatchObject({
+          type: 'permission_request',
+          approvalScope: 'session',
+        }),
+      );
+      expect(transport.sent[0].allowSessionGrant).not.toBe(false);
+      expect(
+        resolvePending(transport.sent[0].permId as string, 'always', undefined, 'native-session'),
+      ).toBe(true);
+      expect(await result).toMatchObject({
+        behavior: 'allow',
+        decisionClassification: 'user_permanent',
+      });
+      expect(registry.get('native-client')!.sessionAllowList).toEqual(
+        new Set(['NativePermissionsApproval']),
+      );
+    } finally {
+      registry.dispose();
+    }
+  });
+
   it('records denial if native authority expires before the exact approval response', async () => {
     const registry = new SessionRegistry();
     const transport = fakeTransport();
