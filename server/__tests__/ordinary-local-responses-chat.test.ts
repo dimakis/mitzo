@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { AccountProfiles } from '../account-profiles.js';
+import { AccountProfiles, loadAccountProfiles } from '../account-profiles.js';
 import { agentLibrarySource } from './fixtures/agent-library-source.js';
 const services = vi.hoisted(() => ({
   authId: '',
@@ -81,7 +81,7 @@ function response(model: string) {
     headers: { 'content-type': 'text/event-stream' },
   });
 }
-it('dispatches consumed API commands through the actual chat owner and retains transcript on cold changed-model resume', async () => {
+it('rejects new Responses entry before preparation and preserves legacy chat ownership on cold changed-model resume', async () => {
   vi.spyOn(AccountProfiles.prototype, 'isEnrolledOpenAIAccount').mockReturnValue(true);
   const { ownedResponsesRuntimeFixture } =
     await import('./fixtures/owned-local-responses-runtime.js');
@@ -195,11 +195,33 @@ it('dispatches consumed API commands through the actual chat owner and retains t
         }
       ).handle(req, res, (error) => reject(error ?? Error('Unmatched route')));
     });
-  const wire = { ...f.request, runOn: 'local', repositoryWorkspaceId: f.reservation.id };
-  await expect(invoke('/send', wire)).resolves.toMatchObject({
-    status: 202,
-    body: { dispatched: true, state: 'consumed' },
+  const { newLocalResponsesCapabilities, OrdinaryLocalResponsesTarget } =
+    await import('../ordinary-local-responses-capabilities.js');
+  const fresh = newLocalResponsesCapabilities(
+    loadAccountProfiles(),
+    new OrdinaryLocalResponsesTarget(f.dependencies.env),
+  );
+  const wire = {
+    ...f.request,
+    runOn: 'local',
+    repositoryWorkspaceId: f.reservation.id,
+  };
+  const claimWorkspace = vi.spyOn(f.workspace, 'claimReservedHostTask');
+  await expect(
+    invoke('/send', { ...wire, capabilityRevision: fresh.inventory().capabilityRevision }),
+  ).resolves.toMatchObject({
+    status: 409,
+    body: { code: 'new_work_harness_unsupported' },
   });
+  expect(claimWorkspace).not.toHaveBeenCalled();
+  expect(services.manager.resolveKey).not.toHaveBeenCalled();
+  expect(requests).toHaveLength(0);
+  expect(chat.eventStore.getSessionRuntimeBinding(f.reservation.conversationId)).toBeUndefined();
+  // Construct a retained legacy session through its original owner. New entry
+  // above cannot create this session; historical FIFO/Stop/cold resume stay intact.
+  await expect(
+    chat.startOwnedLocalResponsesCommand(transport, 'legacy-client', options),
+  ).resolves.toMatchObject({ dispatched: true });
   const liveClientId = chat.registry.findBySessionId(f.reservation.conversationId)!.clientId;
   await expect(
     chat.startOwnedLocalResponsesCommand(transport, 'retry-client', options),

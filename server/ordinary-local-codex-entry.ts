@@ -1,4 +1,5 @@
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import { sessionHarnessForProvider } from './session-harness-routing.js';
 import { prepareDefaultOpenShellCommand } from './ordinary-openshell-default-workspace.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
@@ -25,6 +26,7 @@ import { composeOrdinaryRuntimeCapabilities } from './ordinary-runtime-capabilit
 import {
   OrdinaryLocalResponsesTarget,
   localResponsesCapabilities,
+  newLocalResponsesCapabilities,
 } from './ordinary-local-responses-capabilities.js';
 import {
   startOwnedLocalResponsesCommand,
@@ -45,6 +47,7 @@ import {
   OrdinaryRuntimeFirstCommandSchema,
   OrdinaryRuntimeContinuationCommandSchema,
   type AccountBinding,
+  type SessionRuntimeBindingV2,
 } from '@mitzo/protocol';
 export { LocalCodexFirstCommandSchema, type LocalCodexFirstCommand } from '@mitzo/protocol';
 import { operatorAuthMiddleware, type AuthSession } from './auth.js';
@@ -94,6 +97,7 @@ const log = createLogger('local-codex-entry');
 function inventory(
   location: 'local' | 'openshell' = 'local',
   harness: 'codex' | 'responses' | 'claude-sdk' | 'gemini' = 'codex',
+  retainedBinding?: SessionRuntimeBindingV2,
 ) {
   const profiles = loadAccountProfiles();
   if (harness === 'claude-sdk') {
@@ -118,10 +122,21 @@ function inventory(
         : process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED) !== '1'
     )
       throw Error(unavailable);
-    const catalog = localResponsesCapabilities(
+    const source = (retainedBinding ? localResponsesCapabilities : newLocalResponsesCapabilities)(
       profiles,
       new OrdinaryLocalResponsesTarget(process.env, harness),
     );
+    const catalog = {
+      inventory: source.inventory,
+      resolve(request: unknown) {
+        const result = source.resolve(request);
+        return retainedBinding &&
+          result.status === 'compatible' &&
+          !isDeepStrictEqual(result.binding, retainedBinding)
+          ? { status: 'rejected' as const, code: 'account_identity_mismatch' as const }
+          : result;
+      },
+    };
     return { profiles, catalog, result: catalog.inventory() };
   }
   if (location === 'openshell') {
@@ -712,9 +727,22 @@ function createOwnedCodexEntryRouter(
         return res
           .status(409)
           .json({ ok: false, code: 'receipt_pending', clientMsgId: input.clientMsgId, sessionId });
+      if (
+        !continuation &&
+        input.runtime.harness !== sessionHarnessForProvider(input.runtime.account.provider)
+      )
+        return res.status(409).json({
+          ok: false,
+          code: 'new_work_harness_unsupported',
+          error: 'The selected account does not support this harness for new work.',
+          clientMsgId: input.clientMsgId,
+          sessionId,
+        });
+      const savedBinding = ctx.eventStore.getSessionRuntimeBinding(sessionId);
+      const retainedRuntimeBinding = savedBinding?.version === 2 ? savedBinding : undefined;
       if (continuation) {
         const meta = ctx.eventStore.getSession(sessionId);
-        const binding = ctx.eventStore.getSessionRuntimeBinding(sessionId);
+        const binding = retainedRuntimeBinding;
         if (
           (!existingOwner &&
             !(input.runOn === 'local'
@@ -761,6 +789,7 @@ function createOwnedCodexEntryRouter(
         const { profiles, catalog, result, agentContextPresets } = inventory(
           input.runOn,
           input.runtime.harness,
+          continuation ? retainedRuntimeBinding : undefined,
         );
         if (
           result.capabilityRevision !== input.capabilityRevision ||

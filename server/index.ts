@@ -61,7 +61,6 @@ import {
   registry,
   eventStore,
   getRepoConfig,
-  generateWtId,
   setConnectionRegistry,
   setSessionChangeCallback,
   setSessionsChangedCallback,
@@ -69,7 +68,7 @@ import {
 } from './chat.js';
 setAuthRevocationStore(eventStore);
 import { cleanupStaleWorktrees, countWorktrees } from './worktree.js';
-import { NullTransport } from './null-transport.js';
+import { rejectUnselectedHeadlessSession } from './unselected-headless-session.js';
 import { getWorktreeGuardStats, resetWorktreeGuardStats } from '@mitzo/harness';
 import { storedEventToClientMessage } from '@mitzo/protocol';
 import {
@@ -536,46 +535,7 @@ const orchestrator = new TaskOrchestrator({
     }
     return ids;
   },
-  spawnSession: async (taskId: string, prompt: string, goalId: string, onEnded) => {
-    const clientId = `headless:${generateWtId()}`;
-
-    try {
-      const transport = new NullTransport();
-      // Wait for the first provider event. Startup admission alone can succeed
-      // before the SDK fails, leaving an active task without a session.
-      const admitted = new Promise<boolean>((resolve) => {
-        startChat(transport, clientId, prompt, {
-          mode: 'agent',
-          isolation: true,
-          telosTaskId: goalId,
-          onStartupAdmission: (error) => {
-            if (error) resolve(false);
-          },
-          onFirstEventOutcome: (error) => resolve(!error),
-          onTerminalOutcome: (error) => onEnded?.(clientId, error),
-          onSessionResolved: (sessionId) => {
-            log.info('spawned headless session resolved', { taskId, sessionId, clientId });
-            sseRegistry.broadcast('sessions_changed', {});
-          },
-        }).catch((err) => {
-          resolve(false);
-          log.error('spawned session failed', {
-            taskId,
-            clientId,
-            error: (err as Error).message,
-          });
-        });
-      });
-
-      return (await admitted) ? clientId : null;
-    } catch (err) {
-      log.error('failed to spawn session for task', {
-        taskId,
-        error: (err as Error).message,
-      });
-      return null;
-    }
-  },
+  spawnSession: rejectUnselectedHeadlessSession,
 });
 orchestratorRef = orchestrator;
 setOrchestrator(orchestrator);
