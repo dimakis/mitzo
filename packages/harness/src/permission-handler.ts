@@ -168,6 +168,9 @@ export function buildPermissionHandler(
       controlPlane?: boolean;
       /** Provider adapter supplies validated questions, preserving provider IDs. */
       questions?: UserQuestion[];
+      /** Trusted native boundary request: exact operation consent can cross Ask's
+       * read-only ceiling, but must never inherit or create a broad tool grant. */
+      nativeApproval?: { assertCurrentSync(): void; allowSessionScope?: boolean };
       /** Private original native scope, never permission response or tool JSON. */
       nativeSourceScope?: { readonly operatorId: string; assertCurrentSync(): void };
     },
@@ -180,10 +183,39 @@ export function buildPermissionHandler(
       'TelosAdoptSource',
       'mcp__telos__TelosAdoptSource',
     ].includes(toolName);
+    const nativeApproval = opts.nativeApproval;
+    const nativeApprovalAssertion = nativeApproval?.assertCurrentSync;
+    const nativeApprovalCurrent = () => {
+      if (!nativeApproval) return true;
+      try {
+        if (
+          typeof nativeApprovalAssertion !== 'function' ||
+          nativeApproval.assertCurrentSync !== nativeApprovalAssertion
+        )
+          return false;
+        const result: unknown = nativeApprovalAssertion.call(nativeApproval);
+        if (result !== undefined) {
+          void Promise.resolve(result).catch(() => {});
+          return false;
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    if (nativeApproval)
+      opts = {
+        ...opts,
+        forcePrompt: true,
+        allowSessionGrant: nativeApproval.allowSessionScope === true,
+        rememberSessionGrant: false,
+        approvalScope: nativeApproval.allowSessionScope === true ? 'session' : 'request',
+      };
     const nativeScope = opts.nativeSourceScope;
     const nativeOperatorId = nativeScope?.operatorId;
     const nativeAssertion = nativeScope?.assertCurrentSync;
     const nativeScopeCurrent = () => {
+      if (!nativeApprovalCurrent()) return false;
       if (!nativeScope) return true;
       try {
         if (
@@ -254,7 +286,10 @@ export function buildPermissionHandler(
     // Ask is a harness-enforced ceiling, including cached grants and providers
     // without a native read-only mode. Check before any on-demand worktree write.
     const askDenial = (): PermissionResult | undefined =>
-      !questions && effectivePermissionMode(session) === 'ask' && !isReadOnlyTool(toolName)
+      !nativeApproval &&
+      !questions &&
+      effectivePermissionMode(session) === 'ask' &&
+      !isReadOnlyTool(toolName)
         ? {
             behavior: 'deny',
             message:
@@ -286,6 +321,7 @@ export function buildPermissionHandler(
     // A user session grant satisfies a forced ask prompt, while mode, skill and
     // workspace checks still run first. Scoped adapters must supply their own key.
     if (
+      !nativeApproval &&
       !questions &&
       opts.allowSessionGrant !== false &&
       (opts.sessionGrantKey

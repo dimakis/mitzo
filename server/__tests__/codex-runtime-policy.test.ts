@@ -16,6 +16,8 @@ it('disables inherited MCP servers and native execution paths while keeping host
   ])
     expect(c[`features.${feature}`]).toBe(false);
   expect(c['agents.enabled']).toBe(false);
+  expect(c.notify).toEqual([]);
+  expect(c['features.shell_zsh_fork']).toBe(false);
   expect(c.web_search).toBe('live');
   expect(JSON.stringify(c)).not.toContain('private-secret');
 });

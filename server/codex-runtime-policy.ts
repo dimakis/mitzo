@@ -1,10 +1,12 @@
 import { z } from 'zod';
+import type { CodexNativeExecutionPolicy } from './codex-native-execution-policy.js';
 /** Constrained app-server configuration. Mitzo supplies executable tools dynamically.
  * Native skills readers remain available; restricted skill ceilings are rejected by the controller.
  */
 export function codexRuntimeOverrides(
   configuration: unknown,
   workspaceId?: string,
+  nativeExecution?: CodexNativeExecutionPolicy,
 ): Record<string, unknown> {
   const parsed = z
     .object({
@@ -22,6 +24,9 @@ export function codexRuntimeOverrides(
     // consent and the current mode before starting or resuming a thread.
     web_search: 'live',
     'agents.enabled': false,
+    // Legacy notify spawns outside the tool sandbox even with hooks disabled.
+    notify: [],
+    'features.shell_zsh_fork': false,
     model_reasoning_summary: parsed.data.model_reasoning_summary ?? 'detailed',
   };
   if (workspaceId) config.forced_chatgpt_workspace_id = workspaceId;
@@ -44,6 +49,12 @@ export function codexRuntimeOverrides(
     'memories',
   ])
     config[`features.${feature}`] = false;
+  if (nativeExecution) {
+    config['features.shell_tool'] = true;
+    config['features.unified_exec'] = true;
+    config['features.exec_permission_approvals'] = true;
+    config['features.request_permissions_tool'] = true;
+  }
   // Code-mode-only models dispatch registered host tools through the JS wrapper.
   // This enables that dispatcher; native execution tools remain disabled above.
   config['features.code_mode_host'] = true;

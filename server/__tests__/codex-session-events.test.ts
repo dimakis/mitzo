@@ -1,5 +1,74 @@
 import { expect, it } from 'vitest';
 import { CodexSessionEvents } from '../codex-session-events.js';
+it.each(['completed', 'failed', 'declined'] as const)(
+  'projects native file changes as %s exactly once',
+  (status) => {
+    const events: Record<string, unknown>[] = [];
+    const mapper = new CodexSessionEvents('app', 'provider', 'offline', (e) => events.push(e));
+    const item = {
+      type: 'fileChange',
+      id: 'private-native-patch-id',
+      status: 'inProgress',
+      changes: [{ path: '/workspace/note.txt', kind: { type: 'add' }, diff: '+hello' }],
+    };
+    mapper.notification('item/started', { threadId: 'provider', item });
+    mapper.notification('item/started', { threadId: 'provider', item });
+    expect(events.filter((event) => event.type === 'user')).toHaveLength(0);
+    const completed = { threadId: 'provider', item: { ...item, status } };
+    mapper.notification('item/completed', completed);
+    mapper.notification('item/completed', completed);
+    const tool = events.find((event) => event.type === 'assistant')!;
+    expect(tool).toMatchObject({
+      message: {
+        content: [{ type: 'tool_use', name: 'ApplyPatch', input: { changes: item.changes } }],
+      },
+    });
+    expect(events.filter((event) => event.type === 'user')).toEqual([
+      expect.objectContaining({
+        message: {
+          content: [
+            expect.objectContaining({
+              type: 'tool_result',
+              is_error: status !== 'completed',
+              content: expect.stringContaining(status === 'completed' ? 'Applied' : status),
+            }),
+          ],
+        },
+      }),
+    ]);
+    expect(JSON.stringify(events)).not.toContain('private-native-patch-id');
+  },
+);
+
+it('reports an interrupted native file change without claiming it applied', () => {
+  const events: Record<string, unknown>[] = [];
+  const mapper = new CodexSessionEvents('app', 'provider', 'offline', (e) => events.push(e));
+  mapper.notification('item/started', {
+    threadId: 'provider',
+    item: {
+      type: 'fileChange',
+      id: 'patch',
+      changes: [{ path: '/workspace/note', kind: { type: 'delete' }, diff: '-old' }],
+      status: 'inProgress',
+    },
+  });
+  mapper.notification('turn/completed', {
+    threadId: 'provider',
+    turn: { id: 'turn', status: 'interrupted' },
+  });
+  expect(events.filter((event) => event.type === 'user')).toEqual([
+    expect.objectContaining({
+      message: {
+        content: [
+          expect.objectContaining({
+            is_error: true,
+            content: 'File change interrupted before completion.',
+          }),
+        ],
+      },
+    }),
+  ]);
+});
 it('maps streamed text and completion using application identity and ignores other threads', () => {
   const events: Record<string, unknown>[] = [];
   const mapper = new CodexSessionEvents('app-id', 'provider-id', 'model', (e) => events.push(e));
