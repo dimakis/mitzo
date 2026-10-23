@@ -1385,5 +1385,5 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../tests/offline/repository-preparation-recovery.spec.ts':
     'a93d05aeebcb63d47f6ee9c140fce57c78e3383f652a5f896d9e0e1124f76cf9',
   '../__tests__/ordinary-repository-preparation-api.test.ts':
-    '5ee771b8522c8b3ab0e09d53e5e41ac97faa0b5630a4a1160c3a7a7a114abc33',
+    'be41154d74fbc5da90be555ec348f26c7da0262c6501c68f4c65e5596c3e0fc6',
 });

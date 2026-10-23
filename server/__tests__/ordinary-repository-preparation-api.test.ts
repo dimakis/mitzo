@@ -174,6 +174,18 @@ it('requalifies a persisted legacy workspace proof through its owner without adm
   await expect(
     f.workspace.qualifiedStatus(f.reservation.id, { ...binding, accountId: 'foreign' }),
   ).rejects.toThrow();
+  const originalProviderId = f.configuration[0].sandboxProviderId;
+  f.configuration[0].sandboxProviderId = 'rotated-offline-provider-id';
+  f.writeProfiles();
+  expect(loadAccountProfiles().resolve('personal', 'fixture-model').profileRevision).not.toBe(
+    binding.profileRevision,
+  );
+  state.key.mockClear();
+  await expect(f.workspace.qualifiedStatus(f.reservation.id, binding)).rejects.toThrow();
+  expect(state.key).not.toHaveBeenCalled();
+  expect(f.workspace.get(f.reservation.id).ordinaryPreparation).toEqual(proof);
+  f.configuration[0].sandboxProviderId = originalProviderId;
+  f.writeProfiles();
   state.key.mockResolvedValue('offline-changed-key');
   await expect(f.workspace.qualifiedStatus(f.reservation.id, binding)).rejects.toThrow(
     'preparation authority unavailable',
