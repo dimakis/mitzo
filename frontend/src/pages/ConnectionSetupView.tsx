@@ -1,3 +1,4 @@
+import { SecretRelayDestinations } from '../components/SecretRelayDestinations';
 import type { SecretRelay } from '../types/secret-relay';
 import { UiIcon } from '../components/UiIcon';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -7,6 +8,7 @@ import {
   getSecretRelay,
   completeSecretRelay,
   cancelSecretRelay,
+  provideSecretRelayCode,
   completeConnectionSetup,
   getConnectionSetup,
   getCachedCredentialAuthorization,
@@ -92,6 +94,10 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
       if (current()) {
         if (next.error || ['ready', 'cancelled', 'expired', 'unconfirmed'].includes(next.status))
           submissionError.current = '';
+        if (['cancelled', 'expired', 'unconfirmed'].includes(next.status)) {
+          setSecret('');
+          setPassphrase('');
+        }
         setSetup(next);
         setError(next.error || (next.status === 'pending' ? submissionError.current : ''));
         setUncertain(false);
@@ -157,7 +163,16 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
     return () => clearTimeout(timer);
   }, [setup]);
   useEffect(() => {
-    if (setup?.status !== 'verifying') return;
+    const browserPending =
+      setup &&
+      'targets' in setup &&
+      setup.status === 'ready' &&
+      setup.targets.some(
+        (t, i) =>
+          t.adapter === 'browser' &&
+          ['not_sent', 'challenge_required'].includes(setup.outcomes[i]?.outcome ?? 'not_sent'),
+      );
+    if (busy || (setup?.status !== 'verifying' && !browserPending)) return;
     let polling = false;
     const timer = setInterval(() => {
       if (polling) return;
@@ -169,14 +184,22 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
         });
     }, 1500);
     return () => clearInterval(timer);
-  }, [setup, load]);
-  const mutate = async (cancel = false) => {
+  }, [setup, load, busy]);
+  const mutate = async (cancel = false, codeTarget?: number) => {
     const route = routeGeneration.current;
     if (
       !setup ||
       inFlight.current === route ||
       uncertain ||
-      (setup.status !== 'pending' && !(cancel && secretRelay && setup.status === 'ready'))
+      (setup.status !== 'pending' &&
+        !(
+          secretRelay &&
+          setup.status === 'ready' &&
+          (cancel ||
+            (codeTarget !== undefined &&
+              'outcomes' in setup &&
+              setup.outcomes[codeTarget]?.challenge === 'awaiting_code'))
+        ))
     )
       return;
     const request = ++requestGeneration.current;
@@ -208,12 +231,20 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
             setup.revision,
             auth.csrf,
           )
-        : await (secretRelay ? completeSecretRelay : completeConnectionSetup)(
-            setup.id,
-            setup.revision,
-            credential,
-            auth.csrf,
-          );
+        : codeTarget !== undefined
+          ? await provideSecretRelayCode(
+              setup.id,
+              setup.revision,
+              codeTarget,
+              credential,
+              auth.csrf,
+            )
+          : await (secretRelay ? completeSecretRelay : completeConnectionSetup)(
+              setup.id,
+              setup.revision,
+              credential,
+              auth.csrf,
+            );
       if (current()) {
         setSetup(next);
         setError(next.error ?? '');
@@ -237,6 +268,11 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
   };
   const relay = setup && 'targets' in setup ? setup : undefined;
   const connectionSetup = setup && 'connection' in setup ? setup : undefined;
+  const challengeIndex =
+    relay?.outcomes.findIndex(
+      (o) => o.outcome === 'challenge_required' && o.challenge === 'awaiting_code',
+    ) ?? -1;
+  const codeReady = relay?.outcomes.some((o) => o.challenge === 'code_ready');
   const label = relay?.label ?? connectionSetup?.connection.label ?? '';
   const credentialLabel = relay ? 'Password or token' : connectionSetup?.credential.label;
   const back = setup ? `/chat/${encodeURIComponent(setup.sessionId)}` : '/connections-access';
@@ -297,6 +333,61 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
                     ? 'Return to your chat and ask the assistant to prepare this connection again.'
                     : 'Return to your chat whenever you want to continue.'}
             </p>
+            {ready && relay && challengeIndex >= 0 && (
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void mutate(false, challengeIndex);
+                }}
+              >
+                <h2>Verification needed</h2>
+                <p>
+                  Enter the one-time code for {relay.targets[challengeIndex]?.label ?? label}. Your
+                  assistant receives only the result.
+                </p>
+                <label className="connections-field">
+                  Verification code
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    required
+                    pattern="[0-9]{6,10}"
+                    value={secret}
+                    onChange={(event) => setSecret(event.target.value)}
+                    disabled={busy}
+                  />
+                </label>
+                {needsUnlock && (
+                  <label className="connections-field">
+                    Mitzo passphrase
+                    <input
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                      value={passphrase}
+                      onChange={(event) => setPassphrase(event.target.value)}
+                      disabled={busy}
+                    />
+                  </label>
+                )}
+                <button
+                  type="submit"
+                  className="workspace-primary connection-setup-return"
+                  disabled={
+                    busy || uncertain || !/^\d{6,10}$/.test(secret) || (needsUnlock && !passphrase)
+                  }
+                >
+                  Continue private sign-in
+                </button>
+              </form>
+            )}
+            {ready && codeReady && (
+              <p role="status">
+                Verification code is ready. Your assistant will continue the private sign-in when
+                your chat is available.
+              </p>
+            )}
             {ready && relay && (
               <form
                 onSubmit={(event) => {
@@ -305,7 +396,7 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
                 }}
               >
                 {error && <p role="alert">{error}</p>}
-                {needsUnlock && (
+                {needsUnlock && challengeIndex < 0 && (
                   <label className="connections-field">
                     Mitzo passphrase
                     <input
@@ -339,41 +430,7 @@ export function ConnectionSetupView({ secretRelay = false }: { secretRelay?: boo
             </p>
             {relay ? (
               <>
-                {relay.targets.map((target, index) => (
-                  <section
-                    className="secret-relay-destination"
-                    key={index}
-                    aria-label={`Destination ${index + 1}`}
-                  >
-                    <h2>{target.label}</h2>
-                    {target.lanEndpoint && (
-                      <p role="note">
-                        This device uses unencrypted HTTP on your local network. Saving permits
-                        Mitzo to send the value to this exact address.
-                      </p>
-                    )}
-                    <dl className="connection-setup-summary">
-                      <div>
-                        <dt>Service address</dt>
-                        <dd>{target.endpoint}</dd>
-                      </div>
-                      <div>
-                        <dt>Action</dt>
-                        <dd>
-                          {target.method} {target.path}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>Secret fields</dt>
-                        <dd>{target.fields.join(', ')}</dd>
-                      </div>
-                    </dl>
-                    <details>
-                      <summary>Review request template</summary>
-                      <pre>{target.body}</pre>
-                    </details>
-                  </section>
-                ))}
+                <SecretRelayDestinations relay={relay} />
                 <p className="connection-setup-privacy">
                   OpenShell stores your value. Mitzo applies it privately to these fields; your
                   assistant receives only status. Access ends when this request expires or you

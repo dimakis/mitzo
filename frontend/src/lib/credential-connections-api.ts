@@ -202,3 +202,19 @@ export async function cancelSecretRelay(id: string, revision: number, csrf: stri
     )
   ).relay;
 }
+export async function provideSecretRelayCode(
+  id: string,
+  revision: number,
+  targetIndex: number,
+  code: string,
+  csrf: string,
+) {
+  return (
+    await request<{ relay: import('../types/secret-relay').SecretRelay }>(
+      `/relays/${encodeURIComponent(id)}/code`,
+      'POST',
+      { revision, targetIndex, code },
+      csrf,
+    )
+  ).relay;
+}
