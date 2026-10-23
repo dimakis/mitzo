@@ -17,6 +17,9 @@ import {
   type PendingHostTaskDecisionScope,
 } from '../pending-host-task.js';
 import type { PreparedRepositoryTransitionCaptureInput } from '../prepared-repository-transition.js';
+import { projectQualifiedPreparedRepositoryTransitionFacts } from '../qualified-prepared-repository-transition.js';
+import type { LocalRepositoryAllocationFacts } from '../local-repository-allocation-facts.js';
+import { localRepositoryPreparationSourceFacts } from '../local-repository-preparation-source.js';
 
 const cleanups: Array<() => void> = [];
 afterEach(() => {
@@ -293,3 +296,152 @@ it('enforces the exact shared UTF-8 raw-record bound before returning a predicta
   expect(() => f.service.findPreparedRepositoryTransitionCandidate(f.input)).toThrow();
   expect(f.db.prepare('SELECT record FROM repository_workspaces').all()).toEqual([{ record: raw }]);
 });
+
+// Explicit metadata-only materialization fixture: no filesystem/task/current
+// authority or actual actor effects are inferred from these declared records.
+function qualifiedRecord(
+  record: RepositoryWorkspace,
+  input: PreparedRepositoryTransitionCaptureInput,
+) {
+  const request = record.pendingHostTask!.request;
+  const source = record.localSource!;
+  const facts = {
+    version: 1,
+    workspaceId: record.id,
+    baseOid: record.baseOid,
+    baseBranch: record.baseBranch,
+    featureBranch: record.featureBranch,
+    source: {
+      qualification: 'preparation',
+      referenceCoverage: 'preparation-head-and-namespace-v1',
+      path: source.path,
+      gitDirectory: source.commonDirectory,
+      commonDirectory: source.commonDirectory,
+      sourceAnchor: { rootPath: source.path, identity: { dev: '1', ino: '2' } },
+      commonAnchor: { rootPath: source.commonDirectory, identity: { dev: '1', ino: '3' } },
+    },
+    taskRoot: { rootPath: request.taskRoot, identity: { dev: '1', ino: '4' } },
+    directories: [],
+    absentPaths: [],
+  } as unknown as LocalRepositoryAllocationFacts;
+  const digest = pendingHostTaskDecisionHash(facts);
+  record.qualifiedLocalPreparation = {
+    version: 1,
+    request,
+    oldWorkspace: input.oldWorkspace,
+    allocationFacts: facts,
+    allocationFactsSha256: digest,
+  };
+  record.sourceDigest = record.pendingHostTask!.sourceDigest = digest;
+  const decision = record.pendingHostTaskDecision!;
+  decision.scope = PendingHostTaskDecisionScopeSchema.parse({
+    ...decision.scope,
+    sourceDigest: digest,
+    anchorsSha256: localRepositoryPreparationSourceFacts(facts).anchorsSha256,
+    allocationFactsSha256: digest,
+    referenceCoverage: 'preparation-head-and-namespace-v1',
+  });
+  decision.scopeSha256 = pendingHostTaskDecisionHash(decision.scope);
+  decision.evidence.input = pendingHostTaskDecisionPayload(request, decision.scope);
+  decision.evidence.inputSha256 = pendingHostTaskDecisionHash(decision.evidence.input);
+  return record;
+}
+
+it('projects immutable qualified transition DATA with the full original materialized-row digest only', () => {
+  const f = fixture();
+  const record = {
+    ...qualifiedRecord(f.pending(), f.input),
+    retainedUnknown: { original: ['bytes'] },
+  };
+  f.save(record);
+  const candidate = f.service.findPreparedRepositoryTransitionCandidate(f.input)!;
+  const result = projectQualifiedPreparedRepositoryTransitionFacts(
+    candidate,
+    f.input,
+    'f'.repeat(64),
+  );
+  expect(result.request).toEqual(candidate.request);
+  expect(result.materializedRecordSha256).toBe(pendingHostTaskDecisionHash(record));
+  expect(result.consumedScopeSha256).toBe(record.pendingHostTaskDecision!.scopeSha256);
+  expect(result.newWorkspace.taskIdentity).toEqual(record.pendingHostTask!.taskIdentity);
+  expect(result.oldWorkspace).toEqual(f.input.oldWorkspace);
+  expect(result.resultSha256).toBe('f'.repeat(64));
+  expect(Object.isFrozen(result)).toBe(true);
+  expect(Object.isFrozen(result.newWorkspace.taskIdentity.root)).toBe(true);
+  expect(Object.isFrozen(result.request.runtimeBinding.execution)).toBe(true);
+  expect(f.authorize).not.toHaveBeenCalled();
+  expect(f.db.prepare('SELECT record FROM repository_workspaces').get()).toEqual({
+    record: candidate.rawRecord,
+  });
+});
+
+it.each([
+  'missing-qualified',
+  'missing-scope-digest',
+  'changed-old-workspace',
+  'changed-result',
+  'raw-row',
+] as const)(
+  'refuses unqualified transition DATA %s without new authority or row effects',
+  (change) => {
+    const f = fixture();
+    const record = qualifiedRecord(f.pending(), f.input);
+    const originalRaw = f.save(record);
+    const original = f.service.findPreparedRepositoryTransitionCandidate(f.input)!;
+    if (change === 'missing-qualified') delete record.qualifiedLocalPreparation;
+    if (change === 'missing-scope-digest') {
+      delete record.pendingHostTaskDecision!.scope.allocationFactsSha256;
+      const decision = record.pendingHostTaskDecision!;
+      decision.scopeSha256 = pendingHostTaskDecisionHash(decision.scope);
+      decision.evidence.input = pendingHostTaskDecisionPayload(decision.request, decision.scope);
+      decision.evidence.inputSha256 = pendingHostTaskDecisionHash(decision.evidence.input);
+    }
+    const candidate = { ...original, record, rawRecord: JSON.stringify(record) };
+    const selected =
+      change === 'changed-old-workspace'
+        ? { ...f.input, oldWorkspace: { ...f.input.oldWorkspace, id: 'other' } }
+        : f.input;
+    const supplied =
+      change === 'raw-row' ? { ...candidate, rawRecord: candidate.rawRecord + 'x' } : candidate;
+    expect(() =>
+      projectQualifiedPreparedRepositoryTransitionFacts(
+        supplied,
+        selected,
+        change === 'changed-result' ? 'not-a-sha' : 'f'.repeat(64),
+      ),
+    ).toThrow();
+    expect(f.db.prepare('SELECT record FROM repository_workspaces').get()).toEqual({
+      record: originalRaw,
+    });
+    expect(f.authorize).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['evidence-input', 'scope-create', 'root-identity', 'ordinary-runtime'] as const)(
+  'refuses mismatched qualified transition correlation %s before a reservation can be considered',
+  (change) => {
+    const f = fixture();
+    const record = qualifiedRecord(f.pending(), f.input);
+    f.save(record);
+    const original = f.service.findPreparedRepositoryTransitionCandidate(f.input)!;
+    const decision = record.pendingHostTaskDecision!;
+    if (change === 'evidence-input') decision.evidence.input = {};
+    if (change === 'scope-create') decision.scope.create.baseOid = 'f'.repeat(40);
+    if (change === 'root-identity') decision.scope.taskRootIdentity.ino += 1;
+    if (change === 'ordinary-runtime') {
+      record.ordinaryPreparation!.runtimeBinding = structuredClone(
+        record.ordinaryPreparation!.runtimeBinding,
+      );
+      record.ordinaryPreparation!.runtimeBinding.execution.targetId = 'different-target';
+    }
+    if (change === 'scope-create' || change === 'root-identity') {
+      decision.scopeSha256 = pendingHostTaskDecisionHash(decision.scope);
+      decision.evidence.input = pendingHostTaskDecisionPayload(decision.request, decision.scope);
+      decision.evidence.inputSha256 = pendingHostTaskDecisionHash(decision.evidence.input);
+    }
+    const candidate = { ...original, record, rawRecord: JSON.stringify(record) };
+    expect(() =>
+      projectQualifiedPreparedRepositoryTransitionFacts(candidate, f.input, 'f'.repeat(64)),
+    ).toThrow();
+  },
+);

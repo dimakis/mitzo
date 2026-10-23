@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.599-qualified-preparation-accepted-native';
+  'v1.0.600-qualified-prepared-transition-data';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,12 +23,14 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../qualified-prepared-repository-transition.ts':
+    'bc023357b566d6d04cd20c47398d235ccf871453d3a990212bde1e77a63b7026',
   '../__tests__/fixtures/qualified-local-preparation-source.ts':
     'cd4930e0d0fc3a94816d95b861a9fafe756115c3a0bc686d5430d5922a42165d',
   '../__tests__/qualified-local-repository-selection.test.ts':
     '589b8ac5c633eed195e509f4ec47cb9758fb788846e3d43eb949ce33cbb5b074',
   '../__tests__/prepared-repository-candidate.test.ts':
-    'b6a8785e0207c70d8ef70e641befdb1a08f6a74670522e3d5e3c06f80f853fae',
+    '3f03b3ba8eb99430845e5f1d2f3bb7cc2d11fe4fc1093cca634f59bac667133b',
   '../__tests__/local-repository-read-ceiling.test.ts':
     '4a69dd1577ad68e5369c869dca12e62b517ee2d36b9cb9f32e822890e1df49e3',
   '../__tests__/prepared-repository-native-read.test.ts':
@@ -93,7 +95,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-authorization.test.ts':
     '3621d87762c222c8500b49b4e89ce5890e6fe6a6945208bbebfe85bcb9f897ee',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
-    '82abad326d4a12e01e2d1dc417fb4405bfd5ee8c8684478616e819c15210f31e',
+    '2d15670a589c9a214969a01e5b14d8185fe9b77f4500b2dc38a640376a7eff2b',
   '../pending-host-task.ts': 'bb9bc4a4a1962390d07b26e4c4f175464d291aeb73bf0ba2b444ed70c944a910',
   '../__tests__/pending-host-task.test.ts':
     '286badb71f54d57b77e7b57116a566d1772d6c27b520131262ef58551f2ce01d',
