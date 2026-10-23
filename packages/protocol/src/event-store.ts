@@ -1043,20 +1043,83 @@ export class EventStore {
   }
   /** Immutable bootstrap-command observation under one exact existing private
    * transition. This never makes the original workspace current again. */
-  observePreparedRepositoryBootstrapAdmission(childCommandId: string, bootstrapCommandId: string): OrdinaryLocalCommandAdmission {
-    const child = this.readPreparedRepositoryTransition(childCommandId);
-    const send = this.getSendCommand(childCommandId), originSend = this.getSendCommand(bootstrapCommandId);
-    const row = this.db!.prepare('SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?')
-      .get(bootstrapCommandId) as { ordinary_admission: string | null } | undefined;
-    const original = OrdinaryLocalCommandAdmissionSchema.parse(row?.ordinary_admission ? JSON.parse(row.ordinary_admission) : undefined);
-    const old = child.preparedRepositoryTransition!.oldWorkspace;
-    if (!send?.sessionId || send.error || !originSend || originSend.error || originSend.sessionId !== send.sessionId ||
-      !['uncertain', 'consumed'].includes(child.state) || original.state !== 'consumed' ||
-      !isDeepStrictEqual(original.binding, child.binding) || original.workspace.workspaceId !== old.id || original.workspace.cwd !== old.directory ||
-      !isDeepStrictEqual(original.selection.agent, child.selection.agent) || !isDeepStrictEqual(original.selection.context, child.selection.context) ||
-      !isDeepStrictEqual(original.selection.permission, child.selection.permission))
+  observePreparedRepositoryBootstrapAdmission(
+    childCommandId: string,
+    bootstrapCommandId: string,
+  ): OrdinaryLocalCommandAdmission {
+    const read = (commandId: string) => {
+      const row = this.db!.prepare(
+        'SELECT rowid,session_id,error,ordinary_admission FROM send_commands WHERE client_msg_id=?',
+      ).get(commandId) as
+        | {
+            rowid: number;
+            session_id: string;
+            error: string | null;
+            ordinary_admission: string | null;
+          }
+        | undefined;
+      if (!row || row.error || !row.ordinary_admission)
+        throw Error('Original prepared repository bootstrap observation unavailable');
+      return {
+        ...row,
+        admission: OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(row.ordinary_admission)),
+      };
+    };
+    const original = read(bootstrapCommandId);
+    let currentId = childCommandId;
+    let current = read(childCommandId);
+    if (original.admission.state !== 'consumed')
       throw Error('Original prepared repository bootstrap observation unavailable');
-    return original;
+    // Follow only bounded, unique, earlier committed private primary records.
+    // Explicit follow-ups keep their own immutable receipt; they cannot replace
+    // the original bootstrap or enroll an unrelated workspace into this chain.
+    for (let depth = 0; depth < 100; depth++) {
+      const child = this.readPreparedRepositoryTransition(currentId);
+      const transition = child.preparedRepositoryTransition!;
+      if (
+        current.session_id !== original.session_id ||
+        current.rowid <= original.rowid ||
+        (depth === 0
+          ? !['uncertain', 'consumed'].includes(child.state)
+          : child.state !== 'consumed') ||
+        !isDeepStrictEqual(original.admission.binding, child.binding) ||
+        !isDeepStrictEqual(original.admission.selection.agent, child.selection.agent) ||
+        !isDeepStrictEqual(original.admission.selection.context, child.selection.context) ||
+        !isDeepStrictEqual(original.admission.selection.permission, child.selection.permission)
+      )
+        throw Error('Original prepared repository bootstrap observation unavailable');
+      const source = read(transition.source.commandId);
+      if (
+        source.session_id !== original.session_id ||
+        source.rowid >= current.rowid ||
+        source.admission.state !== 'consumed' ||
+        !isDeepStrictEqual(source.admission.binding, child.binding) ||
+        !isDeepStrictEqual(source.admission.selection, child.selection) ||
+        source.admission.workspace.workspaceId !== transition.oldWorkspace.id ||
+        source.admission.workspace.cwd !== transition.oldWorkspace.directory
+      )
+        throw Error('Original prepared repository bootstrap observation unavailable');
+      const old = transition.oldWorkspace;
+      if (
+        original.admission.workspace.workspaceId === old.id &&
+        original.admission.workspace.cwd === old.directory
+      )
+        return original.admission;
+      const parents = this.db!.prepare(
+        `SELECT client_msg_id FROM send_commands
+        WHERE session_id=? AND rowid<? AND error IS NULL
+        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.newWorkspace.id')=?
+        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.newWorkspace.directory')=?
+        LIMIT 2`,
+      ).all(current.session_id, current.rowid, old.id, old.directory) as Array<{
+        client_msg_id: string;
+      }>;
+      if (parents.length !== 1)
+        throw Error('Original prepared repository bootstrap observation unavailable');
+      currentId = parents[0].client_msg_id;
+      current = read(currentId);
+    }
+    throw Error('Original prepared repository bootstrap lineage exceeds bound');
   }
   /** Preserve partial adoption, including a queued native row after a thrown
    * enqueue return. No cold resume or generic dispatch can infer permission. */

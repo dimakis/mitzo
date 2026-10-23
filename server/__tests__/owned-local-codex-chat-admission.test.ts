@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { AccountBindingSchema } from '@mitzo/protocol';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -29,7 +30,7 @@ function fixture() {
     ],
     { codexEnabled: true },
   );
-  const binding = accounts.resolve('personal', 'fixture-model'),
+  const binding = AccountBindingSchema.parse(accounts.resolve('personal', 'fixture-model')),
     profile = accounts.codexProfile(binding);
   const runtime = {
     version: 2 as const,

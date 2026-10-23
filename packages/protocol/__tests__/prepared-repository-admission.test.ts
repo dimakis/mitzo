@@ -79,7 +79,9 @@ it('reserves one deterministic uncertain child before mutation and atomically co
   const reserved = store.reservePreparedRepositoryContinuation('session', transition);
   expect(reserved.fresh).toBe(true);
   expect(reserved.admission.state).toBe('uncertain');
-  expect(store.observePreparedRepositoryBootstrapAdmission(reserved.childCommandId, 'original')).toEqual(before);
+  expect(
+    store.observePreparedRepositoryBootstrapAdmission(reserved.childCommandId, 'original'),
+  ).toEqual(before);
   expect(store.getSession('session')?.cwd).toBe('/old');
   expect(store.hasUncertainOrdinaryCommand('session')).toBe(true);
   expect(store.reservePreparedRepositoryContinuation('session', transition)).toMatchObject({
@@ -93,7 +95,9 @@ it('reserves one deterministic uncertain child before mutation and atomically co
   expect(reserved.payload.text).not.toBe(original.payload.text);
   expect(() => store.getOrdinaryLocalCommandAdmission(reserved.childCommandId)).toThrow();
   store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
-  expect(store.observePreparedRepositoryBootstrapAdmission(reserved.childCommandId, 'original')).toEqual(before);
+  expect(
+    store.observePreparedRepositoryBootstrapAdmission(reserved.childCommandId, 'original'),
+  ).toEqual(before);
   expect(store.getOrdinaryLocalCommandAdmission(reserved.childCommandId)?.state).toBe('uncertain');
   store.finalizePreparedRepositoryContinuation(
     'session',
@@ -223,4 +227,69 @@ it('preserves current draft settings and retained history while the new-workspac
   expect(() => cold.getOrdinaryLocalCommandAdmission(reserved.childCommandId)).toThrow();
   expect(cold.claimOrdinaryLocalCommandDispatch('original')).toBe(false);
   expect(cold.hasUncertainOrdinaryCommand('session')).toBe(true);
+});
+
+it('observes the same immutable bootstrap across two private adoptions separated by an explicit follow-up', () => {
+  const store = fixture();
+  const origin = store.getOrdinaryLocalCommandAdmission('original');
+  const first = store.reservePreparedRepositoryContinuation('session', transition);
+  store.commitPreparedRepositoryContinuation('session', first.childCommandId, transition);
+  store.finalizePreparedRepositoryContinuation(
+    'session',
+    first.childCommandId,
+    transition,
+    () => {},
+  );
+  const nextMeta = { ...meta, repositoryWorkspaceId: 'new', cwd: '/new' };
+  store.admitPreparedRepositoryPrimaryContinuation(
+    nextMeta,
+    binding,
+    {
+      ...original,
+      clientMsgId: 'followup',
+      requestFingerprint: 'followup-fingerprint',
+      payload: {
+        text: 'Prepare the second repository',
+        intent: 'Second explicit task',
+        systemPrompt: 'Selected instructions',
+      },
+    },
+    first.childCommandId,
+  );
+  expect(store.claimOrdinaryLocalCommandDispatch('followup')).toBe(true);
+  store.completeOrdinaryLocalCommand('followup');
+  const secondTransition = {
+    ...transition,
+    preparationId: '3dbdc62d-20ab-4144-b210-c55bc7f39cda',
+    source: {
+      ...transition.source,
+      commandId: 'followup',
+      turnId: 'second-turn',
+      callId: 'second-prepare',
+    },
+    oldWorkspace: { kind: 'repository' as const, id: 'new', directory: '/new' },
+    newWorkspace: { ...transition.newWorkspace, id: 'newer', directory: '/newer' },
+  };
+  const second = store.reservePreparedRepositoryContinuation('session', secondTransition);
+  expect(
+    store.observePreparedRepositoryBootstrapAdmission(second.childCommandId, 'original'),
+  ).toEqual(origin);
+  store.commitPreparedRepositoryContinuation('session', second.childCommandId, secondTransition);
+  expect(
+    store.observePreparedRepositoryBootstrapAdmission(second.childCommandId, 'original'),
+  ).toEqual(origin);
+  store.finalizePreparedRepositoryContinuation(
+    'session',
+    second.childCommandId,
+    secondTransition,
+    () => {},
+  );
+  expect(
+    store.observePreparedRepositoryBootstrapAdmission(second.childCommandId, 'original'),
+  ).toEqual(origin);
+  expect(() => store.getOrdinaryLocalCommandAdmission('original')).toThrow();
+  store.markPreparedRepositoryContinuationUncertain(first.childCommandId);
+  expect(() =>
+    store.observePreparedRepositoryBootstrapAdmission(second.childCommandId, 'original'),
+  ).toThrow();
 });
