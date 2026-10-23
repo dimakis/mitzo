@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.556-native-chat-startup';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.557-slice2-repository-preparation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -900,9 +901,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':
     '02e1a872e4f24c7fd42ddd4c9a1e535be847f3e1c16ab34593e3511a22003fe5',
-  '../worktree.ts': 'e5b247359f3e080a59f4cfe6c60bfd19eb1076b8cf06002929becd50d66aa96f',
+  '../worktree.ts': 'aad0cf8b0da6013480abe18a7f3253f6b8942e4e1c493c7cc0938fa2c73fd1ca',
   '../local-repository-worktree.ts':
-    'e0b81be7a0fc8002eab0c05da3bb76d4b4ceb8c9aa2b79d88ed9d72a5176bb35',
+    '50cf4cf31ca4a767bc4d3ebe64b1d5598f5436b98644a864768ba1750c6660c7',
+  '../local-repository-git-inspection.ts':
+    '1959d45685b5b84bbfc061ae37c148721a603be08f4a3921f80320294a2e7963',
+  '../__tests__/existing-local-repository-workspaces.test.ts':
+    '5f33af94efe047dbac10317ba60e9461e0e7e7d598fabaab5d11eac476669e46',
   '../repository-task-checkout.ts':
     'b0b651d3b866577188d51b45cc414d45039e941b29cf7ad7f103237a0dc3e1f5',
   '../workspace-runtime-private-paths.ts':
@@ -918,7 +923,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '4c29712dd8c80db92f6872815848aac37858a4d59b8861700aefc8c8c97e185a',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
-  '../repository-workspaces.ts': '2e7297c2105a3f603823aea4e903cebb1aa00ed290eecabb6218ee3f5169408f',
+  '../repository-workspaces.ts': '0005286a35fb46ab6993d3e594f955212a63e769a6d463714285c9857c200040',
   '../../packages/protocol/src/session-metadata-store.ts':
     '23b46bb4ae5cca126db5ddbbfcb6dffb0cef98895e6d74a0b0700c5098b39a04',
   '../../packages/protocol/src/event-store.ts':
