@@ -969,6 +969,34 @@ export class EventStore {
         old.directory === transition.newWorkspace.directory
       )
         throw Error('Prepared repository transition source unavailable');
+      if (source.preparedRepositoryPrimaryCommandId !== transition.priorPrimaryCommandId)
+        throw Error('Prepared repository prior primary changed');
+      if (transition.priorPrimaryCommandId) {
+        const prior = this.readPreparedRepositoryTransition(transition.priorPrimaryCommandId);
+        const priorSend = this.getSendCommand(transition.priorPrimaryCommandId);
+        const order = this.db!.prepare(
+          `SELECT 1 AS valid FROM send_commands parent,send_commands source
+          WHERE parent.client_msg_id=? AND source.client_msg_id=? AND parent.rowid<source.rowid`,
+        ).get(transition.priorPrimaryCommandId, transition.source.commandId);
+        if (
+          !order ||
+          priorSend?.sessionId !== sessionId ||
+          priorSend.error ||
+          prior.state !== 'consumed' ||
+          !isDeepStrictEqual(prior.binding, source.binding) ||
+          !isDeepStrictEqual(prior.workspace, source.workspace) ||
+          !isDeepStrictEqual(prior.selection.agent, source.selection.agent) ||
+          !isDeepStrictEqual(prior.selection.context, source.selection.context) ||
+          !isDeepStrictEqual(prior.selection.permission, source.selection.permission)
+        )
+          throw Error('Prepared repository prior primary unavailable');
+      } else if (
+        this.db!.prepare(
+          `SELECT 1 FROM send_commands WHERE session_id=? AND client_msg_id<>?
+        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition') IS NOT NULL LIMIT 1`,
+        ).get(sessionId, childCommandId)
+      )
+        throw Error('Original prepared repository owner required');
       const payloadSource = z
         .object({
           text: z.string().min(1),
@@ -1099,25 +1127,32 @@ export class EventStore {
         source.admission.workspace.cwd !== transition.oldWorkspace.directory
       )
         throw Error('Original prepared repository bootstrap observation unavailable');
-      const old = transition.oldWorkspace;
-      if (
-        original.admission.workspace.workspaceId === old.id &&
-        original.admission.workspace.cwd === old.directory
-      )
+      const prior = transition.priorPrimaryCommandId;
+      if (source.admission.preparedRepositoryPrimaryCommandId !== prior)
+        throw Error('Original prepared repository primary pointer changed');
+      if (!prior) {
+        const earlier = this.db!.prepare(
+          `SELECT 1 FROM send_commands WHERE session_id=? AND rowid<?
+          AND json_extract(ordinary_admission,'$.preparedRepositoryTransition') IS NOT NULL LIMIT 1`,
+        ).get(current.session_id, source.rowid);
+        if (
+          earlier ||
+          original.admission.workspace.workspaceId !== transition.oldWorkspace.id ||
+          original.admission.workspace.cwd !== transition.oldWorkspace.directory
+        )
+          throw Error('Original prepared repository bootstrap ancestry unavailable');
         return original.admission;
-      const parents = this.db!.prepare(
-        `SELECT client_msg_id FROM send_commands
-        WHERE session_id=? AND rowid<? AND error IS NULL
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.newWorkspace.id')=?
-        AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.newWorkspace.directory')=?
-        LIMIT 2`,
-      ).all(current.session_id, source.rowid, old.id, old.directory) as Array<{
-        client_msg_id: string;
-      }>;
-      if (parents.length !== 1)
-        throw Error('Original prepared repository bootstrap observation unavailable');
-      currentId = parents[0].client_msg_id;
-      current = read(currentId);
+      }
+      const parent = read(prior);
+      if (
+        parent.rowid >= source.rowid ||
+        parent.admission.state !== 'consumed' ||
+        parent.admission.workspace.workspaceId !== transition.oldWorkspace.id ||
+        parent.admission.workspace.cwd !== transition.oldWorkspace.directory
+      )
+        throw Error('Original prepared repository primary ancestor unavailable');
+      currentId = prior;
+      current = parent;
     }
     throw Error('Original prepared repository bootstrap lineage exceeds bound');
   }
@@ -1277,6 +1312,9 @@ export class EventStore {
       selection: input.selection,
       requestFingerprint: input.requestFingerprint,
       state: 'reserved',
+      ...(preparedPrimaryCommandId
+        ? { preparedRepositoryPrimaryCommandId: preparedPrimaryCommandId }
+        : {}),
     });
     const account = AccountBindingSchema.parse(meta.accountBinding);
     if (account.model !== admission.selection.model)

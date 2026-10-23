@@ -12,6 +12,8 @@ export const PreparedRepositoryTransitionSchema = z.strictObject({
   version: z.literal(1),
   preparationId: z.uuid(),
   runtimeId: reference,
+  /** Exact earlier committed private primary; absent only before any adoption. */
+  priorPrimaryCommandId: reference.optional(),
   source: z.strictObject({
     commandId: reference,
     attempt: z.number().int().positive().safe(),

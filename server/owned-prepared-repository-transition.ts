@@ -72,10 +72,12 @@ export async function performPreparedRepositoryPrimaryTransition(
     facts.oldWorkspace.directory !== owners.expected.workspace.cwd
   )
     throw Error('Original prepared repository binding unavailable');
+  const priorPrimaryCommandId = owners.admission.currentPreparedRepositoryPrimaryCommandId();
   const transition = PreparedRepositoryTransitionSchema.parse({
     version: 1,
     preparationId: request.id,
     runtimeId: request.runtimeId,
+    ...(priorPrimaryCommandId ? { priorPrimaryCommandId } : {}),
     source: {
       ...request.nativeTarget,
       callId: request.prepareCallId,

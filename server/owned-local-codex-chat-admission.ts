@@ -264,6 +264,14 @@ export class OwnedLocalCodexChatAdmission {
    * synchronous handoff is usable only after the guarded repository CAS and
    * exact EventStore commit; it never authorizes either effect itself. Original
    * expected/payload remain intact; the live owner delegates to its new primary. */
+  currentPreparedRepositoryPrimaryCommandId(): string | undefined {
+    if (this.#primary) return this.#primary.currentPreparedRepositoryPrimaryCommandId();
+    this.assertCurrentSync();
+    if (!this.#adoptedPrimary) return undefined;
+    const receipt = this.owner.eventStore.getOrdinaryLocalCommandAdmission(this.owner.commandId);
+    if (receipt?.state !== 'consumed' || !receipt.preparedRepositoryTransition) throw unavailable();
+    return this.owner.commandId;
+  }
   preparePreparedRepositoryPrimary(
     commandId: string,
     expectedInput: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
@@ -279,6 +287,8 @@ export class OwnedLocalCodexChatAdmission {
     const receipt = this.owner.eventStore.observePreparedRepositoryContinuation(commandId);
     const frozenTransition = structuredClone(transition);
     if (
+      transition.priorPrimaryCommandId !==
+        (this.#adoptedPrimary ? this.owner.commandId : undefined) ||
       receipt.state !== 'uncertain' ||
       !isDeepStrictEqual(receipt.preparedRepositoryTransition, frozenTransition) ||
       !isDeepStrictEqual(receipt.binding, original.binding) ||

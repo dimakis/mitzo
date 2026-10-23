@@ -3,6 +3,9 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventStore } from '../src/event-store.js';
+import { OrdinaryLocalResponsesCommandAdmissionSchema } from '../src/ordinary-local-admission.js';
+import { OrdinaryOpenShellCommandAdmissionSchema } from '../src/ordinary-openshell-admission.js';
+import { OrdinaryLocalVertexCommandAdmissionSchema } from '../src/ordinary-local-vertex-admission.js';
 const binding = {
   version: 2,
   account: { accountId: 'account', provider: 'openai-codex', profileRevision: 'profile' },
@@ -256,9 +259,13 @@ it('observes the same immutable bootstrap across two private adoptions separated
     },
     first.childCommandId,
   );
+  expect(
+    store.getOrdinaryLocalCommandAdmission('followup')?.preparedRepositoryPrimaryCommandId,
+  ).toBe(first.childCommandId);
   expect(store.claimOrdinaryLocalCommandDispatch('followup')).toBe(true);
   store.completeOrdinaryLocalCommand('followup');
   const secondTransition = {
+    priorPrimaryCommandId: undefined as string | undefined,
     ...transition,
     preparationId: '3dbdc62d-20ab-4144-b210-c55bc7f39cda',
     source: {
@@ -268,9 +275,20 @@ it('observes the same immutable bootstrap across two private adoptions separated
       callId: 'second-prepare',
     },
     oldWorkspace: { kind: 'repository' as const, id: 'new', directory: '/new' },
-    newWorkspace: { ...transition.newWorkspace, id: 'newer', directory: '/newer' },
+    newWorkspace: { ...transition.newWorkspace, id: 'old', directory: '/old' },
   };
-  const second = store.reservePreparedRepositoryContinuation('session', secondTransition);
+  expect(() => store.reservePreparedRepositoryContinuation('session', secondTransition)).toThrow();
+  expect(() =>
+    store.reservePreparedRepositoryContinuation('session', {
+      ...secondTransition,
+      priorPrimaryCommandId: 'original',
+    }),
+  ).toThrow();
+  const second = store.reservePreparedRepositoryContinuation('session', {
+    ...secondTransition,
+    priorPrimaryCommandId: first.childCommandId,
+  });
+  secondTransition.priorPrimaryCommandId = first.childCommandId;
   expect(
     store.observePreparedRepositoryBootstrapAdmission(second.childCommandId, 'original'),
   ).toEqual(origin);
@@ -287,7 +305,66 @@ it('observes the same immutable bootstrap across two private adoptions separated
   expect(
     store.observePreparedRepositoryBootstrapAdmission(second.childCommandId, 'original'),
   ).toEqual(origin);
-  expect(() => store.getOrdinaryLocalCommandAdmission('original')).toThrow();
+  // Returning to the exact original workspace does not rewrite its historical receipt.
+  expect(store.getOrdinaryLocalCommandAdmission('original')).toEqual(origin);
+  let primaryCommandId = second.childCommandId;
+  let currentId = 'old',
+    currentDirectory = '/old';
+  for (const [index, nextId, nextDirectory] of [
+    [3, 'new', '/new'],
+    [4, 'old', '/old'],
+  ] as const) {
+    const followup = `followup-${index}`;
+    store.admitPreparedRepositoryPrimaryContinuation(
+      { ...meta, repositoryWorkspaceId: currentId, cwd: currentDirectory },
+      binding,
+      {
+        ...original,
+        clientMsgId: followup,
+        requestFingerprint: followup,
+        payload: { ...original.payload, text: `Explicit revisit ${index}` },
+      },
+      primaryCommandId,
+    );
+    store.claimOrdinaryLocalCommandDispatch(followup);
+    store.completeOrdinaryLocalCommand(followup);
+    const revisit = {
+      ...transition,
+      priorPrimaryCommandId: primaryCommandId,
+      preparationId:
+        index === 3
+          ? '48345612-504a-4158-ae53-531484ec0fb4'
+          : '35922981-96d9-474e-a8ac-5f7b8307669c',
+      source: {
+        ...transition.source,
+        commandId: followup,
+        turnId: `turn-${index}`,
+        callId: `prepare-${index}`,
+      },
+      oldWorkspace: { kind: 'repository' as const, id: currentId, directory: currentDirectory },
+      newWorkspace: { ...transition.newWorkspace, id: nextId, directory: nextDirectory },
+    };
+    expect(() =>
+      store.reservePreparedRepositoryContinuation('session', {
+        ...revisit,
+        priorPrimaryCommandId: first.childCommandId,
+      }),
+    ).toThrow();
+    const reserved = store.reservePreparedRepositoryContinuation('session', revisit);
+    store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, revisit);
+    store.finalizePreparedRepositoryContinuation(
+      'session',
+      reserved.childCommandId,
+      revisit,
+      () => {},
+    );
+    expect(
+      store.observePreparedRepositoryBootstrapAdmission(reserved.childCommandId, 'original'),
+    ).toEqual(origin);
+    primaryCommandId = reserved.childCommandId;
+    currentId = nextId;
+    currentDirectory = nextDirectory;
+  }
   const db = (store as unknown as { db: import('better-sqlite3').Database }).db;
   const row = (id: string) =>
     (
@@ -317,4 +394,39 @@ it('observes the same immutable bootstrap across two private adoptions separated
   expect(() =>
     store.observePreparedRepositoryBootstrapAdmission(second.childCommandId, 'original'),
   ).toThrow();
+});
+
+it('keeps native primary receipt markers outside API, OpenShell and Vertex admissions', () => {
+  const store = fixture();
+  const source = store.getOrdinaryLocalCommandAdmission('original')!;
+  expect(source.preparedRepositoryPrimaryCommandId).toBeUndefined();
+  for (const [schema, provider, implementation, location, cwd] of [
+    [OrdinaryLocalResponsesCommandAdmissionSchema, 'openai', 'responses', 'local', '/old'],
+    [
+      OrdinaryOpenShellCommandAdmissionSchema,
+      'openai-codex',
+      'codex',
+      'openshell',
+      '/sandbox/workspaces/offline',
+    ],
+    [OrdinaryLocalVertexCommandAdmissionSchema, 'anthropic-vertex', 'claude-sdk', 'local', '/old'],
+  ] as const) {
+    const input = {
+      ...source,
+      binding: {
+        ...source.binding,
+        account: { ...source.binding.account, provider },
+        harness: { implementation },
+        execution: { ...source.binding.execution, location },
+      },
+      workspace: { ...source.workspace, cwd },
+    };
+    expect(schema.safeParse(input).success).toBe(true);
+    expect(
+      schema.safeParse({ ...input, preparedRepositoryPrimaryCommandId: 'native-primary' }).success,
+    ).toBe(false);
+    expect(schema.safeParse({ ...input, preparedRepositoryTransition: transition }).success).toBe(
+      false,
+    );
+  }
 });

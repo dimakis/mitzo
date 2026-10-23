@@ -695,6 +695,7 @@ it('keeps the real frozen bootstrap through exact old-meta and new-meta uncertai
         f.store.completeOrdinaryLocalCommand('followup');
         const second = {
           ...transition,
+          priorPrimaryCommandId: child.childCommandId,
           preparationId: '3dbdc62d-20ab-4144-b210-c55bc7f39cda',
           source: {
             ...transition.source,
@@ -709,11 +710,11 @@ it('keeps the real frozen bootstrap through exact old-meta and new-meta uncertai
           },
           newWorkspace: {
             ...transition.newWorkspace,
-            id: 'newer',
-            directory: join(taskRoot, 'newer'),
-            featureBranch: 'task/newer',
+            id: 'old',
+            directory: join(taskRoot, 'old'),
+            featureBranch: 'task/old',
             taskIdentitySha256: createHash('sha256')
-              .update(JSON.stringify(record('newer').taskIdentity))
+              .update(JSON.stringify(record('old').taskIdentity))
               .digest('hex'),
           },
         };
@@ -732,11 +733,11 @@ it('keeps the real frozen bootstrap through exact old-meta and new-meta uncertai
           f.expected,
           nextChild.childCommandId,
           second,
-          new OrdinaryLocalWorkspaceOwner(workspace, 'repository', { ...reservation, id: 'newer' }),
+          new OrdinaryLocalWorkspaceOwner(workspace, 'repository', { ...reservation, id: 'old' }),
           secondOwners,
         );
         lease.assertCurrentSync();
-        primary = 'newer';
+        primary = 'old';
         secondAdopted = true;
         lease.assertCurrentSync();
         await lease.assertCurrent();
@@ -753,6 +754,73 @@ it('keeps the real frozen bootstrap through exact old-meta and new-meta uncertai
         ).toEqual(oldBootstrap);
         expect(lease.custodySnapshot!()).toEqual(custody);
         await lease.assertToolCurrent!(f.options.signal);
+        f.store.admitPreparedRepositoryPrimaryContinuation(
+          {
+            sessionId: 'session',
+            accountBinding: account,
+            repositoryWorkspaceId: 'old',
+            cwd: join(taskRoot, 'old'),
+            mode: 'agent',
+            agentProfile: profile,
+          },
+          f.expected.binding,
+          {
+            clientMsgId: 'revisit',
+            requestFingerprint: 'revisit',
+            selection: f.expected.selection,
+            payload: {
+              text: 'Return to the next repository',
+              systemPrompt: 'Original instructions',
+            },
+          },
+          nextChild.childCommandId,
+        );
+        f.store.claimOrdinaryLocalCommandDispatch('revisit');
+        f.store.completeOrdinaryLocalCommand('revisit');
+        const third = {
+          ...transition,
+          preparationId: '48345612-504a-4158-ae53-531484ec0fb4',
+          priorPrimaryCommandId: nextChild.childCommandId,
+          source: {
+            ...transition.source,
+            commandId: 'revisit',
+            turnId: 'third-turn',
+            callId: 'third-prepare',
+          },
+        };
+        const thirdChild = f.store.reservePreparedRepositoryContinuation('session', third);
+        let thirdAdopted = false;
+        selection.preparePreparedRepositoryPrimary(
+          f.expected,
+          thirdChild.childCommandId,
+          third,
+          new OrdinaryLocalWorkspaceOwner(workspace, 'repository', { ...reservation, id: 'new' }),
+          {
+            assertCurrentSync() {
+              if (!current) throw Error('third boundary revoked');
+            },
+            assertAdoptedSync() {
+              if (!thirdAdopted) throw Error('third actual witness absent');
+            },
+          },
+        );
+        lease.assertCurrentSync();
+        primary = 'new';
+        thirdAdopted = true;
+        lease.assertCurrentSync();
+        f.store.commitPreparedRepositoryContinuation('session', thirdChild.childCommandId, third);
+        f.store.finalizePreparedRepositoryContinuation(
+          'session',
+          thirdChild.childCommandId,
+          third,
+          () => {},
+        );
+        await lease.assertToolCurrent!(f.options.signal);
+        expect(lease.client).toBe(f.rpc);
+        expect(lease.custodySnapshot!()).toEqual(custody);
+        expect(
+          f.store.observePreparedRepositoryBootstrapAdmission(thirdChild.childCommandId, 'command'),
+        ).toEqual(oldBootstrap);
         current = false;
         expect(() => lease.assertCurrentSync()).toThrow();
       },

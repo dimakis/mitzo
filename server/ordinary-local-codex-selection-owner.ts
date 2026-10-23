@@ -68,6 +68,7 @@ export class OrdinaryLocalCodexSelectionOwner {
       this.owners.responses ||
       this.owners.vertex ||
       child.state !== 'uncertain' ||
+      transition.priorPrimaryCommandId !== this.#preparedPrimary?.childCommandId ||
       !isDeepStrictEqual(child.preparedRepositoryTransition, transition) ||
       (this.#preparedPrimary
         ? !isDeepStrictEqual(

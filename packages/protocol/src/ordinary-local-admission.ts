@@ -38,6 +38,8 @@ export const OrdinaryLocalCommandAdmissionSchema = z.strictObject({
   requestFingerprint: z.string().min(1),
   state: z.enum(['reserved', 'uncertain', 'consumed']),
   preparedRepositoryTransition: PreparedRepositoryTransitionSchema.optional(),
+  /** Existing private continuation owner selected this exact committed primary. */
+  preparedRepositoryPrimaryCommandId: reference.optional(),
 });
 export type OrdinaryLocalCommandSelection = z.infer<typeof OrdinaryLocalCommandSelectionSchema>;
 export type OrdinaryLocalCommandAdmission = z.infer<typeof OrdinaryLocalCommandAdmissionSchema>;
@@ -52,7 +54,10 @@ export function createOrdinaryFreshPermission(mode: MitzoMode) {
 
 /** Local API adapter reuses the existing ordinary command ledger. */
 export const OrdinaryLocalResponsesCommandAdmissionSchema =
-  OrdinaryLocalCommandAdmissionSchema.omit({ preparedRepositoryTransition: true }).extend({
+  OrdinaryLocalCommandAdmissionSchema.omit({
+    preparedRepositoryTransition: true,
+    preparedRepositoryPrimaryCommandId: true,
+  }).extend({
     binding: SessionRuntimeBindingV2Schema.refine(
       (b) =>
         ((b.account.provider === 'openai' && b.harness.implementation === 'responses') ||
