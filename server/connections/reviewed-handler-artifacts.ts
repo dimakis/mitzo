@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.617-qualified-cold-policy-projection';
+  'v1.0.618-qualified-cold-bootstrap-observation';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -146,7 +146,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/prepared-repository-transition.ts':
     'c624eeb6fa3e7313b4e314532244b4d1bca27f3b87f96cdccf3cd5e90fa7ffb4',
   '../../packages/protocol/__tests__/prepared-repository-admission.test.ts':
-    '38f719a15879a0b53a7e8fef5cc8af88406930a992c3ee5606697563f141ffb2',
+    '8aa81327c18538b02b095723925c1a1c4307f3cf8d8fbe4dbeacff9338b71cc5',
   '../prepared-repository-transition.ts':
     'c301c1915b0ecca42983365e71364589cb20799caba6b4dfa69a05f16ddfe06d',
   '../prepared-repository-barrier-read.ts':
@@ -1103,7 +1103,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-metadata-store.ts':
     '019598b360106c0dd8babc08e9366e40c95c1dd4dca9ea649c37bc7d096b8358',
   '../../packages/protocol/src/event-store.ts':
-    '073babe6edc7fa9abdaa0c0ed3bc9c8fc72112e396255628ba2ef23becd21827',
+    '11dbf5ab1d6523295b568539a0585cf48a2d22e0765201e008a797cb2051da73',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':

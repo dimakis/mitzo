@@ -1163,6 +1163,82 @@ export class EventStore {
     }
     throw Error('Original prepared repository bootstrap lineage exceeds bound');
   }
+  /** Private historical observation for a fresh cold bootstrap enrolled under
+   * an independently verified consumed primary. No current custody or grant is
+   * inferred here; the original first-origin observer remains strict. */
+  observePreparedRepositoryColdBootstrapAdmission(
+    childCommandId: string,
+    coldBootstrapCommandId: string,
+    consumedPrimaryAnchorCommandId: string,
+  ): OrdinaryLocalCommandAdmission {
+    const refuse = () => Error('Qualified cold bootstrap observation unavailable');
+    const read = (id: string) => {
+      const row = this.db!.prepare(
+        'SELECT rowid,session_id,error,ordinary_admission FROM send_commands WHERE client_msg_id=?',
+      ).get(id) as
+        | {
+            rowid: number;
+            session_id: string;
+            error: string | null;
+            ordinary_admission: string | null;
+          }
+        | undefined;
+      if (!row || row.error || !row.ordinary_admission) throw refuse();
+      return {
+        ...row,
+        admission: OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(row.ordinary_admission)),
+      };
+    };
+    const bootstrap = read(coldBootstrapCommandId);
+    const anchor = read(consumedPrimaryAnchorCommandId);
+    const top = read(childCommandId);
+    if (
+      bootstrap.admission.state !== 'consumed' ||
+      bootstrap.admission.preparedRepositoryTransition ||
+      bootstrap.admission.preparedRepositoryPrimaryCommandId !== consumedPrimaryAnchorCommandId ||
+      anchor.admission.state !== 'consumed' ||
+      !anchor.admission.preparedRepositoryTransition ||
+      bootstrap.rowid <= anchor.rowid ||
+      (childCommandId !== consumedPrimaryAnchorCommandId && top.rowid <= bootstrap.rowid) ||
+      bootstrap.session_id !== anchor.session_id ||
+      bootstrap.session_id !== top.session_id ||
+      !isDeepStrictEqual(bootstrap.admission.workspace, anchor.admission.workspace) ||
+      !isDeepStrictEqual(bootstrap.admission.binding, top.admission.binding) ||
+      !isDeepStrictEqual(bootstrap.admission.selection.agent, top.admission.selection.agent) ||
+      !isDeepStrictEqual(bootstrap.admission.selection.context, top.admission.selection.context) ||
+      !isDeepStrictEqual(
+        bootstrap.admission.selection.permission,
+        top.admission.selection.permission,
+      )
+    )
+      throw refuse();
+    let id = childCommandId;
+    let found = false;
+    for (let depth = 0; depth < 100; depth++) {
+      const current = this.readPreparedRepositoryTransition(id);
+      if (id === consumedPrimaryAnchorCommandId) found = true;
+      const transition = current.preparedRepositoryTransition!;
+      if (!transition.priorPrimaryCommandId) {
+        if (!found) throw refuse();
+        // This validates the ENTIRE unique decreasing ancestry, exact source
+        // receipts and true root, including ancestors preceding the cold owner.
+        this.observePreparedRepositoryBootstrapAdmission(
+          childCommandId,
+          transition.source.commandId,
+        );
+        const freeze = <T>(value: T): T => {
+          if (value && typeof value === 'object') {
+            for (const nested of Object.values(value)) freeze(nested);
+            Object.freeze(value);
+          }
+          return value;
+        };
+        return freeze(bootstrap.admission);
+      }
+      id = transition.priorPrimaryCommandId;
+    }
+    throw refuse();
+  }
   /** Preserve partial adoption, including a queued native row after a thrown
    * enqueue return. No cold resume or generic dispatch can infer permission. */
   markPreparedRepositoryContinuationUncertain(commandId: string): void {

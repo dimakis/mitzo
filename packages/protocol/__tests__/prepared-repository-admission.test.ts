@@ -430,3 +430,114 @@ it('keeps native primary receipt markers outside API, OpenShell and Vertex admis
     );
   }
 });
+
+function coldPrimaryFixture() {
+  const store = fixture();
+  const primary = store.reservePreparedRepositoryContinuation('session', transition);
+  store.commitPreparedRepositoryContinuation('session', primary.childCommandId, transition);
+  store.finalizePreparedRepositoryContinuation(
+    'session',
+    primary.childCommandId,
+    transition,
+    () => {},
+  );
+  store.admitPreparedRepositoryPrimaryContinuation(
+    { ...meta, repositoryWorkspaceId: 'new', cwd: '/new' },
+    binding,
+    { ...original, clientMsgId: 'cold', requestFingerprint: 'cold-fingerprint' },
+    primary.childCommandId,
+  );
+  store.claimOrdinaryLocalCommandDispatch('cold');
+  store.completeOrdinaryLocalCommand('cold');
+  const next = {
+    ...transition,
+    preparationId: '3dbdc62d-20ab-4144-b210-c55bc7f39cda',
+    priorPrimaryCommandId: primary.childCommandId,
+    source: {
+      ...transition.source,
+      commandId: 'cold',
+      turnId: 'cold-turn',
+      callId: 'cold-prepare',
+    },
+    oldWorkspace: { kind: 'repository' as const, id: 'new', directory: '/new' },
+    newWorkspace: { ...transition.newWorkspace, id: 'third', directory: '/third' },
+  };
+  const child = store.reservePreparedRepositoryContinuation('session', next);
+  return { store, primary, child, next };
+}
+it('observes the exact fresh cold bootstrap across a later Prepare without weakening original-origin equality', () => {
+  const { store, primary, child, next } = coldPrimaryFixture();
+  const cold = store.getOrdinaryLocalCommandAdmission('cold');
+  const observed = store.observePreparedRepositoryColdBootstrapAdmission(
+    child.childCommandId,
+    'cold',
+    primary.childCommandId,
+  );
+  expect(observed).toEqual(cold);
+  expect(Object.isFrozen(observed)).toBe(true);
+  expect(Object.isFrozen(observed.workspace)).toBe(true);
+  expect(() =>
+    store.observePreparedRepositoryBootstrapAdmission(child.childCommandId, 'cold'),
+  ).toThrow();
+  store.commitPreparedRepositoryContinuation('session', child.childCommandId, next);
+  store.finalizePreparedRepositoryContinuation('session', child.childCommandId, next, () => {});
+  expect(
+    store.observePreparedRepositoryColdBootstrapAdmission(
+      child.childCommandId,
+      'cold',
+      primary.childCommandId,
+    ),
+  ).toEqual(cold);
+  expect(() => store.getOrdinaryLocalCommandAdmission('original')).toThrow();
+});
+it.each([
+  'anchor',
+  'bootstrap',
+  'uncertain-anchor',
+  'uncertain-bootstrap',
+  'session',
+  'binding',
+  'pointer',
+  'order',
+] as const)('refuses a changed %s in cold bootstrap observation', (change) => {
+  const { store, primary, child } = coldPrimaryFixture();
+  const db = (store as unknown as { db: import('better-sqlite3').Database }).db;
+  const update = (id: string, mutate: (value: Record<string, unknown>) => void) => {
+    const row = db
+      .prepare('SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?')
+      .get(id) as { ordinary_admission: string };
+    const value = JSON.parse(row.ordinary_admission);
+    mutate(value);
+    db.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+      JSON.stringify(value),
+      id,
+    );
+  };
+  if (change === 'uncertain-anchor')
+    update(primary.childCommandId, (a) => {
+      a.state = 'uncertain';
+    });
+  if (change === 'uncertain-bootstrap')
+    update('cold', (a) => {
+      a.state = 'uncertain';
+    });
+  if (change === 'pointer')
+    update('cold', (a) => {
+      a.preparedRepositoryPrimaryCommandId = 'original';
+    });
+  if (change === 'binding')
+    update('cold', (a) => {
+      a.binding = { ...binding, account: { ...binding.account, accountId: 'other' } };
+    });
+  if (change === 'session')
+    db.prepare('UPDATE send_commands SET session_id=? WHERE client_msg_id=?').run('other', 'cold');
+  if (change === 'order')
+    db.prepare('UPDATE send_commands SET rowid=1000 WHERE client_msg_id=?').run('cold');
+  expect(() =>
+    store.observePreparedRepositoryColdBootstrapAdmission(
+      child.childCommandId,
+      change === 'bootstrap' ? 'original' : 'cold',
+      change === 'anchor' ? child.childCommandId : primary.childCommandId,
+    ),
+  ).toThrow();
+});
