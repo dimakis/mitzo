@@ -260,8 +260,9 @@ export async function readLocalRepositoryStatus(
         await readRegular(join(metadata.gitDirectory, 'index'), 16 * 1024 * 1024),
       );
       // A newer scratch timestamp can hide same-size edits within the source
-      // index's racy-clean window. Make Git rehash its cached file entries.
-      await utimes(join(gitDirectory, 'index'), 0, 0);
+      // index's racy-clean window. A nonzero old timestamp forces Git to rehash
+      // cached file entries; zero disables Git's racy-timestamp check.
+      await utimes(join(gitDirectory, 'index'), 1, 1);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
