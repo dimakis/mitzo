@@ -129,13 +129,14 @@ export class OpenAIKeyManagement {
     )
       throw new Error('OpenAI account is not configured for key replacement');
     this.assertResourceOwnership(account);
+    const resources = openAIKeyResourceBindings(account);
     if (
-      accounts.some(
+      (this.options.resourceAccounts?.() ?? accounts).some(
         (item) =>
           item.id !== id &&
-          (digest(item.credentialRef) === digest(account.credentialRef) ||
-            item.providerId === account.providerId ||
-            item.providerName === account.providerName),
+          (openAIKeyResourceBindings(item).credentialBinding === resources.credentialBinding ||
+            (!!item.providerId && item.providerId === account.providerId) ||
+            (!!item.providerName && item.providerName === account.providerName)),
       )
     )
       throw new Error('Shared credentials require separate configuration');
