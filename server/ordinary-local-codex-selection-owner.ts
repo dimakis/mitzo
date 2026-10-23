@@ -1,6 +1,7 @@
 import {
   OrdinaryLocalWorkspaceOwner,
   type LocalWorkspaceKind,
+  type LocalWorkspaceCustodyOwner,
 } from './ordinary-local-workspace-owner.js';
 import { assertAgentToolRoute } from './agent-tool-selection.js';
 import { assertOrdinaryCodexContextIdentity } from './ordinary-codex-agent-context.js';
@@ -30,7 +31,7 @@ const unavailable = () => new Error('Ordinary local Codex selection unavailable'
 interface PreparedPrimaryDelegation {
   childCommandId: string;
   transition: PreparedRepositoryTransition;
-  workspace: OrdinaryLocalWorkspaceOwner<'repository'>;
+  workspace: LocalWorkspaceCustodyOwner<'repository'>;
   originalAdmission: ReturnType<EventStore['observePreparedRepositoryBootstrapAdmission']>;
   owners: { assertCurrentSync(): void; assertAdoptedSync(): void };
   assertBoundary: () => void;
@@ -58,7 +59,7 @@ export class OrdinaryLocalCodexSelectionOwner {
     expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
     childCommandId: string,
     raw: PreparedRepositoryTransition,
-    workspace: OrdinaryLocalWorkspaceOwner<'repository'>,
+    workspace: LocalWorkspaceCustodyOwner<'repository'>,
     owners: { assertCurrentSync(): void; assertAdoptedSync(): void },
   ): void {
     this.assertCurrentSync(expected);

@@ -214,3 +214,14 @@ export class PreparedRepositoryWorkspaceOwner {
     await this.validate(this.facts.newWorkspace.directory, signal);
   }
 }
+
+/** Private persistent policy owner from the actual chat composition, never a model input. */
+export interface PreparedRepositoryNativePolicyOwner {
+  readonly signal: AbortSignal;
+  selectedPolicy(): import('./codex-native-execution-policy.js').CodexNativeExecutionPolicy;
+  assertCurrentSync(): void;
+  assertNativeExecutionCurrent?(
+    policy: import('./codex-native-execution-policy.js').CodexNativeExecutionPolicy,
+    commandId: string,
+  ): void;
+}

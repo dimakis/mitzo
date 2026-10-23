@@ -3,6 +3,7 @@ import {
   OrdinaryLocalWorkspaceOwner,
   type LocalWorkspaceKind,
   type LocalWorkspaceRecord,
+  type LocalWorkspaceCustodyOwner,
 } from './ordinary-local-workspace-owner.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import {
@@ -53,8 +54,18 @@ import type { FrozenHostCodexExecutable } from './frozen-host-codex-executable.j
 import { readCodexModels } from './model-catalog.js';
 import type { CodexConversationStore } from './codex-conversation-store.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
+import { PreparedRepositoryWorkspaceOwner } from './prepared-repository-workspace-owner.js';
+import { performPreparedRepositoryPrimaryTransition } from './owned-prepared-repository-transition.js';
+import { withPreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
+import { capturePreparedRepositoryReader } from './local-repository-native-read.js';
+import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 
 const unavailable = () => new Error('Owned local Codex runtime unavailable');
+function strictSync(result: unknown): void {
+  if (result === undefined) return;
+  void Promise.resolve(result).catch(() => {});
+  throw unavailable();
+}
 const RawPayload = z.strictObject({
   sourceSnapshots: SourceSnapshotsSchema.optional(),
   text: z.string().min(1).max(1_000_000),
@@ -107,7 +118,7 @@ interface Owners<K extends LocalWorkspaceKind = 'repository'> {
    */
   dispatch(input: OrdinaryLocalCodexOwnedDispatch<K>): Promise<void>;
   /** Existing live native FIFO owner; absent means first-command-only. */
-  dispatchContinuation?(input: OrdinaryLocalCodexOwnedDispatch<K>): Promise<void>;
+  dispatchContinuation?(input: OrdinaryLocalCodexOwnedDispatch<LocalWorkspaceKind>): Promise<void>;
 }
 
 /** Server-internal composition for one reserved local first command. No endpoint,
@@ -125,6 +136,9 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   #expected?: Readonly<OrdinaryLocalCodexAdmissionExpectation>;
   readonly #workspaceOwner: OrdinaryLocalWorkspaceOwner<K>;
   #workspace?: LocalWorkspaceRecord<K>;
+  #preparedPrimaryCommandId?: string;
+  #adoptedWorkspace?: import('./repository-workspaces.js').RepositoryWorkspace;
+  #adoptedWorkspaceOwner?: LocalWorkspaceCustodyOwner<'repository'>;
   #authSessionId?: string;
   #closed = false;
   readonly #onAbort = () => this.close();
@@ -359,9 +373,12 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
             : undefined,
         retainedAccountBinding: resume ? this.#reservation.binding : undefined,
         isSelectionPending: () => {
-          const receipt = this.owners.eventStore.getOrdinaryLocalCommandAdmission(
-            this.owners.commandId,
-          );
+          const receipt = this.#preparedPrimaryCommandId
+            ? this.owners.eventStore.observePreparedRepositoryBootstrapAdmission(
+                this.#preparedPrimaryCommandId,
+                this.owners.commandId,
+              )
+            : this.owners.eventStore.getOrdinaryLocalCommandAdmission(this.owners.commandId);
           if (receipt?.state !== 'consumed') return true;
           if (!this.owners.nativeStore) return false;
           try {
@@ -468,6 +485,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
             )
               throw unavailable();
             lease.assertCurrentSync();
+            const withQualifiedReadOwner = lease.withQualifiedWorkspaceReadOwner;
             const owner = {
               eventStore: this.owners.eventStore,
               workspaceKind: this.#workspaceOwner.kind,
@@ -483,10 +501,249 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
                   this.assertCurrent();
                   if (this.#lease !== lease || !this.#expected) throw unavailable();
                   lease.assertCurrentSync();
-                  this.#workspaceOwner.assertCurrentSync(this.#expected.workspace.cwd);
+                  (this.#adoptedWorkspaceOwner ?? this.#workspaceOwner).assertCurrentSync(
+                    this.#expected.workspace.cwd,
+                  );
                 },
-                adopt: async () => {
-                  throw Error('Prepared repository selection handoff unavailable');
+                adopt: async (
+                  scope: import('./prepared-repository-barrier-read.js').PreparedRepositoryBarrierReadScope,
+                  source: Readonly<import('./codex-conversation-store.js').CodexNativeTurnTarget>,
+                  assertConversationCurrentSync: () => void,
+                  policyOwner: import('./prepared-repository-workspace-owner.js').PreparedRepositoryNativePolicyOwner,
+                ) => {
+                  this.assertCurrent();
+                  assertConversationCurrentSync();
+                  const currentExpected = this.#expected;
+                  const native = this.owners.nativeStore;
+                  if (
+                    !currentExpected ||
+                    !native ||
+                    this.#lease !== lease ||
+                    !Object.isFrozen(policyOwner)
+                  )
+                    throw unavailable();
+                  const nativeDescriptor = Object.getOwnPropertyDescriptor(
+                    policyOwner,
+                    'assertNativeExecutionCurrent',
+                  );
+                  if (nativeDescriptor && !('value' in nativeDescriptor)) throw unavailable();
+                  for (const key of ['signal', 'selectedPolicy', 'assertCurrentSync']) {
+                    const descriptor = Object.getOwnPropertyDescriptor(policyOwner, key);
+                    if (!descriptor || !('value' in descriptor)) throw unavailable();
+                  }
+                  const selectedPolicy = policyOwner.selectedPolicy,
+                    currentPolicyOwner = policyOwner.assertCurrentSync,
+                    nativeCurrent = policyOwner.assertNativeExecutionCurrent,
+                    policySignal = policyOwner.signal;
+                  const assertPolicyOwner = () => {
+                    if (
+                      policyOwner.selectedPolicy !== selectedPolicy ||
+                      policyOwner.assertCurrentSync !== currentPolicyOwner ||
+                      policyOwner.assertNativeExecutionCurrent !== nativeCurrent ||
+                      policyOwner.signal !== policySignal
+                    )
+                      throw unavailable();
+                    this.assertCurrent();
+                    policySignal.throwIfAborted();
+                    strictSync(currentPolicyOwner.call(policyOwner));
+                  };
+                  assertPolicyOwner();
+                  const primarySource = admission.capturePreparedRepositoryPrimarySource(
+                    source,
+                    assertConversationCurrentSync,
+                  );
+                  try {
+                    const input = Object.freeze({
+                      binding,
+                      conversationId: this.#reservation.conversationId,
+                      sourceTarget: source,
+                      oldWorkspace: Object.freeze({
+                        kind: this.#adoptedWorkspaceOwner?.kind ?? this.#workspaceOwner.kind,
+                        id: currentExpected.workspace.workspaceId,
+                        directory: currentExpected.workspace.cwd,
+                      }),
+                    });
+                    // Pure bounded SQL discovery precedes any physical/queue owner
+                    // work when a completed turn did not prepare a repository.
+                    if (!this.owners.workspace.findPreparedRepositoryTransitionCandidate(input))
+                      return undefined;
+                    const queue = () => {
+                      assertConversationCurrentSync();
+                      this.assertCurrent();
+                      primarySource?.assertCurrentSync();
+                      if (
+                        native
+                          .commands(input.conversationId, binding)
+                          .some(
+                            (command) =>
+                              command.status === 'queued' || command.status === 'running',
+                          )
+                      )
+                        throw Error('Prepared repository transition has queued old-workspace work');
+                    };
+                    const proof = await this.owners.workspace.capturePreparedRepositoryTransition(
+                      input,
+                      {
+                        readScope: scope,
+                        assertNoQueuedOldWorkspaceCommandsSync: queue,
+                        resultSha256: (request) =>
+                          native.completedPreparedRepositoryResultSha256(
+                            input.conversationId,
+                            binding,
+                            source,
+                            request.prepareCallId,
+                            request.requestHash,
+                            primarySource,
+                          ),
+                      },
+                    );
+                    if (!proof) return undefined;
+                    const result = await performPreparedRepositoryPrimaryTransition(proof, {
+                      events: this.owners.eventStore,
+                      native,
+                      admission,
+                      conversationId: input.conversationId,
+                      binding,
+                      expected: currentExpected,
+                      preparedPrimarySource: primarySource,
+                      assertCurrentSync: () => {
+                        assertConversationCurrentSync();
+                        assertPolicyOwner();
+                        lease.assertCurrentSync();
+                      },
+                      assertConversationCurrentSync,
+                      assertOperatorAndLeaseCurrentSync: () => {
+                        this.assertCurrent();
+                        lease.assertCurrentSync();
+                      },
+                      prepareWorkspaceHandoff: (facts, nextExpected, childId) => {
+                        const workspace = new PreparedRepositoryWorkspaceOwner(
+                          this.owners.workspace,
+                          facts,
+                          childId,
+                          {
+                            assertCurrentSync: () => {
+                              this.assertCurrent();
+                              if (this.#lease !== lease) throw unavailable();
+                            },
+                            withReadAccess: async (operationSignal, action) => {
+                              const withReadOwner = withQualifiedReadOwner;
+                              if (
+                                !withReadOwner ||
+                                lease.withQualifiedWorkspaceReadOwner !== withReadOwner
+                              )
+                                throw unavailable();
+                              let started = false,
+                                completed = false;
+                              const checked: unknown = await withReadOwner.call(
+                                lease,
+                                AbortSignal.any([this.#signal, policySignal, operationSignal]),
+                                async (current) => {
+                                  if (started) throw unavailable();
+                                  started = true;
+                                  assertPolicyOwner();
+                                  const policy = selectedPolicy.call(policyOwner);
+                                  await withPreparedRepositoryBarrierReadScope(
+                                    policy,
+                                    childId,
+                                    {
+                                      signal: current.signal,
+                                      selectedPolicy: () => selectedPolicy.call(policyOwner),
+                                      assertCurrentSync: () => {
+                                        current.assertCurrentSync();
+                                        assertPolicyOwner();
+                                      },
+                                      revalidate: async () => {
+                                        await current.revalidate();
+                                        assertPolicyOwner();
+                                      },
+                                      assertNativeExecutionCurrent:
+                                        nativeCurrent &&
+                                        ((policy, commandId) =>
+                                          nativeCurrent.call(policyOwner, policy, commandId)),
+                                    },
+                                    async (readScope) => {
+                                      const reader = await capturePreparedRepositoryReader(
+                                        readScope,
+                                        { deadline: Date.now() + 30000 },
+                                      );
+                                      try {
+                                        const result: unknown = await action(
+                                          new LocalRepositoryReadAccess(reader),
+                                        );
+                                        if (result !== undefined) throw unavailable();
+                                      } finally {
+                                        try {
+                                          await reader.dispose();
+                                        } finally {
+                                          await readScope.revalidate();
+                                        }
+                                      }
+                                    },
+                                  );
+                                  completed = true;
+                                },
+                              );
+                              if (
+                                !completed ||
+                                checked !== undefined ||
+                                lease.withQualifiedWorkspaceReadOwner !== withReadOwner
+                              )
+                                throw unavailable();
+                            },
+                          },
+                        );
+                        const transition =
+                          this.owners.eventStore.observePreparedRepositoryContinuation(
+                            childId,
+                          ).preparedRepositoryTransition!;
+                        selection.preparePreparedRepositoryPrimary(
+                          expected,
+                          childId,
+                          transition,
+                          workspace,
+                          {
+                            assertCurrentSync: () => {
+                              this.assertCurrent();
+                              assertConversationCurrentSync();
+                            },
+                            assertAdoptedSync: () =>
+                              this.owners.workspace.assertPreparedRepositoryTransitionAdopted(
+                                facts,
+                                childId,
+                              ),
+                          },
+                        );
+                        this.#preparedPrimaryCommandId = childId;
+                        let committed = false;
+                        return {
+                          assertCurrentSync: () => {
+                            this.assertCurrent();
+                            lease.assertCurrentSync();
+                            workspace.assertCurrentSync(nextExpected.workspace.cwd);
+                          },
+                          commit: () => {
+                            if (committed) throw unavailable();
+                            this.assertCurrent();
+                            lease.assertCurrentSync();
+                            workspace.assertCurrentSync(nextExpected.workspace.cwd);
+                            this.#adoptedWorkspaceOwner = workspace;
+                            this.#adoptedWorkspace = workspace.get();
+                            this.#expected = structuredClone(nextExpected);
+                            committed = true;
+                          },
+                        };
+                      },
+                    });
+                    return {
+                      ...result.workspace,
+                      repositoryWorkspace: this.owners.workspace.getForConversation(
+                        input.conversationId,
+                      )!,
+                    };
+                  } finally {
+                    primarySource?.dispose();
+                  }
                 },
               }),
             };
@@ -549,7 +806,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       const lease = this.#lease,
         admission = this.#admission,
         original = this.#expected,
-        workspace = this.#workspace;
+        workspace = this.#adoptedWorkspace ?? this.#workspace;
       if (!lease || !admission || !original || !workspace || !this.owners.dispatchContinuation)
         throw unavailable();
       const request = OrdinaryLocalCodexCommandRequestSchema.parse(raw);
@@ -646,7 +903,10 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         store: {
           admitOrdinaryLocalContinuation: (...args) => {
             assertAdmissionCurrent();
-            return this.owners.eventStore.admitOrdinaryLocalContinuation(...args);
+            const primary = admission.currentPreparedRepositoryPrimaryCommandId();
+            return primary
+              ? this.owners.eventStore.admitPreparedRepositoryPrimaryContinuation(...args, primary)
+              : this.owners.eventStore.admitOrdinaryLocalContinuation(...args);
           },
           admitOrdinaryLocalCommand: (...args) => {
             assertAdmissionCurrent();
@@ -675,7 +935,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       return await coordinator.admitContinuation(
         {
           sessionId: this.#reservation.conversationId,
-          ...(this.#workspaceOwner.kind === 'ordinary'
+          ...((this.#adoptedWorkspaceOwner ?? this.#workspaceOwner).kind === 'ordinary'
             ? { ordinaryWorkspaceId: workspace.id }
             : { repositoryWorkspaceId: workspace.id }),
           cwd: workspace.directory,
