@@ -163,6 +163,17 @@ describe('bounded repository discovery', () => {
       }),
     ).rejects.toMatchObject({ name: 'AbortError' });
   });
+
+  it('skips generic configuration directories during scans but accepts explicit accessible repositories inside them', async () => {
+    const selected = await repo(join(root, '.config', 'editor'));
+    expect(await discoverLocalRepository({ query: 'editor', accessScope: scope() })).toMatchObject({
+      state: 'missing',
+      candidates: [],
+    });
+    expect(
+      await discoverLocalRepository({ explicitPath: selected, accessScope: scope() }),
+    ).toMatchObject({ state: 'selected', candidates: [{ path: selected }] });
+  });
 });
 
 describe('read-only repository inspection', () => {
@@ -313,5 +324,27 @@ describe('read-only repository inspection', () => {
       path: worktree,
       branch: 'session/owned',
     });
+  });
+
+  it('rejects credential Git pointers, alternate object stores and symlink metadata', async () => {
+    const selected = await repo(join(root, 'source'));
+    const pointed = join(root, 'pointed');
+    await mkdir(pointed);
+    await writeFile(join(pointed, '.git'), `gitdir: ${join(root, '.ssh', 'private')}\n`);
+    expect(
+      (await discoverLocalRepository({ explicitPath: pointed, accessScope: scope() })).state,
+    ).toBe('access-required');
+    await writeFile(
+      join(selected, '.git', 'objects', 'info', 'alternates'),
+      join(root, '.ssh', 'private') + '\n',
+    );
+    await expect(inspectLocalRepository({ path: selected, accessScope: scope() })).rejects.toThrow(
+      /alternate/i,
+    );
+    await rm(join(selected, '.git', 'objects', 'info', 'alternates'));
+    await symlink(join(root, '.ssh', 'private'), join(selected, '.git', 'refs', 'unsafe'));
+    await expect(inspectLocalRepository({ path: selected, accessScope: scope() })).rejects.toThrow(
+      /symlink/i,
+    );
   });
 });

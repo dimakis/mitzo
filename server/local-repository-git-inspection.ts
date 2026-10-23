@@ -24,7 +24,6 @@ const credentialDirectories = new Set([
   '.kube',
   '.azure',
   '.gcloud',
-  '.config',
   'Keychains',
 ]);
 const agentDirectories = new Set(['.claude', '.cursor', '.codex']);
