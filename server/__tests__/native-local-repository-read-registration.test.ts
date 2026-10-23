@@ -35,6 +35,7 @@ it.skipIf(
 )(
   'registered owned Discover and Inspect use the actual SRT reader and retain denial/current/cleanup fences',
   async () => {
+    const setupStarted = performance.now();
     vi.stubEnv('TMPDIR', '/private/tmp');
     const artifacts = await mkdtemp('/private/tmp/mitzo-read-tools-artifact-');
     const { rm } = await import('node:fs/promises');
@@ -245,7 +246,11 @@ it.skipIf(
       expect.arrayContaining(['DiscoverLocalRepository', 'InspectLocalRepository']),
     );
     expect(tools.some((t) => t.name === 'PrepareLocalRepository')).toBe(false);
+    const setupMs = performance.now() - setupStarted;
+    const operationTimings: Record<string, number> = {};
+    const discoverStarted = performance.now();
     const discovery = await f.a.call({ path: join(f.f.root, 'source') });
+    operationTimings.DiscoverLocalRepository = performance.now() - discoverStarted;
     for (const scratch of new Set(trace.scratch))
       await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });
     for (const settings of sourceSettings)
@@ -253,7 +258,11 @@ it.skipIf(
     expect(sourceSettings.length).toBeGreaterThan(0);
     await writeFile(
       '/private/tmp/mitzo-registered-read-tools-phase-evidence.json',
-      JSON.stringify({ compilation, metrics: f.a.metrics, trace, phases }, null, 2),
+      JSON.stringify(
+        { compilation, setupMs, operationTimings, metrics: f.a.metrics, trace, phases },
+        null,
+        2,
+      ),
     );
     expect(discovery.response.success, JSON.stringify(discovery.value)).toBe(true);
     expect(
@@ -264,9 +273,19 @@ it.skipIf(
       candidates: [{ path: join(f.f.root, 'source') }],
       truncated: false,
     });
+    const inspectStarted = performance.now();
     const inspection = await f.a.call(
       { path: join(f.f.root, 'source') },
       { tool: 'InspectLocalRepository' },
+    );
+    operationTimings.InspectLocalRepository = performance.now() - inspectStarted;
+    await writeFile(
+      '/private/tmp/mitzo-registered-read-tools-phase-evidence.json',
+      JSON.stringify(
+        { compilation, setupMs, operationTimings, metrics: f.a.metrics, trace, phases },
+        null,
+        2,
+      ),
     );
     expect(inspection.response.success, JSON.stringify(inspection.value)).toBe(true);
     expect(inspection.value).toMatchObject({

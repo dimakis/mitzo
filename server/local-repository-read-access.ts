@@ -438,13 +438,49 @@ export class LocalRepositoryReadAccess {
     )
       throw unavailable();
     const captured = Object.freeze([...paths]);
-    for (const path of captured) {
-      const anchor = this.anchor(path);
-      const target = this.entries.get(path);
-      const parent = path === anchor.rootPath ? target : this.entries.get(dirname(path));
-      if (!target || target.kind !== 'directory' || !parent || parent.kind !== 'directory')
-        throw unavailable();
-    }
+    const known = Object.freeze(
+      captured.map((path) => {
+        const anchor = this.anchor(path);
+        const target = this.entries.get(path);
+        const parentPath = path === anchor.rootPath ? path : dirname(path);
+        const parent = this.entries.get(parentPath);
+        if (!target || target.kind !== 'directory' || !parent || parent.kind !== 'directory')
+          throw unavailable();
+        return Object.freeze({
+          path,
+          parentPath,
+          anchor,
+          target,
+          parent,
+          rootPath: anchor.rootPath,
+          rootIdentity: Object.freeze({ ...anchor.identity }),
+          targetState: Object.freeze({
+            ...target,
+            identity: Object.freeze({ ...target.identity }),
+          }),
+          parentState: Object.freeze({
+            ...parent,
+            identity: Object.freeze({ ...parent.identity }),
+          }),
+        });
+      }),
+    );
+    const assertKnown = () => {
+      for (const item of known) {
+        if (
+          this.anchor(item.path) !== item.anchor ||
+          this.entries.get(item.path) !== item.target ||
+          this.entries.get(item.parentPath) !== item.parent ||
+          item.anchor.rootPath !== item.rootPath ||
+          !equalIdentity(item.anchor.identity, item.rootIdentity) ||
+          item.target.name !== item.targetState.name ||
+          item.parent.name !== item.parentState.name ||
+          !sameEntry(item.target, item.targetState) ||
+          !sameEntry(item.parent, item.parentState)
+        )
+          throw unavailable();
+      }
+    };
     const descriptor = Object.getOwnPropertyDescriptor(this.authority, 'assertCurrentSync');
     if (
       (descriptor && (!('value' in descriptor) || typeof descriptor.value !== 'function')) ||
@@ -453,6 +489,7 @@ export class LocalRepositoryReadAccess {
       throw unavailable();
     const originalCurrent = descriptor?.value as (() => unknown) | undefined;
     const current = () => {
+      assertKnown();
       if (originalCurrent) {
         if (
           Object.getOwnPropertyDescriptor(this.authority, 'assertCurrentSync')?.value !==
@@ -470,25 +507,38 @@ export class LocalRepositoryReadAccess {
         )
           throw unavailable();
       }
+      assertKnown();
       this.check();
     };
     const revision = this.directoryRevision;
     const pending = captured.filter((path) => !this.directories.has(path));
     const requests: NativeAnchoredReadRequest[] = [];
-    for (const path of captured) {
-      await this.authorize(path);
+    for (const item of known) {
+      await this.authorize(item.path);
       current();
-      if (pending.includes(path)) {
-        const request = await this.directoryRequest(path);
+      if (item.parentPath !== item.path) {
+        await this.authorize(item.parentPath);
         current();
+      }
+      if (pending.includes(item.path))
         requests.push(
           Object.freeze({
-            ...request,
-            identity: Object.freeze({ ...request.identity }),
-            parentIdentity: Object.freeze({ ...request.parentIdentity }),
+            operation: 'ListDirectory',
+            deniedRoots: freezeNativeReadExclusions([
+              ...new Set([
+                ...this.deniedRoots,
+                ...localRepositoryReadDirectoryExclusions(item.path),
+              ]),
+            ]),
+            file_path: item.path,
+            rootAnchor: item.anchor,
+            identity: item.targetState.identity,
+            parentIdentity: item.parentState.identity,
+            limit: 1,
+            maxEntries: 10000,
+            maxNameBytes: 1024 * 1024,
           }),
         );
-      }
     }
     if (this.directoryRevision !== revision) throw unavailable();
     let results: readonly { content: string; is_error: boolean }[] = [];

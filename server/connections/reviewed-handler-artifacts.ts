@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.599-complete-metadata-directory-batches';
+  'v1.0.600-original-known-directory-tuples';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,13 +26,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-metadata-directory-batch.test.ts':
     '52d0953d6d2e1e07fcaa6dd292d63d632e1a406b61a6b723a45af149dada45ed',
   '../__tests__/local-repository-initial-directory-batch.test.ts':
-    'ca7c70fa5dbc801e97ee64dcf88c6f92c729c2b9bda572c217e71eda764eddb4',
+    '57a4cb01badb4856d96d38a137490aa75449342bd39216c0e14bd07acbad5e3a',
   '../__tests__/fixtures/local-repository-native-tools.ts':
     '7823a1694011217e191bb52716c8176dc34a51ddad39a3825b2703dcf5f8fcc1',
   '../__tests__/native-local-repository-read-projection.test.ts':
     'e78286f66f12951fd228c86e7044e17d3e5023294087aa0b4b16ec0b6af44571',
   '../__tests__/native-local-repository-read-registration.test.ts':
-    '46607a083e7d44218bf53aae65367d0e02f675a05da79b1705c585e8c2d79a30',
+    'cbb483e882082f8fc701bf989df0b0daec3ce778c4751a4e39f44ed431d91b6e',
   '../__tests__/native-local-repository-read-tools.test.ts':
     '8d86d9f17653628ccd6743431a60f7eee7cf9c4294b83ebaeb8bb4ae4ba9d4cd',
 
@@ -84,7 +84,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-git-snapshot.ts':
     '4d788b944d9698345858493a508c4f065a8f014c9c9cdd6510a37f63ee87dfe7',
   '../local-repository-read-access.ts':
-    '12a284a6b29492bbb7bbaeb668b98c65d8d62e9d2f02f6e6c0401fe788314c81',
+    '7b7b3e7da873460acfbee83b8254cdb50fea51e45520ad3cb05c48f9579fb21c',
   '../__tests__/native-anchored-read.test.ts':
     '7322ab8566b3649a90876e253f5d66a8cc631ac7148ee47602c71eaed5123628',
   '../__tests__/local-repository-read-security.test.ts':

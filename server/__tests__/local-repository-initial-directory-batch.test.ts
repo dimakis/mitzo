@@ -251,3 +251,52 @@ it('refuses reentrant cache drift while retaining the unrelated original observa
   expect([...directories.keys()]).toEqual([root, `${root}/c`]);
   expect(Object.getOwnPropertyDescriptor(f.access, 'totalEntries')?.value).toBe(8);
 });
+
+it('uses one pre/post authorization for each already-known target without a redundant stat lookup', async () => {
+  const f = fixture();
+  await f.ready();
+  vi.mocked(f.authority.assertReadable).mockClear();
+  await f.access.preloadDirectories([`${root}/a`, `${root}/b`]);
+  for (const path of [`${root}/a`, `${root}/b`])
+    expect(
+      vi.mocked(f.authority.assertReadable).mock.calls.filter(([actual]) => actual === path),
+    ).toHaveLength(2);
+  expect(f.authority.executeReadOperation).not.toHaveBeenCalled();
+});
+it('refuses mutation of the original known target identity during the batch await', async () => {
+  const f = fixture();
+  await f.ready();
+  const original = await f.access.stat(`${root}/a`);
+  vi.mocked(f.authority.executeDirectoryVerification!).mockImplementation(async (requests) => {
+    original!.identity = { dev: '1', ino: '999' };
+    return requests.map((request) => f.listing(request.file_path));
+  });
+  await expect(f.access.preloadDirectories([`${root}/a`, `${root}/b`])).rejects.toThrow();
+  expect(
+    (Object.getOwnPropertyDescriptor(f.access, 'directories')?.value as Map<string, unknown>).size,
+  ).toBe(1);
+  expect(f.access.hasExclusionsWithin()).toBe(false);
+});
+
+it('refuses a reentrant more-specific anchor while retaining the independently authorized pin', async () => {
+  const f = fixture();
+  await f.ready();
+  vi.mocked(f.authority.captureReadAnchor).mockImplementation(async (path) => ({
+    rootPath: path,
+    identity: child(path.at(-1)!).identity,
+  }));
+  vi.mocked(f.authority.executeDirectoryVerification!).mockImplementation(async (requests) => {
+    await f.access.pinRoot(`${root}/a`);
+    return requests.map((request) => f.listing(request.file_path));
+  });
+  await expect(f.access.preloadDirectories([`${root}/a`, `${root}/b`])).rejects.toThrow();
+  expect(
+    (Object.getOwnPropertyDescriptor(f.access, 'directories')?.value as Map<string, unknown>).size,
+  ).toBe(1);
+  expect(
+    (Object.getOwnPropertyDescriptor(f.access, 'anchors')?.value as Map<string, unknown>).has(
+      `${root}/a`,
+    ),
+  ).toBe(true);
+  expect(f.access.hasExclusionsWithin()).toBe(false);
+});
