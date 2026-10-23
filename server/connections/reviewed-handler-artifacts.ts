@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.558-native-rpc-cleanup';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.559-native-conversation-rpc-cleanup';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -782,7 +783,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '0b5f98a637a923788ec8188aab0e2cab14934386592a4bc99bab52a138ab059a',
+  '../codex-conversation.ts': 'd9e32e2551c65a4831b8a78f906850626823a731177c5ed8e445dafd4b0b7236',
   '../codex-conversation-store.ts':
     '1f3a0beee4bf904bbe87944f3cbdf53c3599235cdf4b4667b70fca922dc87141',
   '../symposium-custodian-ipc.ts':
