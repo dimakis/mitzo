@@ -108,6 +108,22 @@ export interface CodexStartupConfigObservation {
   readonly config: unknown;
 }
 
+/** Server-only snapshot from an original verified native host-tool invocation.
+ * Base roots exclude retained upstream grants. Its fence expires with that call. */
+export interface NativeBaseReadScope {
+  readonly nativeTarget: Readonly<CodexNativeTurnTarget>;
+  readonly callId: string;
+  readonly toolName: string;
+  readonly requestHash: string;
+  readonly bindingRevision: string;
+  readonly profileRevision: string;
+  readonly policyRevision: string;
+  readonly readableRoots: readonly string[];
+  readonly workspaceRoots: readonly string[];
+  readonly deniedRoots: readonly string[];
+  assertCurrentSync(): void;
+}
+
 export interface CodexConversationOptions {
   /** Read-only idle health deadline; never changes model RPC timeouts. */
   idleProbeTimeoutMs?: number;
@@ -143,6 +159,8 @@ export interface CodexConversationOptions {
       /** Actual native callbacks supply this fence. Legacy non-native bridges
        * keep labels only; new authority-bearing owners must refuse its absence. */
       assertCurrentSync?(): void;
+      /** Nonenumerable original-call capability, absent without a native base policy. */
+      captureNativeBaseReadScope?(): NativeBaseReadScope;
     }>,
   ): Promise<{ content: string; isError: boolean }>;
   /** Called only after an exact host tool result can be replayed durably. */
@@ -2901,47 +2919,116 @@ export class CodexConversation {
     const callbackBinding = this.binding!;
     // Keep existing label-only JSON/strict store contracts unchanged. Spreading
     // or cloning labels deliberately cannot carry this private callback fence.
-    const invocation = Object.freeze(
-      Object.defineProperty(
-        {
-          turnId: call.turnId,
-          callId: call.callId,
-        },
-        'assertCurrentSync',
-        {
-          value: () => {
-            toolSignal.throwIfAborted();
-            if (
-              !callbackOpen ||
-              this.closed ||
-              this.paused ||
-              !this.ready ||
-              this.active !== active ||
-              active.interruptRequested ||
-              this.binding !== callbackBinding ||
-              this.threadId !== call.threadId ||
-              active.turnId !== call.turnId ||
-              createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex') !==
-                toolIdentity.requestHash
-            )
-              throw new Error('Original native tool callback is no longer current');
-            const pending = this.opts.store.pendingNativeHostTool(
-              this.opts.conversationId,
-              callbackBinding,
-              call.callId,
-              toolIdentity,
-            );
-            if (
-              !pending ||
-              pending.commandId !== active.command.id ||
-              pending.attempt !== active.command.attempt ||
-              pending.threadId !== call.threadId
-            )
-              throw new Error('Original native tool claim is no longer current');
-          },
-        },
-      ),
-    );
+    const assertOriginalCallCurrent = () => {
+      toolSignal.throwIfAborted();
+      if (
+        !callbackOpen ||
+        this.closed ||
+        this.paused ||
+        !this.ready ||
+        this.active !== active ||
+        active.interruptRequested ||
+        this.binding !== callbackBinding ||
+        this.threadId !== call.threadId ||
+        active.turnId !== call.turnId ||
+        createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex') !==
+          toolIdentity.requestHash
+      )
+        throw new Error('Original native tool callback is no longer current');
+      const pending = this.opts.store.pendingNativeHostTool(
+        this.opts.conversationId,
+        callbackBinding,
+        call.callId,
+        toolIdentity,
+      );
+      if (
+        !pending ||
+        pending.commandId !== active.command.id ||
+        pending.attempt !== active.command.attempt ||
+        pending.threadId !== call.threadId
+      )
+        throw new Error('Original native tool claim is no longer current');
+    };
+    const invocation: Parameters<CodexConversationOptions['executeTool']>[3] = {
+      turnId: call.turnId,
+      callId: call.callId,
+    };
+    Object.defineProperty(invocation, 'assertCurrentSync', { value: assertOriginalCallCurrent });
+    const nativePolicy = active.nativeExecution;
+    if (nativePolicy) {
+      assertOriginalCallCurrent();
+      const pending = this.opts.store.pendingNativeHostTool(
+        this.opts.conversationId,
+        callbackBinding,
+        call.callId,
+        toolIdentity,
+      );
+      if (!pending) throw Error('Original native base read claim unavailable');
+      const originalPending = Object.freeze({ ...pending });
+      const assertNativePolicyCurrent = this.opts.assertNativeExecutionCurrent;
+      const nativeTarget = Object.freeze({
+        commandId: pending.commandId,
+        attempt: pending.attempt,
+        threadId: pending.threadId,
+        turnId: pending.turnId,
+        generation: pending.generation,
+      });
+      const assertBaseReadCurrent = Object.freeze(() => {
+        assertOriginalCallCurrent();
+        if (active.nativeExecution !== nativePolicy)
+          throw Error('Original native base read policy changed');
+        if (
+          !Object.isFrozen(nativePolicy) ||
+          ![
+            nativePolicy.readableRoots,
+            nativePolicy.workspaceRoots,
+            nativePolicy.deniedRoots,
+          ].every(Object.isFrozen)
+        )
+          throw Error('Native base read policy must be frozen');
+        const current = this.opts.store.pendingNativeHostTool(
+          this.opts.conversationId,
+          callbackBinding,
+          call.callId,
+          toolIdentity,
+        );
+        if (!isDeepStrictEqual(current, originalPending))
+          throw Error('Original native base read claim changed');
+        if (
+          !assertNativePolicyCurrent ||
+          this.opts.assertNativeExecutionCurrent !== assertNativePolicyCurrent
+        )
+          throw Error('Original native base read policy owner changed');
+        const checked: unknown = assertNativePolicyCurrent.call(
+          this.opts,
+          nativePolicy,
+          active.command.id,
+        );
+        if (checked !== undefined) {
+          void Promise.resolve(checked).catch(() => {});
+          throw Error('Native base read policy owner must be synchronous');
+        }
+      });
+      Object.defineProperty(invocation, 'captureNativeBaseReadScope', {
+        value: Object.freeze((): NativeBaseReadScope => {
+          assertBaseReadCurrent();
+          return Object.freeze({
+            nativeTarget,
+            callId: originalPending.callId,
+            toolName: originalPending.toolName,
+            requestHash: originalPending.requestHash,
+            bindingRevision: nativePolicy.bindingRevision,
+            profileRevision: nativePolicy.profileRevision,
+            policyRevision: nativePolicy.policyRevision,
+            readableRoots: Object.freeze([...nativePolicy.readableRoots]),
+            workspaceRoots: Object.freeze([...nativePolicy.workspaceRoots]),
+            deniedRoots: Object.freeze([...nativePolicy.deniedRoots]),
+            assertCurrentSync: assertBaseReadCurrent,
+          });
+        }),
+      });
+    }
+    Object.freeze(invocation);
     try {
       result = await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation);
     } catch {

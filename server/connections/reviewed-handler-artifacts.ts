@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.560-native-mac-execution';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.561-native-base-read-scope';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,9 +27,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'ca56ac179cfc28efc71e68a4c88d99b323d9f44aa515f11b26109523d515aba8',
   '../__tests__/codex-chat-session.test.ts':
-    'd21d76c93ba57d8d17df85563846ac0e4eabbbf3e02ca7ecd5a367863579c782',
+    '021a48bef40005ce7b14f17f26024b025faef4de5a417701ad656aa7568e0bd7',
   '../__tests__/codex-conversation.test.ts':
-    'a3cde43947173eadf4e84dbb5047f0b7b9fe47cbf16bd2c5b5086278503afd2d',
+    '744fd102502efa8a541a9b8b6db0bb218d016e0896713501f6b49d095095b27f',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -826,7 +826,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'a223385b7d7d714b2473df4bb7c432541e595b5acfe83a169456343b7c2d0a92',
+  '../codex-conversation.ts': '3713c6da3b4f117b5f70c5b497f846c27c4619c45673d2cf05cdf1d8db16e9ec',
   '../codex-conversation-store.ts':
     'cc747b325f16ed7b6979edc8e8090910d060363f50d7a7b7f51088ce6d190987',
   '../symposium-custodian-ipc.ts':
@@ -994,7 +994,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '3e9734030dea1237f60f274bca7c2a3e68f31ded5d60cca3419df7c84617145f',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': 'ef76d5aa3d528bc1b6b0b3e622987b71d823565e009c11efa8e76a21f400fd82',
+  '../codex-chat-session.ts': '8bff5c3ecdc084bc08cdfdae8c9acb7448267eaa91eb43de7c9404067b060af8',
   '../connections-runtime.ts': '6dcc3dfeb39193379a4e64f7270130607d49a36e053d419edf9abcb60f28b2da',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

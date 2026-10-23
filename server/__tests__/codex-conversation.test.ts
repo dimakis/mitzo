@@ -11,6 +11,7 @@ import {
   CodexConversation,
   codexTurnFailureDiagnostic,
   type CodexConversationOptions,
+  type NativeBaseReadScope,
 } from '../codex-conversation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import {
@@ -2101,6 +2102,253 @@ it.each([
     expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
     if (['success', 'error', 'throw', 'result-write-failure'].includes(outcome))
       expect(f.c.queue()[0].status).toBe('running');
+  },
+);
+
+it.each(['native', 'no-policy'] as const)(
+  'exposes a private base-read capture only on the original %s tool invocation',
+  async (mode) => {
+    const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'selected-owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/workspace', '/usr'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    if (mode === 'native') {
+      f.conversationOptions.nativeExecution = policy;
+      f.conversationOptions.assertNativeExecutionCurrent = function (
+        this: CodexConversationOptions,
+        current,
+        commandId,
+      ) {
+        expect(this).toBe(f.conversationOptions);
+        expect(current).toBe(policy);
+        expect(commandId).toBe('read-command');
+      };
+      f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+    }
+    await f.c.send({ id: 'read-command', prompt: 'Read selected local files' });
+    const call = {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'base-read',
+      tool: 'Read',
+      arguments: {
+        file_path: '/workspace/note',
+        captureNativeBaseReadScope: { readableRoots: ['/'] },
+      },
+    };
+    let retained: Parameters<CodexConversationOptions['executeTool']>[3] | undefined;
+    let scope: NativeBaseReadScope | undefined;
+    f.conversationOptions.executeTool = async (_name, _args, _signal, invocation) => {
+      retained = invocation;
+      expect(Object.isFrozen(invocation)).toBe(true);
+      expect(Object.keys(invocation)).toEqual(['turnId', 'callId']);
+      expect(structuredClone(invocation)).not.toHaveProperty('captureNativeBaseReadScope');
+      expect(JSON.parse(JSON.stringify(invocation))).not.toHaveProperty(
+        'captureNativeBaseReadScope',
+      );
+      if (mode === 'no-policy') {
+        expect(retained).not.toHaveProperty('captureNativeBaseReadScope');
+        return { content: 'original', isError: false };
+      }
+      expect(retained!.captureNativeBaseReadScope).toBeTypeOf('function');
+      expect(Object.isFrozen(retained!.captureNativeBaseReadScope)).toBe(true);
+      expect(
+        Object.getOwnPropertyDescriptor(invocation, 'captureNativeBaseReadScope'),
+      ).toMatchObject({ enumerable: false, writable: false, configurable: false });
+      scope = retained!.captureNativeBaseReadScope!();
+      const hash = createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex');
+      expect(scope).toMatchObject({
+        nativeTarget: f.store.nativeTurnTarget('app', binding, 'read-command', 1),
+        callId: 'base-read',
+        toolName: 'Read',
+        requestHash: hash,
+        bindingRevision: policy.bindingRevision,
+        profileRevision: policy.profileRevision,
+        policyRevision: policy.policyRevision,
+        readableRoots: policy.readableRoots,
+        workspaceRoots: policy.workspaceRoots,
+        deniedRoots: policy.deniedRoots,
+      });
+      for (const frozen of [
+        scope,
+        scope.nativeTarget,
+        scope.readableRoots,
+        scope.workspaceRoots,
+        scope.deniedRoots,
+      ])
+        expect(Object.isFrozen(frozen)).toBe(true);
+      expect(scope.readableRoots).not.toBe(policy.readableRoots);
+      expect(JSON.parse(JSON.stringify(scope))).not.toHaveProperty('assertCurrentSync');
+      expect(Object.isFrozen(scope.assertCurrentSync)).toBe(true);
+      expect(() => scope!.assertCurrentSync()).not.toThrow();
+      return { content: 'original', isError: false };
+    };
+    await expect(
+      f.callbacks.onRequest('item/tool/call', call, new AbortController().signal),
+    ).resolves.toMatchObject({ success: true });
+    if (mode === 'native') {
+      expect(() => retained!.captureNativeBaseReadScope!()).toThrow(
+        'Original native tool callback is no longer current',
+      );
+      expect(() => scope!.assertCurrentSync()).toThrow(
+        'Original native tool callback is no longer current',
+      );
+    }
+  },
+);
+
+it.each([
+  'abort',
+  'result',
+  'owner',
+  'async-owner',
+  'value-owner',
+  'policy-object',
+  'owner-replaced',
+  'tuple',
+  'hash',
+] as const)(
+  'invalidates captured base-read authority on %s before the original tool returns',
+  async (change) => {
+    const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'selected-owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/workspace'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    let ownerCurrent = true;
+    let ownerResult: unknown;
+    f.conversationOptions.nativeExecution = policy;
+    f.conversationOptions.assertNativeExecutionCurrent = () => {
+      if (!ownerCurrent) throw Error('Native policy owner revoked');
+      return ownerResult;
+    };
+    f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+    await f.c.send({ id: 'read-command', prompt: 'Read' });
+    const call = {
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      callId: 'base-read',
+      tool: 'Read',
+      arguments: { file_path: '/workspace/note' },
+    };
+    let entered!: () => void, release!: () => void;
+    const executing = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let capture!: () => NativeBaseReadScope;
+    let scope!: ReturnType<typeof capture>;
+    f.conversationOptions.executeTool = async (_name, _args, _signal, invocation) => {
+      capture = invocation.captureNativeBaseReadScope!;
+      scope = capture();
+      entered();
+      await held;
+      return { content: 'original', isError: false };
+    };
+    const controller = new AbortController();
+    const callback = f.callbacks.onRequest('item/tool/call', call, controller.signal);
+    const outcome = callback.catch((error) => error);
+    // Fail promptly if a missing facet prevents the executor entering its hold.
+    await Promise.race([
+      executing,
+      callback.then(() => {
+        throw Error('Original scope capture unavailable');
+      }),
+    ]);
+    if (change === 'abort') controller.abort();
+    if (change === 'owner') ownerCurrent = false;
+    if (change === 'async-owner') ownerResult = Promise.resolve();
+    if (change === 'value-owner') ownerResult = 1;
+    if (change === 'owner-replaced') f.conversationOptions.assertNativeExecutionCurrent = () => {};
+    if (change === 'result')
+      f.store.recordToolResult(
+        'app',
+        binding,
+        'read-command',
+        call.callId,
+        {
+          turnId: call.turnId,
+          toolName: call.tool,
+          requestHash: createHash('sha256').update(JSON.stringify(call.arguments)).digest('hex'),
+        },
+        { content: 'original', isError: false },
+      );
+    if (change === 'policy-object')
+      (f.c as unknown as { active: { nativeExecution: typeof policy } }).active.nativeExecution =
+        Object.freeze({ ...policy });
+    if (change === 'tuple' || change === 'hash') {
+      const pending = f.store.pendingNativeHostTool.bind(f.store);
+      vi.spyOn(f.store, 'pendingNativeHostTool').mockImplementation((...args) => {
+        const original = pending(...args);
+        if (!original) return original;
+        return {
+          ...original,
+          ...(change === 'tuple'
+            ? { generation: original.generation + 1 }
+            : { requestHash: 'f'.repeat(64) }),
+        };
+      });
+    }
+    expect(() => capture()).toThrow();
+    expect(() => scope.assertCurrentSync()).toThrow();
+    release();
+    await outcome;
+  },
+);
+
+it.each(['object', 'roots'] as const)(
+  'refuses base-read authority from an unfrozen policy %s',
+  async (mutable) => {
+    const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+    const selected = codexNativeExecutionPolicy({
+      bindingRevision: 'selected-owner',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/workspace'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    const policy =
+      mutable === 'object'
+        ? { ...selected }
+        : Object.freeze({ ...selected, readableRoots: [...selected.readableRoots] });
+    f.conversationOptions.nativeExecution = policy;
+    f.conversationOptions.assertNativeExecutionCurrent = () => {};
+    f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+    await f.c.send({ id: 'read-command', prompt: 'Read' });
+    let entered = false;
+    f.conversationOptions.executeTool = async (_name, _args, _signal, invocation) => {
+      entered = true;
+      expect(() => invocation.captureNativeBaseReadScope!()).toThrow(
+        'Native base read policy must be frozen',
+      );
+      return { content: 'refused mutable scope', isError: false };
+    };
+    await expect(
+      f.callbacks.onRequest(
+        'item/tool/call',
+        {
+          threadId: f.getProviderThread(),
+          turnId: 'turn-1',
+          callId: 'base-read',
+          tool: 'Read',
+          arguments: {},
+        },
+        new AbortController().signal,
+      ),
+    ).resolves.toMatchObject({ success: true });
+    expect(entered).toBe(true);
   },
 );
 

@@ -1951,7 +1951,11 @@ async function openCodexChatBound(
             assertHostCurrentSync();
             if (selectedNativePolicy().policyRevision !== policy.policyRevision)
               throw Error('Native execution policy changed during the active command');
-            options.assertNativeExecutionCurrent?.(policy, commandId);
+            const checked: unknown = options.assertNativeExecutionCurrent?.(policy, commandId);
+            if (checked !== undefined) {
+              void Promise.resolve(checked).catch(() => {});
+              throw Error('Native execution policy owner must be synchronous');
+            }
           },
           requestNativeApproval: (
             method: string,

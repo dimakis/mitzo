@@ -3207,6 +3207,48 @@ it('rechecks owned command authority immediately before native enqueue and provi
   }
 });
 
+it.each(['sync', 'async', 'value', 'throw'] as const)(
+  'keeps the actual owned native current callback synchronous through %s owners',
+  async (owner) => {
+    vi.clearAllMocks();
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    mocks.connect.mockResolvedValue({
+      definitions: [],
+      close: mocks.mcpClose,
+      displayName: (name: string) => name,
+    });
+    const f = ownedLocalOptions('/tmp');
+    let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    const current = vi.fn(() => {
+      expect(f.lease.assertCurrentSync).toHaveBeenCalled();
+      if (owner === 'throw') throw Error('Current native owner revoked');
+      if (owner === 'async') return Promise.reject(Error('Async native owner rejected'));
+      if (owner === 'value') return 1;
+    });
+    try {
+      chat = await openCodexChat({ ...f.opts, assertNativeExecutionCurrent: current });
+      const controls =
+        mocks.conversationOptions as unknown as import('../codex-conversation.js').CodexConversationOptions;
+      vi.mocked(f.lease.assertCurrentSync).mockClear();
+      const assertCurrent = () =>
+        controls.assertNativeExecutionCurrent!(controls.nativeExecution!, 'owned-command');
+      if (owner === 'sync') expect(assertCurrent).not.toThrow();
+      else
+        expect(assertCurrent).toThrow(
+          owner === 'throw'
+            ? 'Current native owner revoked'
+            : 'Native execution policy owner must be synchronous',
+        );
+      expect(current).toHaveBeenCalledExactlyOnceWith(controls.nativeExecution, 'owned-command');
+      await Promise.resolve();
+    } finally {
+      chat?.close();
+      f.eventStore.close();
+    }
+  },
+);
+
 it('keeps an already admitted queued command on its frozen scope and refuses mutable workspace retargeting', async () => {
   vi.clearAllMocks();
   mocks.initialize.mockResolvedValue(undefined);
