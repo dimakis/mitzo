@@ -107,6 +107,63 @@ describe('private one-shot decision observation', () => {
     expect(hasPending(card.permId as string)).toBe(false);
   });
 
+  it.each([false, true])(
+    'normalizes native one-shot approval before same-request observation and rechecks observer-side native revocation (revoke=%s)',
+    async (revoke) => {
+      const f = fixture();
+      f.registry.setMode('client', 'ask');
+      let nativeCurrent = true;
+      const retained: Decision[] = [];
+      const nativeAssertion = vi.fn(() => {
+        if (!nativeCurrent) throw Error('Original native approval expired');
+      });
+      const lifecycle = vi.fn();
+      cleanups.push(onPermissionLifecycle(lifecycle));
+      const observer = vi.fn((decision: Decision) => {
+        expect(nativeAssertion).toHaveBeenCalled();
+        expect(f.sent.some((event) => event.type === 'permission_resolved')).toBe(false);
+        retained.push(decision);
+        if (revoke) nativeCurrent = false;
+      });
+      const pending = f.start(
+        observer,
+        { repo: { path: '/fixture/source' } },
+        {
+          nativeApproval: { assertCurrentSync: nativeAssertion },
+          // Native one-shot normalization must precede the observer's snapshot.
+          forcePrompt: false,
+          allowSessionGrant: true,
+          rememberSessionGrant: true,
+          approvalScope: 'session',
+        },
+      );
+      await Promise.resolve();
+      const card = f.card();
+      expect(card).toMatchObject({ approvalScope: 'request', allowSessionGrant: false });
+      expect(JSON.parse(card.toolInput as string)).toEqual(pending.input);
+      expect(resolvePending(card.permId as string, 'once', undefined, 'original-session')).toBe(
+        true,
+      );
+      expect(await pending.result).toMatchObject({ behavior: revoke ? 'deny' : 'allow' });
+      expect(observer).toHaveBeenCalledTimes(1);
+      expect(retained).toHaveLength(1);
+      expect(Object.isFrozen(retained[0])).toBe(true);
+      expect(retained[0]).toMatchObject({
+        input: pending.input,
+        approvalScope: 'request',
+        decisionClassification: 'user_temporary',
+        inputSha256: createHash('sha256').update(JSON.stringify(pending.input)).digest('hex'),
+      });
+      expect(lifecycle).toHaveBeenLastCalledWith({
+        type: 'resolved',
+        permId: card.permId,
+        resolution: revoke ? 'denied' : 'allowed',
+      });
+      expect(f.registry.get('client')!.sessionAllowList.size).toBe(0);
+      expect(hasPending(card.permId as string)).toBe(false);
+    },
+  );
+
   it.each(['input', 'mode', 'skill', 'toolUseID', 'sessionId', 'callback', 'signal'] as const)(
     'rejects a changed %s before observation and settles the actual denial',
     async (change) => {
