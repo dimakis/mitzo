@@ -703,7 +703,7 @@ it('leaves legacy Agent-only launches on their existing picker when runtime enro
   });
   expect(result.current.intent.execution.location).toBe('openshell');
 });
-it('resolves an account native tuple per environment without changing billing or invalid model intent', async () => {
+it('keeps account and model intent when a supported native route is unavailable in another environment', async () => {
   const { multiRuntimeInventoryFixture } =
     await import('../../test-utils/multi-runtime-inventory-fixture');
   const data = multiRuntimeInventoryFixture();
@@ -723,10 +723,10 @@ it('resolves an account native tuple per environment without changing billing or
       execution: { location: 'local', targetId: null },
     }),
   );
-  expect(result.current.intent.execution.targetId).toBe('responses');
+  expect(result.current.intent.execution.targetId).toBeNull();
   expect(result.current.intent.account).toEqual(saved.account);
   expect(result.current.intent.accountReference).toEqual(saved.accountReference);
-  expect(result.current.reason).toMatch(/model/i);
+  expect(result.current.reason).toMatch(/target|execution|route/i);
   act(() =>
     result.current.update(
       {

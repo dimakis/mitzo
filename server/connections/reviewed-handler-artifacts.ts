@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.557-shared-harness-routing';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.558-bound-runtime-capabilities';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -597,7 +598,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/hooks/chat-runtime-draft-context.ts':
     '32660ff240dd5f62c2a8ab976941553a84b7f3809ed3455ffe4e64ccfcd2613d',
   '../../frontend/src/hooks/useExplicitLocalChat.ts':
-    'b7f0147f39e820a23d76272aac173f6595fef8cc997f1a19bce8be0ff25949c0',
+    'dfca4d38bf1c3c281ea154c169ab570c621635a8a54ab9a99c8c91768b55d584',
   '../../frontend/src/hooks/useNewChatDraft.ts':
     '4791a0f7870378d7353134e2a93972f1f7b5ef8197f20cfdc7304d0fd8adfb75',
   '../../frontend/src/lib/launch-draft-delivery.ts':
@@ -629,7 +630,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     '9e383cf9c96a3cb8ea5bfe732c7ca7c4070cc52c051d80d9d3246fa718a28a0c',
   '../ordinary-local-codex-entry.ts':
-    'ef75c525e4295cf86651f0a8a01afb5e1fb85cae3c326f0f2759d1c355d5bb70',
+    '1e8e7b1cb81ec081ddfe03a196384e52b1038f1b69e6561242fa578211b021d3',
   '../ordinary-local-codex-metadata.ts':
     '0ccfe315aa4bd8b5360608a3a588c3c0545c3fb7a34b3673c9db0156c610283a',
   '../ordinary-repository-startup.ts':
@@ -1356,7 +1357,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/__tests__/chat-runtime-route.test.ts':
     '7b60a8b59f573a248d21dcca15275335746829a3a46791b152266c2d40b594b5',
   '../__tests__/ordinary-local-responses-chat.test.ts':
-    'b50a018681f1f12782f39c77be4a782de618aa37242dc805af65d97bfc5da6eb',
+    'fc27354c360676db04452813ff57c17134f650c87136a9ecedfdc09d51a17e4f',
   '../__tests__/ordinary-local-responses-dual-capabilities.test.ts':
     'a1beb878190e4982b74b5b20941b6c47373736986a729ba9398764a78b602f3e',
   '../__tests__/ordinary-local-responses-preparation.test.ts':
@@ -1371,4 +1372,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'aa53554be7c2dbc71044d0f8cdf461a9e4c521713142a6fae719f484c41ac7b1',
   '../__tests__/unselected-headless-session.test.ts':
     'f5e6e54803310d362970b2ac370acf27466f9f46e18475b7134c5d37f0db1aec',
+  '../../frontend/src/hooks/__tests__/useExplicitLocalChat.test.tsx':
+    'a11a7f10a047e4262c805920b5181c1672b84de3e82e6c933ce6a331ccab1883',
+  '../../frontend/src/hooks/__tests__/useExplicitLocalChat.ordinary.test.tsx':
+    '1450992dce892b6878fc16123c5d658289924dce6cec3f199da2f7d05bbe93b7',
 });

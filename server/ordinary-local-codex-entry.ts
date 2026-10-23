@@ -351,7 +351,48 @@ function createOwnedCodexEntryRouter(
         return res
           .status(401)
           .json({ ok: false, code: 'interactive_auth_required', error: unavailable });
-      const result = general ? ordinaryCodexCapabilities() : inventory().result;
+      let result = general ? ordinaryCodexCapabilities() : inventory().result;
+      if (general && req.query?.sessionId !== undefined) {
+        const sessionId = req.query.sessionId;
+        if (typeof sessionId !== 'string' || !/^\S{1,200}$/.test(sessionId))
+          throw Error(unavailable);
+        const binding = ctx.eventStore.getSessionRuntimeBinding(sessionId);
+        const meta = ctx.eventStore.getSession(sessionId);
+        // Prepared first commands may have workspace metadata before an event
+        // binding exists. They keep the strict new-work projection above.
+        if (binding?.version === 2 && binding.harness.implementation === 'responses') {
+          if (!meta) throw Error(unavailable);
+          const live = ctx.sessionRegistry.findBySessionId(sessionId)?.session;
+          if (
+            binding.execution.location !== 'local' ||
+            (live
+              ? live.ordinaryRuntimeOwner?.authSessionId !== auth.id ||
+                live.ordinaryRuntimeOwner?.location !== 'local'
+              : !canResumeOwnedLocalResponsesDriver(sessionId, auth.id))
+          )
+            throw Error(unavailable);
+          const retained = inventory('local', 'responses', binding);
+          if (
+            retained.catalog.resolve({
+              account: binding.account,
+              harness: 'responses',
+              targetId: binding.execution.targetId,
+              mode: meta.mode,
+            }).status !== 'compatible'
+          )
+            throw Error(unavailable);
+          // Read-only metadata for this exact saved owner; new admission still
+          // rejects Responses even if a client copies this retained revision.
+          const projected = retained.result;
+          projected.accounts = projected.accounts.filter((entry) =>
+            isDeepStrictEqual(entry.account, binding.account),
+          );
+          projected.routes = projected.routes.filter((route) =>
+            isDeepStrictEqual(route.account, binding.account),
+          );
+          result = projected;
+        }
+      }
       const agentProfiles = ordinaryCodexAgentProfiles(getAgentLibrary().list('user').versions);
       let shell: ReturnType<typeof loadOrdinaryOpenShellCodexTarget>;
       if (

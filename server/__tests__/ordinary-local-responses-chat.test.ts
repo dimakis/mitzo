@@ -1,6 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { AccountProfiles, loadAccountProfiles } from '../account-profiles.js';
 import { agentLibrarySource } from './fixtures/agent-library-source.js';
+import { ExplicitLocalInventorySchema } from '../../frontend/src/lib/explicit-local-chat';
+import { selectedRuntimeRoute } from '../../frontend/src/lib/chat-runtime-route';
 const services = vi.hoisted(() => ({
   authId: '',
   workspace: undefined as unknown,
@@ -166,12 +168,14 @@ it('rejects new Responses entry before preparation and preserves legacy chat own
     body: unknown,
     selectedRouter = router,
     auth: import('../auth.js').AuthSession = f.auth,
+    method = 'POST',
   ) =>
     new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
       let status = 200;
       const req = {
-        method: 'POST',
+        method,
         url,
+        query: Object.fromEntries(new URL(url, 'http://offline.test').searchParams),
         headers: { 'x-connection-id': f.dependencies.operatorConnectionId },
         body,
       };
@@ -213,6 +217,10 @@ it('rejects new Responses entry before preparation and preserves legacy chat own
     status: 409,
     body: { code: 'new_work_harness_unsupported' },
   });
+  await expect(invoke('/send', wire)).resolves.toMatchObject({
+    status: 409,
+    body: { code: 'new_work_harness_unsupported' },
+  });
   expect(claimWorkspace).not.toHaveBeenCalled();
   expect(services.manager.resolveKey).not.toHaveBeenCalled();
   expect(requests).toHaveLength(0);
@@ -228,6 +236,69 @@ it('rejects new Responses entry before preparation and preserves legacy chat own
   ).resolves.toMatchObject({ dispatched: false });
   expect(chat.registry.get(liveClientId)?.ordinaryRuntimeOwner).toBeDefined();
   await vi.waitFor(() => expect(requests).toHaveLength(1));
+  const publicChoices = await invoke(
+    `/capabilities?sessionId=${f.reservation.conversationId}`,
+    undefined,
+    router,
+    f.auth,
+    'GET',
+  );
+  expect(publicChoices.status).toBe(200);
+  const retainedInventory = ExplicitLocalInventorySchema.parse(publicChoices.body);
+  const retainedRoute = selectedRuntimeRoute(
+    {
+      version: 1,
+      account: { accountId: f.request.runtime.account.accountId, model: f.request.selection.model },
+      accountReference: f.request.runtime.account,
+      agentProfile: f.request.selection.agent,
+      execution: { location: 'local', targetId: f.request.runtime.targetId },
+      capabilityRevision: retainedInventory.capabilityRevision,
+    },
+    retainedInventory,
+  );
+  expect(retainedRoute?.harness).toBe('responses');
+  expect(retainedInventory.accounts.map((entry) => entry.account)).toEqual([
+    f.request.runtime.account,
+  ]);
+  expect(
+    retainedInventory.routes.every((route) => route.targetId === f.request.runtime.targetId),
+  ).toBe(true);
+  expect(retainedInventory.capabilityRevision).toBe(f.request.capabilityRevision);
+  wire.capabilityRevision = retainedInventory.capabilityRevision;
+  const unboundChoices = await invoke('/capabilities', undefined, router, f.auth, 'GET');
+  expect(ExplicitLocalInventorySchema.parse(unboundChoices.body).routes).toEqual([]);
+  await expect(
+    invoke(
+      `/capabilities?sessionId=${f.reservation.conversationId}`,
+      undefined,
+      router,
+      { ...f.auth, id: 'foreign-login' },
+      'GET',
+    ),
+  ).resolves.toMatchObject({ status: 409 });
+  const unboundSession = await invoke(
+    '/capabilities?sessionId=missing',
+    undefined,
+    router,
+    f.auth,
+    'GET',
+  );
+  expect(unboundSession.status).toBe(200);
+  expect(ExplicitLocalInventorySchema.parse(unboundSession.body).routes).toEqual([]);
+  chat.eventStore.upsertSession({
+    sessionId: 'legacy-metadata-only',
+    initialPrompt: 'Retained legacy metadata',
+  });
+  const metadataOnly = await invoke(
+    '/capabilities?sessionId=legacy-metadata-only',
+    undefined,
+    router,
+    f.auth,
+    'GET',
+  );
+  expect(metadataOnly.status).toBe(200);
+  expect(ExplicitLocalInventorySchema.parse(metadataOnly.body).routes).toEqual([]);
+  expect(chat.eventStore.getSessionRuntimeBinding('legacy-metadata-only')).toBeUndefined();
   expect(JSON.stringify(requests[0].input)).toContain(
     agentLibrarySource.content.replaceAll('"', '\\"'),
   );
@@ -275,6 +346,38 @@ it('rejects new Responses entry before preparation and preserves legacy chat own
   expect(chat.canResumeOwnedLocalResponsesDriver(f.reservation.conversationId, f.auth.id)).toBe(
     true,
   );
+  const bindingBeforeProjection = chat.eventStore.getSessionRuntimeBinding(
+    f.reservation.conversationId,
+  );
+  const receiptBeforeProjection = chat.eventStore.getLatestOrdinaryCommandAdmission(
+    f.reservation.conversationId,
+  );
+  const coldChoices = await invoke(
+    `/capabilities?sessionId=${f.reservation.conversationId}`,
+    undefined,
+    router,
+    f.auth,
+    'GET',
+  );
+  expect(coldChoices.status).toBe(200);
+  expect(ExplicitLocalInventorySchema.parse(coldChoices.body).capabilityRevision).toBe(
+    retainedInventory.capabilityRevision,
+  );
+  expect(chat.eventStore.getSessionRuntimeBinding(f.reservation.conversationId)).toEqual(
+    bindingBeforeProjection,
+  );
+  expect(chat.eventStore.getLatestOrdinaryCommandAdmission(f.reservation.conversationId)).toEqual(
+    receiptBeforeProjection,
+  );
+  await expect(
+    invoke(
+      `/capabilities?sessionId=${f.reservation.conversationId}`,
+      undefined,
+      router,
+      { ...f.auth, id: 'foreign-cold-login' },
+      'GET',
+    ),
+  ).resolves.toMatchObject({ status: 409 });
   await expect(
     invoke('/continue', {
       ...wire,
