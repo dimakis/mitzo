@@ -9,7 +9,7 @@ import {
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
 import { CodexConversation, type CodexConversationOptions } from './codex-conversation.js';
-import type { CodexConversationStore } from './codex-conversation-store.js';
+import type { CodexConversationStore, CodexNativeTurnTarget } from './codex-conversation-store.js';
 import type { EventStore } from './event-store.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
@@ -23,6 +23,8 @@ export interface NativeHostToolContext extends NativeMainPublicationCall {
   readonly turnId: string;
   readonly toolName: string;
   readonly requestHash: string;
+  /** Original acknowledged target data; current authority still requires the pending proof. */
+  readonly nativeTarget: Readonly<CodexNativeTurnTarget>;
   readonly profile: AgentLibraryVersion | undefined;
   readonly agentContext: AgentContextSnapshot | undefined;
   /** Original admitted root data. A file read still needs its own byte/identity witness. */
@@ -124,6 +126,13 @@ export function captureNativeHostToolContext(owners: {
       identity,
     );
     if (!custody || custody.authSessionId !== authorization.auth.id || !pending) unavailable();
+    const nativeTarget: Readonly<CodexNativeTurnTarget> = freezeData({
+      commandId: pending.commandId,
+      attempt: pending.attempt,
+      threadId: pending.threadId,
+      turnId: pending.turnId,
+      generation: pending.generation,
+    });
     const assertCurrentSync = () => {
       if (closed) unavailable();
       signal.throwIfAborted();
@@ -194,6 +203,7 @@ export function captureNativeHostToolContext(owners: {
       turnId: owners.call.turnId,
       toolName: owners.toolName,
       requestHash,
+      nativeTarget,
       profile,
       agentContext,
       workspace,
