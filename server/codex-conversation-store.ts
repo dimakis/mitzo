@@ -258,6 +258,12 @@ const NativeExecutionReceiptBase = z.strictObject({
   generation: z.number().int().nonnegative().safe(),
   policy: NativeExecutionPolicySnapshotSchema,
   preparedAt: z.number().int().nonnegative().safe(),
+  replacement: z
+    .strictObject({
+      parentThreadId: RuntimeString.nullable(),
+      parentGeneration: z.number().int().nonnegative().safe(),
+    })
+    .optional(),
 });
 const NativeExecutionReceiptSchema = z.discriminatedUnion('phase', [
   NativeExecutionReceiptBase.extend({ phase: z.literal('prepared') }),
@@ -403,7 +409,7 @@ export class CodexConversationStore {
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_pending_thread_dispatches (
       conversation_id TEXT PRIMARY KEY REFERENCES codex_conversations(id),
       parent_thread_id TEXT, thread_id TEXT NOT NULL,
-      command_id TEXT NOT NULL, attempt INTEGER NOT NULL);`);
+      command_id TEXT NOT NULL, attempt INTEGER NOT NULL, parent_generation INTEGER);`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_startup_reservations (
       conversation_id TEXT PRIMARY KEY REFERENCES codex_conversations(id),
       phase TEXT NOT NULL CHECK(phase IN ('provisioning','provider_initializing')));`);
@@ -532,6 +538,13 @@ export class CodexConversationStore {
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN native_turns TEXT');
       if (!columns.some((column) => column.name === 'native_execution_history'))
         this.db.exec('ALTER TABLE codex_commands ADD COLUMN native_execution_history TEXT');
+      const pendingColumns = this.db
+        .prepare('PRAGMA table_info(codex_pending_thread_dispatches)')
+        .all() as Array<{ name: string }>;
+      if (!pendingColumns.some((column) => column.name === 'parent_generation'))
+        this.db.exec(
+          'ALTER TABLE codex_pending_thread_dispatches ADD COLUMN parent_generation INTEGER',
+        );
       // Legacy recovery rows could not persist a failure class. A failed (not
       // merely interrupted) active command is the conservative signal that the
       // provider thread, rather than only its process transport, needs a new
@@ -1257,16 +1270,17 @@ export class CodexConversationStore {
     command: CodexCommand,
   ) {
     this.db.transaction(() => {
-      if ((this.read(id, b).threadId ?? undefined) !== parent)
+      const state = this.read(id, b);
+      if ((state.threadId ?? undefined) !== parent)
         throw new Error('Codex provider thread generation changed');
       const active = this.commands(id, b).find((c) => c.id === command.id);
       if (active?.status !== 'running' || active.attempt !== command.attempt)
         throw new Error('Codex replacement dispatch command changed');
       this.db
         .prepare(
-          'INSERT INTO codex_pending_thread_dispatches(conversation_id,parent_thread_id,thread_id,command_id,attempt) VALUES (?,?,?,?,?)',
+          'INSERT INTO codex_pending_thread_dispatches(conversation_id,parent_thread_id,thread_id,command_id,attempt,parent_generation) VALUES (?,?,?,?,?,?)',
         )
-        .run(id, parent ?? null, thread, command.id, command.attempt);
+        .run(id, parent ?? null, thread, command.id, command.attempt, state.threadGeneration);
     })();
   }
   assertNoPendingThreadDispatch(id: string, b: AccountBinding) {
@@ -1981,19 +1995,48 @@ export class CodexConversationStore {
         )
         .get(id, command.id) as
         { status: string; attempt: number; native_turns: string | null } | undefined;
-      if (
-        state.threadId !== threadId ||
-        active?.status !== 'running' ||
-        active.attempt !== command.attempt
-      )
+      if (active?.status !== 'running' || active.attempt !== command.attempt)
         throw Error('Native execution preparation identity changed');
+      const pending = this.db
+        .prepare(
+          'SELECT parent_thread_id,thread_id,command_id,attempt,parent_generation FROM codex_pending_thread_dispatches WHERE conversation_id=?',
+        )
+        .get(id) as
+        | {
+            parent_thread_id: string | null;
+            thread_id: string;
+            command_id: string;
+            attempt: number;
+            parent_generation: number | null;
+          }
+        | undefined;
+      let generation = state.threadGeneration;
+      let replacement: { parentThreadId: string | null; parentGeneration: number } | undefined;
+      if (pending) {
+        if (
+          pending.parent_thread_id !== (state.threadId ?? null) ||
+          pending.parent_generation !== state.threadGeneration ||
+          pending.thread_id !== threadId ||
+          pending.command_id !== command.id ||
+          pending.attempt !== command.attempt ||
+          pending.thread_id === pending.parent_thread_id
+        )
+          throw Error('Native execution pending replacement identity or generation changed');
+        replacement = {
+          parentThreadId: pending.parent_thread_id,
+          parentGeneration: state.threadGeneration,
+        };
+        generation += pending.parent_thread_id === null ? 0 : 1;
+      } else if (state.threadId !== threadId)
+        throw Error('Native execution preparation thread changed');
       const snapshot = NativeExecutionPolicySnapshotSchema.parse(policy);
       const history = this.readNativeExecutionHistory(id, b, command.id);
       const existing = history.find((receipt) => receipt.attempt === command.attempt);
       if (existing) {
         if (
           existing.threadId !== threadId ||
-          existing.generation !== state.threadGeneration ||
+          existing.generation !== generation ||
+          (pending && !isDeepStrictEqual(existing.replacement, replacement)) ||
           !isDeepStrictEqual(existing.policy, snapshot)
         )
           throw Error('Native execution preparation changed');
@@ -2018,7 +2061,8 @@ export class CodexConversationStore {
         phase: 'prepared',
         attempt: command.attempt,
         threadId,
-        generation: state.threadGeneration,
+        generation,
+        ...(replacement ? { replacement } : {}),
         policy: snapshot,
         preparedAt: Date.now(),
       });
@@ -2035,13 +2079,79 @@ export class CodexConversationStore {
     turnId: string,
   ): void {
     this.db.transaction(() => {
-      const target = this.nativeTurnTarget(id, b, command.id, command.attempt);
-      if (!target || target.threadId !== threadId || target.turnId !== turnId)
+      const state = this.read(id, b);
+      const active = this.db
+        .prepare(
+          'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+        )
+        .get(id, command.id) as
+        { status: string; attempt: number; native_turns: string | null } | undefined;
+      if (
+        active?.status !== 'running' ||
+        active.attempt !== command.attempt ||
+        state.threadId !== threadId
+      )
+        throw Error('Native execution acknowledgement identity changed');
+      // NativeTurnTarget intentionally hides ownership-pending turns from control
+      // authority. This observation links only its exact already-persisted ACK.
+      const targets = this.nativeTurns(active.native_turns).filter(
+        (turn) => turn.attempt === command.attempt,
+      );
+      const target = targets[0];
+      if (
+        targets.length !== 1 ||
+        target.threadId !== threadId ||
+        target.turnId !== turnId ||
+        target.generation !== state.threadGeneration
+      )
         throw Error('Native execution acknowledgement unavailable or changed');
+      const ownership = this.pendingThreadOwnership(id, b);
+      if (
+        ownership &&
+        (ownership.commandId !== command.id ||
+          ownership.attempt !== command.attempt ||
+          ownership.threadId !== threadId ||
+          ownership.turnId !== turnId ||
+          ownership.generation !== target.generation)
+      )
+        throw Error('Native execution pending ownership changed');
       const history = this.readNativeExecutionHistory(id, b, command.id);
       const existing = history.find((receipt) => receipt.attempt === command.attempt);
       if (!existing || existing.threadId !== threadId || existing.generation !== target.generation)
         throw Error('Native execution preparation unavailable or changed');
+      if (existing.replacement) {
+        const origin = existing.replacement;
+        const accepted = this.readThreadAcceptances(id, b).filter(
+          (receipt) => receipt.commandId === command.id && receipt.attempt === command.attempt,
+        );
+        const lineage = this.db
+          .prepare(
+            'SELECT thread_id,parent_thread_id FROM codex_thread_generations WHERE conversation_id=? AND generation=?',
+          )
+          .get(id, target.generation) as
+          { thread_id: string; parent_thread_id: string | null } | undefined;
+        const parent =
+          origin.parentThreadId === null
+            ? undefined
+            : (this.db
+                .prepare(
+                  'SELECT thread_id FROM codex_thread_generations WHERE conversation_id=? AND generation=?',
+                )
+                .get(id, origin.parentGeneration) as { thread_id: string } | undefined);
+        if (
+          target.generation !==
+            origin.parentGeneration + (origin.parentThreadId === null ? 0 : 1) ||
+          lineage?.thread_id !== threadId ||
+          lineage.parent_thread_id !== origin.parentThreadId ||
+          (origin.parentThreadId !== null && parent?.thread_id !== origin.parentThreadId) ||
+          accepted.length !== 1 ||
+          accepted[0].threadId !== threadId ||
+          accepted[0].turnId !== turnId ||
+          accepted[0].generation !== target.generation ||
+          accepted[0].terminalConflict
+        )
+          throw Error('Native execution replacement acknowledgement or lineage changed');
+      }
       if (existing.phase === 'accepted') {
         if (existing.turnId !== turnId) throw Error('Native execution acknowledgement changed');
         return;

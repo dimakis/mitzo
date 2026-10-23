@@ -102,6 +102,156 @@ describe('native execution receipts in the existing command owner', () => {
     expect(f.store.readNativeExecution('conversation', binding, f.command)).toBeUndefined();
   });
 
+  it('prepares the exact pending child and accepts its native ACK before ownership completes', () => {
+    const f = fixture();
+    f.store.beginThreadReplacementDispatch('conversation', binding, 'thread', 'child', f.command);
+    f.store.prepareNativeExecution('conversation', binding, f.command, 'child', policy);
+    expect(f.store.read('conversation', binding)).toMatchObject({
+      threadId: 'thread',
+      threadGeneration: 0,
+    });
+    expect(f.store.readNativeExecution('conversation', binding, f.command)).toMatchObject({
+      phase: 'prepared',
+      threadId: 'child',
+      generation: 1,
+      replacement: { parentThreadId: 'thread', parentGeneration: 0 },
+    });
+    f.store.acceptThreadReplacement(
+      'conversation',
+      binding,
+      'thread',
+      'child',
+      f.command,
+      'tool-revision',
+      undefined,
+      'tool_surface_change',
+      'child-turn',
+    );
+    f.store.recordNativeTurnAck('conversation', binding, f.command, 'child', 'child-turn');
+    expect(
+      f.store.nativeTurnTarget('conversation', binding, f.command.id, f.command.attempt),
+    ).toBeUndefined();
+    f.store.acceptNativeExecution('conversation', binding, f.command, 'child', 'child-turn');
+    expect(f.store.readNativeExecution('conversation', binding, f.command)).toMatchObject({
+      phase: 'accepted',
+      threadId: 'child',
+      turnId: 'child-turn',
+      generation: 1,
+    });
+    expect(f.store.pendingThreadOwnership('conversation', binding)).toMatchObject({
+      threadId: 'child',
+      generation: 1,
+      turnId: 'child-turn',
+    });
+    expect(() =>
+      f.store.acceptNativeExecution('conversation', binding, f.command, 'child', 'wrong-turn'),
+    ).toThrow();
+    f.store.completeThreadOwnership('conversation', binding, 'child');
+    f.store.acceptNativeExecution('conversation', binding, f.command, 'child', 'child-turn');
+    expect(
+      f.store.nativeTurnTarget('conversation', binding, f.command.id, f.command.attempt),
+    ).toMatchObject({ threadId: 'child', generation: 1 });
+  });
+
+  it('keeps the initial pending binding in generation zero when there is no parent thread', () => {
+    const f = fixture();
+    f.store.create('initial', binding, '/workspace/task');
+    f.store.enqueue('initial', binding, { id: 'first', prompt: 'Offline first request' });
+    const command = f.store.claimNext('initial', binding)!;
+    f.store.beginThreadReplacementDispatch('initial', binding, undefined, 'first-thread', command);
+    f.store.prepareNativeExecution('initial', binding, command, 'first-thread', policy);
+    expect(f.store.readNativeExecution('initial', binding, command)).toMatchObject({
+      generation: 0,
+      replacement: { parentThreadId: null, parentGeneration: 0 },
+    });
+    f.store.acceptThreadReplacement(
+      'initial',
+      binding,
+      undefined,
+      'first-thread',
+      command,
+      'revision',
+      undefined,
+      'tool_surface_change',
+      'first-turn',
+    );
+    f.store.recordNativeTurnAck('initial', binding, command, 'first-thread', 'first-turn');
+    f.store.acceptNativeExecution('initial', binding, command, 'first-thread', 'first-turn');
+    expect(f.store.readNativeExecution('initial', binding, command)).toMatchObject({
+      phase: 'accepted',
+      generation: 0,
+      turnId: 'first-turn',
+    });
+  });
+
+  it('does not treat another pending child, parent thread or command attempt as its dispatch proof', () => {
+    const f = fixture();
+    f.store.beginThreadReplacementDispatch('conversation', binding, 'thread', 'child', f.command);
+    for (const [thread, command] of [
+      ['other-child', f.command],
+      ['thread', f.command],
+      ['child', { ...f.command, attempt: 2 }],
+      ['child', { ...f.command, id: 'other-command' }],
+    ] as const) {
+      expect(() =>
+        f.store.prepareNativeExecution('conversation', binding, command, thread, policy),
+      ).toThrow();
+    }
+    expect(f.store.readNativeExecutionHistory('conversation', binding, f.command.id)).toEqual([]);
+    expect(() => f.store.assertNoPendingThreadDispatch('conversation', binding)).toThrow();
+  });
+
+  it('rejects a stale pending dispatch if the same parent thread ID returns in a later generation', () => {
+    const f = fixture();
+    f.store.beginThreadReplacementDispatch('conversation', binding, 'thread', 'child', f.command);
+    // The ordinary owner prevents reusing provider IDs. A stale retained snapshot
+    // must still fail if that ID matches while its generation has advanced.
+    const db = new Database(f.path);
+    try {
+      db.prepare('UPDATE codex_thread_generations SET generation=2 WHERE conversation_id=?').run(
+        'conversation',
+      );
+      db.prepare('UPDATE codex_conversations SET thread_generation=2 WHERE id=?').run(
+        'conversation',
+      );
+    } finally {
+      db.close();
+    }
+    expect(f.store.read('conversation', binding).threadGeneration).toBe(2);
+    expect(() =>
+      f.store.prepareNativeExecution('conversation', binding, f.command, 'child', policy),
+    ).toThrow();
+    expect(f.store.readNativeExecutionHistory('conversation', binding, f.command.id)).toEqual([]);
+  });
+
+  it('retains a legacy unknown pending generation without inferring native dispatch permission', () => {
+    const f = fixture();
+    f.store.beginThreadReplacementDispatch('conversation', binding, 'thread', 'child', f.command);
+    const db = new Database(f.path);
+    try {
+      db.prepare('UPDATE codex_pending_thread_dispatches SET parent_generation=NULL').run();
+    } finally {
+      db.close();
+    }
+    expect(() =>
+      f.store.prepareNativeExecution('conversation', binding, f.command, 'child', policy),
+    ).toThrow();
+    expect(() => f.store.assertNoPendingThreadDispatch('conversation', binding)).toThrow();
+  });
+
+  it('never substitutes an unrelated raw child ACK for the exact replacement acceptance proof', () => {
+    const f = fixture();
+    f.store.beginThreadReplacementDispatch('conversation', binding, 'thread', 'child', f.command);
+    f.store.prepareNativeExecution('conversation', binding, f.command, 'child', policy);
+    f.store.replaceThread('conversation', binding, 'thread', 'child', 'provider_transport_failure');
+    f.store.recordNativeTurnAck('conversation', binding, f.command, 'child', 'child-turn');
+    expect(() =>
+      f.store.acceptNativeExecution('conversation', binding, f.command, 'child', 'child-turn'),
+    ).toThrow();
+    expect(f.store.readNativeExecution('conversation', binding, f.command)?.phase).toBe('prepared');
+    expect(() => f.store.assertNoPendingThreadDispatch('conversation', binding)).toThrow();
+  });
+
   it('rejects account, command attempt, thread, policy and terminal status conflicts', () => {
     const f = fixture();
     f.store.prepareNativeExecution('conversation', binding, f.command, 'thread', policy);
