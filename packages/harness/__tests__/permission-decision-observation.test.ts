@@ -108,7 +108,7 @@ describe('private one-shot decision observation', () => {
   });
 
   it.each([false, true])(
-    'normalizes native one-shot approval before same-request observation and rechecks observer-side native revocation (revoke=%s)',
+    'retains explicit native one-shot intent during same-request observation and rechecks observer-side native revocation (revoke=%s)',
     async (revoke) => {
       const f = fixture();
       f.registry.setMode('client', 'ask');
@@ -130,11 +130,11 @@ describe('private one-shot decision observation', () => {
         { repo: { path: '/fixture/source' } },
         {
           nativeApproval: { assertCurrentSync: nativeAssertion },
-          // Native one-shot normalization must precede the observer's snapshot.
-          forcePrompt: false,
-          allowSessionGrant: true,
-          rememberSessionGrant: true,
-          approvalScope: 'session',
+          // Both original intent and effective native flags are explicitly once-only.
+          forcePrompt: true,
+          allowSessionGrant: false,
+          rememberSessionGrant: false,
+          approvalScope: 'request',
         },
       );
       await Promise.resolve();
