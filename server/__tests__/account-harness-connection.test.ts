@@ -138,3 +138,24 @@ it('never accepts a gateway endpoint for subscription credentials', () => {
     qualification: 'official',
   });
 });
+
+it('does not advertise a custom endpoint on unqualified legacy or OpenShell routes', () => {
+  const profiles = new AccountProfiles(
+    [{ ...api, connection, sandboxProvider: 'fixture', sandboxProviderId: 'fixture-id' }],
+    { codexEnabled: true },
+  );
+  expect(profiles.ordinaryLocalCodexInventory()).toHaveLength(1);
+  expect(profiles.ordinaryLocalResponsesInventory()).toEqual([]);
+  expect(profiles.ordinaryOpenShellCodexInventory('fixture-target', true)).toEqual([]);
+  const binding = profiles.resolve(api.id, 'luna');
+  expect(() => profiles.apiProfile(binding)).toThrow(/shared Codex/);
+  expect(profiles.apiProfile(binding, { allowCustomEndpoint: true }).connection).toEqual(
+    connection,
+  );
+});
+it('does not claim tool or streaming capabilities for an unqualified configured endpoint', () => {
+  const profiles = new AccountProfiles([
+    { ...api, connection: { ...connection, qualification: undefined } },
+  ]);
+  expect(profiles.catalog()[0].capabilities).toMatchObject({ tools: false, streaming: false });
+});

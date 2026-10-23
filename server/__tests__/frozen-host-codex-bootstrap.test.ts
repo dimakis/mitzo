@@ -281,15 +281,23 @@ it.each([
       );
       return f.store.claimOrdinaryLocalCommandDispatch('api-command');
     });
-    const launchApi = vi.fn(async (home: string) => {
-      expect(f.store.getOrdinaryLocalCommandAdmission('api-command')?.state).toBe('uncertain');
-      writeFileSync(
-        join(home, 'auth.json'),
-        JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
-        { mode: 0o600, flag: 'wx' },
-      );
-      return f.rpc;
-    });
+    const launchApi = vi.fn(
+      async (
+        home: string,
+        _executable: unknown,
+        _binding: unknown,
+        _retained: boolean,
+        _connection?: unknown,
+      ) => {
+        expect(f.store.getOrdinaryLocalCommandAdmission('api-command')?.state).toBe('uncertain');
+        writeFileSync(
+          join(home, 'auth.json'),
+          JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
+          { mode: 0o600, flag: 'wx' },
+        );
+        return f.rpc;
+      },
+    );
     const owner = new FrozenHostCodexBootstrapAuthority({
       ...f.options,
       loadProfiles: () => profiles,

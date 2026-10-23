@@ -388,7 +388,7 @@ export class AccountProfiles {
     return this.options.codexEnabled
       ? [
           ...subscriptions,
-          ...this.ordinaryLocalResponsesInventory().map((account) => ({
+          ...this.ordinaryApiInventory().map((account) => ({
             ...account,
             planType: 'api' as const,
           })),
@@ -422,7 +422,17 @@ export class AccountProfiles {
     });
   }
 
+  /** Retained legacy Responses supports only its original official endpoint. */
   ordinaryLocalResponsesInventory() {
+    const official = new Set(
+      this.profiles
+        .filter((profile) => profile.provider === 'openai' && !profile.connection)
+        .map((profile) => profile.id),
+    );
+    return this.ordinaryApiInventory().filter((entry) => official.has(entry.account.accountId));
+  }
+
+  private ordinaryApiInventory() {
     return this.profiles.flatMap((profile) => {
       if (profile.provider !== 'openai') return [];
       const discovered = cachedModels(JSON.stringify(profile));
@@ -476,6 +486,7 @@ export class AccountProfiles {
         };
       } else if (
         profile.provider === 'openai' &&
+        !profile.connection &&
         openaiApi &&
         profile.sandboxProvider &&
         profile.sandboxProviderId
@@ -510,6 +521,14 @@ export class AccountProfiles {
       .filter((p) => p.provider !== 'openai-codex' || this.options.codexEnabled)
       .map((profile) => {
         const { id, label, provider } = profile;
+        let qualified = true;
+        if (profile.provider === 'openai' && profile.connection) {
+          try {
+            apiHarnessConnection(profile.connection);
+          } catch {
+            qualified = false;
+          }
+        }
         const discovered = cachedModels(JSON.stringify(profile));
         return {
           id,
@@ -540,8 +559,8 @@ export class AccountProfiles {
                 (!profile.nativeCatalogRevision || !!profile.nativeCatalogStale)),
           },
           capabilities: {
-            streaming: provider !== 'google-vertex',
-            tools: true,
+            streaming: qualified && provider !== 'google-vertex',
+            tools: qualified,
             images: provider === 'anthropic-vertex' || provider === 'openai-codex',
           },
         };
