@@ -8,6 +8,9 @@ import { EventStore } from '../event-store.js';
 import { AccountProfiles } from '../account-profiles.js';
 import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admission.js';
 import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
+import { performPreparedRepositoryPrimaryTransition } from '../owned-prepared-repository-transition.js';
+import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
+import { preparedRepositoryResultSha256 } from '../codex-conversation-store.js';
 import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 function fixture() {
@@ -130,6 +133,214 @@ function fixture() {
   };
   return { store, input, options, lease, runtime, binding, selection, agentProfile };
 }
+
+function preparedOperationFixture() {
+  const f = fixture();
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-prepared-operation-'));
+  const native = new CodexConversationStore(join(root, 'native.db'));
+  f.store.claimOrdinaryLocalCommandDispatch('command');
+  const admission = OwnedLocalCodexChatAdmission.capture(f.input);
+  admission.assertOptions(f.options);
+  f.store.completeOrdinaryLocalCommand('command');
+  native.create('session', f.binding, f.options.session.cwd);
+  native.bindThread('session', f.binding, 'thread');
+  native.enqueue('session', f.binding, {
+    id: 'command',
+    prompt: f.options.prompt,
+    intent: f.options.intent,
+  });
+  const command = native.claimNext('session', f.binding)!;
+  native.prepareNativeExecution(
+    'session',
+    f.binding,
+    command,
+    'thread',
+    codexNativeExecutionPolicy({
+      bindingRevision: 'selected',
+      mode: 'agent',
+      cwd: f.options.session.cwd,
+      readableRoots: ['/offline'],
+      writableRoots: [f.options.session.cwd],
+      deniedRoots: ['/credentials'],
+      writeProtectedRoots: [],
+    }),
+  );
+  native.recordNativeTurnAck('session', f.binding, command, 'thread', 'turn');
+  native.acceptNativeExecution('session', f.binding, command, 'thread', 'turn');
+  const identity = {
+    turnId: 'turn',
+    toolName: 'PrepareLocalRepository',
+    requestHash: 'a'.repeat(64),
+  };
+  const result = { content: 'Prepared original task', isError: false };
+  native.claimTool('session', f.binding, 'command', 'prepare', identity);
+  native.recordToolResult('session', f.binding, 'command', 'prepare', identity, result);
+  native.finish('session', f.binding, 'command', 'completed', 'turn');
+  const freeze = <T>(value: T): T => {
+    if (value && typeof value === 'object') {
+      for (const item of Object.values(value)) freeze(item);
+      Object.freeze(value);
+    }
+    return value;
+  };
+  const facts = freeze({
+    version: 'prepared-repository-transition-v1' as const,
+    request: {
+      id: '34af2bdf-5fb4-4de0-b083-cf188163d891',
+      binding: f.binding,
+      conversationId: 'session',
+      runtimeId: 'runtime',
+      runtimeBinding: f.runtime,
+      nativeTarget: {
+        commandId: 'command',
+        attempt: 1,
+        threadId: 'thread',
+        turnId: 'turn',
+        generation: 0,
+      },
+      prepareCallId: 'prepare',
+      requestHash: identity.requestHash,
+      taskRoot: '/offline',
+    },
+    oldWorkspace: { kind: 'repository' as const, id: 'workspace', directory: '/offline/workspace' },
+    newWorkspace: {
+      kind: 'repository' as const,
+      id: 'prepared',
+      directory: '/offline/prepared',
+      featureBranch: 'task/branch',
+      baseOid: 'b'.repeat(40),
+      taskIdentity: {
+        directory: '/offline/prepared',
+        featureBranch: 'task/branch',
+        root: { dev: 1, ino: 2 },
+        git: { dev: 1, ino: 3 },
+      },
+    },
+    consumedScopeSha256: 'c'.repeat(64),
+    materializedRecordSha256: 'd'.repeat(64),
+    resultSha256: preparedRepositoryResultSha256(result),
+  });
+  let oldOwner = true;
+  const proof = {
+    facts,
+    assertCurrentSync: vi.fn(() => {
+      if (!oldOwner) throw Error('Old workspace expired');
+    }),
+    revalidate: vi.fn(async () => {}),
+    adopt: vi.fn(async () => {
+      oldOwner = false;
+    }),
+  };
+  const handoff = { assertCurrentSync: vi.fn(), commit: vi.fn() };
+  const owners = {
+    events: f.store,
+    native,
+    admission,
+    conversationId: 'session',
+    binding: f.binding,
+    expected: f.input.expected,
+    assertCurrentSync: () => {
+      if (!oldOwner) throw Error('Old owner must not be called after CAS');
+      admission.assertCurrentSync();
+    },
+    assertOperatorAndLeaseCurrentSync: () => f.lease.assertCurrentSync(),
+    prepareWorkspaceHandoff: () => handoff,
+  };
+  return {
+    ...f,
+    native,
+    proof,
+    owners,
+    admission,
+    handoff,
+    close: () => {
+      native.close();
+      f.store.close();
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+it('completes one operation-specific original-task continuation without reusing expired old custody', async () => {
+  const f = preparedOperationFixture();
+  try {
+    const result = await performPreparedRepositoryPrimaryTransition(f.proof, f.owners);
+    expect(f.proof.adopt).toHaveBeenCalledOnce();
+    expect(f.handoff.assertCurrentSync).toHaveBeenCalledOnce();
+    expect(f.handoff.commit).toHaveBeenCalledOnce();
+    expect(f.options.session.cwd).toBe('/offline/prepared');
+    expect(f.admission.canClaimCommand(result.childCommandId)).toBe(true);
+    expect(f.native.commands('session', f.binding)).toMatchObject([
+      { id: 'command', status: 'completed', intent: 'Original intent' },
+      { id: result.childCommandId, status: 'queued', intent: 'Original intent' },
+    ]);
+    expect(f.native.read('session', f.binding)).toMatchObject({
+      cwd: '/offline/prepared',
+      threadId: 'thread',
+      threadGeneration: 0,
+    });
+    expect(f.lease.client.request).not.toHaveBeenCalled();
+  } finally {
+    f.close();
+  }
+});
+
+it.each(['after custody', 'after metadata', 'after queued row'] as const)(
+  'retains uncertain non-replay after failure %s',
+  async (phase) => {
+    const f = preparedOperationFixture();
+    try {
+      if (phase === 'after custody')
+        vi.spyOn(f.store, 'commitPreparedRepositoryContinuation').mockImplementation(() => {
+          throw Error('Injected');
+        });
+      if (phase === 'after metadata')
+        vi.spyOn(f.native, 'adoptPreparedRepositoryWorkspace').mockImplementation(() => {
+          throw Error('Injected');
+        });
+      if (phase === 'after queued row') {
+        const enqueue = f.native.enqueuePreparedRepositoryContinuation.bind(f.native);
+        vi.spyOn(f.native, 'enqueuePreparedRepositoryContinuation').mockImplementation(
+          (...args) => {
+            enqueue(...args);
+            throw Error('Injected');
+          },
+        );
+      }
+      await expect(performPreparedRepositoryPrimaryTransition(f.proof, f.owners)).rejects.toThrow(
+        'Injected',
+      );
+      expect(f.store.hasUncertainOrdinaryCommand('session')).toBe(true);
+      expect(f.proof.adopt).toHaveBeenCalledOnce();
+      const child = f.native
+        .commands('session', f.binding)
+        .find((command) => command.id !== 'command');
+      if (child) expect(f.admission.canClaimCommand(child.id)).toBe(false);
+      await expect(performPreparedRepositoryPrimaryTransition(f.proof, f.owners)).rejects.toThrow();
+      expect(f.proof.adopt).toHaveBeenCalledOnce();
+    } finally {
+      f.close();
+    }
+  },
+);
+
+it('refuses an old queued command introduced during async proof validation before uncertainty or custody effects', async () => {
+  const f = preparedOperationFixture();
+  try {
+    f.proof.revalidate.mockImplementation(async () => {
+      f.native.enqueue('session', f.binding, { id: 'old-followup', prompt: 'Later task' });
+    });
+    await expect(performPreparedRepositoryPrimaryTransition(f.proof, f.owners)).rejects.toThrow();
+    expect(f.proof.adopt).not.toHaveBeenCalled();
+    expect(f.store.hasUncertainOrdinaryCommand('session')).toBe(false);
+    expect(f.native.commands('session', f.binding).at(-1)).toMatchObject({
+      id: 'old-followup',
+      status: 'queued',
+    });
+  } finally {
+    f.close();
+  }
+});
 it('adopts only its exact committed prepared child under the same lease and preserves original payload/receipt', () => {
   const f = fixture();
   try {
