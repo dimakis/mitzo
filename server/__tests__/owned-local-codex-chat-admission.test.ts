@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { AccountBindingSchema } from '@mitzo/protocol';
+import { AccountBindingSchema, type MitzoMode } from '@mitzo/protocol';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -122,7 +122,7 @@ function fixture() {
     messageId: 'command',
     binding,
     profile,
-    session: { cwd: '/offline/workspace', mode: 'agent' as const },
+    session: { cwd: '/offline/workspace', mode: 'agent' as MitzoMode },
     model: 'fixture-model',
     reasoningEffort: null,
     prompt: 'Frozen prepared prompt',

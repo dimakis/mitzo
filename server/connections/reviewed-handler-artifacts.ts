@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.587-original-prepared-primary-source';
+  'v1.0.588-post-callback-primary-source';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -135,7 +135,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/codex-native-permission-protocol-0.160.0.json':
     '3a0d0fdc4c5e61afaa315c0a6d5eaf9f6cc875a34240ceddcef35f1788cc8a4b',
   '../__tests__/owned-local-codex-chat-admission.test.ts':
-    '073e61569aedf1e1fa574bce17eca24dcb759361c65ff95de1af61f093481634',
+    '4be0a5e834312a0f54174edbd534efb370b615e71bfad8cdcfdfe61ea9730aa3',
   '../__tests__/owned-local-codex-native-execution.test.ts':
     'c8fa08801d2dd073375d9ea9f584e2bb264a27e71cc9e3f66acc11e0e43d2d12',
   '../__tests__/owned-local-codex-native-policy.test.ts':
@@ -803,7 +803,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../owned-codex-lifecycle-bridge.ts':
     'b76d973b736e98d2b140b87e0bcd767449539a1bf8fa5f6d41d95e3839408a96',
   '../owned-local-codex-chat-admission.ts':
-    'b25f4f76b9832f566c1520be028c7f648fce896ef392a3bd638433a3619d5562',
+    '56406343942311d1046b8b8d1a2d18df85da305496fedf2228c900727bccbe34',
   '../codex-account.ts': 'dc2ac5efec915495b6af3c7a3001ea4856427ca2d185648a864d2ceeb6593e71',
   '../codex-runtime-policy.ts': 'd11ab33ef4c5c69a5b5d8754ce474afd8a1a712df4b45e93f0690b97636859ab',
   '../model-catalog.ts': 'e6922550fed2f7d6d3330299dfe83726d97d126e79c4a3abdb5e3334020ce90a',
