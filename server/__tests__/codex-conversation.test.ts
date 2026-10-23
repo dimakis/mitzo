@@ -54,7 +54,7 @@ it('refuses native startup from a configured DTO without the current owner and n
 });
 
 it('refreshes native cwd and workspace policy for the exact command on the same thread', async () => {
-  const f = await setup();
+  const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
   const initial = codexNativeExecutionPolicy({
     bindingRevision: 'owner-v1',
     mode: 'agent',
@@ -77,6 +77,14 @@ it('refreshes native cwd and workspace policy for the exact command on the same 
   const resolvePolicy = vi.fn(async () => next);
   f.conversationOptions.resolveNativeExecutionPolicy = resolvePolicy;
   await f.c.send({ id: 'frozen-command', prompt: 'Use the admitted workspace' });
+  expect(
+    f.store.readNativeExecution('app', binding, { id: 'frozen-command', attempt: 1 }),
+  ).toMatchObject({
+    phase: 'accepted',
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+    policy: next,
+  });
   expect(resolvePolicy).toHaveBeenCalledExactlyOnceWith({
     commandId: 'frozen-command',
     signal: expect.any(AbortSignal),
@@ -90,6 +98,108 @@ it('refreshes native cwd and workspace policy for the exact command on the same 
   });
   expect(f.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
 });
+
+it.each(['tool-surface', 'provider-recovery'] as const)(
+  'links frozen native policy to the exact replacement ACK after %s',
+  async (replacement) => {
+    const args: Parameters<typeof setup> = [];
+    args[4] = async () => binding;
+    if (replacement === 'tool-surface') {
+      const dir = mkdtempSync(join(tmpdir(), 'mitzo-native-replacement-'));
+      const store = new CodexConversationStore(join(dir, 'private.db'));
+      cleanup.push(() => {
+        store.close();
+        rmSync(dir, { recursive: true, force: true });
+      });
+      store.create('app', binding, '/workspace');
+      store.bindThread('app', binding, 'durable-parent');
+      args[0] = store;
+      args[17] = true;
+    }
+    const f = await setup(...args);
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'owner-v1',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    f.conversationOptions.nativeExecution = policy;
+    f.conversationOptions.assertNativeExecutionCurrent = () => {};
+    f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+    if (replacement === 'provider-recovery') {
+      await f.c.send({ id: 'first', prompt: 'First' });
+      f.callbacks.onNotification('turn/completed', {
+        threadId: f.getProviderThread(),
+        turn: {
+          id: 'turn-1',
+          status: 'failed',
+          error: { message: 'stream disconnected before completion' },
+        },
+      });
+    }
+    await f.c.send({ id: 'replacement', prompt: 'Continue on the original workspace' });
+    const threadId = f.getProviderThread();
+    const turnId = replacement === 'provider-recovery' ? 'turn-2' : 'turn-1';
+    expect(
+      f.store.readNativeExecution('app', binding, { id: 'replacement', attempt: 1 }),
+    ).toMatchObject({ phase: 'accepted', threadId, turnId, generation: 1, policy });
+    expect(f.store.read('app', binding)).toMatchObject({ threadId, threadGeneration: 1 });
+    expect(() => f.store.assertNoPendingThreadDispatch('app', binding)).not.toThrow();
+    expect(f.requests.filter(({ method }) => method === 'turn/start').at(-1)?.params).toMatchObject(
+      {
+        threadId,
+        cwd: '/workspace',
+        runtimeWorkspaceRoots: ['/workspace'],
+        permissions: 'mitzo-native-agent',
+      },
+    );
+  },
+);
+
+it.each(['lost-ack', 'pre-rpc-failure'] as const)(
+  'preserves the frozen native policy without granting replay after %s',
+  async (failure) => {
+    const f = await setup(undefined, undefined, undefined, undefined, async () => binding);
+    const policy = codexNativeExecutionPolicy({
+      bindingRevision: 'owner-v1',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots: ['/private/auth'],
+    });
+    f.conversationOptions.nativeExecution = policy;
+    f.conversationOptions.assertNativeExecutionCurrent = () => {};
+    f.conversationOptions.requestNativeApproval = async () => ({ decision: 'decline' });
+    const prepare = f.store.prepareNativeExecution.bind(f.store);
+    vi.spyOn(f.store, 'prepareNativeExecution').mockImplementation((...args) => {
+      prepare(...args);
+      if (failure === 'pre-rpc-failure') throw Error('Prepared persistence observer failed');
+    });
+    const original = f.rpc.request.getMockImplementation()!;
+    f.rpc.request.mockImplementation(async (method, params) => {
+      if (method === 'turn/start') {
+        expect(
+          f.store.readNativeExecution('app', binding, { id: 'frozen-command', attempt: 1 }),
+        ).toMatchObject({ phase: 'prepared', policy });
+        throw new CodexTransportError('connection');
+      }
+      return original(method, params);
+    });
+    await expect(f.c.send({ id: 'frozen-command', prompt: 'Run' })).rejects.toThrow();
+    expect(
+      f.store.readNativeExecution('app', binding, { id: 'frozen-command', attempt: 1 }),
+    ).toMatchObject({ phase: 'prepared', policy });
+    expect(
+      f.store.readNativeExecution('app', binding, { id: 'frozen-command', attempt: 1 }),
+    ).not.toHaveProperty('turnId');
+    expect(f.rpc.request.mock.calls.filter(([method]) => method === 'turn/start')).toHaveLength(
+      failure === 'pre-rpc-failure' ? 0 : 1,
+    );
+  },
+);
 
 it('rejects a changed native credential fence before provider dispatch', async () => {
   const f = await setup();
@@ -156,7 +266,9 @@ it('fences native grants against the frozen active policy at the final transport
 
 it('routes an exact native approval to its owner without executing a host tool or replaying a turn', async () => {
   const f = await setup();
-  const approve = vi.fn(async () => ({ decision: 'decline' }));
+  const approve = vi.fn<NonNullable<CodexConversationOptions['requestNativeApproval']>>(
+    async () => ({ decision: 'decline' }),
+  );
   f.conversationOptions.requestNativeApproval = approve;
   await f.c.send({ id: 'native-request', prompt: 'Run the permitted action' });
   const params = {
@@ -169,6 +281,7 @@ it('routes an exact native approval to its owner without executing a host tool o
   await expect(
     request('item/commandExecution/requestApproval', params, new AbortController().signal, {
       requestId: 17,
+      commandId: 'untrusted-context-command',
     }),
   ).resolves.toEqual({ decision: 'decline' });
   expect(approve).toHaveBeenCalledExactlyOnceWith(
@@ -177,6 +290,7 @@ it('routes an exact native approval to its owner without executing a host tool o
     expect.any(AbortSignal),
     expect.objectContaining({
       requestId: 17,
+      commandId: 'native-request',
       threadId: f.getProviderThread(),
       turnId: 'turn-1',
       assertCurrentSync: expect.any(Function),
@@ -188,7 +302,9 @@ it('routes an exact native approval to its owner without executing a host tool o
 
 it('includes both source and move destination in the exact native file approval fence', async () => {
   const f = await setup();
-  const approve = vi.fn(async () => ({ decision: 'decline' }));
+  const approve = vi.fn<NonNullable<CodexConversationOptions['requestNativeApproval']>>(
+    async () => ({ decision: 'decline' }),
+  );
   f.conversationOptions.requestNativeApproval = approve;
   await f.c.send({ id: 'native-move', prompt: 'Move file' });
   f.callbacks.onNotification('item/started', {
@@ -269,7 +385,9 @@ it.each([{ type: 'unknown' }, { type: 'update', move_path: 7 }])(
   'does not grant authoritative paths for malformed native file-change kind %j',
   async (kind) => {
     const f = await setup();
-    const approve = vi.fn(async () => ({ decision: 'decline' }));
+    const approve = vi.fn<NonNullable<CodexConversationOptions['requestNativeApproval']>>(
+      async () => ({ decision: 'decline' }),
+    );
     f.conversationOptions.requestNativeApproval = approve;
     await f.c.send({ id: 'native-move', prompt: 'Move file' });
     f.callbacks.onNotification('item/started', {

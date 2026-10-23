@@ -170,6 +170,7 @@ export interface CodexConversationOptions {
     signal: AbortSignal,
     context: Readonly<{
       requestId: string | number;
+      commandId: string;
       threadId: string;
       turnId: string;
       assertCurrentSync(): void;
@@ -2131,6 +2132,14 @@ export class CodexConversation {
       let response: unknown;
       let dispatched = false;
       try {
+        if (active.nativeExecution)
+          this.opts.store.prepareNativeExecution(
+            this.opts.conversationId,
+            this.binding!,
+            command,
+            this.threadId!,
+            active.nativeExecution,
+          );
         const pendingAck = this.client.request(
           'turn/start',
           codexTurnStartParams({
@@ -2206,6 +2215,14 @@ export class CodexConversation {
           this.threadId!,
           active.turnId,
         );
+        if (active.nativeExecution)
+          this.opts.store.acceptNativeExecution(
+            this.opts.conversationId,
+            this.binding!,
+            command,
+            this.threadId!,
+            active.turnId,
+          );
         let providerObserverFailed = false;
         let providerObserverError: unknown;
         try {
@@ -2792,6 +2809,7 @@ export class CodexConversation {
       requestContext!.registerResponseFence?.(assertCurrentSync);
       const response = await this.opts.requestNativeApproval(method, params, approvalSignal, {
         ...requestContext!,
+        commandId: active!.command.id,
         threadId: threadId!,
         turnId: turnId!,
         assertCurrentSync,

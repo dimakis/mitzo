@@ -44,7 +44,7 @@ const contains = (root: string, path: string) =>
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 /** Pinned macOS emits absolute deny globs as final kernel deny rules. Exact
  * parent path entries alone can be overridden by a more-specific grant. */
-const subtreeDenyGlob = (path: string) => `${path.replace(/[\\*?\[\]{}]/g, '\\$&')}{,/**}`;
+const subtreeDenyGlob = (path: string) => `${path.replace(/[\\*?[\]{}]/g, '\\$&')}{,/**}`;
 
 export function codexNativeExecutionPolicy(input: {
   bindingRevision: string;
@@ -61,6 +61,10 @@ export function codexNativeExecutionPolicy(input: {
   const workspaceRoots = roots(input.writableRoots);
   const deniedRoots = roots(input.deniedRoots);
   const writeProtectedRoots = roots(input.writeProtectedRoots ?? []);
+  // Pinned positive-map parsing treats a trailing /** as its parent and has
+  // no qualified literal encoding. Refuse rather than broaden authority.
+  if ([...readableRoots, ...writeProtectedRoots].some((root) => /[\\*?[\]{}]/.test(root)))
+    throw Error('Native positive filesystem path requires unsupported literal encoding');
   if (
     [...readableRoots, ...writeProtectedRoots].some((root) =>
       deniedRoots.some((denied) => contains(denied, root)),
@@ -116,9 +120,11 @@ export function codexNativePermissionProfiles(policy: CodexNativeExecutionPolicy
     Object.fromEntries([
       ...policy.readableRoots.map((root) => [root, 'read']),
       [':workspace_roots', workspaceAccess],
-      ...policy.writeProtectedRoots.map((root) => [root, 'read']),
+      ...policy.writeProtectedRoots
+        .filter((root) => policy.readableRoots.some((readable) => contains(readable, root)))
+        .map((root) => [root, 'read']),
       ...policy.deniedRoots.flatMap((root) => [
-        ...(/[\\*?\[\]{}]/.test(root) ? [] : [[root, 'deny']]),
+        ...(/[\\*?[\]{}]/.test(root) ? [] : [[root, 'deny']]),
         [subtreeDenyGlob(root), 'deny'],
       ]),
     ]);

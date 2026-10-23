@@ -27,7 +27,6 @@ export function codexThreadOptions(input: {
   return {
     model: input.model,
     modelProvider: input.modelProvider,
-    cwd: input.cwd,
     config: {
       model_reasoning_summary: 'auto',
       ...input.runtimeConfig,
@@ -36,7 +35,7 @@ export function codexThreadOptions(input: {
     },
     ...(input.nativeExecution
       ? codexNativeExecutionParams(input.nativeExecution)
-      : { approvalPolicy: 'never', sandbox: 'read-only' }),
+      : { cwd: input.cwd, approvalPolicy: 'never', sandbox: 'read-only' }),
     developerInstructions: input.systemPrompt + codexResearchInstructions(input.webSearch),
   };
 }

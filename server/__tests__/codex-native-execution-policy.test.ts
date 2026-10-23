@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, symlinkSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, symlinkSync, rmSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -48,6 +48,73 @@ describe('native Mac execution permission profile', () => {
     } finally {
       rmSync(temporary, { recursive: true, force: true });
     }
+  });
+  it.each(['readableRoots', 'writeProtectedRoots'] as const)(
+    'refuses literal positive-map metacharacters in %s rather than widening their parent',
+    (field) => {
+      const root = mkdtempSync(join(tmpdir(), 'mitzo-native-literal-'));
+      try {
+        const literal = join(root, '**');
+        mkdirSync(literal);
+        const alias = join(root, 'alias');
+        symlinkSync(literal, alias);
+        for (const path of [literal, alias]) {
+          expect(() =>
+            codexNativeExecutionPolicy({
+              ...input,
+              [field]: [path],
+            }),
+          ).toThrow('Native positive filesystem path requires unsupported literal encoding');
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+  it('retains literal workspace paths through the special runtime roots array', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-native-workspace-literal-'));
+    try {
+      const workspace = join(root, '**');
+      mkdirSync(workspace);
+      const policy = codexNativeExecutionPolicy({
+        ...input,
+        cwd: workspace,
+        writableRoots: [workspace],
+      });
+      expect(policy.workspaceRoots).toEqual([realpathSync(workspace)]);
+      const native = codexThreadOptions({
+        model: 'fixture',
+        modelProvider: 'openai',
+        cwd: '/old',
+        runtimeConfig: {},
+        webSearch: 'disabled',
+        systemPrompt: '',
+        nativeExecution: policy,
+      });
+      expect(native.runtimeWorkspaceRoots).toEqual([realpathSync(workspace)]);
+      expect(
+        codexNativePermissionProfiles(policy).permissions['mitzo-native-agent'].filesystem,
+      ).not.toHaveProperty(workspace);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+  it('preserves a narrower readable ceiling without making outside authority files readable', () => {
+    const policy = codexNativeExecutionPolicy({
+      ...input,
+      readableRoots: ['/workspace/one', '/usr'],
+      writeProtectedRoots: ['/operator/runtime', '/usr/trusted'],
+    });
+    const profiles = codexNativePermissionProfiles(policy).permissions;
+    for (const profile of Object.values(profiles)) {
+      expect(profile.filesystem).not.toHaveProperty('/operator/runtime');
+      expect(profile.filesystem).toMatchObject({
+        '/workspace/one': 'read',
+        '/usr': 'read',
+        '/usr/trusted': 'read',
+      });
+    }
+    expect(policy.writeProtectedRoots).toContain('/operator/runtime');
   });
   it('compiles real native profiles with fixed credential deny globs and dynamic workspace roots', () => {
     const policy = codexNativeExecutionPolicy(input);
