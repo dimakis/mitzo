@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.556-native-chat-startup';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.557-session-history-summaries';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../session-history-tools.ts': '193320f7c57214e630f073af1ff664d2f46ce4e1e9dab86da936daeeb584a439',
   '../__tests__/chat-provider-startup-admission.test.ts':
     '2d56b8f9bf1a510324983852152d5d38fd596879ee78dd2b9f9af011139cec4b',
   '../__tests__/connections-credential-readiness.test.ts':
@@ -920,9 +922,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
   '../repository-workspaces.ts': '2e7297c2105a3f603823aea4e903cebb1aa00ed290eecabb6218ee3f5169408f',
   '../../packages/protocol/src/session-metadata-store.ts':
-    '23b46bb4ae5cca126db5ddbbfcb6dffb0cef98895e6d74a0b0700c5098b39a04',
+    'ee2a2d3d56cc450fad6b83620487104dc09284a4d2166b4e0399920434d8adb4',
   '../../packages/protocol/src/event-store.ts':
-    '6eba8ae7c813ff07a1ae0dfbe2d7932d6f9fb469d4a1ad228ee0d616741cffc8',
+    '512e5ae38936dac8950fe85df2b77c642627a970e3c78b452ec2b8de02367681',
   '../../packages/protocol/src/session-lifecycle-store.ts':
     '2a219b360a5fbe72b0a550c714bf76a15c6f5969cbbe4251671050257b98e267',
   '../../packages/protocol/src/conversation-replay-store.ts':
