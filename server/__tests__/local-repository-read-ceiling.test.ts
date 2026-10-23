@@ -11,6 +11,10 @@ const file = `${root}/source.txt`;
 const identity = Object.freeze({ dev: '1', ino: '2' });
 function fixture() {
   const calls: string[] = [];
+  let current = true;
+  const assertCurrentSync = vi.fn(() => {
+    if (!current) throw Error('Original source owner revoked');
+  });
   const listing = {
     content: JSON.stringify({
       identity,
@@ -35,6 +39,7 @@ function fixture() {
     deniedRoots: [],
     deadline: Date.now() + 15000,
     assertReadable: vi.fn(async (path) => {
+      assertCurrentSync();
       calls.push(`owner:${path}`);
     }),
     captureReadAnchor: vi.fn(async (path) => ({ rootPath: path, identity })),
@@ -45,9 +50,11 @@ function fixture() {
     ),
     executeDirectoryVerification: vi.fn(async (requests) => requests.map(() => listing)),
     revalidate: vi.fn(async () => {
+      assertCurrentSync();
       calls.push('owner:final');
     }),
   };
+  Object.defineProperty(authority, 'assertCurrentSync', { value: assertCurrentSync });
   const ceiling: LocalRepositoryReadCeiling = {
     assertReadable: vi.fn(async (path) => {
       calls.push(`ceiling:${path}`);
@@ -56,8 +63,118 @@ function fixture() {
       calls.push('ceiling:final');
     }),
   };
-  return { calls, authority, ceiling };
+  return {
+    calls,
+    authority,
+    ceiling,
+    assertCurrentSync,
+    revoke: () => {
+      current = false;
+    },
+  };
 }
+
+it.each(['missing', 'null', 'inherited', 'accessor'] as const)(
+  'refuses a ceiling without the original own data sync owner port (%s)',
+  (kind) => {
+    const f = fixture();
+    const getter = vi.fn(() => f.assertCurrentSync);
+    const authority = { ...f.authority };
+    if (kind === 'null') Object.defineProperty(authority, 'assertCurrentSync', { value: null });
+    if (kind === 'accessor') Object.defineProperty(authority, 'assertCurrentSync', { get: getter });
+    if (kind === 'inherited')
+      Object.setPrototypeOf(authority, { assertCurrentSync: f.assertCurrentSync });
+    expect(() => new LocalRepositoryReadAccess(authority, f.ceiling)).toThrow();
+    expect(getter).not.toHaveBeenCalled();
+    expect(f.authority.captureReadAnchor).not.toHaveBeenCalled();
+    expect(f.authority.assertReadable).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['logical', 'cached', 'final'] as const)(
+  'refuses original source revocation during the last ceiling await (%s)',
+  async (phase) => {
+    const f = fixture();
+    let armed = false;
+    let validations = 0;
+    const revoke = async () => {
+      await Promise.resolve();
+      // Refuse drift after the LAST ceiling validation, not just a drift
+      // already detected by the intervening actual owner async validation.
+      if (armed && (phase === 'final' || ++validations === 2)) f.revoke();
+    };
+    f.ceiling.assertReadable = revoke;
+    if (phase === 'final') f.ceiling.revalidate = revoke;
+    const access = new LocalRepositoryReadAccess(f.authority, f.ceiling);
+    if (phase === 'cached') {
+      await access.pinRoot(root);
+      await access.list(root);
+    }
+    armed = true;
+    validations = 0;
+    const result =
+      phase === 'final'
+        ? access.verify()
+        : phase === 'cached'
+          ? access.stat(file)
+          : access.assertPath(root);
+    await expect(result).rejects.toMatchObject({ kind: 'access' });
+    if (phase === 'final') expect(f.authority.revalidate).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([false, Promise.resolve(undefined)])(
+  'refuses non-undefined original synchronous owner results after a ceiling wait (%s)',
+  async (result) => {
+    const f = fixture();
+    const authority = { ...f.authority };
+    Object.defineProperty(authority, 'assertCurrentSync', { value: () => result });
+    const access = new LocalRepositoryReadAccess(authority, f.ceiling);
+    await expect(access.assertPath(root)).rejects.toMatchObject({ kind: 'access' });
+    expect(f.authority.captureReadAnchor).not.toHaveBeenCalled();
+  },
+);
+
+it('retains the original sync callback receiver and runs it after the final awaited ceiling', async () => {
+  const f = fixture();
+  const authority = { ...f.authority };
+  Object.defineProperty(authority, 'assertCurrentSync', {
+    value: function () {
+      expect(this).toBe(authority);
+      f.calls.push('owner:sync');
+    },
+  });
+  const access = new LocalRepositoryReadAccess(authority, f.ceiling);
+  await access.verify();
+  expect(f.calls.slice(-3)).toEqual(['owner:final', 'ceiling:final', 'owner:sync']);
+});
+
+it('cannot replace the captured original fence through its mutable own call property', async () => {
+  const f = fixture();
+  f.ceiling.revalidate = async () => {
+    await Promise.resolve();
+    Object.defineProperty(f.assertCurrentSync, 'call', { value: () => undefined });
+    f.revoke();
+  };
+  const access = new LocalRepositoryReadAccess(f.authority, f.ceiling);
+  await expect(access.verify()).rejects.toMatchObject({ kind: 'access' });
+});
+
+it.each(['assertReadable', 'revalidate'] as const)(
+  'cannot replace the captured ceiling %s through its mutable own call property',
+  async (method) => {
+    const f = fixture();
+    const deny = async () => {
+      throw Error('Original ceiling denied');
+    };
+    f.ceiling[method] = deny;
+    const access = new LocalRepositoryReadAccess(f.authority, f.ceiling);
+    Object.defineProperty(deny, 'call', { value: async () => undefined });
+    await expect(
+      method === 'assertReadable' ? access.assertPath(root) : access.verify(),
+    ).rejects.toMatchObject({ kind: 'access' });
+  },
+);
 
 it.each([null, {}, [], { assertReadable: false, revalidate: async () => {} }])(
   'refuses a present malformed ceiling before any lookup (%j)',

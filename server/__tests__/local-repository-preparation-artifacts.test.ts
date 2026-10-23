@@ -24,6 +24,7 @@ it('pins the private preparation decision producer, same-row custody and signed 
     '../local-repository-native-read.ts',
     '../__tests__/prepared-repository-native-read.test.ts',
     '../prepared-repository-transition.ts',
+    '../__tests__/prepared-repository-candidate.test.ts',
     '../__tests__/local-repository-allocation-facts.test.ts',
     '../pending-host-task.ts',
     '../native-file-operation.ts',

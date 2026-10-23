@@ -166,6 +166,7 @@ async function captureReader(
     deniedRoots,
     signal,
     deadline,
+    assertCurrentSync: Object.freeze(current),
     assertReadable: authorize,
     revalidate: async () => {
       current();

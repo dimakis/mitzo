@@ -26,6 +26,9 @@ export interface LocalRepositoryReadEntry {
 export interface LocalRepositoryReadAuthority {
   /** Complete current actual-owner exclusions, not inferred from scope roots. */
   deniedRoots: readonly string[];
+  /** Actual retained owner's synchronous fence. Required when an additional
+   * ceiling awaits after that owner's async validation; never a scope grant. */
+  readonly assertCurrentSync?: () => void;
   assertReadable(path: string): Promise<void>;
   /** Actual native owners perform full async owner validation before final
    * outward verification, including a verification containing cached facts only. */
@@ -102,6 +105,7 @@ export class LocalRepositoryReadAccess {
     owner: LocalRepositoryReadCeiling;
     assertReadable: LocalRepositoryReadCeiling['assertReadable'];
     revalidate: LocalRepositoryReadCeiling['revalidate'];
+    originalCurrentSync: () => void;
   }>;
   constructor(
     private readonly authority: LocalRepositoryReadAuthority,
@@ -111,19 +115,24 @@ export class LocalRepositoryReadAccess {
       if (!ceiling || typeof ceiling !== 'object' || Array.isArray(ceiling)) throw unavailable();
       const readable = Object.getOwnPropertyDescriptor(ceiling, 'assertReadable');
       const revalidate = Object.getOwnPropertyDescriptor(ceiling, 'revalidate');
+      const originalCurrent = Object.getOwnPropertyDescriptor(authority, 'assertCurrentSync');
       if (
         !readable ||
         !('value' in readable) ||
         typeof readable.value !== 'function' ||
         !revalidate ||
         !('value' in revalidate) ||
-        typeof revalidate.value !== 'function'
+        typeof revalidate.value !== 'function' ||
+        !originalCurrent ||
+        !('value' in originalCurrent) ||
+        typeof originalCurrent.value !== 'function'
       )
         throw unavailable();
       this.ceiling = Object.freeze({
         owner: ceiling,
         assertReadable: readable.value,
         revalidate: revalidate.value,
+        originalCurrentSync: originalCurrent.value,
       });
     }
     this.deniedRoots = freezeNativeReadExclusions(authority.deniedRoots);
@@ -155,10 +164,21 @@ export class LocalRepositoryReadAccess {
   private async assertCeiling(path: string) {
     if (
       this.ceiling &&
-      (await this.ceiling.assertReadable.call(this.ceiling.owner, path)) !== undefined
+      (await Reflect.apply(this.ceiling.assertReadable, this.ceiling.owner, [path])) !== undefined
     )
       throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+    this.assertOriginalCurrentSync();
     this.check();
+  }
+  private assertOriginalCurrentSync() {
+    if (!this.ceiling) return;
+    const result: unknown = Reflect.apply(this.ceiling.originalCurrentSync, this.authority, []);
+    if (result !== undefined) {
+      // A synchronous fence cannot become an async authority wait. Join a
+      // rejected value to avoid an unhandled rejection while refusing it.
+      void Promise.resolve(result).catch(() => {});
+      throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+    }
   }
   private anchor(path: string) {
     let found: LocalRepositoryReadAnchor | undefined;
@@ -571,8 +591,9 @@ export class LocalRepositoryReadAccess {
     this.check();
     if (this.ceiling) {
       try {
-        if ((await this.ceiling.revalidate.call(this.ceiling.owner)) !== undefined)
+        if ((await Reflect.apply(this.ceiling.revalidate, this.ceiling.owner, [])) !== undefined)
           throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+        this.assertOriginalCurrentSync();
       } catch {
         this.authority.signal?.throwIfAborted();
         throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
