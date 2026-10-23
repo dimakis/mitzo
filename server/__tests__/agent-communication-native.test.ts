@@ -4,6 +4,7 @@ import { mkdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import * as sandboxedCommand from '../sandboxed-command.js';
 import * as childProcess from 'node:child_process';
 import { captureNativeLocalRepositoryReader } from '../local-repository-native-read.js';
+import { captureNativeLocalRepositoryPreparationSource } from '../local-repository-preparation-source.js';
 import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
 import { randomUUID } from 'node:crypto';
 import {
@@ -76,6 +77,147 @@ afterEach(async () => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
+
+it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION === '1')(
+  'qualifies two unrelated unenrolled preparation sources through the actual original native reader with fresh revalidation',
+  async () => {
+    const sources: string[] = [];
+    const runs: Parameters<typeof sandboxedCommand.executeSandboxedCommand>[0][] = [];
+    const timings: Array<{ operation: string; fixturePath: string; ms: number }> = [];
+    const verificationTimings: Array<{ helperCount: number; ms: number }> = [];
+    const originalVerify = LocalRepositoryReadAccess.prototype.verify;
+    vi.spyOn(LocalRepositoryReadAccess.prototype, 'verify').mockImplementation(async function (
+      this: LocalRepositoryReadAccess,
+    ) {
+      const helperCount = timings.length,
+        started = performance.now();
+      try {
+        return await originalVerify.call(this);
+      } finally {
+        verificationTimings.push({ helperCount, ms: performance.now() - started });
+      }
+    });
+    const actual = sandboxedCommand.executeSandboxedCommand;
+    vi.spyOn(sandboxedCommand, 'executeSandboxedCommand').mockImplementation(async (request) => {
+      runs.push(request);
+      const started = Date.now();
+      try {
+        return await actual(request);
+      } finally {
+        timings.push({
+          operation: request.command.match(/"operation":"([^"]+)"/)?.[1] ?? 'unknown',
+          fixturePath:
+            request.command
+              .match(/"file_path":"([^"]+)"/)?.[1]
+              ?.split('/')
+              .slice(-3)
+              .join('/') ?? 'unknown',
+          ms: Date.now() - started,
+        });
+      }
+    });
+    let checked = 0;
+    let failure: unknown;
+    let stage = 'not-started';
+    const ownerTimings = { contextSyncMs: 0, scopeSyncMs: 0, asyncMs: 0, samples: 3 };
+    const f = await fixture({
+      nativeBaseReads: true,
+      hostWideNativeReads: true,
+      nativePrivateName: 'Café-private',
+      observe: async (context) => {
+        try {
+          expect(context.nativeBaseReadScope!.assertCurrentSync).toBe(context.assertCurrentSync);
+          for (let sample = 0; sample < ownerTimings.samples; sample++) {
+            let started = performance.now();
+            context.assertCurrentSync();
+            ownerTimings.contextSyncMs += performance.now() - started;
+            started = performance.now();
+            context.nativeBaseReadScope!.assertCurrentSync();
+            ownerTimings.scopeSyncMs += performance.now() - started;
+            started = performance.now();
+            await context.assertCurrent();
+            ownerTimings.asyncMs += performance.now() - started;
+          }
+          for (const source of sources) {
+            stage = 'initial-capture';
+            const before = await readFile(join(source, '.git', 'index'));
+            const sourceBytes = await readFile(join(source, 'unrelated.txt'));
+            const held = await captureNativeLocalRepositoryPreparationSource(context, {
+              workspaceId: randomUUID(),
+              sourcePath: source,
+              taskRoot: join(f.f.root, 'pending-tasks'),
+            });
+            expect(held.source.path).toBe(source);
+            expect(held.baseOid).toMatch(/^[a-f0-9]{40}$/);
+            expect(held.allocationFacts.source.path).toBe(source);
+            expect(held.allocationFactsSha256).toMatch(/^[a-f0-9]{64}$/);
+            const initialScratch = new Set(runs.map((request) => request.cwd));
+            stage = 'fresh-base-revalidation';
+            await held.assertCurrent();
+            expect(runs.some((request) => !initialScratch.has(request.cwd))).toBe(true);
+            expect(await readFile(join(source, '.git', 'index'))).toEqual(before);
+            expect(await readFile(join(source, 'unrelated.txt'))).toEqual(sourceBytes);
+            checked++;
+            stage = 'complete';
+          }
+        } catch (error) {
+          failure = error;
+          throw error;
+        }
+      },
+    });
+    await mkdir(join(f.f.root, 'pending-tasks'));
+    for (const name of ['unenrolled-one', 'unenrolled-two']) {
+      const source = join(f.f.root, name);
+      sources.push(source);
+      await mkdir(source);
+      const git = (...args: string[]) =>
+        childProcess.execFileSync(
+          'git',
+          [
+            '-C',
+            source,
+            '-c',
+            'commit.gpgsign=false',
+            '-c',
+            'core.hooksPath=/dev/null',
+            '-c',
+            'maintenance.auto=false',
+            '-c',
+            'gc.auto=0',
+            ...args,
+          ],
+          {
+            env: {
+              PATH: '/usr/bin:/bin',
+              GIT_CONFIG_GLOBAL: '/dev/null',
+              GIT_CONFIG_SYSTEM: '/dev/null',
+            },
+          },
+        );
+      git('init', '-q', '-b', name);
+      git('config', 'user.name', 'Offline fixture');
+      git('config', 'user.email', 'offline@example.invalid');
+      await writeFile(join(source, 'unrelated.txt'), `${name} ORIGINAL SOURCE BYTES`);
+      git('add', '.');
+      git('commit', '-qm', name);
+    }
+    const result = await f.a.call({ operation: 'list' });
+    if (failure)
+      console.info('Synthetic source helper/owner timings', {
+        timings,
+        ownerTimings,
+        verificationTimings,
+      });
+    expect({ stage, failure }).toEqual({ stage: 'complete', failure: undefined });
+    expect(result.response.success).toBe(true);
+    expect(checked).toBe(2);
+    expect(f.a.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    for (const directory of new Set(runs.map((request) => request.cwd)))
+      await expect(stat(directory)).rejects.toThrow();
+  },
+  150000,
+);
 
 it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION === '1')(
   'native reader factory uses the original host-wide scope and only owned scratch for actual sandboxed bytes',

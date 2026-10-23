@@ -9,6 +9,12 @@ it('pins the private preparation decision producer, same-row custody and signed 
   const artifacts: Readonly<Record<string, string>> = reviewedHandlerSourceArtifacts;
   for (const file of [
     '../local-repository-preparation-authorization.ts',
+    '../local-repository-preparation-source.ts',
+    '../__tests__/local-repository-preparation-source.test.ts',
+    '../__tests__/local-repository-reference-metadata.test.ts',
+    '../__tests__/local-repository-cached-stat.test.ts',
+    '../__tests__/local-repository-verification.test.ts',
+    '../__tests__/native-directory-verification-batch.test.ts',
     '../local-repository-allocation-facts.ts',
     '../local-repository-git-snapshot.ts',
     '../local-repository-read-access.ts',

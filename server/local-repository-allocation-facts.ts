@@ -57,13 +57,25 @@ export async function captureLocalRepositoryAllocationFacts(
     if (!validPath(sourcePath) || !validPath(taskRoot) || contains(sourcePath, taskRoot))
       throw unavailable();
     const access = new LocalRepositoryReadAccess(authority); // Retain, never spread the owner.
-    const sourceAnchor = await access.pinRoot(sourcePath);
-    const taskAnchor = await access.pinRoot(taskRoot);
+    // Independent original roots use the same current owner and existing
+    // transport. Join BOTH operations on refusal before disposal/publication.
+    const anchors = await Promise.allSettled([
+      access.pinRoot(sourcePath),
+      access.pinRoot(taskRoot),
+    ]);
+    const rejected = anchors.find((result) => result.status === 'rejected');
+    if (rejected?.status === 'rejected') throw rejected.reason;
+    const [sourceAnchor, taskAnchor] = anchors.map((result) => {
+      if (result.status !== 'fulfilled') throw unavailable();
+      return result.value;
+    });
     const metadata = await inspectLocalRepositoryGitMetadata({
       path: sourcePath,
+      mode: 'references',
       readAccess: access,
       assertReadable: (path) => access.assertPath(path),
       signal: authority.signal,
+      timeoutMs: Math.max(1, Math.min(30000, authority.deadline - Date.now())),
     });
     // Separate administrative roots may live outside the selected worktree.
     // A new task must not be nested inside any original source storage.

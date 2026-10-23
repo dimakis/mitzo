@@ -315,6 +315,7 @@ export async function readLocalRepositorySnapshotStatus(
   metadata: LocalRepositoryGitMetadata,
   options: LocalRepositorySnapshotOptions,
 ) {
+  if (metadata.qualification === 'references') throw failure('reference-only-metadata');
   if (metadata.comparisonConfig.unsupported) throw failure('comparison-configuration-unsupported');
   return privateContext(metadata, options, async ({ scratch, gitDirectory, reader, git }) => {
     if (await options.readAccess.stat(join(metadata.gitDirectory, 'info', 'sparse-checkout')))

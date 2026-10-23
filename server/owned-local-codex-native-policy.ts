@@ -4,7 +4,7 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { ManagedSession } from './session-registry.js';
 import { loadAccountProfiles } from './account-profiles.js';
-import { isPrivateCodexPath, privateCodexRoots } from './codex-private-path.js';
+import { privateCodexPathSnapshot } from './codex-private-path.js';
 import {
   workspaceRuntimeAuthorityPaths,
   workspaceRuntimeSelectorEntries,
@@ -24,7 +24,10 @@ export function composeOwnedLocalNativeExecutionPolicy(input: {
   input.assertCurrentSync();
   const { session } = input;
   if (!session.cwd) throw Error('Native workspace unavailable');
-  const deniedRoots = privateCodexRoots(loadAccountProfiles().privateCodexRoots());
+  // One fresh complete snapshot for this composition only. Every invocation
+  // reloads the actual profile roots and retained/configured private roots.
+  const privatePaths = privateCodexPathSnapshot(loadAccountProfiles().privateCodexRoots());
+  const deniedRoots = privatePaths.roots;
   const workspaces = session.worktreePaths.size
     ? [...session.worktreePaths.values()].map((entry) => entry.path)
     : [session.cwd];
@@ -43,7 +46,7 @@ export function composeOwnedLocalNativeExecutionPolicy(input: {
   )
     throw Error('Native workspace contains a runtime authority selector');
   const writeProtectedRoots = [...workspaceRuntimeAuthorityPaths(), ...selectors].filter(
-    (path) => !isPrivateCodexPath(path, deniedRoots),
+    (path) => !privatePaths.isPrivate(path),
   );
   const policy = codexNativeExecutionPolicy({
     bindingRevision: createHash('sha256')
