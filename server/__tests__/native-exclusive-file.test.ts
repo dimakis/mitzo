@@ -451,3 +451,27 @@ it('refuses replaced owned actor scratch before dependency setup or a worker lau
   expect(dependencies).not.toHaveBeenCalled();
   await expect(lstat(target)).rejects.toMatchObject({ code: 'ENOENT' });
 });
+
+actual(
+  'refuses a new enclosing source root even if the same phase parent inode is moved back',
+  async () => {
+    const common = join(root, 'original-common');
+    await mkdir(common);
+    await rename(parent, join(common, 'refs'));
+    parent = join(common, 'refs');
+    target = join(parent, 'registration');
+    const input = await request();
+    input.rootAnchor = { rootPath: common, identity: await identity(common) };
+    const retainedParent = await identity(parent);
+    await rename(common, common + '-retained');
+    await mkdir(common);
+    await rename(join(common + '-retained', 'refs'), parent);
+    expect(await identity(parent)).toEqual(retainedParent);
+    await expect(
+      operations.createNativeExclusiveFile(input, new AbortController().signal, 15000, transport()),
+    ).rejects.toThrow();
+    await expect(lstat(target)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(join(parent, 'source-index-witness'), 'utf8')).toBe('SOURCE BYTES');
+  },
+  30000,
+);

@@ -340,6 +340,14 @@ export async function captureLocalRepositoryPreparationAuthorization(
     scope,
     payload,
     owner,
+    async materialize() {
+      owner.assertCurrentSync();
+      const operation = owners.workspaces.beginPendingHostTaskDecisionMaterialization(
+        request,
+        owner,
+      );
+      return owners.workspaces.materializeQualifiedPendingHostTask(request, operation);
+    },
     async approve(): Promise<PendingHostTaskDecision> {
       owner.assertCurrentSync();
       if (approvalStarted) throw new PendingHostTaskError('pending_host_task_uncertain');

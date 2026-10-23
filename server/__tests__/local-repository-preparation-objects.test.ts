@@ -240,3 +240,27 @@ it('refuses compressed object headers declaring oversized expansion before publi
   ).rejects.toThrow('Preparation objects unavailable');
   expect(published).toBe(false);
 }, 30000);
+
+it('retains a foreign replacement when failed actor cleanup sees changed private scratch custody', async () => {
+  const f = await fixture();
+  let scratch = '';
+  try {
+    await expect(
+      withLocalRepositoryPreparationObjects(f.metadata, f.options, async (view) => {
+        scratch = view.scratch;
+        await import('node:fs/promises').then((fs) =>
+          fs.rename(scratch, scratch + '-owned-retained'),
+        );
+        await mkdir(scratch);
+        await writeFile(join(scratch, 'FOREIGN-CANARY'), 'KEEP FOREIGN');
+        throw Error('actor setup refused');
+      }),
+    ).rejects.toThrow('Preparation objects unavailable');
+    expect(await readFile(join(scratch, 'FOREIGN-CANARY'), 'utf8')).toBe('KEEP FOREIGN');
+  } finally {
+    if (scratch) {
+      await rm(scratch, { recursive: true, force: true });
+      await rm(scratch + '-owned-retained', { recursive: true, force: true });
+    }
+  }
+}, 30000);

@@ -262,3 +262,53 @@ it.each(['program', 'operation', 'network'] as const)(
     expect(spawn).not.toHaveBeenCalled();
   },
 );
+
+it.each(['config', 'private-root'] as const)(
+  'refuses private checkout %s replacement across SRT wrapping before spawn',
+  async (change) => {
+    const { payload, manager, spawn } = fixture();
+    const git = join(root, 'git-admin');
+    mkdirSync(git);
+    const config = join(git, 'config');
+    writeFileSync(config, 'SYNTHETIC CONFIG');
+    const authority = new AuthoritySnapshot();
+    authority.capture(root);
+    authority.capture(config, true);
+    payload.authority = authority.serialize();
+    payload.privateRepositoryCheckoutJson = JSON.stringify({
+      scratch: root,
+      baseOid: 'a'.repeat(40),
+      objectFormat: 'sha1',
+    });
+    const { privateRepositoryCheckoutCommand } = await import('../private-repository-checkout.js');
+    payload.command = privateRepositoryCheckoutCommand(payload.privateRepositoryCheckoutJson);
+    manager.wrapWithSandbox.mockImplementation(async () => {
+      if (change === 'config') writeFileSync(config, 'REPLACEMENT CONFIG');
+      else {
+        renameSync(git, git + '-retained');
+        mkdirSync(git);
+        writeFileSync(config, 'SYNTHETIC CONFIG');
+      }
+      return 'wrapped';
+    });
+    await expect(runSandboxedWorker(payload, { manager, spawn: spawn as never })).rejects.toThrow(
+      'Sandbox authority changed',
+    );
+    expect(spawn).not.toHaveBeenCalled();
+    expect(manager.reset).toHaveBeenCalledOnce();
+  },
+);
+it('rejects substituted private checkout commands before sandbox setup', async () => {
+  const { payload, manager, spawn } = fixture();
+  payload.privateRepositoryCheckoutJson = JSON.stringify({
+    scratch: root,
+    baseOid: 'a'.repeat(40),
+    objectFormat: 'sha1',
+  });
+  payload.command = 'git -C /synthetic/forbidden-source status';
+  await expect(runSandboxedWorker(payload, { manager, spawn: spawn as never })).rejects.toThrow(
+    'Invalid private repository checkout',
+  );
+  expect(manager.initialize).not.toHaveBeenCalled();
+  expect(spawn).not.toHaveBeenCalled();
+});

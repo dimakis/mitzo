@@ -1,4 +1,8 @@
 import { execFile } from 'node:child_process';
+import {
+  projectExclusiveTreeRequest,
+  type NativeExclusiveTreeRequest,
+} from './native-tree-publication.js';
 
 // Python exposes openat via dir_fd on macOS/Linux. Node has no equivalent API.
 // Keep the helper embedded so tsc/deploy cannot omit a required runtime asset.
@@ -184,6 +188,221 @@ def create_file(request):
         for file in [source_file, target_file, source_parent, target_parent]:
             if file is not None: os.close(file)
 
+def publish_tree(request):
+    # Entire tree is preflighted before the first target mutation. Never run Git,
+    # traverse a symlink, overwrite/adopt an entry or remove uncertain effects.
+    deadline = time.monotonic() + request['timeoutMs'] / 1000
+    exclusions = request['deniedRoots']
+    source = request['payload']
+    entries = request['entries']
+    def check():
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Exclusive tree unavailable')
+    def matches(info, expected):
+        return str(info.st_dev) == expected['dev'] and str(info.st_ino) == expected['ino']
+    def open_directory(path, root, expected):
+        check()
+        parts = [part for part in path.split('/') if part]
+        root_parts = [part for part in root['rootPath'].split('/') if part]
+        if parts[:len(root_parts)] != root_parts or any(path == denied or path.startswith(denied.rstrip('/') + '/') for denied in exclusions):
+            raise RuntimeError('Exclusive tree unavailable')
+        directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            if not root_parts and not matches(os.fstat(directory), root['identity']):
+                raise RuntimeError('Exclusive tree unavailable')
+            for index, part in enumerate(parts):
+                check()
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                os.close(directory)
+                directory = child
+                if index + 1 == len(root_parts) and not matches(os.fstat(directory), root['identity']):
+                    raise RuntimeError('Exclusive tree unavailable')
+            if not matches(os.fstat(directory), expected):
+                raise RuntimeError('Exclusive tree unavailable')
+            return directory
+        except:
+            os.close(directory)
+            raise
+    def descend(root, relative, identities):
+        directory = os.dup(root)
+        try:
+            parts = relative.split('/')
+            for index, part in enumerate(parts):
+                check()
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                os.close(directory)
+                directory = child
+                if not matches(os.fstat(directory), identities['/'.join(parts[:index + 1])]):
+                    raise RuntimeError('Exclusive tree unavailable')
+            return directory
+        except:
+            os.close(directory)
+            raise
+    def parent(root, relative, identities):
+        parts = relative.split('/')
+        return (descend(root, '/'.join(parts[:-1]), identities) if len(parts) > 1 else os.dup(root)), parts[-1]
+    def content(parent, name, entry, expected):
+        check()
+        before = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if not matches(before, expected) or before.st_nlink != 1 or before.st_size != entry['size']:
+            raise RuntimeError('Exclusive tree unavailable')
+        if entry['mode'] == '120000':
+            if not stat.S_ISLNK(before.st_mode) or before.st_size > 4096:
+                raise RuntimeError('Exclusive tree unavailable')
+            # A fixed readlinkat buffer avoids unbounded allocation. Literal
+            # link bytes are copied, never resolved or traversed.
+            import ctypes
+            readlinkat = ctypes.CDLL(None, use_errno=True).readlinkat
+            readlinkat.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t]
+            readlinkat.restype = ctypes.c_ssize_t
+            buffer = ctypes.create_string_buffer(4097)
+            length = readlinkat(parent, os.fsencode(name), buffer, 4097)
+            if length < 0 or length > 4096:
+                raise RuntimeError('Exclusive tree unavailable')
+            value = buffer.raw[:length]
+            if not value or b'\x00' in value:
+                raise RuntimeError('Exclusive tree unavailable')
+        else:
+            if not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) != (0o755 if entry['mode'] == '100755' else 0o644) or before.st_size > 16 * 1024 * 1024:
+                raise RuntimeError('Exclusive tree unavailable')
+            file = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            try:
+                opened = os.fstat(file)
+                if not matches(opened, expected) or opened.st_nlink != 1 or opened.st_size != entry['size'] or opened.st_mtime_ns != before.st_mtime_ns or opened.st_ctime_ns != before.st_ctime_ns:
+                    raise RuntimeError('Exclusive tree unavailable')
+                value = bytearray()
+                while len(value) < entry['size']:
+                    check()
+                    chunk = os.read(file, min(65536, entry['size'] - len(value)))
+                    if not chunk:
+                        raise RuntimeError('Exclusive tree unavailable')
+                    value.extend(chunk)
+                after = os.fstat(file)
+                if os.read(file, 1) or after.st_size != before.st_size or after.st_mtime_ns != before.st_mtime_ns or after.st_ctime_ns != before.st_ctime_ns or after.st_nlink != 1:
+                    raise RuntimeError('Exclusive tree unavailable')
+            finally:
+                os.close(file)
+        after = os.stat(name, dir_fd=parent, follow_symlinks=False)
+        if not matches(after, expected) or after.st_size != before.st_size or after.st_mtime_ns != before.st_mtime_ns or after.st_ctime_ns != before.st_ctime_ns or after.st_nlink != 1 or len(value) != entry['size'] or hashlib.sha256(value).hexdigest() != entry['sha256']:
+            raise RuntimeError('Exclusive tree unavailable')
+        return value
+    source_root = target_root = None
+    source_dirs = {entry['path']: entry['identity'] for entry in entries if entry['mode'] == '040000'}
+    target_dirs = {}
+    created = {}
+    def verify_shape(root, identities, expected_names):
+        for relative in [''] + list(identities):
+            directory = descend(root, relative, identities) if relative else os.dup(root)
+            try:
+                names = set()
+                with os.scandir(directory) as children:
+                    for child in children:
+                        check()
+                        if len(names) >= 10000:
+                            raise RuntimeError('Exclusive tree unavailable')
+                        names.add(child.name)
+                if names != expected_names.get(relative, set()):
+                    raise RuntimeError('Exclusive tree unavailable')
+            finally:
+                os.close(directory)
+    names = {}
+    for entry in entries:
+        components = entry['path'].split('/')
+        names.setdefault('/'.join(components[:-1]), set()).add(components[-1])
+    try:
+        if len(entries) > 10000 or os.open not in os.supports_dir_fd or os.mkdir not in os.supports_dir_fd or os.symlink not in os.supports_dir_fd or not hasattr(os, 'O_NOFOLLOW'):
+            raise RuntimeError('Exclusive tree unavailable')
+        source_root = open_directory(source['file_path'], source['rootAnchor'], source['identity'])
+        # Validate original owned source parent as well as staged-root identity.
+        source_parent = open_directory(os.path.dirname(source['file_path']), source['rootAnchor'], source['parentIdentity'])
+        os.close(source_parent)
+        target_root = open_directory(request['file_path'], request['rootAnchor'], request['targetIdentity'])
+        target_parent = open_directory(os.path.dirname(request['file_path']),request['rootAnchor'],request['parentIdentity'])
+        os.close(target_parent)
+        verify_shape(source_root, source_dirs, names)
+        verify_shape(target_root, {}, {})
+        total = 0
+        for entry in entries:
+            check()
+            if entry['mode'] == '040000':
+                directory = descend(source_root, entry['path'], source_dirs)
+                os.close(directory)
+            else:
+                directory, name = parent(source_root, entry['path'], source_dirs)
+                try:
+                    content(directory, name, entry, entry['identity'])
+                finally:
+                    os.close(directory)
+                total += entry['size']
+                if total > 128 * 1024 * 1024:
+                    raise RuntimeError('Exclusive tree unavailable')
+        # Only now publish, in parent-first order. No foreign directory is ever
+        # used as an output parent: every descendant identity is THIS effect's.
+        for entry in sorted(entries, key=lambda item: (item['path'].count('/'), item['path'])):
+            check()
+            destination, name = parent(target_root, entry['path'], target_dirs)
+            origin = None
+            try:
+                if entry['mode'] == '040000':
+                    os.mkdir(name, 0o700, dir_fd=destination)
+                    directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=destination)
+                    try:
+                        info = os.fstat(directory)
+                        target_dirs[entry['path']] = {'dev': str(info.st_dev), 'ino': str(info.st_ino)}
+                    finally:
+                        os.close(directory)
+                else:
+                    origin, source_name = parent(source_root, entry['path'], source_dirs)
+                    value = content(origin, source_name, entry, entry['identity'])
+                    if entry['mode'] == '120000':
+                        os.symlink(os.fsdecode(value), name, dir_fd=destination)
+                        info = os.stat(name, dir_fd=destination, follow_symlinks=False)
+                    else:
+                        file = os.open(name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=destination)
+                        try:
+                            offset = 0
+                            while offset < len(value):
+                                check()
+                                written = os.write(file, value[offset:offset + 65536])
+                                if written <= 0:
+                                    raise RuntimeError('Exclusive tree unavailable')
+                                offset += written
+                            os.fchmod(file, 0o755 if entry['mode'] == '100755' else 0o644)
+                            os.fsync(file)
+                            info = os.fstat(file)
+                        finally:
+                            os.close(file)
+                    created[entry['path']] = {'dev': str(info.st_dev), 'ino': str(info.st_ino)}
+            finally:
+                if origin is not None: os.close(origin)
+                os.close(destination)
+        # Reopen BOTH root bindings and every parent/entry after the copy. An
+        # error leaves an uncertain partial tree; this helper cannot clean it.
+        for path, root, expected in [(source['file_path'], source['rootAnchor'], source['identity']), (request['file_path'], request['rootAnchor'], request['targetIdentity'])]:
+            directory = open_directory(path, root, expected)
+            os.close(directory)
+        verify_shape(source_root, source_dirs, names)
+        verify_shape(target_root, target_dirs, names)
+        for entry in entries:
+            if entry['mode'] == '040000': continue
+            for root, identities, expected in [(source_root, source_dirs, entry['identity']), (target_root, target_dirs, created[entry['path']])]:
+                directory, name = parent(root, entry['path'], identities)
+                try:
+                    content(directory, name, entry, expected)
+                    info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                    if root == target_root and entry['mode'] != '120000' and stat.S_IMODE(info.st_mode) != (0o755 if entry['mode'] == '100755' else 0o644):
+                        raise RuntimeError('Exclusive tree unavailable')
+                finally:
+                    os.close(directory)
+        for path, root, expected in [(source['file_path'], source['rootAnchor'], source['identity']), (request['file_path'], request['rootAnchor'], request['targetIdentity'])]:
+            directory = open_directory(path, root, expected)
+            os.close(directory)
+        check()
+        return json.dumps({'directory': request['file_path'], 'identity': request['targetIdentity'], 'entries': len(entries), 'byteLength': total})
+    finally:
+        if source_root is not None: os.close(source_root)
+        if target_root is not None: os.close(target_root)
+
 def anchored_read(request, deadline=None, budget=None):
     deadline = time.monotonic() + request['timeoutMs'] / 1000 if deadline is None else deadline
     output_limit = 6 * 1024 * 1024 if budget is None else budget['remaining']
@@ -344,6 +563,8 @@ def execute(request):
         if time.monotonic() >= deadline:
             raise RuntimeError('Anchored directory batch unavailable')
         return json.dumps(results, ensure_ascii=True)
+    if request['operation'] == 'PublishTree':
+        return publish_tree(request)
     if request['operation'] == 'CreateDirectory':
         return create_directory(request)
     if request['operation'] == 'CreateFile':
@@ -437,12 +658,12 @@ try:
     envelope = json.dumps({'content': execute(request), 'is_error': False})
     if request['operation'] == 'ListDirectoryBatch' and len((envelope + '\n').encode('utf-8')) > 8 * 1024 * 1024:
         raise RuntimeError('Anchored directory batch unavailable')
-    if request['operation'] == 'CreateFile' and len((envelope + '\n').encode('utf-8')) > 32768:
+    if request['operation'] in ('CreateFile', 'PublishTree') and len((envelope + '\n').encode('utf-8')) > 32768:
         raise RuntimeError('Exclusive file unavailable')
     print(envelope)
 except Exception as error:
     # OS errors may contain filenames, but never file contents or request payloads.
-    content = 'Exclusive file unavailable' if isinstance(request, dict) and request.get('operation') == 'CreateFile' else ('Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else str(error))
+    content = 'Exclusive file unavailable' if isinstance(request, dict) and request.get('operation') in ('CreateFile', 'PublishTree') else ('Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else str(error))
     print(json.dumps({'content': content, 'is_error': True}))
 `;
 
@@ -473,7 +694,7 @@ export function projectPrivateNativeFileHelperRequest(requestJson: string): stri
     typeof request !== 'object' ||
     Array.isArray(request) ||
     JSON.stringify(request) !== requestJson ||
-    !['CreateFile', 'CreateDirectory'].includes(request.operation) ||
+    !['CreateFile', 'CreateDirectory', 'PublishTree'].includes(request.operation) ||
     request.identity !== null ||
     request.limit !== 1 ||
     !Number.isSafeInteger(request.timeoutMs) ||
@@ -489,6 +710,9 @@ export function projectPrivateNativeFileHelperRequest(requestJson: string): stri
           'parentIdentity',
           'rootAnchor',
           'payload',
+          'entries',
+          'originalSourcePath',
+          'targetIdentity',
           'expectedAbsent',
           'deniedRoots',
           'timeoutMs',
@@ -496,8 +720,10 @@ export function projectPrivateNativeFileHelperRequest(requestJson: string): stri
     )
   )
     throw Error('Private file helper unavailable');
-  let projected: NativeExclusiveDirectoryRequest | NativeExclusiveFileRequest;
-  if (request.operation === 'CreateFile') projected = projectExclusiveFileRequest(request);
+  let projected:
+    NativeExclusiveDirectoryRequest | NativeExclusiveFileRequest | NativeExclusiveTreeRequest;
+  if (request.operation === 'PublishTree') projected = projectExclusiveTreeRequest(request);
+  else if (request.operation === 'CreateFile') projected = projectExclusiveFileRequest(request);
   else {
     if (
       !validNativeReadPath(request.file_path) ||
@@ -541,7 +767,9 @@ export function projectPrivateNativeFileHelperRequest(requestJson: string): stri
   });
 }
 export function privateNativeFileHelperCommand(requestJson: string) {
-  return helperCommand(projectPrivateNativeFileHelperRequest(requestJson));
+  const command = helperCommand(projectPrivateNativeFileHelperRequest(requestJson));
+  if (Buffer.byteLength(command) > 192 * 1024) throw Error('Private file helper unavailable');
+  return command;
 }
 
 export function executeNativeFileOperation(
@@ -559,7 +787,10 @@ export function executeNativeFileOperation(
     timeoutMs?: number;
     rootAnchor?: NativeReadAnchor;
     expectedAbsent?: true;
-    payload?: NativeExclusiveFilePayload;
+    payload?: NativeExclusiveFilePayload | NativeExclusiveTreeRequest['payload'];
+    entries?: NativeExclusiveTreeRequest['entries'];
+    originalSourcePath?: string;
+    targetIdentity?: NativeReadIdentity;
     items?: readonly NativeDirectoryVerificationItem[];
   },
   signal: AbortSignal,
@@ -568,11 +799,13 @@ export function executeNativeFileOperation(
 ): Promise<{ content: string; is_error: boolean }> {
   signal.throwIfAborted();
   if (
-    ['CreateDirectory', 'CreateFile', 'ListDirectoryBatch'].includes(request.operation) &&
+    ['CreateDirectory', 'CreateFile', 'PublishTree', 'ListDirectoryBatch'].includes(
+      request.operation,
+    ) &&
     typeof privateTransport !== 'function'
   )
     return Promise.reject(Error('Private helper transport unavailable'));
-  const maxBuffer = ['CaptureReadAnchor', 'CreateDirectory', 'CreateFile'].includes(
+  const maxBuffer = ['CaptureReadAnchor', 'CreateDirectory', 'CreateFile', 'PublishTree'].includes(
     request.operation,
   )
     ? 32768
@@ -608,8 +841,14 @@ export function executeNativeFileOperation(
   };
   if (privateTransport !== undefined) {
     if (typeof privateTransport !== 'function') throw Error('Private helper transport unavailable');
-    const requestJson = JSON.stringify(request);
-    const command = helperCommand(requestJson);
+    const requestJson =
+      request.operation === 'PublishTree'
+        ? projectPrivateNativeFileHelperRequest(JSON.stringify(request))
+        : JSON.stringify(request);
+    const command =
+      request.operation === 'PublishTree'
+        ? privateNativeFileHelperCommand(requestJson)
+        : helperCommand(requestJson);
     return privateTransport({
       command,
       requestJson,
@@ -1323,5 +1562,65 @@ export async function createNativeExclusiveDirectory(
   } catch {
     signal.throwIfAborted();
     throw unavailable();
+  }
+}
+
+/** Private whole-tree publication; every entry is preflighted before mutation.
+ * A failure preserves partial state and never authorizes retry or cleanup. */
+export async function createNativeExclusiveTree(
+  input: NativeExclusiveTreeRequest,
+  signal: AbortSignal,
+  timeoutMs: number,
+  privateTransport: NativeFileHelperTransport,
+): Promise<
+  Readonly<{ directory: string; identity: NativeReadIdentity; entries: number; byteLength: number }>
+> {
+  signal.throwIfAborted();
+  try {
+    if (
+      typeof privateTransport !== 'function' ||
+      !Number.isSafeInteger(timeoutMs) ||
+      timeoutMs <= 0 ||
+      timeoutMs > 30000
+    )
+      throw Error('Invalid helper');
+    const request = projectExclusiveTreeRequest(input);
+    const result = await executeNativeFileOperation(
+      {
+        ...request,
+        operation: 'PublishTree',
+        identity: null,
+        parentIdentity: request.parentIdentity,
+        limit: 1,
+        timeoutMs,
+      },
+      signal,
+      timeoutMs,
+      privateTransport,
+    );
+    signal.throwIfAborted();
+    if (result.is_error || Buffer.byteLength(result.content) > 8192) throw Error('Invalid helper');
+    const value = JSON.parse(result.content);
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Object.keys(value).length !== 4 ||
+      value.directory !== request.file_path ||
+      !validExclusiveIdentity(value.identity) ||
+      value.identity.dev !== request.targetIdentity.dev ||
+      value.identity.ino !== request.targetIdentity.ino ||
+      value.entries !== request.entries.length ||
+      value.byteLength !== request.entries.reduce((total, entry) => total + entry.size, 0)
+    )
+      throw Error('Invalid helper');
+    return Object.freeze({
+      directory: value.directory,
+      identity: Object.freeze({ ...value.identity }),
+      entries: value.entries,
+      byteLength: value.byteLength,
+    });
+  } catch {
+    signal.throwIfAborted();
+    throw Error('Exclusive native tree unavailable');
   }
 }

@@ -1,3 +1,8 @@
+import {
+  privateRepositoryCheckoutCommand,
+  privateRepositoryCheckoutConfig,
+  privateRepositoryCheckoutAttributes,
+} from './private-repository-checkout.js';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
@@ -47,7 +52,9 @@ export interface PrivateNativeFileHelperOptions {
   revalidate(): Promise<void>;
 }
 interface PrivateHelperScope {
-  readonly requestJson: string;
+  readonly requestJson?: string;
+  readonly checkoutJson?: string;
+  readonly ownedAuthority?: ReturnType<AuthoritySnapshot['serialize']>;
   readonly deadline: number;
   readonly cwdIdentity: Readonly<{ dev: string; ino: string }>;
 }
@@ -192,7 +199,7 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
           root.path === denied || root.path.startsWith(denied === '/' ? '/' : denied + '/'),
       ),
     ) ||
-    (request.operation === 'CreateFile' &&
+    (['CreateFile', 'PublishTree'].includes(request.operation) &&
       (request.payload.rootAnchor.rootPath !== cwd ||
         !roots.some(
           (root) =>
@@ -240,8 +247,198 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
   return result;
 }
 
+export interface PrivateRepositoryStagingCheckoutOptions {
+  readonly scratchAnchor: NativeReadAnchor;
+  readonly gitIdentity: NativeReadAnchor['identity'];
+  readonly stagingIdentity: NativeReadAnchor['identity'];
+  readonly privateAuthority: ReturnType<AuthoritySnapshot['serialize']>;
+  readonly baseOid: string;
+  readonly objectFormat: 'sha1' | 'sha256';
+  readonly deniedRoots: readonly string[];
+  readonly signal: AbortSignal;
+  readonly timeoutMs: number;
+  assertCurrentSync(): void;
+  revalidate(): Promise<void>;
+}
+/** Fixed checkout into independently-owned PRIVATE staging only. No real source,
+ * task or admin path enters Git argv/cwd/config, AuthoritySnapshot or write roots.
+ * The worker rechecks these exact owned config/directory facts AFTER SRT wrapping. */
+export async function executePrivateRepositoryStagingCheckout(
+  options: PrivateRepositoryStagingCheckoutOptions,
+): Promise<void> {
+  const sync = privateData(options, 'assertCurrentSync'),
+    async = privateData(options, 'revalidate');
+  const signal = privateData(options, 'signal') as AbortSignal,
+    timeout = privateData(options, 'timeoutMs');
+  const anchor = privateData(options, 'scratchAnchor');
+  const scratch = privateData(anchor, 'rootPath');
+  const expected = privateData(anchor, 'identity');
+  const dev = privateData(expected, 'dev'),
+    ino = privateData(expected, 'ino');
+  const gitIdentity = privateData(options, 'gitIdentity'),
+    stagingIdentity = privateData(options, 'stagingIdentity');
+  const expectedIds = [expected, gitIdentity, stagingIdentity].map((item) => {
+    const dev = privateData(item, 'dev'),
+      ino = privateData(item, 'ino');
+    if (
+      typeof dev !== 'string' ||
+      typeof ino !== 'string' ||
+      !/^\d{1,32}$/.test(dev) ||
+      !/^\d{1,32}$/.test(ino)
+    )
+      throw Error('Private checkout unavailable');
+    return Object.freeze({ dev, ino });
+  });
+  const privateInputs = privateArray(privateData(options, 'privateAuthority'), 5000);
+  const baseOid = privateData(options, 'baseOid'),
+    objectFormat = privateData(options, 'objectFormat');
+  const deniedRoots = freezeNativeReadExclusions(
+    privateArray(privateData(options, 'deniedRoots'), 256) as string[],
+  );
+  if (
+    typeof sync !== 'function' ||
+    typeof async !== 'function' ||
+    typeof timeout !== 'number' ||
+    !Number.isSafeInteger(timeout) ||
+    timeout <= 0 ||
+    timeout > 30000 ||
+    !privateLiteral(scratch) ||
+    typeof dev !== 'string' ||
+    typeof ino !== 'string'
+  )
+    throw Error('Private checkout unavailable');
+  const deadline = Date.now() + timeout;
+  const current = () => {
+    signal.throwIfAborted();
+    if (Date.now() >= deadline) throw Error('Private checkout unavailable');
+    const result: unknown = Reflect.apply(sync, options, []);
+    if (result !== undefined) {
+      void Promise.resolve(result).catch(() => {});
+      throw Error('Private checkout unavailable');
+    }
+  };
+  const revalidate = async () => {
+    current();
+    const pending: unknown = Reflect.apply(async, options, []);
+    if (!(pending instanceof Promise) || (await pending) !== undefined)
+      throw Error('Private checkout unavailable');
+    current();
+  };
+  const requestJson = JSON.stringify({ scratch, baseOid, objectFormat });
+  const command = privateRepositoryCheckoutCommand(requestJson);
+  if (deniedRoots.some((root) => contains(root, scratch) || contains(scratch, root)))
+    throw Error('Private checkout unavailable');
+  const inputs = privateInputs.map((item) => {
+    const path = privateData(item, 'path'),
+      stat = privateData(item, 'stat');
+    if (typeof path !== 'string' || !(path === scratch || path.startsWith(scratch + '/')))
+      throw Error('Private checkout unavailable');
+    const dev = privateData(stat, 'dev'),
+      ino = privateData(stat, 'ino'),
+      mode = privateData(stat, 'mode');
+    if (![dev, ino, mode].every((value) => typeof value === 'string' && /^\d{1,32}$/.test(value)))
+      throw Error('Private checkout unavailable');
+    const digestProperty = Object.getOwnPropertyDescriptor(item, 'digest');
+    if (
+      digestProperty &&
+      (!('value' in digestProperty) ||
+        (digestProperty.value !== undefined &&
+          (typeof digestProperty.value !== 'string' ||
+            !/^[a-f0-9]{64}$/.test(digestProperty.value))))
+    )
+      throw Error('Private checkout unavailable');
+    return {
+      path,
+      stat: { dev: dev as string, ino: ino as string, mode: mode as string },
+      ...(digestProperty?.value !== undefined ? { digest: digestProperty.value as string } : {}),
+    };
+  });
+  if (
+    !inputs.some(
+      (item) => item.path === join(scratch, 'git-admin', 'config') && item.digest !== undefined,
+    ) ||
+    !inputs.some(
+      (item) =>
+        item.path === join(scratch, 'git-admin', 'info', 'attributes') && item.digest !== undefined,
+    )
+  )
+    throw Error('Private checkout unavailable');
+  if (Buffer.byteLength(JSON.stringify(inputs)) > 2 * 1024 * 1024)
+    throw Error('Private checkout unavailable');
+  await revalidate(); // Original full owner BEFORE any host setup/owned path access.
+  let failed = false;
+  try {
+    const git = join(scratch, 'git-admin'),
+      staging = join(scratch, 'checkout');
+    for (const [index, path] of [scratch, git, staging].entries()) {
+      validatePath(path);
+      const actual = identity(path),
+        expected = expectedIds[index];
+      if (
+        !actual?.isDirectory() ||
+        actual.dev.toString() !== expected.dev ||
+        actual.ino.toString() !== expected.ino
+      )
+        throw Error('Private checkout unavailable');
+    }
+    const config = join(git, 'config'),
+      attributes = join(git, 'info', 'attributes');
+    for (const [path, bytes] of [
+      [config, privateRepositoryCheckoutConfig(objectFormat as 'sha1' | 'sha256')],
+      [attributes, privateRepositoryCheckoutAttributes],
+    ]) {
+      const actual = identity(path);
+      if (
+        !actual?.isFile() ||
+        actual.nlink !== 1n ||
+        actual.size > 8192n ||
+        readFileSync(path, 'utf8') !== bytes
+      )
+        throw Error('Private checkout unavailable');
+    }
+    // Synthetic metadata is pinned WITH bytes across setup and wrapping. Other
+    // host actors are not excluded globally; controlled replacements refuse.
+    const owned = AuthoritySnapshot.restore(inputs);
+    owned.verify();
+    for (const path of [scratch, git, staging, join(git, 'objects')]) owned.capture(path);
+    owned.capture(config, true);
+    owned.capture(attributes, true);
+    if (identity(join(git, 'index')) || identity(join(git, 'index.lock')))
+      throw Error('Private checkout unavailable');
+    owned.capture(join(git, 'index'));
+    owned.capture(join(git, 'index.lock'));
+    const result = await runSandboxedCommand(
+      {
+        command,
+        cwd: scratch,
+        writableRoots: [scratch],
+        deniedRoots: [...deniedRoots],
+        env: { PATH: '/usr/bin:/bin' },
+        signal,
+        timeoutMs: Math.max(1, deadline - Date.now()),
+        maxOutputBytes: 32768,
+        privateOutput: 'separate',
+        beforeSpawnAsync: revalidate,
+        beforeSpawn: current,
+      },
+      {
+        checkoutJson: requestJson,
+        deadline,
+        cwdIdentity: expectedIds[0],
+        ownedAuthority: owned.serialize(),
+      },
+    );
+    if (result.isError) throw Error('Private checkout unavailable');
+  } catch {
+    failed = true;
+  }
+  await revalidate(); // Also after joined failures/cleanup; never replay.
+  current();
+  if (failed) throw Error('Private checkout unavailable');
+}
+
 function contains(root: string, path: string) {
-  return path === root || path.startsWith(root + '/');
+  return path === root || path.startsWith(root === '/' ? '/' : root + '/');
 }
 
 /** Verify both halves of Git's linked-worktree registration before granting its
@@ -336,7 +533,10 @@ async function runSandboxedCommand(
     ...(options.readableRoots ? { readableRoots: [...options.readableRoots] } : {}),
     env: { ...options.env },
   };
-  const authority = new AuthoritySnapshot();
+  const authority = privateHelper?.ownedAuthority
+    ? AuthoritySnapshot.restore(privateHelper.ownedAuthority)
+    : new AuthoritySnapshot();
+  if (privateHelper?.ownedAuthority) authority.verify();
   for (const path of privateHelper
     ? [options.cwd, process.execPath]
     : [
@@ -405,7 +605,12 @@ async function runSandboxedCommand(
     const payload: SandboxWorkerPayload = {
       cwd: options.cwd,
       command: options.command,
-      ...(privateHelper ? { privateNativeFileRequestJson: privateHelper.requestJson } : {}),
+      ...(privateHelper?.requestJson
+        ? { privateNativeFileRequestJson: privateHelper.requestJson }
+        : {}),
+      ...(privateHelper?.checkoutJson
+        ? { privateRepositoryCheckoutJson: privateHelper.checkoutJson }
+        : {}),
       ...(options.networkAccess ? { networkAccess: options.networkAccess } : {}),
       authority: authority.serialize(),
       config: {

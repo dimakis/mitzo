@@ -319,3 +319,97 @@ it('refuses preparation qualification without its optional marker before generic
     await expect(action()).rejects.toThrow();
   expect(f.assertReadable).not.toHaveBeenCalled();
 });
+
+it('qualifies only an exact phase-owned loose reference while preserving default and packed collision refusal', async () => {
+  const name = 'mitzo/task';
+  git('branch', name);
+  const path = join(source, '.git', 'refs', 'heads', name),
+    info = await lstat(path);
+  const owned = Object.freeze({
+    identity: Object.freeze({ dev: String(info.dev), ino: String(info.ino) }),
+    oid: git('rev-parse', 'HEAD'),
+  });
+  const f = await fixture([], 'preparation');
+  expect(
+    (await readLocalRepositoryPreparationReferences(f.metadata, f.options, `refs/heads/${name}`))
+      .conflict,
+  ).toBe(true);
+  expect(
+    (
+      await readLocalRepositoryPreparationReferences(
+        f.metadata,
+        f.options,
+        `refs/heads/${name}`,
+        owned,
+      )
+    ).conflict,
+  ).toBe(false);
+  expect(
+    (
+      await readLocalRepositoryPreparationReferences(f.metadata, f.options, `refs/heads/${name}`, {
+        ...owned,
+        identity: { ...owned.identity, ino: '0' },
+      })
+    ).conflict,
+  ).toBe(true);
+  expect(
+    (
+      await readLocalRepositoryPreparationReferences(f.metadata, f.options, `refs/heads/${name}`, {
+        ...owned,
+        oid: '1'.repeat(40),
+      })
+    ).conflict,
+  ).toBe(true);
+  await writeFile(join(source, '.git', 'packed-refs'), `${owned.oid} refs/heads/${name}\n`);
+  const packed = await fixture([], 'preparation');
+  expect(
+    (
+      await readLocalRepositoryPreparationReferences(
+        packed.metadata,
+        packed.options,
+        `refs/heads/${name}`,
+        owned,
+      )
+    ).conflict,
+  ).toBe(true);
+}, 30000);
+
+it('rejects malformed owned-reference descriptors before lookup without invoking accessors', async () => {
+  const f = await fixture([], 'preparation');
+  f.assertReadable.mockClear();
+  let invoked = false;
+  const malformed = Object.defineProperty({ oid: git('rev-parse', 'HEAD') }, 'identity', {
+    get() {
+      invoked = true;
+      throw Error('must not run');
+    },
+  });
+  await expect(
+    readLocalRepositoryPreparationReferences(
+      f.metadata,
+      f.options,
+      'refs/heads/mitzo/task',
+      malformed as never,
+    ),
+  ).rejects.toThrow();
+  expect(invoked).toBe(false);
+  expect(f.assertReadable).not.toHaveBeenCalled();
+});
+it('refuses a filesystem-equivalent owned-ref alias rather than granting it lexical custody', async (context) => {
+  git('branch', 'MITZO/TASK');
+  const actual = join(source, '.git', 'refs', 'heads', 'MITZO', 'TASK');
+  const alias = join(source, '.git', 'refs', 'heads', 'mitzo', 'task');
+  const info = await lstat(actual),
+    equivalent = await lstat(alias).catch(() => undefined);
+  if (!equivalent || equivalent.ino !== info.ino) {
+    context.skip();
+    return;
+  }
+  const f = await fixture([], 'preparation');
+  await expect(
+    readLocalRepositoryPreparationReferences(f.metadata, f.options, 'refs/heads/mitzo/task', {
+      identity: { dev: String(info.dev), ino: String(info.ino) },
+      oid: git('rev-parse', 'HEAD'),
+    }),
+  ).rejects.toThrow();
+});

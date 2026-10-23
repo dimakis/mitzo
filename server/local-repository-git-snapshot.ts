@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
+import type { NativeReadIdentity } from './native-file-operation.js';
 import {
   isLocalRepositoryCredentialPath,
   LocalRepositoryGitInspectionError,
@@ -291,13 +292,52 @@ export async function readLocalRepositoryGitFacts(
   );
 }
 
+export interface LocalRepositoryOwnedPreparationReference {
+  readonly identity: NativeReadIdentity;
+  readonly oid: string;
+}
+function ownedPreparationReference(value: LocalRepositoryOwnedPreparationReference) {
+  const data = (object: unknown, keys: string[]) => {
+    if (
+      !object ||
+      typeof object !== 'object' ||
+      ![Object.prototype, null].includes(Object.getPrototypeOf(object))
+    )
+      throw failure('snapshot-reference-unsupported');
+    const descriptors = Object.getOwnPropertyDescriptors(object);
+    if (
+      Object.keys(descriptors).length !== keys.length ||
+      keys.some((key) => !descriptors[key] || !('value' in descriptors[key]))
+    )
+      throw failure('snapshot-reference-unsupported');
+    return Object.fromEntries(keys.map((key) => [key, descriptors[key].value]));
+  };
+  const captured = data(value, ['identity', 'oid']);
+  const identity = data(captured.identity, ['dev', 'ino']);
+  if (
+    typeof captured.oid !== 'string' ||
+    !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(captured.oid) ||
+    ![identity.dev, identity.ino].every(
+      (entry) => typeof entry === 'string' && /^\d{1,32}$/.test(entry),
+    )
+  )
+    throw failure('snapshot-reference-unsupported');
+  return Object.freeze({
+    oid: captured.oid as string,
+    identity: Object.freeze({ dev: identity.dev as string, ino: identity.ino as string }),
+  });
+}
+
 /** Explicit preparation-only coverage. Unrelated loose ref CONTENT is not
  * consumed; no arbitrary-ref OID/all-ref/object/status qualification is made. */
 export async function readLocalRepositoryPreparationReferences(
   metadata: LocalRepositoryGitMetadata,
   options: LocalRepositorySnapshotOptions,
   candidateReference?: string,
+  expectedOwned?: LocalRepositoryOwnedPreparationReference,
 ) {
+  const owned = expectedOwned === undefined ? undefined : ownedPreparationReference(expectedOwned);
+  if (owned && candidateReference === undefined) throw failure('snapshot-reference-unsupported');
   if (
     candidateReference !== undefined &&
     (!candidateReference.startsWith('refs/heads/') ||
@@ -341,7 +381,17 @@ export async function readLocalRepositoryPreparationReferences(
             // Ordinary ancestor directories are legitimate namespaces. Existing
             // ancestor files or ANY exact target entry cannot be adopted/removed.
             if (entry.kind === 'file' || index === parts.length - 1) {
-              conflict = true;
+              // A phase may recognize ONLY the exact loose file it exclusively
+              // created. Existing packed names remain conflicts; this never
+              // clears them or turns foreign directories/files into custody.
+              const ours =
+                index === parts.length - 1 &&
+                entry.kind === 'file' &&
+                owned &&
+                entry.identity.dev === owned.identity.dev &&
+                entry.identity.ino === owned.identity.ino &&
+                (await options.readAccess.read(path, 4096)).equals(Buffer.from(owned.oid + '\n'));
+              if (!ours) conflict = true;
               break;
             }
             directory = path;

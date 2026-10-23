@@ -1,3 +1,6 @@
+import { materializeQualifiedLocalRepositoryTask } from './qualified-local-repository-actor.js';
+import type { QualifiedLocalRepositoryPublication } from './qualified-local-repository-task.js';
+import type { NativeHostToolContext } from './native-host-tool-context.js';
 import type {
   PreparedRepositoryTransitionFacts,
   PreparedRepositoryTransitionCaptureInput,
@@ -131,6 +134,7 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
     oldWorkspace: PreparedRepositoryTransitionFacts['oldWorkspace'];
     allocationFacts: LocalRepositoryAllocationFacts;
     allocationFactsSha256: string;
+    publication?: QualifiedLocalRepositoryPublication;
   };
   ordinaryPreparation?: OrdinaryRepositoryPreparation;
   ordinaryFirstReservation?: {
@@ -389,12 +393,14 @@ export async function repositorySourceDigest(directory: string): Promise<string>
 
 class PendingHostTaskDecisionOperation {
   #claimed = false;
+  #closed = false;
   constructor(
     private readonly service: object,
     readonly request: Readonly<PendingHostTaskRequest>,
     readonly scope: Readonly<PendingHostTaskDecisionScope>,
     private readonly currentSync: () => void,
     private readonly currentAsync: () => Promise<void>,
+    private readonly originalContext: NativeHostToolContext,
   ) {
     Object.freeze(this);
   }
@@ -404,7 +410,15 @@ class PendingHostTaskDecisionOperation {
     this.assertCurrentSync();
   }
   assertCurrentSync() {
+    if (this.#closed) throw new PendingHostTaskError('pending_host_task_uncertain');
     this.currentSync();
+  }
+  contextFor(service: object, request: PendingHostTaskRequest) {
+    this.assertFor(service, request);
+    return this.originalContext;
+  }
+  completePublication() {
+    this.#closed = true;
   }
   async assertCurrent() {
     this.assertCurrentSync();
@@ -2698,6 +2712,7 @@ export class RepositoryWorkspaces {
         await owner.assertCurrent();
         current();
       },
+      owner.context,
     );
   }
   private assertPendingCurrent(request: PendingHostTaskRequest, signal: AbortSignal) {
@@ -2849,6 +2864,78 @@ export class RepositoryWorkspaces {
       this.updatePendingRecord(record, receipt);
       return this.getPendingHostTask(request);
     });
+  }
+
+  /** Qualified original permission only. No legacy ambient selector/worktree
+   * engine, fake operation, implicit replay or primary attachment is admitted. */
+  async materializeQualifiedPendingHostTask(
+    input: PendingHostTaskRequest,
+    operation: unknown,
+  ): Promise<PendingHostTaskReceipt> {
+    if (!(operation instanceof PendingHostTaskDecisionOperation))
+      throw new PendingHostTaskError('pending_host_task_authority_required');
+    const request = this.snapshotPendingInput(input);
+    operation.assertFor(this, request);
+    const context = operation.contextFor(this, request);
+    const record = this.pendingRecord(request),
+      qualified = record.qualifiedLocalPreparation;
+    if (
+      !qualified ||
+      !qualified.allocationFacts.existingDirectories ||
+      qualified.publication ||
+      !record.pendingHostTask ||
+      record.pendingHostTask.state !== 'materializing' ||
+      qualified.allocationFactsSha256 !== operation.scope.allocationFactsSha256 ||
+      pendingHostTaskDecisionHash(qualified.allocationFacts) !== qualified.allocationFactsSha256
+    )
+      throw new PendingHostTaskError('pending_host_task_authority_required');
+    const raw = this.db
+      .prepare('SELECT record FROM repository_workspaces WHERE id=? AND conversation_id IS NULL')
+      .get(request.id) as { record: string } | undefined;
+    if (!raw || !isDeepStrictEqual(JSON.parse(raw.record), record))
+      throw new PendingHostTaskError('pending_host_task_ownership_changed');
+    operation.claim();
+    try {
+      const result = await materializeQualifiedLocalRepositoryTask({
+        context,
+        facts: freezePendingHostTaskData(structuredClone(qualified.allocationFacts)),
+        factsSha256: qualified.allocationFactsSha256,
+        assertCurrentSync: () => operation.assertCurrentSync(),
+        assertCurrent: () => operation.assertCurrent(),
+      });
+      const taskIdentity = freezePendingHostTaskData({
+        ...result.taskIdentity,
+        localSource: record.localSource!,
+      });
+      const receipt = PendingHostTaskReceiptSchema.parse({
+        ...record.pendingHostTask,
+        state: 'materialized',
+        taskIdentity,
+      });
+      const next = {
+        ...record,
+        qualifiedLocalPreparation: { ...qualified, publication: result.publication },
+        pendingHostTask: receipt,
+      };
+      const serialized = JSON.stringify(next);
+      assertPreparedRepositoryMaterializedRecordBound(serialized);
+      // Original consumed/current operation immediately precedes one exact RAW
+      // row CAS. Creation publication and final receipt appear atomically.
+      operation.assertCurrentSync();
+      const changed = this.db
+        .prepare(
+          'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',
+        )
+        .run(serialized, request.id, raw.record);
+      if (changed.changes !== 1)
+        throw new PendingHostTaskError('pending_host_task_ownership_changed');
+      operation.completePublication();
+      return freezePendingHostTaskData(receipt);
+    } catch {
+      // Retain materializing/partial effects. Never replay, clean foreign data,
+      // write after expiry, or infer current ownership from historical evidence.
+      throw new PendingHostTaskError('pending_host_task_uncertain');
+    }
   }
   async materializePendingHostTask(
     input: PendingHostTaskRequest,

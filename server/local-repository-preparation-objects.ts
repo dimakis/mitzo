@@ -1,13 +1,47 @@
+import { createHash } from 'node:crypto';
+import { validNativeTreeRelativePath } from './native-tree-publication.js';
+import { AuthoritySnapshot, type SerializedAuthority } from './sandbox-authority.js';
+import {
+  privateRepositoryCheckoutConfig,
+  privateRepositoryCheckoutAttributes,
+} from './private-repository-checkout.js';
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { LocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 
 const execute = promisify(execFile);
 const unavailable = () => Error('Preparation objects unavailable');
+
+function ownedScratchDisposer(
+  root: string,
+  expected: { dev: bigint; ino: bigint },
+  parent: { dev: bigint; ino: bigint },
+) {
+  let pending: Promise<void> | undefined;
+  return () =>
+    (pending ??= (async () => {
+      const [actual, ancestor] = await Promise.all([
+        lstat(root, { bigint: true }),
+        lstat(dirname(root), { bigint: true }),
+      ]);
+      if (
+        !actual.isDirectory() ||
+        actual.dev !== expected.dev ||
+        actual.ino !== expected.ino ||
+        !ancestor.isDirectory() ||
+        ancestor.dev !== parent.dev ||
+        ancestor.ino !== parent.ino
+      )
+        throw unavailable();
+      // Only retained owned scratch is removable. A controlled replacement is
+      // preserved; this is not exclusion of arbitrary concurrent host mutators.
+      await rm(root, { recursive: true, force: true });
+    })());
+}
 const environment = Object.freeze({
   PATH: '/usr/bin:/bin',
   HOME: '/nonexistent',
@@ -31,17 +65,23 @@ export interface LocalRepositoryPreparationObjectView {
   readonly gitDirectory: string;
   readonly baseOid: string;
   readonly treeOid: string;
+  readonly privateAuthority: SerializedAuthority;
+  readonly entries: readonly Readonly<{
+    path: string;
+    mode: '040000' | '100644' | '100755' | '120000';
+    size: number;
+    sha256: string;
+  }>[];
 }
 /** Private actor support, NOT source-effective status or complete storage
  * qualification. Only bounded canonical loose/pack bytes enter an independently
  * owned Git directory. objects/info is unconsumed: no alternates, commit graphs,
  * promisor setup or source configuration can become execution/read authority.
  * The exact current reader remains authoritative; caller owns its disposal. */
-export async function withLocalRepositoryPreparationObjects<T>(
+export async function captureLocalRepositoryPreparationObjects(
   metadata: LocalRepositoryGitMetadata,
   options: LocalRepositoryPreparationObjectOptions,
-  action: (view: LocalRepositoryPreparationObjectView) => Promise<T>,
-): Promise<T> {
+): Promise<Readonly<{ view: LocalRepositoryPreparationObjectView; dispose(): Promise<void> }>> {
   const access = options.readAccess;
   const baseOid = options.baseOid;
   const signal = options.signal;
@@ -63,15 +103,22 @@ export async function withLocalRepositoryPreparationObjects<T>(
     if (Date.now() >= deadline) throw unavailable();
   };
   let scratch: string | undefined;
+  let dispose: (() => Promise<void>) | undefined;
+  const copied: string[] = [];
   let total = 0,
     files = 0;
   let completed = false;
-  let result!: T;
+  let view!: LocalRepositoryPreparationObjectView;
   try {
     check();
     await access.assertPath(commonDirectory);
     scratch = await mkdtemp(join(tmpdir(), 'mitzo-preparation-objects-'));
     scratch = await realpath(scratch);
+    const [owned, parent] = await Promise.all([
+      lstat(scratch, { bigint: true }),
+      lstat(dirname(scratch), { bigint: true }),
+    ]);
+    dispose = ownedScratchDisposer(scratch, owned, parent);
     const gitDirectory = join(scratch, 'git-admin');
     const gitBytes = async (args: string[], input?: Buffer) => {
       check();
@@ -102,6 +149,16 @@ export async function withLocalRepositoryPreparationObjects<T>(
       `--object-format=${objectFormat}`,
       gitDirectory,
     ]);
+    await writeFile(
+      join(gitDirectory, 'config'),
+      privateRepositoryCheckoutConfig(objectFormat as 'sha1' | 'sha256'),
+      { mode: 0o600 },
+    );
+    await mkdir(join(gitDirectory, 'info'), { recursive: true });
+    await writeFile(join(gitDirectory, 'info', 'attributes'), privateRepositoryCheckoutAttributes, {
+      flag: 'wx',
+      mode: 0o600,
+    });
     const objects = join(commonDirectory, 'objects');
     const root = await access.stat(objects);
     if (root?.kind !== 'directory') throw unavailable();
@@ -123,6 +180,7 @@ export async function withLocalRepositoryPreparationObjects<T>(
       check();
       if (bytes.length !== entry.size) throw unavailable();
       await writeFile(destination, bytes, { flag: 'wx', mode: 0o600 });
+      copied.push(destination);
     };
     for (const directory of await access.list(objects)) {
       check();
@@ -182,7 +240,10 @@ export async function withLocalRepositoryPreparationObjects<T>(
     await git(['cat-file', '-e', `${baseOid}^{commit}`]);
     const treeOid = (await git(['rev-parse', '--verify', `${baseOid}^{tree}`])).trim();
     if (!new RegExp(`^[a-f0-9]{${oidLength}}$`).test(treeOid)) throw unavailable();
-    const rows = (await git(['ls-tree', '-r', '-t', '-z', baseOid])).split('\0').filter(Boolean);
+    const rows = new TextDecoder('utf-8', { fatal: true })
+      .decode(await gitBytes(['ls-tree', '-r', '-t', '-z', baseOid]))
+      .split('\0')
+      .filter(Boolean);
     if (rows.length > 10000) throw unavailable();
     const required = new Map<string, string>([
       [baseOid, 'commit'],
@@ -201,36 +262,71 @@ export async function withLocalRepositoryPreparationObjects<T>(
         throw unavailable();
       required.set(match[3], match[2]);
     }
+    const hashes = new Map<string, string>();
     for (const [oid, type] of required) {
       const header = objectHeaders.get(oid);
       if (!header || header.type !== type) throw unavailable();
       const bytes = await gitBytes(['cat-file', type, oid]);
+      if (type === 'blob') hashes.set(oid, createHash('sha256').update(bytes).digest('hex'));
       if (
         bytes.length !== header.size ||
         (await git(['hash-object', '-t', type, '--stdin'], bytes)).trim() !== oid
       )
         throw unavailable();
     }
+    let checkoutBytes = 0;
+    const entries = rows.map((row) => {
+      const match =
+        /^(100644|100755|120000|040000|160000) (?:blob|tree|commit) ([a-f0-9]+)\t(.*)$/s.exec(row);
+      if (!match || !validNativeTreeRelativePath(match[3])) throw unavailable();
+      const directory = ['040000', '160000'].includes(match[1]);
+      const size = directory ? 0 : objectHeaders.get(match[2])?.size;
+      const sha256 = directory
+        ? createHash('sha256').update('').digest('hex')
+        : hashes.get(match[2]);
+      if (size === undefined || !sha256 || (checkoutBytes += size) > 128 * 1024 * 1024)
+        throw unavailable();
+      return Object.freeze({
+        path: match[3],
+        mode: (directory ? '040000' : match[1]) as '040000' | '100644' | '100755' | '120000',
+        size,
+        sha256,
+      });
+    });
+    Object.freeze(entries);
     await access.verify();
     check();
-    result = await action(
-      Object.freeze({
-        coverage: 'preparation-required-objects-v1',
-        scratch,
-        gitDirectory,
-        baseOid,
-        treeOid,
-      }),
-    );
+    const privateAuthority = new AuthoritySnapshot();
+    for (const file of [
+      ...copied,
+      join(gitDirectory, 'config'),
+      join(gitDirectory, 'HEAD'),
+      join(gitDirectory, 'info', 'attributes'),
+    ])
+      privateAuthority.capture(file, true);
+    privateAuthority.capture(scratch);
+    privateAuthority.capture(gitDirectory);
+    // Only already-owned copied inputs, no source/config/credential roots.
+    const retainedAuthority = privateAuthority
+      .serialize()
+      .filter((item) => item.path === scratch || item.path.startsWith(scratch + '/'))
+      .map((item) =>
+        Object.freeze({ ...item, ...(item.stat ? { stat: Object.freeze({ ...item.stat }) } : {}) }),
+      );
+    Object.freeze(retainedAuthority);
+    view = Object.freeze({
+      coverage: 'preparation-required-objects-v1',
+      scratch,
+      gitDirectory,
+      baseOid,
+      treeOid,
+      privateAuthority: retainedAuthority,
+      entries,
+    });
     check();
     completed = true;
   } catch {
     // All diagnostics are private; cleanup and the outward owner fence still run.
-  }
-  try {
-    if (scratch) await rm(scratch, { recursive: true, force: true });
-  } catch {
-    completed = false;
   }
   try {
     check();
@@ -240,8 +336,46 @@ export async function withLocalRepositoryPreparationObjects<T>(
     completed = false;
   }
   if (!completed) {
+    if (dispose) await dispose();
     signal?.throwIfAborted();
     throw unavailable();
   }
-  return result;
+  return Object.freeze({ view, dispose: dispose! });
+}
+
+/** Compatibility wrapper retains its full post-callback source/owner fence.
+ * The actor instead captures/disposes its READ owner before source mutations,
+ * retaining only independently-owned immutable private inputs and cleanup. */
+export async function withLocalRepositoryPreparationObjects<T>(
+  metadata: LocalRepositoryGitMetadata,
+  options: LocalRepositoryPreparationObjectOptions,
+  action: (view: LocalRepositoryPreparationObjectView) => Promise<T>,
+): Promise<T> {
+  const deadline = Date.now() + options.timeoutMs;
+  const held = await captureLocalRepositoryPreparationObjects(metadata, options);
+  let value!: T,
+    completed = false;
+  try {
+    value = await action(held.view);
+    completed = true;
+  } catch {
+    /* sanitized below */
+  }
+  try {
+    await held.dispose();
+  } catch {
+    completed = false;
+  }
+  try {
+    options.signal?.throwIfAborted();
+    await options.readAccess.verify();
+    if (Date.now() >= deadline) throw unavailable();
+  } catch {
+    completed = false;
+  }
+  if (!completed) {
+    options.signal?.throwIfAborted();
+    throw unavailable();
+  }
+  return value;
 }

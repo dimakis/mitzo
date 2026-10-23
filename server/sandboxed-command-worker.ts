@@ -1,3 +1,4 @@
+import { privateRepositoryCheckoutCommand } from './private-repository-checkout.js';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { Writable } from 'node:stream';
@@ -26,6 +27,7 @@ export interface SandboxWorkerPayload {
   networkAccess?: 'approved-command';
   /** Fixed private helper only, never arbitrary Bash's authority bypass. */
   privateNativeFileRequestJson?: string;
+  privateRepositoryCheckoutJson?: string;
 }
 
 interface WorkerDependencies {
@@ -86,6 +88,14 @@ export async function runSandboxedWorker(
       payload.command !== privateNativeFileHelperCommand(payload.privateNativeFileRequestJson))
   )
     throw Error('Invalid private native file helper');
+  if (
+    payload.privateRepositoryCheckoutJson !== undefined &&
+    (payload.filesystemOnly ||
+      payload.networkAccess ||
+      payload.privateNativeFileRequestJson !== undefined ||
+      payload.command !== privateRepositoryCheckoutCommand(payload.privateRepositoryCheckoutJson))
+  )
+    throw Error('Invalid private repository checkout');
   if (payload.filesystemOnly !== undefined && typeof payload.filesystemOnly !== 'boolean')
     throw new Error('Invalid filesystem-only sandbox mode');
   if (payload.filesystemOnly && (dependencies.platform ?? process.platform) !== 'darwin')
