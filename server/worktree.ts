@@ -164,9 +164,14 @@ export interface CreateWorktreeOptions {
   /** Existing arbitrary repositories may supply content, never executable Git
    * configuration during allocation. Requires an explicit, already pinned ref. */
   safeLocalPreparation?: boolean;
+  /** Private current operation fence, used only by the safe arbitrary-source route. */
+  safeLocalBeforeEffect?: () => Promise<void>;
+  /** An initial pending owner must never reuse an unowned directory or branch. */
+  safeLocalRequireNew?: boolean;
+  abortSignal?: AbortSignal;
 }
 
-function safeLocalWorktreeGit() {
+function safeLocalWorktreeGit(beforeEffect?: () => Promise<void>, signal?: AbortSignal) {
   const config = [
     '-c',
     'core.hooksPath=/dev/null',
@@ -197,11 +202,19 @@ function safeLocalWorktreeGit() {
       GIT_ATTR_NOSYSTEM: '1',
     },
   };
-  return (args: string[], environment: Readonly<Record<string, string>> = {}) =>
-    execFileAsync('git', ['--no-replace-objects', ...config, ...args], {
+  return async (args: string[], environment: Readonly<Record<string, string>> = {}) => {
+    signal?.throwIfAborted();
+    await beforeEffect?.();
+    signal?.throwIfAborted();
+    const result = await execFileAsync('git', ['--no-replace-objects', ...config, ...args], {
       ...options,
+      signal,
       env: { ...options.env, ...environment },
     });
+    signal?.throwIfAborted();
+    await beforeEffect?.();
+    return result;
+  };
 }
 
 /** Register with the existing owner, then let Git materialize through a private
@@ -211,6 +224,7 @@ async function materializeLocalWorktree(
   baseRepo: string,
   worktreePath: string,
   branch: string,
+  beforeEffect?: () => Promise<void>,
 ) {
   const { stdout: common } = await git([
     '-C',
@@ -226,6 +240,7 @@ async function materializeLocalWorktree(
   if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(head)) throw Error('Invalid local worktree HEAD');
   const format = (await git(['-C', baseRepo, 'rev-parse', '--show-object-format'])).stdout.trim();
   if (!['sha1', 'sha256'].includes(format)) throw Error('Unsupported local Git object format');
+  await beforeEffect?.();
   const scratch = await mkdtemp(join(tmpdir(), 'mitzo-worktree-materialization-'));
   try {
     await git([
@@ -349,18 +364,30 @@ export async function createWorktreeAsync(
 ): Promise<string> {
   if (opts?.safeLocalPreparation && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(opts.startPoint ?? ''))
     throw Error('Safe local repository preparation requires a pinned source ref');
-  const safeGit = opts?.safeLocalPreparation ? safeLocalWorktreeGit() : undefined;
+  const safeGit = opts?.safeLocalPreparation
+    ? safeLocalWorktreeGit(opts.safeLocalBeforeEffect, opts.abortSignal)
+    : undefined;
   const runGit = safeGit
     ? safeGit
     : (args: string[]) => execFileAsync('git', args, { timeout: WORKTREE_GIT_TIMEOUT_MS });
   const prefix = opts?.prefix ?? '.claude';
   const dir = opts?.dir ?? join(baseRepo, prefix, 'worktrees');
+  if (safeGit) {
+    opts?.abortSignal?.throwIfAborted();
+    await opts?.safeLocalBeforeEffect?.();
+  }
   await mkdir(dir, { recursive: true });
+  if (safeGit) {
+    opts?.abortSignal?.throwIfAborted();
+    await opts?.safeLocalBeforeEffect?.();
+  }
 
   const worktreePath = join(dir, sessionId);
   const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
 
   if (existsSync(worktreePath)) {
+    if (safeGit && opts?.safeLocalRequireNew)
+      throw Error('Pending worktree destination already exists');
     const { stdout: identity } = await runGit(['-C', worktreePath, ...WORKTREE_IDENTITY_ARGS]);
     const { stdout: baseCommonDir } = await runGit([
       '-C',
@@ -376,6 +403,25 @@ export async function createWorktreeAsync(
 
   const startPoint = opts?.startPoint ?? (await fetchWorktreeBase(baseRepo));
   const checkout = safeGit ? ['--no-checkout'] : [];
+  if (safeGit && opts?.safeLocalRequireNew) {
+    const { stdout: common } = await runGit([
+      '-C',
+      baseRepo,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    ]);
+    if (existsSync(join(common.trim(), 'worktrees', sessionId)))
+      throw Error('Pending worktree administration already exists');
+    const existing = await runGit([
+      '-C',
+      baseRepo,
+      'for-each-ref',
+      '--format=%(refname)',
+      `refs/heads/${branch}`,
+    ]);
+    if (existing.stdout.trim()) throw Error('Pending worktree branch already exists');
+  }
   try {
     await runGit([
       '-C',
@@ -390,7 +436,7 @@ export async function createWorktreeAsync(
     ]);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    if (message.includes('already exists')) {
+    if (!(safeGit && opts?.safeLocalRequireNew) && message.includes('already exists')) {
       // Reattach at its existing tip: it may contain unfinished session commits.
       await runGit(['-C', baseRepo, 'worktree', 'add', ...checkout, worktreePath, branch]);
     } else {
@@ -398,7 +444,14 @@ export async function createWorktreeAsync(
     }
   }
 
-  if (safeGit) await materializeLocalWorktree(safeGit, baseRepo, worktreePath, branch);
+  if (safeGit)
+    await materializeLocalWorktree(
+      safeGit,
+      baseRepo,
+      worktreePath,
+      branch,
+      opts?.safeLocalBeforeEffect,
+    );
 
   log.info(`created: ${worktreePath} (${branch}) from ${startPoint}`);
   return worktreePath;

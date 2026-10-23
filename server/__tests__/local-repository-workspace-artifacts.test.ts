@@ -9,6 +9,8 @@ it('pins existing-repository metadata authorization, private Git preparation and
   const artifacts: Readonly<Record<string, string>> = reviewedHandlerSourceArtifacts;
   for (const file of [
     '../worktree.ts',
+    '../pending-host-task.ts',
+    '../__tests__/pending-host-task.test.ts',
     '../local-repository-worktree.ts',
     '../repository-workspaces.ts',
     '../local-repository-git-inspection.ts',

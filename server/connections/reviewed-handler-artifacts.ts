@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.557-slice2-repository-preparation';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.561-pending-host-task';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../pending-host-task.ts': '82e6f28b50cb7f2d2f9c8fb80fd741a70fa5ddd417145ec6ab45520a237f6723',
+  '../__tests__/pending-host-task.test.ts':
+    '286badb71f54d57b77e7b57116a566d1772d6c27b520131262ef58551f2ce01d',
+  '../__tests__/local-repository-workspace-artifacts.test.ts':
+    'e1b72b57dba28c08a83ddd1d293f98f3842996c2ad7afd000d43fc44a2fc5de3',
   '../__tests__/chat-provider-startup-admission.test.ts':
     '2d56b8f9bf1a510324983852152d5d38fd596879ee78dd2b9f9af011139cec4b',
   '../__tests__/connections-credential-readiness.test.ts':
@@ -58,7 +62,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '8a6b88fbca7d480a01a99880b375abf181d0bac4360c25c4753b586694348c29',
   '../../frontend/src/lib/todo-lifecycle-events.ts':
     '7ab6ec51e8b4653f58f21f05c50018fc6e0b9bead8285f5931cb20addad24999',
-
   '../telos-work-lifecycle.ts': 'd43e09df35bc7966aed2645a0d496d38531150ce5606412b651069bed927cbb0',
   '../telos-lifecycle-tree.ts': '4ab02f364793bdfe4dfb64ac66c152d390584c1ce6cd7630cab3af76ed4f6215',
   '../telos-lifecycle-list.ts': 'f2386f34c0c71ae5190458416c8fe056044eb941ab9b2a5a66a43c1407901835',
@@ -901,7 +904,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':
     '02e1a872e4f24c7fd42ddd4c9a1e535be847f3e1c16ab34593e3511a22003fe5',
-  '../worktree.ts': 'aad0cf8b0da6013480abe18a7f3253f6b8942e4e1c493c7cc0938fa2c73fd1ca',
+  '../worktree.ts': 'd10f602bd857fb94c380eb84119b2b10dadc4cbae95fd641541308a934b0634a',
   '../local-repository-worktree.ts':
     '50cf4cf31ca4a767bc4d3ebe64b1d5598f5436b98644a864768ba1750c6660c7',
   '../local-repository-git-inspection.ts':
@@ -923,7 +926,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '4c29712dd8c80db92f6872815848aac37858a4d59b8861700aefc8c8c97e185a',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
-  '../repository-workspaces.ts': '0005286a35fb46ab6993d3e594f955212a63e769a6d463714285c9857c200040',
+  '../repository-workspaces.ts': '053bc27a30a9ec047e5adc0fb1f973a040508f384e0a29fefc89b0026aa63227',
   '../../packages/protocol/src/session-metadata-store.ts':
     '23b46bb4ae5cca126db5ddbbfcb6dffb0cef98895e6d74a0b0700c5098b39a04',
   '../../packages/protocol/src/event-store.ts':
