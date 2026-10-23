@@ -342,8 +342,7 @@ export async function discoverLocalRepository(
       const marker = await lstat(join(current.path, '.git')).catch(() => null);
       if (
         marker &&
-        !marker.isSymbolicLink() &&
-        (marker.isFile() || marker.isDirectory()) &&
+        (marker.isFile() || marker.isDirectory() || marker.isSymbolicLink()) &&
         basename(current.path).toLocaleLowerCase().includes(query)
       ) {
         await candidate(current.path);
