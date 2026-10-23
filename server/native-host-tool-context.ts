@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
+import { isAbsolute, resolve } from 'node:path';
 import { checkSkillPolicy, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import type { AccountBinding, AgentContextSnapshot, AgentLibraryVersion } from '@mitzo/protocol';
 import {
@@ -8,8 +9,12 @@ import {
 } from './agent-library-transport.js';
 import { hasPersistentRevocationAuthority } from './auth.js';
 import { agentToolAllowed } from './agent-tool-selection.js';
-import { CodexConversation, type CodexConversationOptions } from './codex-conversation.js';
-import type { CodexConversationStore } from './codex-conversation-store.js';
+import {
+  CodexConversation,
+  type CodexConversationOptions,
+  type NativeBaseReadScope,
+} from './codex-conversation.js';
+import type { CodexConversationStore, CodexNativeTurnTarget } from './codex-conversation-store.js';
 import type { EventStore } from './event-store.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
 import { isAvailableTelosWorkConversation } from './telos-work-conversation.js';
@@ -23,6 +28,10 @@ export interface NativeHostToolContext extends NativeMainPublicationCall {
   readonly turnId: string;
   readonly toolName: string;
   readonly requestHash: string;
+  /** Original acknowledged target data; current authority still requires the pending proof. */
+  readonly nativeTarget: Readonly<CodexNativeTurnTarget>;
+  /** Private original base-read facts; never a grant or a byte/identity witness. */
+  readonly nativeBaseReadScope?: NativeBaseReadScope;
   readonly profile: AgentLibraryVersion | undefined;
   readonly agentContext: AgentContextSnapshot | undefined;
   /** Original admitted root data. A file read still needs its own byte/identity witness. */
@@ -48,6 +57,88 @@ function freezeData<T>(value: T): T {
     Object.freeze(value);
   }
   return value;
+}
+
+/** Read only immutable data descriptors; malformed facets must not execute getters. */
+function frozenProperty(source: object, key: string): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(source, key);
+  if (!descriptor || !('value' in descriptor) || descriptor.configurable || descriptor.writable)
+    unavailable();
+  return descriptor.value;
+}
+function frozenRecord(value: unknown): asserts value is object {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !Object.isFrozen(value) ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+  )
+    unavailable();
+}
+function boundedString(source: object, key: string): string {
+  const value = frozenProperty(source, key);
+  if (
+    typeof value !== 'string' ||
+    !value ||
+    value.length > 4096 ||
+    Buffer.byteLength(value) > 4096 ||
+    value.includes('\0')
+  )
+    unavailable();
+  return value;
+}
+function frozenRoots(source: object, key: string): readonly string[] {
+  const value = frozenProperty(source, key);
+  if (!Array.isArray(value) || !Object.isFrozen(value) || value.length === 0 || value.length > 256)
+    unavailable();
+  const result: string[] = [];
+  let bytes = 0;
+  for (let index = 0; index < value.length; index++) {
+    const root = boundedString(value, String(index));
+    if (!isAbsolute(root) || resolve(root) !== root || (bytes += Buffer.byteLength(root)) > 65536)
+      unavailable();
+    result.push(root);
+  }
+  return Object.freeze(result);
+}
+function originalReadScope(
+  value: unknown,
+  target: Readonly<CodexNativeTurnTarget>,
+  identity: { callId: string; toolName: string; requestHash: string },
+  assertCurrentSync: () => void,
+): { scope: NativeBaseReadScope; assertOriginal: () => unknown } {
+  if (value instanceof Promise) {
+    void value.catch(() => {});
+    unavailable();
+  }
+  frozenRecord(value);
+  const originalTarget = frozenProperty(value, 'nativeTarget');
+  frozenRecord(originalTarget);
+  const copiedTarget = Object.fromEntries(
+    ['commandId', 'attempt', 'threadId', 'turnId', 'generation'].map((key) => [
+      key,
+      frozenProperty(originalTarget, key),
+    ]),
+  );
+  if (!isDeepStrictEqual(copiedTarget, target)) unavailable();
+  for (const key of ['callId', 'toolName', 'requestHash'] as const)
+    if (boundedString(value, key) !== identity[key]) unavailable();
+  const assertion = frozenProperty(value, 'assertCurrentSync');
+  if (typeof assertion !== 'function' || !Object.isFrozen(assertion)) unavailable();
+  return {
+    scope: Object.freeze({
+      nativeTarget: freezeData(structuredClone(target)),
+      ...identity,
+      bindingRevision: boundedString(value, 'bindingRevision'),
+      profileRevision: boundedString(value, 'profileRevision'),
+      policyRevision: boundedString(value, 'policyRevision'),
+      readableRoots: frozenRoots(value, 'readableRoots'),
+      workspaceRoots: frozenRoots(value, 'workspaceRoots'),
+      deniedRoots: frozenRoots(value, 'deniedRoots'),
+      assertCurrentSync: Object.freeze(assertCurrentSync),
+    }),
+    assertOriginal: () => Reflect.apply(assertion, value, []),
+  };
 }
 
 /** Called inside the original CodexChat verified native callback, before parsing
@@ -84,6 +175,18 @@ export function captureNativeHostToolContext(owners: {
     unavailable();
   const assertNativeCallCurrent = owners.call.assertCurrentSync.bind(owners.call);
   assertSynchronous(assertNativeCallCurrent);
+  const readFacet = Object.getOwnPropertyDescriptor(owners.call, 'captureNativeBaseReadScope');
+  if (
+    readFacet &&
+    (!('value' in readFacet) ||
+      typeof readFacet.value !== 'function' ||
+      !Object.isFrozen(readFacet.value) ||
+      readFacet.enumerable ||
+      readFacet.configurable ||
+      readFacet.writable)
+  )
+    unavailable();
+  if (!readFacet && 'captureNativeBaseReadScope' in owners.call) unavailable();
   const original = owners.registry.findBySessionId(owners.conversationId);
   if (!original || original.session !== owners.session) unavailable();
   const driver = original.session.ordinaryRuntimeOwner;
@@ -124,7 +227,15 @@ export function captureNativeHostToolContext(owners: {
       identity,
     );
     if (!custody || custody.authSessionId !== authorization.auth.id || !pending) unavailable();
-    const assertCurrentSync = () => {
+    const nativeTarget: Readonly<CodexNativeTurnTarget> = freezeData({
+      commandId: pending.commandId,
+      attempt: pending.attempt,
+      threadId: pending.threadId,
+      turnId: pending.turnId,
+      generation: pending.generation,
+    });
+    let assertNativeReadCurrent: (() => unknown) | undefined;
+    const assertContextCurrentSync = () => {
       if (closed) unavailable();
       signal.throwIfAborted();
       authorization.assertCurrent();
@@ -181,8 +292,27 @@ export function captureNativeHostToolContext(owners: {
       )
         unavailable();
     };
+    const assertCurrentSync = () => {
+      assertContextCurrentSync();
+      if (assertNativeReadCurrent) {
+        assertSynchronous(assertNativeReadCurrent);
+        assertContextCurrentSync();
+      }
+    };
     assertCurrentSync();
-    return Object.freeze({
+    let nativeBaseReadScope: NativeBaseReadScope | undefined;
+    if (readFacet) {
+      const captured = originalReadScope(
+        Reflect.apply(readFacet.value, owners.call, []),
+        nativeTarget,
+        { callId: owners.call.callId, toolName: owners.toolName, requestHash },
+        assertCurrentSync,
+      );
+      assertNativeReadCurrent = captured.assertOriginal;
+      nativeBaseReadScope = captured.scope;
+      assertCurrentSync();
+    }
+    const context = {
       operatorId: authorization.auth.id,
       conversationId: owners.conversationId,
       clientId: original.clientId,
@@ -194,6 +324,7 @@ export function captureNativeHostToolContext(owners: {
       turnId: owners.call.turnId,
       toolName: owners.toolName,
       requestHash,
+      nativeTarget,
       profile,
       agentContext,
       workspace,
@@ -210,7 +341,10 @@ export function captureNativeHostToolContext(owners: {
         lifetime.abort(Error('Native host tool scope ended'));
         operation.dispose();
       },
-    });
+    };
+    if (nativeBaseReadScope)
+      Object.defineProperty(context, 'nativeBaseReadScope', { value: nativeBaseReadScope });
+    return Object.freeze(context);
   } catch (error) {
     lifetime.abort();
     operation.dispose();

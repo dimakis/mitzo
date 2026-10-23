@@ -21,6 +21,8 @@ export interface SandboxedCommandOptions {
   signal: AbortSignal;
   timeoutMs?: number;
   maxOutputBytes?: number;
+  /** Private structured-helper transport; does not change policy or output limits. */
+  privateOutput?: 'separate';
   beforeSpawn?: () => void;
   beforeSpawnAsync?: () => Promise<void>;
 }
@@ -98,8 +100,10 @@ function gitMetadataRoots(
  */
 export async function executeSandboxedCommand(
   options: SandboxedCommandOptions,
-): Promise<{ content: string; isError: boolean }> {
+): Promise<{ content: string; isError: boolean; stdout?: string; stderr?: string }> {
   options.signal.throwIfAborted();
+  if (options.privateOutput !== undefined && options.privateOutput !== 'separate')
+    throw new Error('Invalid private command output transport');
   if (options.networkAccess !== undefined && options.networkAccess !== 'approved-command')
     throw new Error('Invalid command network authorization');
   if (!['darwin', 'linux'].includes(process.platform))
@@ -226,6 +230,8 @@ export async function executeSandboxedCommand(
       let failure: string | undefined;
       let size = 0;
       const chunks: Buffer[] = [];
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
       const kill = () => {
         if (child.pid)
           try {
@@ -242,13 +248,14 @@ export async function executeSandboxedCommand(
       const timer = setTimeout(() => stop('Command timed out'), timeout);
       options.signal.addEventListener('abort', onAbort, { once: true });
       if (options.signal.aborted) onAbort();
-      const collect = (chunk: Buffer) => {
+      const collect = (chunk: Buffer, stream: Buffer[]) => {
         size += chunk.length;
         if (size > limit) stop('Command output limit exceeded');
+        else if (options.privateOutput) stream.push(chunk);
         else chunks.push(chunk);
       };
-      child.stdout.on('data', collect);
-      child.stderr.on('data', collect);
+      child.stdout.on('data', (chunk: Buffer) => collect(chunk, stdout));
+      child.stderr.on('data', (chunk: Buffer) => collect(chunk, stderr));
       child.on('error', () => {
         failure = 'Sandbox process could not start';
       });
@@ -259,6 +266,15 @@ export async function executeSandboxedCommand(
         kill();
         let output = Buffer.concat(chunks).toString('utf8');
         const isError = !!failure || code !== 0 || signal !== null;
+        if (options.privateOutput) {
+          resolveResult({
+            content: failure ?? '',
+            isError,
+            stdout: Buffer.concat(stdout).toString('utf8'),
+            stderr: Buffer.concat(stderr).toString('utf8'),
+          });
+          return;
+        }
         if (
           isError &&
           metadataRoots.length > 0 &&

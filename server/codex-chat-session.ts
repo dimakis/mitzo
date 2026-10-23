@@ -122,6 +122,8 @@ import {
   WEB_ACCESS_INSTRUCTIONS,
 } from './request-web-access.js';
 import { sessionProfileTools, profileToolDefinitions } from './session-profile-tools.js';
+import { sessionHistoryTools, sessionHistoryToolDefinitions } from './session-history-tools.js';
+import { captureSessionHistoryAuthorization } from './session-history-authorization.js';
 import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import {
@@ -1671,6 +1673,10 @@ async function openCodexChatBound(
         assertHostCurrentSync,
       )
     : undefined;
+  const localHistoryDefinitions =
+    options.ownedLocal && options.assertAgentContextAuthorization
+      ? sessionHistoryToolDefinitions
+      : [];
   const nativeExecutionEnabled =
     !!options.ownedLocal &&
     process.platform === 'darwin' &&
@@ -1686,6 +1692,7 @@ async function openCodexChatBound(
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
           ...agentCommunicationDefinitions,
+          ...localHistoryDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -1893,6 +1900,7 @@ async function openCodexChatBound(
           ...profileToolDefinitions,
           ...agentTaskToolDefinitions,
           ...agentCommunicationDefinitions,
+          ...localHistoryDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -2415,12 +2423,8 @@ async function openCodexChatBound(
       // Refuse an unqualified helper before any owner await, approval or effect.
       if (ownedToolNames && !ownedToolNames.has(name))
         throw Error('Tool unavailable for owned local Codex chat');
-      const captureSignedContext = () => {
-        if (
-          !options.ownedLocal ||
-          !options.assertAgentContextAuthorization ||
-          !mainPublicationRuntime
-        )
+      const captureNativeContext = () => {
+        if (!options.ownedLocal || !options.assertAgentContextAuthorization)
           throw Error('Original native Telos host unavailable');
         const workspace = options.ordinaryWorkspace
           ? {
@@ -2437,7 +2441,7 @@ async function openCodexChatBound(
             : undefined;
         if (!workspace) throw Error('Original admitted workspace unavailable');
         // Capture original callback authority before interpreting any tool intent.
-        const context = captureNativeHostToolContext({
+        return captureNativeHostToolContext({
           events: options.eventStore,
           native: store(),
           registry: options.registry,
@@ -2457,6 +2461,10 @@ async function openCodexChatBound(
           call: callContext,
           signal,
         });
+      };
+      const captureSignedContext = () => {
+        if (!mainPublicationRuntime) throw Error('Original native Telos host unavailable');
+        const context = captureNativeContext();
         try {
           return mainPublicationRuntime.bindNativeContext(context);
         } catch (error) {
@@ -2464,6 +2472,29 @@ async function openCodexChatBound(
           throw error;
         }
       };
+      if (localHistoryDefinitions.some((tool) => tool.name === name)) {
+        const context = captureNativeContext();
+        try {
+          const tools = sessionHistoryTools({
+            store: options.eventStore,
+            capture: (call, toolName) =>
+              captureSessionHistoryAuthorization({
+                context,
+                events: options.eventStore,
+                call,
+                toolName,
+              }),
+            // These durable user/text fields are the product's public transcript
+            // projection; the adapter excludes reasoning/tool/config payloads.
+            projectPublicText: (text) => text,
+          });
+          const result = await tools.execute(name, input, context.signal, callContext);
+          if (!result) throw Error('History tool unavailable');
+          return result;
+        } finally {
+          context.dispose();
+        }
+      }
       if (name === githubMainPublicationTool.name) {
         if (
           !options.ownedLocal ||
