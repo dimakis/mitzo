@@ -7,9 +7,7 @@
     "source": "Task Board",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
   },
   {
@@ -20,9 +18,7 @@
     "source": "Task Board",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
   },
   {
@@ -33,9 +29,7 @@
     "source": "Task Board",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
   },
   {
@@ -46,9 +40,7 @@
     "source": "Task Board",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires a current delegated task and tool approval. Selection grants no task access or completion authority."
   },
   {
@@ -59,11 +51,7 @@
     "source": "Workspace",
     "required": true,
     "behavior": "interaction",
-    "routes": [
-      "local-api",
-      "codex",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -74,11 +62,7 @@
     "source": "Workspace",
     "required": false,
     "behavior": "mixed",
-    "routes": [
-      "local-api",
-      "codex",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Requires an available OS sandbox and existing workspace permissions; no network or credentials."
   },
   {
@@ -89,11 +73,7 @@
     "source": "Workspace",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "local-api",
-      "codex",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Requires existing GitHub access and the usual action approval."
   },
   {
@@ -104,11 +84,7 @@
     "source": "Workspace",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api",
-      "codex",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -119,11 +95,7 @@
     "source": "Workspace",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "local-api",
-      "codex",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -134,11 +106,7 @@
     "source": "Workspace",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api",
-      "codex",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -149,11 +117,7 @@
     "source": "Workspace",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api",
-      "codex",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -164,10 +128,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "local-api",
-      "codex"
-    ],
+    "routes": ["local-api", "codex"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -178,10 +139,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api",
-      "codex"
-    ],
+    "routes": ["local-api", "codex"],
     "requirement": "Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access."
   },
   {
@@ -192,10 +150,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "mixed",
-    "routes": [
-      "local-api",
-      "codex"
-    ],
+    "routes": ["local-api", "codex"],
     "requirement": "Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access."
   },
   {
@@ -206,10 +161,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api",
-      "codex"
-    ],
+    "routes": ["local-api", "codex"],
     "requirement": "Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access."
   },
   {
@@ -220,10 +172,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "mixed",
-    "routes": [
-      "local-api",
-      "codex"
-    ],
+    "routes": ["local-api", "codex"],
     "requirement": "Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access."
   },
   {
@@ -234,10 +183,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "local-api",
-      "codex"
-    ],
+    "routes": ["local-api", "codex"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -248,10 +194,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api",
-      "codex"
-    ],
+    "routes": ["local-api", "codex"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -262,10 +205,7 @@
     "source": "Connections",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "local-api",
-      "codex"
-    ],
+    "routes": ["local-api", "codex"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -276,9 +216,7 @@
     "source": "Repositories",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "local-api"
-    ],
+    "routes": ["local-api"],
     "requirement": "Requires an authorized repository connection for the selected account."
   },
   {
@@ -289,9 +227,7 @@
     "source": "Repositories",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api"
-    ],
+    "routes": ["local-api"],
     "requirement": "Requires an authorized repository connection for the selected account."
   },
   {
@@ -302,9 +238,7 @@
     "source": "Repositories",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "local-api"
-    ],
+    "routes": ["local-api"],
     "requirement": "Requires an authorized repository connection for the selected account."
   },
   {
@@ -315,9 +249,7 @@
     "source": "Local repositories",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access."
   },
   {
@@ -328,9 +260,7 @@
     "source": "Local repositories",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access."
   },
   {
@@ -341,10 +271,7 @@
     "source": "Agent Library",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -355,10 +282,7 @@
     "source": "Agent Library",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "local-api",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -369,10 +293,7 @@
     "source": "Agent Library",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "local-api",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -383,10 +304,7 @@
     "source": "Agent Library",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -397,10 +315,7 @@
     "source": "Web",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api",
-      "codex"
-    ],
+    "routes": ["local-api", "codex"],
     "requirement": "Requires supported provider web search and current approval."
   },
   {
@@ -411,11 +326,7 @@
     "source": "GitHub publishing",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api",
-      "codex",
-      "codex-owned-local"
-    ],
+    "routes": ["local-api", "codex", "codex-owned-local"],
     "requirement": "Requires existing GitHub access and the usual action approval."
   },
   {
@@ -426,9 +337,7 @@
     "source": "Knowledge",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "local-api"
-    ],
+    "routes": ["local-api"],
     "requirement": "Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge."
   },
   {
@@ -439,9 +348,7 @@
     "source": "Knowledge",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "local-api"
-    ],
+    "routes": ["local-api"],
     "requirement": "Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge."
   },
   {
@@ -452,9 +359,7 @@
     "source": "Agent communication",
     "required": false,
     "behavior": "mixed",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Existing session permissions, cancellation and runtime admission apply."
   },
   {
@@ -465,9 +370,7 @@
     "source": "History",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires the current signed native operator and original owned-local call. Reads only registered visible durable history within current tool and skill scope; no SDK transcript or credential discovery."
   },
   {
@@ -478,9 +381,7 @@
     "source": "History",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires the current signed native operator and original owned-local call. Reads only registered visible durable history within current tool and skill scope; no SDK transcript or credential discovery."
   },
   {
@@ -491,9 +392,7 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires a current Telos lead or worker role, an explicitly selected native tool, separately configured account-bound merge capability and one-use operator approval."
   },
   {
@@ -504,9 +403,7 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
@@ -517,9 +414,7 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
@@ -552,9 +447,7 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
@@ -576,9 +469,7 @@
     "source": "Telos",
     "required": false,
     "behavior": "read",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires explicit native tool selection, current signed operator and exact one-use approval. Artifact reads require a retained exact revision; writes use the canonical Telos store."
   },
   {
@@ -589,9 +480,7 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires explicit native tool selection, this conversation’s current retained lead role and original tool approval. Allocates only the exact reviewed child; selection grants no lead role or model execution."
   },
   {
@@ -602,9 +491,7 @@
     "source": "Telos",
     "required": false,
     "behavior": "write",
-    "routes": [
-      "codex-owned-local"
-    ],
+    "routes": ["codex-owned-local"],
     "requirement": "Requires explicit native tool selection, a current retained lead or worker role and original request-only tool approval. The existing coordinator and scope checks still control every operation; selection grants no role or hold authority."
   }
 ]
