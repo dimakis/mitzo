@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.558-secret-adapters';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.559-secret-adapters';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../secret-relay-browser-driver.ts':
     '5af888c096231267e8ac7c59524ffe6b6b0b7d6f91ea77d210a0e9685c84dc7c',
   '../secret-relay-browser.ts': '3da18091f444a4b87ceeb4097c09708f95988ff0192f9be743019d597afc1f2e',
-  '../secret-relay-mqtt.ts': '0364c29a9f84f7c8709850e64315472be39a1ca781ecf55d3afc88dacf4b4660',
+  '../secret-relay-mqtt.ts': 'd580482044ffd878046ee4b62d9900eeda719cbfc36af1ea5b93e43568037d5d',
   '../secret-relay.ts': 'd4db039a7aabe399a09ac7cacd35c75b40e4040c7926b4768432bc6b9d214247',
   '../secret-relay-lan.ts': '03442b04b8a16ddc3146813f43ed45d9b4ae8fa0a64971a100de48d9a791a812',
   '../secret-relay-runtime.ts': '9cc241b6fd22ca948021e0db06346e81718e12f5eaf340742d42c7b0a172711f',

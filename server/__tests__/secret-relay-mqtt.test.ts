@@ -48,6 +48,13 @@ it('sends private CONNECT and one QoS1 PUBLISH, then requires matching PUBACK', 
   ).toEqual({ acknowledgement: 'puback' });
   expect(dispatched).toHaveBeenCalledOnce();
   expect(f.packets[0][0]).toBe(0x10);
+  let payload = 1;
+  while ((f.packets[0][payload++] & 0x80) !== 0) {}
+  payload += 10;
+  const clientLength = f.packets[0].readUInt16BE(payload);
+  const clientId = f.packets[0].subarray(payload + 2, payload + 2 + clientLength).toString();
+  expect(clientLength).toBeLessThanOrEqual(23);
+  expect(clientId).toMatch(/^[a-zA-Z0-9]+$/);
   expect(f.packets[0].includes(Buffer.from('private-password'))).toBe(true);
   expect(f.packets[1][0]).toBe(0x32);
   expect(f.packets[1].includes(Buffer.from('private-password'))).toBe(false);

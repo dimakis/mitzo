@@ -226,7 +226,7 @@ export async function sendMqttRelayTarget(
             0x10,
             string('MQTT'),
             Buffer.from([4, 0xc2, 0, 0]),
-            string(`mitzo-${randomUUID()}`),
+            string(`mitzo${randomUUID().replaceAll('-', '').slice(0, 18)}`),
             string(target.username),
             string(password),
           ),
