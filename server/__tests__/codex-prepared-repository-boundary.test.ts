@@ -287,4 +287,41 @@ it('discovers only the exact latest completed source and derives the digest from
   f.store.claimNext('conversation', binding);
   f.store.finish('conversation', binding, 'next', 'failed');
   expect(f.store.completedNativeTurnTarget('conversation', binding)).toBeUndefined();
+  expect(() =>
+    f.store.assertCompletedPreparedRepositorySource('conversation', binding, source),
+  ).toThrow();
+});
+
+it('changes only current native workspace after the operation boundary and keeps old policy receipts intact across reopen', () => {
+  const f = fixture();
+  f.store.finish('conversation', binding, 'original', 'completed', 'turn');
+  const before = f.store.readNativeExecutionHistory('conversation', binding, 'original');
+  f.store.adoptPreparedRepositoryWorkspace(
+    'conversation',
+    binding,
+    source,
+    '/original',
+    '/prepared',
+  );
+  expect(f.store.read('conversation', binding)).toMatchObject({
+    cwd: '/prepared',
+    threadId: 'thread',
+    threadGeneration: 0,
+  });
+  expect(f.store.readNativeExecutionHistory('conversation', binding, 'original')).toEqual(before);
+  expect(() =>
+    f.store.adoptPreparedRepositoryWorkspace(
+      'conversation',
+      binding,
+      source,
+      '/original',
+      '/other',
+    ),
+  ).toThrow();
+  const reopened = new CodexConversationStore(f.path);
+  try {
+    expect(() => reopened.create('conversation', binding, '/prepared')).not.toThrow();
+  } finally {
+    reopened.close();
+  }
 });

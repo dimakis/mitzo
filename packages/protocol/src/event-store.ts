@@ -1040,6 +1040,17 @@ export class EventStore {
   observePreparedRepositoryContinuation(commandId: string): OrdinaryLocalCommandAdmission {
     return this.readPreparedRepositoryTransition(commandId);
   }
+  /** Preserve partial adoption, including a queued native row after a thrown
+   * enqueue return. No cold resume or generic dispatch can infer permission. */
+  markPreparedRepositoryContinuationUncertain(commandId: string): void {
+    this.db!.transaction(() => {
+      const admission = this.readPreparedRepositoryTransition(commandId);
+      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+        JSON.stringify({ ...admission, state: 'uncertain' }),
+        commandId,
+      );
+    }).immediate();
+  }
   /** Subsequent explicit commands use only a committed operation-specific
    * primary. The generic first-origin workspace equality remains unchanged. */
   admitPreparedRepositoryPrimaryContinuation(

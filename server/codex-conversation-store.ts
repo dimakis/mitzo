@@ -3098,7 +3098,8 @@ export class CodexConversationStore {
         commands.some((command) => ['queued', 'running'].includes(command.status)) ||
         !original?.intent?.trim() ||
         original.allowedTools ||
-        original.environmentContinuation
+        original.environmentContinuation ||
+        commands.filter((command) => command.status !== 'queued').at(-1)?.id !== source.commandId
       )
         fail();
       this.assertNoPendingThreadOwnership(id, binding);
@@ -3171,6 +3172,30 @@ export class CodexConversationStore {
           sourceGeneration: source.generation,
         },
       });
+    })();
+  }
+  /** Expected-old primary CAS for the already guarded repository operation.
+   * Per-command frozen policy/turn history remains historical and unchanged. */
+  adoptPreparedRepositoryWorkspace(
+    id: string,
+    binding: AccountBinding,
+    source: CompletedPreparedRepositorySource,
+    expectedCwd: string,
+    nextCwd: string,
+  ): void {
+    this.db.transaction(() => {
+      this.assertCompletedPreparedRepositorySource(id, binding, source);
+      if (
+        !isAbsolute(nextCwd) ||
+        resolve(nextCwd) !== nextCwd ||
+        nextCwd.includes('\0') ||
+        nextCwd === expectedCwd
+      )
+        throw Error('Prepared repository native workspace invalid');
+      const changed = this.db
+        .prepare('UPDATE codex_conversations SET cwd=? WHERE id=? AND cwd=?')
+        .run(nextCwd, id, expectedCwd);
+      if (changed.changes !== 1) throw Error('Prepared repository native workspace changed');
     })();
   }
   /** A completed host result is persisted before it is exposed to the transport.

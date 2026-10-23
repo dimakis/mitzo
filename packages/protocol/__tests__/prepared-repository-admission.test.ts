@@ -143,3 +143,21 @@ it('does not weaken the generic ordinary workspace equality or admit a legacy ro
   expect(() => store.reservePreparedRepositoryContinuation('missing', transition)).toThrow();
   expect(store.hasUncertainOrdinaryCommand('session')).toBe(false);
 });
+
+it('retains operation uncertainty after metadata commit if native enqueue cannot complete', () => {
+  const store = fixture();
+  const reserved = store.reservePreparedRepositoryContinuation('session', transition);
+  store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+  store.markPreparedRepositoryContinuationUncertain(reserved.childCommandId);
+  expect(store.getOrdinaryLocalCommandAdmission(reserved.childCommandId)?.state).toBe('uncertain');
+  expect(store.hasUncertainOrdinaryCommand('session')).toBe(true);
+  expect(store.claimOrdinaryLocalCommandDispatch(reserved.childCommandId)).toBe(false);
+  expect(() =>
+    store.admitPreparedRepositoryPrimaryContinuation(
+      { ...meta, cwd: '/new', repositoryWorkspaceId: 'new' },
+      binding,
+      { ...original, clientMsgId: 'later', requestFingerprint: 'later' },
+      reserved.childCommandId,
+    ),
+  ).toThrow();
+});
