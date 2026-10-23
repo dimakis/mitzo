@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.597-qualified-local-repository-legacy-refusal';
+  'v1.0.598-qualified-original-preparation-authorization';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/fixtures/qualified-local-preparation-source.ts':
+    'cd4930e0d0fc3a94816d95b861a9fafe756115c3a0bc686d5430d5922a42165d',
   '../__tests__/qualified-local-repository-selection.test.ts':
     '589b8ac5c633eed195e509f4ec47cb9758fb788846e3d43eb949ce33cbb5b074',
   '../__tests__/prepared-repository-candidate.test.ts':
@@ -85,14 +87,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/fixtures/local-repository-read-owner.ts':
     '54892e9098eb368d7b31d54498e7ba6c390db333e55dfaa67d1139932c940376',
   '../local-repository-preparation-authorization.ts':
-    '5bc7da57270d0415bab9604d1bb3dfa2593a5052ad709b5ae4e5a6f621321e13',
+    'd9e9295b25d3f6099fbd531685db97820462a93fae1dae1285776d286e84cc75',
   '../__tests__/fixtures/local-preparation-native.ts':
     '637bad4d2224776051242607d1acd34459f3dcaa77fc7f93ae761f2b38c415fd',
   '../__tests__/local-repository-preparation-authorization.test.ts':
-    'b112bfe74d265c4abeefaf30ce82e07d344f84ba13a83b1f7fd9c85c63ef1523',
+    '3621d87762c222c8500b49b4e89ce5890e6fe6a6945208bbebfe85bcb9f897ee',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
-    '8f0a392870f844adf50fcf63d8138ed62de7ee668caa43cdd3912803cecec157',
-  '../pending-host-task.ts': '8a7883bbee6a9b29d0fdfca7b0c5d1e2b169d7bf33df67c76bf706dff5a196ae',
+    '82abad326d4a12e01e2d1dc417fb4405bfd5ee8c8684478616e819c15210f31e',
+  '../pending-host-task.ts': 'bb9bc4a4a1962390d07b26e4c4f175464d291aeb73bf0ba2b444ed70c944a910',
   '../__tests__/pending-host-task.test.ts':
     '286badb71f54d57b77e7b57116a566d1772d6c27b520131262ef58551f2ce01d',
   '../__tests__/local-repository-workspace-artifacts.test.ts':
@@ -1053,7 +1055,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '8d334e7f2e465ffbb66d4424f09adc04ca4695ce131fbd50d85226ccbf175d16',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
-  '../repository-workspaces.ts': 'c7040f37bcaddd0cda54f8fef1950b174d00de0decaa2546189e4682eb5fe55c',
+  '../repository-workspaces.ts': 'e77d417ac84956d0e30934b65898e01fc6d6e00c01f0523df0424e3da402aca8',
   '../../packages/protocol/src/session-metadata-store.ts':
     '019598b360106c0dd8babc08e9366e40c95c1dd4dca9ea649c37bc7d096b8358',
   '../../packages/protocol/src/event-store.ts':

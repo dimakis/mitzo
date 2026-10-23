@@ -32,6 +32,7 @@ it('pins the private preparation decision producer, same-row custody and signed 
     '../__tests__/native-exclusive-directory.test.ts',
     '../repository-workspaces.ts',
     '../__tests__/fixtures/local-preparation-native.ts',
+    '../__tests__/fixtures/qualified-local-preparation-source.ts',
     '../__tests__/local-repository-preparation-authorization.test.ts',
     '../__tests__/local-repository-preparation-artifacts.test.ts',
   ]) {

@@ -1558,6 +1558,8 @@ export class RepositoryWorkspaces {
       const digest = pendingHostTaskDecisionHash(facts);
       const labels = localRepositoryPreparationSourceFacts(facts);
       if (
+        facts.version !== 1 ||
+        !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(facts.baseOid) ||
         facts.workspaceId !== request.id ||
         facts.taskRoot.rootPath !== request.taskRoot ||
         facts.featureBranch !== `mitzo/repo-${request.id}` ||
@@ -2412,6 +2414,21 @@ export class RepositoryWorkspaces {
   }
   private pendingRecord(request: PendingHostTaskRequest) {
     const record = this.getHostRecord(request.id);
+    const qualified = record.qualifiedLocalPreparation;
+    if (
+      qualified &&
+      (qualified.version !== 1 ||
+        !isDeepStrictEqual(qualified.request, request) ||
+        qualified.allocationFacts.version !== 1 ||
+        qualified.allocationFacts.workspaceId !== request.id ||
+        qualified.allocationFacts.taskRoot.rootPath !== request.taskRoot ||
+        qualified.allocationFacts.source.qualification !== 'preparation' ||
+        qualified.allocationFacts.source.referenceCoverage !==
+          'preparation-head-and-namespace-v1' ||
+        qualified.allocationFactsSha256 !== record.sourceDigest ||
+        qualified.allocationFactsSha256 !== pendingHostTaskDecisionHash(qualified.allocationFacts))
+    )
+      throw new PendingHostTaskError('pending_host_task_ownership_changed');
     if (
       record.state !== 'ready' ||
       !record.localSource ||
@@ -2502,7 +2519,14 @@ export class RepositoryWorkspaces {
     };
     const common = record.localSource!.commonDirectory;
     const branchRef = join(common, 'refs', 'heads', record.featureBranch);
+    const qualified = record.qualifiedLocalPreparation;
     if (
+      ((qualified !== undefined || scope.allocationFactsSha256 !== undefined) &&
+        (!qualified ||
+          !isDeepStrictEqual(qualified.request, request) ||
+          !isDeepStrictEqual(qualified.oldWorkspace, scope.oldWorkspace) ||
+          scope.referenceCoverage !== 'preparation-head-and-namespace-v1' ||
+          scope.allocationFactsSha256 !== qualified.allocationFactsSha256)) ||
       (scope.oldWorkspace !== undefined &&
         !isDeepStrictEqual(scope.oldWorkspace, owner.context.workspace)) ||
       !isDeepStrictEqual(scope.create, { ...expected, intent: 'create' }) ||
@@ -2697,6 +2721,10 @@ export class RepositoryWorkspaces {
     phase: PendingHostTaskAccess['phase'],
     signal: AbortSignal,
   ): Promise<PendingHostTaskEffectScope> {
+    // Qualified preparation uses its retained native source/actor capability.
+    // A metadata-only consumed intent cannot admit the legacy ambient inspector.
+    if (record.qualifiedLocalPreparation)
+      throw new PendingHostTaskError('pending_host_task_access_required');
     const current = () => {
       this.assertPendingCurrent(request, signal);
       this.assertUnchangedHostRecord(record);
