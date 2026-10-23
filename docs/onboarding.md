@@ -614,6 +614,8 @@ Mitzo can create worktrees for Claude Code and Cursor sessions too, not just its
 
 This means all your AI tools — Mitzo, Claude Code, Cursor — share the same worktree infrastructure and the same `.mitzo.json` repo configuration.
 
+`POST /api/sessions` registers worktrees only. Any request containing `initialPrompt` returns `409 missing_runtime_selection` before allocation. Start model work through the ordinary chat or Telos workflow after selecting an account, model and execution target. Existing no-prompt session hooks keep their registration response and worktree prefixes.
+
 ## Updating
 
 ```bash

@@ -213,7 +213,7 @@ Auth via `ProtectedRoute` wrapper. Vite dev server proxies `/api` and `/ws` to b
 - **Enforcement:** `checkWorktreePolicy()` in `canUseTool` inspects Write/Edit/Bash tool inputs and denies out-of-worktree paths with a redirect message. The agent self-corrects. Read operations unrestricted.
 - **System prompt:** `buildWorktreeSystemPrompt()` lists ALL repo paths (including primary) so the agent has a lookup table for multi-repo navigation.
 - **Env vars:** `MITZO_SESSION_ID` + `MITZO_REPO_<NAME>` for every repo (including primary).
-- **External hooks:** `POST /api/sessions` (internal-token auth) creates worktrees for all repos. Cursor/Claude Code sessionStart hooks call this endpoint. Token persisted to `~/.mitzo/internal-token`.
+- **External hooks:** `POST /api/sessions` (internal-token auth) creates worktrees for all repos. Cursor/Claude Code sessionStart hooks call this endpoint. Token persisted to `~/.mitzo/internal-token`. This endpoint is registration-only: any supplied `initialPrompt` returns `409 missing_runtime_selection` before allocation. New model work must use an explicitly selected ordinary chat or Telos workflow.
 - **Cleanup:** Stale worktrees (>96h) cleaned up on startup. Scans both `.claude/worktrees/` and `.cursor/worktrees/`. Dirty worktrees (uncommitted work) are flagged in the mgmt inbox.
 - Sessions with explicit `cwd` or `resume` skip worktree creation.
 

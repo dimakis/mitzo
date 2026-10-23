@@ -358,12 +358,14 @@ export const WorkloadPromoteBody = z.object({
 
 export const SessionCreateBody = z.object({
   source: z.string().min(1),
-  /** Initial prompt to auto-send when the session starts (e.g. "/pr-shepherd mitzo#254"). */
+  /** Deprecated execution field retained for request compatibility. The
+   * registration endpoint rejects any supplied initialPrompt before parsing;
+   * new work uses the selected ordinary chat or Telos workflow. */
   initialPrompt: z.string().min(1).optional(),
-  /** Human-readable session title (e.g. "PR Shepherd: mitzo#254"). */
+  /** Historical title hint; worktree registration does not start a model session. */
   summary: z.string().max(200).optional(),
-  /** Agent mode — defaults to "agent". */
+  /** Historical execution hint, ignored for no-prompt worktree registration. */
   mode: z.enum(['ask', 'agent', 'auto']).default('agent'),
-  /** Model override. */
+  /** Historical execution hint; this endpoint cannot select an account or target. */
   model: z.string().optional(),
 });
