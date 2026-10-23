@@ -229,7 +229,9 @@ export interface CodexConversationOptions {
   startupSignal?: AbortSignal;
   beforeReconnect?: () => Promise<void>;
   /** Completed-turn boundary, before claiming queued work. */
-  beforeRuntimeAdmission?: (closeOwnedTransport: () => Promise<void>) => Promise<boolean>;
+  beforeRuntimeAdmission?:
+    | ((closeOwnedTransport: () => Promise<void>) => Promise<boolean>)
+    | { readonly kind: 'prepared-repository-primary'; admit(): Promise<void> };
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
   runtimeCwd?: string;
@@ -1987,18 +1989,28 @@ export class CodexConversation {
     if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
       await this.verifyCurrentBinding(this.binding);
       try {
-        const admit = async () => {
-          const changed = await this.opts.beforeRuntimeAdmission!(async () => {
-            this.transportGeneration += 1;
-            this.ready = false;
-            this.client.close();
-          });
-          if (changed || !this.ready) await this.reconnectBound();
-        };
-        // Hold the current grant reservation across migration and reattachment;
-        // validating only afterward could already provision revoked connections.
-        if (this.opts.reconnectGuard) await this.opts.reconnectGuard(admit);
-        else await admit();
+        const boundary = this.opts.beforeRuntimeAdmission;
+        if (typeof boundary !== 'function') {
+          if (!boundary || boundary.kind !== 'prepared-repository-primary' || !this.ready)
+            throw Error('Retained primary admission requires the original transport');
+          const admitted: unknown = await boundary.admit();
+          if (admitted !== undefined)
+            throw Error('Retained primary admission must settle without a value');
+          await this.verifyCurrentBinding(this.binding);
+        } else {
+          const admit = async () => {
+            const changed = await boundary(async () => {
+              this.transportGeneration += 1;
+              this.ready = false;
+              this.client.close();
+            });
+            if (changed || !this.ready) await this.reconnectBound();
+          };
+          // Hold the current grant reservation across migration and reattachment;
+          // validating only afterward could already provision revoked connections.
+          if (this.opts.reconnectGuard) await this.opts.reconnectGuard(admit);
+          else await admit();
+        }
       } catch (error) {
         // Admission precedes claimNext: preserve queued FIFO and expose an
         // explicit recovery pause even when only our idle transport was closed.
