@@ -8,6 +8,22 @@ import {
   agentToolAllowed,
 } from '../agent-tool-selection.js';
 
+it.each(['SearchPastSessions', 'ReadPastSession'])(
+  'registers %s only as optional owned-local read capability',
+  (name) => {
+    expect(agentToolCatalog().find((tool) => tool.name === name)).toMatchObject({
+      source: 'History',
+      behavior: 'read',
+      routes: ['codex-owned-local'],
+      required: false,
+    });
+    const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
+    expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
+    for (const route of ['codex', 'local-api', 'openshell', 'claude-sdk'])
+      expect(() => assertAgentToolRoute(definition, route)).toThrow();
+  },
+);
+
 it('derives descriptions from real registrations and separates required tools from optional refs', () => {
   const catalog = agentToolCatalog();
   for (const tool of credentialConnectionToolDefinitions)

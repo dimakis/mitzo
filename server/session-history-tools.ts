@@ -42,8 +42,8 @@ export interface HistoryAccess {
   assertCurrent(): void;
   assertCurrentAsync(): Promise<void>;
   authorizeSearch(query: string, signal: AbortSignal): Promise<void>;
-  /** Must reject hidden, unregistered, private or otherwise unauthorized targets,
-   * and enforce current per-conversation transcript-read consent. */
+  /** Must reject hidden, unregistered, private or otherwise unauthorized targets
+   * under the existing operator policy and applicable task/tool scope. */
   authorizeRead(conversationId: string, signal: AbortSignal): Promise<{ assertCurrent(): void }>;
   /** Called after authorization. Existing EventStore.captureReconnectState(id,
    * 0, false).cursor supplies a durable highwater without loading transcripts. */
