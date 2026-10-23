@@ -848,7 +848,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
   '../codex-conversation.ts': 'bc82fa634c406ac7e6bbf032b51825fe8cdd4fe359e52b9ede5d8c2e44d04af2',
   '../codex-conversation-store.ts':
-    '4ba64832d34f6e69c3602ada59620d1641297a0ba5f22b23215e9ac308869c9d',
+    '720dc77583650b05ed3276044af45d99036b2b2381205bf115be55c65708c584',
   '../symposium-custodian-ipc.ts':
     '8dcbf6aefbf29742b2828b7e8ca657aa294e8ee9601f52422ada469fac1731cc',
   '../symposium-custodian-authority.ts':
