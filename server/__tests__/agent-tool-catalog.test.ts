@@ -168,3 +168,23 @@ it.each(['TelosStartSlice', 'TelosWorkControl'])(
       expect(() => assertAgentToolRoute(definition, route)).toThrow();
   },
 );
+
+it.each(['DiscoverLocalRepository', 'InspectLocalRepository'])(
+  'classifies %s as an explicitly selected owned-local read with no generic route',
+  (name) => {
+    expect(agentToolCatalog().find((tool) => tool.name === name)).toMatchObject({
+      source: 'Local repositories',
+      behavior: 'read',
+      routes: ['codex-owned-local'],
+      required: false,
+    });
+    const definition = { tools: [{ id: `mitzo:${name}`, version: 1 }] } as never;
+    expect(() => assertAgentToolRoute(definition, 'codex-owned-local')).not.toThrow();
+    for (const route of ['codex', 'local-api', 'openshell', 'claude-sdk'])
+      expect(() => assertAgentToolRoute(definition, route)).toThrow();
+    const session = {} as never;
+    bindAgentToolSelection(session, definition, 'codex-owned-local');
+    expect(agentToolAllowed(session, name)).toBe(true);
+    expect(agentToolAllowed(session, 'PrepareLocalRepository')).toBe(false);
+  },
+);
