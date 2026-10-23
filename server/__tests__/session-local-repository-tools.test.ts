@@ -4,6 +4,10 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  fixtureReadAnchor,
+  fixtureReadExclusions,
+} from './fixtures/local-repository-read-owner.js';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
 import {
   sessionLocalRepositoryTools,
@@ -22,6 +26,9 @@ vi.mock('node:fs/promises', async (importOriginal) => {
     },
   };
 });
+
+// Descriptor-relative fixture I/O launches the isolated existing Python helper.
+vi.setConfig({ testTimeout: 30000 });
 
 let root: string;
 const git = (cwd: string, ...args: string[]) =>
@@ -55,7 +62,7 @@ afterEach(async () => {
   paths.resolved.length = 0;
   await rm(root, { recursive: true, force: true });
 });
-const signal = () => AbortSignal.timeout(10000);
+const signal = () => AbortSignal.timeout(30000);
 
 function fixture() {
   let current = true;
@@ -92,6 +99,10 @@ function fixture() {
         }) as unknown as NativeHostToolContext,
     ),
     readPolicy: vi.fn(async () => policy),
+    captureReadExclusions: vi.fn(fixtureReadExclusions),
+    captureReadAnchor: vi.fn(async (_context: NativeHostToolContext, path: string) =>
+      fixtureReadAnchor(path),
+    ),
     assertPathAccess: vi.fn(
       async (_context: NativeHostToolContext, _path: string, _signal: AbortSignal) => {},
     ),
@@ -180,7 +191,13 @@ describe('private Local Mac repository read tools', () => {
   });
 
   it('fails closed without a current policy owner or actual path authority', async () => {
-    for (const missing of ['capture', 'readPolicy', 'assertPathAccess'] as const) {
+    for (const missing of [
+      'capture',
+      'readPolicy',
+      'assertPathAccess',
+      'captureReadAnchor',
+      'captureReadExclusions',
+    ] as const) {
       const f = fixture();
       const owner = {
         ...f.owner,

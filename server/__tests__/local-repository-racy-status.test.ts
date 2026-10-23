@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inspectLocalRepository } from '../local-repository-discovery.js';
+import { inspectLocalRepository as inspectRepository } from '../local-repository-discovery.js';
 
 // Emulate Git builds/filesystems with coarse stat precision. The real Git process
 // still reads and hashes the fixture; no status output or index bytes are mocked.
@@ -26,6 +26,20 @@ vi.mock('node:child_process', async (importOriginal) => {
     }),
   };
 });
+
+import {
+  fixtureReadAnchor,
+  fixtureReadExclusions,
+} from './fixtures/local-repository-read-owner.js';
+const inspectLocalRepository = (request: Parameters<typeof inspectRepository>[0]) =>
+  inspectRepository({
+    captureReadAnchor: fixtureReadAnchor,
+    captureReadExclusions: fixtureReadExclusions,
+    ...request,
+  });
+
+// Descriptor-relative fixture I/O launches the isolated existing Python helper.
+vi.setConfig({ testTimeout: 30000 });
 
 let root: string | undefined;
 afterEach(async () => {

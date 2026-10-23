@@ -1,3 +1,4 @@
+import { freezeNativeReadExclusions } from './native-file-operation.js';
 import { createHash } from 'node:crypto';
 import type { ToolDefinition } from '@mitzo/harness';
 import { z } from 'zod';
@@ -8,6 +9,7 @@ import {
   type LocalRepositoryLimits,
   type LocalRepositoryReadScope,
 } from './local-repository-discovery.js';
+import type { LocalRepositoryReadAnchor } from './local-repository-read-access.js';
 import { LocalRepositoryGitInspectionError } from './local-repository-git-inspection.js';
 
 export const LOCAL_REPOSITORY_TOOL_INSTRUCTIONS =
@@ -44,6 +46,11 @@ export interface LocalRepositoryReadPolicy {
   assertCurrentSync(): void;
 }
 export interface SessionLocalRepositoryToolOwner {
+  /** Complete exclusions from the original actual read scope, not tool intent. */
+  captureReadExclusions(
+    context: NativeHostToolContext,
+    signal: AbortSignal,
+  ): Promise<readonly string[]>;
   /** Invoke captureNativeHostToolContext inside the original verified native
    * callback, before parsing tool intent. Never reconstruct it from tool JSON. */
   capture(name: string, input: Record<string, unknown>, signal: AbortSignal): NativeHostToolContext;
@@ -52,6 +59,12 @@ export interface SessionLocalRepositoryToolOwner {
     context: NativeHostToolContext,
     signal: AbortSignal,
   ): Promise<LocalRepositoryReadPolicy>;
+  /** Qualified owner-captured immutable filesystem anchor, never model intent. */
+  captureReadAnchor(
+    context: NativeHostToolContext,
+    path: string,
+    signal: AbortSignal,
+  ): Promise<LocalRepositoryReadAnchor>;
   /** Existing actual path authority, rechecked as an additional ceiling. */
   assertPathAccess(
     context: NativeHostToolContext,
@@ -78,7 +91,9 @@ export function sessionLocalRepositoryTools(owner: SessionLocalRepositoryToolOwn
     owner &&
     typeof owner.capture === 'function' &&
     typeof owner.readPolicy === 'function' &&
-    typeof owner.assertPathAccess === 'function';
+    typeof owner.assertPathAccess === 'function' &&
+    typeof owner.captureReadAnchor === 'function' &&
+    typeof owner.captureReadExclusions === 'function';
   return {
     definitions: supplied() ? localRepositoryToolDefinitions : [],
     async execute(
@@ -137,6 +152,22 @@ export function sessionLocalRepositoryTools(owner: SessionLocalRepositoryToolOwn
         const request = {
           ...snapshot,
           signal,
+          captureReadExclusions: async () => {
+            current();
+            await context!.assertCurrent();
+            current();
+            const exclusions = await owner.captureReadExclusions(context!, signal!);
+            current();
+            return freezeNativeReadExclusions(exclusions);
+          },
+          captureReadAnchor: async (path: string) => {
+            current();
+            await owner.assertPathAccess(context!, path, signal!);
+            current();
+            const anchor = await owner.captureReadAnchor(context!, path, signal!);
+            current();
+            return anchor;
+          },
           assertReadAccess: async (path: string) => {
             current();
             await owner.assertPathAccess(context!, path, signal!);

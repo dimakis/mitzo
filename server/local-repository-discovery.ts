@@ -1,8 +1,6 @@
-import { execFile } from 'node:child_process';
-import { constants } from 'node:fs';
-import { lstat, open, opendir, realpath } from 'node:fs/promises';
+import { freezeNativeReadExclusions } from './native-file-operation.js';
+import { realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { promisify } from 'node:util';
 import {
   inspectLocalRepositoryGitMetadata,
   isLocalRepositoryCredentialPath,
@@ -10,6 +8,14 @@ import {
   readLocalRepositoryStatus,
   type LocalRepositoryGitMetadata,
 } from './local-repository-git-inspection.js';
+import {
+  LocalRepositoryReadAccess,
+  type LocalRepositoryReadAnchor,
+} from './local-repository-read-access.js';
+import {
+  readLocalRepositoryGitFacts,
+  readLocalRepositoryWorktrees,
+} from './local-repository-git-snapshot.js';
 
 /** A projection of existing target read access, never a request to grant access.
  * The owner includes effective canonical denials and relevant lexical aliases;
@@ -29,12 +35,19 @@ export interface LocalRepositoryLimits {
   maxInstructionDirectories?: number;
 }
 interface ReadRequest {
+  /** Private original current-owner exclusions, never tool JSON. */
+  captureReadExclusions?(): Promise<readonly string[]>;
   accessScope: LocalRepositoryReadScope;
   limits?: LocalRepositoryLimits;
   signal?: AbortSignal;
   /** Private current-owner ceiling; mandatory in the native tool adapter.
    * This is ANDed with projected scope, never accepted from tool JSON. */
   assertReadAccess?(path: string, signal: AbortSignal | undefined): Promise<void>;
+  /** Actual owner identity capture, never inferred from model paths or projected scope. */
+  captureReadAnchor?(
+    path: string,
+    signal: AbortSignal | undefined,
+  ): Promise<LocalRepositoryReadAnchor>;
 }
 export interface LocalRepositoryDiscoveryRequest extends ReadRequest {
   query?: string;
@@ -56,6 +69,8 @@ export interface LocalRepositoryDiscoveryResult {
   state: 'selected' | 'ambiguous' | 'missing' | 'access-required';
   candidates: LocalRepositoryCandidate[];
   truncated: boolean;
+  /** Known ineligible exclusions; does not imply eligible search truncation. */
+  restricted?: true;
   limitReasons: string[];
   diagnostics: LocalRepositoryDiagnostic[];
   needed: Array<
@@ -101,7 +116,6 @@ export interface LocalRepositoryInspection {
   diagnostics: LocalRepositoryDiagnostic[];
 }
 
-const execute = promisify(execFile);
 const credentials = new Set([
   '.ssh',
   '.aws',
@@ -144,16 +158,30 @@ const errorCode = (error: unknown) => (error as NodeJS.ErrnoException)?.code;
 
 async function context(request: ReadRequest) {
   request.signal?.throwIfAborted();
+  const captureReadAnchor = request.captureReadAnchor;
+  if (typeof captureReadAnchor !== 'function')
+    throw new LocalRepositoryGitInspectionError('access', 'read-anchor-required');
+  if (typeof request.captureReadExclusions !== 'function')
+    throw new LocalRepositoryGitInspectionError('access', 'read-exclusions-required');
+  let actualExclusions: readonly string[];
+  try {
+    actualExclusions = freezeNativeReadExclusions(await request.captureReadExclusions());
+  } catch {
+    request.signal?.throwIfAborted();
+    throw new LocalRepositoryGitInspectionError('access', 'read-exclusions-required');
+  }
   const hostWide = request.accessScope.kind === 'host-wide';
   const suppliedRoots = request.accessScope.kind === 'roots' ? [...request.accessScope.roots] : [];
-  const suppliedDenials = [...(request.accessScope.deniedRoots ?? [])];
+  const suppliedDenials = freezeNativeReadExclusions([
+    ...new Set([...actualExclusions, ...(request.accessScope.deniedRoots ?? [])]),
+  ]);
   const limits = {
     maxDirectories: integer(request.limits?.maxDirectories, 2000, 10000),
     maxEntries: integer(request.limits?.maxEntries, 20000, 100000),
     maxGitMetadataEntries: integer(request.limits?.maxGitMetadataEntries, 100000, 500000),
     maxDepth: integer(request.limits?.maxDepth, 6, 20),
     maxCandidates: integer(request.limits?.maxCandidates, 20, 100),
-    timeoutMs: integer(request.limits?.timeoutMs, 5000, 30000),
+    timeoutMs: integer(request.limits?.timeoutMs, 15000, 30000),
     maxInstructionBytes: integer(request.limits?.maxInstructionBytes, 65536, 262144),
     maxTotalInstructionBytes: integer(request.limits?.maxTotalInstructionBytes, 262144, 1048576),
     maxInstructionDirectories: integer(request.limits?.maxInstructionDirectories, 32, 128),
@@ -198,7 +226,7 @@ async function context(request: ReadRequest) {
         continue;
       }
       if (denied(root)) {
-        diagnostics.push({ path: root, reason: 'read-access-required' });
+        diagnostics.push({ path: '', reason: 'read-access-required' });
         continue;
       }
       try {
@@ -209,7 +237,7 @@ async function context(request: ReadRequest) {
         await authorize(canonicalRoot);
         roots.push(canonicalRoot);
       } catch {
-        diagnostics.push({ path: root, reason: 'unavailable-access-root' });
+        diagnostics.push({ path: '', reason: 'unavailable-access-root' });
       }
     }
   }
@@ -231,41 +259,23 @@ async function context(request: ReadRequest) {
     await authorize(result);
     return result;
   };
-  const git = async (cwd: string, ...args: string[]) => {
-    check();
-    await authorize(cwd);
-    await metadata(cwd);
-    const result = await execute(
-      'git',
-      [
-        '--no-replace-objects',
-        '-C',
-        cwd,
-        '-c',
-        'core.fsmonitor=false',
-        '-c',
-        'core.hooksPath=/dev/null',
-        ...args,
-      ],
-      {
-        encoding: 'utf8',
-        timeout: Math.max(1, deadline - Date.now()),
-        maxBuffer: 262144,
-        signal: request.signal,
-        // Exclude inherited Git overrides, credentials and repository-selected hooks.
-        env: {
-          PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin',
-          GIT_CONFIG_SYSTEM: '/dev/null',
-          GIT_CONFIG_GLOBAL: '/dev/null',
-          GIT_NO_LAZY_FETCH: '1',
-          GIT_OPTIONAL_LOCKS: '0',
-          GIT_TERMINAL_PROMPT: '0',
-        },
-      },
-    );
-    await authorize(cwd);
-    return result.stdout;
-  };
+  const readAccess = new LocalRepositoryReadAccess({
+    deniedRoots: suppliedDenials,
+    assertReadable: async (path) => {
+      if (!isAbsolute(path) || !allowed(path))
+        throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+      await authorize(path);
+    },
+    captureReadAnchor: async (path) => {
+      await canonical(path);
+      const anchor = await captureReadAnchor(path, request.signal);
+      await canonical(path);
+      return anchor;
+    },
+    signal: request.signal,
+    deadline,
+  });
+  for (const root of roots) await readAccess.pinRoot(root);
   const inspected = new Map<string, LocalRepositoryGitMetadata>();
   const metadata = async (cwd: string) => {
     if (!inspected.has(cwd)) {
@@ -274,9 +284,12 @@ async function context(request: ReadRequest) {
         await inspectLocalRepositoryGitMetadata({
           path: cwd,
           assertReadable: async (path) => {
-            await canonical(path);
+            if (!isAbsolute(path) || !allowed(path))
+              throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+            await authorize(path);
           },
           signal: request.signal,
+          readAccess,
           maxEntries: limits.maxGitMetadataEntries,
           timeoutMs: Math.max(1, deadline - Date.now()),
         }),
@@ -293,7 +306,7 @@ async function context(request: ReadRequest) {
     allowed,
     check,
     canonical,
-    git,
+    readAccess,
     metadata,
     deniedContent,
     authorize,
@@ -319,16 +332,26 @@ export async function discoverLocalRepository(
     if (!result.limitReasons.includes(reason)) result.limitReasons.push(reason);
   };
   const candidate = async (path: string) => {
-    const top = await ctx.canonical((await ctx.git(path, 'rev-parse', '--show-toplevel')).trim());
+    await ctx.readAccess.pinRoot(path);
+    const metadata = await ctx.metadata(path);
+    await readLocalRepositoryGitFacts(metadata, {
+      readAccess: ctx.readAccess,
+      signal: request.signal,
+      timeoutMs: Math.max(1, ctx.deadline - Date.now()),
+    });
+    const top = metadata.path;
     if (!result.candidates.some((entry) => entry.path === top))
       result.candidates.push({ name: basename(top), path: top });
   };
   if (request.explicitPath) {
     try {
       await candidate(await ctx.canonical(request.explicitPath));
+      await ctx.readAccess.verify();
       result.state = 'selected';
+      if (ctx.readAccess.hasExclusionsWithin()) result.restricted = true;
     } catch (error) {
       request.signal?.throwIfAborted();
+      result.candidates = [];
       const missing = errorCode(error) === 'ENOENT';
       const limited = error instanceof LocalRepositoryGitInspectionError && error.kind === 'limit';
       const access = error instanceof LocalRepositoryGitInspectionError && error.kind === 'access';
@@ -349,7 +372,10 @@ export async function discoverLocalRepository(
             ? 'inspection-limit'
             : access
               ? 'read-access-required'
-              : 'inspection-unavailable',
+              : error instanceof LocalRepositoryGitInspectionError &&
+                  error.reason === 'bare-repository-unsupported'
+                ? 'bare-repository-unsupported'
+                : 'inspection-unavailable',
       });
     }
     return result;
@@ -369,7 +395,9 @@ export async function discoverLocalRepository(
   const queue: Array<{ path: string; depth: number }> = [];
   for (const path of scanRoots) {
     try {
-      queue.push({ path: await ctx.canonical(path), depth: 0 });
+      const canonicalPath = await ctx.canonical(path);
+      if (!ctx.readAccess.covers(canonicalPath)) await ctx.readAccess.pinRoot(canonicalPath);
+      queue.push({ path: canonicalPath, depth: 0 });
     } catch {
       request.signal?.throwIfAborted();
       result.diagnostics.push({ path, reason: 'read-access-required' });
@@ -403,12 +431,13 @@ export async function discoverLocalRepository(
       if (!ctx.allowed(markerPath))
         throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
       await ctx.authorize(markerPath);
-      const marker = await lstat(markerPath).catch(() => null);
-      if (
-        marker &&
-        (marker.isFile() || marker.isDirectory() || marker.isSymbolicLink()) &&
-        basename(current.path).toLocaleLowerCase().includes(query)
-      ) {
+      const listed = await ctx.readAccess.list(current.path);
+      const marker = listed.find((entry) => entry.name === '.git');
+      const bare =
+        listed.some((entry) => entry.name === 'HEAD' && entry.kind === 'file') &&
+        listed.some((entry) => entry.name === 'config' && entry.kind === 'file') &&
+        listed.some((entry) => entry.name === 'objects' && entry.kind === 'directory');
+      if ((marker || bare) && basename(current.path).toLocaleLowerCase().includes(query)) {
         await candidate(current.path);
         if (result.candidates.length >= ctx.limits.maxCandidates) {
           limit('candidates');
@@ -416,7 +445,11 @@ export async function discoverLocalRepository(
         }
       }
       await ctx.authorize(current.path);
-      const directory = await opendir(current.path);
+      const directory = listed.map((entry) => ({
+        name: entry.name,
+        isDirectory: () => entry.kind === 'directory',
+        isSymbolicLink: () => entry.kind === 'unsupported',
+      }));
       for await (const entry of directory) {
         request.signal?.throwIfAborted();
         await ctx.authorize(current.path);
@@ -446,10 +479,29 @@ export async function discoverLocalRepository(
         reason:
           error instanceof LocalRepositoryGitInspectionError && error.kind === 'access'
             ? 'read-access-required'
-            : 'inspection-unavailable',
+            : error instanceof LocalRepositoryGitInspectionError &&
+                error.reason === 'bare-repository-unsupported'
+              ? 'bare-repository-unsupported'
+              : 'inspection-unavailable',
       });
     }
   }
+  try {
+    await ctx.readAccess.verify();
+  } catch (error) {
+    request.signal?.throwIfAborted();
+    result.candidates = [];
+    const access = error instanceof LocalRepositoryGitInspectionError && error.kind === 'access';
+    if (error instanceof LocalRepositoryGitInspectionError && error.kind === 'limit')
+      limit(error.reason);
+    result.state = access ? 'access-required' : 'ambiguous';
+    result.needed = access ? ['read-access'] : result.truncated ? ['narrower-search'] : [];
+    result.diagnostics = [
+      { path: '', reason: access ? 'read-access-required' : 'inspection-unavailable' },
+    ];
+    return result;
+  }
+  if (ctx.readAccess.hasExclusionsWithin()) result.restricted = true;
   const exact = result.candidates.filter((entry) => entry.name.toLocaleLowerCase() === query);
   if (exact.length) result.candidates = exact;
   result.candidates.sort(
@@ -482,33 +534,27 @@ export async function inspectLocalRepository(
 ): Promise<LocalRepositoryInspection> {
   const ctx = await context(request);
   const cwd = await ctx.canonical(request.path);
+  await ctx.readAccess.pinRoot(cwd);
   const metadata = await ctx.metadata(cwd);
-  const path = await ctx.canonical((await ctx.git(cwd, 'rev-parse', '--show-toplevel')).trim());
-  const gitDirectory = (await ctx.git(path, 'rev-parse', '--absolute-git-dir')).trim();
-  const commonDirectory = (
-    await ctx.git(path, 'rev-parse', '--path-format=absolute', '--git-common-dir')
-  ).trim();
-  const branch = (await ctx.git(path, 'branch', '--show-current')).trim() || null;
-  let head: string | null = null;
-  try {
-    head = (await ctx.git(path, 'rev-parse', '--verify', 'HEAD')).trim();
-  } catch {
-    request.signal?.throwIfAborted(); /* Unborn repository. */
-  }
+  const path = metadata.path;
+  const { gitDirectory, commonDirectory } = metadata;
+  const { branch, head } = await readLocalRepositoryGitFacts(metadata, {
+    readAccess: ctx.readAccess,
+    signal: request.signal,
+    timeoutMs: Math.max(1, ctx.deadline - Date.now()),
+  });
   const diagnostics = ctx.diagnostics;
   const dirty: LocalRepositoryInspection['dirty'] = { state: 'unknown', entries: [] };
   try {
-    // Git status rehashes repository files. Its private config protects against
-    // executable filters, but cannot enforce path exclusions inside that tree.
+    // A bounded authorized private snapshot is the only status input. Reserve
+    // time for instructions and current-source verification after heavy copies.
     if (ctx.deniedContent(path)) throw Error('Dirty inspection contains denied paths');
     await ctx.authorize(path);
     const entries = (
       await readLocalRepositoryStatus(metadata, {
         signal: request.signal,
-        timeoutMs: Math.max(1, ctx.deadline - Date.now()),
-        assertReadable: async (path) => {
-          await ctx.canonical(path);
-        },
+        readAccess: ctx.readAccess,
+        timeoutMs: Math.max(1, Math.min(6000, ctx.deadline - Date.now() - 2000)),
       })
     ).split('\0');
     await ctx.authorize(path);
@@ -523,27 +569,21 @@ export async function inspectLocalRepository(
       });
     }
     dirty.state = dirty.entries.length ? 'dirty' : 'clean';
-  } catch {
+  } catch (error) {
     request.signal?.throwIfAborted();
     diagnostics.push({ path, reason: 'dirty-state-unavailable' });
+    if (error instanceof LocalRepositoryGitInspectionError)
+      diagnostics.push({ path, reason: error.reason });
   }
   const worktrees: LocalRepositoryInspection['worktrees'] = [];
   try {
-    const records = (await ctx.git(path, 'worktree', 'list', '--porcelain', '-z')).split('\0\0');
-    for (const record of records) {
-      const fields = record.split('\0');
-      const entry = fields.find((field) => field.startsWith('worktree '));
-      if (!entry) continue;
-      const field = (name: string) =>
-        fields.find((item) => item.startsWith(`${name} `))?.slice(name.length + 1);
-      worktrees.push({
-        path: entry.slice(9),
-        head: field('HEAD'),
-        branch: field('branch'),
-        locked: fields.some((item) => item === 'locked' || item.startsWith('locked ')),
-        prunable: fields.some((item) => item === 'prunable' || item.startsWith('prunable ')),
-      });
-    }
+    worktrees.push(
+      ...(await readLocalRepositoryWorktrees(metadata, {
+        readAccess: ctx.readAccess,
+        signal: request.signal,
+        timeoutMs: Math.max(1, ctx.deadline - Date.now()),
+      })),
+    );
   } catch {
     request.signal?.throwIfAborted();
     diagnostics.push({ path, reason: 'worktrees-unavailable' });
@@ -580,65 +620,72 @@ export async function inspectLocalRepository(
       }
       request.signal?.throwIfAborted();
       try {
-        await ctx.authorize(file);
-        const stat = await lstat(file);
-        await ctx.authorize(file);
-        if (!stat.isFile() && !stat.isSymbolicLink()) {
-          instructions.omitted.push({ path: file, reason: 'not-regular-file' });
-          continue;
-        }
-        let resolvedPath: string;
+        let resolvedPath = file;
+        let alias = false;
+        const visited = new Set<string>();
+        let entry;
         try {
-          resolvedPath = await ctx.canonical(file);
+          for (;;) {
+            if (visited.has(resolvedPath) || visited.size >= 16)
+              throw Error('Instruction alias limit');
+            visited.add(resolvedPath);
+            // The target is separately authorized before capturing its actual
+            // directory anchor. Link text alone never widens the read scope.
+            await ctx.readAccess.assertPath(resolvedPath);
+            if (!ctx.readAccess.covers(dirname(resolvedPath)))
+              await ctx.readAccess.pinRoot(dirname(resolvedPath));
+            entry = await ctx.readAccess.stat(resolvedPath);
+            if (!entry) break;
+            if ((entry.mode & 0o170000) !== 0o120000) break;
+            alias = true;
+            resolvedPath = resolve(
+              dirname(resolvedPath),
+              await ctx.readAccess.readLink(resolvedPath),
+            );
+          }
         } catch (error) {
           request.signal?.throwIfAborted();
-          if (!stat.isSymbolicLink()) throw error;
+          if (!alias) throw error;
           instructions.omitted.push({ path: file, reason: 'symlink' });
           continue;
         }
+        if (!entry) continue;
         if (remaining <= 0) {
           instructions.omitted.push({ path: file, reason: 'byte-limit' });
           continue;
         }
-        // O_NOFOLLOW closes the final-component symlink race; fstat rejects special files.
-        const handle = await open(
-          resolvedPath,
-          constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-        );
-        try {
-          await ctx.authorize(resolvedPath);
-          const opened = await handle.stat();
-          if (!opened.isFile()) {
-            instructions.omitted.push({ path: file, reason: 'not-regular-file' });
-            continue;
-          }
-          if ((await ctx.canonical(file)) !== resolvedPath) {
-            instructions.omitted.push({ path: file, reason: 'changed-during-read' });
-            continue;
-          }
-          const cap = Math.min(remaining, ctx.limits.maxInstructionBytes);
-          const buffer = Buffer.alloc(Math.min(opened.size, cap));
-          await ctx.authorize(resolvedPath);
-          const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-          await ctx.authorize(resolvedPath);
-          const truncated = opened.size > bytesRead;
-          remaining -= bytesRead;
-          instructions.files.push({
-            path: file,
-            resolvedPath,
-            identity: { dev: opened.dev, ino: opened.ino },
-            content: buffer.subarray(0, bytesRead).toString('utf8'),
-            truncated,
-          });
-        } finally {
-          await handle.close();
+        if (!entry || entry.kind !== 'file' || entry.nlink !== 1) {
+          instructions.omitted.push({ path: file, reason: 'not-regular-file' });
+          continue;
         }
+        const cap = Math.min(remaining, ctx.limits.maxInstructionBytes);
+        const bytes = await ctx.readAccess.readPrefix(resolvedPath, Math.max(1, cap));
+        remaining -= bytes.length;
+        instructions.files.push({
+          path: file,
+          resolvedPath,
+          identity: { dev: Number(entry.identity.dev), ino: Number(entry.identity.ino) },
+          content: bytes.toString('utf8'),
+          truncated: bytes.length < entry.size,
+        });
       } catch (error) {
         request.signal?.throwIfAborted();
         if (errorCode(error) !== 'ENOENT')
           instructions.omitted.push({ path: file, reason: 'read-unavailable' });
       }
     }
+  }
+  await ctx.readAccess.verify();
+  if (ctx.readAccess.hasExclusionsWithin()) {
+    if (
+      ctx.readAccess.hasExclusionsWithin(path) ||
+      ctx.readAccess.hasExclusionsWithin(gitDirectory) ||
+      ctx.readAccess.hasExclusionsWithin(commonDirectory)
+    ) {
+      dirty.state = 'unknown';
+      dirty.entries = [];
+      diagnostics.push({ path, reason: 'read-scope-incomplete' });
+    } else diagnostics.push({ path: '', reason: 'restricted-read-scope' });
   }
   instructions.complete =
     !instructions.omitted.length && !instructions.files.some((file) => file.truncated);

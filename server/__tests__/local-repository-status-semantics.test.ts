@@ -3,12 +3,24 @@ import { execFileSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inspectLocalRepository } from '../local-repository-discovery.js';
+import { inspectLocalRepository as inspectRepository } from '../local-repository-discovery.js';
 import {
   inspectLocalRepositoryGitMetadata,
   readLocalRepositoryStatus,
 } from '../local-repository-git-inspection.js';
 
+import {
+  fixtureReadAnchor,
+  fixtureReadExclusions,
+} from './fixtures/local-repository-read-owner.js';
+import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
+const inspectLocalRepository = (request: Parameters<typeof inspectRepository>[0]) =>
+  inspectRepository({
+    captureReadAnchor: fixtureReadAnchor,
+    captureReadExclusions: fixtureReadExclusions,
+    ...request,
+  });
+vi.setConfig({ testTimeout: 30000 });
 let root: string | undefined;
 afterEach(async () => {
   if (root) await rm(root, { recursive: true, force: true });
@@ -150,16 +162,25 @@ it('requires explicit read authorization before consuming exclude bytes', async 
   await mkdir(join(f.path, '.git', 'info'), { recursive: true });
   const exclude = join(f.path, '.git', 'info', 'exclude');
   await writeFile(exclude, 'private-local.txt\n');
-  const metadata = await inspectLocalRepositoryGitMetadata({
-    path: f.path,
-    assertReadable: async () => {},
-  });
   const assertReadable = vi.fn(async (path: string) => {
     if (path === exclude) throw Error('Denied exclude');
   });
+  const access = new LocalRepositoryReadAccess({
+    deniedRoots: Object.freeze([]),
+    assertReadable,
+    captureReadAnchor: fixtureReadAnchor,
+    deadline: Date.now() + 30000,
+  });
+  await access.pinRoot(f.path);
+  const metadata = await inspectLocalRepositoryGitMetadata({
+    path: f.path,
+    assertReadable: async () => {},
+    readAccess: access,
+    timeoutMs: 30000,
+  });
   await expect(
-    readLocalRepositoryStatus(metadata, { timeoutMs: 5000, assertReadable }),
-  ).rejects.toThrow('Denied exclude');
+    readLocalRepositoryStatus(metadata, { timeoutMs: 10000, readAccess: access }),
+  ).rejects.toMatchObject({ kind: 'access', reason: 'read-access-required' });
   expect(assertReadable).toHaveBeenCalledWith(exclude);
 });
 

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import {
   mkdtemp,
@@ -12,7 +12,30 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { discoverLocalRepository, inspectLocalRepository } from '../local-repository-discovery.js';
+import {
+  discoverLocalRepository as discoverRepository,
+  inspectLocalRepository as inspectRepository,
+} from '../local-repository-discovery.js';
+
+import {
+  fixtureReadAnchor,
+  fixtureReadExclusions,
+} from './fixtures/local-repository-read-owner.js';
+const discoverLocalRepository = (request: Parameters<typeof discoverRepository>[0]) =>
+  discoverRepository({
+    captureReadAnchor: fixtureReadAnchor,
+    captureReadExclusions: fixtureReadExclusions,
+    ...request,
+  });
+const inspectLocalRepository = (request: Parameters<typeof inspectRepository>[0]) =>
+  inspectRepository({
+    captureReadAnchor: fixtureReadAnchor,
+    captureReadExclusions: fixtureReadExclusions,
+    ...request,
+  });
+
+// Descriptor-relative fixture I/O launches the isolated existing Python helper.
+vi.setConfig({ testTimeout: 30000 });
 
 let root: string;
 const git = (cwd: string, ...args: string[]) =>
@@ -144,6 +167,8 @@ describe('bounded repository discovery', () => {
     const result = await discoverLocalRepository({ query: 'secret', accessScope: scope() });
     expect(result.candidates).toEqual([]);
     expect(result.truncated).toBe(false);
+    expect(result.restricted).toBe(true);
+    expect(JSON.stringify(result)).not.toContain('.ssh');
     expect(
       (
         await discoverLocalRepository({

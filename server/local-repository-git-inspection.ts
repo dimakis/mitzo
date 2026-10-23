@@ -1,19 +1,10 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  open,
-  opendir,
-  realpath,
-  rm,
-  utimes,
-  writeFile,
-} from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { lstat, open, opendir, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
+import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
+import { readLocalRepositorySnapshotStatus } from './local-repository-git-snapshot.js';
 
 const execute = promisify(execFile);
 const env = {
@@ -37,6 +28,10 @@ const credentialDirectories = new Set([
   'Keychains',
 ]);
 const agentDirectories = new Set(['.claude', '.cursor', '.codex']);
+/** Static restrictions only; no filesystem probes or authority grants. */
+export function localRepositoryReadDirectoryExclusions(directory: string) {
+  return [...credentialDirectories, ...agentDirectories].map((name) => join(directory, name));
+}
 export function isLocalRepositoryCredentialPath(path: string) {
   const parts = resolve(path).split(sep);
   return parts.some(
@@ -52,6 +47,8 @@ export interface LocalRepositoryGitInspectionRequest {
   signal?: AbortSignal;
   maxEntries?: number;
   timeoutMs?: number;
+  /** Qualified private reader for product read-tools; legacy workspace preflight retains its own boundary. */
+  readAccess?: LocalRepositoryReadAccess;
 }
 export interface LocalRepositoryComparisonConfig {
   readonly coreAutocrlf?: boolean | 'input';
@@ -63,7 +60,7 @@ export interface LocalRepositoryGitMetadata {
   path: string;
   gitDirectory: string;
   commonDirectory: string;
-  /** Validated scalar semantics only; never source configuration bytes or executable settings. */
+  objectFormat: 'sha1' | 'sha256';
   comparisonConfig: Readonly<LocalRepositoryComparisonConfig>;
 }
 
@@ -93,7 +90,8 @@ async function readRegular(path: string, maxBytes: number) {
 }
 
 function comparisonBoolean(value: string | undefined): boolean {
-  if (value === undefined || ['true', 'yes', 'on', '1'].includes(value.toLowerCase())) return true;
+  if (value === undefined || ['true', 'yes', 'on', '1'].includes((value ?? 'true').toLowerCase()))
+    return true;
   if (['', 'false', 'no', 'off', '0'].includes(value.toLowerCase())) return false;
   throw new LocalRepositoryGitInspectionError('unsafe', 'comparison-configuration-unsupported');
 }
@@ -147,53 +145,95 @@ export async function inspectLocalRepositoryGitMetadata(
     check();
     try {
       await request.assertReadable(path);
+      check();
     } catch (error) {
       request.signal?.throwIfAborted();
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw error;
       throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
     }
   };
+  const stat = async (path: string) => {
+    if (!request.readAccess) return lstat(path);
+    const value = await request.readAccess.stat(path);
+    if (!value) throw Object.assign(Error('Git metadata unavailable'), { code: 'ENOENT' });
+    return {
+      isFile: () => value.kind === 'file',
+      isDirectory: () => value.kind === 'directory',
+      isSymbolicLink: () => value.kind === 'unsupported',
+    };
+  };
+  const read = (path: string, limit: number) =>
+    request.readAccess ? request.readAccess.read(path, limit) : readRegular(path, limit);
   const physical = async (path: string) => {
     check();
+    if (request.readAccess && !request.readAccess.covers(path))
+      await request.readAccess.pinRoot(path);
     if (!isAbsolute(path) || isLocalRepositoryCredentialPath(path))
       throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
     await authorize(path);
-    if ((await realpath(path)) !== path || (await lstat(path)).isSymbolicLink())
+    if (
+      (!request.readAccess && (await realpath(path)) !== path) ||
+      (await stat(path)).isSymbolicLink()
+    )
       throw new LocalRepositoryGitInspectionError('unsafe', 'symlinks-unavailable');
   };
   let path = resolve(request.path);
-  let marker: Awaited<ReturnType<typeof lstat>>;
+  let marker: Awaited<ReturnType<typeof stat>>;
   for (;;) {
     await physical(path);
     try {
       const markerPath = join(path, '.git');
       await authorize(markerPath);
-      marker = await lstat(markerPath);
+      marker = await stat(markerPath);
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || dirname(path) === path) throw error;
+      if (request.readAccess) {
+        const entries = await request.readAccess.list(path);
+        if (
+          entries.some((entry) => entry.name === 'HEAD' && entry.kind === 'file') &&
+          entries.some((entry) => entry.name === 'config' && entry.kind === 'file') &&
+          entries.some((entry) => entry.name === 'objects' && entry.kind === 'directory')
+        )
+          throw new LocalRepositoryGitInspectionError('unsafe', 'bare-repository-unsupported');
+      }
       path = dirname(path);
     }
   }
+  await request.readAccess?.pinRoot(path);
   if (marker.isSymbolicLink())
     throw new LocalRepositoryGitInspectionError('unsafe', 'symlinks-unavailable');
   let gitDirectory = join(path, '.git');
   await authorize(gitDirectory);
   if (marker.isFile()) {
-    const text = (await readRegular(gitDirectory, 4096)).toString('utf8');
+    const text = (await read(gitDirectory, 4096)).toString('utf8');
     const match = /^gitdir: ([^\r\n\0]+)\r?\n?$/.exec(text);
     if (!match) throw Error('Git metadata pointer is invalid');
     gitDirectory = resolve(path, match[1]);
   } else if (!marker.isDirectory()) throw Error('Git metadata is unavailable');
-  await physical(gitDirectory);
+  try {
+    await request.readAccess?.pinRoot(gitDirectory);
+    await physical(gitDirectory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === 'ENOENT')
+      throw new LocalRepositoryGitInspectionError('unsafe', 'git-storage-unavailable');
+    throw error;
+  }
   let commonDirectory = gitDirectory;
   try {
     const commonFile = join(gitDirectory, 'commondir');
     await authorize(commonFile);
-    const value = (await readRegular(commonFile, 4096)).toString('utf8');
+    const value = (await read(commonFile, 4096)).toString('utf8');
     if (!/^[^\r\n\0]+\r?\n?$/.test(value)) throw Error('Git common metadata pointer is invalid');
     commonDirectory = resolve(gitDirectory, value.trimEnd());
-    await physical(commonDirectory);
+    try {
+      await request.readAccess?.pinRoot(commonDirectory);
+      await physical(commonDirectory);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT')
+        throw new LocalRepositoryGitInspectionError('unsafe', 'git-storage-unavailable');
+      throw error;
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
@@ -206,7 +246,13 @@ export async function inspectLocalRepositoryGitMetadata(
     if (visited.has(directory)) continue;
     visited.add(directory);
     await physical(directory);
-    const opened = await opendir(directory);
+    const opened = request.readAccess
+      ? (await request.readAccess.list(directory)).map((entry) => ({
+          name: entry.name,
+          isSymbolicLink: () => entry.kind === 'unsupported',
+          isDirectory: () => entry.kind === 'directory',
+        }))
+      : await opendir(directory);
     for await (const entry of opened) {
       check();
       if (++entries > Math.max(1, Math.min(request.maxEntries ?? 100000, 500000)))
@@ -218,6 +264,7 @@ export async function inspectLocalRepositoryGitMetadata(
         pending.push(join(directory, entry.name));
     }
   }
+  let objectFormat: 'sha1' | 'sha256' = 'sha1';
   const parsedConfigs = new Map<string, Array<{ key: string; value: string | undefined }>>();
   for (const directory of new Set([gitDirectory, commonDirectory])) {
     for (const name of ['config', 'config.worktree']) {
@@ -225,7 +272,7 @@ export async function inspectLocalRepositoryGitMetadata(
       const config = join(directory, name);
       try {
         await authorize(config);
-        const bytes = await readRegular(config, 65536);
+        const bytes = await read(config, 65536);
         // Parse bounded stdin with Git's grammar, outside any repository, without includes.
         const parser = execute(
           'git',
@@ -240,7 +287,19 @@ export async function inspectLocalRepositoryGitMetadata(
           },
         );
         parser.child.stdin?.end(bytes);
-        const { stdout } = await parser;
+        let stdout: string;
+        try {
+          ({ stdout } = await parser);
+        } catch (error) {
+          request.signal?.throwIfAborted();
+          if (request.readAccess)
+            throw new LocalRepositoryGitInspectionError(
+              'unsafe',
+              'configuration-parser-unavailable',
+            );
+          throw error;
+        }
+        await authorize(config);
         const parsed: Array<{ key: string; value: string | undefined }> = [];
         parsedConfigs.set(config, parsed);
         for (const entry of stdout.split('\0').filter(Boolean)) {
@@ -262,6 +321,16 @@ export async function inspectLocalRepositoryGitMetadata(
               'configuration-extension-unsupported',
             );
           if (
+            key === 'core.bare' &&
+            ['true', 'yes', 'on', '1'].includes((value ?? 'true').toLowerCase())
+          )
+            throw new LocalRepositoryGitInspectionError('unsafe', 'bare-repository-unsupported');
+          if (key === 'extensions.objectformat') {
+            if (value !== 'sha1' && value !== 'sha256')
+              throw new LocalRepositoryGitInspectionError('unsafe', 'object-format-unsupported');
+            objectFormat = value;
+          }
+          if (
             key === 'core.worktree' &&
             (value === undefined || resolve(directory, value) !== path)
           )
@@ -277,17 +346,19 @@ export async function inspectLocalRepositoryGitMetadata(
     for (const name of ['objects/info/alternates', 'objects/info/http-alternates']) {
       try {
         await authorize(join(directory, name));
-        if ((await readRegular(join(directory, name), 65536)).toString('utf8').trim())
+        if ((await read(join(directory, name), 65536)).toString('utf8').trim())
           throw new LocalRepositoryGitInspectionError('unsafe', 'alternate-storage-unavailable');
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
   }
+  await authorize(path);
   return {
     path,
     gitDirectory,
     commonDirectory,
+    objectFormat,
     comparisonConfig: comparisonConfig(
       parsedConfigs.get(join(commonDirectory, 'config')) ?? [],
       parsedConfigs.get(join(gitDirectory, 'config.worktree')) ?? [],
@@ -295,106 +366,10 @@ export async function inspectLocalRepositoryGitMetadata(
   };
 }
 
-/** Uses the established private Git-directory inspection pattern, never source filters/config. */
+/** Product read-tools never give Git an original source path. */
 export async function readLocalRepositoryStatus(
   metadata: LocalRepositoryGitMetadata,
-  options: {
-    signal?: AbortSignal;
-    timeoutMs: number;
-    assertReadable: (path: string) => Promise<void>;
-  },
+  options: { signal?: AbortSignal; timeoutMs: number; readAccess: LocalRepositoryReadAccess },
 ): Promise<string> {
-  if (metadata.comparisonConfig.unsupported)
-    throw new LocalRepositoryGitInspectionError('unsafe', 'comparison-configuration-unsupported');
-  const deadline = Date.now() + options.timeoutMs;
-  const run = async (args: string[], extraEnv = {}) =>
-    (
-      await execute('git', args, {
-        env: { ...env, ...extraEnv },
-        signal: options.signal,
-        timeout: Math.max(1, deadline - Date.now()),
-        maxBuffer: 262144,
-        encoding: 'utf8',
-      })
-    ).stdout;
-  const format = (await run(['-C', metadata.path, 'rev-parse', '--show-object-format'])).trim();
-  if (!['sha1', 'sha256'].includes(format)) throw Error('Unsupported Git object format');
-  const scratch = await mkdtemp(join(tmpdir(), 'mitzo-git-inspection-'));
-  try {
-    await run([
-      'init',
-      '--quiet',
-      '--template=',
-      '--initial-branch=mitzo-inspect',
-      `--object-format=${format}`,
-      scratch,
-    ]);
-    const gitDirectory = join(scratch, '.git');
-    await writeFile(
-      join(gitDirectory, 'HEAD'),
-      await readRegular(join(metadata.gitDirectory, 'HEAD'), 4096),
-    );
-    // Copy the index, never source config, hooks, attributes, credentials or worktree metadata.
-    try {
-      await writeFile(
-        join(gitDirectory, 'index'),
-        await readRegular(join(metadata.gitDirectory, 'index'), 16 * 1024 * 1024),
-      );
-      // A newer scratch timestamp can hide same-size edits within the source
-      // index's racy-clean window. A nonzero old timestamp forces Git to rehash
-      // cached file entries; zero disables Git's racy-timestamp check.
-      await utimes(join(gitDirectory, 'index'), 1, 1);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-    // info/exclude is data, not executable configuration. Preserve bounded,
-    // currently authorized common-worktree rules so ignored names stay private.
-    const exclude = join(metadata.commonDirectory, 'info', 'exclude');
-    try {
-      await options.assertReadable(exclude);
-      const rules = await readRegular(exclude, 65536);
-      options.signal?.throwIfAborted();
-      await options.assertReadable(exclude);
-      await mkdir(join(gitDirectory, 'info'), { recursive: true });
-      await writeFile(join(gitDirectory, 'info', 'exclude'), rules, { mode: 0o600 });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-    // Resolve the original HEAD to an OID so the private directory needs no source refs.
-    try {
-      const head = (await run(['-C', metadata.path, 'rev-parse', '--verify', 'HEAD'])).trim();
-      if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(head)) throw Error('Invalid Git HEAD');
-      await writeFile(join(gitDirectory, 'HEAD'), head + '\n');
-    } catch (error) {
-      if ((error as { code?: unknown }).code !== 128) throw error;
-    }
-    return await run(
-      [
-        '-C',
-        metadata.path,
-        '-c',
-        'core.fsmonitor=false',
-        '-c',
-        'core.hooksPath=/dev/null',
-        ...(metadata.comparisonConfig.coreAutocrlf !== undefined
-          ? ['-c', `core.autocrlf=${metadata.comparisonConfig.coreAutocrlf}`]
-          : []),
-        ...(metadata.comparisonConfig.coreFileMode !== undefined
-          ? ['-c', `core.filemode=${metadata.comparisonConfig.coreFileMode}`]
-          : []),
-        'status',
-        '--porcelain=v1',
-        '-z',
-        '--untracked-files=normal',
-        '--ignore-submodules=all',
-      ],
-      {
-        GIT_DIR: gitDirectory,
-        GIT_WORK_TREE: metadata.path,
-        GIT_OBJECT_DIRECTORY: join(metadata.commonDirectory, 'objects'),
-      },
-    );
-  } finally {
-    await rm(scratch, { recursive: true, force: true });
-  }
+  return readLocalRepositorySnapshotStatus(metadata, options);
 }

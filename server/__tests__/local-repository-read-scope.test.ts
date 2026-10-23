@@ -4,10 +4,30 @@ import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  discoverLocalRepository,
-  inspectLocalRepository,
+  discoverLocalRepository as discoverRepository,
+  inspectLocalRepository as inspectRepository,
   type LocalRepositoryReadScope,
 } from '../local-repository-discovery.js';
+
+import {
+  fixtureReadAnchor,
+  fixtureReadExclusions,
+} from './fixtures/local-repository-read-owner.js';
+const discoverLocalRepository = (request: Parameters<typeof discoverRepository>[0]) =>
+  discoverRepository({
+    captureReadAnchor: fixtureReadAnchor,
+    captureReadExclusions: fixtureReadExclusions,
+    ...request,
+  });
+const inspectLocalRepository = (request: Parameters<typeof inspectRepository>[0]) =>
+  inspectRepository({
+    captureReadAnchor: fixtureReadAnchor,
+    captureReadExclusions: fixtureReadExclusions,
+    ...request,
+  });
+
+// Descriptor-relative fixture I/O launches the isolated existing Python helper.
+vi.setConfig({ testTimeout: 30000 });
 
 let root: string;
 const statusReads = vi.hoisted(() => vi.fn());
@@ -65,8 +85,14 @@ describe.each(['roots', 'host-wide'] as const)('effective denied roots with %s a
       discoveryRoots: [root],
       accessScope: scope([denied]),
     });
-    expect(result).toMatchObject({ state: 'selected', candidates: [{ path: allowed }] });
+    expect(result).toMatchObject({
+      state: 'selected',
+      candidates: [{ path: allowed }],
+      truncated: false,
+      restricted: true,
+    });
     expect(result.diagnostics).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain(denied);
   });
 
   it('denies both an explicit denied path and an allowed alias to its canonical target', async () => {
