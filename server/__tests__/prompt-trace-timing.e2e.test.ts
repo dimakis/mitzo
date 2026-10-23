@@ -22,9 +22,17 @@ import type { SessionSseRegistry } from '../session-sse-registry.js';
 import type { ConnectionRegistry } from '@mitzo/harness';
 
 const services = vi.hoisted(() => ({ workspace: undefined as unknown }));
-vi.mock('../repository-workspace-runtime.js', async (original) => ({
-  ...(await original<object>()),
+// Do not import the real singleton while constructing this mock: the combined
+// read/preparation graph can re-enter it and retain an unmocked singleton getter.
+// The fixture still supplies the actual private RepositoryWorkspaces owner.
+vi.mock('../repository-workspace-runtime.js', () => ({
   getOrdinaryWorkspaces: () => services.workspace,
+  getRepositoryWorkspaces: () => {
+    throw Error('No repository singleton in ordinary timing fixture');
+  },
+  getLocalRepositoryWorkspaces: () => {
+    throw Error('No local repository singleton in ordinary timing fixture');
+  },
 }));
 vi.mock('../internal-token.js', () => ({
   INTERNAL_TOKEN: 'synthetic-only-ordinary-native-token',
