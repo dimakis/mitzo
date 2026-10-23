@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/harness/__tests__/permission-decision-observation.test.ts':
-    '9015a6d277857def583a07698a0b8221fdbadd5914cd4973a24f1960220861fd',
+    '39d21cd288fcea4100fc8d748cea8344a8310b6c0691653889711226bc234023',
   '../codex-tool-result.ts': '661156d265f7ba2ea92fb7facd4fdb057af454f24d69d65131edbe7f3f7d4667',
 
   '../../implementation-evidence/codex-native-macos-permission-kernel-0.160.0.json':
@@ -734,7 +734,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/store.ts':
     '7a29a55e11501f86abc2e1eaca59b90fb24aacab8a40c95d2ea119787680174f',
   '../../packages/harness/src/permission-handler.ts':
-    '1b6c4cdc9a894ef04ede97a48e00ab4426c9e4cad6863a48de943fe372a52dd8',
+    'ded77a1bb6dc8c81ec80ee8a0cafb2691cc90a6b088b12c3559b06a0c7b4b05a',
   '../../packages/harness/src/permissions.ts':
     '546e88401d53f36462c338ec4ac4b4fe86e257cdc39e4f9af44b04989fa05733',
   '../../packages/protocol/src/session-approval-scope.ts':

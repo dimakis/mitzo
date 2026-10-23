@@ -132,6 +132,54 @@ describe('private one-shot decision observation', () => {
     },
   );
 
+  it.each([
+    ['before-response', 'controlPlane'],
+    ['inside-observer', 'controlPlane'],
+    ['before-response', 'allowSessionGrant'],
+    ['inside-observer', 'allowSessionGrant'],
+  ] as const)('settles once when %s introduces a throwing %s accessor', async (phase, property) => {
+    const f = fixture();
+    const lifecycle: string[] = [];
+    let retainedEvidence = false;
+    cleanups.push(
+      onPermissionLifecycle((event) => {
+        if (event.type === 'resolved') lifecycle.push(event.resolution);
+      }),
+    );
+    const mutate = () =>
+      Object.defineProperty(pending.options, property, {
+        get() {
+          throw Error('synthetic private accessor detail');
+        },
+        configurable: true,
+      });
+    const observed = vi.fn(() => {
+      retainedEvidence = true;
+      if (phase === 'inside-observer') mutate();
+    });
+    const pending: ReturnType<typeof f.start> = f.start(observed);
+    await Promise.resolve();
+    const card = f.card();
+    const detached = vi.spyOn(f.abort.signal, 'removeEventListener');
+    if (phase === 'before-response') mutate();
+    expect(() =>
+      resolvePending(card.permId as string, 'once', undefined, 'original-session'),
+    ).not.toThrow();
+    const result = await pending.result;
+    expect(result.behavior).toBe('deny');
+    expect(JSON.stringify(result)).not.toContain('synthetic private accessor detail');
+    expect(hasPending(card.permId as string)).toBe(false);
+    expect(f.sent.filter((event) => event.type === 'permission_resolved')).toHaveLength(1);
+    expect(lifecycle).toEqual(['denied']);
+    expect(detached).toHaveBeenCalledOnce();
+    expect(observed).toHaveBeenCalledTimes(phase === 'inside-observer' ? 1 : 0);
+    expect(retainedEvidence).toBe(phase === 'inside-observer');
+    expect(resolvePending(card.permId as string, 'once', undefined, 'original-session')).toBe(
+      false,
+    );
+    expect(f.registry.get('client')!.sessionAllowList.size).toBe(0);
+  });
+
   it('observes immutable original evidence once before outward allow and lifecycle', async () => {
     const f = fixture();
     const decisions: Decision[] = [];

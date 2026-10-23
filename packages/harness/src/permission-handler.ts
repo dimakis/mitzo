@@ -516,36 +516,45 @@ export function buildPermissionHandler(
       let timeout: ReturnType<typeof setTimeout> | undefined = undefined;
       // Shared pre/post-observer fence; callbacks cannot make a checked allow stale.
       const revalidateAllow = (result: PermissionResult): PermissionResult => {
-        if (result.behavior !== 'allow') return result;
-        const activeClient = currentClientId();
-        const modeDenial = askDenial();
-        if (!nativeScopeCurrent())
-          return { behavior: 'deny', message: 'Original native source scope changed' };
-        if (!activeClient)
-          return { behavior: 'deny', message: 'Session permissions changed; retry the tool' };
-        if (modeDenial) return modeDenial;
-        if (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')
-          return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
-        if (onDecision) {
-          try {
-            if (
-              !observationCurrent() ||
-              result.decisionClassification !== 'user_temporary' ||
-              !decisionInput ||
-              snapshotDecisionInput(result.updatedInput ?? {}).serialized !==
-                decisionInput.serialized ||
-              originalSignal.aborted ||
-              request.expiresAt! <= Date.now()
-            )
-              throw Error('Original one-shot decision is no longer current');
-          } catch {
-            return {
-              behavior: 'deny',
-              message: 'Original one-shot approval changed; reconcile before retrying',
-            };
+        try {
+          if (result.behavior !== 'allow') return result;
+          const activeClient = currentClientId();
+          const modeDenial = askDenial();
+          if (!nativeScopeCurrent())
+            return { behavior: 'deny', message: 'Original native source scope changed' };
+          if (!activeClient)
+            return { behavior: 'deny', message: 'Session permissions changed; retry the tool' };
+          if (modeDenial) return modeDenial;
+          if (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')
+            return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
+          if (onDecision) {
+            try {
+              if (
+                !observationCurrent() ||
+                result.decisionClassification !== 'user_temporary' ||
+                !decisionInput ||
+                snapshotDecisionInput(result.updatedInput ?? {}).serialized !==
+                  decisionInput.serialized ||
+                originalSignal.aborted ||
+                request.expiresAt! <= Date.now()
+              )
+                throw Error('Original one-shot decision is no longer current');
+            } catch {
+              return {
+                behavior: 'deny',
+                message: 'Original one-shot approval changed; reconcile before retrying',
+              };
+            }
           }
+          return result;
+        } catch {
+          // Current options may change during observation. A failed validation
+          // must still settle the original denial and preserve retained evidence.
+          return {
+            behavior: 'deny',
+            message: 'Approval revalidation failed; reconcile before retrying',
+          };
         }
-        return result;
       };
       const wrappedResolve = (result: PermissionResult) => {
         if (settled) return settledResult;
@@ -589,9 +598,9 @@ export function buildPermissionHandler(
         if (onDecision) result = revalidateAllow(result);
         settledResult = result;
         if (
+          result.behavior === 'allow' &&
           opts.allowSessionGrant !== false &&
           opts.rememberSessionGrant !== false &&
-          result.behavior === 'allow' &&
           result.decisionClassification === 'user_permanent'
         ) {
           if (opts.sessionGrantKey) session.sessionAllowList.add(opts.sessionGrantKey);
