@@ -4312,6 +4312,48 @@ it('invalidates the original retained boundary while admission awaits transport 
   expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
 });
 
+it.each(['initial verification', 'admission', 'final verification'] as const)(
+  'retains the original startup cancellation through %s, including signal replacement',
+  async (phase) => {
+    const f = await setup();
+    const controller = new AbortController();
+    f.conversationOptions.startupSignal = controller.signal;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let atGate = false;
+    let verified = 0;
+    f.conversationOptions.verifyBinding = async () => {
+      verified++;
+      if (
+        (phase === 'initial verification' && verified === 1) ||
+        (phase === 'final verification' && verified === 2)
+      ) {
+        atGate = true;
+        await waiting;
+      }
+      return f.getBinding();
+    };
+    const admit = vi.fn(async () => {
+      if (phase === 'admission') {
+        atGate = true;
+        await waiting;
+      }
+    });
+    f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+    const sent = f.c
+      .send({ id: 'cancelled-at-boundary', prompt: 'Original task' })
+      .catch((error: unknown) => error);
+    await vi.waitFor(() => expect(atGate).toBe(true));
+    controller.abort(Error('Original startup revoked'));
+    f.conversationOptions.startupSignal = new AbortController().signal;
+    release();
+    expect(await sent).toBeInstanceOf(Error);
+    expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+  },
+);
+
 it('pauses admission failure before claim and resumes the preserved FIFO on explicit send', async () => {
   let blocked = true;
   const admission = vi.fn(async (close: () => Promise<void>) => {

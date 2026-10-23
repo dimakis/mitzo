@@ -1990,20 +1990,24 @@ export class CodexConversation {
   }
   private async beginNext() {
     if (this.opts.beforeRuntimeAdmission && this.binding && !this.active) {
+      const boundary = this.opts.beforeRuntimeAdmission;
+      const client = this.client;
+      const generation = this.transportGeneration;
+      const threadId = this.threadId;
+      const binding = this.binding;
+      const startupSignal = this.opts.startupSignal;
       await this.verifyCurrentBinding(this.binding);
       try {
-        const boundary = this.opts.beforeRuntimeAdmission;
         if (typeof boundary !== 'function') {
           if (!boundary || boundary.kind !== 'prepared-repository-primary' || !this.ready)
             throw Error('Retained primary admission requires the original transport');
-          const client = this.client;
-          const generation = this.transportGeneration;
-          const threadId = this.threadId;
-          const binding = this.binding;
           const admit = boundary.admit;
+          let boundaryOpen = true;
           const assertBoundaryCurrentSync = () => {
-            this.opts.startupSignal?.throwIfAborted();
+            startupSignal?.throwIfAborted();
             if (
+              !boundaryOpen ||
+              this.opts.startupSignal !== startupSignal ||
               this.closed ||
               this.paused ||
               this.active ||
@@ -2017,13 +2021,17 @@ export class CodexConversation {
             )
               throw Error('Original retained primary boundary unavailable');
           };
-          assertBoundaryCurrentSync();
-          const admitted: unknown = await admit.call(boundary, assertBoundaryCurrentSync);
-          if (admitted !== undefined)
-            throw Error('Retained primary admission must settle without a value');
-          assertBoundaryCurrentSync();
-          await this.verifyCurrentBinding(this.binding);
-          assertBoundaryCurrentSync();
+          try {
+            assertBoundaryCurrentSync();
+            const admitted: unknown = await admit.call(boundary, assertBoundaryCurrentSync);
+            if (admitted !== undefined)
+              throw Error('Retained primary admission must settle without a value');
+            assertBoundaryCurrentSync();
+            await this.verifyCurrentBinding(this.binding);
+            assertBoundaryCurrentSync();
+          } finally {
+            boundaryOpen = false;
+          }
         } else {
           const admit = async () => {
             const changed = await boundary(async () => {
