@@ -18,6 +18,7 @@ import type { OrdinaryLocalCodexAdmissionExpectation } from './ordinary-local-co
 import type { CodexAccountProfile } from './codex-account.js';
 import type { CodexCommandInput } from './codex-conversation-store.js';
 import type { CodexLifecycleTransport } from './codex-app-server-client.js';
+import type { PreparedRepositoryTransition } from '@mitzo/protocol';
 const unavailable = () => new Error('Owned local Codex chat unavailable');
 const Images = z
   .array(z.strictObject({ data: z.string().min(1), mediaType: z.string().min(1).max(128) }))
@@ -67,6 +68,8 @@ interface Owner {
  * payloads refuse.
  */
 export class OwnedLocalCodexChatAdmission {
+  #primary?: OwnedLocalCodexChatAdmission;
+  #adoptedPrimary = false;
   readonly #continuations = new Map<string, OwnedLocalCodexChatAdmission>();
   #continuation = false;
   #resume = false;
@@ -211,11 +214,12 @@ export class OwnedLocalCodexChatAdmission {
     commandId: string,
     expectedInput: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
   ): void {
+    if (this.#primary) return this.#primary.admitContinuation(commandId, expectedInput);
     try {
       this.assertCurrentSync();
       if (
         !this.#opened ||
-        (this.#continuation && !this.#resume) ||
+        (this.#continuation && !this.#resume && !this.#adoptedPrimary) ||
         this.#continuations.has(commandId) ||
         commandId === this.owner.commandId ||
         this.owner.eventStore.getOrdinaryLocalCommandAdmission(this.owner.commandId)?.state !==
@@ -245,6 +249,84 @@ export class OwnedLocalCodexChatAdmission {
     } catch {
       throw unavailable();
     }
+  }
+  /** Capture the exact old owner before the cross-store effect. The returned
+   * synchronous handoff is usable only after the guarded repository CAS and
+   * exact EventStore commit; it never authorizes either effect itself. Original
+   * expected/payload remain intact; the live owner delegates to its new primary. */
+  preparePreparedRepositoryPrimary(
+    commandId: string,
+    expectedInput: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+    transition: PreparedRepositoryTransition,
+  ): () => void {
+    if (this.#primary)
+      return this.#primary.preparePreparedRepositoryPrimary(commandId, expectedInput, transition);
+    this.assertCurrentSync();
+    if (!this.#opened || !this.#session) throw unavailable();
+    const expected = structuredClone(expectedInput);
+    const original = this.#expected;
+    const session = this.#session;
+    const receipt = this.owner.eventStore.observePreparedRepositoryContinuation(commandId);
+    const frozenTransition = structuredClone(transition);
+    if (
+      receipt.state !== 'uncertain' ||
+      !isDeepStrictEqual(receipt.preparedRepositoryTransition, frozenTransition) ||
+      !isDeepStrictEqual(receipt.binding, original.binding) ||
+      !isDeepStrictEqual(receipt.workspace, expected.workspace) ||
+      !isDeepStrictEqual(receipt.selection, expected.selection) ||
+      transition.oldWorkspace.id !== original.workspace.workspaceId ||
+      transition.oldWorkspace.directory !== original.workspace.cwd ||
+      transition.oldWorkspace.kind !== (this.owner.workspaceKind ?? 'repository') ||
+      !isDeepStrictEqual(expected.binding, original.binding) ||
+      !isDeepStrictEqual(expected.agentProfile, original.agentProfile) ||
+      !isDeepStrictEqual(expected.agentContext, original.agentContext) ||
+      !isDeepStrictEqual(expected.selection.agent, original.selection.agent) ||
+      !isDeepStrictEqual(expected.selection.context, original.selection.context) ||
+      !isDeepStrictEqual(expected.selection.permission, original.selection.permission) ||
+      expected.hostId !== original.hostId ||
+      expected.runtimeContractRevision !== original.runtimeContractRevision
+    )
+      throw unavailable();
+    const child = new OwnedLocalCodexChatAdmission({
+      ...this.owner,
+      commandId,
+      expected,
+      workspaceKind: 'repository',
+    });
+    if (child.#payload.systemPrompt !== this.#payload.systemPrompt) throw unavailable();
+    child.#continuation = true;
+    child.#adoptedPrimary = true;
+    child.#opened = true;
+    child.#session = session;
+    let committed = false;
+    return () => {
+      if (
+        committed ||
+        this.#closed ||
+        this.#primary ||
+        this.#expected !== original ||
+        this.#session !== session ||
+        session.cwd !== original.workspace.cwd ||
+        session.mode !== original.selection.permission.mode
+      )
+        throw unavailable();
+      this.owner.lease.assertCurrentSync();
+      const current = this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId);
+      if (
+        current?.state !== 'consumed' ||
+        !isDeepStrictEqual(current.preparedRepositoryTransition, frozenTransition) ||
+        !isDeepStrictEqual(
+          this.owner.eventStore.getPreparedRepositorySourceAdmission(commandId).workspace,
+          original.workspace,
+        )
+      )
+        throw unavailable();
+      child.assertReceipt();
+      session.cwd = expected.workspace.cwd;
+      this.#primary = child;
+      committed = true;
+      child.assertCurrentSync();
+    };
   }
   assertConsumerOwner(eventStore: EventStore, sessionId: string, commandId: string): void {
     if (
@@ -321,6 +403,7 @@ export class OwnedLocalCodexChatAdmission {
   assertCurrentSync(): void {
     try {
       if (this.#closed) throw unavailable();
+      if (this.#primary) return this.#primary.assertCurrentSync();
       if (this.owner.nativeStore) {
         for (const commandId of this.#continuations.keys()) {
           const status = this.owner.nativeStore.commandStatus(
@@ -366,6 +449,7 @@ export class OwnedLocalCodexChatAdmission {
     return this.owner.lease.executableSha256;
   }
   assertBeforeEnqueue(input: CodexCommandInput): void {
+    if (this.#primary) return this.#primary.assertBeforeEnqueue(input);
     this.assertCurrentSync();
     const continuation = this.#continuations.get(input.id);
     if (continuation) {
@@ -374,7 +458,7 @@ export class OwnedLocalCodexChatAdmission {
       return;
     }
     this.assertCurrentSync();
-    this.assertReceipt(true);
+    this.assertReceipt(!this.#adoptedPrimary);
     if (
       this.#enqueued ||
       input.id !== this.owner.commandId ||
@@ -393,6 +477,7 @@ export class OwnedLocalCodexChatAdmission {
     this.#enqueued = true;
   }
   canClaimCommand(commandId: string): boolean {
+    if (this.#primary) return this.#primary.canClaimCommand(commandId);
     this.assertCurrentSync();
     if (commandId === this.owner.commandId)
       return (
@@ -404,6 +489,7 @@ export class OwnedLocalCodexChatAdmission {
     return this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId)?.state === 'consumed';
   }
   assertBeforeDispatch(commandId: string): void {
+    if (this.#primary) return this.#primary.assertBeforeDispatch(commandId);
     this.assertCurrentSync();
     const continuation = this.#continuations.get(commandId);
     if (continuation) {
@@ -424,6 +510,7 @@ export class OwnedLocalCodexChatAdmission {
     this.#dispatched = true;
   }
   assertModelSelection(model: string, thinking?: string | null): void {
+    if (this.#primary) return this.#primary.assertModelSelection(model, thinking);
     this.assertCurrentSync();
     if (
       (!this.#continuation || this.#resume) &&
@@ -467,6 +554,10 @@ export class OwnedLocalCodexChatAdmission {
     if (this.#closed) return;
     this.#closed = true;
     this.#continuations.clear();
+    if (this.#primary) {
+      this.#primary.close();
+      return;
+    }
     this.owner.lease.close();
   }
 }

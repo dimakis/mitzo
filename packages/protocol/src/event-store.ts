@@ -1034,6 +1034,13 @@ export class EventStore {
     return admission;
   }
 
+  /** Private operation observation even while current metadata is still old.
+   * Consumers must not confuse uncertainty or this descriptive row with a
+   * current dispatch/adoption capability. */
+  observePreparedRepositoryContinuation(commandId: string): OrdinaryLocalCommandAdmission {
+    return this.readPreparedRepositoryTransition(commandId);
+  }
+
   /** Repository custody CAS has already succeeded. Commit metadata plus native
    * child admission together. Failure retains uncertainty and forbids replay. */
   commitPreparedRepositoryContinuation(

@@ -130,6 +130,83 @@ function fixture() {
   };
   return { store, input, options, lease, runtime, binding, selection, agentProfile };
 }
+it('adopts only its exact committed prepared child under the same lease and preserves original payload/receipt', () => {
+  const f = fixture();
+  try {
+    f.store.claimOrdinaryLocalCommandDispatch('command');
+    const owner = OwnedLocalCodexChatAdmission.capture(f.input);
+    owner.assertOptions(f.options);
+    f.store.completeOrdinaryLocalCommand('command');
+    const original = f.store.getOrdinaryLocalCommandAdmission('command');
+    const transition = {
+      version: 1 as const,
+      preparationId: '34af2bdf-5fb4-4de0-b083-cf188163d891',
+      runtimeId: 'runtime',
+      source: {
+        commandId: 'command',
+        attempt: 1,
+        threadId: 'thread',
+        turnId: 'turn',
+        generation: 0,
+        callId: 'prepare',
+        requestHash: 'a'.repeat(64),
+        resultSha256: 'b'.repeat(64),
+      },
+      oldWorkspace: {
+        kind: 'repository' as const,
+        id: 'workspace',
+        directory: '/offline/workspace',
+      },
+      newWorkspace: {
+        kind: 'repository' as const,
+        id: 'prepared',
+        directory: '/offline/prepared',
+        featureBranch: 'task/branch',
+        baseOid: 'c'.repeat(40),
+        taskIdentitySha256: 'd'.repeat(64),
+      },
+      consumedScopeSha256: 'e'.repeat(64),
+      materializedRecordSha256: 'f'.repeat(64),
+    };
+    const reserved = f.store.reservePreparedRepositoryContinuation('session', transition);
+    const expected = { ...f.input.expected, workspace: reserved.admission.workspace };
+    const commit = owner.preparePreparedRepositoryPrimary(
+      reserved.childCommandId,
+      expected,
+      transition,
+    );
+    expect(() => commit()).toThrow();
+    expect(f.options.session.cwd).toBe('/offline/workspace');
+    f.store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+    commit();
+    expect(f.options.session.cwd).toBe('/offline/prepared');
+    expect(owner.canClaimCommand(reserved.childCommandId)).toBe(true);
+    const input = {
+      id: reserved.childCommandId,
+      prompt: reserved.payload.text,
+      intent: reserved.payload.intent,
+      model: f.options.model,
+      reasoningEffort: null,
+    };
+    owner.assertBeforeEnqueue(input);
+    expect(() => owner.assertBeforeEnqueue(input)).toThrow();
+    owner.assertBeforeDispatch(reserved.childCommandId);
+    expect(() => owner.assertBeforeDispatch(reserved.childCommandId)).toThrow();
+    expect(() => commit()).toThrow();
+    expect(f.store.getPreparedRepositorySourceAdmission(reserved.childCommandId)).toEqual(original);
+    expect(f.store.getSendCommand('command')?.payload).toMatchObject({
+      text: f.options.prompt,
+      images: f.options.images,
+    });
+    expect(f.lease.client.request).not.toHaveBeenCalled();
+    owner.close();
+    expect(() => owner.canClaimCommand(reserved.childCommandId)).toThrow();
+    expect(() => owner.assertBeforeEnqueue(input)).toThrow();
+  } finally {
+    f.store.close();
+  }
+});
+
 it('supplies the physical native artifact digest only through the current owned lease', () => {
   const f = fixture();
   try {
