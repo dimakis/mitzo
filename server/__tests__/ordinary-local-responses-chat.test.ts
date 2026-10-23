@@ -1,8 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { AccountProfiles, loadAccountProfiles } from '../account-profiles.js';
 import { agentLibrarySource } from './fixtures/agent-library-source.js';
-import { ExplicitLocalInventorySchema } from '../../frontend/src/lib/explicit-local-chat';
-import { selectedRuntimeRoute } from '../../frontend/src/lib/chat-runtime-route';
 const services = vi.hoisted(() => ({
   authId: '',
   workspace: undefined as unknown,
@@ -205,6 +203,18 @@ it('rejects new Responses entry before preparation and preserves legacy chat own
     loadAccountProfiles(),
     new OrdinaryLocalResponsesTarget(f.dependencies.env),
   );
+  type PublicInventory = ReturnType<typeof fresh.inventory>;
+  // Exercise the actual UI parser/selector without adding browser source files
+  // to the server TypeScript project's rootDir.
+  const { ExplicitLocalInventorySchema } = await vi.importActual<{
+    ExplicitLocalInventorySchema: { parse(value: unknown): PublicInventory };
+  }>('../../frontend/src/lib/explicit-local-chat');
+  const { selectedRuntimeRoute } = await vi.importActual<{
+    selectedRuntimeRoute(
+      selection: unknown,
+      inventory: PublicInventory,
+    ): { harness: string } | undefined;
+  }>('../../frontend/src/lib/chat-runtime-route');
   const wire = {
     ...f.request,
     runOn: 'local',

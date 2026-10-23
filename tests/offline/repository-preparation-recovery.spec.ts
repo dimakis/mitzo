@@ -46,7 +46,7 @@ for (const theme of ['dark', 'light']) {
       featureBranch: 'mitzo/task',
       state: 'preview',
     };
-    const inventory = multiRuntimeInventoryFixture();
+    const inventory = multiRuntimeInventoryFixture({ nativeLocalApi: true });
     inventory.agentProfiles.push({
       kind: 'builtin',
       profileId: DEFAULT_MITZO_PROFILE_ID,
@@ -92,11 +92,11 @@ for (const theme of ['dark', 'light']) {
             ordinaryRuntime: {
               version: 2,
               account: { accountId: 'api', provider: 'openai', profileRevision: 'api-r1' },
-              harness: { implementation: 'responses' },
+              harness: { implementation: 'codex' },
               execution: {
                 location: 'local',
-                targetId: 'responses',
-                targetRevision: 'responses-r1',
+                targetId: 'api-codex',
+                targetRevision: 'api-codex-r1',
               },
             },
           },
@@ -222,7 +222,7 @@ for (const theme of ['dark', 'light']) {
     expect(previews).toHaveLength(2);
     expect(previews[1].ordinaryRuntime).toMatchObject({
       runOn: 'local',
-      runtime: { targetId: 'responses', harness: 'responses' },
+      runtime: { targetId: 'api-codex', harness: 'codex' },
     });
     await settingsHome(page);
     await expect(page.getByText(/account identity is unconfirmed/)).toHaveCount(0);

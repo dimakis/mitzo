@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.558-bound-runtime-capabilities';
+  'v1.0.559-shared-harness-ci-closure';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -630,7 +630,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     '9e383cf9c96a3cb8ea5bfe732c7ca7c4070cc52c051d80d9d3246fa718a28a0c',
   '../ordinary-local-codex-entry.ts':
-    '1e8e7b1cb81ec081ddfe03a196384e52b1038f1b69e6561242fa578211b021d3',
+    '1513a0487faa2579bd925745b8f64ffa6a15bcaa84caa5dc1383d034f247b0aa',
   '../ordinary-local-codex-metadata.ts':
     '0ccfe315aa4bd8b5360608a3a588c3c0545c3fb7a34b3673c9db0156c610283a',
   '../ordinary-repository-startup.ts':
@@ -1357,7 +1357,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/__tests__/chat-runtime-route.test.ts':
     '7b60a8b59f573a248d21dcca15275335746829a3a46791b152266c2d40b594b5',
   '../__tests__/ordinary-local-responses-chat.test.ts':
-    'e587152b7506162e625857c0d8df13c95446d089cf3843b34e6b80cb7810eb0b',
+    '6f008d8414db13b962799ed0063411c12ad0d7fc1041d4873c6e3cce9bb22816',
   '../__tests__/ordinary-local-responses-dual-capabilities.test.ts':
     'a1beb878190e4982b74b5b20941b6c47373736986a729ba9398764a78b602f3e',
   '../__tests__/ordinary-local-responses-preparation.test.ts':
@@ -1376,4 +1376,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a11a7f10a047e4262c805920b5181c1672b84de3e82e6c933ce6a331ccab1883',
   '../../frontend/src/hooks/__tests__/useExplicitLocalChat.ordinary.test.tsx':
     '1450992dce892b6878fc16123c5d658289924dce6cec3f199da2f7d05bbe93b7',
+  '../../frontend/src/test-utils/multi-runtime-inventory-fixture.ts':
+    'f5390008c0d7e953d2531f61d8a8cbfcc9d9f329923b23ffa1c1f4df95b4db1f',
+  '../../tests/offline/builtin-agent-picker.spec.ts':
+    '4700e76f662392bcf45a62d6986f15b3f30aaa7043834a2eab320acb3531b14b',
+  '../../tests/offline/multi-runtime-picker.spec.ts':
+    '6d900590ed6f69ce3568e70c07be2689a8e329085745d03e5583e5fc7400e235',
+  '../../tests/offline/repository-preparation-recovery.spec.ts':
+    'a93d05aeebcb63d47f6ee9c140fce57c78e3383f652a5f896d9e0e1124f76cf9',
 });

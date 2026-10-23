@@ -352,6 +352,7 @@ function createOwnedCodexEntryRouter(
           .status(401)
           .json({ ok: false, code: 'interactive_auth_required', error: unavailable });
       let result = general ? ordinaryCodexCapabilities() : inventory().result;
+      let retainedAccount: SessionRuntimeBindingV2['account'] | undefined;
       if (general && req.query?.sessionId !== undefined) {
         const sessionId = req.query.sessionId;
         if (typeof sessionId !== 'string' || !/^\S{1,200}$/.test(sessionId))
@@ -384,12 +385,7 @@ function createOwnedCodexEntryRouter(
           // Read-only metadata for this exact saved owner; new admission still
           // rejects Responses even if a client copies this retained revision.
           const projected = retained.result;
-          projected.accounts = projected.accounts.filter((entry) =>
-            isDeepStrictEqual(entry.account, binding.account),
-          );
-          projected.routes = projected.routes.filter((route) =>
-            isDeepStrictEqual(route.account, binding.account),
-          );
+          retainedAccount = binding.account;
           result = projected;
         }
       }
@@ -408,6 +404,9 @@ function createOwnedCodexEntryRouter(
       }
       const response = {
         ...result,
+        accounts: result.accounts.filter(
+          (entry) => !retainedAccount || isDeepStrictEqual(entry.account, retainedAccount),
+        ),
         ...(req.query?.workspaceDefaults === '1'
           ? {
               defaultOpenShellWorkspace: result.routes.some(
@@ -419,41 +418,43 @@ function createOwnedCodexEntryRouter(
             }
           : {}),
         agentProfiles,
-        routes: result.routes.map((route) => {
-          const location = 'location' in route ? route.location : 'local';
-          const candidates = result.targets.filter(
-            (target) =>
-              target.targetId === route.targetId &&
-              target.location === location &&
-              target.harness === route.harness,
-          );
-          if (candidates.length !== 1) throw Error(unavailable);
-          const target = candidates[0];
-          const presets =
-            target?.location === 'openshell' &&
-            shell?.target.targetId === target.targetId &&
-            shell?.target.targetRevision === target.targetRevision
-              ? shell.config.agentContextPresets
-              : undefined;
-          return {
-            ...route,
-            ...ordinaryCodexAgentProfileRouteProjection(
-              agentProfiles,
-              route.account.provider,
-              target.location,
-              presets,
-              ['responses', 'gemini', 'claude-sdk', 'codex'].includes(route.harness)
-                ? {
-                    contextRecipes: route.harness === 'codex' ? 'supported' : 'none',
-                    toolSelection:
-                      ['responses', 'gemini', 'codex'].includes(route.harness) &&
-                      target.location === 'local',
-                    toolRoute: route.harness === 'codex' ? 'codex-owned-local' : 'local-api',
-                  }
-                : undefined,
-            ),
-          };
-        }),
+        routes: result.routes
+          .filter((route) => !retainedAccount || isDeepStrictEqual(route.account, retainedAccount))
+          .map((route) => {
+            const location = 'location' in route ? route.location : 'local';
+            const candidates = result.targets.filter(
+              (target) =>
+                target.targetId === route.targetId &&
+                target.location === location &&
+                target.harness === route.harness,
+            );
+            if (candidates.length !== 1) throw Error(unavailable);
+            const target = candidates[0];
+            const presets =
+              target?.location === 'openshell' &&
+              shell?.target.targetId === target.targetId &&
+              shell?.target.targetRevision === target.targetRevision
+                ? shell.config.agentContextPresets
+                : undefined;
+            return {
+              ...route,
+              ...ordinaryCodexAgentProfileRouteProjection(
+                agentProfiles,
+                route.account.provider,
+                target.location,
+                presets,
+                ['responses', 'gemini', 'claude-sdk', 'codex'].includes(route.harness)
+                  ? {
+                      contextRecipes: route.harness === 'codex' ? 'supported' : 'none',
+                      toolSelection:
+                        ['responses', 'gemini', 'codex'].includes(route.harness) &&
+                        target.location === 'local',
+                      toolRoute: route.harness === 'codex' ? 'codex-owned-local' : 'local-api',
+                    }
+                  : undefined,
+              ),
+            };
+          }),
       };
       if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1048576) throw Error(unavailable);
       return res.json(response);
