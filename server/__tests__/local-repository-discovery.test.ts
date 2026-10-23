@@ -269,6 +269,48 @@ describe('read-only repository inspection', () => {
     expect(JSON.stringify(result)).not.toContain('must not expose');
   });
 
+  it('reads authorized instruction symlinks with canonical identity and omits unauthorized shared targets', async () => {
+    const selected = await repo(join(root, 'source'));
+    const agents = join(selected, 'AGENTS.md');
+    const claude = join(selected, 'CLAUDE.md');
+    await writeFile(agents, 'shared repository guidance');
+    await symlink('AGENTS.md', claude);
+    const sameRepository = await inspectLocalRepository({ path: selected, accessScope: scope() });
+    expect(sameRepository.instructions.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: claude,
+          resolvedPath: agents,
+          content: 'shared repository guidance',
+          identity: { dev: expect.any(Number), ino: expect.any(Number) },
+        }),
+      ]),
+    );
+    await rm(claude);
+    const shared = join(root, 'shared.md');
+    await writeFile(shared, 'authorized shared guidance');
+    await symlink(shared, claude);
+    expect(
+      (await inspectLocalRepository({ path: selected, accessScope: scope() })).instructions.files,
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: claude,
+          resolvedPath: shared,
+          content: 'authorized shared guidance',
+        }),
+      ]),
+    );
+    const limited = await inspectLocalRepository({
+      path: selected,
+      accessScope: { kind: 'roots', roots: [selected] },
+    });
+    expect(limited.instructions.files.some((file) => file.path === claude)).toBe(false);
+    expect(limited.instructions.omitted).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: claude, reason: 'symlink' })]),
+    );
+  });
+
   it('does not execute clean filters or recurse into configured submodules while checking dirty work', async () => {
     const selected = await repo(join(root, 'filtered'));
     const marker = join(root, 'executed');

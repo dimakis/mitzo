@@ -82,7 +82,13 @@ export interface LocalRepositoryInspection {
     entries: Array<{ path: string; index: string; worktree: string; originalPath?: string }>;
   };
   instructions: {
-    files: Array<{ path: string; content: string; truncated: boolean }>;
+    files: Array<{
+      path: string;
+      resolvedPath: string;
+      identity: { dev: number; ino: number };
+      content: string;
+      truncated: boolean;
+    }>;
     omitted: LocalRepositoryDiagnostic[];
     complete: boolean;
   };
@@ -497,12 +503,17 @@ export async function inspectLocalRepository(
       request.signal?.throwIfAborted();
       try {
         const stat = await lstat(file);
-        if (stat.isSymbolicLink()) {
-          instructions.omitted.push({ path: file, reason: 'symlink' });
+        if (!stat.isFile() && !stat.isSymbolicLink()) {
+          instructions.omitted.push({ path: file, reason: 'not-regular-file' });
           continue;
         }
-        if (!stat.isFile()) {
-          instructions.omitted.push({ path: file, reason: 'not-regular-file' });
+        let resolvedPath: string;
+        try {
+          resolvedPath = await ctx.canonical(file);
+        } catch (error) {
+          request.signal?.throwIfAborted();
+          if (!stat.isSymbolicLink()) throw error;
+          instructions.omitted.push({ path: file, reason: 'symlink' });
           continue;
         }
         if (remaining <= 0) {
@@ -511,13 +522,17 @@ export async function inspectLocalRepository(
         }
         // O_NOFOLLOW closes the final-component symlink race; fstat rejects special files.
         const handle = await open(
-          file,
+          resolvedPath,
           constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
         );
         try {
           const opened = await handle.stat();
           if (!opened.isFile()) {
             instructions.omitted.push({ path: file, reason: 'not-regular-file' });
+            continue;
+          }
+          if ((await realpath(file)) !== resolvedPath) {
+            instructions.omitted.push({ path: file, reason: 'changed-during-read' });
             continue;
           }
           const cap = Math.min(remaining, ctx.limits.maxInstructionBytes);
@@ -527,6 +542,8 @@ export async function inspectLocalRepository(
           remaining -= bytesRead;
           instructions.files.push({
             path: file,
+            resolvedPath,
+            identity: { dev: opened.dev, ino: opened.ino },
             content: buffer.subarray(0, bytesRead).toString('utf8'),
             truncated,
           });
