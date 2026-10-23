@@ -89,3 +89,27 @@ it('denies mixed DNS and rechecks changed runtime authority during the actual so
     sendPrivateBrowserRequest(target, 'https://service.example/login', 'GET', {}, undefined, gate),
   ).rejects.toThrow('Private browser request failed');
 });
+it('rechecks a request scope after asynchronous authority before constructing the HTTPS request', async () => {
+  let active = true;
+  const gate = {
+    signal: AbortSignal.timeout(1000),
+    check: () => {
+      if (!active) throw new Error('scope ended');
+    },
+    dispatched: () => {},
+    assertCurrent: async () => {
+      active = false;
+    },
+  };
+  await expect(
+    sendPrivateBrowserRequest(
+      target,
+      'https://service.example/login',
+      'POST',
+      {},
+      Buffer.from('private'),
+      gate,
+    ),
+  ).rejects.toThrow();
+  expect(mocks.request).not.toHaveBeenCalled();
+});

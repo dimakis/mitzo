@@ -119,3 +119,19 @@ it('revokes private contexts and denies stale or duplicate MFA capture', async (
   expect(f.driver.close).toHaveBeenCalledOnce();
   expect(() => f.service.provideBrowserCode(r.id, r.revision, 0, '123456', () => true)).toThrow();
 });
+it('does not replay an uncertain browser action or restore a lost session by signing in again', async () => {
+  const f = fixture();
+  f.driver.login.mockResolvedValueOnce({ challenge: false });
+  await f.service.complete(f.draft.id, 1, 'private-password', signal(), () => true);
+  await f.service.apply('chat', f.draft.id, 0, signal(), () => true);
+  f.driver.action.mockRejectedValueOnce(new Error('private-password'));
+  expect(await f.service.apply('chat', f.draft.id, 0, signal(), () => true, undefined, 0)).toEqual({
+    outcome: 'unconfirmed',
+  });
+  await f.service.apply('chat', f.draft.id, 0, signal(), () => true, undefined, 0);
+  expect(f.driver.action).toHaveBeenCalledOnce();
+  expect(f.driver.login).toHaveBeenCalledOnce();
+  expect(f.service.browserStatus(f.draft.id).actionOutcomes).toEqual({
+    '0:0': { outcome: 'unconfirmed' },
+  });
+});
