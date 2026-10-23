@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.589-repository-primary-custody';
+  'v1.0.590-durable-repository-primary';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -249,7 +249,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/ordinary-workspace.ts':
     'c4431b3fef376cf17142c07764c032d0147915893c0b49c1776b0ccccc08c808',
   '../ordinary-workspace-custody.ts':
-    '93f2b2e11e8129e52a960f7439aae9b4b016159831004a4c5743dc354e6f2e98',
+    '9433ebc9acdd66a901d30738131a55d44caba0695e8eb114342b6aa3b58db7b2',
   '../connection-request-error.ts':
     'baedef9cc52b1ace3c705fe396f4a11e938cf7f018d8ccd2ad28f699f69d098c',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-model-publication-guard-clone.patch':
@@ -1047,7 +1047,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '8d334e7f2e465ffbb66d4424f09adc04ca4695ce131fbd50d85226ccbf175d16',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
-  '../repository-workspaces.ts': '55afe95d74b75e47e18149c52880797afd53f96335b95ea28f3c71310f8be888',
+  '../repository-workspaces.ts': 'd98a94e1468697d53d38d92224b2bd90785274656ed0bd3fd059882d0a0db1bc',
   '../../packages/protocol/src/session-metadata-store.ts':
     '019598b360106c0dd8babc08e9366e40c95c1dd4dca9ea649c37bc7d096b8358',
   '../../packages/protocol/src/event-store.ts':
@@ -1497,5 +1497,5 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-directory-verification-batch.test.ts':
     'e47f7310524224a555e8786f83824f4f742f5838f5666a461e95a5b99ec647fa',
   '../__tests__/prepared-repository-custody.test.ts':
-    '038ff47176116083120a9fd605a8bad2787b00bd59ca148374f20d4788ad5f5b',
+    '9caefad1c3f8e6510e6032904f82a6fb94615351e05d221bee681e2c072669b9',
 });
