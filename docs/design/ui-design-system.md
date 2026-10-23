@@ -1989,3 +1989,14 @@ light/dark themes, alternate accent/font, 320px wrapping, disclosure focus, scro
 44px actions, private submission and revocation. See
 [the feature evidence](../features/private-secret-relay.md#offline-verification-and-design-evidence)
 for inspected captures and the limits of local checks.
+
+Browser and MQTT relay adapters reuse `SecretRelayDestinations` inside the same
+private setup surface. Account, topic, transport, reviewed browser actions and
+request rules are available before capture; details use native disclosures and
+the existing monospace role. A masked one-time-code field and existing primary
+button continue the private sign-in, with the same reauthorization and route
+fences. No new CSS, palette, font, motion or approved settings change is needed.
+The intercepted adapter fixtures cover the code form, keyboard focus, 44px actions,
+320px wrapping and scroll on mobile WebKit/Chromium and desktop Chromium, dark
+Mint/System and light Teal/Georgia. See the private relay feature evidence for
+inspected captures; all values and service responses are synthetic.

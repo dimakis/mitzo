@@ -788,9 +788,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-verification-error.ts':
     'd4fefb2652ec0bd00b24aac257b31a028b597dc20dd7101c77d527fe4505973d',
   '../credential-setup.ts': '8dfd54d1b4cb4408d52c9ca09f5cc220ba69adf6dc6181bc7de6803fee38f69c',
-  '../connection-guide.ts': 'b7f8cafa6ce190f69872f687bfd02d2e1ddc691b443ef1014227305a87c1f968',
+  '../connection-guide.ts': 'e9567cd14aa6907c65974ee97190a1be642e0f2e127a382d4ef1c6c639fae7ed',
   '../credential-setup-continuation.ts':
-    '8a14ed6086524c4cf766d6bc7dd8e5988760b94316019b7639eb358c2ad66ad7',
+    '5f22ea276ad6248032a1f0d674c91efbc61b27d8852620eb3353164462cd13c9',
   '../credential-setup-application.ts':
     '3a627aae33cd9fca64257bc84dbe30e5cf4496b2dd1faa92fd4bdaed769f91b3',
   '../github-repository-connections.ts':
@@ -801,9 +801,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-connections.ts':
     '30a05f30e80fe1adc4ca0d68b136d1af6fbeb458c69e8e4cbf37299d740db5a8',
   '../credential-connections-router.ts':
-    '53938bddb91c6861f5ec28298c9d5a944f42f61970a7c986a9e724d5d1c24afc',
+    'a9be40b80992bad5d01e9e9d7e63740bbb2e32ca0c72b95d035aa86f3706bebf',
   '../credential-connection-tools.ts':
-    '071ca8db7344efa08c794d8d1bb118ffd7a7d3279b9e74f5fd0be5f019f6438b',
+    '449fbdaf9b2155e3d07617c76dc735db5241ec070310c32b18dfbf4178eb8161',
   '../credential-connections-runtime.ts':
     'e33bda80c8667a2e22f02f1297e054b3769621fbb7cd6921a85f591d876f8c05',
   '../credential-http.ts': 'ad803bdedddd64babd20711b076ac9b1e51cf7215136c1a04f6519d1c0e6e748',

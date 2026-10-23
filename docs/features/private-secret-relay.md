@@ -17,16 +17,18 @@ written into that API can be different secrets.
    idle. Busy or detached chats retain the pending notification. Provider dispatch
    uses the existing persisted message identity, not a new independent task.
 6. The agent requests existing API connection access and calls `ApplySecretRelay`
-   with only the relay ID and target index. The host resolves the value privately,
+   with the relay ID and target index (and an action index for a reviewed browser
+   action). The host resolves the value privately,
    fills the approved fields, and sends the exact reviewed write.
-7. The tool returns HTTP status only. The agent verifies non-secret service state
+7. The tool returns a safe receipt (HTTP status, MQTT acknowledgement, or browser
+   verification/challenge status), never a response body or session state. The agent verifies non-secret service state
    or telemetry before reporting the task complete.
 
 The same stored value can fill multiple fields and destinations. JSON templates
 use existing `null` slots selected by RFC6901 pointers. Form templates use existing,
 unique empty fields. The agent cannot change templates, destination revisions,
 methods, paths or fields after capture. Prototype keys/traversal are rejected.
-API authentication continues through the existing connection transport; relay
+For HTTPS API targets, authentication continues through the existing connection transport; relay
 values are stored in OpenShell, not silently copied to Apple Keychain.
 
 ## Boundaries and supported destinations
@@ -39,9 +41,21 @@ values are stored in OpenShell, not silently copied to Apple Keychain.
   the controller's own network interfaces, credentials in URLs and redirects are
   rejected. LAN consent is limited to the exact reviewed write; it creates no
   general network access for the agent.
-- Native MQTT, arbitrary browser login/OAuth/MFA, cookies/CSRF exchanges, file
-  uploads and WebSocket field injection need additional trusted adapters. The
-  agent must not export a value to a shell or browser to bypass those limits.
+- Native MQTT 3.1.1: a fresh TLS connection authenticates with the captured value
+  as its password. `connect` requires CONNACK; `publish` sends one exact topic and
+  public payload with QoS 1 and requires its matching PUBACK. Retain is reviewed
+  explicitly. No subscriptions, Will, persistent session, reconnect or retry is
+  enabled. PUBACK proves broker receipt, not that a device applied the message.
+  Cleartext MQTT requires its own flag and a numeric RFC1918 broker, with the same
+  controller/loopback/metadata exclusions as the LAN HTTP adapter.
+- Private browser: same-origin HTTPS form sign-in, optional human-entered numeric
+  MFA, and pre-reviewed later form actions. Cookies and CSRF state remain inside
+  the isolated host browser; the agent receives no DOM, screenshots, cookies,
+  storage state, response body or OTP. See the browser contract below.
+- Cross-origin OAuth, passkeys, push approval, CAPTCHA, bearer-token-only browser
+  sessions, arbitrary browsing, file uploads and WebSocket field injection remain
+  unsupported. They need dedicated trusted adapters or a human ceremony. Never
+  retrieve a raw value for a shell or browser workaround.
 
 The heating-controller fixture demonstrates the flow, **not a verified HeishaMon
 API contract**. Its `/settings` and field names are synthetic. Research the actual
@@ -55,6 +69,73 @@ failure withholds the response. This protects supported Mitzo transports; it doe
 not claim control over every unrelated third-party tool or arbitrary service
 transformation of a secret. Keep agent egress limited to reviewed adapters.
 
+## Private browser and MFA contract
+
+A browser target supplies one `origin`, `allowPrivateNetwork`, reviewed request
+rules (`path`, `methods`), login selectors, and an authenticated JSON verification
+request (`path`, RFC6901 `pointer`, scalar `equals`). Paths are exact unless a rule
+ends in `/`, which explicitly permits that subtree. Each action supplies its label,
+page path, non-secret selector/value pairs, submit selector, and optional separate
+JSON verification. Research these against the service's documented interface.
+The private page displays the account, actions and full public configuration.
+
+Mitzo launches an isolated Chromium instance without attaching to any existing
+browser or agent. Service workers, WebSockets, downloads and popups are blocked.
+All HTTP is fulfilled through the host's checked HTTPS sender; a blackhole proxy,
+disabled QUIC and a non-proxied UDP restriction guard browser-internal fallback
+traffic. The sender checks all DNS answers, excludes controller/metadata/loopback,
+pins one address, preserves private cookies, bounds bodies/headers, and rechecks
+session/runtime/operation authority immediately before actual socket dispatch.
+TLS verification remains enabled. Each mutating method/path can be dispatched only
+once per operation; page-script retries are blocked. Idle and late requests cannot
+borrow a later operation's authority. Cross-origin redirects and requests fail closed.
+
+`ApplySecretRelay` without `actionIndex` starts sign-in. A
+`challenge_required` / `awaiting_code` receipt means the user must open the existing
+private relay page. The masked **Verification code** field accepts 6–10 digits
+through the browser-only, recent-passphrase/CSRF-protected control plane. It clears
+on submission. Codes are kept only in host memory; SQLite and OpenShell contain
+no OTP. Staging the code sends no network request. A distinct durable readiness
+event resumes the original chat. The next permitted `ApplySecretRelay` consumes
+that code before submitting it. Ask mode, tool/skill selection, cancellation,
+exact session ownership and runtime authority are checked again. Duplicate code
+submits, uncertain MFA and uncertain form actions are never replayed.
+
+After confirmed sign-in, `ApplySecretRelay` with `actionIndex` performs only the
+corresponding reviewed form action in that private session. The password is not
+resolved again for MFA or later actions. Browser session state is memory-only:
+revocation, expiry or runtime retirement closes it; restart loses it and cannot
+silently sign in again. An operator must inspect uncertain service state before
+preparing an explicitly authorized fresh request.
+
+Browser enrollment also requires the Chromium binary matching the pinned
+`playwright-core` package, installed by the operator. No runtime browser download
+or fallback to a personal browser is performed. Chromium's sandbox stays enabled
+and its child process receives only a minimal OS environment. Browser debug modes
+and external test browser attachment are refused; host `NODE_DEBUG` /
+`NODE_DEBUG_NATIVE` logging must be disabled for the entire relay runtime.
+No tracing, screenshot capture, persistent profile or storage-state export is
+configured for private sessions. Offline browser fixtures use synthetic values only.
+
+Example native MQTT target (no password in tool input):
+
+```json
+{
+  "adapter": "mqtt",
+  "broker": "mqtts://broker.example:8883",
+  "username": "device",
+  "operation": "publish",
+  "topic": "home/device/set",
+  "payload": "on",
+  "retain": false,
+  "allowPrivateNetwork": false
+}
+```
+
+The MQTT wire adapter follows the bounded CONNECT/CONNACK and QoS1 PUBLISH/PUBACK
+exchange in the [MQTT 3.1.1 specification](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).
+It deliberately does not retransmit an unacknowledged publish.
+
 ## Failure, expiry and revocation
 
 Requests and execution access expire after 30 minutes. The private page can revoke
@@ -63,12 +144,16 @@ revocation, rotation, runtime retirement, Ask mode and skill/tool selection rema
 additional fences. The host checks authority again after asynchronous storage and
 resolution and before dispatch. Losing browser authorization cannot publish ready.
 
-Each destination has a durable `not_sent`, `unconfirmed` or `confirmed` receipt.
+Each destination has a durable `not_sent`, `unconfirmed`, `confirmed` or
+`challenge_required` receipt. Browser form actions have separate durable receipts.
 Mitzo records `unconfirmed` **before** calling the transport. A crash, timeout or
 lost response can therefore never cause automatic replay. Concurrent duplicate
 calls are rejected; later calls return the retained receipt. `confirmed` means an
-HTTP response was received, including error statuses; it is not proof that an
-application-level update succeeded. Inspect non-secret state before considering
+HTTP response was received, including error statuses, for HTTP targets. MQTT
+receipts name the protocol acknowledgement. Browser receipts confirm the reviewed
+interaction and JSON check; when an action omits its own check, only the original
+authentication check is repeated. None implies an unconfigured application-level
+update check. Inspect non-secret state before considering
 another user-authorized attempt.
 
 A lost Gateway save response retains an unconfirmed setup and deterministic
@@ -96,6 +181,11 @@ MITZO_SECRET_RELAY_WORKSPACE=<private-workspace>
 MITZO_SECRET_RELAY_PROTOCOL=openshell-operator-credentials-v1
 # Only when cleartext LAN device writes are intended:
 MITZO_SECRET_RELAY_LAN_HTTP_ENABLED=1
+# Independently opt in to the native adapters:
+MITZO_SECRET_RELAY_MQTT_ENABLED=1
+MITZO_SECRET_RELAY_BROWSER_ENABLED=1
+# Only when cleartext LAN MQTT is intended:
+MITZO_SECRET_RELAY_LAN_MQTT_ENABLED=1
 ```
 
 The host reads the selected Gateway registration and mTLS files from its own
@@ -148,3 +238,12 @@ and [desktop entry](../design/assets/private-relay-desktop-light.png).
 The full server type check exceeded the repository's local 1 GiB heap limit; the
 focused relay module type check passed. Broad application builds and the complete
 `test:ui` matrix are left to CI under the host resource policy.
+
+Adapter verification adds fake-stream MQTT packet tests, browser DNS/transport and
+MFA lifecycle tests, and an isolated real Chromium fixture for CSRF cookies,
+private OTP continuation, reviewed session actions, blocked off-origin traffic,
+blocked page-script retries and expired operation scopes. Phone/desktop fixtures
+also cover browser/MQTT review and the masked code form in both themes. Inspected
+captures: [mobile MFA](../design/assets/private-relay-mfa-mobile-dark.png) and
+[desktop adapter review](../design/assets/private-relay-adapters-desktop-light.png).
+No live broker, website, Gateway or model is called by these checks.

@@ -233,6 +233,8 @@ for (const light of [false, true])
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
+    await disclosure.press('Enter');
+    await page.locator('main').evaluate((el) => el.scrollTo({ top: 0 }));
     await page.screenshot({ path: info.outputPath('adapters-review.png'), fullPage: true });
     await page.getByLabel('Password or token', { exact: true }).fill('synthetic-password');
     await page.getByLabel('Mitzo passphrase', { exact: true }).fill('synthetic-unlock');

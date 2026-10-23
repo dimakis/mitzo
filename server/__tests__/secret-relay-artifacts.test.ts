@@ -8,6 +8,9 @@ it('pins the full secret relay host boundary and verifies all reviewed source ha
   for (const file of [
     'secret-relay',
     'secret-relay-lan',
+    'secret-relay-mqtt',
+    'secret-relay-browser',
+    'secret-relay-browser-driver',
     'secret-relay-runtime',
     'openshell-secret-vault',
     'openshell-secret-protocol',

@@ -161,11 +161,9 @@ export function createCredentialConnectionsRouter(
       relay = service.relay.browserStatus(relay.id);
       return res.json({ relay });
     } catch {
-      return res
-        .status(409)
-        .json({
-          error: 'Verification request changed. Check status before entering another code.',
-        });
+      return res.status(409).json({
+        error: 'Verification request changed. Check status before entering another code.',
+      });
     }
   });
   router.post('/relays/:id/cancel', (req, res) => {

@@ -137,7 +137,7 @@ it('captures MFA only through recent browser authorization and wakes the origina
     }),
   );
   let auth = await request(app).post('/api/reauthorize').send({ passphrase: 'correct' });
-  const post = (body: unknown, csrf = auth.body.csrf) =>
+  const post = (body: object, csrf = auth.body.csrf) =>
     request(app).post('/api/relays/relay/code').set('x-csrf-token', csrf).send(body);
   const body = { revision: 4, targetIndex: 0, code: '123456' };
   expect((await post(body, 'invalid')).status).toBe(403);
