@@ -260,6 +260,12 @@ export async function repositorySourceDigest(directory: string): Promise<string>
 interface Dependencies {
   /** Host configuration only. Request JSON selects an ID, never a filesystem path. */
   localRepositories?(): Readonly<Record<string, string>>;
+  /** Trusted host composition rechecks current access. A captured path/inode is
+   * custody evidence only; neither request JSON nor repository files grant access. */
+  assertLocalRepositoryAccess?(
+    path: string,
+    context: { binding: AccountBinding; signal: AbortSignal },
+  ): Promise<void>;
   ordinaryPreparation?: {
     capture(
       binding: AccountBinding,
@@ -724,6 +730,10 @@ export class RepositoryWorkspaces {
         record.taskIdentity.featureBranch !== record.featureBranch
       )
         throw new Error('Retained repository task claim is unavailable');
+      if (record.localSource?.selection === 'existing') {
+        await this.assertLocalSource(record, record.binding, new AbortController().signal);
+        this.assertUnchangedHostRecord(record);
+      }
       return validateRepositoryTaskCheckout(directory, record.taskIdentity);
     });
   }
@@ -950,12 +960,7 @@ export class RepositoryWorkspaces {
       throw new Error('Repository preparation belongs to another account selection');
     if (record.ordinaryPreparation) await this.assertOrdinaryPreparation(record, binding, signal);
     if (record.localSource) {
-      assertLocalRepository(
-        record.localSource,
-        this.deps.localRepositories?.()[record.localSource.repositoryId],
-        record.baseOid,
-      );
-      signal.throwIfAborted();
+      await this.assertLocalSource(record, binding, signal);
       return;
     }
     const current = await this.deps.authorize(
@@ -968,6 +973,38 @@ export class RepositoryWorkspaces {
       throw new Error('GitHub connection changed; preview the repository again');
     if (!current.allowedBaseBranches.includes(record.baseBranch))
       throw new Error('Base branch is not allowed by the selected GitHub connection');
+    signal.throwIfAborted();
+  }
+  private async assertLocalSource(
+    record: RepositoryWorkspace,
+    binding: AccountBinding,
+    signal: AbortSignal,
+  ) {
+    const source = record.localSource!;
+    signal.throwIfAborted();
+    if (source.selection === 'existing')
+      await this.assertExistingLocalRepositoryAccess(source.path, binding, signal);
+    assertLocalRepository(
+      source,
+      source.selection === 'existing'
+        ? source.path
+        : this.deps.localRepositories?.()[source.repositoryId],
+      record.baseOid,
+    );
+    signal.throwIfAborted();
+  }
+  private async assertExistingLocalRepositoryAccess(
+    path: string,
+    binding: AccountBinding,
+    signal: AbortSignal,
+  ) {
+    signal.throwIfAborted();
+    if (!this.deps.assertLocalRepositoryAccess)
+      throw Error('Existing local repository access authority unavailable');
+    await this.deps.assertLocalRepositoryAccess(path, {
+      binding: structuredClone(binding),
+      signal,
+    });
     signal.throwIfAborted();
   }
   private async assertOrdinaryPreparation(
@@ -1055,6 +1092,50 @@ export class RepositoryWorkspaces {
     requestId: string = randomUUID(),
     startPoint?: string,
   ) {
+    return this.selectLocalRepositorySource(
+      binding,
+      repositoryId,
+      selection,
+      signal,
+      requestId,
+      startPoint,
+    );
+  }
+  /** Server-only path intent after bounded discovery. This does not authorize
+   * native execution or switch a running conversation's workspace. */
+  async selectExistingLocalRepository(
+    binding: AccountBinding,
+    path: string,
+    selection: OrdinaryRepositoryRuntimeSelection,
+    signal: AbortSignal,
+    requestId: string = randomUUID(),
+    startPoint?: string,
+  ) {
+    path = canonicalPath.parse(path);
+    const configured = Object.entries(this.deps.localRepositories?.() ?? {}).find(
+      ([id, value]) => value === path && /^[A-Za-z0-9._-]+$/.test(id),
+    );
+    const repositoryId =
+      configured?.[0] ?? `existing-${createHash('sha256').update(path).digest('hex')}`;
+    return this.selectLocalRepositorySource(
+      binding,
+      repositoryId,
+      selection,
+      signal,
+      requestId,
+      startPoint,
+      path,
+    );
+  }
+  private async selectLocalRepositorySource(
+    binding: AccountBinding,
+    repositoryId: string,
+    selection: OrdinaryRepositoryRuntimeSelection,
+    signal: AbortSignal,
+    requestId: string,
+    startPoint?: string,
+    existingPath?: string,
+  ) {
     return this.runOperation(async () => {
       const id = z.uuid().parse(requestId);
       binding = AccountBindingSchema.parse(structuredClone(binding));
@@ -1062,9 +1143,10 @@ export class RepositoryWorkspaces {
       if (selection.runOn !== 'local') throw Error('Local repositories require the Mac host');
       const configured = this.deps.localRepositories?.();
       const path =
-        configured && Object.hasOwn(configured, repositoryId)
+        existingPath ??
+        (configured && Object.hasOwn(configured, repositoryId)
           ? configured[repositoryId]
-          : undefined;
+          : undefined);
       if (!path || !/^[A-Za-z0-9._-]+$/.test(repositoryId))
         throw Error('Choose a configured local repository');
       const fingerprint = ordinaryPreparationFingerprint({
@@ -1073,6 +1155,7 @@ export class RepositoryWorkspaces {
         path,
         selection,
         startPoint: startPoint ?? null,
+        ...(existingPath ? { sourceSelection: 'existing' } : {}),
       });
       const retained = this.db.prepare('SELECT id FROM repository_workspaces WHERE id=?').get(id);
       if (retained) {
@@ -1084,6 +1167,7 @@ export class RepositoryWorkspaces {
         return publicRepositoryWorkspace(record);
       }
       signal.throwIfAborted();
+      if (existingPath) await this.assertExistingLocalRepositoryAccess(path, binding, signal);
       const source = await captureLocalRepository(repositoryId, path, signal, startPoint);
       const proof = OrdinaryRepositoryPreparationSchema.parse(
         await this.deps.ordinaryPreparation?.capture(binding, selection, signal),
@@ -1098,6 +1182,7 @@ export class RepositoryWorkspaces {
         throw Error('Original local repository runtime required');
       const record: RepositoryWorkspace = {
         ...source,
+        ...(existingPath ? { localSource: { ...source.localSource, selection: 'existing' } } : {}),
         id,
         repository: `local/${repositoryId.toLowerCase()}`,
         connectionId: 'local',
@@ -1437,11 +1522,7 @@ export class RepositoryWorkspaces {
   private async assertHostSource(record: RepositoryWorkspace, signal: AbortSignal) {
     signal.throwIfAborted();
     if (record.localSource) {
-      assertLocalRepository(
-        record.localSource,
-        this.deps.localRepositories?.()[record.localSource.repositoryId],
-        record.baseOid,
-      );
+      await this.assertLocalSource(record, record.binding, signal);
       this.assertUnchangedHostRecord(record);
       return;
     }
@@ -1718,11 +1799,14 @@ export class RepositoryWorkspaces {
           branch: record.featureBranch,
           startPoint: record.baseOid,
         });
-        symlinkRuntimeDirs(
-          record.localSource.path,
-          descriptor.directory,
-          loadRepoConfig(record.localSource.path).runtimeSymlinks,
-        );
+        // An arbitrary repository's config cannot expand access through shared
+        // runtime links. Dependency preparation remains an explicit task action.
+        if (record.localSource.selection !== 'existing')
+          symlinkRuntimeDirs(
+            record.localSource.path,
+            descriptor.directory,
+            loadRepoConfig(record.localSource.path).runtimeSymlinks,
+          );
       } else await copyRepositoryTaskCheckout(this.source(record), descriptor.directory, signal);
       if (
         !record.localSource &&
