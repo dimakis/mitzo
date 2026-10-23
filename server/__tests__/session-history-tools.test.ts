@@ -18,6 +18,18 @@ function fixture() {
     dispose: vi.fn(),
   };
   const store = {
+    listSessionSummaries: vi.fn((_limit: number, _offset: number) => ({
+      sessions: [
+        {
+          sessionId: 'past-1',
+          summary: 'Project history secret',
+          summaryTruncated: false,
+          updatedAt: 2,
+        },
+        { sessionId: 'denied', summary: 'PRIVATE TITLE', summaryTruncated: false, updatedAt: 2 },
+      ],
+      hasMore: false,
+    })),
     searchSessions: vi.fn(() => [
       {
         sessionId: 'past-1',
@@ -73,6 +85,43 @@ function event(
 }
 
 describe('authorized durable session history tools', () => {
+  it('does not reveal session membership from hidden reasoning or redacted summary markers with the real EventStore', async () => {
+    const f = fixture();
+    const store = new EventStore(':memory:');
+    try {
+      store.upsertSession({
+        sessionId: 'past-1',
+        conversationSource: 'mitzo',
+        summary: 'Public project secret',
+      });
+      store.append('past-1', 'block_delta', {
+        blockType: 'thinking',
+        delta: 'thinking-only-needle',
+      });
+      store.append('past-1', 'block_delta', { blockType: 'text', delta: 'Visible assistant text' });
+      const tools = sessionHistoryTools({
+        store,
+        capture: () => f.access,
+        projectPublicText: (text) => text.replaceAll('secret', '[redacted]'),
+      });
+      for (const query of ['thinking-only-needle', 'secret']) {
+        const result = await tools.execute('SearchPastSessions', { query }, f.signal, f.call);
+        expect(result?.isError).toBe(false);
+        expect(JSON.parse(result!.content).sessions).toEqual([]);
+      }
+      const publicMatch = await tools.execute(
+        'SearchPastSessions',
+        { query: 'Public project' },
+        f.signal,
+        f.call,
+      );
+      expect(JSON.parse(publicMatch!.content).sessions).toMatchObject([
+        { conversationId: 'past-1', summary: 'Public project [redacted]' },
+      ]);
+    } finally {
+      store.close();
+    }
+  });
   it('authenticates search and each candidate before exposing bounded public summaries, without snippets', async () => {
     const f = fixture();
     vi.mocked(f.access.authorizeRead).mockImplementation(async (id) => {
@@ -89,6 +138,14 @@ describe('authorized durable session history tools', () => {
     expect(JSON.parse(result!.content)).toEqual({
       sessions: [{ conversationId: 'past-1', summary: 'Project history [redacted]', updatedAt: 2 }],
       candidateLimit: 2,
+      nextOffset: null,
+      searchCoverage: {
+        source: 'projected-session-summaries',
+        summaryCharacters: 4096,
+        scanLimit: 100,
+        metadataMayChange: true,
+        capped: false,
+      },
     });
     expect(f.access.authorizeSearch).toHaveBeenCalledWith('project', expect.anything());
     expect(f.access.authorizeRead).toHaveBeenCalledTimes(2);
@@ -134,6 +191,133 @@ describe('authorized durable session history tools', () => {
     expect(next!.content).not.toContain('PRIVATE');
     expect(next!.content).not.toContain('future');
     expect(f.access.authorizeRead).toHaveBeenCalledTimes(2);
+  });
+
+  it('continues after the last consumed candidate without exposing denied IDs or skipping later matches', async () => {
+    const f = fixture();
+    const rows = [
+      { sessionId: 'past-1', summary: 'Project one', summaryTruncated: false, updatedAt: 3 },
+      {
+        sessionId: 'denied-private-id',
+        summary: 'Project denied',
+        summaryTruncated: false,
+        updatedAt: 2,
+      },
+      { sessionId: 'past-2', summary: 'Project two', summaryTruncated: false, updatedAt: 1 },
+    ];
+    f.store.listSessionSummaries.mockImplementation((limit, offset) => ({
+      sessions: rows.slice(offset, offset + limit),
+      hasMore: offset + limit < rows.length,
+    }));
+    vi.mocked(f.access.authorizeRead).mockImplementation(async (id) => {
+      if (id.startsWith('denied')) throw Error('private target');
+      return { assertCurrent: f.access.assertCurrent };
+    });
+    const first = await f.tools.execute(
+      'SearchPastSessions',
+      { query: 'Project', limit: 1 },
+      f.signal,
+      f.call,
+    );
+    expect(JSON.parse(first!.content)).toMatchObject({
+      sessions: [{ conversationId: 'past-1' }],
+      nextOffset: 1,
+    });
+    const next = await f.tools.execute(
+      'SearchPastSessions',
+      { query: 'Project', limit: 1, offset: 1 },
+      f.signal,
+      f.call,
+    );
+    expect(JSON.parse(next!.content)).toMatchObject({
+      sessions: [{ conversationId: 'past-2' }],
+      nextOffset: null,
+    });
+    expect(first!.content + next!.content).not.toContain('denied');
+  });
+
+  it('reports scan and summary bounds and a hard search cap without assuming that all history was searched', async () => {
+    const f = fixture();
+    const rows = Array.from({ length: 100 }, (_, index) => ({
+      sessionId: `past-${index}`,
+      summary: 'Other title',
+      summaryTruncated: false,
+      updatedAt: index,
+    }));
+    f.store.listSessionSummaries.mockReturnValue({ sessions: rows, hasMore: true });
+    const scan = await f.tools.execute(
+      'SearchPastSessions',
+      { query: 'unmatched' },
+      f.signal,
+      f.call,
+    );
+    expect(JSON.parse(scan!.content)).toMatchObject({
+      sessions: [],
+      nextOffset: 100,
+      searchCoverage: { scanLimit: 100, summaryCharacters: 4096, capped: false },
+    });
+    const cap = await f.tools.execute(
+      'SearchPastSessions',
+      { query: 'unmatched', offset: 100000 },
+      f.signal,
+      f.call,
+    );
+    expect(JSON.parse(cap!.content)).toMatchObject({
+      sessions: [],
+      nextOffset: null,
+      searchCoverage: { capped: true },
+    });
+    expect(f.store.listSessionSummaries).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps byte-bounded search continuation at the unconsumed next candidate', async () => {
+    const f = fixture();
+    const rows = Array.from({ length: 20 }, (_, index) => ({
+      sessionId: `${index}` + '\0'.repeat(125),
+      summary: 'Project ' + '\0'.repeat(4088),
+      summaryTruncated: false,
+      updatedAt: index,
+    }));
+    f.store.listSessionSummaries.mockImplementation((limit, offset) => ({
+      sessions: rows.slice(offset, offset + limit),
+      hasMore: offset + limit < rows.length,
+    }));
+    const result = await f.tools.execute(
+      'SearchPastSessions',
+      { query: 'Project' },
+      f.signal,
+      f.call,
+    );
+    const page = JSON.parse(result!.content);
+    expect(result?.isError).toBe(false);
+    expect(Buffer.byteLength(result!.content)).toBeLessThanOrEqual(32768);
+    expect(page.sessions.length).toBeGreaterThan(0);
+    expect(page.sessions.length).toBeLessThan(20);
+    expect(page.nextOffset).toBe(page.sessions.length);
+    const next = await f.tools.execute(
+      'SearchPastSessions',
+      { query: 'Project', offset: page.nextOffset },
+      f.signal,
+      f.call,
+    );
+    expect(JSON.parse(next!.content).sessions[0].conversationId).toBe(
+      rows[page.nextOffset].sessionId,
+    );
+  });
+
+  it('accepts the SQL Unicode character bound without treating UTF-16 length as private row overflow', async () => {
+    const f = fixture();
+    f.store.listSessionSummaries.mockReturnValue({
+      sessions: [
+        { sessionId: 'past-1', summary: '😀'.repeat(4096), summaryTruncated: false, updatedAt: 2 },
+      ],
+      hasMore: false,
+    });
+    const result = await f.tools.execute('SearchPastSessions', { query: '😀' }, f.signal, f.call);
+    expect(result?.isError).toBe(false);
+    expect(JSON.parse(result!.content).sessions).toMatchObject([
+      { conversationId: 'past-1', summaryTruncated: true },
+    ]);
   });
 
   it('denies reads before touching storage and refuses unauthenticated or malformed calls', async () => {

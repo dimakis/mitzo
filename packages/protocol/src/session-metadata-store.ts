@@ -81,6 +81,16 @@ export type SessionUpsert = Partial<
   Omit<SessionMeta, 'sessionType' | 'symposiumConfig' | 'symposiumRevision'>
 > & { sessionId: string };
 
+export interface SessionSummaryPage {
+  sessions: Array<{
+    sessionId: string;
+    summary: string | null;
+    summaryTruncated: boolean;
+    updatedAt: number;
+  }>;
+  hasMore: boolean;
+}
+
 export interface SessionMetadataOwner {
   database(): Database.Database | null;
   statements: {
@@ -427,6 +437,47 @@ export class SessionMetadataStore {
       limit == null ? this.stmts.listSessions.all() : this.stmts.listSessionsLimited.all(limit)
     ) as SessionRow[];
     return rows.map(rowToSession);
+  }
+
+  /** Bounded title metadata only. Query matching must happen after the caller's
+   * authorization/public-text projection, never against private event payloads.
+   * Offset ordering is deterministic but not a snapshot across metadata edits. */
+  listSessionSummaries(limit = 100, offset = 0): SessionSummaryPage {
+    if (
+      !Number.isSafeInteger(limit) ||
+      limit < 1 ||
+      limit > 100 ||
+      !Number.isSafeInteger(offset) ||
+      offset < 0 ||
+      offset > 100000
+    ) {
+      throw Error('Invalid session summary pagination limit or offset');
+    }
+    const rows = this.db!.prepare(
+      `
+      SELECT s.session_id, substr(s.summary, 1, 4096) AS summary,
+        length(s.summary) > 4096 AS summary_truncated, s.updated_at
+      FROM sessions s
+      WHERE s.is_hidden = 0 AND ${REGISTERED_CONVERSATION_SQL}
+      ORDER BY s.updated_at DESC, s.session_id ASC LIMIT ? OFFSET ?
+    `,
+    ).all(limit + 1, offset) as Array<{
+      session_id: string;
+      summary: string | null;
+      summary_truncated: number | null;
+      updated_at: number;
+    }>;
+    return {
+      sessions: rows
+        .slice(0, limit)
+        .map((row) => ({
+          sessionId: row.session_id,
+          summary: row.summary,
+          summaryTruncated: row.summary_truncated === 1,
+          updatedAt: row.updated_at,
+        })),
+      hasMore: rows.length > limit,
+    };
   }
 
   /**
