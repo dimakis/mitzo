@@ -697,3 +697,62 @@ it.each([
     ).toEqual(before);
   },
 );
+
+it('rejects substituted original account, source, old/new workspace and record/scope digests before invoking authority', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  const variants = [
+    { ...p.facts, request: { ...p.facts.request, binding: { ...binding, accountId: 'other' } } },
+    {
+      ...p.facts,
+      request: {
+        ...p.facts.request,
+        nativeTarget: { ...p.facts.request.nativeTarget, commandId: 'other-source' },
+      },
+    },
+    { ...p.facts, oldWorkspace: { ...p.facts.oldWorkspace, directory: f.root } },
+    { ...p.facts, newWorkspace: { ...p.facts.newWorkspace, directory: f.root } },
+    { ...p.facts, newWorkspace: { ...p.facts.newWorkspace, baseOid: 'f'.repeat(40) } },
+    { ...p.facts, consumedScopeSha256: '0'.repeat(64) },
+    { ...p.facts, materializedRecordSha256: '0'.repeat(64) },
+  ];
+  const old = f.raw(f.old.id),
+    guard = vi.fn(() => {});
+  for (const variant of variants) {
+    const facts = freezePendingHostTaskData(variant);
+    const source = {
+      ...facts.request.nativeTarget,
+      callId: facts.request.prepareCallId,
+      requestHash: facts.request.requestHash,
+      resultSha256: facts.resultSha256,
+    };
+    const child = `prepared-repository-${pendingHostTaskDecisionHash([facts.request.conversationId, facts.request.id, source])}`;
+    expect(() => f.service.adoptPreparedRepositoryTransition(facts, child, guard)).toThrow();
+    expect(f.raw(f.old.id)).toEqual(old);
+    expect(f.raw(p.record.id)).toEqual(p.before);
+  }
+  expect(guard).not.toHaveBeenCalled();
+});
+
+it('rolls back an intervening third current pointer together with both selected custody rows', async () => {
+  const f = await fixture('ordinary'),
+    p = await f.pending();
+  const old = f.db.prepare('SELECT * FROM ordinary_workspaces WHERE id=?').get(f.old.id);
+  const internal = (f.service as unknown as { db: Database.Database }).db;
+  expect(() =>
+    f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {
+      internal
+        .prepare('INSERT INTO repository_workspaces VALUES (?,?,?)')
+        .run(
+          'intervening',
+          JSON.stringify({ id: 'intervening', conversationId: f.conversationId }),
+          f.conversationId,
+        );
+    }),
+  ).toThrow();
+  expect(f.db.prepare('SELECT * FROM ordinary_workspaces WHERE id=?').get(f.old.id)).toEqual(old);
+  expect(f.raw(p.record.id)).toEqual(p.before);
+  expect(
+    f.db.prepare('SELECT id FROM repository_workspaces WHERE id=?').get('intervening'),
+  ).toBeUndefined();
+});
