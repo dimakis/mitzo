@@ -670,36 +670,13 @@ it('keeps the real frozen bootstrap through exact old-meta and new-meta uncertai
             workspace: { workspaceId: 'new', cwd: join(taskRoot, 'new') },
           }),
         ).toThrow();
-        f.store.admitPreparedRepositoryPrimaryContinuation(
-          {
-            sessionId: 'session',
-            accountBinding: account,
-            repositoryWorkspaceId: 'new',
-            cwd: join(taskRoot, 'new'),
-            mode: 'agent',
-            agentProfile: profile,
-          },
-          f.expected.binding,
-          {
-            clientMsgId: 'followup',
-            requestFingerprint: 'followup',
-            selection: f.expected.selection,
-            payload: {
-              text: 'Prepare another task repository',
-              systemPrompt: 'Original instructions',
-            },
-          },
-          child.childCommandId,
-        );
-        f.store.claimOrdinaryLocalCommandDispatch('followup');
-        f.store.completeOrdinaryLocalCommand('followup');
         const second = {
           ...transition,
           priorPrimaryCommandId: child.childCommandId,
           preparationId: '3dbdc62d-20ab-4144-b210-c55bc7f39cda',
           source: {
             ...transition.source,
-            commandId: 'followup',
+            commandId: child.childCommandId,
             turnId: 'second-turn',
             callId: 'second-prepare',
           },

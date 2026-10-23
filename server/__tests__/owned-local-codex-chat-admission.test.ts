@@ -140,7 +140,7 @@ function preparedOperationFixture() {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-prepared-operation-'));
   const native = new CodexConversationStore(join(root, 'native.db'));
   f.store.claimOrdinaryLocalCommandDispatch('command');
-  const admission = OwnedLocalCodexChatAdmission.capture(f.input);
+  const admission = OwnedLocalCodexChatAdmission.capture({ ...f.input, nativeStore: native });
   admission.assertOptions(f.options);
   f.store.completeOrdinaryLocalCommand('command');
   native.create('session', f.binding, f.options.session.cwd);
@@ -244,6 +244,7 @@ function preparedOperationFixture() {
       if (!oldOwner) throw Error('Old owner must not be called after CAS');
       admission.assertCurrentSync();
     },
+    assertConversationCurrentSync: vi.fn(() => {}),
     assertOperatorAndLeaseCurrentSync: () => f.lease.assertCurrentSync(),
     prepareWorkspaceHandoff: () => handoff,
   };
@@ -365,6 +366,208 @@ it('refuses mutable nested materialization identity instead of diverging from th
     f.close();
   }
 });
+it.each([
+  'success',
+  'cancelled barrier',
+  'uncertain primary',
+  'old queued command',
+  'expired scope',
+  'async lease',
+  'value barrier',
+] as const)(
+  'continues only the exact original task from its prepared-primary source: %s',
+  async (scenario) => {
+    const f = preparedOperationFixture();
+    try {
+      const first = await performPreparedRepositoryPrimaryTransition(f.proof, f.owners);
+      const command = f.native.claimNext('session', f.binding)!;
+      expect(command.id).toBe(first.childCommandId);
+      f.admission.assertBeforeDispatch(command.id);
+      const policy = codexNativeExecutionPolicy({
+        bindingRevision: 'selected',
+        mode: 'agent',
+        cwd: first.workspace.directory,
+        readableRoots: ['/offline'],
+        writableRoots: [first.workspace.directory],
+        deniedRoots: ['/credentials'],
+        writeProtectedRoots: [],
+      });
+      f.native.prepareNativeExecution('session', f.binding, command, 'thread', policy);
+      f.native.recordNativeTurnAck('session', f.binding, command, 'thread', 'second-turn');
+      f.native.acceptNativeExecution('session', f.binding, command, 'thread', 'second-turn');
+      const identity = {
+        turnId: 'second-turn',
+        toolName: 'PrepareLocalRepository',
+        requestHash: 'e'.repeat(64),
+      };
+      const result = {
+        content: 'Second repository prepared for the SAME original task',
+        isError: false,
+      };
+      f.native.claimTool('session', f.binding, command.id, 'second-prepare', identity);
+      f.native.recordToolResult(
+        'session',
+        f.binding,
+        command.id,
+        'second-prepare',
+        identity,
+        result,
+      );
+      f.native.finish('session', f.binding, command.id, 'completed', 'second-turn');
+      const freeze = <T>(value: T): T => {
+        if (value && typeof value === 'object') {
+          for (const item of Object.values(value)) freeze(item);
+          Object.freeze(value);
+        }
+        return value;
+      };
+      const proof = {
+        facts: freeze({
+          ...f.proof.facts,
+          request: {
+            ...f.proof.facts.request,
+            id: '3dbdc62d-20ab-4144-b210-c55bc7f39cda',
+            nativeTarget: {
+              commandId: command.id,
+              attempt: 1,
+              threadId: 'thread',
+              turnId: 'second-turn',
+              generation: 0,
+            },
+            prepareCallId: 'second-prepare',
+            requestHash: identity.requestHash,
+          },
+          oldWorkspace: {
+            kind: 'repository' as const,
+            id: first.workspace.id,
+            directory: first.workspace.directory,
+          },
+          newWorkspace: {
+            ...first.workspace,
+            id: 'prepared-again',
+            directory: '/offline/prepared-again',
+            taskIdentity: { ...first.workspace.taskIdentity, directory: '/offline/prepared-again' },
+          },
+          resultSha256: preparedRepositoryResultSha256(result),
+        }),
+        assertCurrentSync: vi.fn(),
+        revalidate: vi.fn(async () => {}),
+        adopt: vi.fn(async () => {}),
+      };
+      let conversationCurrent = true;
+      const assertConversationCurrentSync = () => {
+        if (!conversationCurrent) throw Error('Original conversation expired');
+      };
+      const sourceFence = f.admission.capturePreparedRepositoryPrimarySource(
+        proof.facts.request.nativeTarget,
+        assertConversationCurrentSync,
+      )!;
+      expect(Object.isFrozen(sourceFence)).toBe(true);
+      expect(() =>
+        f.native.completedPreparedRepositoryResultSha256(
+          'session',
+          f.binding,
+          proof.facts.request.nativeTarget,
+          'second-prepare',
+          identity.requestHash,
+        ),
+      ).toThrow();
+      expect(
+        f.native.completedPreparedRepositoryResultSha256(
+          'session',
+          f.binding,
+          proof.facts.request.nativeTarget,
+          'second-prepare',
+          identity.requestHash,
+          sourceFence,
+        ),
+      ).toBe(proof.facts.resultSha256);
+      expect(() =>
+        sourceFence.assertCurrentSync({
+          ...command,
+          status: 'completed',
+          environmentContinuation: {
+            sourceCommandId: 'other',
+            sourceTurnId: 'turn',
+            sourceThreadId: 'thread',
+            sourceGeneration: 0,
+          },
+        }),
+      ).toThrow();
+      expect(() => sourceFence.bindOutgoing('missing-child')).toThrow();
+      const nextOwners = {
+        ...f.owners,
+        preparedPrimarySource: sourceFence,
+        assertConversationCurrentSync,
+        expected: {
+          ...f.input.expected,
+          workspace: { workspaceId: first.workspace.id, cwd: first.workspace.directory },
+        },
+        assertCurrentSync: () => f.admission.assertCurrentSync(),
+      };
+      if (scenario !== 'success') {
+        if (scenario === 'cancelled barrier')
+          proof.revalidate.mockImplementation(async () => {
+            conversationCurrent = false;
+          });
+        if (scenario === 'uncertain primary')
+          f.store.markPreparedRepositoryContinuationUncertain(first.childCommandId);
+        if (scenario === 'old queued command')
+          f.native.enqueue('session', f.binding, {
+            id: 'old-followup',
+            prompt: 'Old queued follow-up',
+          });
+        if (scenario === 'expired scope') sourceFence.dispose();
+        if (scenario === 'async lease')
+          vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => Promise.resolve());
+        if (scenario === 'value barrier') nextOwners.assertConversationCurrentSync = () => false;
+        try {
+          await expect(
+            performPreparedRepositoryPrimaryTransition(proof, nextOwners),
+          ).rejects.toThrow();
+        } finally {
+          sourceFence.dispose();
+        }
+        expect(proof.adopt).not.toHaveBeenCalled();
+        expect(
+          f.native
+            .commands('session', f.binding)
+            .filter((command) => command.id.startsWith('prepared-repository-')),
+        ).toHaveLength(1);
+        return;
+      }
+      const second = await performPreparedRepositoryPrimaryTransition(proof, {
+        ...nextOwners,
+        expected: {
+          ...f.input.expected,
+          workspace: { workspaceId: first.workspace.id, cwd: first.workspace.directory },
+        },
+        assertCurrentSync: () => f.admission.assertCurrentSync(),
+      });
+      expect(proof.adopt).toHaveBeenCalledOnce();
+      expect(() => sourceFence.assertCurrentSync()).toThrow();
+      expect(() => sourceFence.bindOutgoing(second.childCommandId)).toThrow();
+      expect(
+        f.store.observePreparedRepositoryContinuation(second.childCommandId)
+          .preparedRepositoryTransition?.priorPrimaryCommandId,
+      ).toBe(first.childCommandId);
+      expect(f.native.commands('session', f.binding)).toMatchObject([
+        { id: 'command', status: 'completed', intent: 'Original intent' },
+        { id: first.childCommandId, status: 'completed', intent: 'Original intent' },
+        { id: second.childCommandId, status: 'queued', intent: 'Original intent' },
+      ]);
+      expect(f.admission.canClaimCommand(second.childCommandId)).toBe(true);
+      expect(
+        f.store.observePreparedRepositoryBootstrapAdmission(second.childCommandId, 'command')
+          .requestFingerprint,
+      ).toBe('fingerprint');
+      expect(f.lease.client.request).not.toHaveBeenCalled();
+    } finally {
+      f.close();
+    }
+  },
+);
+
 it('adopts only its exact committed prepared child under the same lease and preserves original payload/receipt', () => {
   const f = fixture();
   try {

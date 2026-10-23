@@ -3,7 +3,10 @@ import { isDeepStrictEqual } from 'node:util';
 import { PreparedRepositoryTransitionSchema, type AccountBinding } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
 import type { CodexConversationStore } from './codex-conversation-store.js';
-import type { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
+import type {
+  OwnedLocalCodexChatAdmission,
+  CapturedPreparedRepositoryPrimarySource,
+} from './owned-local-codex-chat-admission.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from './ordinary-local-codex-admission.js';
 import type {
   PreparedRepositoryTransitionFacts,
@@ -17,7 +20,12 @@ interface Owners {
   conversationId: string;
   binding: AccountBinding;
   expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>;
+  /** Captured before repository lookup/digest awaits by the actual barrier.
+   * The barrier also disposes it in finally if capture itself fails. */
+  preparedPrimarySource?: CapturedPreparedRepositoryPrimarySource;
   assertCurrentSync(): void;
+  /** Original retained-transport preclaim lifetime; contains no workspace assertion. */
+  assertConversationCurrentSync(): void;
   /** Operator and selected native lease only: old workspace custody is no longer
    * current after the repository CAS and must not be asserted afterward. */
   assertOperatorAndLeaseCurrentSync(): void;
@@ -53,72 +61,94 @@ export async function performPreparedRepositoryPrimaryTransition(
   proof: PreparedRepositoryTransitionProof,
   owners: Owners,
 ) {
-  const facts = proof.facts;
-  const assertProof = proof.assertCurrentSync;
-  const revalidate = proof.revalidate;
-  const adopt = proof.adopt;
-  assertFrozenFacts(facts);
-  const request = facts.request;
-  if (
-    facts.version !== 'prepared-repository-transition-v1' ||
-    request.conversationId !== owners.conversationId ||
-    !isDeepStrictEqual(request.binding, owners.binding) ||
-    !isDeepStrictEqual(request.runtimeBinding, owners.expected.binding) ||
-    !isDeepStrictEqual(
-      owners.events.getSessionRuntimeBinding(owners.conversationId),
-      request.runtimeBinding,
-    ) ||
-    facts.oldWorkspace.id !== owners.expected.workspace.workspaceId ||
-    facts.oldWorkspace.directory !== owners.expected.workspace.cwd
-  )
-    throw Error('Original prepared repository binding unavailable');
-  const priorPrimaryCommandId = owners.admission.currentPreparedRepositoryPrimaryCommandId();
-  const transition = PreparedRepositoryTransitionSchema.parse({
-    version: 1,
-    preparationId: request.id,
-    runtimeId: request.runtimeId,
-    ...(priorPrimaryCommandId ? { priorPrimaryCommandId } : {}),
-    source: {
-      ...request.nativeTarget,
-      callId: request.prepareCallId,
-      requestHash: request.requestHash,
-      resultSha256: facts.resultSha256,
-    },
-    oldWorkspace: facts.oldWorkspace,
-    newWorkspace: {
-      kind: facts.newWorkspace.kind,
-      id: facts.newWorkspace.id,
-      directory: facts.newWorkspace.directory,
-      featureBranch: facts.newWorkspace.featureBranch,
-      baseOid: facts.newWorkspace.baseOid,
-      taskIdentitySha256: createHash('sha256')
-        .update(JSON.stringify(facts.newWorkspace.taskIdentity))
-        .digest('hex'),
-    },
-    consumedScopeSha256: facts.consumedScopeSha256,
-    materializedRecordSha256: facts.materializedRecordSha256,
-  });
-  const source = { ...transition.source, toolName: 'PrepareLocalRepository' as const };
-  const assertNativeSource = () =>
-    owners.native.assertCompletedPreparedRepositorySource(
-      owners.conversationId,
-      owners.binding,
-      source,
-    );
-  const assertOriginal = () => {
-    if (
-      proof.facts !== facts ||
-      proof.assertCurrentSync !== assertProof ||
-      proof.revalidate !== revalidate ||
-      proof.adopt !== adopt
-    )
-      throw Error('Original prepared repository proof changed');
-    sync(owners.assertCurrentSync());
-    sync(assertProof.call(proof));
-    assertNativeSource();
-  };
+  let primarySource: CapturedPreparedRepositoryPrimarySource | undefined =
+    owners.preparedPrimarySource;
   let childCommandId: string | undefined;
   try {
+    const facts = proof.facts;
+    const assertProof = proof.assertCurrentSync;
+    const revalidate = proof.revalidate;
+    const adopt = proof.adopt;
+    assertFrozenFacts(facts);
+    const request = facts.request;
+    if (
+      facts.version !== 'prepared-repository-transition-v1' ||
+      request.conversationId !== owners.conversationId ||
+      !isDeepStrictEqual(request.binding, owners.binding) ||
+      !isDeepStrictEqual(request.runtimeBinding, owners.expected.binding) ||
+      !isDeepStrictEqual(
+        owners.events.getSessionRuntimeBinding(owners.conversationId),
+        request.runtimeBinding,
+      ) ||
+      facts.oldWorkspace.id !== owners.expected.workspace.workspaceId ||
+      facts.oldWorkspace.directory !== owners.expected.workspace.cwd
+    )
+      throw Error('Original prepared repository binding unavailable');
+    const providedPrimarySource = owners.preparedPrimarySource;
+    if (providedPrimarySource) sync(providedPrimarySource.assertCurrentSync());
+    const originalConversationFence = owners.assertConversationCurrentSync;
+    const assertConversation = () => {
+      if (owners.assertConversationCurrentSync !== originalConversationFence)
+        throw Error('Original conversation fence changed');
+      sync(originalConversationFence.call(owners));
+    };
+    primarySource =
+      owners.preparedPrimarySource ??
+      owners.admission.capturePreparedRepositoryPrimarySource(
+        request.nativeTarget,
+        assertConversation,
+      );
+    if (primarySource) sync(primarySource.assertCurrentSync());
+    const priorPrimaryCommandId = owners.admission.currentPreparedRepositoryPrimaryCommandId();
+    const transition = PreparedRepositoryTransitionSchema.parse({
+      version: 1,
+      preparationId: request.id,
+      runtimeId: request.runtimeId,
+      ...(priorPrimaryCommandId ? { priorPrimaryCommandId } : {}),
+      source: {
+        ...request.nativeTarget,
+        callId: request.prepareCallId,
+        requestHash: request.requestHash,
+        resultSha256: facts.resultSha256,
+      },
+      oldWorkspace: facts.oldWorkspace,
+      newWorkspace: {
+        kind: facts.newWorkspace.kind,
+        id: facts.newWorkspace.id,
+        directory: facts.newWorkspace.directory,
+        featureBranch: facts.newWorkspace.featureBranch,
+        baseOid: facts.newWorkspace.baseOid,
+        taskIdentitySha256: createHash('sha256')
+          .update(JSON.stringify(facts.newWorkspace.taskIdentity))
+          .digest('hex'),
+      },
+      consumedScopeSha256: facts.consumedScopeSha256,
+      materializedRecordSha256: facts.materializedRecordSha256,
+    });
+    const source = { ...transition.source, toolName: 'PrepareLocalRepository' as const };
+    const assertNativeSource = () => {
+      if (owners.preparedPrimarySource !== providedPrimarySource)
+        throw Error('Original prepared primary source changed');
+      owners.native.assertCompletedPreparedRepositorySource(
+        owners.conversationId,
+        owners.binding,
+        source,
+        primarySource,
+      );
+    };
+    const assertOriginal = () => {
+      if (
+        proof.facts !== facts ||
+        proof.assertCurrentSync !== assertProof ||
+        proof.revalidate !== revalidate ||
+        proof.adopt !== adopt
+      )
+        throw Error('Original prepared repository proof changed');
+      assertConversation();
+      sync(owners.assertCurrentSync());
+      sync(assertProof.call(proof));
+      assertNativeSource();
+    };
     assertOriginal();
     await settle(revalidate.call(proof));
     assertOriginal();
@@ -128,6 +158,7 @@ export async function performPreparedRepositoryPrimaryTransition(
     );
     childCommandId = reserved.childCommandId;
     if (!reserved.fresh) throw Error('Prepared repository continuation requires reconciliation');
+    primarySource?.bindOutgoing(childCommandId);
     const expected = {
       ...structuredClone(owners.expected),
       workspace: reserved.admission.workspace,
@@ -143,6 +174,7 @@ export async function performPreparedRepositoryPrimaryTransition(
     await settle(adopt.call(proof, childCommandId));
     // The repository effect invalidates the old owner. Only the unchanged
     // operator/lease, exact native source, and new physical custody apply here.
+    assertConversation();
     sync(owners.assertOperatorAndLeaseCurrentSync());
     assertNativeSource();
     sync(handoff.assertCurrentSync());
@@ -157,6 +189,7 @@ export async function performPreparedRepositoryPrimaryTransition(
       source,
       facts.oldWorkspace.directory,
       facts.newWorkspace.directory,
+      primarySource,
     );
     sync(handoff.commit());
     sync(commitAdmission());
@@ -174,6 +207,7 @@ export async function performPreparedRepositoryPrimaryTransition(
         owners.binding,
         source,
         input,
+        primarySource,
       )
     )
       throw Error('Prepared repository child enqueue requires reconciliation');
@@ -187,6 +221,7 @@ export async function performPreparedRepositoryPrimaryTransition(
           owners.binding,
           source,
           input,
+          primarySource,
         ),
     );
     return { childCommandId, workspace: facts.newWorkspace };
@@ -195,5 +230,7 @@ export async function performPreparedRepositoryPrimaryTransition(
     // claim/cold resume must see uncertainty rather than infer runnable authority.
     if (childCommandId) owners.events.markPreparedRepositoryContinuationUncertain(childCommandId);
     throw error;
+  } finally {
+    primarySource?.dispose();
   }
 }

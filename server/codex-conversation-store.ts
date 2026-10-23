@@ -206,6 +206,12 @@ const CompletedPreparedRepositorySourceSchema = CodexNativeTurnTargetSchema.exte
 export type CompletedPreparedRepositorySource = z.infer<
   typeof CompletedPreparedRepositorySourceSchema
 >;
+/** Private captured original-owner callback. A model packet or descriptive
+ * receipt cannot supply this authority. Native source checks remain independent. */
+export interface PreparedRepositoryPrimarySourceFence {
+  readonly commandId: string;
+  assertCurrentSync(command?: Readonly<CodexCommand>): void;
+}
 export function preparedRepositoryResultSha256(result: CodexToolResult): string {
   const checked = normalizeCodexToolResult(result);
   // Match recordToolResult/replayToolResult's durable public projection exactly.
@@ -2351,6 +2357,7 @@ export class CodexConversationStore {
     target: Readonly<CodexNativeTurnTarget>,
     callId: string,
     requestHash: string,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
   ): string {
     if (!isDeepStrictEqual(this.completedNativeTurnTarget(id, binding), target))
       throw Error('Completed prepared repository target changed');
@@ -2362,12 +2369,17 @@ export class CodexConversationStore {
     const result = this.replayToolResult(id, binding, target.commandId, callId, identity);
     if (!result || result.isError) throw Error('Completed prepared repository result unavailable');
     const resultSha256 = preparedRepositoryResultSha256(result);
-    this.assertCompletedPreparedRepositorySource(id, binding, {
-      ...target,
-      ...identity,
-      callId,
-      resultSha256,
-    });
+    this.assertCompletedPreparedRepositorySource(
+      id,
+      binding,
+      {
+        ...target,
+        ...identity,
+        callId,
+        resultSha256,
+      },
+      primarySource,
+    );
     return resultSha256;
   }
   targetedInterruptReceipt(
@@ -3072,14 +3084,16 @@ export class CodexConversationStore {
     id: string,
     binding: AccountBinding,
     rawSource: CompletedPreparedRepositorySource,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
   ): void {
-    this.assertPreparedRepositorySource(id, binding, rawSource);
+    this.assertPreparedRepositorySource(id, binding, rawSource, undefined, primarySource);
   }
   private assertPreparedRepositorySource(
     id: string,
     binding: AccountBinding,
     rawSource: CompletedPreparedRepositorySource,
     exactQueuedChildId?: string,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
   ): void {
     this.db.transaction(() => {
       const source = CompletedPreparedRepositorySourceSchema.parse(rawSource);
@@ -3110,10 +3124,28 @@ export class CodexConversationStore {
         ) ||
         !original?.intent?.trim() ||
         original.allowedTools ||
-        original.environmentContinuation ||
+        (original.environmentContinuation && !primarySource) ||
         commands.filter((command) => command.status !== 'queued').at(-1)?.id !== source.commandId
       )
         fail();
+      if (original!.environmentContinuation) {
+        if (
+          !/^prepared-repository-[a-f0-9]{64}$/.test(original!.id) ||
+          primarySource?.commandId !== source.commandId
+        )
+          fail();
+        const assert = primarySource!.assertCurrentSync;
+        const checked: unknown = assert.call(primarySource, structuredClone(original!));
+        if (checked !== undefined) {
+          void Promise.resolve(checked).catch(() => {});
+          fail();
+        }
+        if (
+          primarySource!.assertCurrentSync !== assert ||
+          primarySource!.commandId !== source.commandId
+        )
+          fail();
+      }
       this.assertNoPendingThreadOwnership(id, binding);
       this.assertNoPendingThreadDispatch(id, binding);
       const targets = this.nativeTurns(row!.native_turns).filter(
@@ -3155,6 +3187,7 @@ export class CodexConversationStore {
     binding: AccountBinding,
     source: CompletedPreparedRepositorySource,
     rawInput: CodexCommandInput,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
   ): void {
     this.db.transaction(() => {
       const input = CommandInput.parse(rawInput);
@@ -3182,7 +3215,7 @@ export class CodexConversationStore {
         throw Error('Prepared repository child is not exactly queued');
       if (!isDeepStrictEqual(retained, expected))
         throw Error('Prepared repository queued child changed');
-      this.assertPreparedRepositorySource(id, binding, source, input.id);
+      this.assertPreparedRepositorySource(id, binding, source, input.id, primarySource);
     })();
   }
   /** Called only after the existing admission owner consumed the exact prepared
@@ -3193,9 +3226,10 @@ export class CodexConversationStore {
     binding: AccountBinding,
     source: CompletedPreparedRepositorySource,
     rawInput: CodexCommandInput,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
   ): boolean {
     return this.db.transaction(() => {
-      this.assertCompletedPreparedRepositorySource(id, binding, source);
+      this.assertCompletedPreparedRepositorySource(id, binding, source, primarySource);
       const input = CommandInput.parse(rawInput);
       const original = this.commands(id, binding).find(
         (command) => command.id === source.commandId,
@@ -3203,7 +3237,7 @@ export class CodexConversationStore {
       if (
         !original?.intent?.trim() ||
         original.allowedTools ||
-        original.environmentContinuation ||
+        (original.environmentContinuation && !primarySource) ||
         input.intent !== original.intent ||
         input.allowedTools ||
         input.environmentContinuation ||
@@ -3229,9 +3263,10 @@ export class CodexConversationStore {
     source: CompletedPreparedRepositorySource,
     expectedCwd: string,
     nextCwd: string,
+    primarySource?: PreparedRepositoryPrimarySourceFence,
   ): void {
     this.db.transaction(() => {
-      this.assertCompletedPreparedRepositorySource(id, binding, source);
+      this.assertCompletedPreparedRepositorySource(id, binding, source, primarySource);
       if (
         !isAbsolute(nextCwd) ||
         resolve(nextCwd) !== nextCwd ||

@@ -10,7 +10,11 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import type { AccountBinding, AgentLibraryVersion, AgentContextSnapshot } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
-import type { CodexConversationStore } from './codex-conversation-store.js';
+import type {
+  CodexConversationStore,
+  CodexCommand,
+  PreparedRepositoryPrimarySourceFence,
+} from './codex-conversation-store.js';
 import { HostCodexCustodySchema, type HostCodexCustody } from './host-codex-custody.js';
 import type { FrozenHostCodexBootstrapLease } from './frozen-host-codex-bootstrap.js';
 import type { OwnedCodexLifecycleBridge } from './owned-codex-lifecycle-bridge.js';
@@ -51,6 +55,10 @@ export interface OwnedLocalCodexChatOptions {
   repositoryWorkspace?: { id: string; directory?: string; sandbox?: boolean };
   resume?: boolean;
   reattachOnly?: boolean;
+}
+export interface CapturedPreparedRepositoryPrimarySource extends PreparedRepositoryPrimarySourceFence {
+  bindOutgoing(childCommandId: string): void;
+  dispose(): void;
 }
 interface Owner {
   workspaceKind?: 'repository' | 'ordinary';
@@ -264,6 +272,186 @@ export class OwnedLocalCodexChatAdmission {
    * synchronous handoff is usable only after the guarded repository CAS and
    * exact EventStore commit; it never authorizes either effect itself. Original
    * expected/payload remain intact; the live owner delegates to its new primary. */
+  /** Capture only this live adopted primary, before repository lookup awaits.
+   * The stack-scoped fence follows one exact UNCERTAIN outgoing handoff and
+   * expires in the barrier's finally; it is neither a grant nor cold recovery. */
+  capturePreparedRepositoryPrimarySource(
+    target: Readonly<CodexNativeTurnTarget>,
+    assertConversationCurrentSync: () => void,
+  ): CapturedPreparedRepositoryPrimarySource | undefined {
+    if (this.#primary)
+      return this.#primary.capturePreparedRepositoryPrimarySource(
+        target,
+        assertConversationCurrentSync,
+      );
+    if (!this.#adoptedPrimary || target.commandId !== this.owner.commandId) return undefined;
+    const owner = this.owner,
+      expected = this.#expected,
+      session = this.#session,
+      lease = owner.lease,
+      assertLease = lease.assertCurrentSync,
+      events = owner.eventStore,
+      sessionId = owner.sessionId,
+      ownerExpected = owner.expected,
+      nativeStore = owner.nativeStore,
+      bridge = owner.bridge;
+    const receipt = events.getOrdinaryLocalCommandAdmission(owner.commandId);
+    if (!session || receipt?.state !== 'consumed' || !receipt.preparedRepositoryTransition)
+      throw unavailable();
+    const sourceTarget = structuredClone(target),
+      commandId = owner.commandId;
+    if (
+      !nativeStore ||
+      !isDeepStrictEqual(
+        nativeStore.completedNativeTurnTarget(sessionId, this.#binding),
+        sourceTarget,
+      )
+    )
+      throw unavailable();
+    let live = true,
+      outgoing: { id: string; receipt: NonNullable<typeof receipt> } | undefined;
+    const sync = (value: unknown) => {
+      if (value === undefined) return;
+      void Promise.resolve(value).catch(() => {});
+      throw unavailable();
+    };
+    const assert = (command?: Readonly<CodexCommand>) => {
+      if (
+        !live ||
+        this.#closed ||
+        this.owner !== owner ||
+        this.#expected !== expected ||
+        this.#session !== session ||
+        owner.commandId !== commandId ||
+        owner.sessionId !== sessionId ||
+        owner.expected !== ownerExpected ||
+        owner.nativeStore !== nativeStore ||
+        owner.bridge !== bridge ||
+        owner.lease !== lease ||
+        owner.eventStore !== events ||
+        lease.assertCurrentSync !== assertLease ||
+        session.mode !== expected.selection.permission.mode ||
+        !isDeepStrictEqual(
+          nativeStore.completedNativeTurnTarget(sessionId, this.#binding),
+          sourceTarget,
+        )
+      )
+        throw unavailable();
+      const meta = events.getSession(sessionId),
+        send = events.getSendCommand(commandId);
+      if (
+        !this.#opened ||
+        !send ||
+        send.error ||
+        send.sessionId !== sessionId ||
+        !isDeepStrictEqual(Payload.parse(send.payload), this.#payload) ||
+        !isDeepStrictEqual(meta?.accountBinding, this.#binding) ||
+        meta?.mode !== expected.selection.permission.mode ||
+        !isDeepStrictEqual(meta.agentProfile ?? undefined, expected.agentProfile) ||
+        !isDeepStrictEqual(meta.agentContext ?? undefined, expected.agentContext)
+      )
+        throw unavailable();
+      sync(assertConversationCurrentSync());
+      sync(assertLease.call(lease));
+      if (
+        nativeStore
+          .commands(sessionId, this.#binding)
+          .some(
+            (command) =>
+              command.status === 'running' ||
+              (command.status === 'queued' && command.id !== outgoing?.id),
+          )
+      )
+        throw unavailable();
+      if (
+        command &&
+        (command.id !== commandId ||
+          command.status !== 'completed' ||
+          command.allowedTools ||
+          command.prompt !== this.#payload.text ||
+          command.intent !== this.#payload.intent ||
+          !isDeepStrictEqual(command.environmentContinuation, {
+            sourceCommandId: receipt.preparedRepositoryTransition!.source.commandId,
+            sourceTurnId: receipt.preparedRepositoryTransition!.source.turnId,
+            sourceThreadId: receipt.preparedRepositoryTransition!.source.threadId,
+            sourceGeneration: receipt.preparedRepositoryTransition!.source.generation,
+          }))
+      )
+        throw unavailable();
+      if (!outgoing) {
+        if (
+          this.#primary ||
+          session.cwd !== expected.workspace.cwd ||
+          !isDeepStrictEqual(events.getOrdinaryLocalCommandAdmission(commandId), receipt)
+        )
+          throw unavailable();
+      } else {
+        const child = events.observePreparedRepositoryContinuation(outgoing.id);
+        if (
+          child.state !== 'uncertain' ||
+          !isDeepStrictEqual(child, outgoing.receipt) ||
+          (this.#primary &&
+            (this.#primary.owner.commandId !== outgoing.id ||
+              this.#primary.owner.lease !== lease ||
+              this.#primary.#session !== session))
+        )
+          throw unavailable();
+        const next = child.preparedRepositoryTransition!.newWorkspace;
+        if (
+          typeof session.cwd !== 'string' ||
+          ![expected.workspace.cwd, next.directory].includes(session.cwd)
+        )
+          throw unavailable();
+        const oldMeta =
+          meta?.cwd === expected.workspace.cwd &&
+          meta.repositoryWorkspaceId === expected.workspace.workspaceId;
+        const newMeta =
+          meta?.cwd === next.directory &&
+          meta.repositoryWorkspaceId === next.id &&
+          meta.ordinaryWorkspaceId == null;
+        if (!oldMeta && !newMeta) throw unavailable();
+        const retained = oldMeta
+          ? events.getOrdinaryLocalCommandAdmission(commandId)
+          : events.getPreparedRepositorySourceAdmission(outgoing.id);
+        if (!isDeepStrictEqual(retained, receipt)) throw unavailable();
+      }
+    };
+    assert();
+    return Object.freeze({
+      commandId,
+      assertCurrentSync: assert,
+      bindOutgoing: (id: string) => {
+        assert();
+        if (outgoing) throw unavailable();
+        const child = events.observePreparedRepositoryContinuation(id),
+          transition = child.preparedRepositoryTransition;
+        if (
+          child.state !== 'uncertain' ||
+          !transition ||
+          transition.priorPrimaryCommandId !== commandId ||
+          transition.source.commandId !== commandId ||
+          !isDeepStrictEqual(
+            {
+              commandId: transition.source.commandId,
+              attempt: transition.source.attempt,
+              threadId: transition.source.threadId,
+              turnId: transition.source.turnId,
+              generation: transition.source.generation,
+            },
+            sourceTarget,
+          ) ||
+          transition.oldWorkspace.id !== expected.workspace.workspaceId ||
+          transition.oldWorkspace.directory !== expected.workspace.cwd
+        )
+          throw unavailable();
+        outgoing = { id, receipt: child };
+        assert();
+      },
+      dispose: () => {
+        live = false;
+      },
+    });
+  }
   currentPreparedRepositoryPrimaryCommandId(): string | undefined {
     if (this.#primary) return this.#primary.currentPreparedRepositoryPrimaryCommandId();
     this.assertCurrentSync();

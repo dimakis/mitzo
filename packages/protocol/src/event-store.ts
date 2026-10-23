@@ -969,14 +969,17 @@ export class EventStore {
         old.directory === transition.newWorkspace.directory
       )
         throw Error('Prepared repository transition source unavailable');
-      if (source.preparedRepositoryPrimaryCommandId !== transition.priorPrimaryCommandId)
+      const sourcePrimary = source.preparedRepositoryTransition
+        ? transition.source.commandId
+        : source.preparedRepositoryPrimaryCommandId;
+      if (sourcePrimary !== transition.priorPrimaryCommandId)
         throw Error('Prepared repository prior primary changed');
       if (transition.priorPrimaryCommandId) {
         const prior = this.readPreparedRepositoryTransition(transition.priorPrimaryCommandId);
         const priorSend = this.getSendCommand(transition.priorPrimaryCommandId);
         const order = this.db!.prepare(
           `SELECT 1 AS valid FROM send_commands parent,send_commands source
-          WHERE parent.client_msg_id=? AND source.client_msg_id=? AND parent.rowid<source.rowid`,
+          WHERE parent.client_msg_id=? AND source.client_msg_id=? AND (parent.rowid<source.rowid OR (parent.client_msg_id=source.client_msg_id AND json_extract(source.ordinary_admission,'$.preparedRepositoryTransition') IS NOT NULL))`,
         ).get(transition.priorPrimaryCommandId, transition.source.commandId);
         if (
           !order ||
@@ -1128,7 +1131,10 @@ export class EventStore {
       )
         throw Error('Original prepared repository bootstrap observation unavailable');
       const prior = transition.priorPrimaryCommandId;
-      if (source.admission.preparedRepositoryPrimaryCommandId !== prior)
+      const sourcePrimary = source.admission.preparedRepositoryTransition
+        ? transition.source.commandId
+        : source.admission.preparedRepositoryPrimaryCommandId;
+      if (sourcePrimary !== prior)
         throw Error('Original prepared repository primary pointer changed');
       if (!prior) {
         const earlier = this.db!.prepare(
@@ -1145,7 +1151,8 @@ export class EventStore {
       }
       const parent = read(prior);
       if (
-        parent.rowid >= source.rowid ||
+        parent.rowid > source.rowid ||
+        (parent.rowid === source.rowid && prior !== transition.source.commandId) ||
         parent.admission.state !== 'consumed' ||
         parent.admission.workspace.workspaceId !== transition.oldWorkspace.id ||
         parent.admission.workspace.cwd !== transition.oldWorkspace.directory
