@@ -111,7 +111,8 @@ export function createCredentialConnectionsRouter(
       }
       if (options.onRelayReady) {
         try {
-          if (await options.onRelayReady(relay)) service.relay.markDelivered(relay.id);
+          if (await options.onRelayReady(relay))
+            service.relay.markDelivered(relay.id, relay.revision);
         } catch {
           /* durable outbox retains readiness */
         }
@@ -122,6 +123,49 @@ export function createCredentialConnectionsRouter(
       return res.status(422).json({
         error: 'Secret save could not be confirmed. Check request status before continuing.',
       });
+    }
+  });
+  router.post('/relays/:id/code', async (req, res) => {
+    const body = revision
+      .extend({ targetIndex: z.number().int().min(0).max(7), code: z.string().regex(/^\d{6,10}$/) })
+      .strict()
+      .safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: 'Invalid verification request' });
+    try {
+      if (!service.relay) throw new Error();
+      const draft = service.relay.browserStatus(req.params.id);
+      const csrf = req.header('x-csrf-token') ?? '';
+      const allowed = () =>
+        isAuthSessionCurrent(res.locals.authSession as AuthSession) &&
+        (recentAuthorizationExpiry(res, csrf) ?? 0) > Date.now() &&
+        (options.canCompleteRelay?.(draft) ?? false);
+      if (!allowed())
+        return res
+          .status(409)
+          .json({ error: 'Return to the originating chat before completing this request.' });
+      let relay = service.relay.provideBrowserCode(
+        draft.id,
+        body.data.revision,
+        body.data.targetIndex,
+        body.data.code,
+        allowed,
+      );
+      if (options.onRelayReady) {
+        try {
+          if (await options.onRelayReady(relay))
+            service.relay.markDelivered(relay.id, relay.revision);
+        } catch {
+          /* durable safe readiness notification remains pending */
+        }
+      }
+      relay = service.relay.browserStatus(relay.id);
+      return res.json({ relay });
+    } catch {
+      return res
+        .status(409)
+        .json({
+          error: 'Verification request changed. Check status before entering another code.',
+        });
     }
   });
   router.post('/relays/:id/cancel', (req, res) => {

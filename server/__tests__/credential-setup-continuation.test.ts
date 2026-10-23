@@ -201,3 +201,28 @@ it('continues a private relay in its original session without values or service 
   expect(f.send.mock.calls[0][1]).not.toContain(relay.label);
   expect(f.send.mock.calls[0][2]).toBe('secret-relay:relay-a');
 });
+it('deduplicates each private MFA readiness event separately from the initial password readiness', async () => {
+  const f = fixture();
+  const relay = {
+    id: 'relay-a',
+    sessionId: 'session-a',
+    revision: 5,
+    status: 'ready',
+    delivery: 'pending',
+    targets: [],
+    label: 'private',
+    expiresAt: Date.now() + 10000,
+    continuation: 1,
+  } as unknown as import('../secret-relay.js').SecretRelay;
+  const continuation = createConnectionSetupContinuation({
+    registry: f.registry,
+    send: f.send,
+    currentConnection: f.currentConnection,
+    currentRelay: () => relay,
+    pendingReady: () => [relay],
+    markDelivered: f.markDelivered,
+  });
+  expect(await continuation.notify(relay)).toBe(true);
+  expect(f.send.mock.calls[0][2]).toBe('secret-relay:relay-a:1');
+  expect(f.send.mock.calls[0][1]).toContain('private verification code');
+});

@@ -114,3 +114,46 @@ it('rechecks the browser capability after Gateway storage before publishing read
     store.close();
   }
 });
+it('captures MFA only through recent browser authorization and wakes the original chat without dispatching code', async () => {
+  const draft = { id: 'relay', sessionId: 'chat', status: 'ready', revision: 4 };
+  const ready = { ...draft, revision: 5, continuation: 1, delivery: 'pending' };
+  const relay = {
+    browserStatus: vi.fn(() => draft),
+    provideBrowserCode: vi.fn(() => ready),
+    markDelivered: vi.fn(),
+  };
+  const onRelayReady = vi.fn(async () => true);
+  let available = true;
+  const app = express();
+  app.use((_req, res, next) => {
+    res.locals.authSession = { id: 'mfa-browser', expiresAt: Date.now() + 60000 };
+    next();
+  });
+  app.use(
+    '/api',
+    createCredentialConnectionsRouter({ relay } as unknown as CredentialConnections, {
+      canCompleteRelay: () => available,
+      onRelayReady,
+    }),
+  );
+  let auth = await request(app).post('/api/reauthorize').send({ passphrase: 'correct' });
+  const post = (body: unknown, csrf = auth.body.csrf) =>
+    request(app).post('/api/relays/relay/code').set('x-csrf-token', csrf).send(body);
+  const body = { revision: 4, targetIndex: 0, code: '123456' };
+  expect((await post(body, 'invalid')).status).toBe(403);
+  auth = await request(app).post('/api/reauthorize').send({ passphrase: 'correct' });
+  available = false;
+  expect((await post(body)).status).toBe(409);
+  expect(relay.provideBrowserCode).not.toHaveBeenCalled();
+  available = true;
+  expect((await post({ ...body, code: '123' })).status).toBe(400);
+  expect((await post(body)).status).toBe(200);
+  expect(relay.provideBrowserCode).toHaveBeenCalledWith(
+    'relay',
+    4,
+    0,
+    '123456',
+    expect.any(Function),
+  );
+  expect(onRelayReady).toHaveBeenCalledWith(ready);
+});

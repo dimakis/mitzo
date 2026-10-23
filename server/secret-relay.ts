@@ -351,9 +351,10 @@ export class SecretRelays {
       .filter((r) => r.status === 'ready' && r.delivery === 'pending' && r.expiresAt > Date.now())
       .map((r) => this.browserStatus(r.id));
   }
-  markDelivered(id: string) {
+  markDelivered(id: string, revision?: number) {
     const r = this.get(id);
-    if (r.status === 'ready') this.store.putRelay({ ...r, delivery: 'delivered' });
+    if (r.status === 'ready' && (revision === undefined || r.revision === revision))
+      this.store.putRelay({ ...r, delivery: 'delivered' });
   }
   async apply(
     session: string,

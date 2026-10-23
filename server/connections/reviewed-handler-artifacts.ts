@@ -790,7 +790,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-setup.ts': '8dfd54d1b4cb4408d52c9ca09f5cc220ba69adf6dc6181bc7de6803fee38f69c',
   '../connection-guide.ts': 'b7f8cafa6ce190f69872f687bfd02d2e1ddc691b443ef1014227305a87c1f968',
   '../credential-setup-continuation.ts':
-    '971c869abbba04d17986b46cf608974861938724ec0d64535e69ce6c9f589b00',
+    '8a14ed6086524c4cf766d6bc7dd8e5988760b94316019b7639eb358c2ad66ad7',
   '../credential-setup-application.ts':
     '3a627aae33cd9fca64257bc84dbe30e5cf4496b2dd1faa92fd4bdaed769f91b3',
   '../github-repository-connections.ts':
@@ -801,11 +801,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-connections.ts':
     '30a05f30e80fe1adc4ca0d68b136d1af6fbeb458c69e8e4cbf37299d740db5a8',
   '../credential-connections-router.ts':
-    'bf73811f41540bdeb3d4d7c0d7db02659a7b2aae92b1ae67c36438a45cecf606',
+    '53938bddb91c6861f5ec28298c9d5a944f42f61970a7c986a9e724d5d1c24afc',
   '../credential-connection-tools.ts':
-    '8ca94c223fc8d2e8e4aafd9fc0eed4b4828556bceaefacb64b854d4c673cc1c4',
+    '071ca8db7344efa08c794d8d1bb118ffd7a7d3279b9e74f5fd0be5f019f6438b',
   '../credential-connections-runtime.ts':
-    '2293f31cd04ca53106ca79e48b271c9c060fef4525a7789ae18cd535071294af',
+    'e33bda80c8667a2e22f02f1297e054b3769621fbb7cd6921a85f591d876f8c05',
   '../credential-http.ts': 'ad803bdedddd64babd20711b076ac9b1e51cf7215136c1a04f6519d1c0e6e748',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-tools.ts': '34b95c29e80981b4171e8c167c4139351659fabdc36d5c72ff9bf26e578809d2',
@@ -1303,7 +1303,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '87d6517e779b9b29f2e636a1919ea844beb0fc034f01fbfdf1c740fa5117ab52',
   '../../frontend/src/lib/telos-source-updates.ts':
     'd04a21a711eb8c7118491d94b1363f02b36b0f7457bbe711906f3d67bdbb6e8d',
-  '../secret-relay.ts': '5cb7cd3fae3f144c462ce7a8109d316f4b308a59f8327b750705a58503d5be95',
+  '../secret-relay.ts': '520c4d096a13b5f24a0a57d083aa57a3da7fc87c156abf791245f79fbc17cba4',
   '../secret-relay-lan.ts': '03442b04b8a16ddc3146813f43ed45d9b4ae8fa0a64971a100de48d9a791a812',
   '../secret-relay-runtime.ts': '3e9985e05b5e5128565bd8d88810cb8585ea5a95c921740925c725986ff65450',
   '../openshell-secret-vault.ts':

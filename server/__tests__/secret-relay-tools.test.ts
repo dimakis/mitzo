@@ -46,3 +46,31 @@ it('treats apply as a write for permission checks', async () => {
   expect(result?.isError).toBe(true);
   expect(relay.apply).not.toHaveBeenCalled();
 });
+it('accepts only a reviewed browser action index and forwards no session material', async () => {
+  const relay = { apply: vi.fn(async () => ({ outcome: 'confirmed' })) };
+  const tools = createCredentialConnectionTools(
+    { relay } as unknown as CredentialConnections,
+    'chat',
+    vi.fn(),
+    () => true,
+  );
+  expect(
+    (
+      await tools.execute(
+        'ApplySecretRelay',
+        { relayId: 'relay', targetIndex: 0, actionIndex: 2 },
+        AbortSignal.timeout(1000),
+      )
+    )?.isError,
+  ).toBe(false);
+  expect(relay.apply.mock.calls[0].at(-1)).toBe(2);
+  expect(
+    (
+      await tools.execute(
+        'ApplySecretRelay',
+        { relayId: 'relay', targetIndex: 0, actionIndex: 2, cookie: 'private' },
+        AbortSignal.timeout(1000),
+      )
+    )?.isError,
+  ).toBe(true);
+});

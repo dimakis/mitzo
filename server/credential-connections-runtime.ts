@@ -12,6 +12,7 @@ export function getCredentialConnectionsRuntime() {
   return service;
 }
 export function setCredentialConnectionsRuntime(next: CredentialConnections | null) {
+  if (service !== next) void service?.relay?.dispose?.().catch(() => {});
   service = next;
 }
 export function keychainConnectionConfig(
