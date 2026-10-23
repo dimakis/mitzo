@@ -90,7 +90,7 @@ async function captureReader(
   };
   current();
   if (process.platform !== 'darwin') throw unavailable();
-  if (!Number.isSafeInteger(deadline) || deadline > Date.now() + 30000) throw unavailable();
+  if (!Number.isSafeInteger(deadline) || deadline > Date.now() + 60000) throw unavailable();
   if (![...scope!.readableRoots, ...scope!.workspaceRoots].includes('/')) throw unavailable();
   const deniedRoots = freezeNativeReadExclusions(scope!.deniedRoots);
   const authorize = async (path: string) => {

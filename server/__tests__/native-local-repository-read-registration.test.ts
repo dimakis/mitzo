@@ -198,6 +198,7 @@ it.skipIf(
     const enforced = sandbox.executeSandboxedCommand;
     vi.spyOn(sandbox, 'executeSandboxedCommand').mockImplementation(async (...args) => {
       const start = performance.now();
+      expect(args[0].timeoutMs).toBeLessThanOrEqual(30000);
       const phase: (typeof phases)[number] = {
         commandSha: sha256(Buffer.from(args[0].command)),
         started: start,
@@ -269,7 +270,7 @@ it.skipIf(
         async (request: Parameters<typeof repositoryDiscovery.discoverLocalRepository>[0]) => {
           declaredBudgets.push(request.limits?.timeoutMs ?? -1);
           const reader = Object.getOwnPropertyDescriptor(request, 'nativeReader')?.value;
-          expect(request.limits?.timeoutMs).toBe(30000);
+          expect(request.limits?.timeoutMs).toBe(name === 'inspectLocalRepository' ? 60000 : 30000);
           deadlines.push(reader.deadline);
           return Reflect.apply(original, repositoryDiscovery, [request]);
         },
@@ -364,7 +365,7 @@ it.skipIf(
     operationTimings.InspectLocalRepository = performance.now() - inspectStarted;
     outcomes.InspectLocalRepository = outcome(inspection);
     await writeEvidence();
-    expect(declaredBudgets).toEqual(inspectOnly ? [30000] : [30000, 30000]);
+    expect(declaredBudgets).toEqual(inspectOnly ? [60000] : [30000, 60000]);
     expect(factsBudgets).toHaveLength(inspectOnly ? 1 : 2);
     expect(inspection.response.success, JSON.stringify(inspection.value)).toBe(true);
     expect(inspection.value).toMatchObject({
@@ -409,5 +410,5 @@ it.skipIf(
     phase = 'completed';
     await writeEvidence();
   },
-  90000,
+  120000,
 );

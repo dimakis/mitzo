@@ -301,7 +301,7 @@ it('refuses a reentrant more-specific anchor while retaining the independently a
   expect(f.access.hasExclusionsWithin()).toBe(false);
 });
 
-it.each([1000, 30000])(
+it.each([1000, 30000, 60000])(
   'retains one remaining %ims deadline across ready directory batches and expiry',
   async (timeoutMs) => {
     let now = 1000000;

@@ -190,7 +190,7 @@ async function context(request: ReadRequest) {
     maxGitMetadataEntries: integer(request.limits?.maxGitMetadataEntries, 100000, 500000),
     maxDepth: integer(request.limits?.maxDepth, 6, 20),
     maxCandidates: integer(request.limits?.maxCandidates, 20, 100),
-    timeoutMs: integer(request.limits?.timeoutMs, 15000, 30000),
+    timeoutMs: integer(request.limits?.timeoutMs, 15000, 60000),
     maxInstructionBytes: integer(request.limits?.maxInstructionBytes, 65536, 262144),
     maxTotalInstructionBytes: integer(request.limits?.maxTotalInstructionBytes, 262144, 1048576),
     maxInstructionDirectories: integer(request.limits?.maxInstructionDirectories, 32, 128),

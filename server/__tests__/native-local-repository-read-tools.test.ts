@@ -337,3 +337,37 @@ it.runIf(process.platform === 'darwin')(
     expect(String(result.value)).toContain('read-access-required');
   },
 );
+
+it.runIf(process.platform === 'darwin').each([60000, 60001])(
+  'retains the actual signed reader operation deadline boundary (%ims) and refuses owner revocation',
+  async (timeoutMs) => {
+    const execute = vi.spyOn(sandbox, 'executeSandboxedCommand');
+    let checked = false;
+    const f = await localRepositoryNativeToolFixture(cleanups, async (context) => {
+      const now = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+      let reader: Awaited<ReturnType<typeof captureNativeLocalRepositoryReader>> | undefined;
+      try {
+        if (timeoutMs > 60000) {
+          await expect(
+            captureNativeLocalRepositoryReader(context, { deadline: now + timeoutMs }),
+          ).rejects.toThrow('Local repository native reads unavailable');
+        } else {
+          reader = await captureNativeLocalRepositoryReader(context, { deadline: now + timeoutMs });
+          expect(reader.deadline).toBe(now + timeoutMs);
+          reader.assertCurrentSync!();
+          revokeAuthSession(f.auth);
+          expect(() => reader!.assertCurrentSync!()).toThrow();
+        }
+        checked = true;
+        return { content: JSON.stringify({ boundary: 'checked' }), isError: false };
+      } finally {
+        await reader?.dispose();
+        clock.mockRestore();
+      }
+    });
+    await f.a.call({ path: join(f.f.root, 'source') });
+    expect(checked).toBe(true);
+    expect(execute).not.toHaveBeenCalled();
+  },
+);

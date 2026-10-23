@@ -255,7 +255,7 @@ export function sessionLocalRepositoryTools(
             throw Error('Qualified read policy required');
           const deadline =
             Date.now() +
-            Math.max(1, Math.min(30000, Math.floor(snapshot.limits?.timeoutMs ?? 15000)));
+            Math.max(1, Math.min(60000, Math.floor(snapshot.limits?.timeoutMs ?? 15000)));
           if (nativeOwner) {
             reader = await factory!.call(nativeOwner, context, { deadline });
             current();
