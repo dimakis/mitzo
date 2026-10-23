@@ -56,6 +56,12 @@ export function codexNativeExecutionPolicy(input: {
   const workspaceRoots = roots(input.writableRoots);
   const deniedRoots = roots(input.deniedRoots);
   const writeProtectedRoots = roots(input.writeProtectedRoots ?? []);
+  if (
+    [...readableRoots, ...writeProtectedRoots].some((root) =>
+      deniedRoots.some((denied) => contains(denied, root)),
+    )
+  )
+    throw Error('Native read scope exposes protected storage');
   if (!deniedRoots.length || !readableRoots.length || !workspaceRoots.length)
     throw Error('Native execution scope unavailable');
   if (

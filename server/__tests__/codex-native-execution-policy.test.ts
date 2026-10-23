@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, mkdirSync, symlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   codexNativeExecutionPolicy,
   codexNativePermissionProfiles,
@@ -18,6 +21,34 @@ const input = {
 };
 
 describe('native Mac execution permission profile', () => {
+  it('rejects generic read exceptions within a credential deny, including canonical aliases', () => {
+    const temporary = mkdtempSync(join(tmpdir(), 'mitzo-policy-alias-'));
+    try {
+      const denied = join(temporary, 'credentials');
+      const nested = join(denied, 'nested');
+      mkdirSync(nested, { recursive: true });
+      const alias = join(temporary, 'alias');
+      symlinkSync(nested, alias);
+      for (const path of [denied, nested, alias]) {
+        expect(() =>
+          codexNativeExecutionPolicy({
+            ...input,
+            deniedRoots: [denied],
+            readableRoots: ['/', path],
+          }),
+        ).toThrow('Native read scope exposes protected storage');
+        expect(() =>
+          codexNativeExecutionPolicy({
+            ...input,
+            deniedRoots: [denied],
+            writeProtectedRoots: [path],
+          }),
+        ).toThrow('Native read scope exposes protected storage');
+      }
+    } finally {
+      rmSync(temporary, { recursive: true, force: true });
+    }
+  });
   it('compiles real native profiles with immutable credential denies and dynamic workspace roots', () => {
     const policy = codexNativeExecutionPolicy(input);
     expect(policy).toMatchObject({
