@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.565-native-final-integration';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.566-native-policy-test-narrowing';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -37,7 +38,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-native-artifact-qualification.test.ts':
     'bf39b31337d0714faac6d73f3b96aa99e8e960f39a54e81f1429699890d7cd05',
   '../__tests__/codex-native-execution-policy.test.ts':
-    '76cce3c3049dc96daf70a5f257046202c5041132bbd945050d5f6418f94bc2df',
+    '02ee31699319568ff124d5702e87312eb71b0a85cc86c8b94bff293e678d55a4',
   '../__tests__/codex-native-execution-receipts.test.ts':
     'e68af02f906ce04a6003719e35a46a471191eeb4e90e155db604dececc1e4df4',
   '../__tests__/codex-native-permission-protocol.test.ts':
