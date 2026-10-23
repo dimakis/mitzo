@@ -25,6 +25,9 @@ interface DirectoryStep {
       }
     | { readonly kind: 'created'; readonly directory: string };
 }
+export type LocalRepositoryAllocationFacts = Awaited<
+  ReturnType<typeof captureLocalRepositoryAllocationFacts>
+>['facts'];
 const unavailable = () => Error('Local repository allocation facts unavailable');
 const contains = (root: string, path: string) => {
   const child = relative(root, path);

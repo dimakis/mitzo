@@ -6,14 +6,16 @@ import {
 } from './native-host-tool-context.js';
 import type { QualifiedLocalRepositoryPreparationSource } from './local-repository-preparation-authorization.js';
 import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
-import { captureLocalRepositoryAllocationFacts } from './local-repository-allocation-facts.js';
+import {
+  captureLocalRepositoryAllocationFacts,
+  type LocalRepositoryAllocationFacts as AllocationFacts,
+} from './local-repository-allocation-facts.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
 import { readLocalRepositoryPreparationReferences } from './local-repository-git-snapshot.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import type { NativeReadIdentity } from './native-file-operation.js';
 
-type AllocationFacts = Awaited<ReturnType<typeof captureLocalRepositoryAllocationFacts>>['facts'];
 export interface NativeQualifiedLocalRepositoryPreparationSource extends QualifiedLocalRepositoryPreparationSource {
   readonly referenceCoverage: 'preparation-head-and-namespace-v1';
   readonly baseBranch: string;
@@ -33,9 +35,10 @@ function numericIdentity(value: NativeReadIdentity) {
     throw unavailable();
   return { dev, ino };
 }
-function sourceFacts(facts: AllocationFacts) {
+/** Data projection from original read facts only; never a grant/current fence. */
+export function localRepositoryPreparationSourceFacts(facts: AllocationFacts) {
   const { source } = facts;
-  return {
+  return freezePendingHostTaskData({
     source: {
       path: source.path,
       gitDirectory: source.gitDirectory,
@@ -51,7 +54,7 @@ function sourceFacts(facts: AllocationFacts) {
       common: source.commonAnchor,
       referenceCoverage: source.referenceCoverage,
     }),
-  };
+  });
 }
 
 /** Private current original-tool composition. This qualifies bounded source
@@ -106,7 +109,7 @@ export async function captureNativeLocalRepositoryPreparationSource(
       return { facts: held.facts, factsSha256: held.factsSha256 };
     });
   const initial = await captureAllocation();
-  const original = freezePendingHostTaskData(sourceFacts(initial.facts));
+  const original = localRepositoryPreparationSourceFacts(initial.facts);
   const originalHash = hash(original);
   const baseCurrent = () =>
     read(async (reader) => {
