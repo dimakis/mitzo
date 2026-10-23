@@ -72,6 +72,15 @@ export class CodexHostToolRequestError extends Error {
   }
 }
 
+/** Private transport cleanup marker. It carries only the consumed RPC identity;
+ * normal aborts, owner revocation and transport closure are different failures. */
+export class CodexServerRequestResolvedError extends Error {
+  constructor(readonly requestId: string | number) {
+    super('Codex server request already resolved');
+    this.name = 'CodexServerRequestResolvedError';
+  }
+}
+
 export interface CodexServerRequestContext {
   readonly requestId: string | number;
   /** Trusted owner fences run synchronously immediately before the RPC reply. */
@@ -997,7 +1006,8 @@ export class CodexAppServerClient {
           const resolved = params as JsonObject;
           if (typeof resolved.requestId === 'string' || typeof resolved.requestId === 'number') {
             const request = this.activeHostRequests.get(resolved.requestId);
-            if (request && request.threadId === resolved.threadId) request.abort.abort();
+            if (request && request.threadId === resolved.threadId)
+              request.abort.abort(new CodexServerRequestResolvedError(resolved.requestId));
           }
         }
         try {

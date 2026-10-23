@@ -1,4 +1,7 @@
-import type { CodexLifecycleTransport } from './codex-app-server-client.js';
+import {
+  CodexServerRequestResolvedError,
+  type CodexLifecycleTransport,
+} from './codex-app-server-client.js';
 import type { FrozenHostCodexBootstrapLease } from './frozen-host-codex-bootstrap.js';
 import { observeLocalCodexPhase } from './local-codex-observation.js';
 
@@ -56,10 +59,13 @@ export class OwnedCodexLifecycleBridge {
         }
       },
       onRequest: async (method, params, signal, context) => {
+        let originalLease: FrozenHostCodexBootstrapLease | undefined;
+        const requestId = context?.requestId;
         try {
           if (!this.#owner) throw unavailable();
           signal.throwIfAborted();
           const lease = this.assertCurrentSync();
+          originalLease = lease;
           context?.registerResponseFence?.(() => {
             signal.throwIfAborted();
             this.assertCurrentSync();
@@ -81,7 +87,21 @@ export class OwnedCodexLifecycleBridge {
           this.assertCurrentSync();
           return result;
         } catch {
-          this.close();
+          let requestAlreadyResolved = false;
+          if (
+            signal.aborted &&
+            signal.reason instanceof CodexServerRequestResolvedError &&
+            signal.reason.requestId === requestId &&
+            originalLease &&
+            !this.#abort.signal.aborted
+          ) {
+            try {
+              requestAlreadyResolved = this.assertCurrentSync() === originalLease;
+            } catch {
+              /* A revoked/replaced owner still closes the lease. */
+            }
+          }
+          if (!requestAlreadyResolved) this.close();
           throw unavailable();
         }
       },
