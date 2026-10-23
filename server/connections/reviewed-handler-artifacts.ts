@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.612-prepared-transition-capture';
+  'v1.0.613-qualified-workspace-read-owner';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -848,7 +848,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-executable.ts':
     '01813a1d0b10ed3f2a8ca87eb5f13d3cbed01dd721549a930eafd2dcc8d02dfe',
   '../frozen-host-codex-bootstrap.ts':
-    '3701dbcf74c2975642ca44fbbdfd35ca134d8e5593a33b36d63b85a18baeff18',
+    '34df5fc866d56ff42f8ca5a8d494baafd436f4b05aa351749317a02bd30a48da',
   '../owned-codex-lifecycle-bridge.ts':
     'b76d973b736e98d2b140b87e0bcd767449539a1bf8fa5f6d41d95e3839408a96',
   '../owned-local-codex-chat-admission.ts':

@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountProfiles } from '../account-profiles.js';
 import { EventStore } from '../event-store.js';
-import { FrozenHostCodexBootstrapAuthority } from '../frozen-host-codex-bootstrap.js';
+import {
+  FrozenHostCodexBootstrapAuthority,
+  type FrozenHostQualifiedWorkspaceReadOwner,
+} from '../frozen-host-codex-bootstrap.js';
+import { FrozenHostCodexLogin } from '../frozen-host-codex-login.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 const roots: string[] = [];
 const deployment = vi.hoisted(() => ({ controller: false }));
@@ -835,6 +839,139 @@ it('keeps the real frozen bootstrap through exact old-meta and new-meta uncertai
   } finally {
     authority.currentLease()?.close();
     library.close();
+    f.store.close();
+  }
+});
+
+it('bounds the qualified workspace physical read owner to the same real lease without recursive physical validation', async () => {
+  const f = fixture();
+  const physical = vi.fn(async () => {});
+  f.options.assertSelectionCurrent.mockImplementation(physical);
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      let retained: FrozenHostQualifiedWorkspaceReadOwner | undefined;
+      const before = physical.mock.calls.length;
+      const body = vi.fn(async (owner: FrozenHostQualifiedWorkspaceReadOwner) => {
+        retained = owner;
+        expect(Object.isFrozen(owner)).toBe(true);
+        expect(owner.client).toBe(lease.client);
+        expect(owner.binding).toEqual(lease.binding);
+        owner.assertCurrentSync();
+        await owner.revalidate();
+        owner.assertCurrentSync();
+      });
+      await lease.withQualifiedWorkspaceReadOwner!(f.options.signal, body);
+      expect(body).toHaveBeenCalledOnce();
+      expect(physical).toHaveBeenCalledTimes(before);
+      expect(() => retained!.assertCurrentSync()).toThrow();
+      await expect(retained!.revalidate()).rejects.toThrow();
+      lease.assertCurrentSync();
+      await lease.assertCurrent();
+      expect(physical).toHaveBeenCalledTimes(before + 1);
+    });
+  } finally {
+    f.authority.currentLease()?.close();
+    f.store.close();
+  }
+});
+
+it.each([
+  'physical',
+  'value',
+  'cancel',
+  'close',
+  'runtime-owner',
+  'initial-runtime-owner',
+  'initial-selection-owner',
+  'selection-owner',
+  'lease-owner',
+  'account',
+] as const)(
+  'refuses qualified workspace physical validation after %s invalidates its original owner',
+  async (change) => {
+    const f = fixture();
+    const abort = new AbortController();
+    try {
+      await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+        if (change === 'initial-runtime-owner')
+          f.options.assertRuntimeCurrentSync = vi.fn(() => {});
+        if (change === 'initial-selection-owner')
+          f.options.assertSelectionCurrentSync = vi.fn(() => {});
+        const originalRpc = f.rpc.request.getMockImplementation()!;
+        let armed = false;
+        f.rpc.request.mockImplementation(async (method, params) => {
+          if (armed && change === 'account' && method === 'account/read') {
+            await Promise.resolve();
+            return {
+              account: { type: 'chatgpt', email: 'changed@example.invalid', planType: 'plus' },
+            } as never;
+          }
+          return originalRpc(method, params);
+        });
+        await expect(
+          lease.withQualifiedWorkspaceReadOwner!(abort.signal, async (owner) => {
+            if (change === 'physical') throw Error('Physical identity changed');
+            if (change === 'value') return false as never;
+            if (change === 'cancel') abort.abort();
+            if (change === 'close') lease.close();
+            if (change === 'runtime-owner') f.options.assertRuntimeCurrentSync = vi.fn(() => {});
+            if (change === 'selection-owner')
+              f.options.assertSelectionCurrentSync = vi.fn(() => {});
+            if (change === 'lease-owner') lease.assertCurrentSync = () => {};
+            armed = true;
+            await owner.revalidate();
+          }),
+        ).rejects.toThrow();
+        expect(f.rpc.close).toHaveBeenCalled();
+      });
+    } finally {
+      f.authority.currentLease()?.close();
+      f.store.close();
+    }
+  },
+);
+
+it('retains the real login refresh receiver and refuses async credential-function substitution', async () => {
+  const f = fixture();
+  const connect = FrozenHostCodexLogin.prototype.connect;
+  let login: Awaited<ReturnType<typeof connect>> | undefined;
+  let receivers = 0;
+  const capture = vi
+    .spyOn(FrozenHostCodexLogin.prototype, 'connect')
+    .mockImplementation(async function (this: FrozenHostCodexLogin, ...args) {
+      login = await Reflect.apply(connect, this, args);
+      const original = login.assertCurrent;
+      login.assertCurrent = async function () {
+        expect(this).toBe(login);
+        receivers++;
+        return Reflect.apply(original, this, []);
+      };
+      return login;
+    });
+  try {
+    await f.authority.withBootstrap(f.expected, f.claim, async (lease) => {
+      await lease.withQualifiedWorkspaceReadOwner!(f.options.signal, async (owner) => {
+        await owner.revalidate();
+      });
+      expect(receivers).toBeGreaterThan(0);
+      const originalRpc = f.rpc.request.getMockImplementation()!;
+      let armed = false;
+      f.rpc.request.mockImplementation(async (method, params) => {
+        const result = await originalRpc(method, params);
+        if (armed && method === 'account/read') login!.assertCurrent = async () => {};
+        return result;
+      });
+      await expect(
+        lease.withQualifiedWorkspaceReadOwner!(f.options.signal, async (owner) => {
+          armed = true;
+          await owner.revalidate();
+        }),
+      ).rejects.toThrow();
+      expect(f.rpc.close).toHaveBeenCalled();
+    });
+  } finally {
+    capture.mockRestore();
+    f.authority.currentLease()?.close();
     f.store.close();
   }
 });

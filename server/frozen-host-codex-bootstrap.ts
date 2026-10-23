@@ -45,11 +45,24 @@ const Runtime = z.strictObject({
     .optional(),
 });
 export type FrozenHostCodexRuntimeObservation = z.infer<typeof Runtime>;
+/** Private original-bootstrap current owner for one anchored physical workspace
+ * validation. It supplies no roots, custody proof or permission by itself. */
+export interface FrozenHostQualifiedWorkspaceReadOwner {
+  readonly client: FrozenHostCodexClient;
+  readonly binding: Readonly<AccountBinding>;
+  readonly signal: AbortSignal;
+  assertCurrentSync(): void;
+  revalidate(): Promise<void>;
+}
 export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease<FrozenHostCodexClient> {
   profile: CodexAccountProfile;
   /** Private server-owned custody reference, never public inventory. */
   privateHome: string;
   executableSha256: string;
+  withQualifiedWorkspaceReadOwner?(
+    signal: AbortSignal,
+    physical: (owner: FrozenHostQualifiedWorkspaceReadOwner) => Promise<void>,
+  ): Promise<void>;
   assertModelSelectionCurrentSync?(model: string, thinking: string | null): void;
   assertToolCurrent?(signal: AbortSignal): Promise<void>;
   qualifyModelSelection?(model: string, thinking: string | null): Promise<void>;
@@ -60,6 +73,11 @@ export interface FrozenHostCodexBootstrapLease extends FrozenHostCodexLoginLease
 }
 type Expected = OrdinaryLocalCodexAdmissionExpectation & { bootstrapId?: string };
 const unavailable = () => new Error('Host Codex bootstrap unavailable');
+function strictVoid(result: unknown): void {
+  if (result === undefined) return;
+  void Promise.resolve(result).catch(() => {});
+  throw unavailable();
+}
 
 /** Actual owned client bootstrap. The surrounding server factory must connect
  * independent current operator, published profile/context, permission and
@@ -153,7 +171,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
     executable?: FrozenHostCodexExecutable,
   ): void {
     this.owners.signal.throwIfAborted();
-    this.owners.assertRuntimeCurrentSync();
+    strictVoid(this.owners.assertRuntimeCurrentSync());
     this.profile(expected);
     const profiles = this.owners.loadProfiles();
     for (const selection of this.selections(expected)) {
@@ -165,9 +183,9 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         throw unavailable();
       profiles.validateModelSelection(binding, selection.model, selection.thinking);
     }
-    this.owners.assertSelectionCurrentSync(structuredClone(expected));
-    login?.assertCurrentSync();
-    executable?.assertCurrent();
+    strictVoid(this.owners.assertSelectionCurrentSync(structuredClone(expected)));
+    strictVoid(login?.assertCurrentSync());
+    strictVoid(executable?.assertCurrent());
   }
   private async observe(
     expected: Expected,
@@ -354,12 +372,19 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
               return launch(home, executable);
             });
       const ownedLogin = loginLease;
+      let retired = false;
+      const loginClose = ownedLogin.close;
+      const closeLease = () => {
+        retired = true;
+        Reflect.apply(loginClose, ownedLogin, []);
+      };
       this.#routingBinding = structuredClone(ownedLogin.binding);
       const assertCurrentSync = () => {
         try {
+          if (retired) throw unavailable();
           this.assertSync(expected, ownedLogin, executable);
         } catch {
-          ownedLogin.close();
+          closeLease();
           throw unavailable();
         }
       };
@@ -381,7 +406,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           signal.throwIfAborted();
           assertCurrentSync();
         } catch {
-          ownedLogin.close();
+          closeLease();
           throw unavailable();
         }
       };
@@ -444,8 +469,126 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           }
           qualifiedModels = models;
         } catch {
-          ownedLogin.close();
+          closeLease();
           throw unavailable();
+        }
+      };
+      const bootstrapOwners = this.owners;
+      const sourceSignal = bootstrapOwners.signal;
+      const expectedSnapshot = structuredClone(expected);
+      const account = structuredClone(ownedLogin.binding);
+      const client = ownedLogin.client;
+      const ownerReferences = Object.fromEntries(
+        [
+          'loadProfiles',
+          'observeRuntime',
+          'assertRuntimeCurrentSync',
+          'assertSelectionCurrentSync',
+          'assertSelectionCurrent',
+          'assertToolSelectionCurrent',
+          'isSelectionPending',
+          'pendingSelections',
+        ].map((key) => [key, Object.getOwnPropertyDescriptor(bootstrapOwners, key)]),
+      );
+      const loginReferences = Object.fromEntries(
+        ['assertCurrentSync', 'assertCurrent', 'assertCredentialCurrent', 'close'].map((key) => [
+          key,
+          Object.getOwnPropertyDescriptor(ownedLogin, key),
+        ]),
+      );
+      const full = loginReferences.assertCredentialCurrent ?? loginReferences.assertCurrent;
+      const withQualifiedWorkspaceReadOwner = async (
+        operationSignal: AbortSignal,
+        physical: (owner: FrozenHostQualifiedWorkspaceReadOwner) => Promise<void>,
+      ): Promise<void> => {
+        const lease = this.#lease;
+        if (
+          !lease ||
+          !(operationSignal instanceof AbortSignal) ||
+          typeof physical !== 'function' ||
+          !full ||
+          !('value' in full) ||
+          typeof full.value !== 'function'
+        )
+          throw unavailable();
+        const lifetime = new AbortController();
+        const signal = AbortSignal.any([sourceSignal, operationSignal, lifetime.signal]);
+        let live = true;
+        const references = () => {
+          signal.throwIfAborted();
+          if (
+            !live ||
+            retired ||
+            this.#lease !== lease ||
+            this.owners !== bootstrapOwners ||
+            this.owners.signal !== sourceSignal ||
+            lease.client !== client ||
+            ownedLogin.client !== client ||
+            lease.assertCurrentSync !== assertCurrentSync ||
+            lease.assertCurrent !== assertToolCurrent ||
+            lease.assertToolCurrent !== assertToolCurrent ||
+            lease.close !== closeLease ||
+            lease.withQualifiedWorkspaceReadOwner !== withQualifiedWorkspaceReadOwner ||
+            !isDeepStrictEqual(expected, expectedSnapshot) ||
+            !isDeepStrictEqual(ownedLogin.binding, account) ||
+            !isDeepStrictEqual(lease.binding, account)
+          )
+            throw unavailable();
+          for (const [owner, entries] of [
+            [bootstrapOwners, ownerReferences],
+            [ownedLogin, loginReferences],
+          ] as const) {
+            for (const [key, original] of Object.entries(entries)) {
+              const current = Object.getOwnPropertyDescriptor(owner, key);
+              if (
+                original
+                  ? !('value' in original) ||
+                    !current ||
+                    !('value' in current) ||
+                    current.value !== original.value
+                  : current !== undefined
+              )
+                throw unavailable();
+            }
+          }
+        };
+        const current = () => {
+          references();
+          strictVoid(assertCurrentSync());
+          references();
+        };
+        const revalidate = async () => {
+          current();
+          strictVoid(
+            await Reflect.apply(
+              full.value,
+              ownedLogin,
+              loginReferences.assertCredentialCurrent ? [signal] : [],
+            ),
+          );
+          current();
+        };
+        try {
+          current();
+          await revalidate();
+          current();
+          const owner = Object.freeze({
+            client,
+            binding: Object.freeze(account),
+            signal,
+            assertCurrentSync: Object.freeze(current),
+            revalidate: Object.freeze(revalidate),
+          });
+          strictVoid(await Reflect.apply(physical, undefined, [owner]));
+          current();
+          await revalidate();
+          current();
+        } catch {
+          closeLease();
+          throw unavailable();
+        } finally {
+          live = false;
+          lifetime.abort(unavailable());
         }
       };
       this.#lease = {
@@ -474,7 +617,8 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           login: login.custodySnapshot(),
           executable: executable.custodySnapshot(),
         }),
-        close: ownedLogin.close,
+        close: closeLease,
+        withQualifiedWorkspaceReadOwner,
         assertCurrent: assertToolCurrent,
         assertToolCurrent,
         qualifyModelSelection: (model, thinking) =>
