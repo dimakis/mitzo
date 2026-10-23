@@ -100,6 +100,10 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       /** Current physical checkout only; full preparation was qualified at bootstrap. */
       assertToolSelectionCurrent?(expected: Readonly<Expected>): Promise<void>;
       assertSelectionCurrentSync(expected: Readonly<Expected>): void;
+      /** Private clean-qualified cold entry only. This independent authority
+       * defers the recursive async workspace stage until the real lease exists;
+       * mandatory assertToolSelectionCurrent still runs before config/models. */
+      assertQualifiedColdSelectionBeforeBootstrapSync?(expected: Readonly<Expected>): void;
       signal: AbortSignal;
       privateRoot?: string;
       /** Native ledger evidence, supplied only by the original cold-resume owner. */
@@ -197,6 +201,14 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
     this.assertSync(expected, login, executable);
     const runtime = Runtime.parse(await this.owners.observeRuntime());
     this.assertSync(expected, login, executable);
+    this.assertRuntimeObservation(expected, runtime, executable);
+    return runtime;
+  }
+  private assertRuntimeObservation(
+    expected: Expected,
+    runtime: FrozenHostCodexRuntimeObservation,
+    executable?: FrozenHostCodexExecutable,
+  ): void {
     if (
       runtime.hostId !== expected.hostId ||
       runtime.runtimeContractRevision !== expected.runtimeContractRevision ||
@@ -209,6 +221,58 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             runtime.codeModeHostSha256 !== executable.custodySnapshot().codeModeHost?.sha256)))
     )
       throw unavailable();
+  }
+  private async observeQualifiedColdBeforeBootstrap(expected: Expected) {
+    const owners = this.owners;
+    const original = owners.assertQualifiedColdSelectionBeforeBootstrapSync;
+    const signal = owners.signal;
+    const custody = owners.retainedCustody;
+    const references = Object.fromEntries(
+      [
+        'assertRuntimeCurrentSync',
+        'assertSelectionCurrentSync',
+        'assertToolSelectionCurrent',
+        'assertSelectionCurrent',
+        'observeRuntime',
+        'loadProfiles',
+      ].map((key) => [key, Object.getOwnPropertyDescriptor(owners, key)]),
+    );
+    const retained = custody && structuredClone(custody);
+    if (typeof original !== 'function' || !custody || !owners.assertToolSelectionCurrent)
+      throw unavailable();
+    HostCodexCustodySchema.parse(custody);
+    const referencesCurrent = () => {
+      if (
+        owners !== this.owners ||
+        owners.signal !== signal ||
+        owners.retainedCustody !== custody ||
+        !isDeepStrictEqual(custody, retained) ||
+        owners.assertQualifiedColdSelectionBeforeBootstrapSync !== original
+      )
+        throw unavailable();
+      for (const [key, descriptor] of Object.entries(references)) {
+        const current = Object.getOwnPropertyDescriptor(owners, key);
+        if (
+          !descriptor ||
+          !('value' in descriptor) ||
+          !current ||
+          !('value' in current) ||
+          descriptor.value !== current.value
+        )
+          throw unavailable();
+      }
+    };
+    const current = () => {
+      referencesCurrent();
+      this.assertSync(expected);
+      referencesCurrent();
+    };
+    current();
+    strictVoid(original.call(owners, structuredClone(expected)));
+    current();
+    const runtime = Runtime.parse(await owners.observeRuntime());
+    current();
+    this.assertRuntimeObservation(expected, runtime);
     return runtime;
   }
   async withBootstrap<T>(
@@ -229,7 +293,9 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         !['openai-codex', 'openai'].includes(expected.binding.account.provider)
       )
         throw unavailable();
-      const observed = await this.observe(expected);
+      const observed = this.owners.assertQualifiedColdSelectionBeforeBootstrapSync
+        ? await this.observeQualifiedColdBeforeBootstrap(expected)
+        : await this.observe(expected);
       this.assertSync(expected);
       if (this.#attempted) throw unavailable();
       if (!claimBeforeBootstrap()) return undefined;
@@ -486,6 +552,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           'assertSelectionCurrentSync',
           'assertSelectionCurrent',
           'assertToolSelectionCurrent',
+          'assertQualifiedColdSelectionBeforeBootstrapSync',
           'isSelectionPending',
           'pendingSelections',
         ].map((key) => [key, Object.getOwnPropertyDescriptor(bootstrapOwners, key)]),
