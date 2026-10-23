@@ -103,7 +103,12 @@ submits, uncertain MFA and uncertain form actions are never replayed.
 
 After confirmed sign-in, `ApplySecretRelay` with `actionIndex` performs only the
 corresponding reviewed form action in that private session. The password is not
-resolved again for MFA or later actions. Browser session state is memory-only:
+resolved again for MFA or later actions. After a private browser dispatch, general
+Mitzo API/WebSocket/dashboard response bodies from that origin are withheld, even
+after expiry/revocation, because they could echo newly minted cookies or OTPs.
+The retained attempt record keeps that boundary across restarts and chats. Use
+reviewed browser verification for the task, or operator-side inspection; the
+agent cannot switch to another Mitzo transport to extract private browser state. Browser session state is memory-only:
 revocation, expiry or runtime retirement closes it; restart loses it and cannot
 silently sign in again. An operator must inspect uncertain service state before
 preparing an explicitly authorized fresh request.

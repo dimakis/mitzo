@@ -332,6 +332,23 @@ export class SecretRelays {
           ) &&
           (r.vaultRef || ['verifying', 'unconfirmed'].includes(r.status)),
       );
+    // Browser sessions may mint cookies/tokens and accept one-time codes that are
+    // deliberately never exported or persisted for redaction. A general API/WS
+    // read of this origin could echo them, even after local session revocation.
+    if (
+      relays.some((r) =>
+        r.targets.some(
+          (t, index) =>
+            'adapter' in t &&
+            t.adapter === 'browser' &&
+            t.endpoint === endpoint &&
+            r.outcomes[index]?.outcome !== 'not_sent',
+        ),
+      )
+    )
+      throw new Error(
+        'Response withheld for an origin used by a private browser session; use reviewed browser verification',
+      );
     try {
       for (const relay of relays) {
         if (!relay.vaultRef) throw new Error();

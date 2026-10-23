@@ -135,3 +135,34 @@ it('does not replay an uncertain browser action or restore a lost session by sig
     '0:0': { outcome: 'unconfirmed' },
   });
 });
+it('withholds general same-origin reads after browser dispatch so session cookies or MFA echoes cannot reach the agent', async () => {
+  const f = fixture();
+  await f.service.complete(f.draft.id, 1, 'private-password', signal(), () => true);
+  await f.service.apply('chat', f.draft.id, 0, signal(), () => true);
+  const reads = new SecretRelays(
+    f.store,
+    f.vault,
+    () => ({
+      revision: 1,
+      endpoint: 'https://service.example',
+      label: 'Same service',
+      paths: ['/'],
+      methods: ['GET'],
+      status: 'active',
+    }),
+    vi.fn(),
+  );
+  await expect(
+    reads.redactResponse(
+      'other-chat',
+      'api',
+      '{"session":"private-cookie","code":"123456"}',
+      signal(),
+    ),
+  ).rejects.toThrow('private browser');
+  const current = f.service.browserStatus(f.draft.id);
+  f.service.cancel(current.id, current.revision);
+  await expect(reads.redactResponse('chat', 'api', 'private-cookie', signal())).rejects.toThrow(
+    'private browser',
+  );
+});
