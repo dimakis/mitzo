@@ -426,3 +426,326 @@ it('rechecks actual runtime configuration drift at the final synchronous effect 
     f.store.close();
   }
 });
+
+it('keeps the real frozen bootstrap through exact old-meta and new-meta uncertain primary handoff', async () => {
+  const f = fixture();
+  const { AgentLibraryStore } = await import('../agent-library-store.js');
+  const { OrdinaryLocalCodexSelectionOwner } =
+    await import('../ordinary-local-codex-selection-owner.js');
+  const { OrdinaryLocalWorkspaceOwner } = await import('../ordinary-local-workspace-owner.js');
+  const { ordinaryLocalCodexBootstrapId } = await import('../ordinary-local-codex-admission.js');
+  const { statSync } = await import('node:fs');
+  const library = new AgentLibraryStore(':memory:');
+  library.saveDraft('user', {
+    profileId: 'agent',
+    expectedVersion: 0,
+    expectedRevision: 0,
+    idempotencyKey: 'draft',
+    definition: {
+      name: 'Agent',
+      descriptor: 'Assistant',
+      role: 'agent',
+      instructions: 'Offline',
+      expectedOutput: 'Evidence',
+      acceptanceCriteria: ['Keep custody'],
+      modelPolicyRole: 'agent',
+    },
+  });
+  const profile = library.publish('user', {
+    profileId: 'agent',
+    expectedVersion: 1,
+    idempotencyKey: 'publish',
+  });
+  const taskRoot = join(f.root, 'tasks');
+  mkdirSync(taskRoot, { mode: 0o700 });
+  for (const name of ['old', 'new', 'newer'])
+    mkdirSync(join(taskRoot, name, '.git'), { recursive: true });
+  const root = statSync(taskRoot);
+  const account = f.options.loadProfiles().resolve('personal', 'fixture-model');
+  const reservation = { id: 'old', binding: account, conversationId: 'session', taskRoot };
+  const record = (id: string) => {
+    const directory = join(taskRoot, id),
+      info = statSync(directory),
+      git = statSync(join(directory, '.git'));
+    return {
+      ...reservation,
+      id,
+      directory,
+      state: 'claimed' as const,
+      sandbox: false,
+      featureBranch: `task/${id}`,
+      hostReservation: {
+        version: 1 as const,
+        taskRoot,
+        rootIdentity: { dev: root.dev, ino: root.ino },
+      },
+      taskIdentity: {
+        directory,
+        featureBranch: `task/${id}`,
+        root: { dev: info.dev, ino: info.ino },
+        git: { dev: git.dev, ino: git.ino },
+      },
+    };
+  };
+  let primary = 'old',
+    adopted = false,
+    current = true;
+  const workspace = {
+    getHostReservation: (input: { id: string }) => record(input.id),
+    getForConversation: () => record(primary),
+    reserveHostTask: async (input: { id: string }) => record(input.id),
+    validateHostTask: async () => {},
+  } as unknown as import('../repository-workspaces.js').RepositoryWorkspaces;
+  f.expected.workspace = { workspaceId: 'old', cwd: join(taskRoot, 'old') };
+  f.expected.selection.permission.revision = 0;
+  f.expected.agentProfile = profile;
+  f.expected.bootstrapId = ordinaryLocalCodexBootstrapId('session', 'fingerprint');
+  const selection = new OrdinaryLocalCodexSelectionOwner({
+    events: f.store,
+    library,
+    workspace,
+    reservation,
+    commandId: 'command',
+    signal: f.options.signal,
+    operator: {
+      assertCurrent() {
+        if (!current) throw Error('revoked');
+      },
+    },
+  });
+  const authority = new FrozenHostCodexBootstrapAuthority({
+    ...f.options,
+    assertSelectionCurrent: (expected) => selection.assertCurrent(expected),
+    assertSelectionCurrentSync: (expected) => selection.assertCurrentSync(expected),
+    assertToolSelectionCurrent: (expected) => selection.assertToolCurrent(expected),
+  });
+  let phase = 'bootstrap';
+  try {
+    await authority.withBootstrap(
+      f.expected,
+      () => {
+        f.store.admitOrdinaryLocalCommand(
+          {
+            sessionId: 'session',
+            accountBinding: account,
+            repositoryWorkspaceId: 'old',
+            cwd: f.expected.workspace.cwd,
+            mode: 'agent',
+            agentProfile: profile,
+          },
+          f.expected.binding,
+          {
+            clientMsgId: 'command',
+            requestFingerprint: 'fingerprint',
+            selection: f.expected.selection,
+            payload: { text: 'Original task', systemPrompt: 'Original instructions' },
+          },
+        );
+        return f.store.claimOrdinaryLocalCommandDispatch('command');
+      },
+      async (lease) => {
+        phase = 'operation entered';
+        f.store.completeOrdinaryLocalCommand('command');
+        const oldBootstrap = f.store.getOrdinaryLocalCommandAdmission('command');
+        const privateHome = lease.privateHome,
+          custody = lease.custodySnapshot!();
+        const transition = {
+          version: 1 as const,
+          preparationId: '34af2bdf-5fb4-4de0-b083-cf188163d891',
+          runtimeId: 'runtime',
+          source: {
+            commandId: 'command',
+            attempt: 1,
+            threadId: 'thread',
+            turnId: 'turn',
+            generation: 0,
+            callId: 'prepare',
+            requestHash: 'a'.repeat(64),
+            resultSha256: 'b'.repeat(64),
+          },
+          oldWorkspace: {
+            kind: 'repository' as const,
+            id: 'old',
+            directory: join(taskRoot, 'old'),
+          },
+          newWorkspace: {
+            kind: 'repository' as const,
+            id: 'new',
+            directory: join(taskRoot, 'new'),
+            featureBranch: 'task/new',
+            baseOid: 'c'.repeat(40),
+            taskIdentitySha256: createHash('sha256')
+              .update(JSON.stringify(record('new').taskIdentity))
+              .digest('hex'),
+          },
+          consumedScopeSha256: 'd'.repeat(64),
+          materializedRecordSha256: 'e'.repeat(64),
+        };
+        const child = f.store.reservePreparedRepositoryContinuation('session', transition);
+        const next = new OrdinaryLocalWorkspaceOwner(workspace, 'repository', {
+          ...reservation,
+          id: 'new',
+        });
+        phase = 'selection delegation';
+        let boundaryCurrent = true;
+        let boundaryValue: unknown, adoptedValue: unknown;
+        const firstOwners = {
+          assertCurrentSync() {
+            expect(this).toBe(firstOwners);
+            if (!current || !boundaryCurrent) throw Error('boundary revoked');
+            return boundaryValue;
+          },
+          assertAdoptedSync() {
+            expect(this).toBe(firstOwners);
+            if (!adopted) throw Error('actual repository witness absent');
+            return adoptedValue;
+          },
+        };
+        selection.preparePreparedRepositoryPrimary(
+          f.expected,
+          child.childCommandId,
+          transition,
+          next,
+          firstOwners,
+        );
+        lease.assertCurrentSync();
+        phase = 'old metadata with new physical';
+        primary = 'new';
+        expect(() => selection.assertCurrentSync(f.expected)).toThrow();
+        adopted = true;
+        phase = 'old metadata adopted';
+        // Real FrozenHost calls the original selection with its original bootstrap
+        // and old workspace. Exact private custody permits only this transition.
+        lease.assertCurrentSync();
+        await lease.assertCurrent();
+        for (const invalid of [false, Promise.resolve(undefined)]) {
+          adoptedValue = invalid;
+          expect(() => selection.assertCurrentSync(f.expected)).toThrow();
+          adoptedValue = undefined;
+          boundaryValue = invalid;
+          expect(() => selection.assertCurrentSync(f.expected)).toThrow();
+          boundaryValue = undefined;
+        }
+        const originalWitness = firstOwners.assertAdoptedSync;
+        firstOwners.assertAdoptedSync = () => undefined;
+        expect(() => selection.assertCurrentSync(f.expected)).toThrow();
+        firstOwners.assertAdoptedSync = originalWitness;
+        phase = 'metadata commit';
+        f.store.commitPreparedRepositoryContinuation('session', child.childCommandId, transition);
+        lease.assertCurrentSync();
+        await lease.assertToolCurrent!(f.options.signal);
+        f.store.finalizePreparedRepositoryContinuation(
+          'session',
+          child.childCommandId,
+          transition,
+          () => {},
+        );
+        boundaryCurrent = false; // completed preclaim owner may expire; it never grants future reads.
+        lease.assertCurrentSync();
+        expect(lease.client).toBe(f.rpc);
+        expect(lease.privateHome).toBe(privateHome);
+        expect(lease.custodySnapshot!()).toEqual(custody);
+        expect(
+          f.store.observePreparedRepositoryBootstrapAdmission(child.childCommandId, 'command'),
+        ).toEqual(oldBootstrap);
+        expect(() =>
+          selection.assertCurrentSync({
+            ...f.expected,
+            workspace: { workspaceId: 'new', cwd: join(taskRoot, 'new') },
+          }),
+        ).toThrow();
+        f.store.admitPreparedRepositoryPrimaryContinuation(
+          {
+            sessionId: 'session',
+            accountBinding: account,
+            repositoryWorkspaceId: 'new',
+            cwd: join(taskRoot, 'new'),
+            mode: 'agent',
+            agentProfile: profile,
+          },
+          f.expected.binding,
+          {
+            clientMsgId: 'followup',
+            requestFingerprint: 'followup',
+            selection: f.expected.selection,
+            payload: {
+              text: 'Prepare another task repository',
+              systemPrompt: 'Original instructions',
+            },
+          },
+          child.childCommandId,
+        );
+        f.store.claimOrdinaryLocalCommandDispatch('followup');
+        f.store.completeOrdinaryLocalCommand('followup');
+        const second = {
+          ...transition,
+          preparationId: '3dbdc62d-20ab-4144-b210-c55bc7f39cda',
+          source: {
+            ...transition.source,
+            commandId: 'followup',
+            turnId: 'second-turn',
+            callId: 'second-prepare',
+          },
+          oldWorkspace: {
+            kind: 'repository' as const,
+            id: 'new',
+            directory: join(taskRoot, 'new'),
+          },
+          newWorkspace: {
+            ...transition.newWorkspace,
+            id: 'newer',
+            directory: join(taskRoot, 'newer'),
+            featureBranch: 'task/newer',
+            taskIdentitySha256: createHash('sha256')
+              .update(JSON.stringify(record('newer').taskIdentity))
+              .digest('hex'),
+          },
+        };
+        const nextChild = f.store.reservePreparedRepositoryContinuation('session', second);
+        let secondAdopted = false;
+        const secondOwners = {
+          assertCurrentSync() {
+            if (!current) throw Error('second boundary revoked');
+          },
+          assertAdoptedSync() {
+            if (!secondAdopted) throw Error('second actual witness absent');
+          },
+        };
+        phase = 'second delegation before custody CAS';
+        selection.preparePreparedRepositoryPrimary(
+          f.expected,
+          nextChild.childCommandId,
+          second,
+          new OrdinaryLocalWorkspaceOwner(workspace, 'repository', { ...reservation, id: 'newer' }),
+          secondOwners,
+        );
+        lease.assertCurrentSync();
+        primary = 'newer';
+        secondAdopted = true;
+        lease.assertCurrentSync();
+        await lease.assertCurrent();
+        f.store.commitPreparedRepositoryContinuation('session', nextChild.childCommandId, second);
+        lease.assertCurrentSync();
+        f.store.finalizePreparedRepositoryContinuation(
+          'session',
+          nextChild.childCommandId,
+          second,
+          () => {},
+        );
+        expect(
+          f.store.observePreparedRepositoryBootstrapAdmission(nextChild.childCommandId, 'command'),
+        ).toEqual(oldBootstrap);
+        expect(lease.custodySnapshot!()).toEqual(custody);
+        await lease.assertToolCurrent!(f.options.signal);
+        current = false;
+        expect(() => lease.assertCurrentSync()).toThrow();
+      },
+    );
+  } catch (error) {
+    throw new Error(`Transition fixture failed at ${phase}`, { cause: error });
+  } finally {
+    authority.currentLease()?.close();
+    library.close();
+    f.store.close();
+  }
+});
