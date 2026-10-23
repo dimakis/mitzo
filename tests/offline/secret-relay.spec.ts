@@ -33,7 +33,48 @@ const relay = {
     },
   ],
 };
-async function mount(page: Page, light: boolean) {
+const adapterRelay = {
+  ...relay,
+  label: 'Service sign-in',
+  targets: [
+    {
+      adapter: 'mqtt',
+      broker: 'mqtts://broker.example.test:8883',
+      username: 'device',
+      operation: 'publish',
+      topic: 'home/device/set',
+      payload: 'on',
+      retain: false,
+      allowPrivateNetwork: false,
+      endpoint: 'mqtts://broker.example.test:8883',
+      label: 'MQTT broker',
+    },
+    {
+      adapter: 'browser',
+      origin: 'https://service.example.test',
+      endpoint: 'https://service.example.test',
+      label: 'Service account',
+      allowPrivateNetwork: false,
+      requests: [
+        { path: '/login', methods: ['GET', 'POST'] },
+        { path: '/whoami', methods: ['GET'] },
+        { path: '/settings', methods: ['GET', 'POST'] },
+      ],
+      login: {
+        path: '/login',
+        usernameSelector: '#user',
+        username: 'device',
+        passwordSelector: '#password',
+        submitSelector: '#login',
+      },
+      mfa: { codeSelector: '#code', submitSelector: '#verify' },
+      verification: { path: '/whoami', pointer: '/authenticated', equals: true },
+      actions: [{ label: 'Save setting', path: '/settings', fields: [], submitSelector: '#save' }],
+    },
+  ],
+};
+async function mount(page: Page, light: boolean, adapters = false) {
+  const selectedRelay = adapters ? adapterRelay : relay;
   const assets = await build({
     stdin: {
       resolveDir: process.cwd(),
@@ -44,7 +85,7 @@ async function mount(page: Page, light: boolean) {
     import {ConnectionSetupView} from './frontend/src/pages/ConnectionSetupView';
     import {ConnectionSetupCard} from './frontend/src/components/ConnectionSetupCard';
     import './frontend/src/styles/tokens.css'; import './frontend/src/styles/global.css'; import './frontend/src/styles/workspace.css'; import './frontend/src/styles/connections-setup.css';
-    const relay=${JSON.stringify(relay)};
+    const relay=${JSON.stringify(selectedRelay)};
     createRoot(document.getElementById('root')).render(<MemoryRouter initialEntries={['/chat/original-chat']}><Routes>
       <Route path='/chat/:id' element={<main className='workspace-page'><h1>Repair heating telemetry</h1><ConnectionSetupCard sessionId='original-chat' block={{blockId:'relay',blockType:'tool_use',done:true,content:'',toolName:'PrepareSecretRelay',toolResult:JSON.stringify({relay})}}/></main>}/>
       <Route path='/connections/secrets/:setupId' element={<ConnectionSetupView secretRelay/>}/>
@@ -59,7 +100,10 @@ async function mount(page: Page, light: boolean) {
     external: ['/mitzo-wordmark.png', '/openshell-mark.svg', '/github-mark.svg'],
   });
   const captures: Array<{ path: string; body: unknown }> = [];
-  let current = { ...relay };
+  let current = {
+    ...selectedRelay,
+    outcomes: [] as Array<{ outcome: string; challenge?: string }>,
+  };
   await page.route('**/*', async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (path === '/fixture')
@@ -72,8 +116,29 @@ async function mount(page: Page, light: boolean) {
     if (path.endsWith('/reauthorize'))
       return route.fulfill({ json: { csrf: 'fixture-csrf', expiresAt: Date.now() + 60000 } });
     if (path.endsWith('/complete')) {
-      current = { ...relay, revision: 3, status: 'ready' };
+      current = {
+        ...current,
+        revision: 3,
+        status: 'ready',
+        outcomes: adapters
+          ? [
+              { outcome: 'confirmed' },
+              { outcome: 'challenge_required', challenge: 'awaiting_code' },
+            ]
+          : [],
+      };
       return route.fulfill({ json: { relay: { ...current, delivery: 'delivered' } } });
+    }
+    if (path.endsWith('/code')) {
+      current = {
+        ...current,
+        revision: 5,
+        outcomes: [
+          { outcome: 'confirmed' },
+          { outcome: 'challenge_required', challenge: 'code_ready' },
+        ],
+      };
+      return route.fulfill({ json: { relay: current } });
     }
     if (path.endsWith('/cancel'))
       return route.fulfill({ json: { relay: { ...current, revision: 4, status: 'cancelled' } } });
@@ -147,4 +212,50 @@ for (const light of [false, true])
     );
     await page.getByRole('button', { name: 'Revoke relay access' }).click();
     await expect(page.getByRole('heading', { name: 'Setup cancelled' })).toBeVisible();
+  });
+
+for (const light of [false, true])
+  test(`private browser and MQTT review with MFA (${light ? 'light' : 'dark'})`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize({
+      width: info.project.name.startsWith('mobile') ? 320 : 1280,
+      height: 900,
+    });
+    const captures = await mount(page, light, true);
+    await page.getByRole('link', { name: 'Add password or token' }).click();
+    await expect(page.getByText('MQTT publish (QoS 1)', { exact: true })).toBeVisible();
+    await expect(page.getByText('Browser sign-in at /login', { exact: true })).toBeVisible();
+    await expect(page.getByText('Save setting at /settings', { exact: true })).toBeVisible();
+    const disclosure = page.getByText('Review adapter configuration', { exact: true }).last();
+    await disclosure.focus();
+    await page.keyboard.press('Enter');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.screenshot({ path: info.outputPath('adapters-review.png'), fullPage: true });
+    await page.getByLabel('Password or token', { exact: true }).fill('synthetic-password');
+    await page.getByLabel('Mitzo passphrase', { exact: true }).fill('synthetic-unlock');
+    await page.getByRole('button', { name: 'Save securely and continue' }).click();
+    const code = page.getByLabel('Verification code', { exact: true });
+    await expect(code).toBeVisible();
+    await code.focus();
+    await expect(code).toBeFocused();
+    expect(await code.getAttribute('type')).toBe('password');
+    const submit = page.getByRole('button', { name: 'Continue private sign-in' });
+    expect(await submit.evaluate((el) => el.getBoundingClientRect().height)).toBeGreaterThanOrEqual(
+      44,
+    );
+    await page.screenshot({ path: info.outputPath('private-mfa.png'), fullPage: true });
+    await code.fill('123456');
+    await submit.click();
+    await expect(code).toHaveCount(0);
+    await expect(page.getByText('Verification code is ready.', { exact: false })).toBeVisible();
+    expect(captures.filter((c) => c.path.endsWith('/code'))).toEqual([
+      {
+        path: '/api/credential-connections/relays/relay-fixture/code',
+        body: { revision: 3, targetIndex: 1, code: '123456' },
+      },
+    ]);
+    expect(await page.locator('body').innerText()).not.toMatch(/synthetic-password|123456/);
   });
