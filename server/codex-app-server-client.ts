@@ -72,9 +72,20 @@ export class CodexHostToolRequestError extends Error {
   }
 }
 
+export interface CodexServerRequestContext {
+  readonly requestId: string | number;
+  /** Trusted owner fences run synchronously immediately before the RPC reply. */
+  readonly registerResponseFence?: (assertCurrent: () => void) => void;
+}
+
 export interface CodexLifecycleTransport {
   onNotification(method: string, params: JsonObject): void;
-  onRequest(method: string, params: JsonObject, signal: AbortSignal): Promise<JsonObject>;
+  onRequest(
+    method: string,
+    params: JsonObject,
+    signal: AbortSignal,
+    context?: CodexServerRequestContext,
+  ): Promise<JsonObject>;
   onClose(error: Error): void;
 }
 
@@ -398,7 +409,12 @@ export function codexEnvironment(
 export class CodexAppServerClient {
   private sequence = 0;
   private readonly hostAbort = new AbortController();
+  // Keep consumed IDs for this transport lifetime: resolved work is never replayed.
   private readonly hostRequests = new Set<string | number>();
+  private readonly activeHostRequests = new Map<
+    string | number,
+    { abort: AbortController; threadId: unknown }
+  >();
   private readonly lifecycle?: CodexLifecycleTransport;
   private pending = new Map<number, Pending>();
   private buffer = Buffer.alloc(0);
@@ -745,6 +761,7 @@ export class CodexAppServerClient {
     this.pending.clear();
     this.hostAbort.abort();
     this.hostRequests.clear();
+    this.activeHostRequests.clear();
     this.child.kill();
     this.lifecycle?.onClose(error);
   }
@@ -843,7 +860,7 @@ export class CodexAppServerClient {
       }
       return;
     }
-    // Repeated in-flight requests must not execute a side effect twice.
+    // Repeated requests, including settled requests, cannot repeat a side effect.
     if (this.hostRequests.has(id)) {
       try {
         this.write({ id, error: { code: -32600, message: 'Duplicate Codex request' } });
@@ -853,17 +870,27 @@ export class CodexAppServerClient {
       return;
     }
     this.hostRequests.add(id);
+    const abort = new AbortController();
+    const signal = AbortSignal.any([this.hostAbort.signal, abort.signal]);
+    this.activeHostRequests.set(id, { abort, threadId: params.threadId });
+    const responseFences: Array<() => void> = [];
+    const context: CodexServerRequestContext = Object.freeze({
+      requestId: id,
+      registerResponseFence: (assertCurrent: () => void) => responseFences.push(assertCurrent),
+    });
     Promise.resolve()
       .then(() => {
-        this.hostAbort.signal.throwIfAborted();
-        return this.lifecycle!.onRequest(method, params, this.hostAbort.signal);
+        signal.throwIfAborted();
+        return this.lifecycle!.onRequest(method, params, signal, context);
       })
       .then(
         (result) => {
-          if (!this.closed) this.write({ id, result });
+          if (this.closed || signal.aborted) return;
+          for (const assertCurrent of responseFences) assertCurrent();
+          if (!this.closed && !signal.aborted) this.write({ id, result });
         },
         (error: unknown) => {
-          if (this.closed) return;
+          if (this.closed || signal.aborted) return;
           if (method === 'item/tool/call') {
             const known = error instanceof CodexHostToolRequestError;
             createLogger('codex-app-server-client').warn('Codex host tool request rejected', {
@@ -891,7 +918,7 @@ export class CodexAppServerClient {
         },
       )
       .catch(() => this.close())
-      .finally(() => this.hostRequests.delete(id));
+      .finally(() => this.activeHostRequests.delete(id));
   }
 
   private receive(chunk: Buffer) {
@@ -960,6 +987,13 @@ export class CodexAppServerClient {
       const params = message.params ?? {};
       if (!params || typeof params !== 'object' || Array.isArray(params)) return invalid();
       if (message.id === undefined) {
+        if (message.method === 'serverRequest/resolved') {
+          const resolved = params as JsonObject;
+          if (typeof resolved.requestId === 'string' || typeof resolved.requestId === 'number') {
+            const request = this.activeHostRequests.get(resolved.requestId);
+            if (request && request.threadId === resolved.threadId) request.abort.abort();
+          }
+        }
         try {
           this.lifecycle?.onNotification(message.method, params as JsonObject);
         } catch {

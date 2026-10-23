@@ -55,7 +55,7 @@ export class OwnedCodexLifecycleBridge {
           throw unavailable();
         }
       },
-      onRequest: async (method, params, signal) => {
+      onRequest: async (method, params, signal, context) => {
         try {
           if (!this.#owner) throw unavailable();
           signal.throwIfAborted();
@@ -64,7 +64,12 @@ export class OwnedCodexLifecycleBridge {
           signal.throwIfAborted();
           this.assertCurrentSync();
           const result = await observeLocalCodexPhase('host_tool_execution', () =>
-            this.#owner!.onRequest(method, params, AbortSignal.any([signal, this.#abort.signal])),
+            this.#owner!.onRequest(
+              method,
+              params,
+              AbortSignal.any([signal, this.#abort.signal]),
+              ...(context ? [context] : []),
+            ),
           );
           // The existing conversation/tool ledger owns any effects already
           // completed by the callback. Failure here never asserts no execution.

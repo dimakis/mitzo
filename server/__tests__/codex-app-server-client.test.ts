@@ -455,6 +455,78 @@ describe('Codex app-server transport', () => {
     client.close();
   });
 
+  it('never redispatches a settled host RPC id', async () => {
+    const { child, sent, reply } = processStub();
+    const lifecycle = {
+      onNotification: vi.fn(),
+      onRequest: vi.fn(async () => ({ decision: 'accept' })),
+      onClose: vi.fn(),
+    };
+    const client = new CodexAppServerClient(child, { lifecycle });
+    const request = { id: 'native-1', method: 'item/commandExecution/requestApproval', params: {} };
+    reply(request);
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    reply(request);
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(lifecycle.onRequest).toHaveBeenCalledTimes(1);
+    expect(lifecycle.onRequest.mock.calls[0]?.[3]).toMatchObject({
+      requestId: 'native-1',
+      registerResponseFence: expect.any(Function),
+    });
+    expect(sent[1]).toMatchObject({ error: { code: -32600 } });
+    client.close();
+  });
+
+  it('checks exact native authority synchronously at the response write boundary', async () => {
+    const { child, sent, reply } = processStub();
+    let current = true;
+    let finish!: (result: Record<string, unknown>) => void;
+    const lifecycle = {
+      onNotification: vi.fn(),
+      onRequest: vi.fn((_method, _params, _signal, context) => {
+        context.registerResponseFence(() => {
+          if (!current) throw Error('revoked');
+        });
+        return new Promise<Record<string, unknown>>((resolve) => {
+          finish = resolve;
+        });
+      }),
+      onClose: vi.fn(),
+    };
+    const client = new CodexAppServerClient(child, { lifecycle });
+    reply({ id: 'fenced', method: 'item/commandExecution/requestApproval', params: {} });
+    await vi.waitFor(() => expect(lifecycle.onRequest).toHaveBeenCalledTimes(1));
+    finish({ decision: 'accept' });
+    current = false;
+    await vi.waitFor(() => expect(child.kill).toHaveBeenCalledOnce());
+    expect(sent).toEqual([]);
+  });
+
+  it('aborts a resolved native server request and suppresses a late grant', async () => {
+    const { child, sent, reply } = processStub();
+    let finish!: (result: Record<string, unknown>) => void;
+    let signal!: AbortSignal;
+    const lifecycle = {
+      onNotification: vi.fn(),
+      onRequest: vi.fn((_method, _params, pendingSignal) => {
+        signal = pendingSignal;
+        return new Promise<Record<string, unknown>>((resolve) => {
+          finish = resolve;
+        });
+      }),
+      onClose: vi.fn(),
+    };
+    const client = new CodexAppServerClient(child, { lifecycle });
+    reply({ id: 42, method: 'item/permissions/requestApproval', params: { threadId: 'thread' } });
+    await vi.waitFor(() => expect(lifecycle.onRequest).toHaveBeenCalledTimes(1));
+    reply({ method: 'serverRequest/resolved', params: { requestId: 42, threadId: 'thread' } });
+    expect(signal.aborted).toBe(true);
+    finish({ permissions: { fileSystem: { write: ['/outside'] } }, scope: 'turn' });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(sent).toHaveLength(0);
+    client.close();
+  });
+
   it.each(['item/tool/call', 'item/tool/requestUserInput'])(
     'returns a safe tool failure only for dynamic tool calls (%s)',
     async (method) => {

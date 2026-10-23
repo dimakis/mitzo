@@ -51,6 +51,24 @@ function fixture() {
 }
 
 describe('owned Codex lifecycle bridge', () => {
+  it('preserves the immutable native RPC identity through admission', async () => {
+    const f = fixture();
+    f.bridge.attach(f.owner);
+    const context = Object.freeze({ requestId: 'native-approval-1' });
+    await f.bridge.lifecycle.onRequest(
+      'item/permissions/requestApproval',
+      {},
+      new AbortController().signal,
+      context,
+    );
+    expect(f.owner.onRequest).toHaveBeenCalledWith(
+      'item/permissions/requestApproval',
+      {},
+      expect.any(AbortSignal),
+      context,
+    );
+  });
+
   it('uses the qualified tool fence without repeating bootstrap discovery', async () => {
     const f = fixture();
     f.lease.assertToolCurrent = vi.fn(async () => {});
