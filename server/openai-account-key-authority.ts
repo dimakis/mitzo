@@ -72,7 +72,7 @@ export function openAIAccountKeyAuthority(
             assertCurrent();
             return credentials.resolve(selectedResource.credentialRef);
           }, signal)
-        : await credentials.resolve(profile.credentialRef);
+        : await credentials.resolve(selectedResource.credentialRef);
     signal.throwIfAborted();
     assertCurrent();
     if (!key.trim()) throw Error('OpenAI account credential unavailable');
@@ -110,7 +110,7 @@ export function openAIAccountKeyAuthority(
               assertCurrent();
               return credentials.resolve(selectedResource.credentialRef);
             }, signal)
-          : await credentials.resolve(profile.credentialRef);
+          : await credentials.resolve(selectedResource.credentialRef);
       signal.throwIfAborted();
       assertCurrent();
       if (!key.trim()) throw Error('OpenAI account credential unavailable');

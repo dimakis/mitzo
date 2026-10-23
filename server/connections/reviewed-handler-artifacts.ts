@@ -194,7 +194,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '568a46de4fc1202e3304220ddb576092882c9a308e5e2080471e89e0bc246466',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../openai-account-key-authority.ts':
-    'bfff7ef6fb55c9a40c8b589808da2c8c1b0096386e8272baad6a424cecf1f2cd',
+    '7515f2b8ed158a8e81cef4880794a58caa49236623c1c8ee0a977c6693ca6f76',
   '../terminal-plan-adviser.ts': 'dfd8232082bcdf9b149bd4100b3ae8c82b5fe9f1a663095ca7d337feadffc6a0',
   '../terminal-router.ts': 'b1a4968bcf4f73146f6d49cb73e97a259d7734575e42e163a8301380ca36e057',
   '../knowledge-draft-store.ts': '1d412689921f7a04a10f7f4842486321bc970d9b9ea6f6a983ff2a948094b639',
