@@ -135,3 +135,113 @@ it('refuses a retargeted linked source .git while the original source and common
     assertPreparedRepositoryTaskTopology(f.access(), f.identity, f.sourceGitDirectory),
   ).rejects.toThrow();
 });
+
+it('retains persisted adoption and current owner around fresh physical validation without creation ref locks', async () => {
+  const f = await fixture();
+  const { PreparedRepositoryWorkspaceOwner } =
+    await import('../prepared-repository-workspace-owner.js');
+  const facts = {
+    request: { conversationId: 'conversation', binding: { accountId: 'offline' } },
+    newWorkspace: {
+      kind: 'repository',
+      id: 'workspace',
+      directory: f.task,
+      featureBranch: 'mitzo/fixture',
+      taskIdentity: f.identity,
+    },
+  } as unknown as import('../prepared-repository-transition.js').PreparedRepositoryTransitionFacts;
+  const record = {
+    id: 'workspace',
+    conversationId: 'conversation',
+    binding: facts.request.binding,
+    state: 'claimed',
+    directory: f.task,
+    featureBranch: 'mitzo/fixture',
+    taskIdentity: f.identity,
+    qualifiedLocalPreparation: {
+      allocationFacts: { source: { gitDirectory: f.sourceGitDirectory } },
+    },
+  };
+  let adopted = true,
+    live = true;
+  const service = {
+    assertPreparedRepositoryTransitionAdopted: vi.fn(() => {
+      if (!adopted) throw Error('witness unavailable');
+    }),
+    getForConversation: vi.fn(() => record),
+  };
+  const ports = {
+    assertCurrentSync() {
+      expect(this).toBe(ports);
+      if (!live) throw Error('owner unavailable');
+    },
+    async withReadAccess(
+      signal: AbortSignal,
+      action: (access: LocalRepositoryReadAccess) => Promise<void>,
+    ) {
+      expect(this).toBe(ports);
+      signal.throwIfAborted();
+      await action(f.access());
+    },
+  };
+  // Synthetic owner ports qualify only this component, not native authority.
+  const owner = new PreparedRepositoryWorkspaceOwner(service as never, facts, 'child', ports);
+  await owner.validate(f.task);
+  expect(service.assertPreparedRepositoryTransitionAdopted).toHaveBeenCalledWith(facts, 'child');
+  await writeFile(join(f.task, 'task.txt'), 'New work');
+  git(f.task, 'add', '.');
+  git(f.task, 'commit', '-qm', 'new');
+  await owner.revalidate(new AbortController().signal);
+  adopted = false;
+  expect(() => owner.assertCurrentSync(f.task)).toThrow();
+  adopted = true;
+  live = false;
+  await expect(owner.validate(f.task)).rejects.toThrow();
+});
+it('withholds physical success if original current owner changes or returns malformed proof during validation', async () => {
+  const f = await fixture();
+  const { PreparedRepositoryWorkspaceOwner } =
+    await import('../prepared-repository-workspace-owner.js');
+  const facts = {
+    request: { conversationId: 'conversation', binding: {} },
+    newWorkspace: {
+      kind: 'repository',
+      id: 'workspace',
+      directory: f.task,
+      featureBranch: 'mitzo/fixture',
+      taskIdentity: f.identity,
+    },
+  } as unknown as import('../prepared-repository-transition.js').PreparedRepositoryTransitionFacts;
+  const record = {
+    id: 'workspace',
+    conversationId: 'conversation',
+    binding: {},
+    state: 'claimed',
+    directory: f.task,
+    featureBranch: 'mitzo/fixture',
+    taskIdentity: f.identity,
+    qualifiedLocalPreparation: {
+      allocationFacts: { source: { gitDirectory: f.sourceGitDirectory } },
+    },
+  };
+  const ports = {
+    assertCurrentSync: () => {},
+    async withReadAccess(
+      _signal: AbortSignal,
+      action: (access: LocalRepositoryReadAccess) => Promise<void>,
+    ) {
+      await action(f.access());
+      ports.assertCurrentSync = () => {};
+    },
+  };
+  const owner = new PreparedRepositoryWorkspaceOwner(
+    {
+      getForConversation: () => record,
+      assertPreparedRepositoryTransitionAdopted: () => {},
+    } as never,
+    facts,
+    'child',
+    ports,
+  );
+  await expect(owner.validate(f.task)).rejects.toThrow();
+});
