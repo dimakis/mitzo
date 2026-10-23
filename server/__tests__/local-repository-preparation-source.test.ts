@@ -60,6 +60,7 @@ it.each(['sync', 'async'] as const)(
     vi.spyOn(allocation, 'captureLocalRepositoryAllocationFacts').mockResolvedValue({
       facts,
       factsSha256: 'b'.repeat(64),
+      publicationPackedRefs: { kind: 'absent' as const },
       verify: vi.fn(async () => {}),
     });
     await expect(

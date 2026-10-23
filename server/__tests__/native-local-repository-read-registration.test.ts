@@ -72,6 +72,7 @@ it.skipIf(
     const helperSources = [
       'native-file-operation.ts',
       'native-preparation-observation.ts',
+      'native-preparation-publication.ts',
       'native-tree-publication.ts',
       'private-repository-checkout.ts',
     ].map((file) => fileURLToPath(new URL('../' + file, import.meta.url)));
@@ -94,6 +95,7 @@ it.skipIf(
     ).toEqual([
       'native-file-operation.ts',
       'native-preparation-observation.ts',
+      'native-preparation-publication.ts',
       'native-tree-publication.ts',
       'private-repository-checkout.ts',
       'sandbox-authority.ts',

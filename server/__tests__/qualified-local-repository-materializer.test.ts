@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
@@ -48,7 +50,25 @@ actual(
           .digest('hex');
       return hashes;
     };
-    const atRunSources = profileOnly ? await productionIdentity() : undefined;
+    const atRunSources = await productionIdentity();
+    const inputIdentity = createHash('sha256').update(JSON.stringify(atRunSources)).digest('hex');
+    const require = createRequire(import.meta.url),
+      loader = require.resolve('tsx/esm');
+    const runtimeInputs = {
+      nodeVersion: process.version,
+      executablePath: process.execPath,
+      executableSha256: createHash('sha256')
+        .update(await readFile(process.execPath))
+        .digest('hex'),
+      loader,
+      loaderSha256: createHash('sha256')
+        .update(await readFile(loader))
+        .digest('hex'),
+      workerEntry: 'server/sandboxed-command-worker.ts',
+      workerEntrySha256: atRunSources['server/sandboxed-command-worker.ts'],
+      workerRuntime: 'existing sourceRuntime tsx/esm worker; no separately compiled worker binary',
+    };
+    const actorEvidencePath = `/private/tmp/mitzo-qualified-preparation-actor-${inputIdentity.slice(0, 16)}.json`;
     let prepared = false;
     const phases: string[] = [];
     const mark = (name: string) => phases.push(`${name}:${Date.now()}`);
@@ -141,7 +161,7 @@ actual(
               },
             };
             await writeFile(
-              '/private/tmp/mitzo-qualified-preparation-consolidated-owner-profile.json',
+              `/private/tmp/mitzo-qualified-preparation-owner-profile-${inputIdentity.slice(0, 16)}.json`,
               JSON.stringify(
                 {
                   fullGate,
@@ -160,14 +180,13 @@ actual(
                   },
                   plannedActor: {
                     allocationDirectoryCount: args[0].facts.directories.length,
-                    directoryHelpers: args[0].facts.directories.length + 1,
+                    directoryCreations: args[0].facts.directories.length + 1,
+                    combinedPublicationHelpers: 1,
                     stagingHelpers: 1,
-                    treeHelpers: 1,
-                    metadataBatchHelpers: 1,
-                    effectHelperCount: args[0].facts.directories.length + 4,
-                    originalFullCallbacksOnSuccess: 3 * (args[0].facts.directories.length + 4) + 7,
+                    effectHelperCount: 2,
+                    originalFullCallbacksOnSuccess: 13,
                     explanation:
-                      'Static success-path count from current actor: 3 original full callbacks per effect helper plus 7 actor/read/cleanup callbacks. Does not measure object/task read cost or establish whole-window viability.',
+                      'Static success-path count from current actor: 3 original full callbacks for separate staging checkout, 3 for combined publication, plus 7 actor/read/cleanup callbacks. The measured operation gate excludes the additional native read-owner wait inside actor full(). Does not measure object/task read cost or establish whole-window viability.',
                   },
                 },
                 null,
@@ -195,6 +214,25 @@ actual(
         const source = input.path as string;
         await writeFile(join(source, 'task.txt'), 'DIRTY SOURCE\n');
         await writeFile(join(source, 'untracked'), 'KEEP\n');
+        // Real staged content change reuses an existing accepted blob, so the
+        // object-count budget stays five while index preservation is meaningful.
+        await writeFile(join(source, 'context.md'), 'accepted source');
+        const git = (...args: string[]) =>
+          execFileSync(
+            '/usr/bin/git',
+            ['-C', source, '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', ...args],
+            {
+              encoding: 'utf8',
+              env: {
+                PATH: '/usr/bin:/bin',
+                GIT_CONFIG_GLOBAL: '/dev/null',
+                GIT_CONFIG_SYSTEM: '/dev/null',
+              },
+            },
+          ).trim();
+        git('add', '--', 'context.md');
+        expect(git('diff', '--cached', '--name-only')).toBe('context.md');
+        expect(git('rev-parse', ':context.md')).toBe(git('rev-parse', 'HEAD:task.txt'));
         const index = await readFile(join(source, '.git', 'index'));
         const head = await readFile(join(source, '.git', 'HEAD'));
         const authorization = await captureLocalRepositoryPreparationAuthorization(
@@ -248,7 +286,16 @@ actual(
           expect(await readFile(join(source, 'untracked'), 'utf8')).toBe('KEEP\n');
           return { profiled: true };
         }
-        const receipt = await authorization.materialize();
+        let receipt: Awaited<ReturnType<typeof authorization.materialize>>;
+        try {
+          receipt = await authorization.materialize();
+        } finally {
+          expect(await readFile(join(source, '.git', 'index'))).toEqual(index);
+          expect(await readFile(join(source, '.git', 'HEAD'))).toEqual(head);
+          expect(await readFile(join(source, 'task.txt'), 'utf8')).toBe('DIRTY SOURCE\n');
+          expect(await readFile(join(source, 'context.md'), 'utf8')).toBe('accepted source');
+          expect(await readFile(join(source, 'untracked'), 'utf8')).toBe('KEEP\n');
+        }
         expect(receipt.state).toBe('materialized');
         expect(receipt.taskIdentity?.linkedGit?.directory).toBe(
           authorization.scope.sourceGitEffects.administrationDirectory,
@@ -269,7 +316,31 @@ actual(
       },
       { nativeBaseReads: true },
     );
-    const result = await f.a.call({ path: join(f.f.root, 'source') });
+    let result: Awaited<ReturnType<typeof f.a.call>>;
+    try {
+      result = await f.a.call({ path: join(f.f.root, 'source') });
+    } finally {
+      const after = await productionIdentity();
+      await writeFile(
+        actorEvidencePath,
+        JSON.stringify(
+          {
+            inputIdentity,
+            productionIdentity: { before: atRunSources, after },
+            runtimeInputs,
+            phases,
+            metrics,
+            profileOnly,
+            prepared,
+            identityUnchanged: JSON.stringify(after) === JSON.stringify(atRunSources),
+            measuredAt: Date.now(),
+          },
+          null,
+          2,
+        ),
+      );
+    }
+    expect(await productionIdentity()).toEqual(atRunSources);
     expect(
       result.response.success,
       JSON.stringify({ value: result.value, phases, metrics, permissions: f.permissions.length }),

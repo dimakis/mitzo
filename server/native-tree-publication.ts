@@ -145,40 +145,10 @@ function mayOverlapForRefusal(a: string, b: string): boolean {
   }
   return true;
 }
-/** Bounded immutable server data, never a grant. Reject all nested denials of
- * projected original/task/staging trees rather than infer filesystem-equivalent
- * path absence from spelling. Actual transport retains complete OS denials. */
-export function projectExclusiveTreeRequest(input: unknown): Readonly<NativeExclusiveTreeRequest> {
-  const target = path(data(input, 'file_path')),
-    root = anchor(data(input, 'rootAnchor'));
-  const sourceValue = data(input, 'payload'),
-    source = path(data(sourceValue, 'file_path')),
-    sourceRoot = anchor(data(sourceValue, 'rootAnchor'));
-  const originalSourcePath = path(data(input, 'originalSourcePath'));
-  if (
-    target === root.rootPath ||
-    dirname(target) !== root.rootPath ||
-    source === sourceRoot.rootPath ||
-    !within(source, sourceRoot.rootPath) ||
-    within(source, target) ||
-    within(target, sourceRoot.rootPath)
-  )
-    throw unavailable();
-  const deniedRoots = Object.freeze(
-    array(data(input, 'deniedRoots'), 256).map((value) => {
-      if (value === '/') return '/';
-      return path(value);
-    }),
-  );
-  if (
-    Buffer.byteLength(JSON.stringify(deniedRoots)) > 65536 ||
-    [target, source, originalSourcePath].some((tree) =>
-      deniedRoots.some((denied) => mayOverlapForRefusal(tree, denied)),
-    )
-  )
-    throw unavailable();
+/** Shared bounded staging manifest projection; no target identities or grant. */
+export function projectNativeTreeEntries(input: unknown): readonly NativeExclusiveTreeEntry[] {
   let bytes = 0;
-  const entries = array(data(input, 'entries'), 10000).map((value) => {
+  const entries = array(input, 10000).map((value) => {
     const relative = data(value, 'path'),
       mode = data(value, 'mode'),
       size = data(value, 'size'),
@@ -218,6 +188,49 @@ export function projectExclusiveTreeRequest(input: unknown): Readonly<NativeExcl
     })
   )
     throw unavailable();
+  return Object.freeze(entries);
+}
+export function rejectNativeTreeExclusions(
+  trees: readonly string[],
+  deniedRoots: readonly string[],
+): void {
+  if (trees.some((tree) => deniedRoots.some((denied) => mayOverlapForRefusal(tree, denied))))
+    throw unavailable();
+}
+
+/** Bounded immutable server data, never a grant. Reject all nested denials of
+ * projected original/task/staging trees rather than infer filesystem-equivalent
+ * path absence from spelling. Actual transport retains complete OS denials. */
+export function projectExclusiveTreeRequest(input: unknown): Readonly<NativeExclusiveTreeRequest> {
+  const target = path(data(input, 'file_path')),
+    root = anchor(data(input, 'rootAnchor'));
+  const sourceValue = data(input, 'payload'),
+    source = path(data(sourceValue, 'file_path')),
+    sourceRoot = anchor(data(sourceValue, 'rootAnchor'));
+  const originalSourcePath = path(data(input, 'originalSourcePath'));
+  if (
+    target === root.rootPath ||
+    dirname(target) !== root.rootPath ||
+    source === sourceRoot.rootPath ||
+    !within(source, sourceRoot.rootPath) ||
+    within(source, target) ||
+    within(target, sourceRoot.rootPath)
+  )
+    throw unavailable();
+  const deniedRoots = Object.freeze(
+    array(data(input, 'deniedRoots'), 256).map((value) => {
+      if (value === '/') return '/';
+      return path(value);
+    }),
+  );
+  if (
+    Buffer.byteLength(JSON.stringify(deniedRoots)) > 65536 ||
+    [target, source, originalSourcePath].some((tree) =>
+      deniedRoots.some((denied) => mayOverlapForRefusal(tree, denied)),
+    )
+  )
+    throw unavailable();
+  const entries = projectNativeTreeEntries(data(input, 'entries'));
   const projected = Object.freeze({
     file_path: target,
     rootAnchor: root,

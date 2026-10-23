@@ -2908,6 +2908,8 @@ export class RepositoryWorkspaces {
         context,
         facts: freezePendingHostTaskData(structuredClone(qualified.allocationFacts)),
         factsSha256: qualified.allocationFactsSha256,
+        requestSha256: pendingHostTaskDecisionHash(request),
+        scopeSha256: pendingHostTaskDecisionHash(operation.scope),
         expiresAt: operation.expiresAt,
         assertCurrentSync: () => operation.assertCurrentSync(),
         assertCurrent: () => operation.assertCurrent(),

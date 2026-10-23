@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -347,3 +348,31 @@ it('binds original existing final publication parents into the facts digest acro
   const replacement = await captureLocalRepositoryAllocationFacts(owner(), input());
   expect(replacement.factsSha256).not.toBe(original.factsSha256);
 }, 30000);
+
+it.each([false, true])(
+  'refuses a packed shadow inserted between namespace parsing and publication-witness capture (packed=%s)',
+  async (packed) => {
+    if (packed) git('pack-refs', '--all');
+    const authority = owner(),
+      fresh = await captureLocalRepositoryAllocationFacts(authority, input());
+    const common = fresh.facts.source.commonAnchor,
+      path = join(common.rootPath, 'packed-refs');
+    const prior = packed ? await readFile(path, 'utf8') : '';
+    await writeFile(
+      path,
+      prior + git('rev-parse', 'HEAD') + ' refs/heads/' + fresh.facts.featureBranch + '\n',
+    );
+    expect(fresh.publicationPackedRefs).toEqual(
+      packed ? expect.objectContaining({ kind: 'file' }) : { kind: 'absent' },
+    );
+    if (packed && fresh.publicationPackedRefs.kind === 'file')
+      expect(fresh.publicationPackedRefs.sha256).toBe(
+        createHash('sha256').update(prior).digest('hex'),
+      );
+    await expect(fresh.verify()).rejects.toThrow();
+    await expect(lstat(task())).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(join(common.rootPath, 'worktrees', 'repo-' + id))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  },
+);

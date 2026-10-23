@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import {
   captureNativeHostReadOwner,
   type NativeHostToolContext,
@@ -18,15 +18,15 @@ import {
   executePrivateRepositoryStagingCheckout,
 } from './sandboxed-command.js';
 import {
-  createNativeExclusiveDirectory,
-  createNativeExclusiveFileBatch,
-  type NativeExclusiveFileRequest,
-  createNativeExclusiveTree,
   freezeNativeReadExclusions,
   type NativeFileHelperTransport,
-  type NativeReadAnchor,
   type NativeReadIdentity,
 } from './native-file-operation.js';
+import {
+  publishNativePreparedRepository,
+  nativePreparationPublicationWriteRoots,
+  type NativePreparationPublicationPlan,
+} from './native-preparation-publication.js';
 import {
   captureQualifiedLocalRepositoryTask,
   snapshotQualifiedLocalRepositoryPublication,
@@ -48,6 +48,8 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
   readonly context: NativeHostToolContext;
   readonly facts: LocalRepositoryAllocationFacts;
   readonly factsSha256: string;
+  readonly requestSha256: string;
+  readonly scopeSha256: string;
   readonly expiresAt: number;
   assertCurrentSync(): void;
   assertCurrent(): Promise<void>;
@@ -95,24 +97,20 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
   await full();
   // The original immutable facts are genuinely recaptured AFTER approval, before
   // effects. No pre-approval reader lifetime or absence cache is extended.
-  await read(async (_access, reader) => {
+  let packedRefs: NativePreparationPublicationPlan['packedRefs'] | undefined;
+  await read(async (access, reader) => {
     const fresh = await captureLocalRepositoryAllocationFacts(reader, {
       workspaceId: facts.workspaceId,
       sourcePath: facts.source.path,
       taskRoot: facts.taskRoot.rootPath,
     });
     if (fresh.factsSha256 !== factsSha256) throw unavailable();
+    packedRefs = fresh.publicationPackedRefs; // Exact parser-consumed bytes/absence, already verified by its original access.
   });
   let artifact: Awaited<ReturnType<typeof captureLocalRepositoryPreparationObjects>> | undefined;
-  const directories: QualifiedLocalRepositoryPublication['directories'][number][] = [];
-  const files: QualifiedLocalRepositoryPublication['files'][number][] = [];
-  const known = new Map(
-    facts.existingDirectories.map((entry) => [entry.directory, entry.identity]),
-  );
   const task = join(facts.taskRoot.rootPath, `repo-${facts.workspaceId}`),
     common = facts.source.commonDirectory;
-  const admin = join(common, 'worktrees', `repo-${facts.workspaceId}`),
-    reference = join(common, 'refs', 'heads', facts.featureBranch);
+  const admin = join(common, 'worktrees', `repo-${facts.workspaceId}`);
   const denied = freezeNativeReadExclusions(owner.scope.deniedRoots);
   let publication: Readonly<QualifiedLocalRepositoryPublication> | undefined;
   try {
@@ -164,106 +162,20 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       entries.push(Object.freeze({ ...entry, identity: await identity(path) }));
     }
     current();
-    const transportMany =
-      (
-        targets: readonly { path: string; parentAnchor: NativeReadAnchor }[],
-      ): NativeFileHelperTransport =>
-      async (invocation) => {
-        current();
-        const result = await executePrivateNativeFileHelper({
-          requestJson: invocation.requestJson,
-          cwd: scratch,
-          writableRoots: [{ path: scratch, parentAnchor: scratchAnchor }, ...targets],
-          deniedRoots: denied,
-          signal: context.signal,
-          timeoutMs: invocation.timeoutMs,
-          deadline: expiresAt,
-          maxOutputBytes: invocation.maxOutputBytes,
-          assertCurrentSync: current,
-          revalidate: full,
-        });
-        current();
-        return { stdout: result.stdout ?? '', isError: result.isError };
-      };
-    const transport = (target: string, parent: NativeReadAnchor) =>
-      transportMany([{ path: target, parentAnchor: parent }]);
-    const createDirectory = async (path: string, originalRoot: NativeReadAnchor) => {
-      const parentPath = dirname(path),
-        parentId = known.get(parentPath);
-      if (!parentId) throw unavailable();
-      const parent = { rootPath: parentPath, identity: parentId };
-      const created = await createNativeExclusiveDirectory(
-        {
-          file_path: path,
-          rootAnchor: originalRoot,
-          parentIdentity: parentId,
-          expectedAbsent: true,
-          deniedRoots: denied,
-        },
-        context.signal,
-        30000,
-        transport(path, parent),
-      );
-      current();
-      known.set(path, created.identity);
-      directories.push(created);
-    };
-    for (const step of facts.directories) {
-      if (
-        step.parent.kind === 'existing' &&
-        !same(known.get(step.parent.directory)!, step.parent.identity)
-      )
-        throw unavailable();
-      await createDirectory(step.directory, step.rootAnchor);
-    }
-    await createDirectory(admin, facts.source.commonAnchor);
-    const taskId = known.get(task)!,
-      parentId = known.get(facts.taskRoot.rootPath)!;
-    // SAME helper preflights EVERY staged entry before its first task write. Git
-    // has only ever run inside owned private staging, never real task/source/admin.
-    await createNativeExclusiveTree(
-      {
-        file_path: task,
-        rootAnchor: facts.taskRoot,
-        parentIdentity: parentId,
-        targetIdentity: taskId,
-        payload: {
-          file_path: staging,
-          rootAnchor: scratchAnchor,
-          parentIdentity: scratchAnchor.identity,
-          identity: await identity(staging),
-        },
-        originalSourcePath: facts.source.path,
-        entries,
-        deniedRoots: denied,
-      },
-      context.signal,
-      30000,
-      transport(task, facts.taskRoot),
-    );
-    const metadataFiles: NativeExclusiveFileRequest[] = [];
-    const publish = async (path: string, bytes: Buffer) => {
-      const parentId = known.get(dirname(path));
-      if (!parentId) throw unavailable();
+    const metadataFiles: NativePreparationPublicationPlan['metadata'][number][] = [];
+    const publish = async (bytes: Buffer) => {
       current();
       const payload = join(scratch, `publication-${metadataFiles.length}`);
       await writeFile(payload, bytes, { flag: 'wx', mode: 0o600 });
       current();
       metadataFiles.push(
         Object.freeze({
-          file_path: path,
-          rootAnchor: path === join(task, '.git') ? facts.taskRoot : facts.source.commonAnchor,
-          parentIdentity: parentId,
-          expectedAbsent: true,
-          deniedRoots: denied,
-          payload: Object.freeze({
-            file_path: payload,
-            rootAnchor: scratchAnchor,
-            parentIdentity: scratchAnchor.identity,
-            identity: await identity(payload),
-            size: bytes.length,
-            sha256: sha(bytes),
-          }),
+          file_path: payload,
+          rootAnchor: scratchAnchor,
+          parentIdentity: scratchAnchor.identity,
+          identity: await identity(payload),
+          size: bytes.length,
+          sha256: sha(bytes),
         }),
       );
     };
@@ -289,26 +201,60 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     } finally {
       await indexFile.close();
     }
-    await publish(join(admin, 'HEAD'), Buffer.from(`ref: refs/heads/${facts.featureBranch}\n`));
-    await publish(join(admin, 'commondir'), Buffer.from('../..\n'));
-    await publish(join(admin, 'gitdir'), Buffer.from(join(task, '.git') + '\n'));
-    await publish(join(admin, 'index'), index);
-    await publish(reference, Buffer.from(facts.baseOid + '\n'));
-    await publish(join(task, '.git'), Buffer.from(`gitdir: ${admin}\n`));
-    const receipts = await createNativeExclusiveFileBatch(
-      { items: Object.freeze(metadataFiles), deniedRoots: denied },
-      context.signal,
-      30000,
-      transportMany(
-        metadataFiles.map((item) => ({
-          path: item.file_path,
-          parentAnchor: { rootPath: dirname(item.file_path), identity: item.parentIdentity },
-        })),
-      ),
+    await publish(Buffer.from(`ref: refs/heads/${facts.featureBranch}\n`));
+    await publish(Buffer.from('../..\n'));
+    await publish(Buffer.from(join(task, '.git') + '\n'));
+    await publish(index);
+    await publish(Buffer.from(facts.baseOid + '\n'));
+    await publish(Buffer.from(`gitdir: ${admin}\n`));
+    if (!packedRefs) throw unavailable();
+    const plan: NativePreparationPublicationPlan = {
+      version: 'prepared-repository-publication-v1',
+      requestSha256: operation.requestSha256,
+      allocationFactsSha256: factsSha256,
+      scopeSha256: operation.scopeSha256,
+      workspaceId: facts.workspaceId,
+      baseOid: facts.baseOid,
+      sourcePath: facts.source.path,
+      sourceAnchor: facts.source.sourceAnchor,
+      commonAnchor: facts.source.commonAnchor,
+      taskRoot: facts.taskRoot,
+      directories: facts.directories,
+      existingDirectories: facts.existingDirectories,
+      packedRefs,
+      tree: {
+        payload: {
+          file_path: staging,
+          rootAnchor: scratchAnchor,
+          parentIdentity: scratchAnchor.identity,
+          identity: await identity(staging),
+        },
+        entries,
+      },
+      metadata: metadataFiles,
+      deniedRoots: denied,
+    };
+    const roots = nativePreparationPublicationWriteRoots(plan);
+    const transport: NativeFileHelperTransport = async (invocation) => {
+      current();
+      const result = await executePrivateNativeFileHelper({
+        requestJson: invocation.requestJson,
+        cwd: scratch,
+        writableRoots: roots,
+        deniedRoots: denied,
+        signal: context.signal,
+        timeoutMs: invocation.timeoutMs,
+        deadline: expiresAt,
+        maxOutputBytes: invocation.maxOutputBytes,
+        assertCurrentSync: current,
+        revalidate: full,
+      });
+      current();
+      return { stdout: result.stdout ?? '', isError: result.isError };
+    };
+    publication = snapshotQualifiedLocalRepositoryPublication(
+      await publishNativePreparedRepository(plan, context.signal, 30000, transport),
     );
-    current();
-    files.push(...receipts);
-    publication = snapshotQualifiedLocalRepositoryPublication({ version: 1, directories, files });
   } finally {
     try {
       if (artifact) await artifact.dispose();

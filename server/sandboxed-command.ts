@@ -1,3 +1,4 @@
+import { nativePreparationPublicationWriteRoots } from './native-preparation-publication.js';
 import {
   privateRepositoryCheckoutCommand,
   privateRepositoryCheckoutConfig,
@@ -151,9 +152,13 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
   const command = privateNativeFileHelperCommand(requestJson);
   const request = JSON.parse(requestJson);
   const cwd = privateData(options, 'cwd');
+  const phase = request.operation === 'PublishPreparedRepository';
+  const phaseRoots = phase
+    ? nativePreparationPublicationWriteRoots(request.preparationPlan)
+    : undefined;
   const inputRoots = privateArray(
     privateData(options, 'writableRoots'),
-    request.operation === 'CreateFileBatch' ? 7 : 2,
+    phase ? 17 : request.operation === 'CreateFileBatch' ? 7 : 2,
   );
   const maxOutputBytes = privateData(options, 'maxOutputBytes');
   const deniedRoots = freezeNativeReadExclusions(
@@ -163,7 +168,8 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
     !privateLiteral(cwd) ||
     !Array.isArray(inputRoots) ||
     inputRoots.length !==
-      (request.operation === 'CreateFileBatch' ? request.items.length + 1 : 2) ||
+      (phaseRoots?.length ??
+        (request.operation === 'CreateFileBatch' ? request.items.length + 1 : 2)) ||
     typeof maxOutputBytes !== 'number' ||
     !Number.isSafeInteger(maxOutputBytes) ||
     maxOutputBytes < 1 ||
@@ -181,7 +187,9 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
       if (
         !privateLiteral(path) ||
         !privateLiteral(parentPath) ||
-        (path !== parentPath && dirname(path) !== parentPath) ||
+        (phase
+          ? !(path === parentPath || path.startsWith(parentPath + '/'))
+          : path !== parentPath && dirname(path) !== parentPath) ||
         typeof dev !== 'string' ||
         !/^\d{1,32}$/.test(dev) ||
         typeof ino !== 'string' ||
@@ -201,23 +209,35 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
   if (
     new Set(roots.map((root) => root.path)).size !== roots.length ||
     !roots.some((root) => root.path === cwd && root.parentAnchor.rootPath === cwd) ||
-    !targets.every((target: { file_path: string; parentIdentity: NativeReadAnchor['identity'] }) =>
-      roots.some(
-        (root) =>
-          root.path === target.file_path &&
-          root.parentAnchor.rootPath === dirname(target.file_path) &&
-          root.parentAnchor.identity.dev === target.parentIdentity.dev &&
-          root.parentAnchor.identity.ino === target.parentIdentity.ino,
-      ),
-    ) ||
+    (!phase &&
+      !targets.every(
+        (target: { file_path: string; parentIdentity: NativeReadAnchor['identity'] }) =>
+          roots.some(
+            (root) =>
+              root.path === target.file_path &&
+              root.parentAnchor.rootPath === dirname(target.file_path) &&
+              root.parentAnchor.identity.dev === target.parentIdentity.dev &&
+              root.parentAnchor.identity.ino === target.parentIdentity.ino,
+          ),
+      )) ||
+    (phase && JSON.stringify(roots) !== JSON.stringify(phaseRoots)) ||
     JSON.stringify(deniedRoots) !==
-      JSON.stringify(freezeNativeReadExclusions(request.deniedRoots)) ||
+      JSON.stringify(
+        freezeNativeReadExclusions(
+          phase ? request.preparationPlan.deniedRoots : request.deniedRoots,
+        ),
+      ) ||
     roots.some((root) =>
       deniedRoots.some(
         (denied) =>
           root.path === denied || root.path.startsWith(denied === '/' ? '/' : denied + '/'),
       ),
     ) ||
+    (phase &&
+      (request.preparationPlan.tree.payload.rootAnchor.rootPath !== cwd ||
+        request.preparationPlan.metadata.some(
+          (payload: { rootAnchor: NativeReadAnchor }) => payload.rootAnchor.rootPath !== cwd,
+        ))) ||
     (['CreateFile', 'CreateFileBatch', 'PublishTree'].includes(request.operation) &&
       !targets.every(
         (target: { payload: { rootAnchor: NativeReadAnchor } }) =>

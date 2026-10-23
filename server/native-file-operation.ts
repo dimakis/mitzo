@@ -1,3 +1,8 @@
+import {
+  nativePreparationPublicationPython,
+  projectNativePreparationPublicationPlan,
+  type NativePreparationPublicationPlan,
+} from './native-preparation-publication.js';
 import { execFile } from 'node:child_process';
 import {
   projectExclusiveTreeRequest,
@@ -91,7 +96,7 @@ def create_directory(request):
             os.close(child)
         os.close(directory)
 
-def create_file(request, preflight_only=False, deadline=None, expected_receipt=None):
+def create_file(request, preflight_only=False, deadline=None, expected_receipt=None, target_parent_fd=None, payload_only=False):
     # This branch never overwrites, follows links, removes files or runs Git.
     deadline = time.monotonic() + request['timeoutMs'] / 1000 if deadline is None else deadline
     source = request['payload']
@@ -150,7 +155,12 @@ def create_file(request, preflight_only=False, deadline=None, expected_receipt=N
         source_parent, source_name = parent(source)
         source_file = os.open(source_name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=source_parent)
         data = read_payload(source_file) # Size/hash BEFORE creating the target.
-        target_parent, target_name = parent(request)
+        if payload_only: return data
+        if target_parent_fd is None:
+            target_parent, target_name = parent(request)
+        else:
+            target_parent, target_name = os.dup(target_parent_fd), os.path.basename(request['file_path'])
+            if not matches(os.fstat(target_parent), request['parentIdentity']): raise RuntimeError('Exclusive file unavailable')
         check()
         if expected_receipt is not None:
             target_file = os.open(target_name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=target_parent)
@@ -233,10 +243,10 @@ def create_file(request, preflight_only=False, deadline=None, expected_receipt=N
         for file in [source_file, target_file, source_parent, target_parent]:
             if file is not None: os.close(file)
 
-def publish_tree(request):
+def publish_tree(request, preflight_only=False, deadline=None, target_fd=None, phase_state=None, verify_only=False, extra_target_names=None):
     # Entire tree is preflighted before the first target mutation. Never run Git,
     # traverse a symlink, overwrite/adopt an entry or remove uncertain effects.
-    deadline = time.monotonic() + request['timeoutMs'] / 1000
+    deadline = time.monotonic() + request['timeoutMs'] / 1000 if deadline is None else deadline
     exclusions = request['deniedRoots']
     source = request['payload']
     entries = request['entries']
@@ -333,8 +343,8 @@ def publish_tree(request):
         return value
     source_root = target_root = None
     source_dirs = {entry['path']: entry['identity'] for entry in entries if entry['mode'] == '040000'}
-    target_dirs = {}
-    created = {}
+    target_dirs = phase_state['directories'] if verify_only else {}
+    created = phase_state['created'] if verify_only else {}
     def verify_shape(root, identities, expected_names):
         for relative in [''] + list(identities):
             directory = descend(root, relative, identities) if relative else os.dup(root)
@@ -361,11 +371,15 @@ def publish_tree(request):
         # Validate original owned source parent as well as staged-root identity.
         source_parent = open_directory(os.path.dirname(source['file_path']), source['rootAnchor'], source['parentIdentity'])
         os.close(source_parent)
-        target_root = open_directory(request['file_path'], request['rootAnchor'], request['targetIdentity'])
-        target_parent = open_directory(os.path.dirname(request['file_path']),request['rootAnchor'],request['parentIdentity'])
-        os.close(target_parent)
+        if not preflight_only:
+            target_root = os.dup(target_fd) if target_fd is not None else open_directory(request['file_path'], request['rootAnchor'], request['targetIdentity'])
+            if not matches(os.fstat(target_root), request['targetIdentity']): raise RuntimeError('Exclusive tree unavailable')
+            target_parent = open_directory(os.path.dirname(request['file_path']),request['rootAnchor'],request['parentIdentity'])
+            os.close(target_parent)
         verify_shape(source_root, source_dirs, names)
-        verify_shape(target_root, {}, {})
+        target_names = {key: set(value) for key, value in names.items()}
+        if extra_target_names: target_names.setdefault('', set()).update(extra_target_names)
+        if not preflight_only: verify_shape(target_root, target_dirs if verify_only else {}, target_names if verify_only else {})
         total = 0
         for entry in entries:
             check()
@@ -381,53 +395,55 @@ def publish_tree(request):
                 total += entry['size']
                 if total > 128 * 1024 * 1024:
                     raise RuntimeError('Exclusive tree unavailable')
-        # Only now publish, in parent-first order. No foreign directory is ever
-        # used as an output parent: every descendant identity is THIS effect's.
-        for entry in sorted(entries, key=lambda item: (item['path'].count('/'), item['path'])):
-            check()
-            destination, name = parent(target_root, entry['path'], target_dirs)
-            origin = None
-            try:
-                if entry['mode'] == '040000':
-                    os.mkdir(name, 0o700, dir_fd=destination)
-                    directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=destination)
-                    try:
-                        info = os.fstat(directory)
-                        target_dirs[entry['path']] = {'dev': str(info.st_dev), 'ino': str(info.st_ino)}
-                    finally:
-                        os.close(directory)
-                else:
-                    origin, source_name = parent(source_root, entry['path'], source_dirs)
-                    value = content(origin, source_name, entry, entry['identity'])
-                    if entry['mode'] == '120000':
-                        os.symlink(os.fsdecode(value), name, dir_fd=destination)
-                        info = os.stat(name, dir_fd=destination, follow_symlinks=False)
-                    else:
-                        file = os.open(name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=destination)
+        if preflight_only: return None
+        if not verify_only:
+            # Only now publish, in parent-first order. No foreign directory is ever
+            # used as an output parent: every descendant identity is THIS effect's.
+            for entry in sorted(entries, key=lambda item: (item['path'].count('/'), item['path'])):
+                check()
+                destination, name = parent(target_root, entry['path'], target_dirs)
+                origin = None
+                try:
+                    if entry['mode'] == '040000':
+                        os.mkdir(name, 0o700, dir_fd=destination)
+                        directory = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=destination)
                         try:
-                            offset = 0
-                            while offset < len(value):
-                                check()
-                                written = os.write(file, value[offset:offset + 65536])
-                                if written <= 0:
-                                    raise RuntimeError('Exclusive tree unavailable')
-                                offset += written
-                            os.fchmod(file, 0o755 if entry['mode'] == '100755' else 0o644)
-                            os.fsync(file)
-                            info = os.fstat(file)
+                            info = os.fstat(directory)
+                            target_dirs[entry['path']] = {'dev': str(info.st_dev), 'ino': str(info.st_ino)}
                         finally:
-                            os.close(file)
-                    created[entry['path']] = {'dev': str(info.st_dev), 'ino': str(info.st_ino)}
-            finally:
-                if origin is not None: os.close(origin)
-                os.close(destination)
+                            os.close(directory)
+                    else:
+                        origin, source_name = parent(source_root, entry['path'], source_dirs)
+                        value = content(origin, source_name, entry, entry['identity'])
+                        if entry['mode'] == '120000':
+                            os.symlink(os.fsdecode(value), name, dir_fd=destination)
+                            info = os.stat(name, dir_fd=destination, follow_symlinks=False)
+                        else:
+                            file = os.open(name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=destination)
+                            try:
+                                offset = 0
+                                while offset < len(value):
+                                    check()
+                                    written = os.write(file, value[offset:offset + 65536])
+                                    if written <= 0:
+                                        raise RuntimeError('Exclusive tree unavailable')
+                                    offset += written
+                                os.fchmod(file, 0o755 if entry['mode'] == '100755' else 0o644)
+                                os.fsync(file)
+                                info = os.fstat(file)
+                            finally:
+                                os.close(file)
+                        created[entry['path']] = {'dev': str(info.st_dev), 'ino': str(info.st_ino)}
+                finally:
+                    if origin is not None: os.close(origin)
+                    os.close(destination)
         # Reopen BOTH root bindings and every parent/entry after the copy. An
         # error leaves an uncertain partial tree; this helper cannot clean it.
         for path, root, expected in [(source['file_path'], source['rootAnchor'], source['identity']), (request['file_path'], request['rootAnchor'], request['targetIdentity'])]:
             directory = open_directory(path, root, expected)
             os.close(directory)
         verify_shape(source_root, source_dirs, names)
-        verify_shape(target_root, target_dirs, names)
+        verify_shape(target_root, target_dirs, target_names)
         for entry in entries:
             if entry['mode'] == '040000': continue
             for root, identities, expected in [(source_root, source_dirs, entry['identity']), (target_root, target_dirs, created[entry['path']])]:
@@ -443,6 +459,9 @@ def publish_tree(request):
             directory = open_directory(path, root, expected)
             os.close(directory)
         check()
+        if phase_state is not None:
+            phase_state['directories'] = target_dirs
+            phase_state['created'] = created
         return json.dumps({'directory': request['file_path'], 'identity': request['targetIdentity'], 'entries': len(entries), 'byteLength': total})
     finally:
         if source_root is not None: os.close(source_root)
@@ -589,7 +608,11 @@ def anchored_read(request, deadline=None, budget=None):
             os.close(file)
         os.close(directory)
 
+${nativePreparationPublicationPython}
+
 def execute(request):
+    if request['operation'] == 'PublishPreparedRepository':
+        return publish_prepared_repository(request)
     if request['operation'] == 'CreateFileBatch':
         items = request['items']
         if not isinstance(items, list) or not 1 <= len(items) <= 6:
@@ -730,12 +753,12 @@ try:
         raise RuntimeError('Preparation observation unavailable')
     if request['operation'] == 'ListDirectoryBatch' and len((envelope + '\n').encode('utf-8')) > 8 * 1024 * 1024:
         raise RuntimeError('Anchored directory batch unavailable')
-    if request['operation'] in ('CreateFile', 'PublishTree') and len((envelope + '\n').encode('utf-8')) > 32768:
+    if request['operation'] in ('CreateFile', 'PublishTree', 'PublishPreparedRepository') and len((envelope + '\n').encode('utf-8')) > 32768:
         raise RuntimeError('Exclusive file unavailable')
     print(envelope)
 except Exception as error:
     # OS errors may contain filenames, but never file contents or request payloads.
-    content = 'Exclusive file unavailable' if isinstance(request, dict) and request.get('operation') in ('CreateFile', 'PublishTree') else ('Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else ('Preparation observation unavailable' if isinstance(request, dict) and request.get('operation') in ('CapturePreparationObservation', 'VerifyPreparationObservation') else str(error)))
+    content = 'Exclusive file unavailable' if isinstance(request, dict) and request.get('operation') in ('CreateFile', 'PublishTree', 'PublishPreparedRepository') else ('Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else ('Preparation observation unavailable' if isinstance(request, dict) and request.get('operation') in ('CapturePreparationObservation', 'VerifyPreparationObservation') else str(error)))
     print(json.dumps({'content': content, 'is_error': True}))
 `;
 
@@ -766,9 +789,13 @@ export function projectPrivateNativeFileHelperRequest(requestJson: string): stri
     typeof request !== 'object' ||
     Array.isArray(request) ||
     JSON.stringify(request) !== requestJson ||
-    !['CreateFile', 'CreateDirectory', 'PublishTree', 'CreateFileBatch'].includes(
-      request.operation,
-    ) ||
+    ![
+      'CreateFile',
+      'CreateDirectory',
+      'PublishTree',
+      'CreateFileBatch',
+      'PublishPreparedRepository',
+    ].includes(request.operation) ||
     request.identity !== null ||
     request.limit !== 1 ||
     !Number.isSafeInteger(request.timeoutMs) ||
@@ -778,6 +805,7 @@ export function projectPrivateNativeFileHelperRequest(requestJson: string): stri
       (key) =>
         ![
           'operation',
+          'preparationPlan',
           'identity',
           'file_path',
           'limit',
@@ -795,6 +823,24 @@ export function projectPrivateNativeFileHelperRequest(requestJson: string): stri
     )
   )
     throw Error('Private file helper unavailable');
+  if (request.operation === 'PublishPreparedRepository') {
+    const preparationPlan = projectNativePreparationPublicationPlan(request.preparationPlan);
+    if (
+      request.file_path !==
+        preparationPlan.taskRoot.rootPath + '/repo-' + preparationPlan.workspaceId ||
+      JSON.stringify(request.parentIdentity) !== JSON.stringify(preparationPlan.taskRoot.identity)
+    )
+      throw Error('Private file helper unavailable');
+    return JSON.stringify({
+      preparationPlan,
+      operation: request.operation,
+      identity: null,
+      file_path: request.file_path,
+      parentIdentity: preparationPlan.taskRoot.identity,
+      limit: 1,
+      timeoutMs: request.timeoutMs,
+    });
+  }
   let projected:
     | NativeExclusiveDirectoryRequest
     | NativeExclusiveFileRequest
@@ -855,6 +901,7 @@ export function privateNativeFileHelperCommand(requestJson: string) {
 export function executeNativeFileOperation(
   request: {
     operation: string;
+    preparationPlan?: NativePreparationPublicationPlan;
     observationPlan?: NativePreparationObservationPlan;
     observationScratch?: NativePreparationObservationScratch;
     observationWitness?: NativePreparationObservationWitness;
@@ -891,6 +938,32 @@ export function executeNativeFileOperation(
     typeof operationDescriptor.value !== 'string'
   )
     return Promise.reject(Error('Invalid native file operation'));
+  if (request.operation === 'PublishPreparedRepository') {
+    try {
+      const fields = [
+        'operation',
+        'preparationPlan',
+        'file_path',
+        'parentIdentity',
+        'identity',
+        'limit',
+        'timeoutMs',
+      ];
+      if (Reflect.ownKeys(request).length !== fields.length) throw Error('Invalid phase');
+      const descriptors = Object.getOwnPropertyDescriptors(request);
+      if (fields.some((key) => !descriptors[key] || !('value' in descriptors[key])))
+        throw Error('Invalid phase');
+      const preparationPlan = projectNativePreparationPublicationPlan(
+        descriptors.preparationPlan!.value,
+      );
+      request = {
+        ...Object.fromEntries(fields.map((key) => [key, descriptors[key].value])),
+        preparationPlan,
+      } as typeof request;
+    } catch {
+      return Promise.reject(Error('Prepared repository publication unavailable'));
+    }
+  }
   if (
     ['CapturePreparationObservation', 'VerifyPreparationObservation'].includes(request.operation)
   ) {
@@ -906,6 +979,7 @@ export function executeNativeFileOperation(
       'CreateFile',
       'CreateFileBatch',
       'PublishTree',
+      'PublishPreparedRepository',
       'ListDirectoryBatch',
       'CapturePreparationObservation',
       'VerifyPreparationObservation',
@@ -923,6 +997,7 @@ export function executeNativeFileOperation(
           'CreateFile',
           'CreateFileBatch',
           'PublishTree',
+          'PublishPreparedRepository',
         ].includes(request.operation)
       ? 32768
       : ['ListDirectory', 'ListDirectoryBatch'].includes(request.operation)
@@ -957,10 +1032,14 @@ export function executeNativeFileOperation(
   };
   if (privateTransport !== undefined) {
     if (typeof privateTransport !== 'function') throw Error('Private helper transport unavailable');
-    const requestJson = ['PublishTree', 'CreateFileBatch'].includes(request.operation)
+    const requestJson = ['PublishTree', 'CreateFileBatch', 'PublishPreparedRepository'].includes(
+      request.operation,
+    )
       ? projectPrivateNativeFileHelperRequest(JSON.stringify(request))
       : JSON.stringify(request);
-    const command = ['PublishTree', 'CreateFileBatch'].includes(request.operation)
+    const command = ['PublishTree', 'CreateFileBatch', 'PublishPreparedRepository'].includes(
+      request.operation,
+    )
       ? privateNativeFileHelperCommand(requestJson)
       : helperCommand(requestJson);
     return privateTransport({

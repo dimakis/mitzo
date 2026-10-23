@@ -210,8 +210,26 @@ export async function captureLocalRepositoryAllocationFacts(
         throw unavailable();
       }
     };
+    // Private publication precondition from the EXACT entry/bytes already
+    // consumed by the successful namespace parser in THIS ReadAccess. This is
+    // outside the original permission/facts hash and confers no new authority.
+    const packedPath = join(metadata.commonDirectory, 'packed-refs');
+    const packedEntry = await access.stat(packedPath);
+    if (packedEntry && (packedEntry.kind !== 'file' || packedEntry.nlink !== 1))
+      throw unavailable();
+    const publicationPackedRefs = packedEntry
+      ? Object.freeze({
+          kind: 'file' as const,
+          identity: Object.freeze({ ...packedEntry.identity }),
+          size: packedEntry.size,
+          sha256: createHash('sha256')
+            .update(await access.read(packedPath, 16 * 1024 * 1024))
+            .digest('hex'),
+        })
+      : Object.freeze({ kind: 'absent' as const });
     await verify();
     return Object.freeze({
+      publicationPackedRefs,
       facts,
       factsSha256: createHash('sha256').update(serialized).digest('hex'),
       verify,
