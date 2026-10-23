@@ -238,6 +238,7 @@ export function buildPermissionHandler(
       'TelosAdoptSource',
       'mcp__telos__TelosAdoptSource',
     ].includes(toolName);
+    const originalOptions = opts;
     const nativeApproval = opts.nativeApproval;
     const nativeApprovalAssertion = nativeApproval?.assertCurrentSync;
     const nativeApprovalCurrent = () => {
@@ -266,11 +267,11 @@ export function buildPermissionHandler(
         rememberSessionGrant: false,
         approvalScope: nativeApproval.allowSessionScope === true ? 'session' : 'request',
       };
-    const onDecision = opts.onDecision;
+    const onDecision = originalOptions.onDecision;
     const originalInput = _toolInput;
-    const originalSignal = opts.signal;
-    const originalToolUseID = opts.toolUseID;
-    const originalControlPlane = opts.controlPlane;
+    const originalSignal = originalOptions.signal;
+    const originalToolUseID = originalOptions.toolUseID;
+    const originalControlPlane = originalOptions.controlPlane;
     const originalSessionId = session.sessionId;
     let decisionInput: ReturnType<typeof snapshotDecisionInput> | undefined;
     // Match the guard's checked map facts, including their original task custody.
@@ -286,17 +287,20 @@ export function buildPermissionHandler(
       });
     let decisionWorkspace: string | undefined;
     const observationOptionsCurrent = () =>
-      opts.onDecision === onDecision &&
-      opts.signal === originalSignal &&
-      opts.toolUseID === originalToolUseID &&
-      opts.controlPlane === originalControlPlane &&
-      opts.nativeSourceScope === undefined &&
+      [originalOptions, opts].every(
+        (current) =>
+          current.onDecision === onDecision &&
+          current.signal === originalSignal &&
+          current.toolUseID === originalToolUseID &&
+          current.controlPlane === originalControlPlane &&
+          current.nativeSourceScope === undefined &&
+          current.forcePrompt === true &&
+          current.allowSessionGrant === false &&
+          current.rememberSessionGrant === false &&
+          current.approvalScope === 'request' &&
+          !current.questions,
+      ) &&
       session.sessionId === originalSessionId &&
-      opts.forcePrompt === true &&
-      opts.allowSessionGrant === false &&
-      opts.rememberSessionGrant === false &&
-      opts.approvalScope === 'request' &&
-      !opts.questions &&
       !telosReview &&
       !toolName.startsWith('Telos') &&
       !toolName.startsWith('mcp__telos__') &&
@@ -512,36 +516,45 @@ export function buildPermissionHandler(
       let timeout: ReturnType<typeof setTimeout> | undefined = undefined;
       // Shared pre/post-observer fence; callbacks cannot make a checked allow stale.
       const revalidateAllow = (result: PermissionResult): PermissionResult => {
-        if (result.behavior !== 'allow') return result;
-        const activeClient = currentClientId();
-        const modeDenial = askDenial();
-        if (!nativeScopeCurrent())
-          return { behavior: 'deny', message: 'Original native source scope changed' };
-        if (!activeClient)
-          return { behavior: 'deny', message: 'Session permissions changed; retry the tool' };
-        if (modeDenial) return modeDenial;
-        if (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')
-          return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
-        if (onDecision) {
-          try {
-            if (
-              !observationCurrent() ||
-              result.decisionClassification !== 'user_temporary' ||
-              !decisionInput ||
-              snapshotDecisionInput(result.updatedInput ?? {}).serialized !==
-                decisionInput.serialized ||
-              originalSignal.aborted ||
-              request.expiresAt! <= Date.now()
-            )
-              throw Error('Original one-shot decision is no longer current');
-          } catch {
-            return {
-              behavior: 'deny',
-              message: 'Original one-shot approval changed; reconcile before retrying',
-            };
+        try {
+          if (result.behavior !== 'allow') return result;
+          const activeClient = currentClientId();
+          const modeDenial = askDenial();
+          if (!nativeScopeCurrent())
+            return { behavior: 'deny', message: 'Original native source scope changed' };
+          if (!activeClient)
+            return { behavior: 'deny', message: 'Session permissions changed; retry the tool' };
+          if (modeDenial) return modeDenial;
+          if (!opts.controlPlane && checkSkillPolicy(registry, activeClient, toolName) === 'deny')
+            return { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
+          if (onDecision) {
+            try {
+              if (
+                !observationCurrent() ||
+                result.decisionClassification !== 'user_temporary' ||
+                !decisionInput ||
+                snapshotDecisionInput(result.updatedInput ?? {}).serialized !==
+                  decisionInput.serialized ||
+                originalSignal.aborted ||
+                request.expiresAt! <= Date.now()
+              )
+                throw Error('Original one-shot decision is no longer current');
+            } catch {
+              return {
+                behavior: 'deny',
+                message: 'Original one-shot approval changed; reconcile before retrying',
+              };
+            }
           }
+          return result;
+        } catch {
+          // Current options may change during observation. A failed validation
+          // must still settle the original denial and preserve retained evidence.
+          return {
+            behavior: 'deny',
+            message: 'Approval revalidation failed; reconcile before retrying',
+          };
         }
-        return result;
       };
       const wrappedResolve = (result: PermissionResult) => {
         if (settled) return settledResult;
@@ -585,9 +598,9 @@ export function buildPermissionHandler(
         if (onDecision) result = revalidateAllow(result);
         settledResult = result;
         if (
+          result.behavior === 'allow' &&
           opts.allowSessionGrant !== false &&
           opts.rememberSessionGrant !== false &&
-          result.behavior === 'allow' &&
           result.decisionClassification === 'user_permanent'
         ) {
           if (opts.sessionGrantKey) session.sessionAllowList.add(opts.sessionGrantKey);

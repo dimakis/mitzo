@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CodexConversationStore } from '../codex-conversation-store.js';
+import { normalizeMcpToolResult } from '../codex-tool-result.js';
 const roots: string[] = [];
 const binding = {
   accountId: 'personal',
@@ -490,6 +491,79 @@ it('reopens an exact tool result after a crash before reviewer coverage is marke
   s.close();
 });
 
+it('retains bounded mixed-output errors through receipt restart and replay', () => {
+  const { path } = setup();
+  let store = new CodexConversationStore(path);
+  store.create('bounded', binding, '/workspace');
+  store.enqueue('bounded', binding, { id: 'command', prompt: 'inspect' });
+  store.claimNext('bounded', binding);
+  const identity = { turnId: 'turn', toolName: 'screen', requestHash: 'a'.repeat(64) };
+  store.claimTool('bounded', binding, 'command', 'call', identity);
+  const data =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+  const result = normalizeMcpToolResult(
+    [
+      { type: 'text', text: 'x'.repeat(65_535) },
+      { type: 'image', mimeType: 'image/png', data },
+      { type: 'text', text: 'required trailing text' },
+    ],
+    false,
+  );
+  store.recordToolResult('bounded', binding, 'command', 'call', identity, result);
+  store.close();
+  store = new CodexConversationStore(path);
+  expect(store.replayToolResult('bounded', binding, 'command', 'call', identity)).toEqual({
+    content: 'Tool output exceeds the supported result bound. Request a smaller result.',
+    isError: true,
+  });
+  store.close();
+});
+
+it('retains exact rich tool receipts through restart and rejects changed or corrupt images', () => {
+  const { path } = setup();
+  let store = new CodexConversationStore(path);
+  store.create('rich', binding, '/workspace');
+  store.enqueue('rich', binding, { id: 'command', prompt: 'inspect' });
+  store.claimNext('rich', binding);
+  const identity = { turnId: 'turn', toolName: 'screen', requestHash: 'a'.repeat(64) };
+  store.claimTool('rich', binding, 'command', 'call', identity);
+  const data =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+  const result = {
+    content: 'screen',
+    isError: false,
+    contentItems: [
+      { type: 'inputText' as const, text: 'screen' },
+      { type: 'inputImage' as const, imageUrl: `data:image/png;base64,${data}` },
+    ],
+  };
+  store.recordToolResult('rich', binding, 'command', 'call', identity, result);
+  store.close();
+  store = new CodexConversationStore(path);
+  expect(store.replayToolResult('rich', binding, 'command', 'call', identity)).toEqual(result);
+  expect(() =>
+    store.recordToolResult('rich', binding, 'command', 'call', identity, {
+      ...result,
+      contentItems: [result.contentItems[0]],
+    }),
+  ).toThrow(/changed/);
+  expect(() =>
+    store.replayToolResult('rich', { ...binding, accountId: 'other' }, 'command', 'call', identity),
+  ).toThrow(/binding/);
+  store.close();
+  const db = new Database(path);
+  db.prepare('UPDATE codex_tools SET result_content_items=? WHERE conversation_id=?').run(
+    '[{"type":"inputImage","imageUrl":"https://example.com/secret.png"}]',
+    'rich',
+  );
+  db.close();
+  store = new CodexConversationStore(path);
+  expect(() => store.replayToolResult('rich', binding, 'command', 'call', identity)).toThrow(
+    /invalid/i,
+  );
+  store.close();
+});
+
 it('claims host tools after reopening a ledger with additional nullable tool columns', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);
@@ -498,6 +572,9 @@ it('claims host tools after reopening a ledger with additional nullable tool col
   s.claimNext('c', binding);
   s.close();
   const db = new Database(path);
+  // Reproduce a real pre-image-result database rather than merely creating a
+  // fresh table that already has the new column.
+  db.exec('ALTER TABLE codex_tools DROP COLUMN result_content_items');
   for (const column of [
     'turn_id TEXT',
     'tool_name TEXT',
@@ -525,6 +602,7 @@ it('claims host tools after reopening a ledger with additional nullable tool col
       request_hash: null,
       result_content: null,
       result_is_error: null,
+      result_content_items: null,
     },
   ]);
   persisted.close();

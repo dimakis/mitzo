@@ -24,6 +24,7 @@ import type { ToolDefinition } from '@mitzo/harness';
 import {
   CodexHostToolRequestError,
   CodexRequestError,
+  CodexServerRequestResolvedError,
   CodexTransportError,
   type CodexLifecycleTransport,
   type CodexServerRequestContext,
@@ -44,6 +45,11 @@ import {
   type CodexNativeExecutionPolicy,
 } from './codex-native-execution-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
+import {
+  codexToolResultContentItems,
+  normalizeCodexToolResult,
+  type CodexToolResult,
+} from './codex-tool-result.js';
 import { classifyProviderFailure, ProviderFailureError } from './provider-failure.js';
 import { tracer } from './tracing.js';
 import { createLogger } from './logger.js';
@@ -162,19 +168,19 @@ export interface CodexConversationOptions {
       /** Nonenumerable original-call capability, absent without a native base policy. */
       captureNativeBaseReadScope?(): NativeBaseReadScope;
     }>,
-  ): Promise<{ content: string; isError: boolean }>;
+  ): Promise<CodexToolResult>;
   /** Called only after an exact host tool result can be replayed durably. */
   onToolResultDurable?: (
     name: string,
     input: ObjectValue,
-    result: { content: string; isError: boolean },
+    result: CodexToolResult,
     context: { turnId: string; callId: string },
   ) => Promise<void> | void;
   /** Trusted adapter confirms this exact successful tool changed the retained environment. */
   shouldContinueAfterToolResult?: (
     name: string,
     input: ObjectValue,
-    result: { content: string; isError: boolean },
+    result: CodexToolResult,
   ) => boolean;
   /** External owners retain admission authority for unfinished environment changes. */
   environmentContinuationOwner?: 'external';
@@ -2727,25 +2733,85 @@ export class CodexConversation {
     signal: AbortSignal,
     requestContext?: NativeRequestContext,
   ): Promise<ObjectValue> {
-    if (!this.opts.prepareAgentContext)
-      return this.hostRequest(method, params, signal, requestContext);
+    const prepareAgentContext = this.opts.prepareAgentContext;
+    if (!prepareAgentContext) return this.hostRequest(method, params, signal, requestContext);
     const active = this.active;
+    const activeAbort = active?.abort;
+    const command = active?.command;
+    const commandId = command?.id;
+    const attempt = command?.attempt;
+    const turnId = active?.turnId;
+    const threadId = this.threadId;
+    const client = this.client;
+    const binding = this.binding;
+    const bindingSnapshot = JSON.stringify(binding);
     const generation = this.transportGeneration;
-    const continuationSignal = AbortSignal.any([
-      signal,
-      ...(active ? [active.abort.signal] : []),
-      ...(this.opts.startupSignal ? [this.opts.startupSignal] : []),
+    const startupSignal = this.opts.startupSignal;
+    const requestId = requestContext?.requestId;
+    const requestIdentity = [params.threadId, params.turnId, params.itemId, params.callId];
+    // A consumed RPC may outlive its provider operation. Revalidate authority
+    // without that one cancellation, retaining the original command/startup
+    // signals even when AbortSignal.any has already selected the RPC reason.
+    const authoritySignal = AbortSignal.any([
+      ...(activeAbort ? [activeAbort.signal] : []),
+      ...(startupSignal ? [startupSignal] : []),
     ]);
-    const authorize = async () => {
+    const continuationSignal = AbortSignal.any([signal, authoritySignal]);
+    const assertIdentity = (resolvedCleanup: boolean) => {
+      if (
+        this.closed ||
+        generation !== this.transportGeneration ||
+        this.client !== client ||
+        this.active !== active ||
+        active?.abort !== activeAbort ||
+        active?.command !== command ||
+        command?.id !== commandId ||
+        command?.attempt !== attempt ||
+        active?.turnId !== turnId ||
+        this.threadId !== threadId ||
+        this.binding !== binding ||
+        JSON.stringify(binding) !== bindingSnapshot ||
+        this.opts.prepareAgentContext !== prepareAgentContext ||
+        this.opts.startupSignal !== startupSignal ||
+        requestContext?.requestId !== requestId ||
+        [params.threadId, params.turnId, params.itemId, params.callId].some(
+          (value, index) => value !== requestIdentity[index],
+        )
+      )
+        throw Error('Codex host continuation identity changed');
+      if (
+        resolvedCleanup &&
+        (!active ||
+          !threadId ||
+          !turnId ||
+          requestIdentity[0] !== threadId ||
+          requestIdentity[1] !== turnId)
+      )
+        throw Error('Codex resolved request identity mismatch');
+    };
+    const authorize = async (resolvedCleanup = false): Promise<void> => {
+      const authorizationSignal = resolvedCleanup ? authoritySignal : continuationSignal;
       try {
-        if (this.closed || generation !== this.transportGeneration)
-          throw Error('Codex host continuation is closed or replaced');
-        continuationSignal.throwIfAborted();
-        await this.opts.prepareAgentContext!(continuationSignal);
-        continuationSignal.throwIfAborted();
-        if (this.closed || generation !== this.transportGeneration || this.active !== active)
-          throw Error('Codex host continuation identity changed');
+        assertIdentity(resolvedCleanup);
+        authorizationSignal.throwIfAborted();
+        await prepareAgentContext.call(this.opts, authorizationSignal);
+        authorizationSignal.throwIfAborted();
+        assertIdentity(resolvedCleanup);
       } catch (error) {
+        if (
+          !resolvedCleanup &&
+          signal.aborted &&
+          error === signal.reason &&
+          signal.reason instanceof CodexServerRequestResolvedError &&
+          requestId !== undefined &&
+          signal.reason.requestId === requestId
+        ) {
+          // Exactly one authority-only retry covers resolution during either
+          // admission or final authorization. Never repeat the host operation
+          // or return its result after upstream has consumed this request.
+          await authorize(true);
+          throw error;
+        }
         if (!this.closed) {
           try {
             this.opts.onError?.(
@@ -2895,7 +2961,7 @@ export class CodexConversation {
           });
           return {
             success: !replay.isError,
-            contentItems: [{ type: 'inputText', text: replay.content }],
+            contentItems: codexToolResultContentItems(replay),
           };
         }
       }
@@ -2914,7 +2980,7 @@ export class CodexConversation {
       this.opts.displayToolName?.(call.tool) ?? call.tool,
       call.arguments,
     );
-    let result: { content: string; isError: boolean };
+    let result: CodexToolResult;
     let callbackOpen = true;
     const callbackBinding = this.binding!;
     // Keep existing label-only JSON/strict store contracts unchanged. Spreading
@@ -3030,7 +3096,9 @@ export class CodexConversation {
     }
     Object.freeze(invocation);
     try {
-      result = await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation);
+      result = normalizeCodexToolResult(
+        await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
+      );
     } catch {
       result = {
         content: 'Tool failed or was interrupted. Inspect current state before retrying.',
@@ -3130,10 +3198,10 @@ export class CodexConversation {
         result,
       );
     }
-    this.mapper!.toolResult(publicId, result.content, result.isError);
+    this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems);
     return {
       success: !result.isError,
-      contentItems: [{ type: 'inputText', text: result.content }],
+      contentItems: codexToolResultContentItems(result),
     };
   }
   /** Accepted, durably correlated live turn only; no pending/startup target. */

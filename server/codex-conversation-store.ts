@@ -27,6 +27,11 @@ const HostBundleUpgrade = z.strictObject({
 import type { OpenShellRuntime, OpenShellAccountRoute } from './openshell-runtime.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import type { PersistedWebSearchGrant, WebSearchGrant } from './web-search-policy.js';
+import {
+  normalizeCodexToolResult,
+  MAX_CODEX_RICH_RESULT_BYTES,
+  type CodexToolResult,
+} from './codex-tool-result.js';
 
 export interface ArtifactRuntime {
   runtime: OpenShellRuntime & { sandboxId: string };
@@ -190,6 +195,28 @@ export const CodexNativeTurnTargetSchema = z.strictObject({
   generation: z.number().int().nonnegative().safe(),
 });
 export type CodexNativeTurnTarget = z.infer<typeof CodexNativeTurnTargetSchema>;
+const CompletedPreparedRepositorySourceSchema = CodexNativeTurnTargetSchema.extend({
+  callId: z.string().min(1).max(200),
+  toolName: z.literal('PrepareLocalRepository'),
+  requestHash: z.string().regex(/^[a-f0-9]{64}$/),
+  resultSha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+/** Historical correlation only; current operator, read and custody authority
+ * must be supplied separately at the completed-turn admission barrier. */
+export type CompletedPreparedRepositorySource = z.infer<
+  typeof CompletedPreparedRepositorySourceSchema
+>;
+export function preparedRepositoryResultSha256(result: CodexToolResult): string {
+  const checked = normalizeCodexToolResult(result);
+  // Match recordToolResult/replayToolResult's durable public projection exactly.
+  // Private executor metadata is deliberately not part of the retained result.
+  const durable = {
+    content: checked.content,
+    isError: checked.isError,
+    ...(checked.contentItems ? { contentItems: checked.contentItems } : {}),
+  };
+  return createHash('sha256').update(JSON.stringify(durable)).digest('hex');
+}
 const NativeTurnHistorySchema = z
   .array(
     CodexNativeTurnTargetSchema.omit({ commandId: true }).extend({
@@ -396,7 +423,7 @@ export class CodexConversationStore {
         UNIQUE(conversation_id,id));
       CREATE TABLE IF NOT EXISTS codex_tools (
         conversation_id TEXT NOT NULL, command_id TEXT NOT NULL, call_id TEXT NOT NULL,
-        turn_id TEXT, tool_name TEXT, request_hash TEXT, result_content TEXT, result_is_error INTEGER,
+        turn_id TEXT, tool_name TEXT, request_hash TEXT, result_content TEXT, result_is_error INTEGER, result_content_items TEXT,
         PRIMARY KEY(conversation_id,call_id),
         FOREIGN KEY(conversation_id,command_id) REFERENCES codex_commands(conversation_id,id));
       CREATE INDEX IF NOT EXISTS codex_commands_queue_status ON codex_commands(conversation_id,status,sequence);`);
@@ -446,6 +473,7 @@ export class CodexConversationStore {
         ['request_hash', 'TEXT'],
         ['result_content', 'TEXT'],
         ['result_is_error', 'INTEGER'],
+        ['result_content_items', 'TEXT'],
       ] as const)
         if (!toolColumns.some((column) => column.name === name))
           this.db.exec(`ALTER TABLE codex_tools ADD COLUMN ${name} ${type}`);
@@ -2978,6 +3006,74 @@ export class CodexConversationStore {
       });
     })();
   }
+  /** Verify a completed source without reviving its expired native callback.
+   * This does not authorize a read, a workspace change or another provider turn.
+   * Old queued work is a hard boundary: never silently retarget that work or
+   * place an automatic continuation behind a later explicit user command. */
+  assertCompletedPreparedRepositorySource(
+    id: string,
+    binding: AccountBinding,
+    rawSource: CompletedPreparedRepositorySource,
+  ): void {
+    this.db.transaction(() => {
+      const source = CompletedPreparedRepositorySourceSchema.parse(rawSource);
+      const current = this.read(id, binding);
+      const row = this.db
+        .prepare(
+          'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+        )
+        .get(id, source.commandId) as
+        { status: string; attempt: number; native_turns: string | null } | undefined;
+      const fail = () => {
+        throw Error('Completed prepared repository source unavailable');
+      };
+      if (
+        !row ||
+        row.status !== 'completed' ||
+        row.attempt !== source.attempt ||
+        current.threadId !== source.threadId ||
+        current.threadGeneration !== source.generation ||
+        current.lastCompletedTurnId !== source.turnId ||
+        current.recovery ||
+        this.commands(id, binding).some((command) => ['queued', 'running'].includes(command.status))
+      )
+        fail();
+      this.assertNoPendingThreadOwnership(id, binding);
+      this.assertNoPendingThreadDispatch(id, binding);
+      const targets = this.nativeTurns(row!.native_turns).filter(
+        (turn) => turn.attempt === source.attempt,
+      );
+      if (
+        targets.length !== 1 ||
+        !isDeepStrictEqual(this.nativeTarget(source.commandId, targets[0]), {
+          commandId: source.commandId,
+          attempt: source.attempt,
+          threadId: source.threadId,
+          turnId: source.turnId,
+          generation: source.generation,
+        })
+      )
+        fail();
+      const receipt = this.readNativeExecution(id, binding, {
+        id: source.commandId,
+        attempt: source.attempt,
+      });
+      if (
+        receipt?.phase !== 'accepted' ||
+        receipt.threadId !== source.threadId ||
+        receipt.turnId !== source.turnId ||
+        receipt.generation !== source.generation
+      )
+        fail();
+      const result = this.replayToolResult(id, binding, source.commandId, source.callId, source);
+      if (
+        !result ||
+        result.isError ||
+        preparedRepositoryResultSha256(result) !== source.resultSha256
+      )
+        fail();
+    })();
+  }
   /** A completed host result is persisted before it is exposed to the transport.
    * A duplicate RPC can replay exactly the same result after a lost response. */
   recordToolResult(
@@ -2986,13 +3082,15 @@ export class CodexConversationStore {
     commandId: string,
     callId: string,
     identity: { turnId: string; toolName: string; requestHash: string },
-    result: { content: string; isError: boolean },
+    result: CodexToolResult,
   ): void {
+    const checked = normalizeCodexToolResult(result);
+    const items = checked.contentItems ? JSON.stringify(checked.contentItems) : null;
     this.db.transaction(() => {
       this.read(id, b);
       const row = this.db
         .prepare(
-          `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error
+          `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error,result_content_items
         FROM codex_tools WHERE conversation_id=? AND call_id=?`,
         )
         .get(id, callId) as
@@ -3003,6 +3101,7 @@ export class CodexConversationStore {
             request_hash: string | null;
             result_content: string | null;
             result_is_error: number | null;
+            result_content_items: string | null;
           }
         | undefined;
       if (
@@ -3014,16 +3113,20 @@ export class CodexConversationStore {
       )
         throw new Error('Codex tool result identity changed');
       if (row.result_content !== null) {
-        if (row.result_content !== result.content || row.result_is_error !== Number(result.isError))
+        if (
+          row.result_content !== checked.content ||
+          row.result_is_error !== Number(checked.isError) ||
+          row.result_content_items !== items
+        )
           throw new Error('Codex tool result changed');
         return;
       }
       this.db
         .prepare(
-          `UPDATE codex_tools SET result_content=?,result_is_error=?
+          `UPDATE codex_tools SET result_content=?,result_is_error=?,result_content_items=?
         WHERE conversation_id=? AND command_id=? AND call_id=?`,
         )
-        .run(result.content, Number(result.isError), id, commandId, callId);
+        .run(checked.content, Number(checked.isError), items, id, commandId, callId);
     })();
   }
   replayToolResult(
@@ -3032,11 +3135,11 @@ export class CodexConversationStore {
     commandId: string,
     callId: string,
     identity: { turnId: string; toolName: string; requestHash: string },
-  ): { content: string; isError: boolean } | null {
+  ): CodexToolResult | null {
     this.read(id, b);
     const row = this.db
       .prepare(
-        `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error
+        `SELECT command_id,turn_id,tool_name,request_hash,result_content,result_is_error,result_content_items
       FROM codex_tools WHERE conversation_id=? AND call_id=?`,
       )
       .get(id, callId) as
@@ -3047,6 +3150,7 @@ export class CodexConversationStore {
           request_hash: string | null;
           result_content: string | null;
           result_is_error: number | null;
+          result_content_items: string | null;
         }
       | undefined;
     if (
@@ -3057,9 +3161,19 @@ export class CodexConversationStore {
       row.request_hash !== identity.requestHash
     )
       throw new Error('Codex tool replay identity changed');
-    return row.result_content === null
-      ? null
-      : { content: row.result_content, isError: row.result_is_error === 1 };
+    if (row.result_content === null) return null;
+    if (
+      row.result_content_items !== null &&
+      Buffer.byteLength(row.result_content_items) > MAX_CODEX_RICH_RESULT_BYTES
+    )
+      throw Error('Stored tool result exceeds bound');
+    return normalizeCodexToolResult({
+      content: row.result_content,
+      isError: row.result_is_error === 1,
+      ...(row.result_content_items !== null
+        ? { contentItems: JSON.parse(row.result_content_items) }
+        : {}),
+    });
   }
   recoverAtStartup(ownerKind?: 'ordinary' | 'symposium') {
     this.db.transaction(() => {
