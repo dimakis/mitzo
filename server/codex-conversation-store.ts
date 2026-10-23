@@ -3176,9 +3176,10 @@ export class CodexConversationStore {
         }),
       );
       const child = this.commands(id, binding).find((command) => command.id === input.id);
-      if (!child || child.status !== 'queued' || child.attempt !== 1)
+      if (!child) throw Error('Prepared repository child is not exactly queued');
+      const { status, attempt, ...retained } = child;
+      if (status !== 'queued' || attempt !== 1)
         throw Error('Prepared repository child is not exactly queued');
-      const { status: _status, attempt: _attempt, ...retained } = child;
       if (!isDeepStrictEqual(retained, expected))
         throw Error('Prepared repository queued child changed');
       this.assertPreparedRepositorySource(id, binding, source, input.id);
