@@ -298,7 +298,7 @@ it('rejects new Responses entry before preparation and preserves legacy chat own
   );
   expect(metadataOnly.status).toBe(200);
   expect(ExplicitLocalInventorySchema.parse(metadataOnly.body).routes).toEqual([]);
-  expect(chat.eventStore.getSessionRuntimeBinding('legacy-metadata-only')).toBeUndefined();
+  expect(chat.eventStore.getSessionRuntimeBinding('legacy-metadata-only')).toBeNull();
   expect(JSON.stringify(requests[0].input)).toContain(
     agentLibrarySource.content.replaceAll('"', '\\"'),
   );

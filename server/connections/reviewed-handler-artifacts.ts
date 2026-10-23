@@ -1357,7 +1357,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/lib/__tests__/chat-runtime-route.test.ts':
     '7b60a8b59f573a248d21dcca15275335746829a3a46791b152266c2d40b594b5',
   '../__tests__/ordinary-local-responses-chat.test.ts':
-    'fc27354c360676db04452813ff57c17134f650c87136a9ecedfdc09d51a17e4f',
+    'e587152b7506162e625857c0d8df13c95446d089cf3843b34e6b80cb7810eb0b',
   '../__tests__/ordinary-local-responses-dual-capabilities.test.ts':
     'a1beb878190e4982b74b5b20941b6c47373736986a729ba9398764a78b602f3e',
   '../__tests__/ordinary-local-responses-preparation.test.ts':
