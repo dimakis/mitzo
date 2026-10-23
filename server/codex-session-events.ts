@@ -469,8 +469,15 @@ export class CodexSessionEvents {
       isError,
       ...(contentItems ? { contentItems } : {}),
     });
+    let precedingText = false;
     const blocks = result.contentItems?.map((item) => {
-      if (item.type === 'inputText') return { type: 'text', text: item.text };
+      if (item.type === 'inputText') {
+        // The public extractor concatenates SDK text blocks. Preserve the
+        // authoritative receipt's separators without changing image order.
+        const text = (precedingText ? '\n' : '') + item.text;
+        precedingText = true;
+        return { type: 'text', text };
+      }
       const split = item.imageUrl.indexOf(';base64,');
       return {
         type: 'image',

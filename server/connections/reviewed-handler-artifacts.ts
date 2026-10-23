@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.557-codex-mcp-images';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.558-codex-mcp-image-text';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -362,7 +362,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '299edbeb86bab57c9f910b27cab5d6753ff026106916d58f4a9a2dd5deedafa8',
   '../collaboration-ordinary-replies.ts':
     '599f1574e4fb2deace9d5b0aa19e639d6bd7aed727837d404f44ff916eba8a5f',
-  '../codex-session-events.ts': '6b7db928f6695d3ae7a40adceab4ab647ebb3ee073021705d15e8ec8b9fb8fd0',
+  '../codex-session-events.ts': '363c28f16fe908c941667311b4de133e114dd4f1972aa37dd2377c205d750ac3',
   '../collaboration-context-source.ts':
     '4315a579a1741c55d7c62b9b43fdde35967ad1b6e630eb1d1b5389221cac0995',
   '../../packages/protocol/src/collaboration-visible-source.ts':
