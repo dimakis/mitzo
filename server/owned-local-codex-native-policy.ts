@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
-import type { AccountBinding } from '@mitzo/protocol';
+import type { MitzoMode, AccountBinding } from '@mitzo/protocol';
 import type { ManagedSession } from './session-registry.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { privateCodexPathSnapshot } from './codex-private-path.js';
@@ -21,16 +21,49 @@ export function composeOwnedLocalNativeExecutionPolicy(input: {
   readableRoots?: readonly string[];
   assertCurrentSync(): void;
 }) {
-  input.assertCurrentSync();
-  const { session } = input;
-  if (!session.cwd) throw Error('Native workspace unavailable');
+  return composeOwnedLocalNativeExecutionPolicyForWorkspace(input, () => ({
+    cwd: input.session.cwd!,
+    mode: input.session.mode,
+    workspaceRoots: input.session.worktreePaths.size
+      ? [...input.session.worktreePaths.values()].map((entry) => entry.path)
+      : [input.session.cwd!],
+    authSessionId: input.session.ownedLocalAuthSessionId,
+  }));
+}
+
+/** SAME selected-policy projection for the private qualified cold owner. The
+ * capture callback belongs to the actual driver/current workspace authority;
+ * these values alone confer neither read authority nor permission to dispatch. */
+export function composeOwnedLocalNativeExecutionPolicyForWorkspace(
+  input: { binding: AccountBinding; readableRoots?: readonly string[]; assertCurrentSync(): void },
+  captureWorkspace: () => Readonly<{
+    cwd: string;
+    mode: MitzoMode;
+    workspaceRoots: readonly string[];
+    authSessionId?: string;
+  }>,
+) {
+  const originalCurrent = input.assertCurrentSync;
+  const current = () => {
+    if (input.assertCurrentSync !== originalCurrent)
+      throw Error('Original native policy owner unavailable');
+    const checked: unknown = originalCurrent.call(input);
+    if (checked !== undefined) {
+      void Promise.resolve(checked).catch(() => {});
+      throw Error('Native policy owner must provide synchronous proof');
+    }
+    if (input.assertCurrentSync !== originalCurrent)
+      throw Error('Original native policy owner unavailable');
+  };
+  current();
+  const selection = captureWorkspace();
+  if (!selection.cwd || !selection.workspaceRoots.length)
+    throw Error('Native workspace unavailable');
   // One fresh complete snapshot for this composition only. Every invocation
   // reloads the actual profile roots and retained/configured private roots.
   const privatePaths = privateCodexPathSnapshot(loadAccountProfiles().privateCodexRoots());
   const deniedRoots = privatePaths.roots;
-  const workspaces = session.worktreePaths.size
-    ? [...session.worktreePaths.values()].map((entry) => entry.path)
-    : [session.cwd];
+  const workspaces = [...selection.workspaceRoots];
   const selectors = workspaceRuntimeSelectorEntries();
   const contains = (root: string, path: string) => {
     const child = relative(root, path);
@@ -54,18 +87,18 @@ export function composeOwnedLocalNativeExecutionPolicy(input: {
         JSON.stringify([
           input.binding.accountId,
           input.binding.profileRevision,
-          session.ownedLocalAuthSessionId,
+          selection.authSessionId,
         ]),
       )
       .digest('hex'),
-    mode: session.mode,
-    cwd: session.cwd,
+    mode: selection.mode,
+    cwd: selection.cwd,
     readableRoots: input.readableRoots ?? ['/'],
     writableRoots: workspaces,
     deniedRoots,
     writeProtectedRoots,
   });
-  input.assertCurrentSync();
+  current();
   return policy;
 }
 
