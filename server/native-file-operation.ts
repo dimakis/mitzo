@@ -253,6 +253,15 @@ except Exception as error:
     print(json.dumps({'content': str(error), 'is_error': True}))
 `;
 
+/** Private transport of the SAME fixed helper through an existing enforced
+ * owner. Supplying it never permits fallback to the direct host runner. */
+export type NativeFileHelperTransport = (request: {
+  command: string;
+  maxOutputBytes: number;
+  signal: AbortSignal;
+  timeoutMs: number;
+}) => Promise<{ stdout: string; isError: boolean }>;
+
 export function executeNativeFileOperation(
   request: {
     operation: string;
@@ -269,8 +278,60 @@ export function executeNativeFileOperation(
   },
   signal: AbortSignal,
   timeoutMs = 30_000,
+  privateTransport?: NativeFileHelperTransport,
 ): Promise<{ content: string; is_error: boolean }> {
   signal.throwIfAborted();
+  const maxBuffer =
+    request.operation === 'CaptureReadAnchor'
+      ? 32768
+      : request.operation === 'ListDirectory'
+        ? 8 * 1024 * 1024
+        : request.operation === 'ReadBytes'
+          ? Math.ceil(request.limit / 3) * 4 + 1024
+          : Math.max(1024 * 1024, request.limit * 12 + 1024);
+  const decode = (stdout: string, canonical = false) => {
+    const result: unknown = JSON.parse(stdout);
+    if (
+      !result ||
+      typeof result !== 'object' ||
+      !('content' in result) ||
+      typeof result.content !== 'string' ||
+      !('is_error' in result) ||
+      typeof result.is_error !== 'boolean' ||
+      Object.keys(result).length !== 2
+    )
+      throw new Error('Invalid native file helper response');
+    if (canonical) {
+      // This fixed helper emits exactly one Python json.dumps envelope plus LF.
+      // Check its complete encoding: JSON.parse alone accepts duplicate keys and
+      // could silently replace a helper failure flag with a later success flag.
+      const content = JSON.stringify(result.content).replace(
+        /[\u007f-\uffff]/g,
+        (character) => '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0'),
+      );
+      if (stdout !== `{"content": ${content}, "is_error": ${result.is_error}}\n`)
+        throw Error('Invalid native file helper response');
+    }
+    return { content: result.content, is_error: result.is_error };
+  };
+  if (privateTransport !== undefined) {
+    if (typeof privateTransport !== 'function') throw Error('Private helper transport unavailable');
+    const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
+    const command = `/usr/bin/printf '%s' ${quote(JSON.stringify(request))} | /usr/bin/python3 -I -c ${quote(helper)}`;
+    return privateTransport({ command, signal, timeoutMs, maxOutputBytes: maxBuffer }).then(
+      (result) => {
+        signal.throwIfAborted();
+        if (
+          !result ||
+          result.isError !== false ||
+          typeof result.stdout !== 'string' ||
+          Buffer.byteLength(result.stdout) > maxBuffer
+        )
+          throw Error('Private helper transport unavailable');
+        return decode(result.stdout, true);
+      },
+    );
+  }
   return new Promise((resolve, reject) => {
     const child = execFile(
       'python3',
@@ -280,14 +341,7 @@ export function executeNativeFileOperation(
         env: { PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin' },
         signal,
         timeout: timeoutMs,
-        maxBuffer:
-          request.operation === 'CaptureReadAnchor'
-            ? 32768
-            : request.operation === 'ListDirectory'
-              ? 8 * 1024 * 1024
-              : request.operation === 'ReadBytes'
-                ? Math.ceil(request.limit / 3) * 4 + 1024
-                : Math.max(1024 * 1024, request.limit * 12 + 1024),
+        maxBuffer,
       },
       (error, stdout) => {
         if (error) {
@@ -297,17 +351,7 @@ export function executeNativeFileOperation(
           return;
         }
         try {
-          const result: unknown = JSON.parse(stdout);
-          if (
-            !result ||
-            typeof result !== 'object' ||
-            !('content' in result) ||
-            typeof result.content !== 'string' ||
-            !('is_error' in result) ||
-            typeof result.is_error !== 'boolean'
-          )
-            throw new Error('Invalid native file helper response');
-          resolve({ content: result.content, is_error: result.is_error });
+          resolve(decode(stdout));
         } catch (error) {
           reject(error);
         }
@@ -373,6 +417,7 @@ export async function captureNativeReadAnchor(
   request: { file_path: string; deniedRoots: readonly string[] },
   signal: AbortSignal,
   timeoutMs = 30_000,
+  privateTransport?: NativeFileHelperTransport,
 ): Promise<NativeReadAnchor> {
   signal.throwIfAborted();
   const path = request.file_path;
@@ -404,6 +449,7 @@ export async function captureNativeReadAnchor(
       },
       signal,
       timeoutMs,
+      privateTransport,
     );
     signal.throwIfAborted();
     if (result.is_error || result.content.length > 8192) throw unavailable();
@@ -439,6 +485,7 @@ export async function executeNativeAnchoredReadOperation(
   request: NativeAnchoredReadRequest,
   signal: AbortSignal,
   timeoutMs = 30_000,
+  privateTransport?: NativeFileHelperTransport,
 ): Promise<{ content: string; is_error: boolean; truncated?: boolean }> {
   signal.throwIfAborted();
   const captured = {
@@ -506,7 +553,7 @@ export async function executeNativeAnchoredReadOperation(
   )
     return { content: 'Anchored native read unavailable', is_error: true };
   const payload = { ...captured, deniedRoots, timeoutMs };
-  const result = await executeNativeFileOperation(payload, signal, timeoutMs);
+  const result = await executeNativeFileOperation(payload, signal, timeoutMs, privateTransport);
   signal.throwIfAborted();
   if (result.is_error)
     return {

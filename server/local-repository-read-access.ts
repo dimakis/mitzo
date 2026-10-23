@@ -4,6 +4,7 @@ import {
   freezeNativeReadExclusions,
   type NativeReadAnchor,
   type NativeReadIdentity,
+  type NativeAnchoredReadRequest,
 } from './native-file-operation.js';
 import {
   LocalRepositoryGitInspectionError,
@@ -28,6 +29,13 @@ export interface LocalRepositoryReadAuthority {
   /** Current owner captures immutable actual object identity. Never model JSON,
    * repository configuration, or a fallback inferred from projected paths. */
   captureReadAnchor(path: string): Promise<LocalRepositoryReadAnchor>;
+  /** Original native factory supplies its enforced transport. Host-only fixture
+   * owners omit it; production must never infer availability from this fallback. */
+  executeReadOperation?(
+    request: NativeAnchoredReadRequest,
+    signal: AbortSignal,
+    timeoutMs: number,
+  ): ReturnType<typeof executeNativeAnchoredReadOperation>;
   signal?: AbortSignal;
   deadline: number;
 }
@@ -169,7 +177,9 @@ export class LocalRepositoryReadAccess {
     const parent = path === anchor.rootPath ? target : await this.stat(dirname(path));
     if (!parent) throw unavailable();
     await this.authorize(path);
-    const result = await executeNativeAnchoredReadOperation(
+    const result = await (
+      this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation
+    )(
       {
         operation: 'ListDirectory',
         deniedRoots: freezeNativeReadExclusions([
@@ -261,7 +271,9 @@ export class LocalRepositoryReadAccess {
     )
       throw unavailable();
     await this.authorize(path);
-    const result = await executeNativeAnchoredReadOperation(
+    const result = await (
+      this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation
+    )(
       {
         operation: 'ReadLink',
         deniedRoots: this.deniedRoots,
@@ -317,7 +329,9 @@ export class LocalRepositoryReadAccess {
     const parent = await this.stat(dirname(path));
     if (!parent) throw unavailable();
     await this.authorize(path);
-    const result = await executeNativeAnchoredReadOperation(
+    const result = await (
+      this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation
+    )(
       {
         operation: 'ReadBytes',
         deniedRoots: this.deniedRoots,
