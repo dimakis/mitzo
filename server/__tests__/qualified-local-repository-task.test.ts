@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { captureLocalRepositoryAllocationFacts } from '../local-repository-allocation-facts.js';
 import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
+import { executeNativeAnchoredReadOperation } from '../native-file-operation.js';
 import { fixtureReadAnchor } from './fixtures/local-repository-read-owner.js';
 import {
   captureQualifiedLocalRepositoryTask,
@@ -146,7 +147,7 @@ it('refuses changed branch bytes before exposure while retaining every source/ta
   expect(await readFile(join(task, 'source.txt'), 'utf8')).toBe('COMMITTED\n');
 });
 
-it('preloads already-observed task parent frontiers and reads metadata in bounded joined pairs', async () => {
+it('retains ordinary task directory limits and reads known metadata in bounded joined pairs', async () => {
   const f = await fixture();
   const access = f.access();
   const preload = vi.spyOn(access, 'preloadDirectories');
@@ -167,8 +168,9 @@ it('preloads already-observed task parent frontiers and reads metadata in bounde
   expect(observed.directory).toBe(task);
   expect(peak).toBe(2);
   expect(active).toBe(0);
-  expect(preload).toHaveBeenCalled();
-  expect(preload.mock.calls.every(([paths]) => paths.length >= 1 && paths.length <= 8)).toBe(true);
+  expect(
+    preload.mock.calls.every(([paths]) => !paths.includes(join(source, '.git', 'worktrees'))),
+  ).toBe(true);
 });
 
 it.each(['failure', 'abort'] as const)(
@@ -211,3 +213,25 @@ it.each(['failure', 'abort'] as const)(
     expect(started).toBe(2);
   },
 );
+
+it('preserves ordinary listing coverage for a large shared worktrees directory', async () => {
+  const f = await fixture();
+  const worktrees = join(source, '.git', 'worktrees');
+  for (let index = 0; index < 9900; index++)
+    await mkdir(join(worktrees, `${String(index).padStart(4, '0')}${'x'.repeat(16)}`));
+  let bytes = 0;
+  const access = new LocalRepositoryReadAccess({
+    ...authority(),
+    executeReadOperation: async (...args) => {
+      const result = await executeNativeAnchoredReadOperation(...args);
+      if (args[0].operation === 'ListDirectory' && args[0].file_path === worktrees)
+        bytes = Math.max(bytes, Buffer.byteLength(result.content));
+      return result;
+    },
+  });
+  await expect(
+    captureQualifiedLocalRepositoryTask(access, f.facts, f.publication),
+  ).resolves.toMatchObject({ directory: task });
+  expect(bytes).toBeGreaterThan(2 * 1024 * 1024);
+  expect(bytes).toBeLessThan(6 * 1024 * 1024);
+}, 60000);

@@ -338,3 +338,16 @@ it.each(['failure', 'abort'] as const)(
   },
   30000,
 );
+
+it('preserves ordinary listing coverage for numerous optional pack accelerators', async () => {
+  const pack = join(source, '.git', 'objects', 'pack');
+  for (let index = 0; index < 5000; index++)
+    await writeFile(join(pack, `pack-${index.toString(16).padStart(40, '0')}.keep`), '');
+  const f = await fixture();
+  const preload = vi.spyOn(f.access, 'preloadDirectories');
+  await expect(
+    withLocalRepositoryPreparationObjects(f.metadata, f.options, async () => {}),
+  ).resolves.toBeUndefined();
+  expect(preload.mock.calls.every(([paths]) => !paths.includes(pack))).toBe(true);
+  expect(f.reads.some((path) => path.endsWith('.keep'))).toBe(false);
+}, 60000);

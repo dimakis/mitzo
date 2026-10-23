@@ -174,9 +174,15 @@ export async function captureLocalRepositoryPreparationObjects(
       )
         throw unavailable();
     }
-    for (let index = 0; index < directories.length; index += 8)
+    // Successful shard input is already bounded to 4096 canonical hex names.
+    // A fixed native entry is <500 encoded bytes (name<=62, decimal fields<=32),
+    // so all successful shard entries plus eight envelopes stay below the
+    // existing 2 MiB batch cap. Pack accelerators do NOT share that input cap;
+    // retain ordinary per-directory listing there rather than narrow coverage.
+    const shards = directories.filter((entry) => entry.name !== 'pack');
+    for (let index = 0; index < shards.length; index += 8)
       await access.preloadDirectories(
-        directories.slice(index, index + 8).map((entry) => join(objects, entry.name)),
+        shards.slice(index, index + 8).map((entry) => join(objects, entry.name)),
       );
     const inputs: Array<{ source: string; destination: string; size: number }> = [];
     for (const directory of directories) {

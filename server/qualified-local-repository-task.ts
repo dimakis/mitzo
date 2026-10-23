@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import type { LocalRepositoryAllocationFacts } from './local-repository-allocation-facts.js';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import type { NativeReadIdentity } from './native-file-operation.js';
@@ -172,40 +172,10 @@ export async function captureQualifiedLocalRepositoryTask(
     await access.listPinnedRoots([facts.source.path, facts.taskRoot.rootPath]);
     const commonAnchor = await access.pinRoot(common);
     if (!equal(commonAnchor.identity, facts.source.commonAnchor.identity)) throw unavailable();
-    const directoryRecords = new Map<string, NativeReadIdentity>();
     for (const directory of [...facts.existingDirectories, ...receipt.directories]) {
-      const prior = directoryRecords.get(directory.directory);
-      if (prior && !equal(prior, directory.identity)) throw unavailable();
-      directoryRecords.set(directory.directory, directory.identity);
-    }
-    const parents = new Set([
-      ...[...directoryRecords.keys()].map(dirname),
-      ...receipt.files.map((file) => dirname(file.file_path)),
-      common,
-    ]);
-    const listed = new Set([facts.source.path, facts.taskRoot.rootPath]);
-    const pending = new Map(directoryRecords);
-    // Each frontier's exact parent has already been physically observed. Batch
-    // only these known identities, retaining original maps for final verify.
-    while (pending.size) {
-      const frontier = [...pending].filter(
-        ([directory]) =>
-          directory === common || listed.has(dirname(directory)) || listed.has(directory),
-      );
-      if (!frontier.length) throw unavailable();
-      for (let index = 0; index < frontier.length; index += 8) {
-        const wave = frontier.slice(index, index + 8);
-        for (const [directory, expected] of wave) {
-          const entry = await access.stat(directory);
-          if (entry?.kind !== 'directory' || !equal(entry.identity, expected)) throw unavailable();
-        }
-        const paths = wave
-          .map(([directory]) => directory)
-          .filter((directory) => parents.has(directory) && !listed.has(directory));
-        if (paths.length) await access.preloadDirectories(paths);
-        for (const path of paths) listed.add(path);
-        for (const [directory] of wave) pending.delete(directory);
-      }
+      const entry = await access.stat(directory.directory);
+      if (entry?.kind !== 'directory' || !equal(entry.identity, directory.identity))
+        throw unavailable();
     }
     const metadata = await inspectLocalRepositoryGitMetadata({
       path: facts.source.path,

@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.616-bounded-task-read-waves';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.617-preserved-listing-read-waves';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -47,7 +48,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../qualified-local-repository-actor.ts':
     'feab427a3ba32ed1e69a58b74635f5c0054292aec48ff209c08d37cdcab9e65f',
   '../qualified-local-repository-task.ts':
-    '493f83e108208e58629a2475f4ca41e18dda1a8e60082e9c53a1bf45eebd12d6',
+    'a9479c46b0086d0db1f2de07c7b81e591a6685cfd5cbee315ecc0585853e8740',
   '../__tests__/native-exclusive-tree.test.ts':
     '9efadb963a2d87906931063e6fba548e0da02c704555e01469fca20b34af6eee',
   '../__tests__/private-repository-checkout.test.ts':
@@ -57,11 +58,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/qualified-local-repository-operation-owner.test.ts':
     'bb57e28f57cebdb183fcdb0253d86f45eff7a3ab6374e96a13b988c23359de2e',
   '../__tests__/qualified-local-repository-task.test.ts':
-    '66fd35199e275d2c984873a07dcc23481901a772d7574565fd383abba3b6d311',
+    'c396349876138a7a85038166817adcc6df657dc75a036fcb21022ee66d17905b',
   '../local-repository-preparation-objects.ts':
-    '13dc2019614e5c601b93ac692041fb706ed2a9dc18d9c71e5d203a44cf806375',
+    '12dbdbce2116aa88e3900429a542e52940c5aa3b94669ec3fcee2fd9b2a71300',
   '../__tests__/local-repository-preparation-objects.test.ts':
-    'bd083e30e404320249572f04107085763bac7f215a47e457c2a4595503f955ae',
+    'dbb18cd988059383ff4e7b973a005b168c60bef3dc31f685a267538230e53fc2',
   '../__tests__/native-exclusive-file.test.ts':
     'b53aeb6f1d3a83790c45393225354ffb4f9923fb243759d57d212f9b5766e124',
   '../__tests__/sandboxed-command-worker.test.ts':
