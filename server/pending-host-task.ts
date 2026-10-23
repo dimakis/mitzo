@@ -119,6 +119,11 @@ const effectScope = z.strictObject({
 /** Exact descriptive effects, not a filesystem or native permission grant. */
 export const PendingHostTaskDecisionScopeSchema = z.strictObject({
   version: z.literal(1),
+  /** Historical records may lack this field. Their parsing is not permission
+   * to materialize/adopt; current producers bind the original workspace. */
+  oldWorkspace: z
+    .strictObject({ kind: z.enum(['ordinary', 'repository']), id: reference, directory: path })
+    .optional(),
   create: effectScope.extend({ intent: z.literal('create') }),
   use: effectScope.extend({ intent: z.literal('use') }),
   sourceIdentity: localSource,

@@ -247,6 +247,7 @@ export async function captureLocalRepositoryPreparationAuthorization(
   const scope = freezePendingHostTaskData(
     PendingHostTaskDecisionScopeSchema.parse({
       version: 1,
+      oldWorkspace: context.workspace,
       create: { ...baseScope, intent: 'create' },
       use: { ...baseScope, intent: 'use' },
       sourceIdentity: originalRecord.localSource,

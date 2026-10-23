@@ -1756,6 +1756,8 @@ export class RepositoryWorkspaces {
     const common = record.localSource!.commonDirectory;
     const branchRef = join(common, 'refs', 'heads', record.featureBranch);
     if (
+      (scope.oldWorkspace !== undefined &&
+        !isDeepStrictEqual(scope.oldWorkspace, owner.context.workspace)) ||
       !isDeepStrictEqual(scope.create, { ...expected, intent: 'create' }) ||
       !isDeepStrictEqual(scope.use, { ...expected, intent: 'use' }) ||
       scope.create.source.path !== record.localSource!.path ||

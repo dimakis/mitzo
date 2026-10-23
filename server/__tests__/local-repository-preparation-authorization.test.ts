@@ -10,6 +10,10 @@ import { setAuthRevocationStore } from '../auth.js';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import { localPreparationNativeFixture } from './fixtures/local-preparation-native.js';
 import { captureLocalRepositoryPreparationAuthorization } from '../local-repository-preparation-authorization.js';
+import {
+  pendingHostTaskDecisionHash,
+  pendingHostTaskDecisionPayload,
+} from '../pending-host-task.js';
 
 const cleanups: Array<() => void | Promise<void>> = [];
 const revocations = new EventStore(':memory:');
@@ -69,6 +73,7 @@ it('retains actual permission evidence before outward allow and finalizes only t
   let held: Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>> | undefined;
   let observedId: string | undefined;
   let assertEffectsUnchanged!: () => void;
+  let originalWorkspaceInScope: { actual: unknown; expected: unknown } | undefined;
   const f = await localPreparationNativeFixture(cleanups, async (context, input) => {
     const source = join(f.f.root, 'source');
     const identity = (path: string) => {
@@ -110,6 +115,8 @@ it('retains actual permission evidence before outward allow and finalizes only t
       },
       input,
     );
+    originalWorkspaceInScope = { actual: held.scope.oldWorkspace, expected: context.workspace };
+    expect(held.scope.oldWorkspace).toEqual(context.workspace);
     const sourceFiles = ['.git/HEAD', '.git/index', 'task.txt'].map((name) => join(source, name));
     const sourceBytes = sourceFiles.map((path) => readFileSync(path));
     const allocationPaths = [
@@ -131,6 +138,7 @@ it('retains actual permission evidence before outward allow and finalizes only t
     expect(saved.pendingHostTaskDecision.state).toBe('finalized');
     expect(saved.pendingHostTaskDecision.evidence.permId).toBe(f.permissions[0].permId);
     expect(saved.pendingHostTaskDecision.request.nativeTarget).toEqual(context.nativeTarget);
+    expect(saved.pendingHostTaskDecision.scope.oldWorkspace).toEqual(context.workspace);
     assertEffectsUnchanged();
     return { id: observedId, state: finalized.state };
   });
@@ -165,6 +173,8 @@ it('retains actual permission evidence before outward allow and finalizes only t
     return result;
   });
   const result = await f.a.call({ path: join(f.f.root, 'source') });
+  expect(originalWorkspaceInScope).toBeDefined();
+  expect(originalWorkspaceInScope!.actual).toEqual(originalWorkspaceInScope!.expected);
   expect(result.response.success).toBe(true);
   expect(result.value).toMatchObject({ id: observedId, state: 'finalized' });
   await expect(held!.approve()).rejects.toThrow();
@@ -258,6 +268,40 @@ it('checks the original qualified source fence before permission-observer metada
   expect((await f.call()).response.success).toBe(false);
   expect(f.saved().pendingHostTaskDecision).toBeUndefined();
   expect(f.saved().pendingHostTask).toBeUndefined();
+});
+
+it('refuses a changed original workspace even if directory and native correlation remain the same', async () => {
+  const f = await preparationCase(async (prepared) => prepared.approve());
+  let checked = false;
+  const retain = f.service.retainPendingHostTaskDecisionObservation.bind(f.service);
+  vi.spyOn(f.service, 'retainPendingHostTaskDecisionObservation').mockImplementation((...args) => {
+    const [request, scope, evidence, owner] = args;
+    const changed = structuredClone(scope);
+    changed.oldWorkspace = { ...scope.oldWorkspace!, id: 'different-original-workspace' };
+    const payload = pendingHostTaskDecisionPayload(request, changed);
+    const before = f.saved();
+    expect(() =>
+      retain(
+        request,
+        changed,
+        {
+          ...evidence,
+          input: payload,
+          inputSha256: pendingHostTaskDecisionHash(payload),
+        },
+        owner,
+      ),
+    ).toThrow();
+    expect(f.saved()).toEqual(before);
+    checked = true;
+    return retain(...args);
+  });
+  const result = await f.call();
+  expect(checked).toBe(true);
+  expect(result.response.success).toBe(true);
+  expect(f.saved().pendingHostTaskDecision.scope.oldWorkspace.id).not.toBe(
+    'different-original-workspace',
+  );
 });
 
 it('does not retain approval evidence when the actual permission handler denies', async () => {
