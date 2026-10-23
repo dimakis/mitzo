@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { deflateSync, inflateSync } from 'node:zlib';
-import { afterEach, beforeEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   chmod,
   link,
@@ -264,3 +264,77 @@ it('retains a foreign replacement when failed actor cleanup sees changed private
     }
   }
 }, 30000);
+
+it('preloads only known object frontiers and joins at most two independent byte reads per wave', async () => {
+  const f = await fixture();
+  const preload = vi.spyOn(f.access, 'preloadDirectories');
+  const original = f.access.read.bind(f.access);
+  let active = 0,
+    peak = 0;
+  const starts: string[] = [];
+  vi.spyOn(f.access, 'read').mockImplementation(async (path, limit) => {
+    starts.push(path);
+    active++;
+    peak = Math.max(peak, active);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return await original(path, limit);
+    } finally {
+      active--;
+    }
+  });
+  await withLocalRepositoryPreparationObjects(f.metadata, f.options, async () => {});
+  expect(peak).toBe(2);
+  expect(active).toBe(0);
+  expect(preload).toHaveBeenCalled();
+  expect(preload.mock.calls.every(([paths]) => paths.length >= 1 && paths.length <= 8)).toBe(true);
+  const frontiers = preload.mock.calls.flatMap(([paths]) => [...paths]);
+  expect(starts.every((path) => frontiers.includes(path.slice(0, path.lastIndexOf('/'))))).toBe(
+    true,
+  );
+  expect(frontiers.some((path) => path.endsWith('/info'))).toBe(false);
+}, 30000);
+
+it.each(['failure', 'abort'] as const)(
+  'joins a %s object wave before refusing and never launches the next wave',
+  async (kind) => {
+    const f = await fixture();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const controller = new AbortController();
+    let started = 0,
+      settled = false;
+    vi.spyOn(f.access, 'read').mockImplementation(async () => {
+      const index = started++;
+      if (index === 0) {
+        if (kind === 'abort') controller.abort(Error('Preparation objects unavailable'));
+        throw Error('synthetic first object refusal');
+      }
+      await held;
+      throw Error('synthetic joined second object refusal');
+    });
+    const pending = withLocalRepositoryPreparationObjects(
+      f.metadata,
+      { ...f.options, signal: controller.signal },
+      async () => {
+        throw Error('must not publish');
+      },
+    ).finally(() => {
+      settled = true;
+    });
+    const outcome = expect(pending).rejects.toThrow('Preparation objects unavailable');
+    try {
+      for (let i = 0; i < 1000 && started < 2 && !settled; i++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(started).toBe(2);
+      expect(settled).toBe(false);
+    } finally {
+      release();
+      await outcome;
+    }
+    expect(started).toBe(2);
+  },
+  30000,
+);

@@ -163,40 +163,28 @@ export async function captureLocalRepositoryPreparationObjects(
     const objects = join(commonDirectory, 'objects');
     const root = await access.stat(objects);
     if (root?.kind !== 'directory') throw unavailable();
-    const copy = async (
-      source: string,
-      destination: string,
-      entry: { kind: string; nlink: number; size: number },
-    ) => {
+    // Discover and validate the original parent frontier before byte waves.
+    // No read races directory-cache creation or infers an absent/source root.
+    const directories = (await access.list(objects)).filter((entry) => entry.name !== 'info');
+    for (const directory of directories) {
       check();
-      if (
-        entry.kind !== 'file' ||
-        entry.nlink !== 1 ||
-        entry.size > 16 * 1024 * 1024 ||
-        ++files > 4096 ||
-        (total += entry.size) > 128 * 1024 * 1024
-      )
-        throw unavailable();
-      const bytes = await access.read(source, 16 * 1024 * 1024);
-      check();
-      if (bytes.length !== entry.size) throw unavailable();
-      await writeFile(destination, bytes, { flag: 'wx', mode: 0o600 });
-      copied.push(destination);
-    };
-    for (const directory of await access.list(objects)) {
-      check();
-      if (directory.name === 'info') continue; // No child metadata or bytes consumed.
       if (
         directory.kind !== 'directory' ||
         !(directory.name === 'pack' || /^[a-f0-9]{2}$/.test(directory.name))
       )
         throw unavailable();
+    }
+    for (let index = 0; index < directories.length; index += 8)
+      await access.preloadDirectories(
+        directories.slice(index, index + 8).map((entry) => join(objects, entry.name)),
+      );
+    const inputs: Array<{ source: string; destination: string; size: number }> = [];
+    for (const directory of directories) {
       const source = join(objects, directory.name),
         target = join(gitDirectory, 'objects', directory.name);
       await mkdir(target, { recursive: true });
       for (const entry of await access.list(source)) {
         // Optional accelerators/markers never enter the private Git context.
-        // Their content or target is not consumed or required for checkout.
         if (
           directory.name === 'pack' &&
           new RegExp(`^pack-[a-f0-9]{${oidLength}}\\.(rev|bitmap|keep|promisor)$`).test(entry.name)
@@ -206,8 +194,38 @@ export async function captureLocalRepositoryPreparationObjects(
           directory.name === 'pack'
             ? new RegExp(`^pack-[a-f0-9]{${oidLength}}\\.(pack|idx)$`).test(entry.name)
             : new RegExp(`^[a-f0-9]{${oidLength - 2}}$`).test(entry.name);
-        if (!valid) throw unavailable();
-        await copy(join(source, entry.name), join(target, entry.name), entry);
+        if (
+          !valid ||
+          entry.kind !== 'file' ||
+          entry.nlink !== 1 ||
+          entry.size > 16 * 1024 * 1024 ||
+          ++files > 4096 ||
+          (total += entry.size) > 128 * 1024 * 1024
+        )
+          throw unavailable();
+        inputs.push({
+          source: join(source, entry.name),
+          destination: join(target, entry.name),
+          size: entry.size,
+        });
+      }
+    }
+    // The aggregate read budget reserves both in-flight inputs synchronously.
+    // Join every started operation, stage results, then process original order.
+    for (let index = 0; index < inputs.length; index += 2) {
+      check();
+      const wave = inputs.slice(index, index + 2);
+      const results = await Promise.allSettled(
+        wave.map((input) => access.read(input.source, 16 * 1024 * 1024)),
+      );
+      check();
+      for (const result of results) if (result.status === 'rejected') throw result.reason;
+      for (let offset = 0; offset < results.length; offset++) {
+        const result = results[offset];
+        if (result.status !== 'fulfilled' || result.value.length !== wave[offset].size)
+          throw unavailable();
+        await writeFile(wave[offset].destination, result.value, { flag: 'wx', mode: 0o600 });
+        copied.push(wave[offset].destination);
       }
     }
     // Bound Git-declared expansion BEFORE tree walking or full integrity work.
