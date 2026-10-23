@@ -14,9 +14,13 @@ import {
 } from '../../lib/chat-drafts';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
 import { apiFetch } from '../../lib/api-fetch';
-import { launchDraftDelivery } from '../../lib/launch-draft-delivery';
-import { buildLocalFirstCommand } from '../../lib/explicit-local-chat';
+import { launchDraftDelivery, reviewedBriefingLaunch } from '../../lib/launch-draft-delivery';
+import {
+  buildLocalFirstCommand,
+  ExplicitLocalInventorySchema,
+} from '../../lib/explicit-local-chat';
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
+import { composeOrdinaryRuntimeCapabilities } from '../../../../server/ordinary-runtime-capability-composition';
 
 function openAgentSettings() {
   const settings = screen.getByRole('button', { name: /^Workspace controls,/ });
@@ -156,7 +160,12 @@ function briefingFixture(reviewed = true) {
     revision: 'a'.repeat(64),
     content: 'Original report',
   };
-  const inventory = { ...localInventoryFixture(), defaultLocalRepository: true };
+  const base = localInventoryFixture();
+  const inventory = ExplicitLocalInventorySchema.parse({
+    ...base,
+    ...composeOrdinaryRuntimeCapabilities([{ ...base, capabilityRevision: 'selected-route-r1' }]),
+    defaultLocalRepository: true,
+  });
   const account = { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' };
   draft.text = 'Discuss original report';
   draft.settings.selection = account;
@@ -185,6 +194,12 @@ for (const Page of [ChatView, DesktopChatView]) {
       Response.json(String(url).includes('/capabilities') ? inventory : []),
     );
     const view = mount(Page, `/chat?draft=${draft.id}`);
+    view.owned.mockImplementation((request, opts) =>
+      launchDraftDelivery.prepare(
+        (opts as { draftId: string }).draftId,
+        request as Record<string, unknown>,
+      ),
+    );
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
         expect.stringContaining('/capabilities'),
@@ -199,9 +214,18 @@ for (const Page of [ChatView, DesktopChatView]) {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
     await waitFor(() => expect(view.owned).toHaveBeenCalledTimes(1));
+    expect(view.owned.mock.results[0].value).toBe(true);
+    expect(launchDraftDelivery.pending(draft.id)).toBe(true);
+    expect(getChatDraft(draft.id)?.settings.launch?.reviewedRoute).toMatchObject({
+      inventoryRevision: inventory.capabilityRevision,
+      capabilityRevision: 'selected-route-r1',
+      targetId: 'mac',
+      account: inventory.accounts[0].account,
+    });
     expect(view.send).not.toHaveBeenCalled();
     expect(view.owned.mock.calls[0][0]).toMatchObject({
       runtime: { account: inventory.accounts[0].account, targetId: 'mac' },
+      capabilityRevision: 'selected-route-r1',
       selection: { model: 'luna-fixture' },
       payload: { text: draft.text, sourceSnapshots: [source] },
     });
@@ -336,6 +360,12 @@ for (const Page of [ChatView, DesktopChatView]) {
       sourceSnapshots: draft.settings.launch!.sourceSnapshots,
     });
     expect(command).not.toBeNull();
+    draft.settings.launch = reviewedBriefingLaunch(
+      draft,
+      draft.settings.runtimeSelection!,
+      inventory,
+    );
+    saveChatDraft(draft);
     expect(launchDraftDelivery.prepare(draft.id, command!)).toBe(true);
     vi.mocked(apiFetch).mockImplementation(async (url) =>
       Response.json(String(url).includes('/capabilities') ? inventory : []),

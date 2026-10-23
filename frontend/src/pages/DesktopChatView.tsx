@@ -1,3 +1,4 @@
+import { reviewedBriefingLaunch } from '../lib/launch-draft-delivery';
 import { localCommandSessionId } from '@mitzo/client';
 import { useTelosChatRoute } from '../hooks/useTelosChatRoute';
 import { TelosChatRouteLayout } from '../components/TelosChatRouteLayout';
@@ -589,7 +590,11 @@ export function DesktopChatView() {
         ? {
             ...newChatDraft.draft,
             settings: {
-              launch: newChatDraft.draft.settings.launch,
+              launch: reviewedBriefingLaunch(
+                newChatDraft.draft,
+                localRuntime.intent,
+                localRuntime.inventory,
+              ),
               sourceSnapshots: newChatDraft.draft.settings.sourceSnapshots,
               retainRuntimeIntent: newChatDraft.draft.settings.retainRuntimeIntent,
               runtimeSelection: explicitNew
@@ -622,6 +627,7 @@ export function DesktopChatView() {
       repositorySelection?.repositoryWorkspaceId,
       explicitNew,
       localRuntime.intent,
+      localRuntime.inventory,
       settingsSearch,
     ],
   );

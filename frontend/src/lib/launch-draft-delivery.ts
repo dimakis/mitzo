@@ -11,6 +11,10 @@ import {
   chatDraftStorageKey,
 } from './chat-drafts';
 import { getApiBaseUrl } from './api-fetch';
+import { selectedRuntimeRoute } from './chat-runtime-route';
+import { normalizeLocalInventory, type ExplicitLocalInventory } from './explicit-local-chat';
+import { evaluateChatRuntimeSelection, type ChatRuntimeSelection } from './chat-runtime-selection';
+import type { ChatDraft } from './chat-drafts';
 
 const schema = z.object({
   draftId: z.string().min(1),
@@ -120,6 +124,42 @@ export function briefingLaunchUnsupportedReason(
   }
 }
 
+/** Freeze the selected route independently of the combined inventory freshness token. */
+export function reviewedBriefingLaunch(
+  draft: ChatDraft,
+  runtime: ChatRuntimeSelection,
+  inventory: ExplicitLocalInventory | null,
+): ChatDraft['settings']['launch'] {
+  const launch = draft.settings.launch;
+  if (!launch?.briefing) return launch;
+  const previous = getChatDraft(draft.id)?.settings.launch?.reviewedRoute ?? launch.reviewedRoute;
+  const route = selectedRuntimeRoute(runtime, inventory);
+  if (
+    !inventory ||
+    !route ||
+    !evaluateChatRuntimeSelection(runtime, normalizeLocalInventory(inventory)).ready
+  )
+    return { ...launch, reviewedRoute: previous };
+  const selected = {
+    inventoryRevision: inventory.capabilityRevision,
+    capabilityRevision: route.capabilityRevision ?? inventory.capabilityRevision,
+    account: route.account,
+    location: runtime.execution.location,
+    targetId: route.targetId,
+    harness: route.harness,
+  };
+  // A route revision cannot change inside an already reviewed inventory snapshot.
+  // A genuinely new inventory still requires the existing explicit freshness review.
+  const sameReview =
+    previous &&
+    previous.inventoryRevision === selected.inventoryRevision &&
+    JSON.stringify(previous.account) === JSON.stringify(selected.account) &&
+    previous.location === selected.location &&
+    previous.targetId === selected.targetId &&
+    previous.harness === selected.harness;
+  return { ...launch, reviewedRoute: sameReview ? previous : selected };
+}
+
 function normalizeOwnedBriefingCommand(
   submitted: z.infer<typeof ChatDraftSchema> | null | undefined,
   command: unknown,
@@ -133,7 +173,14 @@ function normalizeOwnedBriefingCommand(
     JSON.stringify(request.runtime.account) !== JSON.stringify(runtime.accountReference) ||
     request.runOn !== runtime.execution.location ||
     request.runtime.targetId !== runtime.execution.targetId ||
-    request.capabilityRevision !== runtime.capabilityRevision ||
+    (launch.reviewedRoute
+      ? launch.reviewedRoute.inventoryRevision !== runtime.capabilityRevision ||
+        request.capabilityRevision !== launch.reviewedRoute.capabilityRevision ||
+        JSON.stringify(request.runtime.account) !== JSON.stringify(launch.reviewedRoute.account) ||
+        request.runOn !== launch.reviewedRoute.location ||
+        request.runtime.targetId !== launch.reviewedRoute.targetId ||
+        request.runtime.harness !== launch.reviewedRoute.harness
+      : request.capabilityRevision !== runtime.capabilityRevision) ||
     JSON.stringify(request.selection.agent) !== JSON.stringify(runtime.agentProfile) ||
     request.selection.model !== runtime.account?.model ||
     request.selection.thinking !== (runtime.account?.reasoningEffort ?? null) ||

@@ -34,6 +34,7 @@ export function briefingRuntimeInventory() {
     (id) => ({ id, label: id, reasoningEfforts: ['low', 'medium', 'high'] }),
   );
   inventory.routes[0].account = inventory.accounts[0].account;
+  inventory.routes[0].capabilityRevision = 'briefing-selected-route-r1';
   return inventory;
 }
 export async function enableBriefingRuntime(page: Page) {
