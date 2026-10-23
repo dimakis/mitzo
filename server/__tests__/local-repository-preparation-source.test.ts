@@ -43,6 +43,7 @@ it.each(['sync', 'async'] as const)(
       },
       taskRoot: { ...anchor, rootPath: '/fixture/tasks' },
       directories: [],
+      existingDirectories: [],
       absentPaths: [],
     };
     const dispose = vi.fn(async () => {

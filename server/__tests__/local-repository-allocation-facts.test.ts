@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { captureLocalRepositoryAllocationFacts } from '../local-repository-allocation-facts.js';
@@ -332,3 +332,18 @@ it('refuses a task root inside the source before reading it or preparing nested 
   expect(await readFile(join(source, '.git', 'index'))).toEqual(index);
   await expect(lstat(join(source, `repo-${id}`))).rejects.toMatchObject({ code: 'ENOENT' });
 });
+
+it('binds original existing final publication parents into the facts digest across fresh readers', async () => {
+  const administrativeParent = join(source, '.git', 'worktrees');
+  await mkdir(administrativeParent);
+  const original = await captureLocalRepositoryAllocationFacts(owner(), input());
+  const pinned = original.facts.existingDirectories.find(
+    (entry) => entry.directory === administrativeParent,
+  );
+  expect(pinned?.identity.ino).toBe(String((await lstat(administrativeParent)).ino));
+  expect(Object.isFrozen(pinned)).toBe(true);
+  await rename(administrativeParent, administrativeParent + '-retained');
+  await mkdir(administrativeParent);
+  const replacement = await captureLocalRepositoryAllocationFacts(owner(), input());
+  expect(replacement.factsSha256).not.toBe(original.factsSha256);
+}, 30000);
