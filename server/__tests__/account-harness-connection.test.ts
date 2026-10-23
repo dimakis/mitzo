@@ -159,3 +159,19 @@ it('does not claim tool or streaming capabilities for an unqualified configured 
   ]);
   expect(profiles.catalog()[0].capabilities).toMatchObject({ tools: false, streaming: false });
 });
+
+it('uses the configured gateway model catalog without official OpenAI model-name assumptions', () => {
+  const profiles = new AccountProfiles(
+    [{ ...api, connection, models: [{ id: 'qualified-nano', label: 'Qualified Nano' }] }],
+    { codexEnabled: true },
+  );
+  const binding = profiles.resolve(api.id, 'qualified-nano');
+  expect(profiles.catalog()[0].models[0].id).toBe('qualified-nano');
+  expect(profiles.ordinaryLocalCodexInventory()[0].models[0].id).toBe('qualified-nano');
+  expect(profiles.harnessConnection(binding).capabilities.toolCalls).toBe(true);
+});
+it('excludes gateway keys from the legacy official-OpenAI rotation and validation service', () => {
+  const profiles = new AccountProfiles([{ ...api, connection }]);
+  expect(profiles.openAIKeyManagementAccounts()).toEqual([]);
+  expect(profiles.configuredAccountIds()).toContain(api.id);
+});

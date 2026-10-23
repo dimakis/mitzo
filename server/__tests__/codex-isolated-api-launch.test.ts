@@ -359,3 +359,32 @@ it.each([
     expect(processes.spawn).not.toHaveBeenCalled();
   },
 );
+
+it('isolates concurrent API accounts with distinct endpoints and credential references', async () => {
+  const a = { ...options('gateway-a'), connection: structuredClone(gateway) };
+  const b = {
+    ...options('gateway-b'),
+    connection: { ...gateway, endpoint: 'https://other.example.test/responses-api' },
+  };
+  b.binding.accountId = 'other-gateway-account';
+  a.resolveKey.mockResolvedValue('SYNTHETIC_ACCOUNT_A_KEY');
+  b.resolveKey.mockResolvedValue('SYNTHETIC_ACCOUNT_B_KEY');
+  const results = await Promise.all([
+    CodexAppServerClient.launchIsolatedApi(a),
+    CodexAppServerClient.launchIsolatedApi(b),
+  ]);
+  results.forEach((result) => closes.push(() => result.client.close()));
+  const calls = processes.spawn.mock.calls;
+  for (const [index, selected] of [a, b].entries()) {
+    expect(calls[index][1]).toContain(
+      `openai_base_url=${JSON.stringify(selected.connection.endpoint)}`,
+    );
+    expect(calls[index][2].env.CODEX_HOME).toBe(selected.privateHome);
+    expect(
+      children[index].sent.find((request) => request.method === 'account/login/start')?.params
+        ?.apiKey,
+    ).toBe(index === 0 ? 'SYNTHETIC_ACCOUNT_A_KEY' : 'SYNTHETIC_ACCOUNT_B_KEY');
+  }
+  expect(a.resolveKey).toHaveBeenCalledWith(a.binding, a.signal);
+  expect(b.resolveKey).toHaveBeenCalledWith(b.binding, b.signal);
+});

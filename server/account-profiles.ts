@@ -194,13 +194,10 @@ function routingRevision(profile: z.infer<typeof Profile>): string {
     .digest('hex');
 }
 
-function supportedModels(
-  provider: z.infer<typeof Profile>['provider'],
-  models: z.infer<typeof CatalogModel>[],
-) {
+function supportedModels(profile: z.infer<typeof Profile>, models: z.infer<typeof CatalogModel>[]) {
   // API sessions always expose tools. Nano models reject requests that include
   // tool_search, so reject both current and dated aliases before execution.
-  return provider === 'openai'
+  return profile.provider === 'openai' && !profile.connection
     ? models.filter((model) => !/(?:^|-)nano(?:$|-)/i.test(model.id))
     : models;
 }
@@ -409,9 +406,7 @@ export class AccountProfiles {
             profileRevision: routingRevision(profile),
           },
           label: profile.label,
-          models: structuredClone(
-            supportedModels(profile.provider, discovered?.models ?? profile.models),
-          ),
+          models: structuredClone(supportedModels(profile, discovered?.models ?? profile.models)),
           modelDiscovery: {
             source: discovered?.models ? ('cached' as const) : ('configured' as const),
             stale: !!discovered?.error,
@@ -444,9 +439,7 @@ export class AccountProfiles {
             profileRevision: routingRevision(profile),
           },
           label: profile.label,
-          models: structuredClone(
-            supportedModels(profile.provider, discovered?.models ?? profile.models),
-          ),
+          models: structuredClone(supportedModels(profile, discovered?.models ?? profile.models)),
           modelDiscovery: {
             source: discovered?.models ? ('cached' as const) : ('configured' as const),
             stale: !!discovered?.error,
@@ -503,9 +496,7 @@ export class AccountProfiles {
         {
           account,
           label: profile.label,
-          models: structuredClone(
-            supportedModels(profile.provider, discovered?.models ?? profile.models),
-          ),
+          models: structuredClone(supportedModels(profile, discovered?.models ?? profile.models)),
           modelDiscovery: {
             source: discovered?.models ? ('cached' as const) : ('configured' as const),
             stale: !!discovered?.error,
@@ -545,7 +536,7 @@ export class AccountProfiles {
                 ? 'openai-api'
                 : 'google-cloud',
           models: supportedModels(
-            provider,
+            profile,
             provider === 'anthropic-vertex'
               ? profile.models
               : (discovered?.models ?? profile.models),
@@ -967,7 +958,7 @@ export class AccountProfiles {
     if (profile.provider === 'openai-codex' && !this.options.codexEnabled)
       throw new Error('Codex execution is not enabled; development acceptance is required');
     const selectableModels = supportedModels(
-      profile.provider,
+      profile,
       configured || profile.provider === 'anthropic-vertex'
         ? profile.models
         : (cachedModels(JSON.stringify(profile))?.models ?? profile.models),
@@ -1125,7 +1116,9 @@ export class AccountProfiles {
   /** Legacy rotation only; fresh enrolled custody has its own immutable readiness authority. */
   openAIKeyManagementAccounts(): import('./openai-key-management.js').ManagedOpenAIAccount[] {
     return this.profiles.flatMap((profile) =>
-      profile.provider === 'openai' && !this.isEnrolledOpenAIAccount(profile.id)
+      profile.provider === 'openai' &&
+      !profile.connection &&
+      !this.isEnrolledOpenAIAccount(profile.id)
         ? [
             {
               id: profile.id,
