@@ -112,28 +112,148 @@ function setup(
   });
   return { store, fetch, readStorage: () => JSON.parse(raw ?? '[]') };
 }
-it('delivers a prepared repository first command through the existing outbox without assigning or switching the already selected chat', async () => {
-  const { store, fetch, readStorage } = setup();
-  channel.id = 'prepared-sse';
-  await store.getState().switchSession('owned-session');
-  channel.send.mockClear();
-  const assigned = vi.fn();
-  expect(store.getState().sendLocalFirstCommand(request)).toBe(false);
-  expect(store.getState().sendPreparedRepositoryCommand(request, 'another-session')).toBe(false);
-  expect(
-    store
-      .getState()
-      .sendPreparedRepositoryCommand(request, 'owned-session', { onSessionAssigned: assigned }),
-  ).toBe(true);
-  await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
-  expect(JSON.parse(fetch.mock.calls.find(([url]) => url === '/local/send')![1].body)).toEqual(
-    request,
-  );
-  expect(store.getState().sessions.active).toBe('owned-session');
-  expect(assigned).not.toHaveBeenCalled();
-  expect(channel.send.mock.calls.some(([body]) => body.type === 'switch_session')).toBe(false);
-  expect(readStorage()).toEqual([]);
-});
+it.each([
+  ['local', false],
+  ['local', true],
+  ['openshell', false],
+  ['openshell', true],
+] as const)(
+  'admits a fresh %s first send when an older attempt exists: %s',
+  async (runOn, hasOlderAttempt) => {
+    const saved = hasOlderAttempt
+      ? JSON.stringify([
+          {
+            body: request,
+            scope: 1,
+            uncertain: true,
+            localDraftId: 'older-draft',
+          },
+        ])
+      : null;
+    const { store, fetch, readStorage } = setup(saved);
+    channel.id = 'fresh-local-sse';
+    const sendUrl = runOn === 'openshell' ? '/api/chat/runtime/send' : '/local/send';
+    fetch.mockImplementation((url: string, init?: RequestInit) => {
+      if (url !== sendUrl) return Promise.resolve(new Response('[]'));
+      const body = JSON.parse(String(init?.body));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            clientMsgId: body.clientMsgId,
+            sessionId: 'fresh-session',
+            dispatched: true,
+            state: 'consumed',
+          }),
+          { status: 202 },
+        ),
+      );
+    });
+    store.getState().newSession();
+    const fresh = {
+      ...request,
+      runOn,
+      clientMsgId: 'fresh-first',
+      payload: { text: 'A genuinely new initial message' },
+    };
+    expect(store.getState().sendLocalFirstCommand(fresh, { draftId: 'fresh-draft' })).toBe(true);
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+    const sent = fetch.mock.calls.filter(([url]) => url === sendUrl);
+    expect(sent).toHaveLength(1);
+    expect(JSON.parse(sent[0][1].body)).toEqual(fresh);
+    if (hasOlderAttempt)
+      expect(readStorage()).toContainEqual(
+        expect.objectContaining({
+          body: request,
+          localDraftId: 'older-draft',
+          uncertain: true,
+        }),
+      );
+  },
+);
+
+it.each([false, true])(
+  'delivers a prepared repository first command independently of another retained draft: %s',
+  async (hasOlderAttempt) => {
+    const { store, fetch, readStorage } = setup(
+      hasOlderAttempt
+        ? JSON.stringify([
+            {
+              body: { ...request, clientMsgId: 'older-first' },
+              scope: 1,
+              uncertain: true,
+              localDraftId: 'older-draft',
+            },
+          ])
+        : null,
+    );
+    channel.id = 'prepared-sse';
+    await store.getState().switchSession('owned-session');
+    channel.send.mockClear();
+    const assigned = vi.fn();
+    expect(store.getState().sendLocalFirstCommand(request)).toBe(false);
+    expect(store.getState().sendPreparedRepositoryCommand(request, 'another-session')).toBe(false);
+    expect(
+      store
+        .getState()
+        .sendPreparedRepositoryCommand(request, 'owned-session', { onSessionAssigned: assigned }),
+    ).toBe(true);
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+    expect(JSON.parse(fetch.mock.calls.find(([url]) => url === '/local/send')![1].body)).toEqual(
+      request,
+    );
+    expect(store.getState().sessions.active).toBe('owned-session');
+    expect(assigned).not.toHaveBeenCalled();
+    expect(channel.send.mock.calls.some(([body]) => body.type === 'switch_session')).toBe(false);
+    expect(readStorage()).toHaveLength(hasOlderAttempt ? 1 : 0);
+  },
+);
+it.each(['first', 'continue'] as const)(
+  'delivers ordinary %s without a draft id behind a different retained conversation',
+  async (phase) => {
+    const { store, fetch, readStorage } = setup(
+      JSON.stringify([
+        {
+          body: { ...request, clientMsgId: 'older-first' },
+          scope: 1,
+          uncertain: true,
+          ordinaryDelivery: { version: 1, phase: 'first', sessionId: 'older-session' },
+        },
+      ]),
+    );
+    channel.id = 'ordinary-sse';
+    await store.getState().switchSession('owned-session');
+    const { repositoryWorkspaceId, ...body } = request;
+    const ordinary = {
+      ...body,
+      version: 2 as const,
+      sessionId: 'owned-session',
+      workspace: { kind: 'ordinary' as const, workspaceId: repositoryWorkspaceId },
+    };
+    fetch.mockImplementation((url: string) =>
+      Promise.resolve(
+        url.includes('/commands/')
+          ? new Response(
+              JSON.stringify({
+                ok: true,
+                clientMsgId: ordinary.clientMsgId,
+                sessionId: ordinary.sessionId,
+                dispatched: true,
+                state: 'consumed',
+              }),
+              { status: 202 },
+            )
+          : new Response('[]'),
+      ),
+    );
+    expect(store.getState().sendOrdinaryWorkspaceCommand(ordinary, phase)).toBe(true);
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('consumed'));
+    expect(readStorage()).toHaveLength(1);
+    expect(readStorage()[0].body.clientMsgId).toBe('older-first');
+    expect(fetch.mock.calls.filter(([url]) => url.includes('/commands/'))).toHaveLength(1);
+  },
+);
+
 it('binds exact initial Library sources to the durable command owner before admission and acknowledges assignment', async () => {
   const source = {
     kind: 'agent-library' as const,
@@ -209,6 +329,49 @@ it('retains request after logout and never automatically retries on a new authen
   expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
   expect(store.getState().localCommand?.request).toEqual(request);
 });
+it.each(['retained', 'lost-response'])(
+  'ends only unassigned optimistic busy state when a Local send is %s, preserving its draft and exact recovery',
+  async (failure) => {
+    const { store, fetch, readStorage } = setup();
+    channel.id = 'live-sse';
+    const assigned = vi.fn();
+    const delivered = vi.fn();
+    fetch.mockImplementation(async () => {
+      if (failure === 'lost-response') throw Error('Offline transport failure');
+      return Response.json(
+        {
+          ok: false,
+          code: 'retained_command',
+          error: 'Local Codex entry unavailable',
+          clientMsgId: request.clientMsgId,
+          sessionId: 'retained-session',
+          state: 'uncertain',
+        },
+        { status: 409 },
+      );
+    });
+    expect(
+      store.getState().sendLocalFirstCommand(request, {
+        draftId: 'original-draft',
+        onSessionAssigned: assigned,
+        onDelivery: delivered,
+      }),
+    ).toBe(true);
+    expect(store.getState().messages.running).toBe(true);
+    await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('uncertain'));
+    expect(store.getState().messages.running).toBe(false);
+    expect(store.getState().messages.messages).toEqual([
+      expect.objectContaining({ messageId: request.clientMsgId, role: 'user' }),
+    ]);
+    expect(store.getState().sessions.active).toBeNull();
+    expect(assigned).not.toHaveBeenCalled();
+    expect(readStorage()[0]).toMatchObject({ body: request, localDraftId: 'original-draft' });
+    expect(store.getState().sendLocalFirstCommand({ ...request, clientMsgId: 'replacement' })).toBe(
+      false,
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+  },
+);
 it('keeps delayed assignment with its originating draft after New and exposes recovery without adopting the new composer', async () => {
   const { store, fetch } = setup();
   channel.id = 'live-sse';
@@ -498,82 +661,149 @@ it('keeps validated202 uncertain delivery recoverable despite its persisted SSE 
   expect(store.getState().localCommand?.state).toBe('uncertain');
 });
 
-it('hydrates fast successful output after the validated202 without accepting its earlier SSE echo', async () => {
-  const { store, fetch } = setup();
-  channel.id = 'live-sse';
-  let complete!: (response: Response) => void;
-  const output = {
-    messageId: 'fast-answer',
-    role: 'assistant',
-    blocks: [{ blockId: 'answer-text', blockType: 'text', content: 'Finished before HTTP.' }],
-    timestamp: 2,
-  };
-  fetch.mockImplementation((path) =>
-    path === '/local/send'
-      ? new Promise<Response>((resolve) => {
-          complete = resolve;
-        })
-      : Promise.resolve(
-          path === '/api/sessions/owned-session/messages?transcript=1'
-            ? new Response(JSON.stringify({ messages: [output], current: null, cursor: 5 }))
-            : new Response('[]'),
+it.each([0, 60_000, 119_000])(
+  'shows completed output in the open chat after a %ims startup without navigation or resending',
+  async (startupMs) => {
+    vi.useFakeTimers();
+    try {
+      const { store, fetch } = setup();
+      channel.id = 'live-sse';
+      let complete!: (response: Response) => void;
+      const output = {
+        messageId: 'fast-answer',
+        role: 'assistant',
+        blocks: [{ blockId: 'answer-text', blockType: 'text', content: 'Finished before HTTP.' }],
+        timestamp: 2,
+      };
+      fetch.mockImplementation((path) =>
+        path === '/local/send'
+          ? new Promise<Response>((resolve) => {
+              complete = resolve;
+            })
+          : Promise.resolve(
+              path === '/api/sessions/owned-session/messages?transcript=1'
+                ? new Response(JSON.stringify({ messages: [output], current: null, cursor: 5 }))
+                : new Response('[]'),
+            ),
+      );
+      // The existing switch handler emits current durable state even after completion.
+      channel.send.mockImplementation((body) => {
+        if (body.type === 'switch_session')
+          channel.listener({
+            type: 'session_state_changed',
+            sessionId: body.sessionId,
+            state: 'idle',
+          });
+        return true;
+      });
+      const assigned = vi.fn();
+      const delivered = vi.fn();
+      store
+        .getState()
+        .sendLocalFirstCommand(request, { onSessionAssigned: assigned, onDelivery: delivered });
+      channel.listener({
+        type: 'session_id',
+        sessionId: 'owned-session',
+        clientMsgId: request.clientMsgId,
+      });
+      channel.listener({
+        type: 'user_message',
+        sessionId: 'owned-session',
+        messageId: request.clientMsgId,
+        text: request.payload.text,
+      });
+      channel.listener({
+        type: 'message_end',
+        sessionId: 'owned-session',
+        messageId: output.messageId,
+      });
+      expect(
+        channel.listener({
+          type: 'session_state_changed',
+          sessionId: 'owned-session',
+          state: 'idle',
+        }),
+      ).toBe(true);
+      expect(delivered).not.toHaveBeenCalledWith('accepted');
+      expect(assigned).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(startupMs);
+      expect(delivered).not.toHaveBeenCalledWith('uncertain');
+      expect(store.getState().localCommand?.state).toBe('pending');
+      complete(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            clientMsgId: request.clientMsgId,
+            sessionId: 'owned-session',
+            dispatched: true,
+            state: 'consumed',
+          }),
+          { status: 202 },
         ),
-  );
-  // The existing switch handler emits current durable state even after completion.
-  channel.send.mockImplementation((body) => {
-    if (body.type === 'switch_session')
-      channel.listener({ type: 'session_state_changed', sessionId: body.sessionId, state: 'idle' });
-    return true;
-  });
-  const assigned = vi.fn();
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.getState().messages.messages).toContainEqual(output);
+      expect(store.getState().messages.running).toBe(false);
+      expect(assigned).toHaveBeenCalledExactlyOnceWith('owned-session');
+      expect(delivered.mock.calls.filter(([state]) => state === 'accepted')).toHaveLength(1);
+      expect(channel.send).toHaveBeenCalledWith({
+        type: 'switch_session',
+        sessionId: 'owned-session',
+        historyCursor: 5,
+      });
+      expect(store.getState().localCommand?.state).toBe('consumed');
+      expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
+
+it('recovers the reply and submitted input in the open chat after losing the HTTP acknowledgement', async () => {
+  const { store, fetch, readStorage } = setup();
+  channel.id = 'live-sse';
   const delivered = vi.fn();
-  store
-    .getState()
-    .sendLocalFirstCommand(request, { onSessionAssigned: assigned, onDelivery: delivered });
+  const output = {
+    messageId: 'recovered-reply',
+    role: 'assistant',
+    timestamp: 2,
+    blocks: [{ blockId: 'text', blockType: 'text', content: 'Visible without navigating.' }],
+  };
+  fetch.mockImplementation(async (path: string) => {
+    if (path === '/local/send') throw Error('Lost acknowledgement');
+    if (path === '/local/send/receipt')
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          clientMsgId: request.clientMsgId,
+          sessionId: 'owned-session',
+          dispatched: false,
+          state: 'consumed',
+        }),
+        { status: 202 },
+      );
+    if (path === '/api/sessions/owned-session/messages?transcript=1')
+      return new Response(JSON.stringify({ messages: [output], current: null, cursor: 8 }));
+    return new Response('[]');
+  });
+  store.getState().sendLocalFirstCommand(request, { onDelivery: delivered });
+  await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('uncertain'));
   channel.listener({
     type: 'session_id',
     sessionId: 'owned-session',
     clientMsgId: request.clientMsgId,
   });
   channel.listener({
-    type: 'user_message',
-    sessionId: 'owned-session',
-    messageId: request.clientMsgId,
-    text: request.payload.text,
-  });
-  channel.listener({
-    type: 'message_end',
+    type: 'message_start',
     sessionId: 'owned-session',
     messageId: output.messageId,
   });
-  expect(
-    channel.listener({ type: 'session_state_changed', sessionId: 'owned-session', state: 'idle' }),
-  ).toBe(true);
-  expect(delivered).not.toHaveBeenCalledWith('accepted');
-  expect(assigned).not.toHaveBeenCalled();
-  complete(
-    new Response(
-      JSON.stringify({
-        ok: true,
-        clientMsgId: request.clientMsgId,
-        sessionId: 'owned-session',
-        dispatched: true,
-        state: 'consumed',
-      }),
-      { status: 202 },
-    ),
-  );
+  await vi.waitFor(() => expect(delivered).toHaveBeenCalledWith('accepted'));
   await vi.waitFor(() => expect(store.getState().messages.messages).toContainEqual(output));
-  expect(store.getState().messages.running).toBe(false);
-  expect(assigned).toHaveBeenCalledExactlyOnceWith('owned-session');
-  expect(delivered.mock.calls.filter(([state]) => state === 'accepted')).toHaveLength(1);
-  expect(channel.send).toHaveBeenCalledWith({
-    type: 'switch_session',
-    sessionId: 'owned-session',
-    historyCursor: 5,
-  });
+  expect(store.getState().localCommand?.state).toBe('consumed');
+  expect(readStorage()).toEqual([]);
+  expect(fetch.mock.calls.filter(([path]) => path === '/local/send')).toHaveLength(1);
 });
-
 it('preserves generic uncorrelated assignment and echo acceptance without a pending Local launch', () => {
   const { store } = setup();
   channel.id = 'live-sse';

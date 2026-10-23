@@ -12,7 +12,9 @@ vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (state: Record<string, unknown>) => unknown) =>
     select({ newSession: vi.fn(), setPendingSession: vi.fn() }),
 }));
-vi.mock('../../lib/event-bus-singleton', () => ({ eventBus: { on: () => () => {} } }));
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: { on: () => () => {}, onConnectionChange: () => () => {} },
+}));
 vi.mock('../../components/TelosItemRoleEntries', () => ({ TelosItemRoleEntries: () => null }));
 vi.mock('../../components/TelosItemSources', () => ({ TelosItemSources: () => null }));
 vi.mock('../../components/WorkOutputs', () => ({ WorkOutputs: () => null }));
@@ -183,7 +185,11 @@ it('restores a deeply scrolled expanded tree after focused item Back and delayed
   expect(document.querySelector('.todo-scroll')).toBeNull();
   holdRecords();
   fireEvent.click(screen.getByRole('button', { name: 'Back' }));
-  await waitFor(() => expect(document.querySelector('.todo-card')).toBeTruthy());
+  await waitFor(() =>
+    expect(document.querySelector('.todo-page.telos-canonical-page')).toBeTruthy(),
+  );
+  await screen.findByText('Loading outcomes…');
+  expect(document.querySelector('.todo-card')).toBeNull();
   expect(scroller()).not.toBe(original);
   expect(scroller().scrollTop).toBe(0);
   await act(async () => {
@@ -206,7 +212,11 @@ it('waits for cold collection discovery and canonical rows before restoring reta
   await act(async () => {
     releaseCollection!();
   });
-  await waitFor(() => expect(document.querySelector('.todo-card')).toBeTruthy());
+  await waitFor(() =>
+    expect(document.querySelector('.todo-page.telos-canonical-page')).toBeTruthy(),
+  );
+  await screen.findByText('Loading outcomes…');
+  expect(document.querySelector('.todo-card')).toBeNull();
   expect(scroller().scrollTop).toBe(0);
   await act(async () => {
     releaseRecords!();
@@ -250,7 +260,11 @@ it('lets user input cancel pending restoration before later content growth', asy
 it('lets user input cancel Back restoration while canonical records are still loading', async () => {
   holdRecords();
   mount(600);
-  await waitFor(() => expect(document.querySelector('.todo-card')).toBeTruthy());
+  await waitFor(() =>
+    expect(document.querySelector('.todo-page.telos-canonical-page')).toBeTruthy(),
+  );
+  await screen.findByText('Loading outcomes…');
+  expect(document.querySelector('.todo-card')).toBeNull();
   fireEvent.wheel(scroller(), { deltaY: -100 });
   await act(async () => {
     releaseRecords!();

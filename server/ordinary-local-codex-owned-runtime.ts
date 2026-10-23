@@ -3,6 +3,7 @@ import {
   type LocalWorkspaceKind,
   type LocalWorkspaceRecord,
 } from './ordinary-local-workspace-owner.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import {
   resolveTelosWorkRoleContext,
   resolveTelosWorkSystemPrompt,
@@ -92,6 +93,12 @@ interface Owners<K extends LocalWorkspaceKind = 'repository'> {
   nativeStore?: CodexConversationStore;
   /** Only native transport creation is replaceable for offline qualification. */
   launch?: (privateHome: string, executable: FrozenHostCodexExecutable) => FrozenHostCodexClient;
+  launchApi?: (
+    privateHome: string,
+    executable: FrozenHostCodexExecutable,
+    binding: import('@mitzo/protocol').AccountBinding,
+    retained: boolean,
+  ) => Promise<FrozenHostCodexClient>;
   /** Existing chat/conversation owner opens/enqueues the exact first command
    * while the receipt is uncertain. Retain its prepared event-loop handle here;
    * pump that handle only after admit returns dispatched:true (consumed), so
@@ -111,7 +118,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
   readonly #runtime: OrdinaryLocalCodexHostRuntime;
   readonly #controller = new AbortController();
   readonly #signal: AbortSignal;
-  readonly #operator: ReturnType<typeof retainAgentContextAuthority>;
+  #operator: ReturnType<typeof retainAgentContextAuthority>;
   #lease?: FrozenHostCodexBootstrapLease;
   #admission?: OwnedLocalCodexChatAdmission;
   #expected?: Readonly<OrdinaryLocalCodexAdmissionExpectation>;
@@ -155,6 +162,25 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
     }
   }
 
+  /** Explicit sends renew run authority; reading never transfers execution. */
+  reauthorize(operatorConnectionId: string): void {
+    this.assertCurrent();
+    const captured = captureAgentLibraryAuthorization(operatorConnectionId);
+    captured.assertCurrent();
+    if (!ordinaryOperatorOwnsConversation(this.#authSessionId, captured.auth.id))
+      throw unavailable();
+    const next = retainAgentContextAuthority({ ...captured.auth }, this.#controller);
+    try {
+      next.assertCurrent();
+    } catch (error) {
+      next.release();
+      throw error;
+    }
+    const previous = this.#operator;
+    this.#operator = next;
+    this.#authSessionId = captured.auth.id;
+    previous.release();
+  }
   async admit(raw: unknown): Promise<{ dispatched: boolean }> {
     return this.admitCommand(raw, false);
   }
@@ -193,10 +219,10 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           : !isDeepStrictEqual(binding, this.#reservation.binding)
       )
         throw unavailable();
-      const profile = profiles.codexProfile(binding);
+      const profile = profiles.localCodexProfile(binding);
       if (profile.workspaceId !== undefined) throw unavailable();
       const descriptor = this.#workspaceOwner.get();
-      const custody = resume
+      let custody = resume
         ? this.owners.nativeStore?.readHostCustody(
             this.#reservation.conversationId,
             this.#reservation.binding,
@@ -206,7 +232,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         resume &&
         (!hasPersistentRevocationAuthority() ||
           !custody ||
-          custody.authSessionId !== this.#authSessionId ||
+          !ordinaryOperatorOwnsConversation(custody.authSessionId, this.#authSessionId) ||
           !this.owners.nativeStore?.read(
             this.#reservation.conversationId,
             this.#reservation.binding,
@@ -270,6 +296,25 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
       };
       const target = this.#runtime.target();
       const catalog = new OrdinaryLocalCodexCapabilityCatalog(profiles, target, 'ordinary');
+      const retainedRuntime = resume
+        ? this.owners.eventStore.getSessionRuntimeBinding(this.#reservation.conversationId)
+        : undefined;
+      if (
+        resume &&
+        (!retainedRuntime ||
+          retainedRuntime.version !== 2 ||
+          retainedRuntime.execution.location !== 'local' ||
+          retainedRuntime.harness.implementation !== 'codex' ||
+          retainedRuntime.execution.targetId !== target.descriptor().targetId)
+      )
+        throw unavailable();
+      const configuration =
+        retainedRuntime?.version === 2
+          ? this.#runtime.continuationConfiguration(
+              catalog,
+              retainedRuntime.execution.targetRevision,
+            )
+          : { catalog, declaration: target.admissionDeclaration() };
       const selection = new OrdinaryLocalCodexSelectionOwner({
         events: this.owners.eventStore,
         library: this.owners.library,
@@ -283,15 +328,34 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         preparationOperationId,
       });
       const bridge = new OwnedCodexLifecycleBridge(() => bootstrap?.currentLease());
+      const originalCustody = custody;
       bootstrap = new FrozenHostCodexBootstrapAuthority({
         loadProfiles: loadAccountProfiles,
         observeRuntime: () => this.#runtime.observe(),
         assertRuntimeCurrentSync: () => this.#runtime.assertCurrentSync(),
         assertSelectionCurrent: (expected) => selection.assertCurrent(expected),
+        assertToolSelectionCurrent: (expected) => selection.assertToolCurrent(expected),
         assertSelectionCurrentSync: (expected) => selection.assertCurrentSync(expected),
         signal: this.#signal,
         privateRoot: this.owners.privateRoot,
         retainedCustody: custody ?? undefined,
+        completeRetainedRuntimeBundle:
+          originalCustody && this.owners.nativeStore
+            ? (executable) => {
+                this.assertCurrent();
+                this.owners.nativeStore!.completeHostRuntimeBundle(
+                  this.#reservation.conversationId,
+                  this.#reservation.binding,
+                  originalCustody,
+                  executable,
+                );
+                custody = this.owners.nativeStore!.readHostCustody(
+                  this.#reservation.conversationId,
+                  this.#reservation.binding,
+                );
+                this.assertCurrent();
+              }
+            : undefined,
         retainedAccountBinding: resume ? this.#reservation.binding : undefined,
         isSelectionPending: () => {
           const receipt = this.owners.eventStore.getOrdinaryLocalCommandAdmission(
@@ -332,12 +396,12 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         baseEnv: this.owners.env,
         lifecycle: bridge.lifecycle,
         launch: this.owners.launch,
+        launchApi: this.owners.launchApi,
       });
       const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
         enabled: this.owners.enabled,
         store: this.owners.eventStore,
-        catalog,
-        declaration: target.admissionDeclaration(),
+        ...configuration,
         bootstrapAuthority: bootstrap,
       });
       let claimedWorkspace: LocalWorkspaceRecord<K> | undefined;
@@ -489,6 +553,7 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
           buildAgentProfilePrompt(original.agentProfile!.definition),
         ),
       };
+      let modelQualification: Promise<void> | undefined;
       const assertSelection = async (
         expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
       ) => {
@@ -523,30 +588,41 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
         );
         await lease.assertCurrent();
         assertAdmissionCurrent();
-        let pages = 0;
-        const models = await readCodexModels({
-          request: async (method, params) => {
-            assertAdmissionCurrent();
-            if (++pages > 16) throw unavailable();
-            const response = await lease.client.request(method, params);
-            assertAdmissionCurrent();
-            admission.assertCurrentSync();
-            if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1048576) throw unavailable();
-            z.object({
-              data: z.array(z.unknown()).max(100),
-              nextCursor: z.string().min(1).max(200).nullable().optional(),
-            }).parse(response);
-            return response;
-          },
-        });
-        const model = models.find((entry) => entry.id === expected.selection.model);
-        if (
-          !model ||
-          (expected.selection.thinking === null
-            ? !!model.reasoningEfforts?.length
-            : !model.reasoningEfforts?.includes(expected.selection.thinking))
-        )
-          throw unavailable();
+        const qualifyModels = async () => {
+          if (lease.qualifyModelSelection) {
+            await lease.qualifyModelSelection(
+              expected.selection.model,
+              expected.selection.thinking,
+            );
+            return;
+          }
+          let pages = 0;
+          const models = await readCodexModels({
+            request: async (method, params) => {
+              assertAdmissionCurrent();
+              if (++pages > 16) throw unavailable();
+              const response = await lease.client.request(method, params);
+              assertAdmissionCurrent();
+              admission.assertCurrentSync();
+              if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1048576)
+                throw unavailable();
+              z.object({
+                data: z.array(z.unknown()).max(100),
+                nextCursor: z.string().min(1).max(200).nullable().optional(),
+              }).parse(response);
+              return response;
+            },
+          });
+          const model = models.find((entry) => entry.id === expected.selection.model);
+          if (
+            !model ||
+            (expected.selection.thinking === null
+              ? !!model.reasoningEfforts?.length
+              : !model.reasoningEfforts?.includes(expected.selection.thinking))
+          )
+            throw unavailable();
+        };
+        await (modelQualification ??= qualifyModels());
         assertAdmissionCurrent();
         admission.assertCurrentSync();
       };
@@ -571,8 +647,10 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
             return this.owners.eventStore.completeOrdinaryLocalCommand(...args);
           },
         },
-        catalog: new OrdinaryLocalCodexCapabilityCatalog(profiles, target, 'ordinary'),
-        declaration: target.admissionDeclaration(),
+        ...this.#runtime.continuationConfiguration(
+          new OrdinaryLocalCodexCapabilityCatalog(profiles, target, 'ordinary'),
+          original.binding.execution.targetRevision,
+        ),
         authority: {
           withAdmission: async (expected, operation) => {
             await assertSelection(expected);

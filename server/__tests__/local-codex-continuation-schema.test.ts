@@ -52,7 +52,7 @@ it('bounds the complete future command and preserves permission consistency', ()
   ).toBe(false);
 });
 
-it('supports the existing ordinary OpenShell Codex adapters without advertising Local API fallback', async () => {
+it('supports explicit API billing on local and OpenShell Codex while retaining continuation boundaries', async () => {
   const { OrdinaryCodexFirstCommandSchema, OrdinaryCodexContinuationCommandSchema } =
     await import('@mitzo/protocol');
   const { sessionId: _session, ...first } = input;
@@ -64,10 +64,35 @@ it('supports the existing ordinary OpenShell Codex adapters without advertising 
       runtime: { ...first.runtime, account: { ...first.runtime.account, provider: 'openai' } },
     }).runOn,
   ).toBe('openshell');
+  const api = { accountId: 'work-api', provider: 'openai', profileRevision: 'work-revision' };
+  const local = { ...first, runtime: { ...first.runtime, account: api } };
+  expect(LocalCodexFirstCommandSchema.parse(local).runtime.account).toEqual(api);
+  expect(OrdinaryCodexFirstCommandSchema.parse(local).runtime.account).toEqual(api);
   expect(
-    OrdinaryCodexFirstCommandSchema.safeParse({
-      ...first,
-      runtime: { ...first.runtime, account: { ...first.runtime.account, provider: 'openai' } },
+    LocalCodexContinuationCommandSchema.parse({ ...local, sessionId: input.sessionId }).runtime
+      .account,
+  ).toEqual(api);
+  const { repositoryWorkspaceId: _repository, ...withoutSource } = local;
+  void _repository;
+  expect(OrdinaryCodexFirstCommandSchema.safeParse(withoutSource).success).toBe(true);
+  expect(
+    OrdinaryCodexFirstCommandSchema.safeParse({ ...withoutSource, runOn: 'openshell' }).success,
+  ).toBe(true);
+  expect(
+    OrdinaryCodexContinuationCommandSchema.safeParse({
+      ...withoutSource,
+      runOn: 'openshell',
+      sessionId: input.sessionId,
+    }).success,
+  ).toBe(false);
+  expect(
+    LocalCodexContinuationCommandSchema.safeParse({ ...withoutSource, sessionId: input.sessionId })
+      .success,
+  ).toBe(false);
+  expect(
+    LocalCodexFirstCommandSchema.safeParse({
+      ...local,
+      runtime: { ...local.runtime, account: { ...api, provider: 'google-vertex' } },
     }).success,
   ).toBe(false);
   expect(

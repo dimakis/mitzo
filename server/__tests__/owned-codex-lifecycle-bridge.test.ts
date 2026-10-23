@@ -51,6 +51,41 @@ function fixture() {
 }
 
 describe('owned Codex lifecycle bridge', () => {
+  it('uses the qualified tool fence without repeating bootstrap discovery', async () => {
+    const f = fixture();
+    f.lease.assertToolCurrent = vi.fn(async () => {});
+    f.bridge.attach(f.owner);
+    await f.bridge.lifecycle.onRequest('item/tool/call', {}, new AbortController().signal);
+    expect(f.lease.assertToolCurrent).toHaveBeenCalledOnce();
+    expect(f.lease.assertCurrent).not.toHaveBeenCalled();
+    expect(f.owner.onRequest).toHaveBeenCalledOnce();
+  });
+  it('bounds stalled admission and cannot dispatch after its deadline', async () => {
+    vi.useFakeTimers();
+    const f = fixture();
+    let release!: () => void;
+    f.lease.assertToolCurrent = vi.fn(
+      () =>
+        new Promise<void>((done) => {
+          release = done;
+        }),
+    );
+    const bridge = new OwnedCodexLifecycleBridge(() => f.lease, { admissionTimeoutMs: 100 });
+    bridge.attach(f.owner);
+    const pending = expect(
+      bridge.lifecycle.onRequest('item/tool/call', {}, new AbortController().signal),
+    ).rejects.toThrow('Owned Codex lifecycle unavailable');
+    try {
+      await vi.advanceTimersByTimeAsync(100);
+      await pending;
+      release();
+      await Promise.resolve();
+      expect(f.owner.onRequest).not.toHaveBeenCalled();
+      expect(f.lease.close).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it('hands the existing preflight client to exactly one owner without initializing or launching it', () => {
     const f = fixture();
     expect(f.bridge.attach(f.owner)).toBe(f.client);
@@ -94,6 +129,43 @@ describe('owned Codex lifecycle bridge', () => {
     expect(f.owner.onNotification).not.toHaveBeenCalled();
     expect(f.lease.close).not.toHaveBeenCalled();
     expect(f.bridge.attach(f.owner)).toBe(f.client);
+  });
+
+  it('accepts the pinned runtime’s disabled remote-control and completed API login observations before attachment', () => {
+    const f = fixture();
+    f.setCurrent(undefined);
+    f.bridge.lifecycle.onNotification('remoteControl/status/changed', {
+      status: 'disabled',
+      serverName: 'offline-host',
+      installationId: 'offline-installation',
+      environmentId: null,
+    });
+    f.bridge.lifecycle.onNotification('account/login/completed', {
+      loginId: null,
+      success: true,
+      error: null,
+      onboardingEntrypoint: null,
+    });
+    f.bridge.lifecycle.onNotification('account/updated', { authMode: 'apikey', planType: null });
+    expect(f.owner.onNotification).not.toHaveBeenCalled();
+    expect(f.lease.close).not.toHaveBeenCalled();
+    f.setCurrent(f.lease);
+    expect(f.bridge.attach(f.owner)).toBe(f.client);
+  });
+
+  it.each([
+    ['remoteControl/status/changed', { status: 'connected', environmentId: 'other-host' }],
+    ['remoteControl/status/changed', { status: 'disabled', environmentId: 'other-host' }],
+    ['account/login/completed', { loginId: null, success: false, error: 'private failure' }],
+    ['account/login/completed', { loginId: 'other-login', success: true, error: null }],
+  ])('refuses an unexpected bootstrap observation: %s %j', (method, params) => {
+    const f = fixture();
+    expect(() => f.bridge.lifecycle.onNotification(method, params)).toThrow(
+      'Owned Codex lifecycle unavailable',
+    );
+    expect(f.owner.onNotification).not.toHaveBeenCalled();
+    expect(f.lease.close).toHaveBeenCalledOnce();
+    expect(() => f.bridge.attach(f.owner)).toThrow('Owned Codex lifecycle unavailable');
   });
 
   it('retains transport closure received before a lease exists, closes a delayed lease and refuses binding', () => {

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { CredentialReference } from './credentials.js';
 import {
   OpenAIKeyOperationStore,
@@ -78,6 +79,7 @@ export class OpenAIKeyManagement {
       gatewayBinding: string;
       workspace: string;
       gate?: <T>(work: () => Promise<T>) => Promise<T>;
+      readGate?: <T>(work: () => Promise<T>, signal: AbortSignal) => Promise<T>;
       managedAccountIds?: readonly string[];
     },
   ) {}
@@ -94,6 +96,9 @@ export class OpenAIKeyManagement {
     } finally {
       release();
     }
+  }
+  private read<T>(work: () => Promise<T>, signal: AbortSignal): Promise<T> {
+    return this.options.readGate ? this.options.readGate(work, signal) : this.serial(work);
   }
   private binding(account: ManagedOpenAIAccount) {
     return digest({
@@ -308,12 +313,49 @@ export class OpenAIKeyManagement {
   }
   /** Host consumers participate in the same mutation fence and read the canonical item per request. */
   resolveKey(accountId: string, signal = AbortSignal.timeout(30000)): Promise<string> {
-    return this.serial(async () => {
+    return this.read(async () => {
+      signal.throwIfAborted();
       const account = this.account(accountId);
       const state = await this.state(account, signal);
       this.checkReady(state);
       return state.keychain.value;
-    });
+    }, signal);
+  }
+  /** Host consumers use the canonical Keychain item and durable rotation fence.
+   * A sandbox replica's health is checked only by consumers of that replica.
+   * This is serialized with key rotation; no credential or readiness is cached.
+   */
+  resolveHostKey(accountId: string, signal: AbortSignal): Promise<string> {
+    return this.read(async () => {
+      signal.throwIfAborted();
+      const account = structuredClone(this.account(accountId));
+      const binding = this.binding(account);
+      const latest = this.options.store.latest(accountId);
+      const completed = this.options.store.completed(accountId);
+      if (
+        this.options.store.pending().some((operation) => operation.accountId === accountId) ||
+        (latest && latest.binding !== binding)
+      )
+        throw new Error('OpenAI credentials need attention');
+      const key = await this.options.keychain.read(account.credentialRef, signal);
+      signal.throwIfAborted();
+      if (
+        !key.value.trim() ||
+        this.binding(this.account(accountId)) !== binding ||
+        !isDeepStrictEqual(this.options.store.latest(accountId), latest)
+      )
+        throw new Error('OpenAI credentials need attention');
+      const ready = completed
+        ? completed.binding === binding && key.version === completed.id
+        : key.version === null &&
+          key.managed !== true &&
+          (!latest ||
+            (latest.phase === 'aborted' &&
+              latest.keychainBeforeVersion === null &&
+              !this.options.store.unresolvedLegacyChange(accountId, binding)));
+      if (!ready) throw new Error('OpenAI credentials need attention');
+      return key.value;
+    }, signal);
   }
   private async selected(input: Selection, signal: AbortSignal) {
     const account = this.account(input.accountId);

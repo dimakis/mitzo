@@ -110,7 +110,8 @@ export async function startOwnedOpenShellCodexCommand(
     custodianControllerMode ||
     custodianOwnerMode ||
     !input.meta.accountBinding ||
-    !input.meta.repositoryWorkspaceId
+    (!input.meta.repositoryWorkspaceId && !input.meta.ordinaryWorkspaceId) ||
+    (input.meta.repositoryWorkspaceId != null && input.meta.ordinaryWorkspaceId != null)
   )
     throw unavailable();
   const preparationOperationId = input.preparationOperationId;
@@ -189,7 +190,8 @@ export async function startOwnedOpenShellCodexCommand(
       nativeStore,
       account,
       sessionId,
-      workspaceId: input.meta.repositoryWorkspaceId,
+      workspaceKind: input.meta.ordinaryWorkspaceId ? 'ordinary' : 'repository',
+      workspaceId: (input.meta.ordinaryWorkspaceId ?? input.meta.repositoryWorkspaceId)!,
       taskRoot: input.taskRoot,
       operatorConnectionId: input.operatorConnectionId,
       signal: input.signal,

@@ -9,6 +9,7 @@ it('pins ownership review and managed batch UI in the reviewed runtime source cl
   const sources: Record<string, string> = reviewedHandlerSourceArtifacts;
   for (const path of [
     '../sandbox-ownership-review.ts',
+    '../legacy-sandbox-deletion.ts',
     '../codex-conversation-store.ts',
     '../openshell-lifecycle-controller.ts',
     '../openshell-lifecycle-production.ts',

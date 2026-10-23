@@ -1,8 +1,9 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { assertOwnedCodexQueueControl } from '../owned-codex-queue-control.js';
-const auth = vi.hoisted(() => ({ revoked: false, persistent: true }));
+const auth = vi.hoisted(() => ({ revoked: false, persistent: true, primaryActor: false }));
 vi.mock('../auth.js', () => ({
   hasPersistentRevocationAuthority: () => auth.persistent,
+  isAuthenticatedOperatorSessionId: (id: string) => auth.primaryActor && id === 'web-login',
   registerAuthSession: (_session: unknown, callback: () => void) => {
     if (auth.revoked) callback();
     return () => {};
@@ -24,6 +25,7 @@ function fixture() {
 beforeEach(() => {
   auth.revoked = false;
   auth.persistent = true;
+  auth.primaryActor = false;
 });
 it('authorizes cold queue controls only with the original current signed login and custody', () => {
   const f = fixture();
@@ -52,4 +54,20 @@ it('retains legacy control behavior for conversations without an explicit bindin
   const f = { ...fixture(), runtimeBinding: () => undefined };
   expect(() => assertOwnedCodexQueueControl(f, 'legacy', undefined)).not.toThrow();
   expect(f.custody).not.toHaveBeenCalled();
+});
+
+it('allows current primary-operator control of retained Local Codex queues across device logins only', () => {
+  const local = { ...binding, execution: { ...binding.execution, location: 'local' as const } };
+  const f = {
+    ...fixture(),
+    runtimeBinding: () => local,
+    custody: () => ({ authSessionId: 'phone-login', binding: local }),
+  };
+  const web = { id: 'web-login', expiresAt: Date.now() + 10000 };
+  expect(() => assertOwnedCodexQueueControl(f, 'session', web)).toThrow();
+  auth.primaryActor = true;
+  expect(() => assertOwnedCodexQueueControl(f, 'session', web)).not.toThrow();
+  expect(() => assertOwnedCodexQueueControl(fixture(), 'session', web)).toThrow();
+  auth.revoked = true;
+  expect(() => assertOwnedCodexQueueControl(f, 'session', web)).toThrow();
 });

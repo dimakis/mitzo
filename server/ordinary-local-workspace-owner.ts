@@ -42,6 +42,17 @@ export class OrdinaryLocalWorkspaceOwner<K extends LocalWorkspaceKind = 'reposit
       )
         throw unavailable();
     }
+    if (this.kind === 'repository' && value.state === 'claimed') {
+      const record = this.workspace.getForConversation(r.conversationId);
+      if (
+        !record ||
+        record.id !== value.id ||
+        record.directory !== value.directory ||
+        !isDeepStrictEqual(record.binding, value.binding)
+      )
+        throw unavailable();
+      return record as LocalWorkspaceRecord<K>;
+    }
     return value as LocalWorkspaceRecord<K>;
   }
   assertCurrentSync(cwd: string): void {
@@ -108,13 +119,38 @@ export class OrdinaryLocalWorkspaceOwner<K extends LocalWorkspaceKind = 'reposit
       ] as const) {
         const current = lstatSync(path);
         if (
-          !current.isDirectory() ||
+          (path === join(identity.directory, '.git') && identity.localSource
+            ? !current.isFile()
+            : !current.isDirectory()) ||
           current.isSymbolicLink() ||
           realpathSync(path) !== path ||
           current.dev !== retained.dev ||
           current.ino !== retained.ino
         )
           throw unavailable();
+      }
+      if (identity.localSource) {
+        const linked = identity.linkedGit;
+        if (
+          !claimed.localSource ||
+          !linked ||
+          !isDeepStrictEqual(claimed.localSource, identity.localSource)
+        )
+          throw unavailable();
+        for (const [path, retained] of [
+          [linked.directory, linked.identity],
+          [identity.localSource.commonDirectory, identity.localSource.commonRoot],
+        ] as const) {
+          const current = lstatSync(path);
+          if (
+            !current.isDirectory() ||
+            current.isSymbolicLink() ||
+            realpathSync(path) !== path ||
+            current.dev !== retained.dev ||
+            current.ino !== retained.ino
+          )
+            throw unavailable();
+        }
       }
     }
   }

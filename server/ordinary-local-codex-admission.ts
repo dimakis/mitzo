@@ -412,15 +412,18 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     const resolution = structuredClone(d.catalog.resolve(request.runtime));
     if (resolution.status !== 'compatible') fail('configuration_unavailable');
     const binding = resolution.binding;
+    const provider =
+      d.adapter === 'claude-sdk'
+        ? 'anthropic-vertex'
+        : d.adapter === 'gemini'
+          ? 'google-vertex'
+          : d.adapter === 'responses'
+            ? 'openai'
+            : undefined;
     if (
-      binding.account.provider !==
-        (d.adapter === 'claude-sdk'
-          ? 'anthropic-vertex'
-          : d.adapter === 'gemini'
-            ? 'google-vertex'
-            : d.adapter === 'responses'
-              ? 'openai'
-              : 'openai-codex') ||
+      (provider
+        ? binding.account.provider !== provider
+        : !['openai', 'openai-codex'].includes(binding.account.provider)) ||
       binding.harness.implementation !== (d.adapter ?? 'codex') ||
       binding.execution.location !== 'local' ||
       binding.execution.targetId !== d.declaration.targetId ||

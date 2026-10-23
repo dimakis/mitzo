@@ -1,5 +1,6 @@
 import { clearPublicationControllerSessionGrants } from './symposium-publication-approval.js';
 import { ownedLocalControlStatus } from './owned-local-codex-control.js';
+import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
 import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import {
   isTransportConnectionOwnedBy,
@@ -1656,14 +1657,22 @@ export function handlePermissionResponseV2(
         const ownerConnection =
           found?.session?.ownerConnectionId ??
           (found ? getOwnerConnection(found.clientId) : undefined);
-        // Watching alone is not authority. Another tab of the owner's login
-        // may answer the same card without taking over the provider session.
+        const binding = ctx.eventStore.getSessionRuntimeBinding?.(pendingSessionId);
+        const samePrimaryOperator =
+          binding?.execution.location === 'local' &&
+          binding.harness.implementation === 'codex' &&
+          ordinaryOperatorOwnsConversation(
+            found?.session?.ownedLocalAuthSessionId,
+            liveTransportAuthSessionId(connectionId),
+          );
+        // A live authenticated operator device may answer its watched Local
+        // Codex card without transferring the native execution attachment.
         const sameOwnerWatcher =
           ownerConnection !== undefined &&
           liveTransportAuthSessionId(connectionId) !== undefined &&
           ctx.connRegistry.get(connectionId)?.transport.isOpen() === true &&
           ctx.connRegistry.get(connectionId)?.watchedSessions.has(pendingSessionId) === true &&
-          transportConnectionsShareOwner(connectionId, ownerConnection);
+          (transportConnectionsShareOwner(connectionId, ownerConnection) || samePrimaryOperator);
         // HTTP supplies this only after interactive operator authentication.
         // Bind that authority to the actual transport and exact reviewed session.
         const operatorWatcher =

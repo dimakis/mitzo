@@ -130,7 +130,7 @@
 .connection-setup-chat-card a {
   display: inline-flex;
   align-items: center;
-  min-height: 40px;
+  min-height: var(--control-height);
   padding: 9px 14px;
   border-radius: 8px;
   font-size: 13px;

@@ -1,5 +1,6 @@
 import type { CodexLifecycleTransport } from './codex-app-server-client.js';
 import type { FrozenHostCodexBootstrapLease } from './frozen-host-codex-bootstrap.js';
+import { observeLocalCodexPhase } from './local-codex-observation.js';
 
 const unavailable = () => new Error('Owned Codex lifecycle unavailable');
 
@@ -17,15 +18,34 @@ export class OwnedCodexLifecycleBridge {
   #leaseClosed = false;
   #abort = new AbortController();
 
-  constructor(private readonly currentLease: () => FrozenHostCodexBootstrapLease | undefined) {
+  constructor(
+    private readonly currentLease: () => FrozenHostCodexBootstrapLease | undefined,
+    private readonly options: { admissionTimeoutMs?: number } = {},
+  ) {
     this.lifecycle = Object.freeze({
       onNotification: (method, params) => {
         try {
           if (this.#closed) throw unavailable();
           if (!this.#owner) {
             // These bootstrap observations have no conversation execution or
-            // host-tool effects. Every other unsolicited notification refuses.
+            // host-tool effects. They confer no login or execution authority;
+            // the bootstrap lease independently verifies account and file custody.
             if (method === 'account/updated' || method === 'account/rateLimits/updated') return;
+            if (
+              method === 'remoteControl/status/changed' &&
+              params.status === 'disabled' &&
+              params.environmentId === null
+            )
+              return;
+            if (
+              method === 'account/login/completed' &&
+              params.loginId === null &&
+              params.success === true &&
+              params.error === null
+            )
+              return;
+            // Every other unsolicited notification refuses, including remote
+            // execution, another login flow and pre-attachment thread/turn events.
             throw unavailable();
           }
           this.assertCurrentSync();
@@ -40,13 +60,11 @@ export class OwnedCodexLifecycleBridge {
           if (!this.#owner) throw unavailable();
           signal.throwIfAborted();
           const lease = this.assertCurrentSync();
-          await lease.assertCurrent();
+          await observeLocalCodexPhase('host_tool_admission', () => this.admit(lease, signal));
           signal.throwIfAborted();
           this.assertCurrentSync();
-          const result = await this.#owner.onRequest(
-            method,
-            params,
-            AbortSignal.any([signal, this.#abort.signal]),
+          const result = await observeLocalCodexPhase('host_tool_execution', () =>
+            this.#owner!.onRequest(method, params, AbortSignal.any([signal, this.#abort.signal])),
           );
           // The existing conversation/tool ledger owns any effects already
           // completed by the callback. Failure here never asserts no execution.
@@ -60,6 +78,33 @@ export class OwnedCodexLifecycleBridge {
       },
       onClose: () => this.close(),
     } satisfies CodexLifecycleTransport);
+  }
+
+  private async admit(lease: FrozenHostCodexBootstrapLease, signal: AbortSignal): Promise<void> {
+    const controller = new AbortController();
+    const current = AbortSignal.any([signal, this.#abort.signal, controller.signal]);
+    const timer = setTimeout(
+      () => controller.abort(unavailable()),
+      this.options.admissionTimeoutMs ?? 15_000,
+    );
+    let abort: () => void = () => {};
+    try {
+      await Promise.race([
+        Promise.resolve().then(() => {
+          current.throwIfAborted();
+          return lease.assertToolCurrent ? lease.assertToolCurrent(current) : lease.assertCurrent();
+        }),
+        new Promise<never>((_, reject) => {
+          abort = () => reject(current.reason);
+          current.addEventListener('abort', abort, { once: true });
+          if (current.aborted) abort();
+        }),
+      ]);
+      current.throwIfAborted();
+    } finally {
+      clearTimeout(timer);
+      current.removeEventListener('abort', abort);
+    }
   }
 
   private assertCurrentSync(): FrozenHostCodexBootstrapLease {

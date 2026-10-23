@@ -388,9 +388,16 @@ describe('native tool execution through session permissions', () => {
     const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     await writeFile(executable, bytes, { mode: 0o755 });
+    const companion = join(workspace, 'codex-code-mode-host');
+    await writeFile(companion, bytes, { mode: 0o755 });
     await writeFile(
       nativeFile,
-      JSON.stringify({ version: 1, executablePath: executable, executableSha256: sha256 }),
+      JSON.stringify({
+        version: 2,
+        executablePath: executable,
+        executableSha256: sha256,
+        codeModeHostSha256: sha256,
+      }),
       { mode: 0o600 },
     );
     await writeFile(
@@ -400,7 +407,7 @@ describe('native tool execution through session permissions', () => {
         targetId: 'fixture-mac',
         label: 'Fixture Mac',
         hostId: hostname(),
-        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256),
+        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, sha256),
       }),
       { mode: 0o600 },
     );
@@ -410,15 +417,15 @@ describe('native tool execution through session permissions', () => {
     });
     await runtime.observe();
     const aliases: string[] = [];
-    for (const [index, target] of [nativeFile, targetFile, executable].entries()) {
+    for (const [index, target] of [nativeFile, targetFile, executable, companion].entries()) {
       const alias = join(workspace, `selection-alias-${index}`);
       await symlink(target, alias);
       aliases.push(alias);
     }
     const snapshots = await Promise.all(
-      [nativeFile, targetFile, executable].map((path) => readFile(path)),
+      [nativeFile, targetFile, executable, companion].map((path) => readFile(path)),
     );
-    for (const file_path of [nativeFile, targetFile, executable, ...aliases])
+    for (const file_path of [nativeFile, targetFile, executable, companion, ...aliases])
       expect(
         await executor()(call('Write', { file_path, content: 'model replacement' }), abort.signal),
       ).toMatchObject({ is_error: true });
@@ -439,7 +446,9 @@ describe('native tool execution through session permissions', () => {
     });
     expect(executeSandboxedCommand).not.toHaveBeenCalled();
     expect(
-      await Promise.all([nativeFile, targetFile, executable].map((path) => readFile(path))),
+      await Promise.all(
+        [nativeFile, targetFile, executable, companion].map((path) => readFile(path)),
+      ),
     ).toEqual(snapshots);
     expect(
       await executor()(
@@ -768,6 +777,65 @@ describe('native tool execution through session permissions', () => {
     ).toMatchObject({ is_error: true, content: 'Invalid native tool input' });
     expect(sent).toHaveLength(0);
     expect(executeSandboxedCommand).not.toHaveBeenCalled();
+  });
+  it('uses the existing Agent approval and session grant for network-enabled host commands', async () => {
+    vi.mocked(executeSandboxedCommand).mockClear();
+    registry.get('client')!.sessionAllowList.add('Bash');
+    const execute = createNativeToolExecutor('client', registry, {
+      env: { PATH: '/usr/bin:/bin' },
+      networkAccess: 'approved-command',
+    });
+    const pending = execute(call('Bash', { command: 'npm install' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    const request = sent.find((e) => e.type === 'permission_request')!;
+    expect(request.title).toContain('network access');
+    expect(request.sessionGrantDescription).toContain('network access');
+    const { permissionNotificationCategory } = await import('../notification-actions.js');
+    expect(permissionNotificationCategory(request as never, true)).toBe('SESSION_PERMISSION');
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
+    resolvePending(request.permId as string, 'always');
+    expect(await pending).toMatchObject({ is_error: false });
+    expect(executeSandboxedCommand).toHaveBeenLastCalledWith(
+      expect.objectContaining({ networkAccess: 'approved-command' }),
+    );
+    sent.length = 0;
+    expect(await execute(call('Bash', { command: 'npm test' }), abort.signal)).toMatchObject({
+      is_error: false,
+    });
+    expect(sent).toHaveLength(0);
+    registry.setMode('client', 'ask');
+    expect(await execute(call('Bash', { command: 'npm install' }), abort.signal)).toMatchObject({
+      is_error: true,
+    });
+    expect(executeSandboxedCommand).toHaveBeenCalledTimes(2);
+  });
+  it('rechecks a mode downgrade while a network-enabled command is awaiting approval', async () => {
+    vi.mocked(executeSandboxedCommand).mockClear();
+    const execute = createNativeToolExecutor('client', registry, {
+      env: { PATH: '/usr/bin:/bin' },
+      networkAccess: 'approved-command',
+    });
+    const pending = execute(call('Bash', { command: 'npm install' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    registry.setMode('client', 'ask');
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'always');
+    expect(await pending).toMatchObject({ is_error: true });
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
+  });
+  it('does not upgrade networking if caller options change during command approval', async () => {
+    vi.mocked(executeSandboxedCommand).mockClear();
+    const options: Parameters<typeof createNativeToolExecutor>[2] = {
+      env: { PATH: '/usr/bin:/bin' },
+    };
+    const execute = createNativeToolExecutor('client', registry, options);
+    const pending = execute(call('Bash', { command: 'npm test' }), abort.signal);
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    options.networkAccess = 'approved-command';
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await pending).toMatchObject({ is_error: false });
+    expect(executeSandboxedCommand).toHaveBeenLastCalledWith(
+      expect.objectContaining({ networkAccess: undefined }),
+    );
   });
   it('allows sandboxed commands in Auto but denies them after switching to Ask', async () => {
     vi.mocked(executeSandboxedCommand).mockClear();

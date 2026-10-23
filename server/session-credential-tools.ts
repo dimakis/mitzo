@@ -32,7 +32,7 @@ export const CONNECTION_TOOL_INSTRUCTIONS =
   KNOWLEDGE_TOOL_INSTRUCTIONS;
 /** Native API tools run on the host; shared OpenShell CLI guidance cannot grant their shell egress. */
 export const API_CONNECTION_INSTRUCTIONS =
-  '\nThis is a host API chat. For live Jira, call ListConnections and use approved ConnectionRequest reads through a Keychain connection. Load GetConnectionGuide for Jira setup and pagination. Shared ./mgmt jira guidance applies to the OpenShell transport; API Bash has no network or credentials. Do not install requests or search editor configuration to make that CLI work.\n';
+  '\nThis is a host API chat. For live Jira, call ListConnections and use approved ConnectionRequest reads through a Keychain connection. Load GetConnectionGuide for Jira setup and pagination. Shared ./mgmt jira guidance applies to the OpenShell transport; API Bash never receives connection credentials; its network policy is stated in the execution environment. Installing a CLI does not grant service authentication. Do not search editor configuration for credentials.\n';
 export function sessionCredentialTools(
   sessionId: string,
   session: ManagedSession,

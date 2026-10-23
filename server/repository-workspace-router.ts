@@ -7,6 +7,11 @@ import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
+import {
+  RepositorySourceLimitError,
+  RepositorySpaceError,
+  REPOSITORY_SOURCE_LIMIT_MIB,
+} from './github-repository-source.js';
 
 const selection = z.strictObject({
   accountId: z.string().min(1).max(128),
@@ -20,7 +25,14 @@ const previewInput = selection.extend({
 });
 export function createRepositoryWorkspaceRouter(deps: {
   resolveBinding(accountId: string, model: string): AccountBinding;
-  catalog(binding: AccountBinding): unknown;
+  catalog(binding: AccountBinding, runOn?: 'local' | 'openshell'): unknown;
+  selectLocal?(
+    binding: AccountBinding,
+    repositoryId: string,
+    runtime: OrdinaryRepositoryRuntimeSelection,
+    signal: AbortSignal,
+    requestId: string,
+  ): Promise<unknown>;
   chatPreparation?(id: string): unknown;
   preview(
     binding: AccountBinding,
@@ -43,13 +55,63 @@ export function createRepositoryWorkspaceRouter(deps: {
     next();
   });
   router.get('/catalog', (req, res) => {
-    const parsed = selection.safeParse(req.query);
+    const parsed = selection
+      .extend({ runOn: z.enum(['local', 'openshell']).optional() })
+      .safeParse(req.query);
     if (!parsed.success)
       return res.status(400).json({ error: 'Select an AI account and model first' });
     try {
-      return res.json(deps.catalog(deps.resolveBinding(parsed.data.accountId, parsed.data.model)));
+      const binding = deps.resolveBinding(parsed.data.accountId, parsed.data.model);
+      return res.json(
+        parsed.data.runOn ? deps.catalog(binding, parsed.data.runOn) : deps.catalog(binding),
+      );
     } catch {
       return res.status(409).json({ error: 'Repository account selection unavailable' });
+    }
+  });
+  router.post('/local', requireSameOriginJson, async (req, res) => {
+    const parsed = selection
+      .extend({
+        repositoryId: z.string().min(1).max(128),
+        ordinaryRuntime: OrdinaryRepositoryRuntimeSelectionSchema.refine(
+          (value) => value.runOn === 'local',
+        ),
+        requestId: z.uuid(),
+      })
+      .strict()
+      .safeParse(req.body);
+    if (!parsed.success)
+      return res.status(400).json({ error: 'Choose a repository already on the Mac' });
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    const close = () => {
+      if (!res.writableEnded) abort();
+    };
+    req.once('aborted', abort);
+    res.once('close', close);
+    const auth = res.locals.authSession as AuthSession;
+    const timer = setTimeout(abort, Math.min(120000, Math.max(0, auth.expiresAt - Date.now())));
+    try {
+      if (!deps.selectLocal) throw Error('Unavailable');
+      const value = parsed.data;
+      const result = await deps.selectLocal(
+        deps.resolveBinding(value.accountId, value.model),
+        value.repositoryId,
+        value.ordinaryRuntime,
+        controller.signal,
+        value.requestId,
+      );
+      controller.signal.throwIfAborted();
+      return res.json(result);
+    } catch {
+      return res.status(409).json({
+        error:
+          'Could not use this local repository. Check access to its upstream main branch and try again.',
+      });
+    } finally {
+      clearTimeout(timer);
+      req.off('aborted', abort);
+      res.off('close', close);
     }
   });
   router.post('/preview', requireSameOriginJson, async (req, res) => {
@@ -83,7 +145,11 @@ export function createRepositoryWorkspaceRouter(deps: {
           ...(input.data.ordinaryRuntime ? [input.data.ordinaryRuntime] : []),
         ),
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof RepositorySpaceError)
+        return res.status(507).json({ code: 'repository_space', error: error.message });
+      if (error instanceof RepositorySourceLimitError)
+        return res.status(413).json({ code: 'repository_source_limit', error: error.message });
       return res.status(409).json({
         error:
           'Repository preview unavailable. Check the selected account, GitHub connection and repository access.',
@@ -105,10 +171,13 @@ export function createRepositoryWorkspaceRouter(deps: {
     try {
       const binding = deps.resolveBinding(input.data.accountId, input.data.model);
       return res.json(await deps.prepare(String(req.params.id), binding, controller.signal));
-    } catch {
+    } catch (error) {
+      if (error instanceof RepositorySpaceError)
+        return res.status(507).json({ code: 'repository_space', error: error.message });
+      if (error instanceof RepositorySourceLimitError)
+        return res.status(413).json({ code: 'repository_source_limit', error: error.message });
       return res.status(409).json({
-        error:
-          'Repository preparation unavailable. Refresh the preview if its commit or connection changed. Initial support is limited to regular files, 10,000 files and 64 MiB of source.',
+        error: `Repository preparation unavailable. Refresh the preview if its commit or connection changed. Support is limited to regular files, 10,000 files and ${REPOSITORY_SOURCE_LIMIT_MIB} MiB of source.`,
       });
     } finally {
       clearTimeout(timer);

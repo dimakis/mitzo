@@ -117,6 +117,7 @@ describe('dormant ordinary runtime configuration resolution', () => {
     ['chatgpt-host', 'openai-codex', 'codex', 'host', 'local'],
     ['chatgpt-broker', 'openai-codex', 'codex', 'ordinary-sandbox', 'openshell'],
     ['api', 'openai', 'responses', 'host', 'local'],
+    ['api', 'openai', 'codex', 'host', 'local'],
     ['api', 'openai', 'codex', 'ordinary-sandbox', 'openshell'],
     ['claude', 'anthropic-vertex', 'claude-sdk', 'host', 'local'],
     ['gemini', 'google-vertex', 'gemini', 'host', 'local'],
@@ -147,7 +148,6 @@ describe('dormant ordinary runtime configuration resolution', () => {
   );
 
   it.each([
-    request('api', 'openai', 'codex'),
     request('api', 'openai', 'responses', 'ordinary-sandbox'),
     request('claude', 'anthropic-vertex', 'claude-sdk', 'ordinary-sandbox'),
     request('gemini', 'google-vertex', 'gemini', 'ordinary-sandbox'),

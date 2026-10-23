@@ -85,6 +85,23 @@ function fixture() {
     providers,
   };
 }
+it('verifies enrolled host custody without requiring the sandbox replica', async () => {
+  const f = fixture();
+  const account = await f.service.enroll(f.input, AbortSignal.timeout(1000));
+  f.gateway.inspect.mockClear().mockRejectedValue(Error('sandbox unavailable'));
+  expect(await f.service.resolveHostKey(account.id, AbortSignal.timeout(1000))).toBe(
+    f.input.apiKey,
+  );
+  expect(f.gateway.inspect).not.toHaveBeenCalled();
+  const row = f.store.account(account.id)!;
+  f.secrets.set(openAIEnrollmentCredentialReference(row.operationId).service, {
+    value: 'changed',
+    version: 'different-marker',
+    managed: true,
+  });
+  await expect(f.service.resolveHostKey(account.id, AbortSignal.timeout(1000))).rejects.toThrow();
+  expect(f.gateway.inspect).not.toHaveBeenCalled();
+});
 it('publishes only a verified fresh Luna account and never stores its key', async () => {
   const f = fixture();
   expect(f.store.readyProfiles()).toEqual([]);

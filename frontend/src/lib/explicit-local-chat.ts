@@ -35,6 +35,8 @@ export const ExplicitLocalInventorySchema = z
     version: z.literal(1),
     authority: z.literal('configuration-only'),
     defaultLocation: z.literal('openshell'),
+    defaultLocalRepository: z.boolean().optional(),
+    defaultOpenShellWorkspace: z.boolean().optional(),
     capabilityRevision: ref,
     accounts: z
       .array(
@@ -184,7 +186,7 @@ type ExplicitCommandContent = {
   retainedAgentContext?: AgentContextSnapshot;
   nativeConstraint?: NativeContinuationConstraint;
 };
-type RepositoryCommandContent = ExplicitCommandContent & { repositoryWorkspaceId: string };
+type RepositoryCommandContent = ExplicitCommandContent & { repositoryWorkspaceId?: string };
 type OrdinaryCommandContent = ExplicitCommandContent & {
   sessionId: string;
   ordinaryWorkspaceId: string;
@@ -315,15 +317,41 @@ function prepareExplicitCommand<T>(
   return { request: null, reason };
 }
 
+/** The default non-Git sandbox currently admits agents without saved recipes.
+ * Repository-backed contexts retain their existing owning admission path. */
+export function defaultOpenShellWorkspaceReason(
+  selection: ChatRuntimeSelection,
+  inventory: ExplicitLocalInventory | null,
+  repositoryWorkspaceId?: string,
+): string | undefined {
+  if (repositoryWorkspaceId || selection.execution.location !== 'openshell') return;
+  const profile = inventory?.agentProfiles.find(
+    (entry) =>
+      entry.profileId === selection.agentProfile?.profileId &&
+      entry.revision === selection.agentProfile?.revision &&
+      entry.kind === selection.agentProfile?.kind,
+  );
+  if (profile?.definition.contextRecipe)
+    return 'This agent’s saved context isn’t available in the default sandbox. Choose another agent.';
+}
+
 export function prepareLocalFirstCommand(
   selection: ChatRuntimeSelection,
   inventory: ExplicitLocalInventory | null,
   input: RepositoryCommandContent,
 ) {
-  return prepareExplicitCommand(selection, inventory, input, OrdinaryRuntimeFirstCommandSchema);
+  const result = prepareExplicitCommand(
+    selection,
+    inventory,
+    input,
+    OrdinaryRuntimeFirstCommandSchema,
+  );
+  if (!result.request) return result;
+  const reason = defaultOpenShellWorkspaceReason(selection, inventory, input.repositoryWorkspaceId);
+  return reason ? { request: null, reason } : result;
 }
 const ordinarySelectionSchema = z.strictObject({
-  runOn: LocalCodexFirstCommandSchema.shape.runOn,
+  runOn: z.enum(['local', 'openshell']),
   clientMsgId: LocalCodexFirstCommandSchema.shape.clientMsgId,
   capabilityRevision: LocalCodexFirstCommandSchema.shape.capabilityRevision,
   runtime: LocalCodexFirstCommandSchema.shape.runtime,
@@ -335,10 +363,12 @@ function ordinaryRouteReason(
   inventory: ExplicitLocalInventory | null,
 ) {
   const route = inventory && selectedRuntimeRoute(selection, inventory);
-  return selection.execution.location !== 'local' ||
-    route?.harness !== 'codex' ||
-    selection.accountReference?.provider !== 'openai-codex'
-    ? 'Ordinary workspaces currently require a supported Local Mac Codex account and target. Choose those settings to continue.'
+  const provider = selection.accountReference?.provider;
+  return route?.harness !== 'codex' ||
+    !(selection.execution.location === 'local'
+      ? provider === 'openai-codex'
+      : provider === 'openai' || provider === 'openai-codex')
+    ? 'Ordinary workspaces require a supported Local Mac Codex or OpenShell Codex account and target.'
     : undefined;
 }
 export function prepareOrdinaryWorkspaceSelection(
@@ -346,6 +376,14 @@ export function prepareOrdinaryWorkspaceSelection(
   inventory: ExplicitLocalInventory | null,
   input: ExplicitCommandContent,
 ) {
+  // Telos allocation uses the separately enrolled Local Mac preparation API.
+  // OpenShell default chat admission does not enroll that role-allocation flow.
+  if (selection.execution.location !== 'local')
+    return {
+      request: null,
+      reason:
+        'Ordinary workspaces currently require a supported Local Mac Codex account and target. Choose those settings to continue.',
+    };
   const reason = ordinaryRouteReason(selection, inventory);
   if (reason) return { request: null, reason };
   const result = prepareExplicitCommand(selection, inventory, input, ordinarySelectionSchema);

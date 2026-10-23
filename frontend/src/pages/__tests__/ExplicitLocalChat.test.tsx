@@ -8,11 +8,23 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
 import { DesktopChatView } from '../DesktopChatView';
+import { multiRuntimeInventoryFixture } from '../../test-utils/multi-runtime-inventory-fixture';
 import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
 import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 import { getChatDraft } from '../../lib/chat-drafts';
 import '@testing-library/jest-dom/vitest';
 import userEvent from '@testing-library/user-event';
+import {
+  OrdinaryRuntimeFirstCommandSchema,
+  DEFAULT_MITZO_PROFILE_ID,
+  DEFAULT_MITZO_PROFILE_REVISION,
+  defaultMitzoProfileDefinition,
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+  profileBuilderDefinition,
+  type AgentLibraryVersion,
+} from '@mitzo/protocol';
+import { sha256Hex } from '../../lib/browser-crypto';
 // Route wiring tests exercise the existing controls directly. The real sheet
 // navigation, retained editors and summary layout are covered by QuickChatSettings
 // unit tests and the all-intercept local-first/multi-runtime browser suites.
@@ -153,6 +165,7 @@ vi.mock('../../components/ChatInput', () => ({
     onStop,
     running,
     sendDisabledReason,
+    sendDisabledAction,
     composerGeneration,
     settings,
   }: {
@@ -168,6 +181,7 @@ vi.mock('../../components/ChatInput', () => ({
       assigned?: (id: string) => void,
     ) => boolean;
     sendDisabledReason?: string;
+    sendDisabledAction?: { label: string; onClick(): void; disabled?: boolean };
     composerGeneration?: number;
     settings?: React.ReactNode;
   }) => (
@@ -178,6 +192,12 @@ vi.mock('../../components/ChatInput', () => ({
       <div data-testid="draft">{initialText ?? savedChatDraft?.text}</div>
       <span data-testid="composer-running">{String(running)}</span>
       <span data-testid="composer-generation">{composerGeneration}</span>
+      {sendDisabledReason && <span>{sendDisabledReason}</span>}
+      {sendDisabledAction && (
+        <button disabled={sendDisabledAction.disabled} onClick={sendDisabledAction.onClick}>
+          {sendDisabledAction.label}
+        </button>
+      )}
       <button onClick={onStop}>Test Stop</button>
       <button
         disabled={!!sendDisabledReason}
@@ -219,8 +239,18 @@ function setup(
   continuation = false,
   suppliedFixture?: import('../../lib/explicit-local-chat').ExplicitLocalInventory,
   ordinary?: 'prepared' | 'conversation' | 'invalid',
+  builtin?: AgentLibraryVersion,
+  apiHost = false,
 ) {
-  const fixture = suppliedFixture ?? localInventoryFixture();
+  const fixture: import('../../lib/explicit-local-chat').ExplicitLocalInventory =
+    suppliedFixture ?? localInventoryFixture();
+  if (apiHost) {
+    const account = { ...fixture.accounts[0].account, provider: 'openai' as const };
+    fixture.accounts[0] = { ...fixture.accounts[0], account, label: 'Work OpenAI API' };
+    fixture.targets[0] = { ...fixture.targets[0], harness: 'responses' };
+    fixture.routes[0] = { ...fixture.routes[0], account, harness: 'responses' };
+  }
+  if (builtin) (fixture.agentProfiles as AgentLibraryVersion[]).push(builtin);
   const draft = createChatDraft();
   draft.text = 'hello';
   if (suppliedFixture) {
@@ -246,7 +276,7 @@ function setup(
   }
   saveChatDraft(draft);
   vi.mocked(apiFetch).mockImplementation(async (url) => {
-    if (url === '/api/chat/runtime/capabilities')
+    if (url === '/api/chat/runtime/capabilities?workspaceDefaults=1')
       return disabled
         ? new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 })
         : new Response(JSON.stringify(fixture));
@@ -339,6 +369,175 @@ for (const [name, Screen] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it.each(['local', 'openshell'] as const)(
+    `${name}: fresh %s chat does not instantly inherit another draft's failure`,
+    async (runOn) => {
+      const { store, localSend, draft, fixture } = setup(
+        Screen,
+        true,
+        false,
+        false,
+        false,
+        false,
+        runOn === 'openshell' ? multiRuntimeInventoryFixture() : undefined,
+      );
+      const settings = await screen.findByRole('button', { name: /^Workspace controls/ });
+      if (settings.getAttribute('aria-expanded') !== 'true') fireEvent.click(settings);
+      if (runOn === 'openshell')
+        fireEvent.click(await screen.findByRole('button', { name: 'OpenShell' }));
+      fireEvent.change(await screen.findByRole('combobox', { name: 'Account' }), {
+        target: { value: runOn === 'openshell' ? 'api' : 'personal' },
+      });
+      if (runOn === 'openshell') {
+        fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+          target: { value: 'shell-model' },
+        });
+        fireEvent.change(screen.getByRole('combobox', { name: 'Thinking level' }), {
+          target: { value: 'low' },
+        });
+      }
+      fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
+      const send = screen.getByRole('button', { name: 'Test send' });
+      await waitFor(() => expect(send).toBeEnabled());
+      act(() =>
+        store.setState({
+          localCommand: {
+            state: 'uncertain',
+            originDraftId: 'another-draft',
+            request: OrdinaryRuntimeFirstCommandSchema.parse({
+              runOn: 'local',
+              clientMsgId: 'older-first',
+              capabilityRevision: fixture.capabilityRevision,
+              runtime: {
+                account: fixture.accounts[0].account,
+                harness: 'codex',
+                targetId: 'mac',
+                mode: 'agent',
+              },
+              selection: {
+                version: 1,
+                agent: { profileId: 'agent', revision: 1 },
+                model: 'luna-fixture',
+                thinking: 'low',
+                context: { source: 'none', revision: null },
+                permission: { mode: 'agent', revision: 0 },
+              },
+              payload: { text: 'An older failed command' },
+            }),
+          },
+          sendStatus: 'Local command retained. Review before retrying.',
+        }),
+      );
+      expect(send).toBeEnabled();
+      expect(screen.queryByText('Something went wrong.')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+      expect(screen.queryByText('Local command retained. Review before retrying.')).toBeNull();
+      expect(localSend).not.toHaveBeenCalled();
+      fireEvent.click(send);
+      expect(localSend.mock.calls[0][0].runOn).toBe(runOn);
+      expect(localSend).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ payload: { text: 'hello' } }),
+        expect.objectContaining({ draftId: draft.id }),
+      );
+    },
+  );
+
+  it(`${name}: shows one short failure and Retry beside the composer with settings closed`, async () => {
+    const { store, localSend, draft } = setup(Screen, true);
+    const settings = await screen.findByRole('button', { name: /^Workspace controls/ });
+    if (settings.getAttribute('aria-expanded') !== 'true') fireEvent.click(settings);
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Account' }), {
+      target: { value: 'personal' },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    if (settings.getAttribute('aria-expanded') === 'true') fireEvent.click(settings);
+    const request = localSend.mock.calls[0][0];
+    const recover = vi.fn(() => true);
+    act(() =>
+      store.setState({
+        localCommand: {
+          state: 'retained',
+          request,
+          sessionId: 'retained-session',
+          originDraftId: draft.id,
+        },
+        recoverLocalCommand: recover,
+        sendStatus: 'Local command retained. Review before retrying.',
+      }),
+    );
+    const recovery = await screen.findByRole('button', { name: 'Retry' });
+    expect(recovery.closest('.workspace-controls')).toBeNull();
+    expect(recovery.closest('.conversation-composer')).toBeTruthy();
+    expect(recovery).toBeEnabled();
+    expect(screen.getAllByText('Something went wrong.')).toHaveLength(1);
+    expect(
+      screen.queryByText(
+        /command retained|Review retained|Review the retained|Delivery was not confirmed/,
+      ),
+    ).toBeNull();
+    expect(screen.queryByText('Personal ChatGPT · luna-fixture · low · Local Mac')).toBeNull();
+    expect(document.querySelector('.conversation-composer [data-icon="loading"]')).toBeNull();
+    fireEvent.click(recovery);
+    expect(recover).toHaveBeenCalledOnce();
+    expect(localSend).toHaveBeenCalledOnce();
+    act(() => store.setState({ connection: { status: 'disconnected', clientId: null } }));
+    expect(recovery).toBeDisabled();
+  });
+  for (const apiHost of [false, true])
+    it.each([
+      [DEFAULT_MITZO_PROFILE_ID, DEFAULT_MITZO_PROFILE_REVISION, defaultMitzoProfileDefinition],
+      [PROFILE_BUILDER_ID, PROFILE_BUILDER_REVISION, profileBuilderDefinition],
+    ] as const)(
+      `${name}: builtin %s enables Send on the prepared Host Mac ${apiHost ? 'API' : 'subscription'} route`,
+      async (profileId, revision, definition) => {
+        const builtin = {
+          kind: 'builtin' as const,
+          profileId,
+          revision,
+          definition,
+          contentHash: sha256Hex(JSON.stringify(definition)),
+        };
+        const { localSend, legacySend } = setup(
+          Screen,
+          false,
+          false,
+          false,
+          false,
+          false,
+          undefined,
+          undefined,
+          builtin,
+          apiHost,
+        );
+        const trigger = screen.getByRole('button', { name: /^Workspace controls/ });
+        if (trigger.getAttribute('aria-expanded') !== 'true') fireEvent.click(trigger);
+        fireEvent.click(await screen.findByRole('button', { name: 'Local Mac' }));
+        fireEvent.change(screen.getByRole('combobox', { name: 'Account' }), {
+          target: { value: 'personal' },
+        });
+        fireEvent.change(screen.getByRole('combobox', { name: 'Thinking level' }), {
+          target: { value: 'low' },
+        });
+        fireEvent.change(screen.getByRole('combobox', { name: 'Agent' }), {
+          target: { value: JSON.stringify(['builtin', profileId, revision]) },
+        });
+        fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+        fireEvent.click(screen.getByRole('button', { name: /^Workspace controls/ }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
+        await waitFor(() =>
+          expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled(),
+        );
+        fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+        expect(localSend).toHaveBeenCalledOnce();
+        expect(localSend.mock.calls[0][0]).toMatchObject({
+          runOn: 'local',
+          selection: { agent: { kind: 'builtin', profileId, revision } },
+        });
+        expect(legacySend).not.toHaveBeenCalled();
+      },
+    );
   it(`${name}: sends the ordinary prepared first command and refreshes into continuation without a repository`, async () => {
     const { store, ordinarySend, localSend, legacySend, setOrdinaryConversation } = setup(
       Screen,
@@ -389,6 +588,30 @@ for (const [name, Screen] of [
     expect(localSend).not.toHaveBeenCalled();
     expect(legacySend).not.toHaveBeenCalled();
     expect(store.getState().sessions.active).toBe('bound-session');
+  });
+  it(`${name}: an older draft cannot disable an existing conversation's initial send`, async () => {
+    const { store, ordinarySend } = setup(
+      Screen,
+      false,
+      false,
+      true,
+      false,
+      false,
+      undefined,
+      'prepared',
+    );
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    act(() =>
+      store.setState({
+        localCommand: { state: 'retained', originDraftId: 'older-draft' },
+        sendStatus: 'Local command retained. Review before retrying.',
+      }),
+    );
+    expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(ordinarySend).toHaveBeenCalledOnce();
+    expect(ordinarySend.mock.calls[0][1]).toBe('first');
   });
   it(`${name}: refuses malformed ordinary scope without repository or legacy send fallback`, async () => {
     const { ordinarySend, localSend, legacySend } = setup(
@@ -722,7 +945,7 @@ for (const [name, Screen] of [
           });
         return new Response(JSON.stringify(metadata));
       }
-      if (url === '/api/chat/runtime/capabilities')
+      if (url === '/api/chat/runtime/capabilities?workspaceDefaults=1')
         return new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 });
       if (String(url).endsWith('/symposium/status'))
         return new Response(JSON.stringify({ sessionId: 'existing', config: null, seats: [] }));

@@ -1,3 +1,4 @@
+import { Profiler } from 'react';
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -13,6 +14,35 @@ afterEach(() => {
   localStorage.clear();
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+it('resizes edited drafts in the layout commit before the browser can paint stale lines', () => {
+  const draft = { ...createChatDraft(), text: 'Previous draft' };
+  const committed: Array<{ text: string; height: string }> = [];
+  const view = render(
+    <Profiler
+      id="composer"
+      onRender={() => {
+        const input = document.querySelector<HTMLTextAreaElement>('.chat-input-field');
+        if (input) committed.push({ text: input.value, height: input.style.height });
+      }}
+    >
+      <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={draft} />
+    </Profiler>,
+  );
+  const input = screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement;
+  vi.spyOn(input, 'scrollHeight', 'get').mockImplementation(() =>
+    input.value.includes('\n') ? 120 : 40,
+  );
+  fireEvent.change(input, { target: { value: 'Current draft' } });
+  committed.length = 0;
+  fireEvent.change(input, { target: { value: 'Current draft\nNew line' } });
+  expect(committed.length).toBeGreaterThan(0);
+  expect(committed).toEqual(
+    committed.map(() => ({ text: 'Current draft\nNew line', height: '120px' })),
+  );
+  expect(getChatDraft(draft.id)?.text).toBe('Current draft\nNew line');
+  view.unmount();
 });
 
 it('does not announce a save before the composer has persisted content', () => {

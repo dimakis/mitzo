@@ -532,6 +532,21 @@ export class CodexAppServerClient {
     executable.assertLaunchCurrent();
     return this.launchHost(privateHome, base, lifecycle, true, executable);
   }
+  /** The native owner has revalidated its retained API auth file and key controller. */
+  static launchIsolatedApiResume(
+    privateHome: string,
+    base: NodeJS.ProcessEnv = process.env,
+    lifecycle?: CodexLifecycleTransport,
+    executable?: FrozenHostCodexExecutable,
+  ) {
+    if (
+      !(executable instanceof FrozenHostCodexExecutable) ||
+      dirname(executable.path) !== privateHome
+    )
+      throw new Error('Host Codex runtime unavailable');
+    executable.assertLaunchCurrent();
+    return this.launchHost(privateHome, base, lifecycle, true, executable, 'api');
+  }
 
   /** New-account bootstrap only. Login is private to this operation; the returned
    * transport cannot log in again or switch billing through its public RPC API.

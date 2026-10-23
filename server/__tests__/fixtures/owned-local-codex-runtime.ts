@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { EventStore } from '../../event-store.js';
 import { AgentLibraryStore } from '../../agent-library-store.js';
 import { RepositoryWorkspaces } from '../../repository-workspaces.js';
@@ -41,6 +41,16 @@ export async function ownedRuntimeFixture(
     chatRoute?: boolean;
     silentPreparation?: boolean;
     builtinPreparation?: boolean;
+    api?: boolean;
+    localRepository?: boolean;
+    /** Explicit offline native diagnostic; real model turns must still be intercepted. */
+    nativeExecutablePath?: string;
+    modelId?: string;
+    continuityV2?: boolean;
+    realPreparationAuthority?: boolean;
+    historicalPreparation?: (
+      proof: import('../../ordinary-repository-preparation.js').OrdinaryRepositoryPreparation,
+    ) => Promise<import('../../ordinary-repository-preparation.js').OrdinaryRepositoryPreparation>;
   } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
@@ -67,22 +77,34 @@ export async function ownedRuntimeFixture(
     }),
     { mode: 0o600 },
   );
-  const executablePath = join(root, 'codex'),
+  const modelId = options.modelId ?? 'fixture-model';
+  const executablePath = options.nativeExecutablePath ?? join(root, 'codex'),
     nativePath = join(root, 'native.json'),
     targetPath = join(root, 'target.json');
-  const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
+  const bytes = options.nativeExecutablePath
+    ? await readFile(options.nativeExecutablePath)
+    : Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
-  await writeFile(executablePath, bytes, { mode: 0o755 });
+  const codeModeHostSha256 = options.nativeExecutablePath
+    ? createHash('sha256')
+        .update(await readFile(join(dirname(executablePath), 'codex-code-mode-host')))
+        .digest('hex')
+    : sha256;
+  if (!options.nativeExecutablePath) {
+    await writeFile(executablePath, bytes, { mode: 0o755 });
+    await writeFile(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
+  }
   const target = {
-    version: 1,
+    version: options.continuityV2 ? 2 : 1,
+    ...(options.continuityV2 ? { continuityContract: 'codex-native-thread-v1' } : {}),
     targetId: 'local-mac',
     label: 'Local Mac',
     hostId: hostname(),
-    runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256),
+    runtimeContractRevision: ordinaryLocalCodexHostContractRevision(sha256, codeModeHostSha256),
   };
   await writeFile(
     nativePath,
-    JSON.stringify({ version: 1, executablePath, executableSha256: sha256 }),
+    JSON.stringify({ version: 2, executablePath, executableSha256: sha256, codeModeHostSha256 }),
     { mode: 0o600 },
   );
   await writeFile(targetPath, JSON.stringify(target), { mode: 0o600 });
@@ -96,16 +118,24 @@ export async function ownedRuntimeFixture(
       email: 'fixture@example.test',
       planType: 'plus',
       ...(options.workspaceId ? { workspaceId: options.workspaceId } : {}),
-      models: [{ id: 'fixture-model', label: 'Fixture model', reasoningEfforts: ['low'] }],
+      models: [{ id: modelId, label: 'Fixture model', reasoningEfforts: ['low'] }],
     },
   ];
+  if (options.api)
+    configuration[0] = {
+      id: 'work',
+      label: 'Work API',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'offline-test', account: 'work' },
+      models: [{ id: modelId, label: 'Fixture model', reasoningEfforts: ['low'] }],
+    } as never;
   const writeProfiles = () =>
     writeFileSync(configPath, JSON.stringify(configuration), { mode: 0o600 });
   writeProfiles();
   vi.stubEnv('MITZO_ACCOUNT_PROFILES_FILE', configPath);
   vi.stubEnv('MITZO_OPENAI_ACCOUNT_ENROLLMENT_DB', '');
   vi.stubEnv('MITZO_CODEX_ENABLED', '1');
-  const binding = loadAccountProfiles().resolve('personal', 'fixture-model');
+  const binding = loadAccountProfiles().resolve(options.api ? 'work' : 'personal', modelId);
   const eventPath = options.chatRoute ? join(root, '.mitzo', 'events.db') : join(root, 'events.db');
   const events = new EventStore(eventPath);
   const library = new AgentLibraryStore(eventPath);
@@ -193,7 +223,11 @@ export async function ownedRuntimeFixture(
   git(source, 'commit', '-qm', 'offline base');
   const baseOid = git(source, 'rev-parse', 'HEAD');
   const inspect = async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid });
+  const readiness = options.realPreparationAuthority
+    ? await import('../../ordinary-repository-preparation-authority.js')
+    : undefined;
   const workspace = new RepositoryWorkspaces(join(root, 'repositories'), {
+    localRepositories: () => ({ primary: source }),
     authorize: async (selected) => {
       loadAccountProfiles().resumeRouting(selected);
       return { revision: 1, allowedBaseBranches: ['main'] };
@@ -206,7 +240,15 @@ export async function ownedRuntimeFixture(
     },
     verify: async () => {},
     ordinaryPreparation: {
-      capture: async (account, selection) => {
+      capture: async (account, selection, signal) => {
+        if (readiness) {
+          const proof = await readiness.captureOrdinaryRepositoryPreparation(
+            account,
+            selection,
+            signal,
+          );
+          return options.historicalPreparation ? options.historicalPreparation(proof) : proof;
+        }
         const resolved = catalog.resolve({ ...selection.runtime, mode: 'agent' });
         if (resolved.status !== 'compatible') throw Error('Offline runtime unavailable');
         return OrdinaryRepositoryPreparationSchema.parse({
@@ -216,30 +258,49 @@ export async function ownedRuntimeFixture(
           credentialDigest: 'a'.repeat(64),
         });
       },
-      assert: async (_proof, account) => {
-        loadAccountProfiles().resumeRouting(account);
-      },
+      assert:
+        readiness?.assertOrdinaryRepositoryPreparation ??
+        (async (_proof, account) => {
+          loadAccountProfiles().resumeRouting(account);
+        }),
     },
   });
   cleanups.push(() => workspace.close());
   const signal = new AbortController();
-  const preview = await workspace.preview(
-    binding,
-    'fixture-github',
-    'example/repo',
-    signal.signal,
-    options.silentPreparation
-      ? {
+  const localReady = options.localRepository
+    ? await workspace.selectLocalRepository(
+        binding,
+        'primary',
+        {
           runOn: 'local',
           runtime: {
             account: catalog.inventory().accounts[0].account,
             harness: 'codex',
             targetId: 'local-mac',
           },
-        }
-      : undefined,
-  );
-  const prepared = await workspace.prepare(preview.id, binding, signal.signal);
+        },
+        signal.signal,
+      )
+    : undefined;
+  const preview =
+    localReady ??
+    (await workspace.preview(
+      binding,
+      'fixture-github',
+      'example/repo',
+      signal.signal,
+      options.silentPreparation
+        ? {
+            runOn: 'local',
+            runtime: {
+              account: catalog.inventory().accounts[0].account,
+              harness: 'codex',
+              targetId: 'local-mac',
+            },
+          }
+        : undefined,
+    ));
+  const prepared = localReady ?? (await workspace.prepare(preview.id, binding, signal.signal));
   let reservation: Omit<
     import('../../repository-workspaces.js').HostRepositoryReservationInput,
     'signal'
@@ -253,6 +314,12 @@ export async function ownedRuntimeFixture(
     taskRoot,
   };
   let reserved: import('../../repository-workspaces.js').HostRepositoryReservation;
+  if (localReady)
+    reservation = {
+      ...reservation,
+      runtimeBinding: localReady.ordinaryRuntime,
+      commandFingerprint: 'a'.repeat(64),
+    };
   if (!options.silentPreparation)
     reserved = await workspace.reserveHostTask({ ...reservation, signal: signal.signal });
   const auth = { id: randomUUID(), expiresAt: Date.now() + 60000 },
@@ -278,7 +345,7 @@ export async function ownedRuntimeFixture(
       },
       context: { source: 'none' as const, revision: null },
       permission: { mode: 'agent' as const, revision: 0 },
-      model: 'fixture-model',
+      model: modelId,
       thinking: 'low',
     },
     payload: { text: 'Implement the task', intent: 'Original user intent' },
@@ -321,13 +388,15 @@ export async function ownedRuntimeFixture(
       initialize: vi.fn(async () => {}),
       request: vi.fn(async (method: string): Promise<unknown> => {
         if (method === 'account/read')
-          return { account: { type: 'chatgpt', email: configuration[0].email, planType: 'plus' } };
+          return options.api
+            ? { account: { type: 'apiKey' }, requiresOpenaiAuth: true }
+            : { account: { type: 'chatgpt', email: configuration[0].email, planType: 'plus' } };
         if (method === 'config/read') return { config: {} };
         if (method === 'model/list')
           return {
             data: [
               {
-                model: 'fixture-model',
+                model: modelId,
                 displayName: 'Fixture',
                 supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
               },
@@ -384,6 +453,19 @@ export async function ownedRuntimeFixture(
       env,
       privateRoot,
       launch,
+      ...(options.api
+        ? {
+            launchApi: async (home: string) => {
+              expect(events.getOrdinaryLocalCommandAdmission(commandId)?.state).toBe('uncertain');
+              await writeFile(
+                join(home, 'auth.json'),
+                JSON.stringify({ OPENAI_API_KEY: 'synthetic-api-key' }),
+                { mode: 0o600, flag: 'wx' },
+              );
+              return rpc;
+            },
+          }
+        : {}),
       dispatch,
     };
     const create = () => {

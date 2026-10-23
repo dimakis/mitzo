@@ -2,6 +2,11 @@ import { createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
+import {
+  HOST_CODEX_CONTINUITY_CONTRACT,
+  hostCodexContinuityTargetRevision,
+  reviewedLegacyHostTargetRevisions,
+} from './host-codex-continuity.js';
 import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
 import type { AccountProfiles } from './account-profiles.js';
 import { readBoundedFile } from './bounded-file-read.js';
@@ -15,13 +20,20 @@ const label = z
   .string()
   .max(256)
   .refine((value) => value.trim().length > 0);
-const TargetConfiguration = z.strictObject({
+const LegacyTargetConfiguration = z.strictObject({
   version: z.literal(1),
   targetId: reference,
   label,
   hostId: reference,
   runtimeContractRevision: reference,
 });
+const TargetConfiguration = z.discriminatedUnion('version', [
+  LegacyTargetConfiguration,
+  LegacyTargetConfiguration.extend({
+    version: z.literal(2),
+    continuityContract: z.literal(HOST_CODEX_CONTINUITY_CONTRACT),
+  }).strict(),
+]);
 const targetError = 'Invalid ordinary local Codex target configuration';
 const inventoryError = 'Invalid ordinary local Codex capability inventory';
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -34,22 +46,27 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 export class OrdinaryLocalCodexTarget {
   #descriptor;
   #declaration;
+  readonly #configuration: z.infer<typeof TargetConfiguration>;
 
   constructor(configuration: unknown) {
     const parsed = TargetConfiguration.safeParse(configuration);
     if (!parsed.success) throw new Error(targetError);
     const config = parsed.data;
+    this.#configuration = config;
     this.#descriptor = {
       targetId: config.targetId,
       label: config.label,
       location: 'local' as const,
       harness: 'codex' as const,
-      targetRevision: digest([
-        'ordinary-local-codex-target-v1',
-        config.targetId,
-        config.hostId,
-        config.runtimeContractRevision,
-      ]),
+      targetRevision:
+        config.version === 2
+          ? hostCodexContinuityTargetRevision(config.targetId, config.hostId)
+          : digest([
+              'ordinary-local-codex-target-v1',
+              config.targetId,
+              config.hostId,
+              config.runtimeContractRevision,
+            ]),
     };
     this.#declaration = {
       targetId: this.#descriptor.targetId,
@@ -63,6 +80,16 @@ export class OrdinaryLocalCodexTarget {
 
   descriptor() {
     return { ...this.#descriptor };
+  }
+
+  compatibleTargetRevisions(executableSha256: string): string[] {
+    const config = this.#configuration;
+    return [
+      this.#descriptor.targetRevision,
+      ...(config.version === 2
+        ? reviewedLegacyHostTargetRevisions(config.targetId, config.hostId, executableSha256)
+        : []),
+    ];
   }
 
   /** Server-internal expectations for the owning admission authority. These
@@ -126,26 +153,34 @@ const Model = z
   });
 const InventoryAccounts = z
   .array(
-    z.strictObject({
-      account: SessionRuntimeBindingV1Schema.shape.account
-        .extend({ provider: z.literal('openai-codex') })
-        .strict(),
-      planType: z
-        .string()
-        .max(200)
-        .refine((plan) => plan.trim().length > 0 && plan.trim().toLowerCase() !== 'api'),
-      label,
-      models: z
-        .array(Model)
-        .min(1)
-        .max(256)
-        .refine((models) => new Set(models.map((model) => model.id)).size === models.length),
-      modelDiscovery: z.strictObject({
-        source: z.enum(['cached', 'configured']),
-        stale: z.boolean(),
-        updatedAt: z.number().finite().nonnegative().optional(),
+    z
+      .strictObject({
+        account: SessionRuntimeBindingV1Schema.shape.account
+          .extend({ provider: z.enum(['openai-codex', 'openai']) })
+          .strict(),
+        planType: z
+          .string()
+          .max(200)
+          .refine((plan) => plan.trim().length > 0),
+        label,
+        models: z
+          .array(Model)
+          .min(1)
+          .max(256)
+          .refine((models) => new Set(models.map((model) => model.id)).size === models.length),
+        modelDiscovery: z.strictObject({
+          source: z.enum(['cached', 'configured']),
+          stale: z.boolean(),
+          updatedAt: z.number().finite().nonnegative().optional(),
+        }),
+      })
+      .superRefine((entry, context) => {
+        if (
+          (entry.planType.trim().toLowerCase() === 'api') !==
+          (entry.account.provider === 'openai')
+        )
+          context.addIssue({ code: 'custom', message: 'Account billing class mismatch' });
       }),
-    }),
   )
   .max(64)
   .refine(
@@ -181,11 +216,20 @@ export class OrdinaryLocalCodexCapabilityCatalog {
     this.#catalog = {
       deployment,
       enabledHarnesses: source.length ? ['codex'] : [],
-      accounts: source.map(({ account, planType }) => ({
-        ...account,
-        planType,
-        auth: { kind: 'host-login' },
-      })),
+      accounts: source.map(({ account, planType }) =>
+        account.provider === 'openai'
+          ? {
+              ...account,
+              provider: 'openai' as const,
+              auth: { kind: 'api-credential', openshellTargetIds: [] },
+            }
+          : {
+              ...account,
+              provider: 'openai-codex' as const,
+              planType,
+              auth: { kind: 'host-login' },
+            },
+      ),
       targets: targets.map(({ targetId, targetRevision, location }) => ({
         targetId,
         targetRevision,

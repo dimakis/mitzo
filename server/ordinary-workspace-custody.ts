@@ -65,6 +65,7 @@ const workspace = z.strictObject({
   conversationId: z.string().min(1),
   directory: canonicalPath,
   state: z.enum(['reserved', 'claiming', 'claimed']),
+  sandbox: z.literal(true).optional(),
   hostReservation: z.strictObject({
     version: z.literal(1),
     taskRoot: canonicalPath,
@@ -114,8 +115,9 @@ function sameDirectory(path: string, expected: z.infer<typeof identity>) {
     throw Error('Ordinary workspace custody identity changed');
 }
 
-/** Private directory provider under the existing preparation/allocation owner and
- * its SQLite transaction. No session/task/command allocator or scheduler lives here. */
+/** Workspace reservations under the existing preparation/allocation owner and
+ * its SQLite transaction. Local directories are materialized here; OpenShell
+ * physical sandboxes remain exclusively owned by their existing lifecycle manager. */
 export class OrdinaryWorkspaceCustody {
   constructor(
     private db: Database.Database,
@@ -137,11 +139,12 @@ export class OrdinaryWorkspaceCustody {
     );
     input.signal.throwIfAborted();
     if (
-      binding.provider !== 'openai-codex' ||
-      selected.runOn !== 'local' ||
+      !(selected.runOn === 'local'
+        ? binding.provider === 'openai-codex'
+        : ['openai', 'openai-codex'].includes(binding.provider)) ||
       selected.runtime.harness !== 'codex'
     )
-      throw Error('Ordinary workspace isolation is supported only by the local Codex owner');
+      throw Error('Ordinary workspace isolation requires a supported Codex owner');
     if (
       !isDeepStrictEqual(selected.runtime.account, {
         accountId: binding.accountId,
@@ -156,6 +159,7 @@ export class OrdinaryWorkspaceCustody {
     );
     if (
       proof.sourceIdentity ||
+      (selected.runOn === 'openshell' && !proof.sandboxWorkdir) ||
       !isDeepStrictEqual(proof.originalBinding, binding) ||
       !isDeepStrictEqual(proof.runtimeBinding.account, selected.runtime.account) ||
       proof.runtimeBinding.harness.implementation !== selected.runtime.harness ||
@@ -224,10 +228,30 @@ export class OrdinaryWorkspaceCustody {
     if (
       value.id !== id ||
       value.settings.workspace.preparationId !== value.preparationId ||
-      value.id === value.conversationId
+      value.id === value.conversationId ||
+      Boolean(value.sandbox) !== (value.settings.binding.execution.location === 'openshell') ||
+      (value.sandbox &&
+        (value.directory !== this.readPreparation(value.preparationId).proof.sandboxWorkdir ||
+          value.taskIdentity !== undefined))
     )
       throw Error('Ordinary workspace identity changed');
     return value;
+  }
+  forOperation(operationId: string) {
+    z.uuid().parse(operationId);
+    const allocation = this.db
+      .prepare(
+        'SELECT workspace_id,fingerprint FROM ordinary_preparation_allocations WHERE operation_id=?',
+      )
+      .get(operationId) as { workspace_id: string; fingerprint: string } | undefined;
+    if (!allocation) return undefined;
+    const record = this.get(allocation.workspace_id);
+    if (
+      record.allocationOperationId !== operationId ||
+      record.preparationFingerprint !== allocation.fingerprint
+    )
+      throw Error('Ordinary allocation identity changed');
+    return record;
   }
   forConversation(conversationId: string) {
     const row = this.db
@@ -266,7 +290,6 @@ export class OrdinaryWorkspaceCustody {
     const { settings, binding, agentProfile } = selected;
     if (
       settings.workspace.preparationId !== selected.preparationId ||
-      settings.binding.execution.location !== 'local' ||
       settings.binding.harness.implementation !== 'codex' ||
       settings.selection.context.source !== 'none' ||
       settings.selection.permission.revision !== 0 ||
@@ -338,7 +361,11 @@ export class OrdinaryWorkspaceCustody {
           settings,
           agentProfile,
           conversationId: nativeStartupSessionId(`ordinary:${id}`),
-          directory: join(selected.taskRoot, `ordinary-${id}`),
+          directory:
+            settings.binding.execution.location === 'openshell'
+              ? this.readPreparation(selected.preparationId).proof.sandboxWorkdir
+              : join(selected.taskRoot, `ordinary-${id}`),
+          ...(settings.binding.execution.location === 'openshell' ? { sandbox: true } : {}),
           state: 'reserved',
           hostReservation: { version: 1, taskRoot: selected.taskRoot, rootIdentity },
         });
@@ -367,12 +394,14 @@ export class OrdinaryWorkspaceCustody {
       !record ||
       record.state !== 'claimed' ||
       record.directory !== directory ||
-      !record.taskIdentity ||
-      record.taskIdentity.directory !== directory
+      (record.sandbox
+        ? record.taskIdentity !== undefined ||
+          this.readPreparation(record.preparationId).proof.sandboxWorkdir !== directory
+        : !record.taskIdentity || record.taskIdentity.directory !== directory)
     )
       throw Error('Original claimed ordinary workspace custody required');
     sameDirectory(record.hostReservation.taskRoot, record.hostReservation.rootIdentity);
-    sameDirectory(directory, record.taskIdentity.root);
+    if (!record.sandbox) sameDirectory(directory, record.taskIdentity!.root);
     return record;
   }
   /** Synchronous custody fence for retained receipts and final work commits. */
@@ -419,6 +448,22 @@ export class OrdinaryWorkspaceCustody {
     this.assertClaimScope(original, selected);
     if (original.state === 'claimed')
       return this.validate(original.conversationId, original.directory);
+    if (original.sandbox) {
+      // This reservation has no filesystem, sandbox or provider effect. Keep
+      // readiness failures recoverable, then commit its logical claim atomically.
+      await this.assertReadiness(
+        original.preparationId,
+        binding,
+        input.signal,
+        original.settings.selection,
+      );
+      this.unchanged(original);
+      this.assertClaimScope(original, selected);
+      input.signal.throwIfAborted();
+      return this.db
+        .transaction(() => this.save(original, { ...original, state: 'claimed' }))
+        .immediate();
+    }
     const claiming = this.db
       .transaction(() => this.save(original, { ...original, state: 'claiming' }))
       .immediate();

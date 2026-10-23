@@ -69,7 +69,7 @@ function BoundControls({ data, conversationId }: { data: Data; conversationId: s
   const ids = new Set<string>();
   for (const value of state.controls) {
     ids.add(value.coordinatorItemId);
-    ids.add(value.priorityItemId);
+    if (value.priorityItemId) ids.add(value.priorityItemId);
     for (const target of value.targets) {
       ids.add(target.itemId);
       for (const worker of target.workers) ids.add(worker.itemId);
@@ -349,11 +349,15 @@ function ControlReceipt({
   return (
     <article
       className="telos-control-receipt"
-      aria-label={`Coordination receipt: ${scopes[value.scope]}`}
+      aria-label={`${value.origin === 'operator_pause' ? 'Operator pause receipt' : 'Coordination receipt'}: ${scopes[value.scope]}`}
     >
       <h3>{title}</h3>
       <p>Scope · {scopes[value.scope]}</p>
-      <p>Highest priority · {name(value.priorityItemId)}</p>
+      {value.origin === 'operator_pause' ? (
+        <p>Requested by operator</p>
+      ) : value.priorityItemId ? (
+        <p>Highest priority · {name(value.priorityItemId)}</p>
+      ) : null}
       {!current && <p>Current receipt unavailable. Last recorded state is shown.</p>}
       {value.scope === 'publication' && (
         <p>Shared-main publication is unavailable. This receipt records the hold state.</p>
@@ -379,7 +383,7 @@ function ControlReceipt({
         <button onClick={read} disabled={busy}>
           Check acknowledgements
         </button>
-        {coordinator && value.stage !== 'released' && (
+        {coordinator && value.origin !== 'operator_pause' && value.stage !== 'released' && (
           <button onClick={release} disabled={!canRelease || !current || busy}>
             Release held leads
           </button>
@@ -388,8 +392,10 @@ function ControlReceipt({
       <details>
         <summary>Recorded control evidence</summary>
         <p>
-          Control {value.controlId} · original coordinator conversation{' '}
-          {value.coordinatorConversationId}
+          Control {value.controlId} ·{' '}
+          {value.origin === 'operator_pause'
+            ? 'requested by operator'
+            : `original coordinator conversation ${value.coordinatorConversationId}`}
         </p>
         {evidence.length === 0 ? (
           <p>No native acknowledgement or host application evidence recorded.</p>

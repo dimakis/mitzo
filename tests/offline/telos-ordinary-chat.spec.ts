@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { localInventoryFixture } from '../../frontend/src/test-utils/local-inventory-fixture';
 import { OrdinaryWorkspaceFirstCommandSchema } from '../../packages/protocol/src/ordinary-workspace-public';
 import { sha256Hex } from '../../frontend/src/lib/browser-crypto';
-import { settingsHome, settingRow, openChatSetting } from '../support/chat-settings';
+import { settingsHome, settingRow } from '../support/chat-settings';
 test.use({ baseURL: 'https://mitzo-ui.test' });
 const compiled = build({
   entryPoints: [resolve('tests/fixtures/telos-ordinary-chat.tsx')],
@@ -49,6 +49,49 @@ for (const theme of ['dark', 'light'] as const)
       height: 900,
     });
     await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: theme });
+    const olderCommand = OrdinaryWorkspaceFirstCommandSchema.parse({
+      version: 2,
+      runOn: 'local',
+      sessionId: 'older-conversation',
+      workspace: { kind: 'ordinary', workspaceId: '11111111-1111-4111-8111-111111111111' },
+      clientMsgId: 'older-retained-first',
+      capabilityRevision: inventory.capabilityRevision,
+      runtime: {
+        account: inventory.accounts[0].account,
+        harness: 'codex',
+        targetId: 'mac',
+        mode: 'agent',
+      },
+      selection: {
+        version: 1,
+        agent: {
+          profileId: inventory.agentProfiles[0].profileId,
+          revision: inventory.agentProfiles[0].revision,
+        },
+        model: 'luna-fixture',
+        thinking: 'low',
+        context: { source: 'none', revision: null },
+        permission: { mode: 'agent', revision: 0 },
+      },
+      payload: { text: 'An unrelated older retained message.' },
+    });
+    const olderEntry = {
+      body: olderCommand,
+      scope: 1,
+      uncertain: true,
+      localDraftId: 'older-draft',
+      ordinaryDelivery: { version: 2, phase: 'first' },
+    };
+    const retainedKey =
+      'mitzo-local-first-command-outbox:' +
+      encodeURIComponent('https://mitzo-ui.test/api/chat/local-codex/send') +
+      ':older-retained-first';
+    await page.addInitScript(
+      ({ key, entry }) => {
+        if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify(entry));
+      },
+      { key: retainedKey, entry: olderEntry },
+    );
     await page.addInitScript(() => {
       localStorage.setItem('mitzo:transport', 'sse');
       class OfflineEvents extends EventTarget {
@@ -211,6 +254,7 @@ for (const theme of ['dark', 'light'] as const)
     await expect(composer).toHaveValue('Write the recording plan.');
     await expect(send).toBeEnabled();
     expect(requests).toHaveLength(0);
+    await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
     const agents = page.locator('.conversation-agents-entry .conversation-participants-trigger');
     await expect(agents).toHaveAccessibleName('Agents, People-work helper');
     const geometry = await agents.evaluate((button) => {
@@ -268,9 +312,8 @@ for (const theme of ['dark', 'light'] as const)
     await page.reload();
     await expect(composer).toHaveValue('Newer unsent continuation draft.');
     expect(requests).toHaveLength(1);
-    await openChatSetting(page, 'more');
     const recover = page.getByRole('button', {
-      name: 'Recover original Local command',
+      name: 'Retry',
       exact: true,
     });
     await expect(recover).toBeEnabled();
@@ -320,17 +363,19 @@ for (const theme of ['dark', 'light'] as const)
     await composer.fill('Keep the other chat draft.');
     releaseRecovery();
     await expect
-      .poll(async () =>
+      .poll(() =>
         page.evaluate(
-          () =>
-            (
-              window as unknown as {
-                __mitzoStore: { getState(): { localCommand: { state: string } } };
-              }
-            ).__mitzoStore.getState().localCommand.state,
+          (id) =>
+            Object.keys(localStorage).some(
+              (key) =>
+                key.startsWith('mitzo-local-first-command-outbox:') &&
+                JSON.parse(localStorage.getItem(key)!).body.clientMsgId === id,
+            ),
+          requests[0].body.clientMsgId,
         ),
       )
-      .toBe('consumed');
+      .toBe(false);
+    await expect(page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
     await expect(page).toHaveURL(/other-chat$/);
     await expect(composer).toHaveValue('Keep the other chat draft.');
     await page.evaluate(() =>
@@ -352,6 +397,9 @@ for (const theme of ['dark', 'light'] as const)
       path: info.outputPath(`role-ordinary-chat-composer-${theme}.png`),
       fullPage: true,
     });
+    expect(
+      await page.evaluate((key) => JSON.parse(localStorage.getItem(key)!), retainedKey),
+    ).toEqual(olderEntry);
     expect(errors).toEqual([]);
     expect(forbidden).toEqual([]);
   });

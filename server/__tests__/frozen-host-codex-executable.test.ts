@@ -24,6 +24,53 @@ import {
   FrozenHostCodexExecutable,
   measureHostCodexExecutable,
 } from '../frozen-host-codex-executable.js';
+it('captures and fences the native code-mode companion with the executable bundle', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-bundle-')));
+  try {
+    const home = join(root, 'home'),
+      source = join(root, 'codex');
+    const helper = join(root, 'codex-code-mode-host');
+    mkdirSync(home, { mode: 0o700 });
+    const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
+    writeFileSync(source, bytes, { mode: 0o755 });
+    writeFileSync(helper, bytes, { mode: 0o755 });
+    const frozen = FrozenHostCodexExecutable.capture(source, home);
+    expect(readFileSync(join(home, 'codex-code-mode-host'))).toEqual(bytes);
+    const snapshot = frozen.custodySnapshot();
+    expect(snapshot.codeModeHost?.path).toBe(join(home, 'codex-code-mode-host'));
+    const reopened = FrozenHostCodexExecutable.reopen(snapshot);
+    reads.readSync.mockClear();
+    reopened.assertCurrent();
+    expect(reads.readSync).not.toHaveBeenCalled();
+    renameSync(helper, join(root, 'old-helper'));
+    writeFileSync(helper, bytes, { mode: 0o755 });
+    expect(() => reopened.assertCurrent()).toThrow('Host Codex runtime unavailable');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+it('completes a retained single-binary bundle only through an explicit upgrade without replacing original bytes', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-upgrade-')));
+  try {
+    const home = join(root, 'home'),
+      source = join(root, 'codex');
+    mkdirSync(home, { mode: 0o700 });
+    const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
+    writeFileSync(source, bytes, { mode: 0o755 });
+    const legacy = FrozenHostCodexExecutable.capture(source, home).custodySnapshot();
+    writeFileSync(join(root, 'codex-code-mode-host'), bytes, { mode: 0o755 });
+    const restored = FrozenHostCodexExecutable.reopen(legacy);
+    expect(existsSync(join(home, 'codex-code-mode-host'))).toBe(false);
+    restored.completeRuntimeBundle();
+    const { codeModeHost, ...original } = restored.custodySnapshot();
+    expect(original).toEqual(legacy);
+    expect(codeModeHost?.path).toBe(join(home, 'codex-code-mode-host'));
+    restored.completeRuntimeBundle();
+    expect(restored.custodySnapshot().codeModeHost).toEqual(codeModeHost);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 it('refuses a multiply linked native source before reading or creating an owned copy', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-hardlink-')));
   try {
