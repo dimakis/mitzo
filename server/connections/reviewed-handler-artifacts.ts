@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../secret-relay-browser-driver.ts':
-    'e73918f0e3f51dd9f18f14056f6249bf676acb3ce4220668ceae06be2363300a',
+    '32014cb817824122a64783b2895caf6798b2287e6a0c5d48b697f522d28f0ab0',
   '../secret-relay-browser.ts': '3da18091f444a4b87ceeb4097c09708f95988ff0192f9be743019d597afc1f2e',
   '../secret-relay-mqtt.ts': '0364c29a9f84f7c8709850e64315472be39a1ca781ecf55d3afc88dacf4b4660',
   '../../packages/protocol/src/agent-communication-store.ts':

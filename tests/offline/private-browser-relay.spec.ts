@@ -14,6 +14,7 @@ test('private browser authenticates with CSRF cookies, requests MFA and continue
     origin: 'https://service.example',
     requests: [
       { path: '/login', methods: ['GET', 'POST'] },
+      { path: '/extra', methods: ['POST'] },
       { path: '/otp', methods: ['POST'] },
       { path: '/whoami', methods: ['GET'] },
       { path: '/settings', methods: ['GET', 'POST'] },
@@ -48,6 +49,12 @@ test('private browser authenticates with CSRF cookies, requests MFA and continue
         const path = new URL(url).pathname;
         const entry = { url, method, body: body?.toString() ?? '', cookie: headers.cookie ?? '' };
         seen.push(entry);
+        if (path === '/extra')
+          return {
+            status: 200,
+            headers: { 'content-type': 'text/plain' },
+            body: Buffer.from('ok'),
+          };
         if (path === '/whoami')
           return {
             status: 200,
@@ -62,7 +69,7 @@ test('private browser authenticates with CSRF cookies, requests MFA and continue
               'set-cookie': 'csrf=private-csrf; Secure; HttpOnly; Path=/',
             },
             body: Buffer.from(
-              '<form method="post" action="/login"><input id="user" name="user"><input id="password" type="password" name="password"><input name="csrf" value="private-csrf" type="hidden"><button id="login">Sign in</button></form><script>fetch("https://blocked.example/escape").catch(()=>{});new WebSocket("wss://blocked.example/escape");</script>',
+              '<form hidden method="post" action="/login"><input id="user" name="user"><input id="password" type="password" name="password"><input name="csrf" value="private-csrf" type="hidden"><button id="login">Sign in</button></form><script>(async()=>{try{await fetch("/extra",{method:"POST"});await fetch("/extra",{method:"POST"});}catch{}finally{document.querySelector("form").hidden=false;}})();fetch("https://blocked.example/escape").catch(()=>{});new WebSocket("wss://blocked.example/escape");</script>',
             ),
           };
         if (path === '/login' && method === 'POST') {
@@ -129,6 +136,7 @@ test('private browser authenticates with CSRF cookies, requests MFA and continue
     await sessions.completeCode('relay:0', '123456', gate());
     expect(await sessions.action('relay:0', 0, gate())).toEqual({ outcome: 'confirmed' });
     expect(seen.some((e) => e.url.includes('blocked.example'))).toBe(false);
+    expect(seen.filter((e) => e.url.endsWith('/extra'))).toHaveLength(1);
     expect(seen.filter((e) => e.url.endsWith('/login') && e.method === 'POST')).toHaveLength(1);
     expect(seen.filter((e) => e.url.endsWith('/otp'))).toHaveLength(1);
   } finally {

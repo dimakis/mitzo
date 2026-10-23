@@ -113,9 +113,12 @@ export const sendPrivateBrowserRequest: BrowserSend = async (
         rejectUnauthorized: true,
         signal: gate.signal,
         maxHeaderSize: 16384,
-        lookup: (_host, _options, callback) => {
+        lookup: (_host, options, callback) => {
           void assertBrowserGate(gate).then(
-            () => callback(null, address, addresses[0].family),
+            () =>
+              options.all
+                ? callback(null, [{ address, family: addresses[0].family }])
+                : callback(null, address, addresses[0].family),
             () => callback(new Error('Private browser authority changed'), [], undefined),
           );
         },
@@ -232,6 +235,7 @@ export async function createPrivateRelayBrowser(
       permissions: [],
     });
     let active: BrowserGate | undefined;
+    const writes = new Set<string>();
     const send = options.send ?? sendPrivateBrowserRequest;
     await context.routeWebSocket('**/*', (socket) => socket.close());
     await context.route('**/*', async (route) => {
@@ -241,6 +245,12 @@ export async function createPrivateRelayBrowser(
         if (!gate || !browserRequestAllowed(target, req.url(), req.method())) throw new Error();
         await assertBrowserGate(gate);
         const headers = await req.allHeaders();
+        if (active !== gate) throw new Error();
+        if (!['GET', 'HEAD'].includes(req.method())) {
+          const key = `${req.method()}:${new URL(req.url()).pathname}`;
+          if (writes.has(key)) throw new Error('Private browser duplicate write blocked');
+          writes.add(key);
+        }
         const response = await send(
           target,
           req.url(),
@@ -250,6 +260,7 @@ export async function createPrivateRelayBrowser(
           gate,
         );
         await assertBrowserGate(gate);
+        if (active !== gate) throw new Error();
         await route.fulfill(response);
       } catch {
         await route.abort('blockedbyclient').catch(() => {});
@@ -290,6 +301,7 @@ export async function createPrivateRelayBrowser(
       if (active) throw new Error('Private browser busy');
       await assertBrowserGate(gate);
       active = gate;
+      writes.clear();
       const abort = () => {
         void context.close().catch(() => {});
       };
