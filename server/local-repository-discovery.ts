@@ -506,6 +506,9 @@ export async function inspectLocalRepository(
       await readLocalRepositoryStatus(metadata, {
         signal: request.signal,
         timeoutMs: Math.max(1, ctx.deadline - Date.now()),
+        assertReadable: async (path) => {
+          await ctx.canonical(path);
+        },
       })
     ).split('\0');
     await ctx.authorize(path);
