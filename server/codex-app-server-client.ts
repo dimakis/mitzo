@@ -886,7 +886,13 @@ export class CodexAppServerClient {
       .then(
         (result) => {
           if (this.closed || signal.aborted) return;
-          for (const assertCurrent of responseFences) assertCurrent();
+          for (const assertCurrent of responseFences) {
+            const result: unknown = assertCurrent();
+            if (result !== undefined) {
+              void Promise.resolve(result).catch(() => {});
+              throw new CodexTransportError('connection');
+            }
+          }
           if (!this.closed && !signal.aborted) this.write({ id, result });
         },
         (error: unknown) => {

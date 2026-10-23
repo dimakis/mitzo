@@ -69,6 +69,26 @@ describe('owned Codex lifecycle bridge', () => {
     );
   });
 
+  it('registers the original owned lease fence at the RPC write boundary', async () => {
+    const f = fixture();
+    f.bridge.attach(f.owner);
+    const fences: Array<() => void> = [];
+    await f.bridge.lifecycle.onRequest(
+      'item/permissions/requestApproval',
+      {},
+      new AbortController().signal,
+      {
+        requestId: 1,
+        registerResponseFence: (assertCurrent) => {
+          fences.push(assertCurrent);
+        },
+      },
+    );
+    expect(fences).toHaveLength(1);
+    f.setCurrent({ ...f.lease });
+    expect(fences[0]).toThrow('Owned Codex lifecycle unavailable');
+  });
+
   it('uses the qualified tool fence without repeating bootstrap discovery', async () => {
     const f = fixture();
     f.lease.assertToolCurrent = vi.fn(async () => {});

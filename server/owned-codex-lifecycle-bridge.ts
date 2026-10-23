@@ -60,6 +60,10 @@ export class OwnedCodexLifecycleBridge {
           if (!this.#owner) throw unavailable();
           signal.throwIfAborted();
           const lease = this.assertCurrentSync();
+          context?.registerResponseFence?.(() => {
+            signal.throwIfAborted();
+            this.assertCurrentSync();
+          });
           await observeLocalCodexPhase('host_tool_admission', () => this.admit(lease, signal));
           signal.throwIfAborted();
           this.assertCurrentSync();

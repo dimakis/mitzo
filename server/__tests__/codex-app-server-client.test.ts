@@ -19,6 +19,7 @@ import {
   SUPPORTED_CODEX_CLI_VERSION,
   assertSupportedCodexCliVersion,
   type OpenShellCodexOptions,
+  type CodexLifecycleTransport,
   codexEnvironment,
   openShellCodexProcessSpec,
   openShellSshProcessSpec,
@@ -459,7 +460,7 @@ describe('Codex app-server transport', () => {
     const { child, sent, reply } = processStub();
     const lifecycle = {
       onNotification: vi.fn(),
-      onRequest: vi.fn(async () => ({ decision: 'accept' })),
+      onRequest: vi.fn<CodexLifecycleTransport['onRequest']>(async () => ({ decision: 'accept' })),
       onClose: vi.fn(),
     };
     const client = new CodexAppServerClient(child, { lifecycle });
@@ -500,6 +501,27 @@ describe('Codex app-server transport', () => {
     current = false;
     await vi.waitFor(() => expect(child.kill).toHaveBeenCalledOnce());
     expect(sent).toEqual([]);
+    client.close();
+  });
+
+  it('rejects an asynchronous native response fence without emitting a grant', async () => {
+    const { child, sent, reply } = processStub();
+    const client = new CodexAppServerClient(child, {
+      lifecycle: {
+        onNotification: vi.fn(),
+        onClose: vi.fn(),
+        onRequest: async (_method, _params, _signal, context) => {
+          context!.registerResponseFence!(async () => {
+            throw Error('late revocation');
+          });
+          return { decision: 'accept' };
+        },
+      },
+    });
+    reply({ id: 'async-fence', method: 'item/commandExecution/requestApproval', params: {} });
+    await vi.waitFor(() => expect(child.kill).toHaveBeenCalledOnce());
+    expect(sent).toEqual([]);
+    client.close();
   });
 
   it('aborts a resolved native server request and suppresses a late grant', async () => {
