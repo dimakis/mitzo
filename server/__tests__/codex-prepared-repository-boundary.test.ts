@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -183,4 +184,107 @@ it('refuses adoption when an old-workspace follow-up is queued, without altering
     f.store.assertCompletedPreparedRepositorySource('conversation', binding, source),
   ).toThrow();
   expect(f.store.commands('conversation', binding)).toEqual(before);
+});
+
+it('queues only one exact original-task child after the completed boundary, retaining thread/history', () => {
+  const f = fixture();
+  f.store.finish('conversation', binding, 'original', 'completed', 'turn');
+  const input = {
+    id: 'prepared-repository-' + 'f'.repeat(64),
+    prompt: 'Continue retained task',
+    intent: 'Original authorized task',
+    model: 'offline',
+  };
+  expect(
+    f.store.enqueuePreparedRepositoryContinuation('conversation', binding, source, input),
+  ).toBe(true);
+  expect(() =>
+    f.store.enqueuePreparedRepositoryContinuation('conversation', binding, source, input),
+  ).toThrow();
+  const child = f.store.claimNext('conversation', binding)!;
+  expect(child).toMatchObject({
+    ...input,
+    environmentContinuation: {
+      sourceCommandId: 'original',
+      sourceTurnId: 'turn',
+      sourceThreadId: 'thread',
+      sourceGeneration: 0,
+    },
+  });
+  expect(f.store.commands('conversation', binding)).toHaveLength(2);
+  expect(f.store.read('conversation', binding)).toMatchObject({
+    threadId: 'thread',
+    threadGeneration: 0,
+  });
+});
+
+it('refuses a bounded-tools or automatic-child source before reserving adoption effects', () => {
+  for (const extra of [
+    { allowedTools: ['Read'] },
+    {
+      environmentContinuation: {
+        sourceCommandId: 'earlier',
+        sourceTurnId: 'earlier-turn',
+        sourceThreadId: 'thread',
+        sourceGeneration: 0,
+      },
+    },
+  ]) {
+    const f = fixture();
+    f.store.finish('conversation', binding, 'original', 'completed', 'turn');
+    const db = new Database(f.path);
+    try {
+      db.prepare('UPDATE codex_commands SET input=? WHERE conversation_id=? AND id=?').run(
+        JSON.stringify({
+          id: 'original',
+          prompt: 'Original user request',
+          intent: 'Original authorized task',
+          ...extra,
+        }),
+        'conversation',
+        'original',
+      );
+    } finally {
+      db.close();
+    }
+    expect(() =>
+      f.store.assertCompletedPreparedRepositorySource('conversation', binding, source),
+    ).toThrow();
+  }
+});
+
+it('discovers only the exact latest completed source and derives the digest from its durable result', () => {
+  const f = fixture();
+  expect(f.store.completedNativeTurnTarget('conversation', binding)).toBeUndefined();
+  f.store.finish('conversation', binding, 'original', 'completed', 'turn');
+  const target = {
+    commandId: source.commandId,
+    attempt: 1,
+    threadId: 'thread',
+    turnId: 'turn',
+    generation: 0,
+  };
+  expect(f.store.completedNativeTurnTarget('conversation', binding)).toEqual(target);
+  expect(
+    f.store.completedPreparedRepositoryResultSha256(
+      'conversation',
+      binding,
+      target,
+      source.callId,
+      source.requestHash,
+    ),
+  ).toBe(source.resultSha256);
+  expect(() =>
+    f.store.completedPreparedRepositoryResultSha256(
+      'conversation',
+      binding,
+      { ...target, turnId: 'other' },
+      source.callId,
+      source.requestHash,
+    ),
+  ).toThrow();
+  f.store.enqueue('conversation', binding, { id: 'next', prompt: 'Another task' });
+  f.store.claimNext('conversation', binding);
+  f.store.finish('conversation', binding, 'next', 'failed');
+  expect(f.store.completedNativeTurnTarget('conversation', binding)).toBeUndefined();
 });

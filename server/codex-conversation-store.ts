@@ -2312,6 +2312,64 @@ export class CodexConversationStore {
     if (this.pendingThreadOwnership(id, b)) return;
     return this.nativeTarget(commandId, targets[0]);
   }
+  /** Post-terminal correlation, never a revived callback or read capability.
+   * A later nonqueued command prevents adopting an earlier task behind it. */
+  completedNativeTurnTarget(
+    id: string,
+    binding: AccountBinding,
+  ): CodexNativeTurnTarget | undefined {
+    const state = this.read(id, binding);
+    if (state.recovery || this.pendingThreadOwnership(id, binding)) return;
+    const row = this.db
+      .prepare(
+        `SELECT id,status,attempt,native_turns FROM codex_commands
+      WHERE conversation_id=? AND status!='queued' ORDER BY sequence DESC LIMIT 1`,
+      )
+      .get(id) as
+      { id: string; status: string; attempt: number; native_turns: string | null } | undefined;
+    if (!row || row.status !== 'completed') return;
+    const turns = this.nativeTurns(row.native_turns).filter((turn) => turn.attempt === row.attempt);
+    if (turns.length !== 1) return;
+    const target = this.nativeTarget(row.id, turns[0]);
+    const receipt = this.readNativeExecution(id, binding, { id: row.id, attempt: row.attempt });
+    if (
+      target.threadId !== state.threadId ||
+      target.generation !== state.threadGeneration ||
+      target.turnId !== state.lastCompletedTurnId ||
+      receipt?.phase !== 'accepted' ||
+      receipt.threadId !== target.threadId ||
+      receipt.turnId !== target.turnId ||
+      receipt.generation !== target.generation
+    )
+      return;
+    this.assertNoPendingThreadDispatch(id, binding);
+    return Object.freeze(target);
+  }
+  completedPreparedRepositoryResultSha256(
+    id: string,
+    binding: AccountBinding,
+    target: Readonly<CodexNativeTurnTarget>,
+    callId: string,
+    requestHash: string,
+  ): string {
+    if (!isDeepStrictEqual(this.completedNativeTurnTarget(id, binding), target))
+      throw Error('Completed prepared repository target changed');
+    const identity = {
+      turnId: target.turnId,
+      toolName: 'PrepareLocalRepository' as const,
+      requestHash,
+    };
+    const result = this.replayToolResult(id, binding, target.commandId, callId, identity);
+    if (!result || result.isError) throw Error('Completed prepared repository result unavailable');
+    const resultSha256 = preparedRepositoryResultSha256(result);
+    this.assertCompletedPreparedRepositorySource(id, binding, {
+      ...target,
+      ...identity,
+      callId,
+      resultSha256,
+    });
+    return resultSha256;
+  }
   targetedInterruptReceipt(
     id: string,
     b: AccountBinding,
@@ -3018,6 +3076,8 @@ export class CodexConversationStore {
     this.db.transaction(() => {
       const source = CompletedPreparedRepositorySourceSchema.parse(rawSource);
       const current = this.read(id, binding);
+      const commands = this.commands(id, binding);
+      const original = commands.find((command) => command.id === source.commandId);
       const row = this.db
         .prepare(
           'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
@@ -3035,7 +3095,10 @@ export class CodexConversationStore {
         current.threadGeneration !== source.generation ||
         current.lastCompletedTurnId !== source.turnId ||
         current.recovery ||
-        this.commands(id, binding).some((command) => ['queued', 'running'].includes(command.status))
+        commands.some((command) => ['queued', 'running'].includes(command.status)) ||
+        !original?.intent?.trim() ||
+        original.allowedTools ||
+        original.environmentContinuation
       )
         fail();
       this.assertNoPendingThreadOwnership(id, binding);
@@ -3072,6 +3135,42 @@ export class CodexConversationStore {
         preparedRepositoryResultSha256(result) !== source.resultSha256
       )
         fail();
+    })();
+  }
+  /** Called only after the existing admission owner consumed the exact prepared
+   * child. It shares FIFO's completed-turn/thread-generation fence and can never
+   * insert behind old queued work or turn a child into another automatic loop. */
+  enqueuePreparedRepositoryContinuation(
+    id: string,
+    binding: AccountBinding,
+    source: CompletedPreparedRepositorySource,
+    rawInput: CodexCommandInput,
+  ): boolean {
+    return this.db.transaction(() => {
+      this.assertCompletedPreparedRepositorySource(id, binding, source);
+      const input = CommandInput.parse(rawInput);
+      const original = this.commands(id, binding).find(
+        (command) => command.id === source.commandId,
+      );
+      if (
+        !original?.intent?.trim() ||
+        original.allowedTools ||
+        original.environmentContinuation ||
+        input.intent !== original.intent ||
+        input.allowedTools ||
+        input.environmentContinuation ||
+        !/^prepared-repository-[a-f0-9]{64}$/.test(input.id)
+      )
+        throw Error('Prepared repository original task continuation unavailable');
+      return this.enqueue(id, binding, {
+        ...input,
+        environmentContinuation: {
+          sourceCommandId: source.commandId,
+          sourceTurnId: source.turnId,
+          sourceThreadId: source.threadId,
+          sourceGeneration: source.generation,
+        },
+      });
     })();
   }
   /** A completed host result is persisted before it is exposed to the transport.
