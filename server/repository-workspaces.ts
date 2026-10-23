@@ -1904,6 +1904,8 @@ export class RepositoryWorkspaces {
       .immediate();
     const current = () => {
       this.assertDecisionOwner(request, owner);
+      if (consumed.evidence.expiresAt <= Date.now())
+        throw new PendingHostTaskError('pending_host_task_authority_required');
       const record = this.pendingRecord(request);
       this.decisionScope(record, request, consumed.scope, owner);
       if (

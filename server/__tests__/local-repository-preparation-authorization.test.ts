@@ -3,7 +3,7 @@ import { resolvePending } from '@mitzo/harness';
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { AccountBindingSchema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
-import { lstatSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
 import { setAuthRevocationStore } from '../auth.js';
@@ -68,7 +68,7 @@ it('retains actual permission evidence before outward allow and finalizes only t
   noLiveCalls();
   let held: Awaited<ReturnType<typeof captureLocalRepositoryPreparationAuthorization>> | undefined;
   let observedId: string | undefined;
-  const effect = vi.fn();
+  let assertEffectsUnchanged!: () => void;
   const f = await localPreparationNativeFixture(cleanups, async (context, input) => {
     const source = join(f.f.root, 'source');
     const identity = (path: string) => {
@@ -110,16 +110,28 @@ it('retains actual permission evidence before outward allow and finalizes only t
       },
       input,
     );
+    const sourceFiles = ['.git/HEAD', '.git/index', 'task.txt'].map((name) => join(source, name));
+    const sourceBytes = sourceFiles.map((path) => readFileSync(path));
+    const allocationPaths = [
+      held.scope.create.task.directory,
+      ...Object.values(held.scope.sourceGitEffects),
+    ];
+    assertEffectsUnchanged = () => {
+      for (const [index, path] of sourceFiles.entries())
+        expect(readFileSync(path)).toEqual(sourceBytes[index]);
+      for (const path of allocationPaths) expect(existsSync(path)).toBe(false);
+      expect(witness()).toBe(originalWitness);
+    };
     observedId = held.request.id;
     expect(row(f.f.root, observedId).pendingHostTaskDecision).toBeUndefined();
-    expect(effect).not.toHaveBeenCalled();
+    assertEffectsUnchanged();
     const finalized = await held.approve();
     expect(finalized.state).toBe('finalized');
     const saved = row(f.f.root, observedId);
     expect(saved.pendingHostTaskDecision.state).toBe('finalized');
     expect(saved.pendingHostTaskDecision.evidence.permId).toBe(f.permissions[0].permId);
     expect(saved.pendingHostTaskDecision.request.nativeTarget).toEqual(context.nativeTarget);
-    expect(effect).not.toHaveBeenCalled();
+    assertEffectsUnchanged();
     return { id: observedId, state: finalized.state };
   });
   const service = new RepositoryWorkspaces(join(f.f.root, 'repositories'), {
@@ -149,6 +161,7 @@ it('retains actual permission evidence before outward allow and finalizes only t
     const result = retain(...args);
     expect(row(f.f.root, args[0].id).pendingHostTaskDecision.state).toBe('observed');
     expect(f.permissionEvents.some((event) => event.type === 'permission_resolved')).toBe(false);
+    assertEffectsUnchanged();
     return result;
   });
   const result = await f.a.call({ path: join(f.f.root, 'source') });
@@ -156,7 +169,7 @@ it('retains actual permission evidence before outward allow and finalizes only t
   expect(result.value).toMatchObject({ id: observedId, state: 'finalized' });
   await expect(held!.approve()).rejects.toThrow();
   expect(row(f.f.root, observedId!).pendingHostTaskDecision.state).toBe('finalized');
-  expect(effect).not.toHaveBeenCalled();
+  assertEffectsUnchanged();
 });
 
 async function preparationCase(
@@ -362,3 +375,55 @@ it.each(['account', 'native-target', 'mode'] as const)(
   },
   20000,
 );
+
+it('expires a consumed operation at the actual approval deadline while the original signed owner is still current', async () => {
+  const f = await preparationCase(async (prepared) => {
+    const decision = await prepared.approve();
+    const operation = f.service.beginPendingHostTaskDecisionMaterialization(
+      prepared.request,
+      prepared.owner,
+    );
+    operation.assertCurrentSync();
+    const result = { ownerCurrent: false, operationCurrent: false, claimAllowed: false };
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(decision.evidence.expiresAt + 1);
+    try {
+      // These actual controls expose which lifetime failed, outside the tool's
+      // generic error envelope. Never replace or suppress the original fence.
+      try {
+        prepared.owner.context.assertCurrentSync();
+        result.ownerCurrent = true;
+      } catch {
+        /* Record actual refusal. */
+      }
+      try {
+        operation.assertCurrentSync();
+        result.operationCurrent = true;
+      } catch {
+        /* Expected expired approval. */
+      }
+      try {
+        operation.claim();
+        result.claimAllowed = true;
+      } catch {
+        /* Expected expired approval. */
+      }
+    } finally {
+      clock.mockRestore();
+    }
+    expect(f.saved().pendingHostTaskDecision.state).toBe('consumed');
+    expect(f.saved().pendingHostTask.state).toBe('materializing');
+    for (const path of [
+      prepared.scope.create.task.directory,
+      ...Object.values(prepared.scope.sourceGitEffects),
+    ])
+      expect(existsSync(path)).toBe(false);
+    return result;
+  });
+  const result = await f.call();
+  expect(result.response.success).toBe(true);
+  expect(result.value).toEqual({
+    ownerCurrent: true,
+    operationCurrent: false,
+    claimAllowed: false,
+  });
+}, 20000);
