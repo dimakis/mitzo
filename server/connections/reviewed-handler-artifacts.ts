@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.600-original-known-directory-tuples';
+  'v1.0.601-native-repository-read-budget';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,13 +26,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-metadata-directory-batch.test.ts':
     '52d0953d6d2e1e07fcaa6dd292d63d632e1a406b61a6b723a45af149dada45ed',
   '../__tests__/local-repository-initial-directory-batch.test.ts':
-    '57a4cb01badb4856d96d38a137490aa75449342bd39216c0e14bd07acbad5e3a',
+    'e1a9810c27816ca1d6526c8e0d294996b7ed9ff1e1465c7ad092ce681192541a',
   '../__tests__/fixtures/local-repository-native-tools.ts':
     '7823a1694011217e191bb52716c8176dc34a51ddad39a3825b2703dcf5f8fcc1',
   '../__tests__/native-local-repository-read-projection.test.ts':
     'e78286f66f12951fd228c86e7044e17d3e5023294087aa0b4b16ec0b6af44571',
   '../__tests__/native-local-repository-read-registration.test.ts':
-    'cbb483e882082f8fc701bf989df0b0daec3ce778c4751a4e39f44ed431d91b6e',
+    'ef8b0ce1ed73d3b4c5695b00fa530264cbad8b515d0ec4593f348a5e181daaca',
   '../__tests__/native-local-repository-read-tools.test.ts':
     '8d86d9f17653628ccd6743431a60f7eee7cf9c4294b83ebaeb8bb4ae4ba9d4cd',
 
@@ -1096,7 +1096,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime.ts': '3e9734030dea1237f60f274bca7c2a3e68f31ded5d60cca3419df7c84617145f',
   '../codex-admission-preparation.ts':
     '0cb595a8fed20de735d4fa718544baf1a36ccebf3beecc763badd696e4af3098',
-  '../codex-chat-session.ts': '5be7f46b08bd361cdcc8941665f4d0d851a17b8024a826c755f4087e727433a9',
+  '../codex-chat-session.ts': '897c708babb287e608ad1a4905ab5152a7e82cedd09f87b4c2eae76462e5a909',
   '../connections-runtime.ts': '6dcc3dfeb39193379a4e64f7270130607d49a36e053d419edf9abcb60f28b2da',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

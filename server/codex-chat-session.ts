@@ -2515,6 +2515,7 @@ async function openCodexChatBound(
               capture: () => context,
               captureReader: captureNativeLocalRepositoryReader,
               readPolicy: async () => ({
+                limits: { timeoutMs: 30000 },
                 accessScope: {
                   kind: 'roots' as const,
                   roots: nativeRepositoryReadRootUnion([

@@ -17,7 +17,7 @@ const child = (name: string): LocalRepositoryReadEntry => ({
   mtimeNs: '1',
   ctimeNs: '1',
 });
-function fixture(batch = true) {
+function fixture(batch = true, timeoutMs = 15000) {
   const abort = new AbortController();
   let current = true;
   const rootIdentity = { dev: '1', ino: '1' };
@@ -35,7 +35,7 @@ function fixture(batch = true) {
     if (!current) throw Error('Current native owner revoked');
   });
   const authority: LocalRepositoryReadAuthority = {
-    deadline: Date.now() + 15000,
+    deadline: Date.now() + timeoutMs,
     signal: abort.signal,
     deniedRoots: [],
     assertCurrentSync,
@@ -300,3 +300,28 @@ it('refuses a reentrant more-specific anchor while retaining the independently a
   ).toBe(true);
   expect(f.access.hasExclusionsWithin()).toBe(false);
 });
+
+it.each([1000, 30000])(
+  'retains one remaining %ims deadline across ready directory batches and expiry',
+  async (timeoutMs) => {
+    let now = 1000000;
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
+    try {
+      const f = fixture(true, timeoutMs);
+      await f.ready();
+      now += timeoutMs / 2;
+      await f.access.preloadDirectories([`${root}/a`]);
+      expect(vi.mocked(f.authority.executeDirectoryVerification!).mock.calls[0][2]).toBe(
+        timeoutMs / 2,
+      );
+      now += timeoutMs / 2;
+      await expect(f.access.preloadDirectories([`${root}/b`])).rejects.toMatchObject({
+        kind: 'limit',
+      });
+      expect(f.authority.executeDirectoryVerification).toHaveBeenCalledOnce();
+      expect(f.authority.executeReadOperation).not.toHaveBeenCalled();
+    } finally {
+      clock.mockRestore();
+    }
+  },
+);

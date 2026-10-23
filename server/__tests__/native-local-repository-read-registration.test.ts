@@ -10,6 +10,8 @@ import { Socket } from 'node:net';
 import * as nativePolicy from '../owned-local-codex-native-policy.js';
 import * as sandbox from '../sandboxed-command.js';
 import * as metadata from '../local-repository-git-inspection.js';
+import * as gitFacts from '../local-repository-git-snapshot.js';
+import * as repositoryDiscovery from '../local-repository-discovery.js';
 import * as childProcess from 'node:child_process';
 import { localRepositoryNativeToolFixture } from './fixtures/local-repository-native-tools.js';
 import { EventStore } from '../event-store.js';
@@ -21,8 +23,12 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 const cleanups: Array<() => void | Promise<void>> = [];
+let recordCleanup: ((cleanupMs: number) => Promise<void>) | undefined;
 afterEach(async () => {
+  const started = performance.now();
   for (const close of cleanups.splice(0).reverse()) await close();
+  await recordCleanup?.(performance.now() - started);
+  recordCleanup = undefined;
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
@@ -223,14 +229,22 @@ it.skipIf(
         trace.helperMs += phase.totalMs;
       }
     });
+    const metadataBudgets: number[] = [];
+    const factsBudgets: number[] = [];
     const inspect = metadata.inspectLocalRepositoryGitMetadata;
     vi.spyOn(metadata, 'inspectLocalRepositoryGitMetadata').mockImplementation(async (...args) => {
       try {
+        metadataBudgets.push(args[0].timeoutMs!);
         return await inspect(...args);
       } catch (error) {
         trace.metadataError = error instanceof Error ? error.message : 'unknown';
         throw error;
       }
+    });
+    const facts = gitFacts.readLocalRepositoryGitFacts;
+    vi.spyOn(gitFacts, 'readLocalRepositoryGitFacts').mockImplementation(async (...args) => {
+      factsBudgets.push(args[1].timeoutMs);
+      return facts(...args);
     });
     const f = await localRepositoryNativeToolFixture(
       cleanups,
@@ -246,11 +260,54 @@ it.skipIf(
       expect.arrayContaining(['DiscoverLocalRepository', 'InspectLocalRepository']),
     );
     expect(tools.some((t) => t.name === 'PrepareLocalRepository')).toBe(false);
+    const declaredBudgets: number[] = [];
+    const deadlines: number[] = [];
+    for (const name of ['discoverLocalRepository', 'inspectLocalRepository'] as const) {
+      const original = repositoryDiscovery[name];
+      vi.spyOn(repositoryDiscovery, name).mockImplementation(
+        async (request: Parameters<typeof repositoryDiscovery.discoverLocalRepository>[0]) => {
+          declaredBudgets.push(request.limits?.timeoutMs ?? -1);
+          const reader = Object.getOwnPropertyDescriptor(request, 'nativeReader')?.value;
+          expect(request.limits?.timeoutMs).toBe(30000);
+          deadlines.push(reader.deadline);
+          return Reflect.apply(original, repositoryDiscovery, [request]);
+        },
+      );
+    }
     const setupMs = performance.now() - setupStarted;
     const operationTimings: Record<string, number> = {};
+    const outcomes: Record<string, unknown> = {};
+    recordCleanup = async (cleanupMs) => {
+      await writeFile(
+        '/private/tmp/mitzo-registered-read-tools-phase-evidence.json',
+        JSON.stringify(
+          {
+            compilation,
+            setupMs,
+            operationTimings,
+            outcomes,
+            cleanupMs,
+            declaredBudgets,
+            deadlines,
+            metadataBudgets,
+            factsBudgets,
+            metrics: f.a.metrics,
+            trace,
+            phases,
+          },
+          null,
+          2,
+        ),
+      );
+    };
     const discoverStarted = performance.now();
     const discovery = await f.a.call({ path: join(f.f.root, 'source') });
     operationTimings.DiscoverLocalRepository = performance.now() - discoverStarted;
+    outcomes.DiscoverLocalRepository = {
+      success: discovery.response.success,
+      value: discovery.value,
+    };
+    expect(declaredBudgets).toEqual([30000]);
     for (const scratch of new Set(trace.scratch))
       await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });
     for (const settings of sourceSettings)
@@ -259,7 +316,7 @@ it.skipIf(
     await writeFile(
       '/private/tmp/mitzo-registered-read-tools-phase-evidence.json',
       JSON.stringify(
-        { compilation, setupMs, operationTimings, metrics: f.a.metrics, trace, phases },
+        { compilation, setupMs, operationTimings, outcomes, metrics: f.a.metrics, trace, phases },
         null,
         2,
       ),
@@ -279,14 +336,20 @@ it.skipIf(
       { tool: 'InspectLocalRepository' },
     );
     operationTimings.InspectLocalRepository = performance.now() - inspectStarted;
+    outcomes.InspectLocalRepository = {
+      success: inspection.response.success,
+      value: inspection.value,
+    };
     await writeFile(
       '/private/tmp/mitzo-registered-read-tools-phase-evidence.json',
       JSON.stringify(
-        { compilation, setupMs, operationTimings, metrics: f.a.metrics, trace, phases },
+        { compilation, setupMs, operationTimings, outcomes, metrics: f.a.metrics, trace, phases },
         null,
         2,
       ),
     );
+    expect(declaredBudgets).toEqual([30000, 30000]);
+    expect(factsBudgets).toHaveLength(2);
     expect(inspection.response.success, JSON.stringify(inspection.value)).toBe(true);
     expect(inspection.value).toMatchObject({
       path: join(f.f.root, 'source'),
@@ -302,10 +365,12 @@ it.skipIf(
       { path: join(f.f.root, 'login') },
       { tool: 'InspectLocalRepository' },
     );
+    outcomes.denied = { success: denied.response.success, value: denied.value };
     expect(JSON.stringify(denied.value)).not.toContain('access_token');
     expect(denied.response.success).toBe(false);
     revokeAuthSession(f.auth);
     const revoked = await f.a.call({ path: join(f.f.root, 'source') });
+    outcomes.revoked = { success: revoked.response.success, value: revoked.value };
     expect(revoked.response.success).toBe(false);
     expect(
       processBoundary.mock.calls.some((args) =>
@@ -319,5 +384,5 @@ it.skipIf(
       'accepted source',
     );
   },
-  60000,
+  90000,
 );
