@@ -1,6 +1,16 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { lstat, mkdtemp, open, opendir, realpath, rm, utimes, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  open,
+  opendir,
+  realpath,
+  rm,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
@@ -43,10 +53,18 @@ export interface LocalRepositoryGitInspectionRequest {
   maxEntries?: number;
   timeoutMs?: number;
 }
+export interface LocalRepositoryComparisonConfig {
+  readonly coreAutocrlf?: boolean | 'input';
+  readonly coreFileMode?: boolean;
+  /** Retain repository facts, but do not report authoritative status. */
+  readonly unsupported?: true;
+}
 export interface LocalRepositoryGitMetadata {
   path: string;
   gitDirectory: string;
   commonDirectory: string;
+  /** Validated scalar semantics only; never source configuration bytes or executable settings. */
+  comparisonConfig: Readonly<LocalRepositoryComparisonConfig>;
 }
 
 export class LocalRepositoryGitInspectionError extends Error {
@@ -72,6 +90,48 @@ async function readRegular(path: string, maxBytes: number) {
   } finally {
     await file.close();
   }
+}
+
+function comparisonBoolean(value: string | undefined): boolean {
+  if (value === undefined || ['true', 'yes', 'on', '1'].includes(value.toLowerCase())) return true;
+  if (['', 'false', 'no', 'off', '0'].includes(value.toLowerCase())) return false;
+  throw new LocalRepositoryGitInspectionError('unsafe', 'comparison-configuration-unsupported');
+}
+function comparisonConfig(
+  common: readonly { key: string; value: string | undefined }[],
+  worktree: readonly { key: string; value: string | undefined }[],
+): Readonly<LocalRepositoryComparisonConfig> {
+  const result: { coreAutocrlf?: boolean | 'input'; coreFileMode?: boolean; unsupported?: true } =
+    {};
+  try {
+    let worktreeEnabled = false;
+    for (const entry of common)
+      if (entry.key === 'extensions.worktreeconfig')
+        worktreeEnabled = comparisonBoolean(entry.value);
+    // Git reads common config first. Linked admin/config is not local config,
+    // and config.worktree is effective only with the common extension enabled.
+    const effective = new Map(
+      [...common, ...(worktreeEnabled ? worktree : [])].map(({ key, value }) => [key, value]),
+    );
+    if (effective.has('core.autocrlf')) {
+      const value = effective.get('core.autocrlf');
+      result.coreAutocrlf = value?.toLowerCase() === 'input' ? 'input' : comparisonBoolean(value);
+    }
+    if (effective.has('core.filemode'))
+      result.coreFileMode = comparisonBoolean(effective.get('core.filemode'));
+    // External ignore data and regular-file representations of index symlinks
+    // cannot be silently dropped. Leave status unknown rather than read an
+    // unapproved path or invent a broader comparison/configuration engine.
+    if (
+      effective.has('core.excludesfile') ||
+      (effective.has('core.symlinks') && !comparisonBoolean(effective.get('core.symlinks')))
+    )
+      result.unsupported = true;
+  } catch (error) {
+    if (!(error instanceof LocalRepositoryGitInspectionError)) throw error;
+    result.unsupported = true;
+  }
+  return Object.freeze(result);
 }
 
 /** Resolve and validate storage before any Git command can load repository configuration. */
@@ -156,6 +216,7 @@ export async function inspectLocalRepositoryGitMetadata(
         pending.push(join(directory, entry.name));
     }
   }
+  const parsedConfigs = new Map<string, Array<{ key: string; value: string | undefined }>>();
   for (const directory of new Set([gitDirectory, commonDirectory])) {
     for (const name of ['config', 'config.worktree']) {
       check();
@@ -178,10 +239,13 @@ export async function inspectLocalRepositoryGitMetadata(
         );
         parser.child.stdin?.end(bytes);
         const { stdout } = await parser;
+        const parsed: Array<{ key: string; value: string | undefined }> = [];
+        parsedConfigs.set(config, parsed);
         for (const entry of stdout.split('\0').filter(Boolean)) {
           const newline = entry.indexOf('\n');
           const key = entry.slice(0, newline === -1 ? undefined : newline).toLowerCase();
-          const value = newline === -1 ? '' : entry.slice(newline + 1);
+          const value = newline === -1 ? undefined : entry.slice(newline + 1);
+          parsed.push({ key, value });
           if (/^include(if)?\./.test(key))
             throw new LocalRepositoryGitInspectionError(
               'unsafe',
@@ -195,7 +259,10 @@ export async function inspectLocalRepositoryGitMetadata(
               'unsafe',
               'configuration-extension-unsupported',
             );
-          if (key === 'core.worktree' && resolve(directory, value) !== path)
+          if (
+            key === 'core.worktree' &&
+            (value === undefined || resolve(directory, value) !== path)
+          )
             throw new LocalRepositoryGitInspectionError(
               'unsafe',
               'external-worktree-configuration',
@@ -215,14 +282,28 @@ export async function inspectLocalRepositoryGitMetadata(
       }
     }
   }
-  return { path, gitDirectory, commonDirectory };
+  return {
+    path,
+    gitDirectory,
+    commonDirectory,
+    comparisonConfig: comparisonConfig(
+      parsedConfigs.get(join(commonDirectory, 'config')) ?? [],
+      parsedConfigs.get(join(gitDirectory, 'config.worktree')) ?? [],
+    ),
+  };
 }
 
 /** Uses the established private Git-directory inspection pattern, never source filters/config. */
 export async function readLocalRepositoryStatus(
   metadata: LocalRepositoryGitMetadata,
-  options: { signal?: AbortSignal; timeoutMs: number },
+  options: {
+    signal?: AbortSignal;
+    timeoutMs: number;
+    assertReadable: (path: string) => Promise<void>;
+  },
 ): Promise<string> {
+  if (metadata.comparisonConfig.unsupported)
+    throw new LocalRepositoryGitInspectionError('unsafe', 'comparison-configuration-unsupported');
   const deadline = Date.now() + options.timeoutMs;
   const run = async (args: string[], extraEnv = {}) =>
     (
@@ -264,6 +345,19 @@ export async function readLocalRepositoryStatus(
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
+    // info/exclude is data, not executable configuration. Preserve bounded,
+    // currently authorized common-worktree rules so ignored names stay private.
+    const exclude = join(metadata.commonDirectory, 'info', 'exclude');
+    try {
+      await options.assertReadable(exclude);
+      const rules = await readRegular(exclude, 65536);
+      options.signal?.throwIfAborted();
+      await options.assertReadable(exclude);
+      await mkdir(join(gitDirectory, 'info'), { recursive: true });
+      await writeFile(join(gitDirectory, 'info', 'exclude'), rules, { mode: 0o600 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
     // Resolve the original HEAD to an OID so the private directory needs no source refs.
     try {
       const head = (await run(['-C', metadata.path, 'rev-parse', '--verify', 'HEAD'])).trim();
@@ -280,6 +374,12 @@ export async function readLocalRepositoryStatus(
         'core.fsmonitor=false',
         '-c',
         'core.hooksPath=/dev/null',
+        ...(metadata.comparisonConfig.coreAutocrlf !== undefined
+          ? ['-c', `core.autocrlf=${metadata.comparisonConfig.coreAutocrlf}`]
+          : []),
+        ...(metadata.comparisonConfig.coreFileMode !== undefined
+          ? ['-c', `core.filemode=${metadata.comparisonConfig.coreFileMode}`]
+          : []),
         'status',
         '--porcelain=v1',
         '-z',
