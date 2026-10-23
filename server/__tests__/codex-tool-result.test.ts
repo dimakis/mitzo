@@ -36,7 +36,7 @@ describe('Codex product tool image results', () => {
   });
 
   it('copies payloads before custody and appends hook feedback without losing the image', () => {
-    const result = normalizeMcpToolResult([image], false);
+    const result = structuredClone(normalizeMcpToolResult([image], false));
     const copied = normalizeCodexToolResult(result);
     result.contentItems![0] = { type: 'inputText', text: 'changed' };
     const withFeedback = appendCodexToolFeedback(copied, 'reviewed');
@@ -46,6 +46,9 @@ describe('Codex product tool image results', () => {
       { type: 'inputText', text: '\n\nProject hook feedback:\nreviewed' },
     ]);
     expect(copied.contentItems![0].type).toBe('inputImage');
+    expect(Object.isFrozen(copied)).toBe(true);
+    expect(Object.isFrozen(copied.contentItems)).toBe(true);
+    expect(Object.isFrozen(copied.contentItems![0])).toBe(true);
   });
 
   it.each([
@@ -129,5 +132,14 @@ describe('Codex product tool image results', () => {
         ],
       }),
     ).toThrow(/bound/);
+  });
+
+  it('preserves trusted result metadata used by existing environment continuation', () => {
+    const original = {
+      content: 'attached',
+      isError: false,
+      environmentChange: { kind: 'provider-attachment', provider: 'github' },
+    };
+    expect(normalizeCodexToolResult(original)).toMatchObject(original);
   });
 });

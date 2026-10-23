@@ -48,8 +48,9 @@ function nativeImageUrl(value: unknown): string {
  * receipt when stored rich data is invalid, or accept a changed text projection. */
 export function normalizeCodexToolResult(result: CodexToolResult): CodexToolResult {
   if (typeof result.content !== 'string' || typeof result.isError !== 'boolean') throw invalid();
-  if (result.contentItems === undefined)
-    return { content: result.content, isError: result.isError };
+  // Trusted adapters also carry private environment-change receipts. Preserve
+  // those in memory; the store and native serializers select only public fields.
+  if (result.contentItems === undefined) return Object.freeze({ ...result });
   if (!Array.isArray(result.contentItems) || result.contentItems.length > MAX_ITEMS)
     throw Error('Tool content exceeds item bound');
   if (Buffer.byteLength(result.content) > MAX_TEXT_BYTES)
@@ -74,7 +75,9 @@ export function normalizeCodexToolResult(result: CodexToolResult): CodexToolResu
   const copy = { content: result.content, isError: result.isError, contentItems };
   if (Buffer.byteLength(JSON.stringify(copy)) > MAX_CODEX_RICH_RESULT_BYTES)
     throw Error('Tool output exceeds serialized result bound');
-  return copy;
+  contentItems.forEach(Object.freeze);
+  Object.freeze(contentItems);
+  return Object.freeze({ ...result, ...copy });
 }
 
 export function codexToolResultContentItems(result: CodexToolResult): CodexToolContentItem[] {
@@ -157,7 +160,7 @@ export function appendCodexToolFeedback(result: CodexToolResult, context: string
   if (!checked.contentItems)
     return { content: checked.content + feedback, isError: checked.isError };
   // Append to the last text block to keep the legacy content string exact.
-  const items = checked.contentItems;
+  const items = checked.contentItems.map((item) => ({ ...item }));
   let lastText = -1;
   for (let index = 0; index < items.length; index++)
     if (items[index].type === 'inputText') lastText = index;
