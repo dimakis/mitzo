@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import {
   existsSync,
+  chmodSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -339,4 +340,52 @@ it('supports an offline edit, check, build and local PR preparation on the owned
   expect(readFileSync(join(source, 'app.mjs'), 'utf8')).toBe('export const result = 1;\n');
   await new OrdinaryLocalWorkspaceOwner(service, 'repository', reservation).revalidate(signal());
   expect(service.getForConversation('same-conversation')?.directory).toBe(cwd);
+});
+
+it('uses the local HEAD by default without invoking a repository remote helper', async () => {
+  const f = fixture();
+  const source = f.repositories[0];
+  const marker = join(f.root, 'remote-executed');
+  const helper = join(f.root, 'remote-helper');
+  writeFileSync(helper, `#!/bin/sh\nprintf invoked > '${marker}'\nexit 7\n`);
+  chmodSync(helper, 0o700);
+  git(source, 'config', 'protocol.ext.allow', 'always');
+  git(source, 'remote', 'add', 'origin', `ext::${helper}`);
+  const ready = await f.open().selectExistingLocalRepository(binding, source, selection, signal());
+  expect(ready.baseOid).toBe(git(source, 'rev-parse', 'HEAD'));
+  expect(existsSync(marker)).toBe(false);
+});
+
+it('materializes an arbitrary repository without executing checkout hooks or Git filters', async () => {
+  const f = fixture();
+  const source = f.repositories[0];
+  writeFileSync(join(source, '.gitattributes'), '*.txt filter=untrusted\n');
+  git(source, 'add', '.gitattributes');
+  git(source, 'commit', '-qm', 'fixture attributes');
+  const hookMarker = join(f.root, 'hook-executed');
+  const filterMarker = join(f.root, 'filter-executed');
+  const helper = join(f.root, 'filter-helper');
+  writeFileSync(helper, `#!/bin/sh\nprintf invoked > '${filterMarker}'\ncat\n`);
+  chmodSync(helper, 0o700);
+  git(source, 'config', 'filter.untrusted.smudge', helper);
+  git(source, 'config', 'filter.untrusted.clean', helper);
+  git(source, 'config', 'filter.untrusted.required', 'true');
+  const hook = join(source, '.git', 'hooks', 'post-checkout');
+  writeFileSync(hook, `#!/bin/sh\nprintf invoked > '${hookMarker}'\n`);
+  chmodSync(hook, 0o700);
+  const service = f.open();
+  const ready = await service.selectExistingLocalRepository(
+    binding,
+    source,
+    selection,
+    signal(),
+    undefined,
+    'HEAD',
+  );
+  const reservation = f.reservation(ready.id);
+  await service.reserveHostTask(reservation);
+  const claimed = await service.claimReservedHostTask(reservation);
+  expect(existsSync(hookMarker)).toBe(false);
+  expect(existsSync(filterMarker)).toBe(false);
+  expect(readFileSync(join(claimed.directory!, 'code.txt'), 'utf8')).toContain('Original');
 });

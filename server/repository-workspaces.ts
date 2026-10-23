@@ -1123,7 +1123,7 @@ export class RepositoryWorkspaces {
       selection,
       signal,
       requestId,
-      startPoint,
+      startPoint ?? 'HEAD',
       path,
     );
   }
@@ -1798,6 +1798,7 @@ export class RepositoryWorkspaces {
           dir: expected.taskRoot,
           branch: record.featureBranch,
           startPoint: record.baseOid,
+          ...(record.localSource.selection === 'existing' ? { safeLocalPreparation: true } : {}),
         });
         // An arbitrary repository's config cannot expand access through shared
         // runtime links. Dependency preparation remains an explicit task action.

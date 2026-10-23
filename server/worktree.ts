@@ -160,6 +160,73 @@ export interface CreateWorktreeOptions {
   prefix?: '.claude' | '.cursor';
   /** Git ref to branch from. Defaults to the repo's default branch (detected dynamically, falls back to 'main'). */
   startPoint?: string;
+  /** Existing arbitrary repositories may supply content, never executable Git
+   * configuration during allocation. Requires an explicit, already pinned ref. */
+  safeLocalPreparation?: boolean;
+}
+
+async function safeLocalWorktreeGit(baseRepo: string) {
+  const config = [
+    '-c',
+    'core.hooksPath=/dev/null',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.attributesFile=/dev/null',
+    '-c',
+    'gc.auto=0',
+    '-c',
+    'maintenance.auto=false',
+    '-c',
+    'submodule.recurse=false',
+    '-c',
+    'core.sparseCheckout=false',
+  ];
+  const options = {
+    timeout: WORKTREE_GIT_TIMEOUT_MS,
+    maxBuffer: 65536,
+    env: {
+      PATH: '/usr/bin:/bin',
+      GIT_CONFIG_SYSTEM: '/dev/null',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_TERMINAL_PROMPT: '0',
+      GIT_NO_LAZY_FETCH: '1',
+      GIT_ATTR_NOSYSTEM: '1',
+    },
+  };
+  const run = (args: string[]) =>
+    execFileAsync('git', ['--no-replace-objects', ...config, ...args], options);
+  let keys = '';
+  try {
+    ({ stdout: keys } = await run([
+      '-C',
+      baseRepo,
+      'config',
+      '--no-includes',
+      '--null',
+      '--name-only',
+      '--get-regexp',
+      '^filter\\..*\\.(clean|smudge|process|required)$',
+    ]));
+  } catch (error) {
+    if (!(error instanceof Error) || !('code' in error) || error.code !== 1) throw error;
+  }
+  const drivers = new Set(
+    keys
+      .split('\0')
+      .filter(Boolean)
+      .map((key) => key.slice('filter.'.length, key.lastIndexOf('.'))),
+  );
+  for (const driver of drivers)
+    for (const [setting, value] of [
+      ['clean', ''],
+      ['smudge', ''],
+      ['process', ''],
+      ['required', 'false'],
+    ])
+      config.push('-c', `filter.${driver}.${setting}=${value}`);
+  return run;
 }
 
 // Request absolute paths so linked base checkouts and symlinked repo paths
@@ -258,6 +325,11 @@ export async function createWorktreeAsync(
   baseRepo: string,
   opts?: CreateWorktreeOptions,
 ): Promise<string> {
+  if (opts?.safeLocalPreparation && !opts.startPoint)
+    throw Error('Safe local repository preparation requires a pinned source ref');
+  const runGit = opts?.safeLocalPreparation
+    ? await safeLocalWorktreeGit(baseRepo)
+    : (args: string[]) => execFileAsync('git', args, { timeout: WORKTREE_GIT_TIMEOUT_MS });
   const prefix = opts?.prefix ?? '.claude';
   const dir = opts?.dir ?? join(baseRepo, prefix, 'worktrees');
   await mkdir(dir, { recursive: true });
@@ -266,16 +338,14 @@ export async function createWorktreeAsync(
   const branch = opts?.branch ?? `${WORKTREE_BRANCH_PREFIX}${sessionId}`;
 
   if (existsSync(worktreePath)) {
-    const { stdout: identity } = await execFileAsync(
-      'git',
-      ['-C', worktreePath, ...WORKTREE_IDENTITY_ARGS],
-      { timeout: WORKTREE_GIT_TIMEOUT_MS },
-    );
-    const { stdout: baseCommonDir } = await execFileAsync(
-      'git',
-      ['-C', baseRepo, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-      { timeout: WORKTREE_GIT_TIMEOUT_MS },
-    );
+    const { stdout: identity } = await runGit(['-C', worktreePath, ...WORKTREE_IDENTITY_ARGS]);
+    const { stdout: baseCommonDir } = await runGit([
+      '-C',
+      baseRepo,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+    ]);
     assertWorktreeIdentity(worktreePath, branch, identity, baseCommonDir);
     log.info(`reusing existing worktree: ${worktreePath} (${branch})`);
     return worktreePath;
@@ -283,18 +353,12 @@ export async function createWorktreeAsync(
 
   const startPoint = opts?.startPoint ?? (await fetchWorktreeBase(baseRepo));
   try {
-    await execFileAsync(
-      'git',
-      ['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath, startPoint],
-      { timeout: WORKTREE_GIT_TIMEOUT_MS },
-    );
+    await runGit(['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath, startPoint]);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('already exists')) {
       // Reattach at its existing tip: it may contain unfinished session commits.
-      await execFileAsync('git', ['-C', baseRepo, 'worktree', 'add', worktreePath, branch], {
-        timeout: WORKTREE_GIT_TIMEOUT_MS,
-      });
+      await runGit(['-C', baseRepo, 'worktree', 'add', worktreePath, branch]);
     } else {
       throw err;
     }
