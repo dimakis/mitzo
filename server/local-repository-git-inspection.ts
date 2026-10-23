@@ -106,7 +106,9 @@ export async function inspectLocalRepositoryGitMetadata(
   for (;;) {
     await physical(path);
     try {
-      marker = await lstat(join(path, '.git'));
+      const markerPath = join(path, '.git');
+      await authorize(markerPath);
+      marker = await lstat(markerPath);
       break;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || dirname(path) === path) throw error;
