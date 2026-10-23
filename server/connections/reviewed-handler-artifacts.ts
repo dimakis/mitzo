@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.605-repository-read-integration';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.606-repository-read-timing';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,17 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../command-timing-trace.ts': 'f4c8ddbcae082c29fd718f09dd4b846b5aacc25574f43d681e31a508bae76560',
+  '../__tests__/command-timing-trace.test.ts':
+    '65f51c783408f255dce89aa221ff33b0f45f51eb8c906f858cb61fc99f1f0a80',
+  '../__tests__/prompt-trace-timing.test.ts':
+    '59a2013e174cccfaed3a7eaca52d27234beea9f3c59c6cabb8ecfe00136e941c',
+  '../__tests__/prompt-trace-timing.e2e.test.ts':
+    'e4d4bbb3554526c76c373a81562591ab4bfc0596e6204044407b589a472ac725',
+  '../../scripts/lib/prompt-trace-timing.ts':
+    '7f6af8c9c7d623f8cdcb2e7bbe21a5d5d31f4ad94a6faca86dc25817e6904e8d',
+  '../../scripts/validate-prompt-timing.ts':
+    '1e63a2ee2691fd959df77617d2d63cf323294ecd1306a8e15c250d20fa09f170',
   '../__tests__/local-repository-metadata-directory-batch.test.ts':
     '52d0953d6d2e1e07fcaa6dd292d63d632e1a406b61a6b723a45af149dada45ed',
   '../__tests__/local-repository-initial-directory-batch.test.ts':
@@ -137,7 +147,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/codex-chat-session.test.ts':
     '95e165298049cc2f137e599ef2c07f6573fe71983c5ddbae3aad514e39994692',
   '../__tests__/codex-conversation.test.ts':
-    '8f5f06437b6a123af45ccaabd56b31e0996ceb8d62b40d75536e31ec2ac292e8',
+    '3c7aff8059d42fbc12e5d28dc4eb2caf7a56748563c63f150e3e3d901ed15e3a',
   '../__tests__/codex-native-approvals.test.ts':
     'eb83c138be30ac74ef275eeeb9c5a5c4f43bfbe5a444253a6487e3bee4110238',
   '../__tests__/codex-native-artifact-qualification.test.ts':
@@ -780,7 +790,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/local-codex-first-command.ts':
     '9e383cf9c96a3cb8ea5bfe732c7ca7c4070cc52c051d80d9d3246fa718a28a0c',
   '../ordinary-local-codex-entry.ts':
-    '1513a0487faa2579bd925745b8f64ffa6a15bcaa84caa5dc1383d034f247b0aa',
+    '3ef17a5e9804f1844c9167fce6e1bbaa8d020803a948c32e9b5e4f61fe922d65',
   '../ordinary-local-codex-metadata.ts':
     '0ccfe315aa4bd8b5360608a3a588c3c0545c3fb7a34b3673c9db0156c610283a',
   '../ordinary-repository-startup.ts':
@@ -933,7 +943,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'bc82fa634c406ac7e6bbf032b51825fe8cdd4fe359e52b9ede5d8c2e44d04af2',
+  '../codex-conversation.ts': '2bb28f73ab9325ee880164b5b20761afb63f57cd996645f2a8ead07bd2dbefff',
   '../codex-conversation-store.ts':
     '888ece3535ec53213a058bee7acc944b86d89587dfcc8e2dc8ffad49ead79b58',
   '../symposium-custodian-ipc.ts':
