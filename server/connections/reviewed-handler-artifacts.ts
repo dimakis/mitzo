@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.556-native-chat-startup';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.557-account-responses-configuration';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../account-harness-connection.ts':
+    '3d7156205461962f543bc6bcc538f260e94083c302714e96bd867296ae7169c5',
   '../__tests__/chat-provider-startup-admission.test.ts':
     '2d56b8f9bf1a510324983852152d5d38fd596879ee78dd2b9f9af011139cec4b',
   '../__tests__/connections-credential-readiness.test.ts':
@@ -192,7 +195,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '568a46de4fc1202e3304220ddb576092882c9a308e5e2080471e89e0bc246466',
   '../chatgpt-plan-adviser.ts': 'b229afb3cb4b9517c58d23d826d7a0445b8c5f5c70fd6115f460793a60a33534',
   '../openai-account-key-authority.ts':
-    '831c610954c10143fe29295620420504e245593eff5d925f3f3c5bdd6c6b86b1',
+    '3e5fa84e3ab129c1fde4fbef5d1308a1ec875046d2229851a22b8a0d220fb9d1',
   '../terminal-plan-adviser.ts': 'dfd8232082bcdf9b149bd4100b3ae8c82b5fe9f1a663095ca7d337feadffc6a0',
   '../terminal-router.ts': 'b1a4968bcf4f73146f6d49cb73e97a259d7734575e42e163a8301380ca36e057',
   '../knowledge-draft-store.ts': '1d412689921f7a04a10f7f4842486321bc970d9b9ea6f6a983ff2a948094b639',
@@ -667,7 +670,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../frozen-host-codex-executable.ts':
     '01813a1d0b10ed3f2a8ca87eb5f13d3cbed01dd721549a930eafd2dcc8d02dfe',
   '../frozen-host-codex-bootstrap.ts':
-    'ed8720ea6b81d641d0ce6a94844c8ae0ec1803dd5585e8200ce78bf319bbf228',
+    '1387b5c4631885c7f5ff759cba26c96f6502061ec11dc8c47146083d9ae0713f',
   '../owned-codex-lifecycle-bridge.ts':
     'dc90b6aaa951a9b778c17964b70513cff49749d02c263262b4845219de26d283',
   '../owned-local-codex-chat-admission.ts':
@@ -692,7 +695,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-approval-scope.ts':
     'ba694fed805637520dfbfdb160f5d8ba8093a76d1cafe70709dbf18a443423d2',
   '../codex-app-server-client.ts':
-    '60cbc17568a1504f1fe3cb75e0648dc445c152403e1fa6efa1c32c2f0955fc3e',
+    '3e6fcdd37360da1e133111b7b585abca56583991233d3cfd953c5d9ac1ba878f',
   '../codex-mcp-tools.ts': 'ad82004d216382a911fbc1f089e4aeb8b22b2e833d6ced51fa6c37682a901206',
   '../codex-runtime-diagnostics.ts':
     '00b48e32557feff7923a5d548f085d2107383491689ec43f75f465287552f4c9',
@@ -717,7 +720,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
   '../chat-rest-handler.ts': '3e511081210d3ccd59755d28eb9a4d74c91bdac8a4c21a2dd3882080f89e072e',
   '../query-loop.ts': '1f026b1f5f26a10a9a5ff1db273c2b2c3301ad29caeb63040b5aa78e1fba4f42',
-  '../account-profiles.ts': '1fc1310454ff216a9cd608ab1c5a48846117367e8e4cf76b8c43b585f695d24e',
+  '../account-profiles.ts': '65f5bc7009d141ae392cc5594539d64924731cc3cae2a0ae772b36c4997e41d1',
   '../ordinary-turn-lifecycle.ts':
     'a138e83ba1a2ec8ceaef967858fb926d5de83658d21f555f32c98174afd4064b',
   '../ordinary-contributor-guidance.ts':
