@@ -513,7 +513,7 @@ export class OwnedLocalCodexChatAdmission {
     if (this.#primary) return this.#primary.assertModelSelection(model, thinking);
     this.assertCurrentSync();
     if (
-      (!this.#continuation || this.#resume) &&
+      (!this.#continuation || this.#resume || this.#adoptedPrimary) &&
       [...this.#continuations.values()].some(
         (continuation) =>
           continuation.#enqueued &&

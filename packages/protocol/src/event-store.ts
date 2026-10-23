@@ -1040,6 +1040,24 @@ export class EventStore {
   observePreparedRepositoryContinuation(commandId: string): OrdinaryLocalCommandAdmission {
     return this.readPreparedRepositoryTransition(commandId);
   }
+  /** Subsequent explicit commands use only a committed operation-specific
+   * primary. The generic first-origin workspace equality remains unchanged. */
+  admitPreparedRepositoryPrimaryContinuation(
+    meta: SessionUpsert,
+    binding: unknown,
+    input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
+    primaryCommandId: string,
+  ) {
+    const primary = this.getOrdinaryLocalCommandAdmission(primaryCommandId);
+    if (
+      !primary?.preparedRepositoryTransition ||
+      primary.state !== 'consumed' ||
+      this.getSendCommand(primaryCommandId)?.sessionId !== meta.sessionId
+    )
+      throw Error('Committed prepared repository primary required');
+    this.getPreparedRepositorySourceAdmission(primaryCommandId);
+    return this.admitOrdinaryContinuation(meta, binding, input, 'local', primaryCommandId);
+  }
 
   /** Repository custody CAS has already succeeded. Commit metadata plus native
    * child admission together. Failure retains uncertainty and forbids replay. */
@@ -1114,6 +1132,7 @@ export class EventStore {
     binding: unknown,
     input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
     location: 'local' | 'openshell' | 'responses' | 'vertex',
+    preparedPrimaryCommandId?: string,
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
     if (meta.ordinaryWorkspaceId != null) {
       const prepared = this.ordinaryWorkspaceSessions.forConversation(meta.sessionId);
@@ -1146,9 +1165,11 @@ export class EventStore {
       throw new Error('Ordinary command account model does not match selection');
     return this.db!.transaction(() => {
       const session = this.getSession(meta.sessionId);
-      const originRow = this.db!.prepare(
-        'SELECT client_msg_id FROM send_commands WHERE session_id=? AND ordinary_admission IS NOT NULL ORDER BY rowid LIMIT 1',
-      ).get(meta.sessionId) as { client_msg_id: string } | undefined;
+      const originRow = preparedPrimaryCommandId
+        ? { client_msg_id: preparedPrimaryCommandId }
+        : (this.db!.prepare(
+            'SELECT client_msg_id FROM send_commands WHERE session_id=? AND ordinary_admission IS NOT NULL ORDER BY rowid LIMIT 1',
+          ).get(meta.sessionId) as { client_msg_id: string } | undefined);
       const origin = originRow && this.getOrdinaryCommandAdmission(originRow.client_msg_id);
       const accountIdentity = (value: AccountBinding) => ({
         accountId: value.accountId,

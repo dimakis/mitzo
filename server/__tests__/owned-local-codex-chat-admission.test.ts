@@ -199,6 +199,34 @@ it('adopts only its exact committed prepared child under the same lease and pres
       images: f.options.images,
     });
     expect(f.lease.client.request).not.toHaveBeenCalled();
+    const selection = { ...f.selection, model: 'future-model', thinking: 'low' };
+    const payload = { text: 'Follow-up after adoption', systemPrompt: f.options.systemPrompt };
+    const nextExpected = { ...expected, selection };
+    f.store.admitPreparedRepositoryPrimaryContinuation(
+      {
+        sessionId: 'session',
+        repositoryWorkspaceId: 'prepared',
+        cwd: '/offline/prepared',
+        accountBinding: { ...f.binding, model: selection.model },
+        agentProfile: f.agentProfile,
+        mode: 'agent',
+        selectedModel: selection.model,
+        reasoningEffort: selection.thinking,
+      },
+      f.runtime,
+      { clientMsgId: 'followup', requestFingerprint: 'followup-fingerprint', selection, payload },
+      reserved.childCommandId,
+    );
+    f.store.claimOrdinaryLocalCommandDispatch('followup');
+    owner.admitContinuation('followup', nextExpected);
+    owner.assertBeforeEnqueue({
+      id: 'followup',
+      prompt: payload.text,
+      model: selection.model,
+      reasoningEffort: selection.thinking,
+    });
+    f.store.completeOrdinaryLocalCommand('followup');
+    expect(() => owner.assertModelSelection(selection.model, selection.thinking)).not.toThrow();
     owner.close();
     expect(() => owner.canClaimCommand(reserved.childCommandId)).toThrow();
     expect(() => owner.assertBeforeEnqueue(input)).toThrow();
