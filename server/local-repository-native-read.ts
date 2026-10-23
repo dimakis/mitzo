@@ -10,6 +10,7 @@ import {
   captureNativeReadAnchor,
   executeNativeAnchoredReadOperation,
   freezeNativeReadExclusions,
+  NativeReadAnchorMissingError,
   type NativeFileHelperTransport,
 } from './native-file-operation.js';
 
@@ -135,7 +136,13 @@ export async function captureNativeLocalRepositoryReader(
         );
         await authorize(path);
         return anchor;
-      } catch {
+      } catch (error) {
+        try {
+          await authorize(path);
+        } catch {
+          throw unavailable();
+        }
+        if (error instanceof NativeReadAnchorMissingError) throw error;
         throw unavailable();
       }
     },

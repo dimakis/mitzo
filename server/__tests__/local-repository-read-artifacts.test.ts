@@ -30,6 +30,7 @@ it('pins effective read scope, private call authority and repository read fixtur
     '../__tests__/fixtures/local-repository-read-owner.ts',
     '../session-local-repository-tools.ts',
     '../__tests__/local-repository-read-scope.test.ts',
+    '../__tests__/local-repository-domain-read.test.ts',
     '../__tests__/session-local-repository-tools.test.ts',
     '../__tests__/local-repository-read-artifacts.test.ts',
   ]) {

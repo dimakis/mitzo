@@ -1,4 +1,8 @@
-import { freezeNativeReadExclusions } from './native-file-operation.js';
+import {
+  freezeNativeReadExclusions,
+  type NativeAnchoredReadRequest,
+  type executeNativeAnchoredReadOperation,
+} from './native-file-operation.js';
 import { createHash } from 'node:crypto';
 import type { ToolDefinition } from '@mitzo/harness';
 import { z } from 'zod';
@@ -65,6 +69,13 @@ export interface SessionLocalRepositoryToolOwner {
     path: string,
     signal: AbortSignal,
   ): Promise<LocalRepositoryReadAnchor>;
+  /** Original qualified native transport, retained with its original current fences. */
+  executeReadOperation(
+    context: NativeHostToolContext,
+    request: NativeAnchoredReadRequest,
+    signal: AbortSignal,
+    timeoutMs: number,
+  ): ReturnType<typeof executeNativeAnchoredReadOperation>;
   /** Existing actual path authority, rechecked as an additional ceiling. */
   assertPathAccess(
     context: NativeHostToolContext,
@@ -93,7 +104,8 @@ export function sessionLocalRepositoryTools(owner: SessionLocalRepositoryToolOwn
     typeof owner.readPolicy === 'function' &&
     typeof owner.assertPathAccess === 'function' &&
     typeof owner.captureReadAnchor === 'function' &&
-    typeof owner.captureReadExclusions === 'function';
+    typeof owner.captureReadExclusions === 'function' &&
+    typeof owner.executeReadOperation === 'function';
   return {
     definitions: supplied() ? localRepositoryToolDefinitions : [],
     async execute(
@@ -167,6 +179,24 @@ export function sessionLocalRepositoryTools(owner: SessionLocalRepositoryToolOwn
             const anchor = await owner.captureReadAnchor(context!, path, signal!);
             current();
             return anchor;
+          },
+          executeReadOperation: async (
+            operation: NativeAnchoredReadRequest,
+            operationSignal: AbortSignal,
+            timeoutMs: number,
+          ) => {
+            current();
+            await context!.assertCurrent();
+            current();
+            const result = await owner.executeReadOperation(
+              context!,
+              operation,
+              AbortSignal.any([signal!, operationSignal]),
+              timeoutMs,
+            );
+            await context!.assertCurrent();
+            current();
+            return result;
           },
           assertReadAccess: async (path: string) => {
             current();

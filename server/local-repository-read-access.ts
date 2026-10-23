@@ -2,6 +2,7 @@ import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import {
   executeNativeAnchoredReadOperation,
   freezeNativeReadExclusions,
+  NativeReadAnchorMissingError,
   type NativeReadAnchor,
   type NativeReadIdentity,
   type NativeAnchoredReadRequest,
@@ -129,8 +130,9 @@ export class LocalRepositoryReadAccess {
     let supplied: LocalRepositoryReadAnchor;
     try {
       supplied = await this.authority.captureReadAnchor(path);
-    } catch {
-      this.authority.signal?.throwIfAborted();
+    } catch (error) {
+      await this.authorize(path);
+      if (error instanceof NativeReadAnchorMissingError) throw error;
       throw unavailable();
     }
     await this.authorize(path);

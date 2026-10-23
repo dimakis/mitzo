@@ -95,19 +95,27 @@ describe.each(['roots', 'host-wide'] as const)('effective denied roots with %s a
     expect(JSON.stringify(result)).not.toContain(denied);
   });
 
-  it('denies both an explicit denied path and an allowed alias to its canonical target', async () => {
+  it('denies explicit private paths and refuses directory aliases without learning their target authority', async () => {
     const denied = await repository(join(root, 'denied', 'target'));
     const alias = join(root, 'alias');
     await symlink(denied, alias);
-    for (const explicitPath of [denied, alias]) {
-      expect(
-        await discoverLocalRepository({ explicitPath, accessScope: scope([join(root, 'denied')]) }),
-      ).toMatchObject({
-        state: 'access-required',
-        candidates: [],
-        needed: ['read-access'],
-      });
-    }
+    expect(
+      await discoverLocalRepository({
+        explicitPath: denied,
+        accessScope: scope([join(root, 'denied')]),
+      }),
+    ).toMatchObject({ state: 'access-required', candidates: [], needed: ['read-access'] });
+    const result = await discoverLocalRepository({
+      explicitPath: alias,
+      accessScope: scope([join(root, 'denied')]),
+    });
+    expect(result).toMatchObject({
+      state: 'ambiguous',
+      candidates: [],
+      needed: [],
+      diagnostics: [{ reason: 'inspection-unavailable' }],
+    });
+    expect(JSON.stringify(result)).not.toContain(denied);
   });
 
   it('denies a lexical alias even if it resolves to an otherwise readable repository', async () => {

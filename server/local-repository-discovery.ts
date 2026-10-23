@@ -1,5 +1,4 @@
 import { freezeNativeReadExclusions } from './native-file-operation.js';
-import { realpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   inspectLocalRepositoryGitMetadata,
@@ -11,6 +10,7 @@ import {
 import {
   LocalRepositoryReadAccess,
   type LocalRepositoryReadAnchor,
+  type LocalRepositoryReadAuthority,
 } from './local-repository-read-access.js';
 import {
   readLocalRepositoryGitFacts,
@@ -35,6 +35,9 @@ export interface LocalRepositoryLimits {
   maxInstructionDirectories?: number;
 }
 interface ReadRequest {
+  /** Original qualified owner's transport, never a model field. Native owners
+   * route every source operation through their existing enforced boundary. */
+  executeReadOperation?: LocalRepositoryReadAuthority['executeReadOperation'];
   /** Private original current-owner exclusions, never tool JSON. */
   captureReadExclusions?(): Promise<readonly string[]>;
   accessScope: LocalRepositoryReadScope;
@@ -233,12 +236,13 @@ async function context(request: ReadRequest) {
       }
       try {
         await authorize(root);
-        const canonicalRoot = await realpath(root);
-        if (denied(canonicalRoot))
-          throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
-        await authorize(canonicalRoot);
-        roots.push(canonicalRoot);
-      } catch {
+        if (resolve(root) !== root || credentialPath(root))
+          throw new LocalRepositoryGitInspectionError('access', 'canonical-access-root-required');
+        roots.push(root);
+      } catch (error) {
+        request.signal?.throwIfAborted();
+        if (error instanceof LocalRepositoryGitInspectionError && error.kind === 'limit')
+          throw error;
         diagnostics.push({ path: '', reason: 'unavailable-access-root' });
       }
     }
@@ -251,15 +255,16 @@ async function context(request: ReadRequest) {
     check();
     if (!isAbsolute(path))
       throw new LocalRepositoryGitInspectionError('access', 'absolute-path-required');
+    if (resolve(path) !== path)
+      throw new LocalRepositoryGitInspectionError('access', 'canonical-path-required');
     if (credentialPath(path))
       throw new LocalRepositoryGitInspectionError('access', 'credential-directory-excluded');
-    if (denied(path)) throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
-    await authorize(path);
-    const result = await realpath(path);
-    if (!allowed(result))
+    if (!allowed(path))
       throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
-    await authorize(result);
-    return result;
+    await authorize(path);
+    // Lexical validation performs no source lookup. The mandatory descriptor
+    // owner captures/revalidates physical roots before any metadata or bytes.
+    return path;
   };
   const readAccess = new LocalRepositoryReadAccess({
     deniedRoots: suppliedDenials,
@@ -274,10 +279,20 @@ async function context(request: ReadRequest) {
       await canonical(path);
       return anchor;
     },
+    executeReadOperation: request.executeReadOperation,
     signal: request.signal,
     deadline,
   });
-  for (const root of roots) await readAccess.pinRoot(root);
+  for (const root of [...roots]) {
+    try {
+      await readAccess.pinRoot(root);
+    } catch (error) {
+      request.signal?.throwIfAborted();
+      if (error instanceof LocalRepositoryGitInspectionError && error.kind === 'limit') throw error;
+      roots.splice(roots.indexOf(root), 1);
+      diagnostics.push({ path: '', reason: 'unavailable-access-root' });
+    }
+  }
   const inspected = new Map<string, LocalRepositoryGitMetadata>();
   const metadata = async (cwd: string) => {
     if (!inspected.has(cwd)) {

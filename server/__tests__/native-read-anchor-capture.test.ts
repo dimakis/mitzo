@@ -86,6 +86,11 @@ it('refuses cancellation before launch', async () => {
   await expect(capture(directory, [], controller.signal)).rejects.toThrow();
   expect(execFile).not.toHaveBeenCalled();
 });
+it('distinguishes an actually missing directory from unsupported or denied capture without revealing its path', async () => {
+  const absent = join(root, 'absent-fixture-directory');
+  await expect(capture(absent)).rejects.toMatchObject({ code: 'ENOENT' });
+  await expect(capture(directory, [root])).rejects.not.toHaveProperty('code', 'ENOENT');
+});
 it('supports the actual filesystem root identity without enumerating its contents', async () => {
   const anchor = await capture('/');
   const actual = await lstat('/', { bigint: true });

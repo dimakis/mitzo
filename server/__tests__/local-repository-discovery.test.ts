@@ -141,12 +141,23 @@ describe('bounded repository discovery', () => {
     ).toMatchObject({ state: 'selected', candidates: [{ path: selected }] });
   });
 
-  it('canonicalizes explicit paths and refuses symlink escapes from authorized access', async () => {
+  it('selects physical paths and refuses directory aliases without resolving their targets', async () => {
     const selected = await repo(join(root, 'authorized', 'target'));
-    await symlink(selected, join(root, 'alias'));
     expect(
-      await discoverLocalRepository({ explicitPath: join(root, 'alias'), accessScope: scope() }),
+      await discoverLocalRepository({ explicitPath: selected, accessScope: scope() }),
     ).toMatchObject({ state: 'selected', candidates: [{ path: selected }] });
+    await symlink(selected, join(root, 'alias'));
+    const alias = await discoverLocalRepository({
+      explicitPath: join(root, 'alias'),
+      accessScope: scope(),
+    });
+    expect(alias).toMatchObject({
+      state: 'ambiguous',
+      candidates: [],
+      needed: [],
+      diagnostics: [{ reason: 'inspection-unavailable' }],
+    });
+    expect(JSON.stringify(alias)).not.toContain(selected);
     const limited = { kind: 'roots' as const, roots: [join(root, 'authorized')] };
     await symlink(root, join(root, 'authorized', 'escape'));
     expect(
@@ -156,7 +167,7 @@ describe('bounded repository discovery', () => {
           accessScope: limited,
         })
       ).state,
-    ).toBe('access-required');
+    ).toBe('ambiguous');
   });
 
   it('does not traverse credentials, git internals, dependencies or symlink loops', async () => {

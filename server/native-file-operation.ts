@@ -26,6 +26,9 @@ def capture_read_anchor(request):
         if not stat.S_ISDIR(info.st_mode) or time.monotonic() >= deadline:
             raise RuntimeError('Anchored read unavailable')
         return json.dumps({'rootPath': path, 'identity': {'dev': str(info.st_dev), 'ino': str(info.st_ino)}})
+    except FileNotFoundError:
+        # A bounded internal fact, never parsed from pathful OS diagnostics.
+        return json.dumps({'missing': True})
     finally:
         os.close(directory)
 
@@ -372,6 +375,14 @@ export interface NativeReadAnchor {
   readonly rootPath: string;
   readonly identity: NativeReadIdentity;
 }
+/** Internal absence fact from the qualified capture helper.
+ * Missing interpreter/process failures and access refusals remain unavailable. */
+export class NativeReadAnchorMissingError extends Error {
+  readonly code = 'ENOENT';
+  constructor() {
+    super('Anchored native read unavailable');
+  }
+}
 export interface NativeAnchoredReadRequest {
   operation: 'ReadBytes' | 'ListDirectory' | 'ReadLink';
   /** Complete actual owner exclusions, never model input or inferred defaults. */
@@ -453,6 +464,7 @@ export async function captureNativeReadAnchor(
     );
     signal.throwIfAborted();
     if (result.is_error || result.content.length > 8192) throw unavailable();
+    if (result.content === '{"missing": true}') throw new NativeReadAnchorMissingError();
     const value: unknown = JSON.parse(result.content);
     if (
       !value ||
@@ -474,8 +486,9 @@ export async function captureNativeReadAnchor(
       rootPath: path,
       identity: Object.freeze({ dev: value.identity.dev, ino: value.identity.ino }),
     });
-  } catch {
+  } catch (error) {
     signal.throwIfAborted();
+    if (error instanceof NativeReadAnchorMissingError) throw error;
     throw unavailable();
   }
 }

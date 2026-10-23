@@ -151,6 +151,61 @@ it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION 
   60000,
 );
 
+it
+  .runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION === '1')
+  .each([false, true])(
+  'native reader factory exposes actual qualified absence only while its original owner remains current (revoke=%s)',
+  async (revoke) => {
+    const original = sandboxedCommand.executeSandboxedCommand;
+    let currentPolicy = true;
+    let missingOperation = false;
+    let checked = false;
+    vi.spyOn(sandboxedCommand, 'executeSandboxedCommand').mockImplementation(async (options) => {
+      const result = await original(options);
+      if (missingOperation && revoke) currentPolicy = false;
+      return result;
+    });
+    const f = await fixture({
+      nativeBaseReads: true,
+      hostWideNativeReads: true,
+      nativePrivateName: 'Café-private',
+      nativePolicyCheck: () => {
+        if (!currentPolicy) throw Error('Original native policy revoked');
+      },
+      observe: async (context) => {
+        const reader = await captureNativeLocalRepositoryReader(context, {
+          deadline: Date.now() + 30000,
+        });
+        const absent = join(f.f.root, 'absent-native-directory');
+        try {
+          expect((await reader.captureReadAnchor(f.f.root)).rootPath).toBe(f.f.root);
+          missingOperation = true;
+          const error = await reader.captureReadAnchor(absent).then(
+            () => undefined,
+            (failure: unknown) => failure,
+          );
+          expect(error).toBeInstanceOf(Error);
+          expect(error).toMatchObject({
+            message: revoke
+              ? 'Local repository native reads unavailable'
+              : 'Anchored native read unavailable',
+          });
+          if (revoke) expect(error).not.toHaveProperty('code');
+          else expect(error).toHaveProperty('code', 'ENOENT');
+          expect(String(error)).not.toContain(absent);
+          checked = true;
+        } finally {
+          await reader.dispose();
+        }
+      },
+    });
+    expect((await f.a.call({ operation: 'list' })).response.success).toBe(!revoke);
+    expect(checked).toBe(true);
+    expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  },
+  40000,
+);
+
 it.each([false, true])(
   'native reader factory refuses missing or narrow original scopes before source lookup (scope=%s)',
   async (nativeBaseReads) => {
@@ -198,9 +253,13 @@ it
           // Prove the same actual original-scope runner admits this safe control.
           const allowed = await reader.captureReadAnchor(f.f.root);
           expect(allowed.rootPath).toBe(f.f.root);
-          await expect(reader.captureReadAnchor(variant)).rejects.toThrow(
-            'Local repository native reads unavailable',
-          );
+          const deniedError = await reader
+            .captureReadAnchor(variant)
+            .catch((error: unknown) => error);
+          expect(deniedError).toMatchObject({
+            message: 'Local repository native reads unavailable',
+          });
+          expect(deniedError).not.toHaveProperty('code');
           const file = await stat(join(denied, 'fixture-probe.txt'), { bigint: true });
           const result = await reader.executeReadOperation!(
             {

@@ -8,6 +8,10 @@ import {
   fixtureReadAnchor,
   fixtureReadExclusions,
 } from './fixtures/local-repository-read-owner.js';
+import {
+  executeNativeAnchoredReadOperation,
+  type NativeAnchoredReadRequest,
+} from '../native-file-operation.js';
 import type { NativeHostToolContext } from '../native-host-tool-context.js';
 import {
   sessionLocalRepositoryTools,
@@ -103,6 +107,14 @@ function fixture() {
     captureReadAnchor: vi.fn(async (_context: NativeHostToolContext, path: string) =>
       fixtureReadAnchor(path),
     ),
+    executeReadOperation: vi.fn(
+      async (
+        _context: NativeHostToolContext,
+        request: NativeAnchoredReadRequest,
+        signal: AbortSignal,
+        timeoutMs: number,
+      ) => executeNativeAnchoredReadOperation(request, signal, timeoutMs),
+    ),
     assertPathAccess: vi.fn(
       async (_context: NativeHostToolContext, _path: string, _signal: AbortSignal) => {},
     ),
@@ -122,6 +134,13 @@ function fixture() {
 const value = (result: { content: string } | undefined) => JSON.parse(result!.content);
 
 describe('private Local Mac repository read tools', () => {
+  it('withholds repository reads when the original enforced execution port is missing', () => {
+    const owner = {
+      ...fixture().owner,
+      executeReadOperation: undefined,
+    } as unknown as SessionLocalRepositoryToolOwner;
+    expect(sessionLocalRepositoryTools(owner).definitions).toEqual([]);
+  });
   it('discovers and inspects unrelated repositories under original call-bound authority', async () => {
     const first = await repository(join(root, 'web'));
     const second = await repository(join(root, 'library'));
@@ -150,6 +169,7 @@ describe('private Local Mac repository read tools', () => {
       ),
     ).toBe(true);
     expect(f.owner.assertPathAccess).toHaveBeenCalled();
+    expect(f.owner.executeReadOperation).toHaveBeenCalled();
     expect(f.dispose).toHaveBeenCalledTimes(2);
     expect(git(second, 'diff')).toContain('Dirty source');
   });
@@ -197,6 +217,7 @@ describe('private Local Mac repository read tools', () => {
       'assertPathAccess',
       'captureReadAnchor',
       'captureReadExclusions',
+      'executeReadOperation',
     ] as const) {
       const f = fixture();
       const owner = {
