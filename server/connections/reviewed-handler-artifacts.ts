@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.619-qualified-cold-bootstrap-order';
+  'v1.0.620-qualified-cold-native-admission';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -838,9 +838,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-local-codex-host-runtime.ts':
     'bd5c43d070f2acc3783914677270a4bf38aa0d90e02635276fe79c0e8906decb',
   '../ordinary-local-codex-selection-owner.ts':
-    '28df60a2f75ba9413d2bdf96bfef0fb67f57ac52bda6e6816462475038f1ac48',
+    '9b45e9f5a9badcbf50c07eb248764ec8e2c9788739967cb1b3a31b16f914f86b',
   '../ordinary-local-codex-owned-runtime.ts':
-    '959cc88e42074369612807b6ca5aa74bf2e6b384e6740a53624206e6a89b8984',
+    '51e5ceb4a2fb9ca261a7a96b87353cc6c2c957d15fbcee65f558d87670a069af',
   '../frozen-host-codex-api-login.ts':
     '4718d3bad3c05ab9106f24329ec012dbaa59ea0d49a66ea6b5ae357ccee5f19c',
   '../frozen-host-codex-login.ts':
@@ -852,7 +852,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../owned-codex-lifecycle-bridge.ts':
     'b76d973b736e98d2b140b87e0bcd767449539a1bf8fa5f6d41d95e3839408a96',
   '../owned-local-codex-chat-admission.ts':
-    '90bdedb51a2717896ff3f03ff486145c6799cbfbbf2a582d7d031aa27791d39a',
+    'dd7c8195a143307b9f43effb99b6651231162dcf6c61859b113d3fe438163cea',
   '../codex-account.ts': 'dc2ac5efec915495b6af3c7a3001ea4856427ca2d185648a864d2ceeb6593e71',
   '../codex-runtime-policy.ts': 'd11ab33ef4c5c69a5b5d8754ce474afd8a1a712df4b45e93f0690b97636859ab',
   '../model-catalog.ts': 'e6922550fed2f7d6d3330299dfe83726d97d126e79c4a3abdb5e3334020ce90a',
@@ -1618,5 +1618,5 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-workspace-owner.test.ts':
     '17e2ce4a8d505778fec6899ff47e79557bed0be6f71269bb0e92adf9f30ad432',
   '../__tests__/prepared-repository-native-consumer.test.ts':
-    '65a31614556a5fd1e70871b6935967f6a67588a76a8fc97946c8a4d4404ca248',
+    '726763dea571f76550e28f69116b4c44a9bf69b0b3e88c5870075d683de89533',
 });

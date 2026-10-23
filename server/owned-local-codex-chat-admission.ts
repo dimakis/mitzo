@@ -71,6 +71,8 @@ interface Owner {
   bridge: OwnedCodexLifecycleBridge;
   authSessionId?: string;
   custody?: HostCodexCustody;
+  /** Current actual private cold workspace owner; never reconstructed live delegation. */
+  qualifiedColdPrimary?: Readonly<{ commandId: string; assertCurrentSync(): void }>;
   nativeStore?: CodexConversationStore;
   preparedRepositoryBoundary?: {
     assertCurrentSync(): void;
@@ -471,7 +473,22 @@ export class OwnedLocalCodexChatAdmission {
   currentPreparedRepositoryPrimaryCommandId(): string | undefined {
     if (this.#primary) return this.#primary.currentPreparedRepositoryPrimaryCommandId();
     this.assertCurrentSync();
-    if (!this.#adoptedPrimary) return undefined;
+    if (!this.#adoptedPrimary) {
+      const cold = this.owner.qualifiedColdPrimary;
+      if (!this.#resume || !cold) return undefined;
+      const result: unknown = cold.assertCurrentSync();
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => {});
+        throw unavailable();
+      }
+      const receipt = this.owner.eventStore.getOrdinaryLocalCommandAdmission(this.owner.commandId);
+      if (
+        receipt?.state !== 'consumed' ||
+        receipt.preparedRepositoryPrimaryCommandId !== cold.commandId
+      )
+        throw unavailable();
+      return cold.commandId;
+    }
     const receipt = this.owner.eventStore.getOrdinaryLocalCommandAdmission(this.owner.commandId);
     if (receipt?.state !== 'consumed' || !receipt.preparedRepositoryTransition) throw unavailable();
     return this.owner.commandId;
@@ -491,8 +508,7 @@ export class OwnedLocalCodexChatAdmission {
     const receipt = this.owner.eventStore.observePreparedRepositoryContinuation(commandId);
     const frozenTransition = structuredClone(transition);
     if (
-      transition.priorPrimaryCommandId !==
-        (this.#adoptedPrimary ? this.owner.commandId : undefined) ||
+      transition.priorPrimaryCommandId !== this.currentPreparedRepositoryPrimaryCommandId() ||
       receipt.state !== 'uncertain' ||
       !isDeepStrictEqual(receipt.preparedRepositoryTransition, frozenTransition) ||
       !isDeepStrictEqual(receipt.binding, original.binding) ||

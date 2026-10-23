@@ -538,3 +538,88 @@ it('retains actual cross-store uncertainty and refuses a replay after native cwd
     'accepted source',
   );
 });
+
+it('cold-resumes a consumed qualified primary through a new genuine bootstrap, preserving queued-child FIFO and current history', async () => {
+  const f = await fixture();
+  const result = await f.adopt();
+  f.setCwd(result!.directory);
+  const sessionId = f.first.sessionId,
+    binding = f.first.lease.binding;
+  const queued = f.native
+    .commands(sessionId, binding)
+    .find((command) => command.status === 'queued')!;
+  const originalCustody = f.native.readHostCustody(sessionId, binding);
+  const originalThread = f.native.read(sessionId, binding).threadId;
+  const later = join(result!.directory, 'later-cold.txt');
+  await writeFile(later, 'Uncommitted task data remains');
+  f.runtime.close();
+  const request = {
+    ...structuredClone(f.request),
+    clientMsgId: 'clean-cold-command',
+    payload: { text: 'Continue original work after clean retirement' },
+  };
+  const dispatch = vi.fn(
+    async (
+      value: import('../ordinary-local-codex-owned-runtime.js').OrdinaryLocalCodexOwnedDispatch,
+    ) => {
+      expect(value.resume).toBe(true);
+      expect(value.workspace.id).toBe(result!.id);
+      expect(value.expected.workspace.cwd).toBe(result!.directory);
+      expect(value.lease.privateHome).toBe(f.first.lease.privateHome);
+      expect(value.lease.binding).toEqual(binding);
+      await value.admission.assertCurrent();
+      value.admission.assertOptions({
+        conversationId: sessionId,
+        messageId: request.clientMsgId,
+        binding: value.lease.binding,
+        profile: value.profile,
+        session: { cwd: result!.directory, mode: 'agent' },
+        prompt: value.payload.text,
+        systemPrompt: value.payload.systemPrompt,
+        model: value.expected.selection.model,
+        reasoningEffort: value.expected.selection.thinking,
+        agentProfile: value.expected.agentProfile,
+        agentContext: value.expected.agentContext,
+        repositoryWorkspace: value.workspace,
+        resume: true,
+      });
+      const input = {
+        id: value.commandId,
+        prompt: value.payload.text,
+        model: value.expected.selection.model,
+        reasoningEffort: value.expected.selection.thinking,
+      };
+      value.admission.assertBeforeEnqueue(input);
+      f.native.enqueue(sessionId, binding, input);
+    },
+  );
+  const cold = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    nativeStore: f.native,
+    commandId: request.clientMsgId,
+    reservation: { ...f.reservation, id: result!.id },
+    launch: () => f.rpc,
+    dispatch,
+  });
+  cleanups.push(() => cold.close());
+  await expect(cold.admitResume(request)).resolves.toEqual({ dispatched: true });
+  expect(dispatch).toHaveBeenCalledOnce();
+  expect(f.events.getOrdinaryLocalCommandAdmission(request.clientMsgId)).toMatchObject({
+    state: 'consumed',
+    preparedRepositoryPrimaryCommandId: queued.id,
+  });
+  expect(f.native.readHostCustody(sessionId, binding)).toEqual(originalCustody);
+  expect(f.native.read(sessionId, binding).threadId).toBe(originalThread);
+  expect(
+    f.native
+      .commands(sessionId, binding)
+      .filter((c) => c.status === 'queued')
+      .map((c) => c.id),
+  ).toEqual([queued.id, request.clientMsgId]);
+  const current = dispatch.mock.calls[0][0].admission;
+  expect(current.canClaimCommand(queued.id)).toBe(true);
+  expect(current.currentPreparedRepositoryPrimaryCommandId()).toBe(queued.id);
+  expect(f.native.claimNext(sessionId, binding)?.id).toBe(queued.id);
+  current.assertBeforeDispatch(queued.id);
+  expect(await readFile(later, 'utf8')).toBe('Uncommitted task data remains');
+});

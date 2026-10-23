@@ -46,7 +46,8 @@ interface PreparedPrimaryDelegation {
  */
 export class OrdinaryLocalCodexSelectionOwner {
   readonly #reservation: Omit<HostRepositoryReservationInput, 'signal'>;
-  readonly #workspace: OrdinaryLocalWorkspaceOwner<LocalWorkspaceKind>;
+  readonly #workspace: LocalWorkspaceCustodyOwner;
+  readonly #coldPrimary?: string;
   readonly #permission: symbol | undefined;
   #snapshot?: OrdinaryLocalCodexAdmissionExpectation;
   #context?: AgentContextSnapshot;
@@ -69,7 +70,8 @@ export class OrdinaryLocalCodexSelectionOwner {
       this.owners.responses ||
       this.owners.vertex ||
       child.state !== 'uncertain' ||
-      transition.priorPrimaryCommandId !== this.#preparedPrimary?.childCommandId ||
+      transition.priorPrimaryCommandId !==
+        (this.#preparedPrimary?.childCommandId ?? this.#coldPrimary) ||
       !isDeepStrictEqual(child.preparedRepositoryTransition, transition) ||
       (this.#preparedPrimary
         ? !isDeepStrictEqual(
@@ -90,10 +92,7 @@ export class OrdinaryLocalCodexSelectionOwner {
     this.sync(assertBoundary.call(owners));
     if (owners.assertCurrentSync !== assertBoundary || owners.assertAdoptedSync !== assertAdopted)
       throw unavailable();
-    const originalAdmission = this.owners.events.observePreparedRepositoryBootstrapAdmission(
-      childCommandId,
-      this.owners.commandId,
-    );
+    const originalAdmission = this.observeBootstrap(childCommandId, this.owners.commandId);
     this.#preparedPrimary = {
       childCommandId,
       transition,
@@ -104,6 +103,15 @@ export class OrdinaryLocalCodexSelectionOwner {
       assertAdopted,
       previous: this.#preparedPrimary && { ...this.#preparedPrimary, previous: undefined },
     };
+  }
+  private observeBootstrap(childId: string, bootstrapId: string) {
+    return this.#coldPrimary
+      ? this.owners.events.observePreparedRepositoryColdBootstrapAdmission(
+          childId,
+          bootstrapId,
+          this.#coldPrimary,
+        )
+      : this.owners.events.observePreparedRepositoryBootstrapAdmission(childId, bootstrapId);
   }
   private sync(result: unknown): void {
     if (result === undefined) return;
@@ -122,10 +130,7 @@ export class OrdinaryLocalCodexSelectionOwner {
     if (
       !isDeepStrictEqual(child.preparedRepositoryTransition, primary.transition) ||
       !isDeepStrictEqual(
-        this.owners.events.observePreparedRepositoryBootstrapAdmission(
-          primary.childCommandId,
-          this.owners.commandId,
-        ),
+        this.observeBootstrap(primary.childCommandId, this.owners.commandId),
         primary.originalAdmission,
       ) ||
       !['uncertain', 'consumed'].includes(child.state)
@@ -165,10 +170,7 @@ export class OrdinaryLocalCodexSelectionOwner {
     )
       throw unavailable();
     const child = this.owners.events.observePreparedRepositoryContinuation(p.childCommandId);
-    const origin = this.owners.events.observePreparedRepositoryBootstrapAdmission(
-      p.childCommandId,
-      this.owners.commandId,
-    );
+    const origin = this.observeBootstrap(p.childCommandId, this.owners.commandId);
     if (
       !isDeepStrictEqual(child.preparedRepositoryTransition, p.transition) ||
       !isDeepStrictEqual(origin, p.originalAdmission) ||
@@ -231,22 +233,44 @@ export class OrdinaryLocalCodexSelectionOwner {
       commandId: string;
       /** Cold owner independently verified original native custody before construction. */
       continuation?: boolean;
+      /** Actual private cold runtime owner, independently joined to persisted
+       * adoption/native custody. No receipt alone creates this workspace owner. */
+      qualifiedColdPrimary?: Readonly<{
+        commandId: string;
+        workspace: LocalWorkspaceCustodyOwner<'repository'>;
+      }>;
       preparationOperationId?: string;
       responses?: boolean;
       vertex?: boolean;
     },
   ) {
     this.#reservation = structuredClone(owners.reservation);
-    this.#workspace = new OrdinaryLocalWorkspaceOwner(
-      owners.workspace,
-      owners.workspaceKind ?? 'repository',
-      this.#reservation,
-    );
+    if (
+      owners.qualifiedColdPrimary &&
+      (!owners.continuation ||
+        owners.responses ||
+        owners.vertex ||
+        owners.workspaceKind === 'ordinary')
+    )
+      throw unavailable();
+    this.#coldPrimary = owners.qualifiedColdPrimary?.commandId;
+    this.#workspace =
+      owners.qualifiedColdPrimary?.workspace ??
+      new OrdinaryLocalWorkspaceOwner(
+        owners.workspace,
+        owners.workspaceKind ?? 'repository',
+        this.#reservation,
+      );
     this.#permission = permissionRevision(owners.events, this.#reservation.conversationId);
   }
   assertCurrentSync(input: Readonly<OrdinaryLocalCodexAdmissionExpectation>): void {
     try {
       this.owners.signal.throwIfAborted();
+      if (
+        this.owners.qualifiedColdPrimary?.commandId !== this.#coldPrimary ||
+        (this.#coldPrimary && this.owners.qualifiedColdPrimary?.workspace !== this.#workspace)
+      )
+        throw unavailable();
       this.owners.operator.assertCurrent();
       const expected = structuredClone(input),
         reservation = this.#reservation;
@@ -421,9 +445,7 @@ export class OrdinaryLocalCodexSelectionOwner {
     const workspace = primary?.workspace ?? this.#workspace;
     if (workspace.get().state === 'claimed')
       await workspace.validate(
-        workspace === this.#workspace
-          ? expected.workspace.cwd
-          : primary!.transition.newWorkspace.directory,
+        primary ? primary.transition.newWorkspace.directory : expected.workspace.cwd,
       );
     this.assertCurrentSync(expected);
   }
