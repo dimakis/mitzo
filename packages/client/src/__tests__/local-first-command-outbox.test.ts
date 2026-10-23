@@ -832,3 +832,81 @@ it('releases a stalled original HTTP send after exact receipt recovery so the ne
     outbox.rejectAll('Fixture ended');
   }
 });
+
+it('does not promote a historical consumed receipt with uncertain=true into local assignment authority', async () => {
+  const storage = disk();
+  storage.setItem(
+    '',
+    JSON.stringify([
+      {
+        body: command,
+        scope: 1,
+        uncertain: true,
+        localDraftId: 'historical',
+        localReceipt: { sessionId: 'session', state: 'consumed' },
+      },
+    ]),
+  );
+  const fetch = vi.fn(async () => receipt());
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ acknowledged: true }));
+  expect(outbox.retryLocalCommand(command.clientMsgId)).toBe(true);
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'consumed', acknowledged: true }),
+    ),
+  );
+  outbox.stop();
+});
+it('does not claim durable consumed completion when the positive receipt write fails', async () => {
+  const diskStorage = disk();
+  let fail = true;
+  const storage = {
+    getItem: diskStorage.getItem,
+    setItem: (key: string, value: string) => {
+      if (
+        fail &&
+        JSON.parse(value).some(
+          (entry: { uncertain: boolean; localReceipt?: { state: string } }) =>
+            entry.uncertain === false && entry.localReceipt?.state === 'consumed',
+        )
+      )
+        throw Error('Receipt write failed');
+      diskStorage.setItem(key, value);
+    },
+  };
+  const fetch = vi.fn(async () => receipt());
+  const notify = vi.fn();
+  const outbox = new SendOutbox({
+    url: '/local/send',
+    storage,
+    fetch,
+    notify,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  outbox.enqueue(command, 1, 'original');
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ state: 'uncertain' })),
+  );
+  expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ acknowledged: true }));
+  expect(JSON.parse(storage.getItem()!)[0]).toMatchObject({ uncertain: true });
+  fail = false;
+  expect(outbox.retryLocalCommand(command.clientMsgId)).toBe(true);
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'consumed', acknowledged: true }),
+    ),
+  );
+  outbox.stop();
+});
