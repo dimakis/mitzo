@@ -420,3 +420,17 @@ it('rolls ordinary retirement back if the new repository pointer cannot commit',
   expect(f.raw(p.record.id)).toEqual(p.before);
   expect(() => f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId)).toThrow();
 });
+
+it('rejects an adopted witness when the retained original decision input is replaced', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  const adopted = f.service.get(p.record.id);
+  const decision = adopted.pendingHostTaskDecision!;
+  decision.evidence.input = { changed: 'original request lost' };
+  decision.evidence.inputSha256 = pendingHostTaskDecisionHash(decision.evidence.input);
+  f.db
+    .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+    .run(JSON.stringify(adopted), adopted.id);
+  expect(() => f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId)).toThrow();
+});

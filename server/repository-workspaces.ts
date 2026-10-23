@@ -234,6 +234,10 @@ const transitionAdoptionSchema = z.strictObject({
   version: z.literal(1),
   childCommandId: reservationReference,
   factsSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  materializedRecord: z
+    .string()
+    .min(1)
+    .refine((value) => Buffer.byteLength(value, 'utf8') <= 262144),
   facts: transitionFactsSchema,
 });
 function transitionFacts(input: PreparedRepositoryTransitionFacts) {
@@ -1857,10 +1861,12 @@ export class RepositoryWorkspaces {
             version: 1,
             childCommandId,
             factsSha256: pendingHostTaskDecisionHash(facts),
+            materializedRecord: raw.record,
             facts,
           },
         };
         primaryDispositionSchema.parse(next.primaryDisposition);
+        transitionAdoptionSchema.parse(next.preparedRepositoryTransitionAdoption);
         const checked: unknown = assertCurrentSync();
         if (checked !== undefined) {
           void Promise.resolve(checked).catch(() => {});
@@ -1944,6 +1950,34 @@ export class RepositoryWorkspaces {
       marker = transitionAdoptionSchema.parse(record.preparedRepositoryTransitionAdoption);
     const receipt = PendingHostTaskReceiptSchema.parse(record.pendingHostTask),
       decision = PendingHostTaskDecisionSchema.parse(record.pendingHostTaskDecision);
+    const original: unknown = JSON.parse(marker.materializedRecord);
+    const retainedOriginalFields = (value: object) =>
+      Object.fromEntries(
+        Object.entries(value).filter(
+          ([key]) =>
+            ![
+              'state',
+              'conversationId',
+              'directory',
+              'sandbox',
+              'taskIdentity',
+              'hostReservation',
+              'primaryDisposition',
+              'preparedRepositoryTransitionAdoption',
+              'sourceReleased',
+            ].includes(key),
+        ),
+      );
+    if (
+      !original ||
+      typeof original !== 'object' ||
+      Array.isArray(original) ||
+      pendingHostTaskDecisionHash(original) !== facts.materializedRecordSha256 ||
+      !isDeepStrictEqual(retainedOriginalFields(record), retainedOriginalFields(original)) ||
+      (record.sourceReleased !== undefined && typeof record.sourceReleased !== 'boolean')
+    )
+      throw Error('Original materialized custody record changed');
+    const payload = pendingHostTaskDecisionPayload(request, decision.scope);
     if (
       record.state !== 'claimed' ||
       record.sandbox ||
@@ -1956,6 +1990,7 @@ export class RepositoryWorkspaces {
         version: 1,
         childCommandId,
         factsSha256: pendingHostTaskDecisionHash(facts),
+        materializedRecord: marker.materializedRecord,
         facts,
       }) ||
       receipt.state !== 'materialized' ||
@@ -1969,7 +2004,13 @@ export class RepositoryWorkspaces {
       !isDeepStrictEqual(decision.request, request) ||
       !isDeepStrictEqual(decision.scope.oldWorkspace, facts.oldWorkspace) ||
       decision.scopeSha256 !== facts.consumedScopeSha256 ||
-      decision.scopeSha256 !== pendingHostTaskDecisionHash(decision.scope)
+      decision.scopeSha256 !== pendingHostTaskDecisionHash(decision.scope) ||
+      decision.evidence.toolUseID !== request.prepareCallId ||
+      decision.evidence.sessionId !== request.conversationId ||
+      !isDeepStrictEqual(decision.evidence.input, payload) ||
+      decision.evidence.inputSha256 !== pendingHostTaskDecisionHash(payload) ||
+      record.hostReservation?.taskRoot !== request.taskRoot ||
+      !isDeepStrictEqual(record.hostReservation.rootIdentity, receipt.rootIdentity)
     )
       throw Error('Adopted repository custody witness unavailable');
     this.getHostReservation({
