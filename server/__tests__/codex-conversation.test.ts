@@ -4287,6 +4287,31 @@ it('pauses a failed retained-primary boundary before claiming queued old-workspa
   expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
 });
 
+it('invalidates the original retained boundary while admission awaits transport closure', async () => {
+  const f = await setup();
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let fence!: () => void;
+  const admit = vi.fn(async (assertCurrentSync: () => void) => {
+    fence = assertCurrentSync;
+    await waiting;
+  });
+  f.conversationOptions.beforeRuntimeAdmission = { kind: 'prepared-repository-primary', admit };
+  const sent = f.c
+    .send({ id: 'closed-before-claim', prompt: 'Original task' })
+    .catch((error: unknown) => error);
+  await vi.waitFor(() => expect(admit).toHaveBeenCalledOnce());
+  expect(typeof fence).toBe('function');
+  expect(() => fence()).not.toThrow();
+  f.c.close();
+  expect(() => fence()).toThrow();
+  release();
+  expect(await sent).toBeInstanceOf(Error);
+  expect(f.requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+});
+
 it('pauses admission failure before claim and resumes the preserved FIFO on explicit send', async () => {
   let blocked = true;
   const admission = vi.fn(async (close: () => Promise<void>) => {

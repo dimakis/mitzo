@@ -231,7 +231,10 @@ export interface CodexConversationOptions {
   /** Completed-turn boundary, before claiming queued work. */
   beforeRuntimeAdmission?:
     | ((closeOwnedTransport: () => Promise<void>) => Promise<boolean>)
-    | { readonly kind: 'prepared-repository-primary'; admit(): Promise<void> };
+    | {
+        readonly kind: 'prepared-repository-primary';
+        admit(assertCurrentSync: () => void): Promise<void>;
+      };
   reconnectGuard?: (work: () => Promise<void>) => Promise<void>;
   completionHookTimeoutMs?: number;
   runtimeCwd?: string;
@@ -1993,10 +1996,34 @@ export class CodexConversation {
         if (typeof boundary !== 'function') {
           if (!boundary || boundary.kind !== 'prepared-repository-primary' || !this.ready)
             throw Error('Retained primary admission requires the original transport');
-          const admitted: unknown = await boundary.admit();
+          const client = this.client;
+          const generation = this.transportGeneration;
+          const threadId = this.threadId;
+          const binding = this.binding;
+          const admit = boundary.admit;
+          const assertBoundaryCurrentSync = () => {
+            this.opts.startupSignal?.throwIfAborted();
+            if (
+              this.closed ||
+              this.paused ||
+              this.active ||
+              !this.ready ||
+              this.client !== client ||
+              this.transportGeneration !== generation ||
+              this.threadId !== threadId ||
+              this.binding !== binding ||
+              this.opts.beforeRuntimeAdmission !== boundary ||
+              boundary.admit !== admit
+            )
+              throw Error('Original retained primary boundary unavailable');
+          };
+          assertBoundaryCurrentSync();
+          const admitted: unknown = await admit.call(boundary, assertBoundaryCurrentSync);
           if (admitted !== undefined)
             throw Error('Retained primary admission must settle without a value');
+          assertBoundaryCurrentSync();
           await this.verifyCurrentBinding(this.binding);
+          assertBoundaryCurrentSync();
         } else {
           const admit = async () => {
             const changed = await boundary(async () => {
