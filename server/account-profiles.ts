@@ -1,3 +1,8 @@
+import {
+  ApiHarnessConnectionSchema,
+  apiHarnessConnection,
+  subscriptionHarnessConnection,
+} from './account-harness-connection.js';
 import { protectCodexProfileRoots } from './codex-private-path.js';
 import { readReadyOpenAIAccountProfiles } from './openai-account-enrollment.js';
 import { cachedModels, CatalogModel, refreshModels, readCodexModels } from './model-catalog.js';
@@ -121,6 +126,7 @@ const ApiProfile = z
     id: z.string().regex(/^[a-zA-Z0-9_-]+$/),
     label: z.string().min(1),
     provider: z.literal('openai'),
+    connection: ApiHarnessConnectionSchema.optional(),
     credentialRef: CredentialReferenceSchema,
     sandboxProvider: z
       .string()
@@ -173,6 +179,7 @@ function routingRevision(profile: z.infer<typeof Profile>): string {
                 profile.credentialRef,
                 profile.sandboxProvider,
                 profile.sandboxProviderId,
+                ...(profile.connection ? [profile.connection] : []),
               ]
             : [
                 profile.provider,
@@ -724,7 +731,7 @@ export class AccountProfiles {
       this.profiles
         .filter(
           (p) =>
-            (p.provider === 'openai' && options.discoverApi !== false) ||
+            (p.provider === 'openai' && !p.connection && options.discoverApi !== false) ||
             (p.provider === 'openai-codex' && this.options.codexEnabled),
         )
         .map((profile) =>
@@ -1031,8 +1038,9 @@ export class AccountProfiles {
   localCodexProfile(binding: AccountBinding, historical = false): CodexAccountProfile {
     if (binding.provider !== 'openai')
       return historical ? this.codexRoutingProfile(binding) : this.codexProfile(binding);
+    this.harnessConnection(binding);
     if (historical) this.apiRoutingProfile(binding);
-    else this.apiProfile(binding);
+    else this.apiProfile(binding, { allowCustomEndpoint: true });
     return {
       accountId: binding.accountId,
       accountLabel: binding.accountLabel,
@@ -1077,6 +1085,15 @@ export class AccountProfiles {
     };
   }
 
+  /** Configuration-only projection. No credentials, target or process ownership. */
+  harnessConnection(binding: AccountBinding) {
+    this.resumeRouting(binding);
+    const profile = this.profiles.find((p) => p.id === binding.accountId)!;
+    if (profile.provider === 'openai') return apiHarnessConnection(profile.connection);
+    if (profile.provider === 'openai-codex') return subscriptionHarnessConnection();
+    throw Error('Account requires its existing provider harness');
+  }
+
   apiCredential(binding: AccountBinding) {
     return this.apiProfile(binding).credentialRef;
   }
@@ -1110,17 +1127,24 @@ export class AccountProfiles {
     if (!profile || profile.provider !== 'openai') throw Error('Not an OpenAI API account');
     return {
       credentialRef: profile.credentialRef,
+      ...(profile.connection ? { connection: structuredClone(profile.connection) } : {}),
       sandboxProvider: profile.sandboxProvider,
       sandboxProviderId: profile.sandboxProviderId,
     };
   }
 
-  apiProfile(binding: AccountBinding) {
+  apiProfile(binding: AccountBinding, options?: { allowCustomEndpoint: boolean }) {
     this.resume(binding);
     const profile = this.profiles.find((p) => p.id === binding.accountId);
     if (!profile || profile.provider !== 'openai') throw new Error('Not an OpenAI API account');
+    if (profile.connection) {
+      if (!options?.allowCustomEndpoint)
+        throw Error('Custom endpoint requires the shared Codex harness');
+      apiHarnessConnection(profile.connection);
+    }
     return {
       credentialRef: profile.credentialRef,
+      ...(profile.connection ? { connection: structuredClone(profile.connection) } : {}),
       sandboxProvider: profile.sandboxProvider,
       sandboxProviderId: profile.sandboxProviderId,
     };
