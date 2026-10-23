@@ -14,6 +14,64 @@ function setup(hooks: unknown) {
   writeFileSync(join(root, '.claude/settings.json'), JSON.stringify({ hooks }));
   return new NativeHooks(root, 'app', { PATH: '/usr/bin:/bin' });
 }
+it('preserves rich results and sends only text to project hooks', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-hooks-rich-'));
+  roots.push(root);
+  const hooks = new NativeHooks(root, 'app', {}, false);
+  const run = vi.spyOn(hooks, 'run').mockImplementation(async (event) => ({
+    context: event === 'PostToolUse' ? 'feedback' : '',
+    forcePrompt: false,
+  }));
+  const data =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+  const rich = {
+    content: 'screen',
+    isError: false,
+    contentItems: [
+      { type: 'inputText' as const, text: 'screen' },
+      { type: 'inputImage' as const, imageUrl: `data:image/png;base64,${data}` },
+    ],
+  };
+  const result = await hooks.executeTool(
+    'Screenshot',
+    {},
+    new AbortController().signal,
+    async () => rich,
+  );
+  expect(result).toMatchObject({
+    contentItems: [
+      { type: 'inputText', text: 'screen\n\nProject hook feedback:\nfeedback' },
+      rich.contentItems[1],
+    ],
+  });
+  expect(run).toHaveBeenLastCalledWith(
+    'PostToolUse',
+    { tool_name: 'Screenshot', tool_input: {}, tool_response: 'screen' },
+    expect.any(AbortSignal),
+  );
+});
+
+it('diagnoses oversized post-hook rich output without repeating the effect or exposing image bytes', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-hooks-bound-'));
+  roots.push(root);
+  const hooks = new NativeHooks(root, 'app', {}, false);
+  vi.spyOn(hooks, 'run').mockImplementation(async (event) => ({
+    context: event === 'PostToolUse' ? 'x'.repeat(65_536) : '',
+    forcePrompt: false,
+  }));
+  const data =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+  const execute = vi.fn(async () => ({
+    content: '',
+    isError: false,
+    contentItems: [{ type: 'inputImage' as const, imageUrl: `data:image/png;base64,${data}` }],
+  }));
+  const result = await hooks.executeTool('Screenshot', {}, new AbortController().signal, execute);
+  expect(result.isError).toBe(true);
+  expect(result.content).toMatch(/Tool ran.*bound/);
+  expect(JSON.stringify(result)).not.toContain(data);
+  expect(execute).toHaveBeenCalledOnce();
+});
 it.each([true, false])(
   'preserves ordinary custom data in hooks and execution (enabled=%s)',
   async (enabled) => {
