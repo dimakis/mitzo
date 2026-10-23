@@ -209,3 +209,43 @@ it('caps in-flight secret writes to relay expiry independently of the outer time
   });
   expect(outerAborted).toBe(false);
 });
+
+it('reviews native MQTT targets only when enabled, resolves privately and persists the acknowledgement', async () => {
+  const f = fixture();
+  const input = {
+    label: 'Broker password',
+    targets: [
+      {
+        adapter: 'mqtt',
+        broker: 'mqtts://broker.example:8883',
+        username: 'device',
+        operation: 'connect',
+      },
+    ],
+  };
+  expect(() => f.service.prepare('chat', input)).toThrow();
+  const send = vi.fn(async (_s, _t, secret, _e, _sig, check, dispatched) => {
+    expect(secret).toBe('private-fixture');
+    check();
+    dispatched();
+    return { acknowledgement: 'connack' as const };
+  });
+  const service = new SecretRelays(
+    f.store,
+    f.vault,
+    () => {
+      throw new Error('HTTP connection not needed');
+    },
+    send,
+    false,
+    { mqtt: true },
+  );
+  const draft = service.prepare('chat', input);
+  await service.complete(draft.id, 1, 'private-fixture', signal(), () => true);
+  expect(await service.apply('chat', draft.id, 0, signal(), () => true)).toEqual({
+    outcome: 'confirmed',
+    acknowledgement: 'connack',
+  });
+  await service.apply('chat', draft.id, 0, signal(), () => true);
+  expect(send).toHaveBeenCalledOnce();
+});

@@ -1,3 +1,4 @@
+import { MqttRelayTargetSchema, validateMqttRelayTarget } from './secret-relay-mqtt.js';
 import { validateLanRelayEndpoint } from './secret-relay-lan.js';
 import { redactCredentialResponse } from './credential-redaction.js';
 import { randomUUID } from 'node:crypto';
@@ -19,7 +20,7 @@ const WriteSchema = z
     fields: z.array(field).min(1).max(16),
   })
   .strict();
-const TargetSchema = z.union([
+const HttpTargetSchema = z.union([
   WriteSchema.extend({
     connectionId: z.string().min(1).max(128),
     revision: z.number().int().positive(),
@@ -38,6 +39,8 @@ const TargetSchema = z.union([
       }),
   }).strict(),
 ]);
+export type HttpRelayTarget = z.infer<typeof HttpTargetSchema>;
+const TargetSchema = z.union([HttpTargetSchema, MqttRelayTargetSchema]);
 export const PrepareSecretRelaySchema = z
   .object({
     label: z.string().trim().min(1).max(100),
@@ -45,7 +48,11 @@ export const PrepareSecretRelaySchema = z
   })
   .strict();
 export type RelayTarget = z.infer<typeof TargetSchema>;
-export type RelayOutcome = { outcome: 'not_sent' | 'unconfirmed' | 'confirmed'; status?: number };
+export type RelayOutcome = {
+  outcome: 'not_sent' | 'unconfirmed' | 'confirmed';
+  status?: number;
+  acknowledgement?: 'connack' | 'puback';
+};
 export interface SecretRelay {
   id: string;
   sessionId: string;
@@ -78,10 +85,10 @@ type Apply = (
   check: () => void,
   dispatched: () => void,
   assertRuntimeCurrent?: () => Promise<void>,
-) => Promise<{ status: number }>;
+) => Promise<{ status?: number; acknowledgement?: 'connack' | 'puback' }>;
 /** Placeholders must already exist and be empty; never traverse prototypes or
  * create fields the user did not review. RFC6901 object/array paths only. */
-export function injectRelayValue(target: RelayTarget, value: string): string {
+export function injectRelayValue(target: HttpRelayTarget, value: string): string {
   if (new Set(target.fields).size !== target.fields.length)
     throw new Error('Duplicate secret field');
   if (target.encoding === 'form') {
@@ -128,8 +135,14 @@ export class SecretRelays {
     private connection: (id: string) => Destination,
     private send: Apply,
     private allowLan = false,
+    private adapters: { mqtt?: boolean; mqttLan?: boolean } = {},
   ) {}
   private checkedTarget(target: RelayTarget) {
+    if ('adapter' in target) {
+      if (!this.adapters.mqtt) throw new Error('MQTT relay adapter is disabled');
+      const url = validateMqttRelayTarget(target, !!this.adapters.mqttLan);
+      return { endpoint: target.broker, label: url.hostname };
+    }
     if ('lanEndpoint' in target) {
       if (!this.allowLan) throw new Error('LAN relay adapter is disabled');
       const endpoint = validateLanRelayEndpoint(target.lanEndpoint);
@@ -343,12 +356,12 @@ export class SecretRelays {
       const secret = await this.vault.read(relay.vaultRef!, combined);
       combined.throwIfAborted();
       check();
-      const body = injectRelayValue(target, secret);
+      const body = 'adapter' in target ? secret : injectRelayValue(target, secret);
       const result = await this.send(
         session,
         target,
         body,
-        target.encoding,
+        'encoding' in target ? target.encoding : 'form',
         combined,
         check,
         () => {
@@ -361,7 +374,7 @@ export class SecretRelays {
       );
       combined.throwIfAborted();
       check();
-      return receipt({ outcome: 'confirmed', status: result.status });
+      return receipt({ outcome: 'confirmed', ...result });
     } catch {
       if (dispatched) return receipt({ outcome: 'unconfirmed' });
       throw new Error('Secret write was not sent');

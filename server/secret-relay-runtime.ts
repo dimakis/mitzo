@@ -1,3 +1,4 @@
+import { sendMqttRelayTarget } from './secret-relay-mqtt.js';
 import { sendLanRelayTarget } from './secret-relay-lan.js';
 import { homedir } from 'node:os';
 import { z } from 'zod';
@@ -43,18 +44,24 @@ export function attachSecretRelay(
     vault,
     (id) => service.connection(id),
     (session, target, body, encoding, signal, check, dispatched, assertCurrent) =>
-      'lanEndpoint' in target
-        ? sendLanRelayTarget(target, body, encoding, signal, check, dispatched, assertCurrent)
-        : service.applyRelayTarget(
-            session,
-            target,
-            body,
-            encoding,
-            signal,
-            check,
-            dispatched,
-            assertCurrent,
-          ),
+      'adapter' in target
+        ? sendMqttRelayTarget(target, body, signal, check, dispatched, assertCurrent)
+        : 'lanEndpoint' in target
+          ? sendLanRelayTarget(target, body, encoding, signal, check, dispatched, assertCurrent)
+          : service.applyRelayTarget(
+              session,
+              target,
+              body,
+              encoding,
+              signal,
+              check,
+              dispatched,
+              assertCurrent,
+            ),
     env.MITZO_SECRET_RELAY_LAN_HTTP_ENABLED === '1',
+    {
+      mqtt: env.MITZO_SECRET_RELAY_MQTT_ENABLED === '1',
+      mqttLan: env.MITZO_SECRET_RELAY_LAN_MQTT_ENABLED === '1',
+    },
   );
 }

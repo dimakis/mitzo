@@ -31,7 +31,12 @@ export const MqttRelayTargetSchema = z.discriminatedUnion('operation', [
 ]);
 export type MqttRelayTarget = z.infer<typeof MqttRelayTargetSchema>;
 export function validateMqttRelayTarget(target: MqttRelayTarget, allowLan: boolean) {
-  MqttRelayTargetSchema.parse(target);
+  const {
+    endpoint: _endpoint,
+    label: _label,
+    ...input
+  } = target as MqttRelayTarget & { endpoint?: string; label?: string };
+  MqttRelayTargetSchema.parse(input);
   const url = new URL(target.broker);
   const host = url.hostname.replace(/^\[|\]$/g, '');
   if (

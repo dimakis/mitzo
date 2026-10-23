@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.473-secret-relay';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.474-secret-adapters';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../secret-relay-mqtt.ts': '42538b8d4072ba8bdb59d7342de416d31a49c20d5b25fcf10a145335892efd32',
   '../../packages/protocol/src/agent-communication-store.ts':
     '7a611a0953117b064f89e966c5520dc70598e6856e707ce735e8419acfbb4753',
   '../../packages/protocol/src/agent-communication.ts':
@@ -1299,9 +1300,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '87d6517e779b9b29f2e636a1919ea844beb0fc034f01fbfdf1c740fa5117ab52',
   '../../frontend/src/lib/telos-source-updates.ts':
     'd04a21a711eb8c7118491d94b1363f02b36b0f7457bbe711906f3d67bdbb6e8d',
-  '../secret-relay.ts': 'ab0556cb51dfbc4b5eb3a29e7b21e13f5b185a69b95d822e2f4ef8d3bb4bf1da',
+  '../secret-relay.ts': '9a1c6964d4a8090c3350b4213f59b5dcc49c3cc3c8c69fa061b687b130f0ec40',
   '../secret-relay-lan.ts': '03442b04b8a16ddc3146813f43ed45d9b4ae8fa0a64971a100de48d9a791a812',
-  '../secret-relay-runtime.ts': '1fccbbf593e4ca04a116896c3221f8e01ca98bb2b014924eca114b0ef6e520ea',
+  '../secret-relay-runtime.ts': '03f2c6876bceedd8bcba47e2e53d22cd292b29f08d779ab1dacd8efd3e748096',
   '../openshell-secret-vault.ts':
     'dd0346a13927ed22f468d573695bb082d866d0d5f2d2dc72180a4c86f0f22838',
   '../openshell-secret-protocol.ts':
