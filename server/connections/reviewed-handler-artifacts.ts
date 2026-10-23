@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.590-durable-repository-primary';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.591-exclusive-local-primary';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -249,7 +248,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/ordinary-workspace.ts':
     'c4431b3fef376cf17142c07764c032d0147915893c0b49c1776b0ccccc08c808',
   '../ordinary-workspace-custody.ts':
-    '9433ebc9acdd66a901d30738131a55d44caba0695e8eb114342b6aa3b58db7b2',
+    '8006d234919812319d845e28dcbdad2f8898ce30f4bc722e5f0ce271a980f3ae',
   '../connection-request-error.ts':
     'baedef9cc52b1ace3c705fe396f4a11e938cf7f018d8ccd2ad28f699f69d098c',
   '../../docs/spikes/openshell-codex/prepared-request-native/native-model-publication-guard-clone.patch':
@@ -1047,7 +1046,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '8d334e7f2e465ffbb66d4424f09adc04ca4695ce131fbd50d85226ccbf175d16',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
-  '../repository-workspaces.ts': 'd98a94e1468697d53d38d92224b2bd90785274656ed0bd3fd059882d0a0db1bc',
+  '../repository-workspaces.ts': 'bf072098d0149cfac2a0dc6a262646ec4b2fa9052669a71acd74e8dfbaaaa684',
   '../../packages/protocol/src/session-metadata-store.ts':
     '019598b360106c0dd8babc08e9366e40c95c1dd4dca9ea649c37bc7d096b8358',
   '../../packages/protocol/src/event-store.ts':
@@ -1497,5 +1496,5 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/native-directory-verification-batch.test.ts':
     'e47f7310524224a555e8786f83824f4f742f5838f5666a461e95a5b99ec647fa',
   '../__tests__/prepared-repository-custody.test.ts':
-    '9caefad1c3f8e6510e6032904f82a6fb94615351e05d221bee681e2c072669b9',
+    'ecb52ddbba239c2e8d52a2cca6579e2671db689080c9c81168a563b864b56089',
 });
