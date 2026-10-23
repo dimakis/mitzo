@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildLocalExecutionDescription,
   type LocalExecutionDescriptionInput,
+  type PublicExecutionFact,
 } from '../local-execution-description.js';
 
 function input(): LocalExecutionDescriptionInput {
@@ -121,12 +122,13 @@ describe('Local Mac execution description', () => {
 
   it('refuses credential-bearing or unbounded evidence and invalid capability claims', () => {
     const selected = input();
-    for (const evidence of [
+    const invalidEvidence: Array<Record<string, PublicExecutionFact>> = [
       { env: { API_KEY: 'secret' } },
       { apiToken: 'secret' },
       { detail: 'x'.repeat(17000) },
       { value: NaN },
-    ]) {
+    ];
+    for (const evidence of invalidEvidence) {
       expect(() =>
         buildLocalExecutionDescription({
           ...selected,
