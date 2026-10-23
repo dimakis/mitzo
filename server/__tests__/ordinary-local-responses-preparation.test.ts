@@ -81,14 +81,14 @@ function response(model: string) {
 }
 
 it.each(['checkout', 'mcp'] as const)(
-  'refuses an expired entry deadline during awaited %s preparation',
+  'refuses an expired Gemini entry deadline during awaited %s preparation',
   async (phase) => {
     vi.resetModules();
     const { AccountProfiles } = await import('../account-profiles.js');
     vi.spyOn(AccountProfiles.prototype, 'isEnrolledOpenAIAccount').mockReturnValue(true);
     const { ownedResponsesRuntimeFixture } =
       await import('./fixtures/owned-local-responses-runtime.js');
-    const f = await ownedResponsesRuntimeFixture(cleanups, { chatRoute: true });
+    const f = await ownedResponsesRuntimeFixture(cleanups, { chatRoute: true, gemini: true });
     services.workspace = f.workspace;
     services.library = f.library;
     services.authId = f.auth.id;

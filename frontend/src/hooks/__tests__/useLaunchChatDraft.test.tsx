@@ -22,6 +22,14 @@ const launch = {
   prompt: 'Discuss the saved briefing',
   context: 'Morning briefing',
   briefing: { date: '2026-10-15', revision: 'a'.repeat(64) },
+  sourceSnapshots: [
+    {
+      kind: 'briefing' as const,
+      date: '2026-10-15',
+      revision: 'a'.repeat(64),
+      content: 'Original retained briefing',
+    },
+  ],
   accountSelection: { accountId: 'work', model: 'luna', reasoningEffort: 'high' },
   contextBlocks: ['guidance'],
   telosTaskId: 'task',
@@ -74,7 +82,7 @@ it('saves an unsent launch, starts New blank and restores only its own draft', a
   expect(result.current.pending.launch).toBeNull();
   expect(listChatDrafts()).toHaveLength(1);
 });
-it('consumes only the submitted launch draft after acknowledgement and keeps replacements', () => {
+it('consumes only a retained generic launch after acknowledgement and keeps replacements', () => {
   const { result, send } = setup();
   let receipt: ((status: 'accepted' | 'failed' | 'uncertain') => void) | undefined;
   send.mockImplementation((text, options) => {

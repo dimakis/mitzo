@@ -67,8 +67,17 @@ it.skipIf(
     );
     const sourceWorker = fileURLToPath(new URL('../sandboxed-command-worker.ts', import.meta.url));
     const sourceAuthority = fileURLToPath(new URL('../sandbox-authority.ts', import.meta.url));
+    // Qualify the combined worker's complete private-helper module closure.
+    // These are fresh compiler inputs, not the earlier two-file read-only binary.
+    const helperSources = [
+      'native-file-operation.ts',
+      'native-preparation-observation.ts',
+      'native-tree-publication.ts',
+      'private-repository-checkout.ts',
+    ].map((file) => fileURLToPath(new URL('../' + file, import.meta.url)));
+    const entryPoints = [sourceWorker, sourceAuthority, ...helperSources];
     const buildOptions = {
-      entryPoints: [sourceWorker, sourceAuthority],
+      entryPoints,
       outdir: artifacts,
       platform: 'node' as const,
       format: 'esm' as const,
@@ -82,7 +91,14 @@ it.skipIf(
       Object.keys(compiled.metafile!.inputs)
         .map((path) => path.split('/').at(-1))
         .sort(),
-    ).toEqual(['sandbox-authority.ts', 'sandboxed-command-worker.ts']);
+    ).toEqual([
+      'native-file-operation.ts',
+      'native-preparation-observation.ts',
+      'native-tree-publication.ts',
+      'private-repository-checkout.ts',
+      'sandbox-authority.ts',
+      'sandboxed-command-worker.ts',
+    ]);
     const compiledWorker = join(artifacts, 'sandboxed-command-worker.js');
     await writeFile(join(artifacts, 'package.json'), JSON.stringify({ type: 'module' }));
     await symlink(await realpath('node_modules'), join(artifacts, 'node_modules'));
@@ -90,14 +106,19 @@ it.skipIf(
     const compilation = {
       compiler: `esbuild ${compilerVersion}`,
       config: { platform: 'node', format: 'esm', target: 'es2022', bundle: false },
-      inputs: {
-        worker: sha256(await readFile(sourceWorker)),
-        authority: sha256(await readFile(sourceAuthority)),
-      },
-      outputs: {
-        worker: sha256(await readFile(compiledWorker)),
-        authority: sha256(await readFile(join(artifacts, 'sandbox-authority.js'))),
-      },
+      inputs: Object.fromEntries(
+        await Promise.all(
+          entryPoints.map(async (path) => [path.split('/').at(-1)!, sha256(await readFile(path))]),
+        ),
+      ),
+      outputs: Object.fromEntries(
+        await Promise.all(
+          entryPoints.map(async (path) => {
+            const file = path.split('/').at(-1)!.replace(/\.ts$/, '.js');
+            return [file, sha256(await readFile(join(artifacts, file)))];
+          }),
+        ),
+      ),
     };
     await writeFile(
       '/private/tmp/mitzo-registered-read-tools-compiled-worker-evidence.json',

@@ -19,12 +19,15 @@ import {
   type OrdinaryLocalCodexOwnedDispatch,
 } from '../../ordinary-local-codex-owned-runtime.js';
 import { recordAgentMessageAcceptance } from '../../agent-communication-tools.js';
+import { composeOwnedLocalNativeExecutionPolicy } from '../../owned-local-codex-native-policy.js';
+import { createCodexNativeApprovalHandler } from '../../codex-native-approvals.js';
 
 // Actual signed login, custody, admission, native callback and context factory.
 // External process/RPC/model effects are synthetic; no production tool is registered.
 export async function localPreparationNativeFixture(
   cleanups: Array<() => void | Promise<void>>,
   execute: (context: NativeHostToolContext, input: Record<string, unknown>) => Promise<unknown>,
+  options: { nativeBaseReads?: boolean } = {},
 ) {
   const f = await ownedRuntimeFixture(cleanups, {
     // Legacy default selection permits this private fixture-only dynamic tool.
@@ -117,12 +120,38 @@ export async function localPreparationNativeFixture(
           agentContext: dispatch.expected.agentContext,
           repositoryWorkspace: dispatch.workspace,
         });
+        const selectedNativePolicy = () =>
+          composeOwnedLocalNativeExecutionPolicy({
+            session,
+            binding: dispatch.lease.binding,
+            assertCurrentSync: () => dispatch.admission.assertCurrentSync(),
+          });
+        const nativeExecution = options.nativeBaseReads ? selectedNativePolicy() : undefined;
         conversation = new CodexConversation({
           conversationId: sessionId,
           cwd: dispatch.workspace.directory!,
           profile: dispatch.profile,
           storedBinding: dispatch.lease.binding,
           enableCapacityRecovery: false,
+          ...(nativeExecution
+            ? {
+                nativeExecution,
+                resolveNativeExecutionPolicy: async () => selectedNativePolicy(),
+                assertNativeExecutionCurrent: (policy: NonNullable<typeof nativeExecution>) => {
+                  dispatch.admission.assertCurrentSync();
+                  if (selectedNativePolicy().policyRevision !== policy.policyRevision)
+                    throw Error('Original native preparation policy changed');
+                },
+                requestNativeApproval: createCodexNativeApprovalHandler({
+                  clientId,
+                  registry,
+                  runtimeId,
+                  environmentId: 'local',
+                  deniedRoots: nativeExecution.deniedRoots,
+                  writeProtectedRoots: nativeExecution.writeProtectedRoots,
+                }),
+              }
+            : {}),
           store: native,
           systemPrompt: dispatch.payload.systemPrompt,
           getMode: () => session.mode,

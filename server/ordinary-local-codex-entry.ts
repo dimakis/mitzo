@@ -1,4 +1,8 @@
+import { context, trace } from '@opentelemetry/api';
+import { contextFromTraceparent } from './trace-context.js';
+import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
 import { ordinaryOperatorOwnsConversation } from './ordinary-operator-identity.js';
+import { sessionHarnessForProvider } from './session-harness-routing.js';
 import { prepareDefaultOpenShellCommand } from './ordinary-openshell-default-workspace.js';
 import { ordinaryWorkspaceTaskRoot } from './ordinary-workspace-runtime.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
@@ -25,6 +29,7 @@ import { composeOrdinaryRuntimeCapabilities } from './ordinary-runtime-capabilit
 import {
   OrdinaryLocalResponsesTarget,
   localResponsesCapabilities,
+  newLocalResponsesCapabilities,
 } from './ordinary-local-responses-capabilities.js';
 import {
   startOwnedLocalResponsesCommand,
@@ -45,6 +50,7 @@ import {
   OrdinaryRuntimeFirstCommandSchema,
   OrdinaryRuntimeContinuationCommandSchema,
   type AccountBinding,
+  type SessionRuntimeBindingV2,
 } from '@mitzo/protocol';
 export { LocalCodexFirstCommandSchema, type LocalCodexFirstCommand } from '@mitzo/protocol';
 import { operatorAuthMiddleware, type AuthSession } from './auth.js';
@@ -94,6 +100,7 @@ const log = createLogger('local-codex-entry');
 function inventory(
   location: 'local' | 'openshell' = 'local',
   harness: 'codex' | 'responses' | 'claude-sdk' | 'gemini' = 'codex',
+  retainedBinding?: SessionRuntimeBindingV2,
 ) {
   const profiles = loadAccountProfiles();
   if (harness === 'claude-sdk') {
@@ -118,10 +125,21 @@ function inventory(
         : process.env.MITZO_ORDINARY_LOCAL_RESPONSES_ENABLED) !== '1'
     )
       throw Error(unavailable);
-    const catalog = localResponsesCapabilities(
+    const source = (retainedBinding ? localResponsesCapabilities : newLocalResponsesCapabilities)(
       profiles,
       new OrdinaryLocalResponsesTarget(process.env, harness),
     );
+    const catalog = {
+      inventory: source.inventory,
+      resolve(request: unknown) {
+        const result = source.resolve(request);
+        return retainedBinding &&
+          result.status === 'compatible' &&
+          !isDeepStrictEqual(result.binding, retainedBinding)
+          ? { status: 'rejected' as const, code: 'account_identity_mismatch' as const }
+          : result;
+      },
+    };
     return { profiles, catalog, result: catalog.inventory() };
   }
   if (location === 'openshell') {
@@ -336,7 +354,44 @@ function createOwnedCodexEntryRouter(
         return res
           .status(401)
           .json({ ok: false, code: 'interactive_auth_required', error: unavailable });
-      const result = general ? ordinaryCodexCapabilities() : inventory().result;
+      let result = general ? ordinaryCodexCapabilities() : inventory().result;
+      let retainedAccount: SessionRuntimeBindingV2['account'] | undefined;
+      if (general && req.query?.sessionId !== undefined) {
+        const sessionId = req.query.sessionId;
+        if (typeof sessionId !== 'string' || !/^\S{1,200}$/.test(sessionId))
+          throw Error(unavailable);
+        const binding = ctx.eventStore.getSessionRuntimeBinding(sessionId);
+        const meta = ctx.eventStore.getSession(sessionId);
+        // Prepared first commands may have workspace metadata before an event
+        // binding exists. They keep the strict new-work projection above.
+        if (binding?.version === 2 && binding.harness.implementation === 'responses') {
+          if (!meta) throw Error(unavailable);
+          const live = ctx.sessionRegistry.findBySessionId(sessionId)?.session;
+          if (
+            binding.execution.location !== 'local' ||
+            (live
+              ? live.ordinaryRuntimeOwner?.authSessionId !== auth.id ||
+                live.ordinaryRuntimeOwner?.location !== 'local'
+              : !canResumeOwnedLocalResponsesDriver(sessionId, auth.id))
+          )
+            throw Error(unavailable);
+          const retained = inventory('local', 'responses', binding);
+          if (
+            retained.catalog.resolve({
+              account: binding.account,
+              harness: 'responses',
+              targetId: binding.execution.targetId,
+              mode: meta.mode,
+            }).status !== 'compatible'
+          )
+            throw Error(unavailable);
+          // Read-only metadata for this exact saved owner; new admission still
+          // rejects Responses even if a client copies this retained revision.
+          const projected = retained.result;
+          retainedAccount = binding.account;
+          result = projected;
+        }
+      }
       const agentProfiles = ordinaryCodexAgentProfiles(getAgentLibrary().list('user').versions);
       let shell: ReturnType<typeof loadOrdinaryOpenShellCodexTarget>;
       if (
@@ -352,6 +407,9 @@ function createOwnedCodexEntryRouter(
       }
       const response = {
         ...result,
+        accounts: result.accounts.filter(
+          (entry) => !retainedAccount || isDeepStrictEqual(entry.account, retainedAccount),
+        ),
         ...(req.query?.workspaceDefaults === '1'
           ? {
               defaultOpenShellWorkspace: result.routes.some(
@@ -363,41 +421,43 @@ function createOwnedCodexEntryRouter(
             }
           : {}),
         agentProfiles,
-        routes: result.routes.map((route) => {
-          const location = 'location' in route ? route.location : 'local';
-          const candidates = result.targets.filter(
-            (target) =>
-              target.targetId === route.targetId &&
-              target.location === location &&
-              target.harness === route.harness,
-          );
-          if (candidates.length !== 1) throw Error(unavailable);
-          const target = candidates[0];
-          const presets =
-            target?.location === 'openshell' &&
-            shell?.target.targetId === target.targetId &&
-            shell?.target.targetRevision === target.targetRevision
-              ? shell.config.agentContextPresets
-              : undefined;
-          return {
-            ...route,
-            ...ordinaryCodexAgentProfileRouteProjection(
-              agentProfiles,
-              route.account.provider,
-              target.location,
-              presets,
-              ['responses', 'gemini', 'claude-sdk', 'codex'].includes(route.harness)
-                ? {
-                    contextRecipes: route.harness === 'codex' ? 'supported' : 'none',
-                    toolSelection:
-                      ['responses', 'gemini', 'codex'].includes(route.harness) &&
-                      target.location === 'local',
-                    toolRoute: route.harness === 'codex' ? 'codex-owned-local' : 'local-api',
-                  }
-                : undefined,
-            ),
-          };
-        }),
+        routes: result.routes
+          .filter((route) => !retainedAccount || isDeepStrictEqual(route.account, retainedAccount))
+          .map((route) => {
+            const location = 'location' in route ? route.location : 'local';
+            const candidates = result.targets.filter(
+              (target) =>
+                target.targetId === route.targetId &&
+                target.location === location &&
+                target.harness === route.harness,
+            );
+            if (candidates.length !== 1) throw Error(unavailable);
+            const target = candidates[0];
+            const presets =
+              target?.location === 'openshell' &&
+              shell?.target.targetId === target.targetId &&
+              shell?.target.targetRevision === target.targetRevision
+                ? shell.config.agentContextPresets
+                : undefined;
+            return {
+              ...route,
+              ...ordinaryCodexAgentProfileRouteProjection(
+                agentProfiles,
+                route.account.provider,
+                target.location,
+                presets,
+                ['responses', 'gemini', 'claude-sdk', 'codex'].includes(route.harness)
+                  ? {
+                      contextRecipes: route.harness === 'codex' ? 'supported' : 'none',
+                      toolSelection:
+                        ['responses', 'gemini', 'codex'].includes(route.harness) &&
+                        target.location === 'local',
+                      toolRoute: route.harness === 'codex' ? 'codex-owned-local' : 'local-api',
+                    }
+                  : undefined,
+              ),
+            };
+          }),
       };
       if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1048576) throw Error(unavailable);
       return res.json(response);
@@ -405,7 +465,7 @@ function createOwnedCodexEntryRouter(
       return res.status(409).json({ ok: false, code: 'entry_unavailable', error: unavailable });
     }
   });
-  const sendCommand =
+  const executeCommand =
     (continuation: boolean, observeOnly = false): import('express').RequestHandler =>
     async (req, res) => {
       // Workspace normalization and provider startup consume the same request
@@ -712,9 +772,22 @@ function createOwnedCodexEntryRouter(
         return res
           .status(409)
           .json({ ok: false, code: 'receipt_pending', clientMsgId: input.clientMsgId, sessionId });
+      if (
+        !continuation &&
+        input.runtime.harness !== sessionHarnessForProvider(input.runtime.account.provider)
+      )
+        return res.status(409).json({
+          ok: false,
+          code: 'new_work_harness_unsupported',
+          error: 'The selected account does not support this harness for new work.',
+          clientMsgId: input.clientMsgId,
+          sessionId,
+        });
+      const savedBinding = ctx.eventStore.getSessionRuntimeBinding(sessionId);
+      const retainedRuntimeBinding = savedBinding?.version === 2 ? savedBinding : undefined;
       if (continuation) {
         const meta = ctx.eventStore.getSession(sessionId);
-        const binding = ctx.eventStore.getSessionRuntimeBinding(sessionId);
+        const binding = retainedRuntimeBinding;
         if (
           (!existingOwner &&
             !(input.runOn === 'local'
@@ -761,6 +834,7 @@ function createOwnedCodexEntryRouter(
         const { profiles, catalog, result, agentContextPresets } = inventory(
           input.runOn,
           input.runtime.harness,
+          continuation ? retainedRuntimeBinding : undefined,
         );
         if (
           result.capabilityRevision !== input.capabilityRevision ||
@@ -1064,6 +1138,24 @@ function createOwnedCodexEntryRouter(
         authority?.release();
       }
     };
+  const sendCommand = (
+    continuation: boolean,
+    observeOnly = false,
+  ): import('express').RequestHandler => {
+    const execute = executeCommand(continuation, observeOnly);
+    return async (req, res, next) => {
+      const header = req.headers.traceparent;
+      const parent = typeof header === 'string' ? contextFromTraceparent(header) : context.active();
+      const span = startCommandTimingSpan('codex.command.http', req.body?.clientMsgId, parent);
+      try {
+        return await context.with(span ? trace.setSpan(parent, span) : parent, () =>
+          execute(req, res, next),
+        );
+      } finally {
+        finishCommandTimingSpan(span, res.statusCode);
+      }
+    };
+  };
   router.post(ordinary ? '/first' : '/send', requireSameOriginJson, sendCommand(false));
   router.post('/continue', requireSameOriginJson, sendCommand(true));
   router.post(

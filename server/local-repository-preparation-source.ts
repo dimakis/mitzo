@@ -6,14 +6,16 @@ import {
 } from './native-host-tool-context.js';
 import type { QualifiedLocalRepositoryPreparationSource } from './local-repository-preparation-authorization.js';
 import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
-import { captureLocalRepositoryAllocationFacts } from './local-repository-allocation-facts.js';
+import {
+  captureLocalRepositoryAllocationFacts,
+  type LocalRepositoryAllocationFacts as AllocationFacts,
+} from './local-repository-allocation-facts.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
-import { readLocalRepositoryPreparationReferences } from './local-repository-git-snapshot.js';
+import { readLocalRepositoryPreparationBaseReferences } from './local-repository-git-snapshot.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import type { NativeReadIdentity } from './native-file-operation.js';
 
-type AllocationFacts = Awaited<ReturnType<typeof captureLocalRepositoryAllocationFacts>>['facts'];
 export interface NativeQualifiedLocalRepositoryPreparationSource extends QualifiedLocalRepositoryPreparationSource {
   readonly referenceCoverage: 'preparation-head-and-namespace-v1';
   readonly baseBranch: string;
@@ -33,9 +35,10 @@ function numericIdentity(value: NativeReadIdentity) {
     throw unavailable();
   return { dev, ino };
 }
-function sourceFacts(facts: AllocationFacts) {
+/** Data projection from original read facts only; never a grant/current fence. */
+export function localRepositoryPreparationSourceFacts(facts: AllocationFacts) {
   const { source } = facts;
-  return {
+  return freezePendingHostTaskData({
     source: {
       path: source.path,
       gitDirectory: source.gitDirectory,
@@ -51,7 +54,7 @@ function sourceFacts(facts: AllocationFacts) {
       common: source.commonAnchor,
       referenceCoverage: source.referenceCoverage,
     }),
-  };
+  });
 }
 
 /** Private current original-tool composition. This qualifies bounded source
@@ -106,11 +109,21 @@ export async function captureNativeLocalRepositoryPreparationSource(
       return { facts: held.facts, factsSha256: held.factsSha256 };
     });
   const initial = await captureAllocation();
-  const original = freezePendingHostTaskData(sourceFacts(initial.facts));
-  const originalHash = hash(original);
+  const original = localRepositoryPreparationSourceFacts(initial.facts);
+  const originalBaseHash = hash({
+    source: original.source,
+    baseBranch: original.baseBranch,
+    baseOid: original.baseOid,
+  });
   const baseCurrent = () =>
     read(async (reader) => {
-      const access = new LocalRepositoryReadAccess(reader);
+      const access = await LocalRepositoryReadAccess.capturePreparationBase(reader, {
+        version: 'preparation-base-observation-v1',
+        sourceAnchor: initial.facts.source.sourceAnchor,
+        gitDirectory: initial.facts.source.gitDirectory,
+        commonAnchor: initial.facts.source.commonAnchor,
+        deniedRoots: reader.deniedRoots,
+      });
       const sourceAnchor = await access.pinRoot(intent.sourcePath);
       const metadata = await inspectLocalRepositoryGitMetadata({
         path: intent.sourcePath,
@@ -121,15 +134,15 @@ export async function captureNativeLocalRepositoryPreparationSource(
         timeoutMs: Math.max(1, Math.min(30000, reader.deadline - Date.now())),
       });
       const commonAnchor = await access.pinRoot(metadata.commonDirectory);
-      const { branch, head, referenceCoverage } = await readLocalRepositoryPreparationReferences(
-        metadata,
-        {
-          readAccess: access,
-          signal: reader.signal,
-          timeoutMs: Math.max(1, reader.deadline - Date.now()),
-        },
-      );
+      const { branch, head } = await readLocalRepositoryPreparationBaseReferences(metadata, {
+        readAccess: access,
+        signal: reader.signal,
+        timeoutMs: Math.max(1, reader.deadline - Date.now()),
+      });
       await access.verify();
+      // This phase freshly qualifies base identity/paths/branch/OID only. The
+      // original namespace/absence digest remains historical; complete fresh
+      // allocation checks occur separately BEFORE effects.
       const actual = {
         source: {
           path: metadata.path,
@@ -140,10 +153,8 @@ export async function captureNativeLocalRepositoryPreparationSource(
         },
         baseBranch: branch ?? head,
         baseOid: head,
-        referenceCoverage,
-        anchorsSha256: hash({ source: sourceAnchor, common: commonAnchor, referenceCoverage }),
       };
-      if (hash(actual) !== originalHash) throw unavailable();
+      if (hash(actual) !== originalBaseHash) throw unavailable();
     });
   return Object.freeze({
     ...original,

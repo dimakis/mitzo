@@ -293,6 +293,9 @@ function ownedLocalOptions(
   agentProfile?: import('@mitzo/protocol').AgentLibraryVersion,
 ) {
   const eventStore = new EventStore(':memory:');
+  // This qualified Mac lease fixture must select the same host branch on CI.
+  // Load the actual host SQLite binding before changing only the fixture identity.
+  vi.stubGlobal('process', Object.create(process, { platform: { value: 'darwin' } }));
   const profiles = new AccountProfiles(
     [
       {
@@ -3275,12 +3278,37 @@ it('keeps an already admitted queued command on its frozen scope and refuses mut
         signal: new AbortController().signal,
       }),
     ).rejects.toThrow('Owned local Codex chat unavailable');
-    expect(admitted.cwd).toBe('/private/tmp');
+    expect(admitted.cwd).toBe(realpathSync('/tmp'));
     expect(admitted.workspaceRoots).not.toContain('/tmp/new-workspace');
     expect(() => controls.assertNativeExecutionCurrent!(admitted, 'owned-command')).toThrow(
       'Owned local Codex chat unavailable',
     );
     expect(mocks.send).toHaveBeenCalledOnce();
+  } finally {
+    chat?.close();
+    f.eventStore.close();
+  }
+});
+
+it('retains the existing non-Mac owned host tools without claiming native Mac permissions', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const f = ownedLocalOptions();
+  vi.stubGlobal('process', Object.create(process, { platform: { value: 'linux' } }));
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(f.opts);
+    const controls = mocks.conversationOptions!;
+    expect(controls.nativeExecution).toBeUndefined();
+    expect(controls.resolveNativeExecutionPolicy).toBeUndefined();
+    expect(controls.assertNativeExecutionCurrent).toBeUndefined();
+    expect(controls.tools).toEqual(
+      expect.arrayContaining(
+        ['Bash', 'Read', 'Write', 'Edit'].map((name) => expect.objectContaining({ name })),
+      ),
+    );
   } finally {
     chat?.close();
     f.eventStore.close();

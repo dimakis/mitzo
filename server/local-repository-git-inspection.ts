@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
 import { lstat, open, opendir, realpath } from 'node:fs/promises';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { readLocalRepositorySnapshotStatus } from './local-repository-git-snapshot.js';
@@ -18,28 +18,12 @@ const env = {
   GIT_TERMINAL_PROMPT: '0',
   GIT_ALTERNATE_OBJECT_DIRECTORIES: '',
 };
-const credentialDirectories = new Set([
-  '.ssh',
-  '.aws',
-  '.gnupg',
-  '.kube',
-  '.azure',
-  '.gcloud',
-  'Keychains',
-]);
-const agentDirectories = new Set(['.claude', '.cursor', '.codex']);
-/** Static restrictions only; no filesystem probes or authority grants. */
-export function localRepositoryReadDirectoryExclusions(directory: string) {
-  return [...credentialDirectories, ...agentDirectories].map((name) => join(directory, name));
-}
-export function isLocalRepositoryCredentialPath(path: string) {
-  const parts = resolve(path).split(sep);
-  return parts.some(
-    (part, index) =>
-      credentialDirectories.has(part) ||
-      (agentDirectories.has(part) && parts[index + 1] !== 'worktrees'),
-  );
-}
+export {
+  localRepositoryReadDirectoryExclusions,
+  isLocalRepositoryCredentialPath,
+} from './local-repository-read-exclusions.js';
+import { isLocalRepositoryCredentialPath } from './local-repository-read-exclusions.js';
+
 export interface LocalRepositoryGitInspectionRequest {
   path: string;
   /** Validate existing read authority; this callback must not grant access. */
@@ -60,6 +44,8 @@ export interface LocalRepositoryComparisonConfig {
   readonly unsupported?: true;
 }
 export interface LocalRepositoryGitMetadata {
+  /** Private compact reader coverage, never a namespace/ALL/object view. */
+  baseObservationCoverage?: 'preparation-base-observation-v1';
   /** Preparation consumes only actual HEAD resolution and the requested branch
    * namespace. Never reuse this evidence as an all-ref/object/status view. */
   referenceCoverage?: 'preparation-head-and-namespace-v1';
@@ -157,6 +143,8 @@ export async function inspectLocalRepositoryGitMetadata(
     !['complete', 'references', 'preparation'].includes(request.mode)
   )
     throw new LocalRepositoryGitInspectionError('unsafe', 'inspection-mode-unsupported');
+  if (request.readAccess?.preparationObservationOnly && request.mode !== 'preparation')
+    throw new LocalRepositoryGitInspectionError('unsafe', 'preparation-observation-only');
   const preparation = request.mode === 'preparation';
   const referencesOnly = request.mode === 'references' || preparation;
   if (referencesOnly && !request.readAccess)
@@ -422,6 +410,9 @@ export async function inspectLocalRepositoryGitMetadata(
   }
   await authorize(path);
   return {
+    ...(request.readAccess?.preparationObservationOnly
+      ? { baseObservationCoverage: 'preparation-base-observation-v1' as const }
+      : {}),
     ...(preparation
       ? {
           qualification: 'preparation' as const,
@@ -451,6 +442,8 @@ export async function readLocalRepositoryStatus(
   options: { signal?: AbortSignal; timeoutMs: number; readAccess: LocalRepositoryReadAccess },
 ): Promise<string> {
   options.signal?.throwIfAborted();
+  if (options.readAccess.preparationObservationOnly)
+    throw new LocalRepositoryGitInspectionError('unsafe', 'preparation-observation-only');
   if (metadata.referenceCoverage)
     throw new LocalRepositoryGitInspectionError('unsafe', 'preparation-reference-view-unavailable');
   if (metadata.qualification)

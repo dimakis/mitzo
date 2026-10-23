@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook } from '@testing-library/react';
-import { launchDraftDelivery } from '../launch-draft-delivery';
+import {
+  launchDraftDelivery,
+  reviewedBriefingLaunch,
+  validateOwnedBriefingAssignment,
+} from '../launch-draft-delivery';
+import { localInventoryFixture } from '../../test-utils/local-inventory-fixture';
+import { buildLocalFirstCommand } from '../explicit-local-chat';
+import { createChatRuntimeSelection } from '../chat-runtime-selection';
 import {
   createChatDraft,
   getChatDraft,
@@ -121,4 +128,131 @@ it('flushes a launch follow-up before page replacement without waiting for the d
   act(() => hook.result.current[1]('Reload this follow-up'));
   act(() => window.dispatchEvent(new Event('pagehide')));
   expect(localStorage.getItem(chatDraftTextKey(draft.id))).toBe('Reload this follow-up');
+});
+
+function ownedFixture() {
+  const base = localInventoryFixture();
+  const inventory = {
+    ...base,
+    routes: base.routes.map((route) => ({ ...route, capabilityRevision: 'selected-route-r1' })),
+  };
+  const account = { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' };
+  const source = {
+    kind: 'briefing' as const,
+    date: '2026-10-15',
+    revision: 'a'.repeat(64),
+    content: 'Original report',
+  };
+  const draft = createChatDraft();
+  draft.text = 'Discuss the report';
+  draft.settings.selection = account;
+  draft.settings.runtimeSelection = {
+    ...createChatRuntimeSelection(),
+    account,
+    accountReference: inventory.accounts[0].account,
+    agentProfile: { profileId: 'agent', revision: 1 },
+    execution: { location: 'local', targetId: 'mac' },
+    capabilityRevision: inventory.capabilityRevision,
+  };
+  draft.settings.launch = {
+    prompt: draft.text,
+    context: 'Original context',
+    briefing: source,
+    accountSelection: account,
+    sourceSnapshots: [source],
+  };
+  saveChatDraft(draft);
+  draft.settings.launch = reviewedBriefingLaunch(draft, draft.settings.runtimeSelection, inventory);
+  saveChatDraft(draft);
+  const command = buildLocalFirstCommand(draft.settings.runtimeSelection, inventory, {
+    clientMsgId: 'owned-distinct-revisions',
+    mode: 'agent',
+    text: draft.text,
+    sourceSnapshots: [source],
+  })!;
+  return { draft, command, inventory };
+}
+it('prepares and cold-validates original selected-route proof independently of combined inventory revision', () => {
+  const { draft, command } = ownedFixture();
+  expect(command.capabilityRevision).not.toBe(draft.settings.runtimeSelection!.capabilityRevision);
+  expect(launchDraftDelivery.prepare(draft.id, command)).toBe(true);
+  launchDraftDelivery.settle(command.clientMsgId, 'uncertain');
+  draft.settings.launch!.reviewedRoute!.capabilityRevision = 'later-route';
+  draft.settings.runtimeSelection!.capabilityRevision = 'later-inventory';
+  saveChatDraft(draft);
+  expect(validateOwnedBriefingAssignment(draft.id, command)).toBe(true);
+  expect(
+    validateOwnedBriefingAssignment(draft.id, { ...command, capabilityRevision: 'later-route' }),
+  ).toBe(false);
+  expect(launchDraftDelivery.prepare(draft.id, command)).toBe(false);
+  expect(launchDraftDelivery.pending(draft.id)).toBe(true);
+});
+it('refuses a selected-route revision changing inside the same reviewed combined inventory', () => {
+  const { draft, command, inventory } = ownedFixture();
+  inventory.routes[0].capabilityRevision = 'changed-route';
+  const launch = reviewedBriefingLaunch(draft, draft.settings.runtimeSelection!, inventory);
+  expect(launch?.reviewedRoute?.capabilityRevision).toBe('selected-route-r1');
+  saveChatDraft({ ...draft, settings: { ...draft.settings, launch } });
+  expect(
+    launchDraftDelivery.prepare(draft.id, { ...command, capabilityRevision: 'changed-route' }),
+  ).toBe(false);
+  expect(launchDraftDelivery.pending(draft.id)).toBe(false);
+});
+it('requires review after an unrelated combined refresh without changing the selected route evidence', () => {
+  const { draft, inventory } = ownedFixture();
+  inventory.capabilityRevision = 'unrelated-inventory-refresh';
+  expect(
+    buildLocalFirstCommand(draft.settings.runtimeSelection!, inventory, {
+      clientMsgId: 'stale',
+      mode: 'agent',
+      text: draft.text,
+    }),
+  ).toBeNull();
+  expect(
+    reviewedBriefingLaunch(draft, draft.settings.runtimeSelection!, inventory)?.reviewedRoute
+      ?.inventoryRevision,
+  ).toBe('caps-r1');
+  draft.settings.runtimeSelection!.capabilityRevision = inventory.capabilityRevision;
+  const launch = reviewedBriefingLaunch(draft, draft.settings.runtimeSelection!, inventory);
+  expect(launch?.reviewedRoute).toMatchObject({
+    inventoryRevision: 'unrelated-inventory-refresh',
+    capabilityRevision: 'selected-route-r1',
+  });
+});
+it.each([
+  'capabilityRevision',
+  'inventoryRevision',
+  'targetId',
+  'harness',
+  'account',
+  'location',
+] as const)('rejects changed original retained route %s before assignment', (field) => {
+  const { draft, command } = ownedFixture();
+  expect(launchDraftDelivery.prepare(draft.id, command)).toBe(true);
+  const key = Object.keys(localStorage).find((key) => key.startsWith('mitzo-launch-delivery:'))!;
+  const receipt = JSON.parse(localStorage.getItem(key)!);
+  const route = receipt.submitted.settings.launch.reviewedRoute;
+  if (field === 'account') route.account.accountId = 'other';
+  else
+    route[field] =
+      field === 'harness' ? 'claude-sdk' : field === 'location' ? 'openshell' : 'changed';
+  localStorage.setItem(key, JSON.stringify(receipt));
+  expect(validateOwnedBriefingAssignment(draft.id, command)).toBe(false);
+  expect(launchDraftDelivery.pending(draft.id)).toBe(true);
+});
+
+it('keeps historical same-revision owned receipts valid without inventing route evidence', () => {
+  const { draft, command } = ownedFixture();
+  delete draft.settings.launch!.reviewedRoute;
+  draft.settings.runtimeSelection!.capabilityRevision = command.capabilityRevision;
+  saveChatDraft(draft);
+  expect(launchDraftDelivery.prepare(draft.id, command)).toBe(true);
+  expect(validateOwnedBriefingAssignment(draft.id, command)).toBe(true);
+});
+it('refuses distinct revisions when the original selected-route proof is absent', () => {
+  const { draft, command } = ownedFixture();
+  delete draft.settings.launch!.reviewedRoute;
+  saveChatDraft(draft);
+  expect(launchDraftDelivery.prepare(draft.id, command)).toBe(false);
+  expect(launchDraftDelivery.pending(draft.id)).toBe(false);
 });

@@ -25,6 +25,9 @@ interface DirectoryStep {
       }
     | { readonly kind: 'created'; readonly directory: string };
 }
+export type LocalRepositoryAllocationFacts = Awaited<
+  ReturnType<typeof captureLocalRepositoryAllocationFacts>
+>['facts'];
 const unavailable = () => Error('Local repository allocation facts unavailable');
 const contains = (root: string, path: string) => {
   const child = relative(root, path);
@@ -190,6 +193,9 @@ export async function captureLocalRepositoryAllocationFacts(
       source: { ...metadata, referenceCoverage, sourceAnchor, commonAnchor },
       taskRoot: taskAnchor,
       directories,
+      // Every original existing publication parent must survive approval and
+      // fresh capture by identity, including parents that need no mkdir step.
+      existingDirectories: [...known].map(([directory, identity]) => ({ directory, identity })),
       absentPaths,
     });
     // Fixed path/step/count bounds cap serialization at <256KiB even before

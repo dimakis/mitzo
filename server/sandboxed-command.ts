@@ -1,3 +1,8 @@
+import {
+  privateRepositoryCheckoutCommand,
+  privateRepositoryCheckoutConfig,
+  privateRepositoryCheckoutAttributes,
+} from './private-repository-checkout.js';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
@@ -6,7 +11,13 @@ import { fileURLToPath } from 'node:url';
 import { AuthoritySnapshot, identity, validatePath } from './sandbox-authority.js';
 import type { SandboxWorkerPayload } from './sandboxed-command-worker.js';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import {
+  freezeNativeReadExclusions,
+  privateNativeFileHelperCommand,
+  projectPrivateNativeFileHelperRequest,
+  type NativeReadAnchor,
+} from './native-file-operation.js';
 
 export interface SandboxedCommandOptions {
   command: string;
@@ -27,8 +38,436 @@ export interface SandboxedCommandOptions {
   beforeSpawnAsync?: () => Promise<void>;
 }
 
+/** Private actor facts only, not a permission grant. Actual callers derive the
+ * exact roots from consumed scope plus phase-owned/original pinned identities. */
+export interface PrivateNativeFileHelperOptions {
+  readonly requestJson: string;
+  readonly cwd: string;
+  readonly writableRoots: readonly Readonly<{ path: string; parentAnchor: NativeReadAnchor }>[];
+  readonly deniedRoots: readonly string[];
+  readonly signal: AbortSignal;
+  readonly timeoutMs: number;
+  /** Restrictive absolute expiry from the genuine consumed operation. */
+  readonly deadline?: number;
+  readonly maxOutputBytes: number;
+  assertCurrentSync(): void;
+  revalidate(): Promise<void>;
+}
+interface PrivateHelperScope {
+  readonly requestJson?: string;
+  readonly checkoutJson?: string;
+  readonly ownedAuthority?: ReturnType<AuthoritySnapshot['serialize']>;
+  readonly deadline: number;
+  readonly cwdIdentity: Readonly<{ dev: string; ino: string }>;
+}
+const privateLiteral = (path: unknown): path is string =>
+  typeof path === 'string' &&
+  isAbsolute(path) &&
+  path !== '/' &&
+  resolve(path) === path &&
+  !path.includes('\0') &&
+  !/[*?[\]{}]/.test(path) &&
+  Buffer.byteLength(path) <= 4096 &&
+  path.split('/').length <= 129;
+function privateData(value: unknown, key: string): unknown {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+  )
+    throw Error('Private helper scope unavailable');
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  if (!descriptor || !('value' in descriptor)) throw Error('Private helper scope unavailable');
+  return descriptor.value;
+}
+function privateArray(value: unknown, max: number): unknown[] {
+  if (
+    !Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    value.length > max
+  )
+    throw Error('Private helper scope unavailable');
+  const items: unknown[] = [];
+  for (let index = 0; index < value.length; index++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !('value' in descriptor)) throw Error('Private helper scope unavailable');
+    items.push(descriptor.value);
+  }
+  return items;
+}
+
+function privateDeadline(original: object, timeout: number) {
+  const descriptor = Object.getOwnPropertyDescriptor(original, 'deadline');
+  if (!descriptor) {
+    if ('deadline' in original) throw Error('Private helper deadline unavailable');
+    return Date.now() + timeout;
+  }
+  if (!('value' in descriptor) || !Number.isSafeInteger(descriptor.value) || descriptor.value <= 0)
+    throw Error('Private helper deadline unavailable');
+  return Math.min(Date.now() + timeout, descriptor.value);
+}
+/** SAME runner, fixed private file program only. This is deliberately not a
+ * public Bash option to skip Git/authority checks. No source/Git path is passed
+ * to host AuthoritySnapshot or gitMetadataRoots. SRT itself normalizes literal
+ * roots: the caller must already hold original/phase custody of those roots and
+ * each nearest existing parent, under the current original owner. */
+export async function executePrivateNativeFileHelper(options: PrivateNativeFileHelperOptions) {
+  const original = options;
+  const sync = privateData(options, 'assertCurrentSync');
+  const async = privateData(options, 'revalidate');
+  const signal = privateData(options, 'signal') as AbortSignal;
+  const timeoutMs = privateData(options, 'timeoutMs');
+  if (
+    typeof sync !== 'function' ||
+    typeof async !== 'function' ||
+    typeof timeoutMs !== 'number' ||
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs <= 0 ||
+    timeoutMs > 30000
+  )
+    throw Error('Private helper owner unavailable');
+  const deadline = privateDeadline(original, timeoutMs);
+  const current = () => {
+    signal.throwIfAborted();
+    if (Date.now() >= deadline) throw Error('Private helper owner unavailable');
+    const returned: unknown = Reflect.apply(sync, original, []);
+    if (returned !== undefined) {
+      void Promise.resolve(returned).catch(() => {});
+      throw Error('Private helper owner unavailable');
+    }
+  };
+  const revalidate = async () => {
+    current();
+    const pending: unknown = Reflect.apply(async, original, []);
+    if (!(pending instanceof Promise)) throw Error('Private helper owner unavailable');
+    if ((await pending) !== undefined) throw Error('Private helper owner unavailable');
+    current();
+  };
+  // Capture immutable plain data before awaiting either owner. No source path
+  // lookup/normalization happens in this validation phase.
+  const suppliedRequestJson = privateData(options, 'requestJson');
+  if (typeof suppliedRequestJson !== 'string') throw Error('Private helper input unavailable');
+  const requestJson = projectPrivateNativeFileHelperRequest(suppliedRequestJson);
+  const command = privateNativeFileHelperCommand(requestJson);
+  const request = JSON.parse(requestJson);
+  const cwd = privateData(options, 'cwd');
+  const inputRoots = privateArray(
+    privateData(options, 'writableRoots'),
+    request.operation === 'CreateFileBatch' ? 7 : 2,
+  );
+  const maxOutputBytes = privateData(options, 'maxOutputBytes');
+  const deniedRoots = freezeNativeReadExclusions(
+    privateArray(privateData(options, 'deniedRoots'), 256) as string[],
+  );
+  if (
+    !privateLiteral(cwd) ||
+    !Array.isArray(inputRoots) ||
+    inputRoots.length !==
+      (request.operation === 'CreateFileBatch' ? request.items.length + 1 : 2) ||
+    typeof maxOutputBytes !== 'number' ||
+    !Number.isSafeInteger(maxOutputBytes) ||
+    maxOutputBytes < 1 ||
+    maxOutputBytes > 32768
+  )
+    throw Error('Private helper scope unavailable');
+  const roots = Object.freeze(
+    inputRoots.map((value) => {
+      const path = privateData(value, 'path');
+      const parent = privateData(value, 'parentAnchor');
+      const parentPath = privateData(parent, 'rootPath');
+      const id = privateData(parent, 'identity');
+      const dev = privateData(id, 'dev'),
+        ino = privateData(id, 'ino');
+      if (
+        !privateLiteral(path) ||
+        !privateLiteral(parentPath) ||
+        (path !== parentPath && dirname(path) !== parentPath) ||
+        typeof dev !== 'string' ||
+        !/^\d{1,32}$/.test(dev) ||
+        typeof ino !== 'string' ||
+        !/^\d{1,32}$/.test(ino)
+      )
+        throw Error('Private helper parent custody unavailable');
+      return Object.freeze({
+        path,
+        parentAnchor: Object.freeze({
+          rootPath: parentPath,
+          identity: Object.freeze({ dev, ino }),
+        }),
+      });
+    }),
+  );
+  const targets = request.operation === 'CreateFileBatch' ? request.items : [request];
+  if (
+    new Set(roots.map((root) => root.path)).size !== roots.length ||
+    !roots.some((root) => root.path === cwd && root.parentAnchor.rootPath === cwd) ||
+    !targets.every((target: { file_path: string; parentIdentity: NativeReadAnchor['identity'] }) =>
+      roots.some(
+        (root) =>
+          root.path === target.file_path &&
+          root.parentAnchor.rootPath === dirname(target.file_path) &&
+          root.parentAnchor.identity.dev === target.parentIdentity.dev &&
+          root.parentAnchor.identity.ino === target.parentIdentity.ino,
+      ),
+    ) ||
+    JSON.stringify(deniedRoots) !==
+      JSON.stringify(freezeNativeReadExclusions(request.deniedRoots)) ||
+    roots.some((root) =>
+      deniedRoots.some(
+        (denied) =>
+          root.path === denied || root.path.startsWith(denied === '/' ? '/' : denied + '/'),
+      ),
+    ) ||
+    (['CreateFile', 'CreateFileBatch', 'PublishTree'].includes(request.operation) &&
+      !targets.every(
+        (target: { payload: { rootAnchor: NativeReadAnchor } }) =>
+          target.payload.rootAnchor.rootPath === cwd &&
+          roots.some(
+            (root) =>
+              root.path === cwd &&
+              root.parentAnchor.identity.dev === target.payload.rootAnchor.identity.dev &&
+              root.parentAnchor.identity.ino === target.payload.rootAnchor.identity.ino,
+          ),
+      ))
+  )
+    throw Error('Private helper scope unavailable');
+  await revalidate(); // Full actual owner BEFORE any scope-touching host setup.
+  let failed = false;
+  let result: Awaited<ReturnType<typeof runSandboxedCommand>> | undefined;
+  try {
+    result = await runSandboxedCommand(
+      {
+        command,
+        cwd,
+        writableRoots: roots.map((root) => root.path),
+        deniedRoots: [...deniedRoots],
+        env: { PATH: '/usr/bin:/bin' },
+        signal,
+        privateOutput: 'separate',
+        timeoutMs: Math.max(1, deadline - Date.now()),
+        maxOutputBytes,
+        beforeSpawnAsync: revalidate,
+        beforeSpawn: current,
+      },
+      {
+        requestJson,
+        deadline,
+        cwdIdentity: roots.find((root) => root.path === cwd)!.parentAnchor.identity,
+      },
+    );
+  } catch {
+    // Joining/cleanup can fail after a real effect. Never retry or erase it.
+    failed = true;
+  }
+  try {
+    const pending: unknown = Reflect.apply(async, original, []);
+    if (!(pending instanceof Promise) || (await pending) !== undefined)
+      throw Error('Private helper owner unavailable');
+    current(); // ALSO after rejected joined-worker/cleanup awaits and absolute expiry.
+    current();
+  } catch {
+    throw Error('Private native file helper unavailable');
+  }
+  if (failed || !result) throw Error('Private native file helper unavailable');
+  return result;
+}
+
+export interface PrivateRepositoryStagingCheckoutOptions {
+  readonly scratchAnchor: NativeReadAnchor;
+  readonly gitIdentity: NativeReadAnchor['identity'];
+  readonly stagingIdentity: NativeReadAnchor['identity'];
+  readonly privateAuthority: ReturnType<AuthoritySnapshot['serialize']>;
+  readonly baseOid: string;
+  readonly objectFormat: 'sha1' | 'sha256';
+  readonly deniedRoots: readonly string[];
+  readonly signal: AbortSignal;
+  readonly timeoutMs: number;
+  /** Restrictive absolute expiry from the genuine consumed operation. */
+  readonly deadline?: number;
+  assertCurrentSync(): void;
+  revalidate(): Promise<void>;
+}
+/** Fixed checkout into independently-owned PRIVATE staging only. No real source,
+ * task or admin path enters Git argv/cwd/config, AuthoritySnapshot or write roots.
+ * The worker rechecks these exact owned config/directory facts AFTER SRT wrapping. */
+export async function executePrivateRepositoryStagingCheckout(
+  options: PrivateRepositoryStagingCheckoutOptions,
+): Promise<void> {
+  const sync = privateData(options, 'assertCurrentSync'),
+    async = privateData(options, 'revalidate');
+  const signal = privateData(options, 'signal') as AbortSignal,
+    timeout = privateData(options, 'timeoutMs');
+  const anchor = privateData(options, 'scratchAnchor');
+  const scratch = privateData(anchor, 'rootPath');
+  const expected = privateData(anchor, 'identity');
+  const dev = privateData(expected, 'dev'),
+    ino = privateData(expected, 'ino');
+  const gitIdentity = privateData(options, 'gitIdentity'),
+    stagingIdentity = privateData(options, 'stagingIdentity');
+  const expectedIds = [expected, gitIdentity, stagingIdentity].map((item) => {
+    const dev = privateData(item, 'dev'),
+      ino = privateData(item, 'ino');
+    if (
+      typeof dev !== 'string' ||
+      typeof ino !== 'string' ||
+      !/^\d{1,32}$/.test(dev) ||
+      !/^\d{1,32}$/.test(ino)
+    )
+      throw Error('Private checkout unavailable');
+    return Object.freeze({ dev, ino });
+  });
+  const privateInputs = privateArray(privateData(options, 'privateAuthority'), 5000);
+  const baseOid = privateData(options, 'baseOid'),
+    objectFormat = privateData(options, 'objectFormat');
+  const deniedRoots = freezeNativeReadExclusions(
+    privateArray(privateData(options, 'deniedRoots'), 256) as string[],
+  );
+  if (
+    typeof sync !== 'function' ||
+    typeof async !== 'function' ||
+    typeof timeout !== 'number' ||
+    !Number.isSafeInteger(timeout) ||
+    timeout <= 0 ||
+    timeout > 30000 ||
+    !privateLiteral(scratch) ||
+    typeof dev !== 'string' ||
+    typeof ino !== 'string'
+  )
+    throw Error('Private checkout unavailable');
+  const deadline = privateDeadline(options, timeout);
+  const current = () => {
+    signal.throwIfAborted();
+    if (Date.now() >= deadline) throw Error('Private checkout unavailable');
+    const result: unknown = Reflect.apply(sync, options, []);
+    if (result !== undefined) {
+      void Promise.resolve(result).catch(() => {});
+      throw Error('Private checkout unavailable');
+    }
+  };
+  const revalidate = async () => {
+    current();
+    const pending: unknown = Reflect.apply(async, options, []);
+    if (!(pending instanceof Promise) || (await pending) !== undefined)
+      throw Error('Private checkout unavailable');
+    current();
+  };
+  const requestJson = JSON.stringify({ scratch, baseOid, objectFormat });
+  const command = privateRepositoryCheckoutCommand(requestJson);
+  if (deniedRoots.some((root) => contains(root, scratch) || contains(scratch, root)))
+    throw Error('Private checkout unavailable');
+  const inputs = privateInputs.map((item) => {
+    const path = privateData(item, 'path'),
+      stat = privateData(item, 'stat');
+    if (typeof path !== 'string' || !(path === scratch || path.startsWith(scratch + '/')))
+      throw Error('Private checkout unavailable');
+    const dev = privateData(stat, 'dev'),
+      ino = privateData(stat, 'ino'),
+      mode = privateData(stat, 'mode');
+    if (![dev, ino, mode].every((value) => typeof value === 'string' && /^\d{1,32}$/.test(value)))
+      throw Error('Private checkout unavailable');
+    const digestProperty = Object.getOwnPropertyDescriptor(item, 'digest');
+    if (
+      digestProperty &&
+      (!('value' in digestProperty) ||
+        (digestProperty.value !== undefined &&
+          (typeof digestProperty.value !== 'string' ||
+            !/^[a-f0-9]{64}$/.test(digestProperty.value))))
+    )
+      throw Error('Private checkout unavailable');
+    return {
+      path,
+      stat: { dev: dev as string, ino: ino as string, mode: mode as string },
+      ...(digestProperty?.value !== undefined ? { digest: digestProperty.value as string } : {}),
+    };
+  });
+  if (
+    !inputs.some(
+      (item) => item.path === join(scratch, 'git-admin', 'config') && item.digest !== undefined,
+    ) ||
+    !inputs.some(
+      (item) =>
+        item.path === join(scratch, 'git-admin', 'info', 'attributes') && item.digest !== undefined,
+    )
+  )
+    throw Error('Private checkout unavailable');
+  if (Buffer.byteLength(JSON.stringify(inputs)) > 2 * 1024 * 1024)
+    throw Error('Private checkout unavailable');
+  await revalidate(); // Original full owner BEFORE any host setup/owned path access.
+  let failed = false;
+  try {
+    const git = join(scratch, 'git-admin'),
+      staging = join(scratch, 'checkout');
+    for (const [index, path] of [scratch, git, staging].entries()) {
+      validatePath(path);
+      const actual = identity(path),
+        expected = expectedIds[index];
+      if (
+        !actual?.isDirectory() ||
+        actual.dev.toString() !== expected.dev ||
+        actual.ino.toString() !== expected.ino
+      )
+        throw Error('Private checkout unavailable');
+    }
+    const config = join(git, 'config'),
+      attributes = join(git, 'info', 'attributes');
+    for (const [path, bytes] of [
+      [config, privateRepositoryCheckoutConfig(objectFormat as 'sha1' | 'sha256')],
+      [attributes, privateRepositoryCheckoutAttributes],
+    ]) {
+      const actual = identity(path);
+      if (
+        !actual?.isFile() ||
+        actual.nlink !== 1n ||
+        actual.size > 8192n ||
+        readFileSync(path, 'utf8') !== bytes
+      )
+        throw Error('Private checkout unavailable');
+    }
+    // Synthetic metadata is pinned WITH bytes across setup and wrapping. Other
+    // host actors are not excluded globally; controlled replacements refuse.
+    const owned = AuthoritySnapshot.restore(inputs);
+    owned.verify();
+    for (const path of [scratch, git, staging, join(git, 'objects')]) owned.capture(path);
+    owned.capture(config, true);
+    owned.capture(attributes, true);
+    if (identity(join(git, 'index')) || identity(join(git, 'index.lock')))
+      throw Error('Private checkout unavailable');
+    owned.capture(join(git, 'index'));
+    owned.capture(join(git, 'index.lock'));
+    const result = await runSandboxedCommand(
+      {
+        command,
+        cwd: scratch,
+        writableRoots: [scratch],
+        deniedRoots: [...deniedRoots],
+        env: { PATH: '/usr/bin:/bin' },
+        signal,
+        timeoutMs: Math.max(1, deadline - Date.now()),
+        maxOutputBytes: 32768,
+        privateOutput: 'separate',
+        beforeSpawnAsync: revalidate,
+        beforeSpawn: current,
+      },
+      {
+        checkoutJson: requestJson,
+        deadline,
+        cwdIdentity: expectedIds[0],
+        ownedAuthority: owned.serialize(),
+      },
+    );
+    if (result.isError) throw Error('Private checkout unavailable');
+  } catch {
+    failed = true;
+  }
+  const joinedOwner: unknown = Reflect.apply(async, options, []);
+  if (!(joinedOwner instanceof Promise) || (await joinedOwner) !== undefined)
+    throw Error('Private checkout unavailable');
+  current(); // Also after joined failures/cleanup and absolute expiry; never replay.
+  if (failed) throw Error('Private checkout unavailable');
+}
+
 function contains(root: string, path: string) {
-  return path === root || path.startsWith(root + '/');
+  return path === root || path.startsWith(root === '/' ? '/' : root + '/');
 }
 
 /** Verify both halves of Git's linked-worktree registration before granting its
@@ -101,6 +540,13 @@ function gitMetadataRoots(
 export async function executeSandboxedCommand(
   options: SandboxedCommandOptions,
 ): Promise<{ content: string; isError: boolean; stdout?: string; stderr?: string }> {
+  return runSandboxedCommand(options);
+}
+
+async function runSandboxedCommand(
+  options: SandboxedCommandOptions,
+  privateHelper?: PrivateHelperScope,
+): Promise<{ content: string; isError: boolean; stdout?: string; stderr?: string }> {
   options.signal.throwIfAborted();
   if (options.privateOutput !== undefined && options.privateOutput !== 'separate')
     throw new Error('Invalid private command output transport');
@@ -116,15 +562,29 @@ export async function executeSandboxedCommand(
     ...(options.readableRoots ? { readableRoots: [...options.readableRoots] } : {}),
     env: { ...options.env },
   };
-  const authority = new AuthoritySnapshot();
-  for (const path of [
-    options.cwd,
-    ...options.writableRoots,
-    ...options.deniedRoots,
-    ...(options.readableRoots ?? []),
-  ]) {
+  const authority = privateHelper?.ownedAuthority
+    ? AuthoritySnapshot.restore(privateHelper.ownedAuthority)
+    : new AuthoritySnapshot();
+  if (privateHelper?.ownedAuthority) authority.verify();
+  for (const path of privateHelper
+    ? [options.cwd, process.execPath]
+    : [
+        options.cwd,
+        ...options.writableRoots,
+        ...options.deniedRoots,
+        ...(options.readableRoots ?? []),
+      ]) {
     validatePath(path);
     authority.capture(path);
+  }
+  if (privateHelper) {
+    const current = identity(options.cwd);
+    if (
+      !current?.isDirectory() ||
+      current.dev.toString() !== privateHelper.cwdIdentity.dev ||
+      current.ino.toString() !== privateHelper.cwdIdentity.ino
+    )
+      throw Error('Private helper scratch custody changed');
   }
   if (
     options.readableRoots &&
@@ -135,7 +595,9 @@ export async function executeSandboxedCommand(
     )
   )
     throw Error('Sandbox readable scope overlaps private storage');
-  const metadata = options.writableRoots.map((root) => gitMetadataRoots(root, authority));
+  const metadata = privateHelper
+    ? []
+    : options.writableRoots.map((root) => gitMetadataRoots(root, authority));
   const metadataRoots = metadata.flatMap((entry) => entry.writable);
   const protectedMetadata = metadata.flatMap((entry) => entry.protected);
   for (const path of [...metadataRoots, ...protectedMetadata]) authority.capture(path);
@@ -172,6 +634,12 @@ export async function executeSandboxedCommand(
     const payload: SandboxWorkerPayload = {
       cwd: options.cwd,
       command: options.command,
+      ...(privateHelper?.requestJson
+        ? { privateNativeFileRequestJson: privateHelper.requestJson }
+        : {}),
+      ...(privateHelper?.checkoutJson
+        ? { privateRepositoryCheckoutJson: privateHelper.checkoutJson }
+        : {}),
       ...(options.networkAccess ? { networkAccess: options.networkAccess } : {}),
       authority: authority.serialize(),
       config: {
@@ -218,9 +686,10 @@ export async function executeSandboxedCommand(
     await options.beforeSpawnAsync?.();
     return await new Promise((resolveResult) => {
       options.signal.throwIfAborted();
-      options.beforeSpawn?.();
+      if (!privateHelper) options.beforeSpawn?.();
       // No await between revalidating authority and handing policy to the child.
       authority.verify();
+      if (privateHelper) options.beforeSpawn?.();
       const child = spawn(process.execPath, [...workerArgs, settings], {
         cwd: options.cwd,
         env,
@@ -245,7 +714,10 @@ export async function executeSandboxedCommand(
         kill();
       };
       const onAbort = () => stop('Command cancelled');
-      const timer = setTimeout(() => stop('Command timed out'), timeout);
+      const timer = setTimeout(
+        () => stop('Command timed out'),
+        privateHelper ? Math.max(1, privateHelper.deadline - Date.now()) : timeout,
+      );
       options.signal.addEventListener('abort', onAbort, { once: true });
       if (options.signal.aborted) onAbort();
       const collect = (chunk: Buffer, stream: Buffer[]) => {

@@ -91,6 +91,7 @@ describe('native Mac execution permission profile', () => {
         systemPrompt: '',
         nativeExecution: policy,
       });
+      if (!('runtimeWorkspaceRoots' in native)) throw Error('Expected native execution options');
       expect(native.runtimeWorkspaceRoots).toEqual([realpathSync(workspace)]);
       expect(
         codexNativePermissionProfiles(policy).permissions['mitzo-native-agent'].filesystem,

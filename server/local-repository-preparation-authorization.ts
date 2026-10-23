@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { EventStore } from './event-store.js';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
 import type { RepositoryWorkspaces } from './repository-workspaces.js';
+import type { NativeQualifiedLocalRepositoryPreparationSource } from './local-repository-preparation-source.js';
 import {
   PendingHostTaskError,
   PendingHostTaskRequestSchema,
@@ -54,7 +55,8 @@ interface Owners {
   readonly qualifySource: (
     path: string,
     context: NativeHostToolContext,
-  ) => Promise<QualifiedLocalRepositoryPreparationSource>;
+    intent: Readonly<{ workspaceId: string; sourcePath: string; taskRoot: string }>,
+  ) => Promise<NativeQualifiedLocalRepositoryPreparationSource>;
 }
 const accountScope = (account: {
   accountId: string;
@@ -155,7 +157,35 @@ export async function captureLocalRepositoryPreparationAuthorization(
   assertOriginal();
   await context.assertCurrent();
   assertOriginal();
-  const qualified = await owners.qualifySource(input.path, context);
+  const id = selectionId({
+    conversationId: context.conversationId,
+    runtimeId: context.runtimeId,
+    nativeTarget: context.nativeTarget,
+    callId: context.callId,
+    requestHash: context.requestHash,
+  });
+  const request = freezePendingHostTaskData(
+    PendingHostTaskRequestSchema.parse({
+      id,
+      binding,
+      runtimeBinding,
+      conversationId: context.conversationId,
+      runtimeId: context.runtimeId,
+      nativeTarget: context.nativeTarget,
+      prepareCallId: context.callId,
+      requestHash: context.requestHash,
+      taskRoot: hostReservation.taskRoot,
+    }),
+  );
+  const qualified = await owners.qualifySource(
+    input.path,
+    context,
+    Object.freeze({
+      workspaceId: id,
+      sourcePath: input.path,
+      taskRoot: request.taskRoot,
+    }),
+  );
   assertOriginal();
   if (
     !qualified ||
@@ -170,8 +200,12 @@ export async function captureLocalRepositoryPreparationAuthorization(
     .parse(qualified.anchorsSha256);
   const referenceCoverage = z
     .literal('preparation-head-and-namespace-v1')
-    .optional()
     .parse(qualified.referenceCoverage);
+  const allocationFacts = qualified.allocationFacts;
+  const allocationFactsSha256 = z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .parse(qualified.allocationFactsSha256);
   if (source.path !== input.path)
     throw new PendingHostTaskError('pending_host_task_ownership_changed');
   const assertSourceLabels = () => {
@@ -181,34 +215,22 @@ export async function captureLocalRepositoryPreparationAuthorization(
     if (
       qualified.anchorsSha256 !== anchorsSha256 ||
       qualified.referenceCoverage !== referenceCoverage ||
+      qualified.allocationFacts !== allocationFacts ||
+      qualified.allocationFactsSha256 !== allocationFactsSha256 ||
       !isDeepStrictEqual(qualified.source, source)
     )
       throw new PendingHostTaskError('pending_host_task_ownership_changed');
   };
   synchronous(() => qualified.assertCurrentSync());
   assertSourceLabels();
-  await qualified.assertCurrent();
-  assertSourceLabels();
-  const id = selectionId({
-    conversationId: context.conversationId,
-    runtimeId: context.runtimeId,
-    nativeTarget: context.nativeTarget,
-    callId: context.callId,
-    requestHash: context.requestHash,
-  });
-  const selected = await owners.workspaces.selectExistingLocalRepository(
-    binding,
-    input.path,
+  const selected = await owners.workspaces.selectQualifiedExistingLocalRepository(
     {
-      runOn: 'local',
-      runtime: {
-        account: runtimeBinding.account,
-        harness: 'codex',
-        targetId: runtimeBinding.execution.targetId,
-      },
+      request,
+      oldWorkspace: context.workspace,
+      source: qualified,
+      assertCurrentSync: assertSourceLabels,
     },
     context.signal,
-    id,
   );
   assertSourceLabels();
   const originalRecord = owners.workspaces.get(selected.id);
@@ -220,22 +242,16 @@ export async function captureLocalRepositoryPreparationAuthorization(
     !isDeepStrictEqual(originalRecord.localSource.root, source.root) ||
     !isDeepStrictEqual(originalRecord.localSource.commonRoot, source.commonRoot) ||
     !isDeepStrictEqual(originalRecord.ordinaryPreparation?.runtimeBinding, runtimeBinding) ||
-    !originalRecord.sourceDigest
+    !originalRecord.sourceDigest ||
+    !isDeepStrictEqual(originalRecord.qualifiedLocalPreparation, {
+      version: 1,
+      request,
+      oldWorkspace: context.workspace,
+      allocationFacts,
+      allocationFactsSha256,
+    })
   )
     throw new PendingHostTaskError('pending_host_task_ownership_changed');
-  const request = freezePendingHostTaskData(
-    PendingHostTaskRequestSchema.parse({
-      id,
-      binding,
-      runtimeBinding,
-      conversationId: context.conversationId,
-      runtimeId: context.runtimeId,
-      nativeTarget: context.nativeTarget,
-      prepareCallId: context.callId,
-      requestHash: context.requestHash,
-      taskRoot: hostReservation.taskRoot,
-    }),
-  );
   const baseScope = {
     kind: 'local-repository-worktree' as const,
     workspaceId: id,
@@ -263,7 +279,8 @@ export async function captureLocalRepositoryPreparationAuthorization(
       taskRootIdentity: hostReservation.rootIdentity,
       sourceDigest: originalRecord.sourceDigest,
       anchorsSha256,
-      ...(referenceCoverage === undefined ? {} : { referenceCoverage }),
+      referenceCoverage,
+      allocationFactsSha256,
       sourceGitEffects: {
         administrationDirectory: join(source.commonDirectory, 'worktrees', `repo-${id}`),
         branchReference: branchRef,
@@ -291,6 +308,10 @@ export async function captureLocalRepositoryPreparationAuthorization(
       record.baseOid !== originalRecord.baseOid ||
       record.sourceDigest !== originalRecord.sourceDigest ||
       !isDeepStrictEqual(record.localSource, originalRecord.localSource) ||
+      !isDeepStrictEqual(
+        record.qualifiedLocalPreparation,
+        originalRecord.qualifiedLocalPreparation,
+      ) ||
       !isDeepStrictEqual(record.binding, binding) ||
       !isDeepStrictEqual(record.ordinaryPreparation, originalRecord.ordinaryPreparation)
     )
@@ -306,18 +327,9 @@ export async function captureLocalRepositoryPreparationAuthorization(
       await qualified.assertCurrent();
       assertCurrentSync();
       synchronous(() => qualified.assertCurrentSync());
-      if (context.workspace.kind === 'ordinary')
-        await owners.workspaces.validateOrdinaryWorkspace(
-          context.conversationId,
-          context.workspace.directory,
-        );
-      else
-        await owners.workspaces.validateHostTask(
-          context.conversationId,
-          context.workspace.directory,
-        );
-      assertCurrentSync();
-      await owners.workspaces.qualifiedStatus(id, binding);
+      // The ORIGINAL context's full async admission/physical-owner fence and
+      // the exact source capability own these validations. Legacy status/source
+      // inspection cannot substitute for either current authority.
       assertCurrentSync();
     },
   });
@@ -328,6 +340,14 @@ export async function captureLocalRepositoryPreparationAuthorization(
     scope,
     payload,
     owner,
+    async materialize() {
+      owner.assertCurrentSync();
+      const operation = owners.workspaces.beginPendingHostTaskDecisionMaterialization(
+        request,
+        owner,
+      );
+      return owners.workspaces.materializeQualifiedPendingHostTask(request, operation);
+    },
     async approve(): Promise<PendingHostTaskDecision> {
       owner.assertCurrentSync();
       if (approvalStarted) throw new PendingHostTaskError('pending_host_task_uncertain');

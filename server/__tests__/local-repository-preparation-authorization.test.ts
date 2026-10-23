@@ -3,19 +3,23 @@ import { resolvePending } from '@mitzo/harness';
 import { createHash } from 'node:crypto';
 import Database from 'better-sqlite3';
 import { AccountBindingSchema, SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
-import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EventStore } from '../event-store.js';
 import { setAuthRevocationStore } from '../auth.js';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
+import * as gitInspection from '../local-repository-git-inspection.js';
+import type { NativeHostToolContext } from '../native-host-tool-context.js';
 import { localPreparationNativeFixture } from './fixtures/local-preparation-native.js';
 import { captureLocalRepositoryPreparationAuthorization } from '../local-repository-preparation-authorization.js';
+import { fixtureQualifiedLocalPreparationSource } from './fixtures/qualified-local-preparation-source.js';
 import {
   pendingHostTaskDecisionHash,
   pendingHostTaskDecisionPayload,
 } from '../pending-host-task.js';
 
 const cleanups: Array<() => void | Promise<void>> = [];
+vi.setConfig({ testTimeout: 30000 });
 const revocations = new EventStore(':memory:');
 setAuthRevocationStore(revocations);
 afterAll(() => revocations.close());
@@ -74,12 +78,9 @@ it('retains actual permission evidence before outward allow and finalizes only t
   let observedId: string | undefined;
   let assertEffectsUnchanged!: () => void;
   let originalWorkspaceInScope: { actual: unknown; expected: unknown } | undefined;
+  let qualifiedIntent: { workspaceId: string; sourcePath: string; taskRoot: string } | undefined;
   const f = await localPreparationNativeFixture(cleanups, async (context, input) => {
     const source = join(f.f.root, 'source');
-    const identity = (path: string) => {
-      const value = lstatSync(path);
-      return { dev: value.dev, ino: value.ino };
-    };
     const witness = () =>
       createHash('sha256')
         .update(readFileSync(join(source, '.git', 'HEAD')))
@@ -93,31 +94,32 @@ it('retains actual permission evidence before outward allow and finalizes only t
         registry: f.registry,
         events: f.f.events,
         workspaces: service,
-        qualifySource: async (path) => {
+        qualifySource: async (path, originalContext, intent) => {
+          qualifiedIntent = intent;
           expect(path).toBe(source);
-          return {
-            source: {
-              path: source,
-              gitDirectory: join(source, '.git'),
-              commonDirectory: join(source, '.git'),
-              root: identity(source),
-              commonRoot: identity(join(source, '.git')),
-            },
-            anchorsSha256: originalWitness,
-            referenceCoverage: 'preparation-head-and-namespace-v1',
+          expect(originalContext).toBe(context);
+          expect(intent).toEqual({
+            workspaceId: expect.any(String),
+            sourcePath: source,
+            taskRoot: f.f.reservation.taskRoot,
+          });
+          return fixtureQualifiedLocalPreparationSource(intent, {
             assertCurrentSync() {
               expect(witness()).toBe(originalWitness);
             },
             async assertCurrent() {
               expect(witness()).toBe(originalWitness);
             },
-          };
+          });
         },
       },
       input,
     );
     originalWorkspaceInScope = { actual: held.scope.oldWorkspace, expected: context.workspace };
     expect(held.scope.oldWorkspace).toEqual(context.workspace);
+    expect(held.scope.allocationFactsSha256).toBe(
+      row(f.f.root, held.request.id).qualifiedLocalPreparation.allocationFactsSha256,
+    );
     const { referenceCoverage, ...historicalScope } = held.scope;
     expect(referenceCoverage).toBe('preparation-head-and-namespace-v1');
     expect(pendingHostTaskDecisionHash(historicalScope)).not.toBe(
@@ -182,6 +184,12 @@ it('retains actual permission evidence before outward allow and finalizes only t
     return result;
   });
   const result = await f.a.call({ path: join(f.f.root, 'source') });
+  expect(qualifiedIntent).toEqual({
+    workspaceId: expect.any(String),
+    sourcePath: join(f.f.root, 'source'),
+    taskRoot: f.f.reservation.taskRoot,
+  });
+  expect(qualifiedIntent!.workspaceId).toBe(held!.request.id);
   expect(originalWorkspaceInScope).toBeDefined();
   expect(originalWorkspaceInScope!.actual).toEqual(originalWorkspaceInScope!.expected);
   expect(result.response.success).toBe(true);
@@ -200,35 +208,27 @@ async function preparationCase(
   noLiveCalls();
   let current = true;
   let selectedId: string | undefined;
+  let originalContext: NativeHostToolContext | undefined;
+  const ambientAccess = vi.fn(async () => {
+    throw Error('Fixture intentionally denies ambient source access');
+  });
   let qualifiedLabels: { referenceCoverage?: 'preparation-head-and-namespace-v1' } | undefined;
   const f = await localPreparationNativeFixture(cleanups, async (context, input) => {
-    const source = join(f.f.root, 'source');
-    const identity = (path: string) => {
-      const value = lstatSync(path);
-      return { dev: value.dev, ino: value.ino };
-    };
+    originalContext = context;
     const prepared = await captureLocalRepositoryPreparationAuthorization(
       {
         context,
         registry: f.registry,
         events: f.f.events,
         workspaces: service,
-        qualifySource: async () => {
-          const owner = {
-            source: {
-              path: source,
-              gitDirectory: join(source, '.git'),
-              commonDirectory: join(source, '.git'),
-              root: identity(source),
-              commonRoot: identity(join(source, '.git')),
-            },
-            anchorsSha256: 'b'.repeat(64),
-            ...(referenceCoverage ? { referenceCoverage } : {}),
+        qualifySource: async (_path, _context, intent) => {
+          const owner = await fixtureQualifiedLocalPreparationSource(intent, {
             assertCurrentSync() {
               if (!current) throw Error('Qualified fixture source revoked');
             },
             async assertCurrent() {},
-          };
+          });
+          if (referenceCoverage) expect(owner.referenceCoverage).toBe(referenceCoverage);
           qualifiedLabels = owner;
           return owner;
         },
@@ -239,9 +239,12 @@ async function preparationCase(
     return execute(prepared);
   });
   const service = new RepositoryWorkspaces(join(f.f.root, 'repositories'), {
-    assertLocalRepositoryAccess: async (path) => {
-      expect(path.startsWith(f.f.root + '/')).toBe(true);
+    assertPendingHostTaskCurrentSync() {
+      if (!originalContext) throw Error('No original fixture callback');
+      originalContext.assertCurrentSync();
     },
+    assertPendingHostTaskAccess: ambientAccess,
+    assertLocalRepositoryAccess: ambientAccess,
     authorize: async () => {
       throw Error('Remote fixture access prohibited');
     },
@@ -263,6 +266,7 @@ async function preparationCase(
   return {
     ...f,
     service,
+    ambientAccess,
     revokeSource() {
       current = false;
     },
@@ -503,3 +507,158 @@ it('expires a consumed operation at the actual approval deadline while the origi
     claimAllowed: false,
   });
 }, 20000);
+
+it('refuses legacy revalidation of a consumed qualified intent before ambient source inspection', async () => {
+  const inspect = vi.spyOn(gitInspection, 'inspectLocalRepositoryGitMetadata');
+  let checked = false;
+  let failure: unknown;
+  const f = await preparationCase(async (prepared) => {
+    await prepared.approve();
+    const operation = f.service.beginPendingHostTaskDecisionMaterialization(
+      prepared.request,
+      prepared.owner,
+    );
+    operation.assertCurrentSync();
+    const before = f.saved();
+    expect(before.pendingHostTask.state).toBe('materializing');
+    expect(f.service.getPendingHostTask(prepared.request).state).toBe('uncertain');
+    inspect.mockClear();
+    f.ambientAccess.mockClear();
+    try {
+      await f.service.revalidatePendingHostTask(prepared.request, prepared.owner.context.signal);
+    } catch (error) {
+      failure = error;
+    }
+    checked = true;
+    expect(failure).toMatchObject({ code: 'pending_host_task_access_required' });
+    expect(inspect).not.toHaveBeenCalled();
+    expect(f.ambientAccess).not.toHaveBeenCalled();
+    expect(f.saved()).toEqual(before);
+    for (const path of [
+      prepared.scope.create.task.directory,
+      ...Object.values(prepared.scope.sourceGitEffects),
+    ])
+      expect(existsSync(path)).toBe(false);
+    checked = true;
+    return { refused: true };
+  });
+  const result = await f.call();
+  expect(checked).toBe(true);
+  expect(failure).toMatchObject({ code: 'pending_host_task_access_required' });
+  expect(inspect).not.toHaveBeenCalled();
+  expect(f.ambientAccess).not.toHaveBeenCalled();
+  expect(result.response.success).toBe(true);
+});
+
+it.each(['missing', 'different'] as const)(
+  'refuses %s allocation-facts digest before retaining original permission observation',
+  async (change) => {
+    const f = await preparationCase(async (prepared) => prepared.approve());
+    let checked = false;
+    let acceptedChangedEvidence = false;
+    const retain = f.service.retainPendingHostTaskDecisionObservation.bind(f.service);
+    vi.spyOn(f.service, 'retainPendingHostTaskDecisionObservation').mockImplementation(
+      (...args) => {
+        const [request, scope, evidence, owner] = args;
+        const changed = structuredClone(scope);
+        if (change === 'missing') delete changed.allocationFactsSha256;
+        else changed.allocationFactsSha256 = 'f'.repeat(64);
+        const payload = pendingHostTaskDecisionPayload(request, changed);
+        const before = f.saved();
+        try {
+          retain(
+            request,
+            changed,
+            {
+              ...evidence,
+              input: payload,
+              inputSha256: pendingHostTaskDecisionHash(payload),
+            },
+            owner,
+          );
+          acceptedChangedEvidence = true;
+        } catch {
+          /* Expected persisted original-scope refusal. */
+        }
+        expect(f.saved()).toEqual(before);
+        checked = true;
+        return retain(...args);
+      },
+    );
+    const result = await f.call();
+    expect(acceptedChangedEvidence).toBe(false);
+    expect(result.response.success).toBe(true);
+    expect(checked).toBe(true);
+    expect(f.saved().pendingHostTaskDecision.scope.allocationFactsSha256).toBe(
+      f.saved().qualifiedLocalPreparation.allocationFactsSha256,
+    );
+  },
+);
+
+it.each(['call', 'target', 'request-hash', 'qualified-facts'] as const)(
+  'binds metadata observation to the stored original %s before any receipt exists',
+  async (change) => {
+    const f = await preparationCase(async (prepared) => prepared.approve());
+    let checked = false;
+    let acceptedChangedEvidence = false;
+    const retain = f.service.retainPendingHostTaskDecisionObservation.bind(f.service);
+    vi.spyOn(f.service, 'retainPendingHostTaskDecisionObservation').mockImplementation(
+      (...args) => {
+        const [request, scope, evidence, owner] = args;
+        const db = new Database(join(f.f.root, 'repositories', 'workspaces.db'));
+        const before = f.saved();
+        expect(before.pendingHostTask).toBeUndefined();
+        const altered = structuredClone(before);
+        if (change === 'call')
+          altered.qualifiedLocalPreparation.request.prepareCallId = 'other-call';
+        if (change === 'target')
+          altered.qualifiedLocalPreparation.request.nativeTarget.turnId = 'other-turn';
+        if (change === 'request-hash')
+          altered.qualifiedLocalPreparation.request.requestHash = 'f'.repeat(64);
+        if (change === 'qualified-facts') delete altered.qualifiedLocalPreparation;
+        // This metadata-only API control retains the actual native context and its
+        // live fences. It conveys no source-read or effect authority. In contrast
+        // to the production producer, its fence does not inspect the pending row,
+        // so the persisted-request check itself must reject the substituted row.
+        const nativeMetadataOwner = Object.freeze({
+          context: owner.context,
+          assertCurrentSync() {
+            owner.context.assertCurrentSync();
+          },
+          async assertCurrent() {
+            await owner.context.assertCurrent();
+          },
+        });
+        try {
+          db.prepare('UPDATE repository_workspaces SET record=? WHERE id=?').run(
+            JSON.stringify(altered),
+            request.id,
+          );
+          nativeMetadataOwner.assertCurrentSync();
+          try {
+            retain(request, scope, evidence, nativeMetadataOwner);
+            acceptedChangedEvidence = true;
+          } catch {
+            /* Expected persisted original-request refusal. */
+          }
+          expect(f.saved()).toEqual(altered);
+          checked = true;
+        } finally {
+          db.prepare('UPDATE repository_workspaces SET record=? WHERE id=?').run(
+            JSON.stringify(before),
+            request.id,
+          );
+          db.close();
+        }
+        return retain(...args);
+      },
+    );
+    const result = await f.call();
+    expect(acceptedChangedEvidence).toBe(false);
+    expect(result.response.success).toBe(true);
+    expect(checked).toBe(true);
+    expect(f.saved().pendingHostTaskDecision.request).toEqual(
+      f.saved().qualifiedLocalPreparation.request,
+    );
+  },
+);

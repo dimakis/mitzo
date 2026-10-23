@@ -1,8 +1,18 @@
+import { capturePreparedRepositoryTransition } from './prepared-repository-transition-capture.js';
+import { materializeQualifiedLocalRepositoryTask } from './qualified-local-repository-actor.js';
+import type { QualifiedLocalRepositoryPublication } from './qualified-local-repository-task.js';
+import type { NativeHostToolContext } from './native-host-tool-context.js';
 import type {
   PreparedRepositoryTransitionFacts,
   PreparedRepositoryTransitionCaptureInput,
+  PreparedRepositoryTransitionCaptureOwners,
 } from './prepared-repository-transition.js';
 import { CodexNativeTurnTargetSchema } from './codex-conversation-store.js';
+import {
+  localRepositoryPreparationSourceFacts,
+  type NativeQualifiedLocalRepositoryPreparationSource,
+} from './local-repository-preparation-source.js';
+import type { LocalRepositoryAllocationFacts } from './local-repository-allocation-facts.js';
 import {
   PendingHostTaskError,
   PendingHostTaskRequestSchema,
@@ -118,6 +128,16 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   sandbox?: boolean;
   taskIdentity?: RepositoryTaskCheckout;
   localSource?: LocalRepositorySource;
+  /** Original pre-approval facts. Historical custody only, never a grant or
+   * permission to use the legacy ambient source/materialization path. */
+  qualifiedLocalPreparation?: {
+    version: 1;
+    request: Readonly<PendingHostTaskRequest>;
+    oldWorkspace: PreparedRepositoryTransitionFacts['oldWorkspace'];
+    allocationFacts: LocalRepositoryAllocationFacts;
+    allocationFactsSha256: string;
+    publication?: QualifiedLocalRepositoryPublication;
+  };
   ordinaryPreparation?: OrdinaryRepositoryPreparation;
   ordinaryFirstReservation?: {
     conversationId: string;
@@ -375,12 +395,15 @@ export async function repositorySourceDigest(directory: string): Promise<string>
 
 class PendingHostTaskDecisionOperation {
   #claimed = false;
+  #closed = false;
   constructor(
     private readonly service: object,
     readonly request: Readonly<PendingHostTaskRequest>,
     readonly scope: Readonly<PendingHostTaskDecisionScope>,
     private readonly currentSync: () => void,
     private readonly currentAsync: () => Promise<void>,
+    private readonly originalContext: NativeHostToolContext,
+    readonly expiresAt: number,
   ) {
     Object.freeze(this);
   }
@@ -390,7 +413,15 @@ class PendingHostTaskDecisionOperation {
     this.assertCurrentSync();
   }
   assertCurrentSync() {
+    if (this.#closed) throw new PendingHostTaskError('pending_host_task_uncertain');
     this.currentSync();
+  }
+  contextFor(service: object, request: PendingHostTaskRequest) {
+    this.assertFor(service, request);
+    return this.originalContext;
+  }
+  completePublication() {
+    this.#closed = true;
   }
   async assertCurrent() {
     this.assertCurrentSync();
@@ -595,6 +626,8 @@ export class RepositoryWorkspaces {
       )
         throw Error('Silent ordinary preparation settings unavailable');
       const record = this.get(selected.id);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (
         !record.ordinaryPreparation ||
         !isDeepStrictEqual(record.ordinaryPreparation.runtimeBinding, settings.binding) ||
@@ -1064,6 +1097,8 @@ export class RepositoryWorkspaces {
   async discard(id: string, binding: AccountBinding) {
     return this.runOperation(async () => {
       const record = this.get(id);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (
         record.state === 'ready' &&
         record.ordinaryPreparation &&
@@ -1097,10 +1132,14 @@ export class RepositoryWorkspaces {
     this.assertAvailable();
     return this.getHostRecord(id);
   }
-  /** Bounded private metadata lookup for a trusted completed source tuple.
-   * No latest/path/model-ID selection, filesystem reads, effects or replay.
-   * The eventual producer must separately validate the fresh current owner,
-   * physical task and durable successful result before native reservation. */
+  /** Private live completed-turn composition; no native registration/admission. */
+  async capturePreparedRepositoryTransition(
+    input: PreparedRepositoryTransitionCaptureInput,
+    owners: PreparedRepositoryTransitionCaptureOwners,
+  ) {
+    return capturePreparedRepositoryTransition(this, input, owners);
+  }
+  /** Bounded read-only metadata selector. No path/latest/model ID inference. */
   findPreparedRepositoryTransitionCandidate(input: PreparedRepositoryTransitionCaptureInput) {
     this.assertAvailable();
     let selected: PreparedRepositoryTransitionCaptureInput;
@@ -1205,6 +1244,8 @@ export class RepositoryWorkspaces {
   async releaseSource(id: string, binding: AccountBinding, conversationId: string) {
     return this.runOperation(async () => {
       const record = this.get(id);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (
         record.state !== 'claimed' ||
         record.conversationId !== conversationId ||
@@ -1247,6 +1288,8 @@ export class RepositoryWorkspaces {
     binding: AccountBinding,
     signal: AbortSignal,
   ) {
+    if (record.qualifiedLocalPreparation)
+      throw new PendingHostTaskError('pending_host_task_access_required');
     if (!isDeepStrictEqual(record.binding, binding))
       throw new Error('Repository preparation belongs to another account selection');
     if (record.ordinaryPreparation) await this.assertOrdinaryPreparation(record, binding, signal);
@@ -1271,6 +1314,8 @@ export class RepositoryWorkspaces {
     binding: AccountBinding,
     signal: AbortSignal,
   ) {
+    if (record.qualifiedLocalPreparation)
+      throw new PendingHostTaskError('pending_host_task_access_required');
     const source = record.localSource!;
     signal.throwIfAborted();
     if (source.selection === 'existing') {
@@ -1318,6 +1363,8 @@ export class RepositoryWorkspaces {
     signal: AbortSignal,
     requireModelReadiness = false,
   ) {
+    if (record.qualifiedLocalPreparation)
+      throw new PendingHostTaskError('pending_host_task_access_required');
     const proof = OrdinaryRepositoryPreparationSchema.parse(record.ordinaryPreparation);
     if (
       ['ready', 'reserved', 'claiming', 'claimed'].includes(record.state) &&
@@ -1350,6 +1397,8 @@ export class RepositoryWorkspaces {
   async qualifiedStatus(id: string, binding: AccountBinding) {
     return this.runOperation(async () => {
       const record = this.get(id);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (!isDeepStrictEqual(record.binding, binding)) {
         if (
           record.state !== 'ready' ||
@@ -1432,6 +1481,229 @@ export class RepositoryWorkspaces {
       path,
     );
   }
+  /** Private original-owner persistence. All source reads belong to the exact
+   * retained qualified capability; generic legacy source/status/materializers
+   * cannot use this row. No files, branches, current pointers or grants change. */
+  async selectQualifiedExistingLocalRepository(
+    input: {
+      request: Readonly<PendingHostTaskRequest>;
+      oldWorkspace: PreparedRepositoryTransitionFacts['oldWorkspace'];
+      source: NativeQualifiedLocalRepositoryPreparationSource;
+      assertCurrentSync(): void;
+    },
+    signal: AbortSignal,
+  ) {
+    return this.runOperation(async () => {
+      const request = this.snapshotPendingInput(input.request);
+      const oldWorkspace = freezePendingHostTaskData(
+        transitionFactsSchema.shape.oldWorkspace.parse(structuredClone(input.oldWorkspace)),
+      );
+      const source = input.source;
+      const descriptors = source && Object.getOwnPropertyDescriptors(source);
+      const originalCurrent = Object.getOwnPropertyDescriptor(input, 'assertCurrentSync');
+      const methods = ['assertCurrentSync', 'assertCurrent', 'revalidateAllocationFacts'] as const;
+      if (
+        !descriptors ||
+        !originalCurrent ||
+        !('value' in originalCurrent) ||
+        typeof originalCurrent.value !== 'function' ||
+        methods.some(
+          (name) =>
+            !descriptors[name] ||
+            !('value' in descriptors[name]) ||
+            typeof descriptors[name].value !== 'function',
+        )
+      )
+        throw new PendingHostTaskError('pending_host_task_access_required');
+      const fields = [
+        'source',
+        'baseBranch',
+        'baseOid',
+        'anchorsSha256',
+        'referenceCoverage',
+        'allocationFacts',
+        'allocationFactsSha256',
+      ] as const;
+      if (fields.some((name) => !descriptors[name] || !('value' in descriptors[name])))
+        throw new PendingHostTaskError('pending_host_task_access_required');
+      const sourceCurrent = descriptors.assertCurrentSync.value!;
+      const sourceRevalidate = descriptors.assertCurrent.value!;
+      const strict = (callback: (...args: never[]) => unknown, receiver: object) => {
+        const result: unknown = Reflect.apply(callback, receiver, []);
+        if (result !== undefined) {
+          void Promise.resolve(result).catch(() => {});
+          throw new PendingHostTaskError('pending_host_task_authority_required');
+        }
+      };
+      const current = () => {
+        signal.throwIfAborted();
+        strict(originalCurrent.value, input);
+        strict(sourceCurrent, source);
+        strict(originalCurrent.value, input);
+        for (const name of [...fields, ...methods]) {
+          const actual = Object.getOwnPropertyDescriptor(source, name);
+          if (!actual || !('value' in actual) || actual.value !== descriptors[name].value)
+            throw new PendingHostTaskError('pending_host_task_ownership_changed');
+        }
+      };
+      current();
+      // Validate immutable plain data before cloning/stringifying. Original
+      // producer bounds remain unchanged; no getter is allowed to supply facts.
+      let count = 0;
+      const inspect = (value: unknown, depth = 0): void => {
+        if (value === null || typeof value === 'string' || typeof value === 'boolean') return;
+        if (typeof value === 'number' && Number.isFinite(value)) return;
+        if (typeof value !== 'object')
+          throw new PendingHostTaskError('pending_host_task_access_required');
+        if (
+          ++count > 4096 ||
+          depth > 32 ||
+          !Object.isFrozen(value) ||
+          (!Array.isArray(value) && Object.getPrototypeOf(value) !== Object.prototype)
+        )
+          throw new PendingHostTaskError('pending_host_task_access_required');
+        for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(value))) {
+          if (!('value' in descriptor))
+            throw new PendingHostTaskError('pending_host_task_access_required');
+          inspect(descriptor.value, depth + 1);
+        }
+      };
+      const supplied = descriptors.allocationFacts.value as LocalRepositoryAllocationFacts;
+      inspect(supplied);
+      const serialized = JSON.stringify(supplied);
+      if (!serialized || Buffer.byteLength(serialized) > 32768)
+        throw new PendingHostTaskError('pending_host_task_access_required');
+      const facts: LocalRepositoryAllocationFacts = freezePendingHostTaskData(
+        JSON.parse(serialized),
+      );
+      const digest = pendingHostTaskDecisionHash(facts);
+      const labels = localRepositoryPreparationSourceFacts(facts);
+      if (
+        facts.version !== 1 ||
+        !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(facts.baseOid) ||
+        facts.workspaceId !== request.id ||
+        facts.taskRoot.rootPath !== request.taskRoot ||
+        facts.featureBranch !== `mitzo/repo-${request.id}` ||
+        facts.source.qualification !== 'preparation' ||
+        facts.source.referenceCoverage !== 'preparation-head-and-namespace-v1' ||
+        facts.source.sourceAnchor.rootPath !== labels.source.path ||
+        facts.source.commonAnchor.rootPath !== labels.source.commonDirectory ||
+        descriptors.referenceCoverage.value !== 'preparation-head-and-namespace-v1' ||
+        descriptors.allocationFactsSha256.value !== digest ||
+        !isDeepStrictEqual(descriptors.source.value, labels.source) ||
+        descriptors.baseBranch.value !== labels.baseBranch ||
+        descriptors.baseOid.value !== labels.baseOid ||
+        descriptors.anchorsSha256.value !== labels.anchorsSha256 ||
+        !isGitBranchName(labels.baseBranch)
+      )
+        throw new PendingHostTaskError('pending_host_task_ownership_changed');
+      const qualifiedLocalPreparation = freezePendingHostTaskData({
+        version: 1 as const,
+        request,
+        oldWorkspace,
+        allocationFacts: facts,
+        allocationFactsSha256: digest,
+      });
+      const revalidate = async () => {
+        current();
+        if ((await Reflect.apply(sourceRevalidate, source, [])) !== undefined)
+          throw new PendingHostTaskError('pending_host_task_authority_required');
+        current();
+      };
+      await revalidate();
+      const repositoryId = `existing-${createHash('sha256').update(labels.source.path).digest('hex')}`;
+      const localSource: LocalRepositorySource = {
+        selection: 'existing',
+        repositoryId,
+        path: labels.source.path,
+        root: labels.source.root,
+        commonDirectory: labels.source.commonDirectory,
+        commonRoot: labels.source.commonRoot,
+      };
+      const fingerprint = pendingHostTaskDecisionHash([
+        'qualified-local-preparation-v1',
+        qualifiedLocalPreparation,
+      ]);
+      const retained = this.db
+        .prepare('SELECT id FROM repository_workspaces WHERE id=?')
+        .get(request.id);
+      if (retained) {
+        const record = this.get(request.id);
+        if (
+          record.state !== 'ready' ||
+          record.hostReservation ||
+          record.pendingHostTask ||
+          record.pendingHostTaskDecision ||
+          record.conversationId !== undefined ||
+          record.directory !== undefined ||
+          record.sandbox !== undefined ||
+          record.taskIdentity ||
+          record.ordinaryFirstReservation ||
+          record.sourceReleased ||
+          record.preparedRepositoryTransitionAdoption ||
+          record.previewIntentFingerprint !== fingerprint ||
+          !isDeepStrictEqual(record.qualifiedLocalPreparation, qualifiedLocalPreparation) ||
+          !isDeepStrictEqual(record.localSource, localSource) ||
+          !isDeepStrictEqual(record.binding, request.binding) ||
+          !isDeepStrictEqual(record.ordinaryPreparation?.originalBinding, request.binding) ||
+          !isDeepStrictEqual(record.ordinaryPreparation?.runtimeBinding, request.runtimeBinding) ||
+          record.sourceDigest !== digest ||
+          record.featureBranch !== facts.featureBranch ||
+          record.baseOid !== labels.baseOid ||
+          record.baseBranch !== labels.baseBranch
+        )
+          throw new PendingHostTaskError('pending_host_task_uncertain');
+        current();
+        return publicRepositoryWorkspace(record);
+      }
+      const selection: OrdinaryRepositoryRuntimeSelection = {
+        runOn: 'local',
+        runtime: {
+          account: request.runtimeBinding.account,
+          harness: 'codex',
+          targetId: request.runtimeBinding.execution.targetId,
+        },
+      };
+      const proof = OrdinaryRepositoryPreparationSchema.parse(
+        await this.deps.ordinaryPreparation?.capture(request.binding, selection, signal),
+      );
+      current();
+      if (
+        !isDeepStrictEqual(proof.originalBinding, request.binding) ||
+        !isDeepStrictEqual(proof.runtimeBinding, request.runtimeBinding)
+      )
+        throw new PendingHostTaskError('pending_host_task_ownership_changed');
+      await revalidate();
+      const record: RepositoryWorkspace = {
+        id: request.id,
+        connectionId: 'local',
+        connectionRevision: 0,
+        repository: `local/${repositoryId}`,
+        binding: request.binding,
+        baseBranch: labels.baseBranch,
+        baseOid: labels.baseOid,
+        featureBranch: facts.featureBranch,
+        state: 'ready',
+        createdAt: Date.now(),
+        previewIntentFingerprint: fingerprint,
+        localSource,
+        sourceDigest: digest,
+        ordinaryPreparation: { ...proof, sourceIdentity: localSource.root },
+        qualifiedLocalPreparation,
+      };
+      current();
+      this.db
+        .prepare(
+          'INSERT INTO repository_workspaces(id,record,conversation_id) VALUES(?,?,NULL) ON CONFLICT(id) DO NOTHING',
+        )
+        .run(request.id, JSON.stringify(record));
+      const actual = this.getHostRecord(request.id);
+      if (!isDeepStrictEqual(actual, record))
+        throw new PendingHostTaskError('pending_host_task_ownership_changed');
+      current();
+      return publicRepositoryWorkspace(actual);
+    });
+  }
   private async selectLocalRepositorySource(
     binding: AccountBinding,
     repositoryId: string,
@@ -1465,6 +1737,8 @@ export class RepositoryWorkspaces {
       const retained = this.db.prepare('SELECT id FROM repository_workspaces WHERE id=?').get(id);
       if (retained) {
         const record = this.get(id);
+        if (record.qualifiedLocalPreparation)
+          throw new PendingHostTaskError('pending_host_task_access_required');
         if (!record.localSource || record.previewIntentFingerprint !== fingerprint)
           throw Error('Original local repository selection changed');
         await this.authorize(record, binding, signal);
@@ -2161,6 +2435,21 @@ export class RepositoryWorkspaces {
   }
   private pendingRecord(request: PendingHostTaskRequest) {
     const record = this.getHostRecord(request.id);
+    const qualified = record.qualifiedLocalPreparation;
+    if (
+      qualified &&
+      (qualified.version !== 1 ||
+        !isDeepStrictEqual(qualified.request, request) ||
+        qualified.allocationFacts.version !== 1 ||
+        qualified.allocationFacts.workspaceId !== request.id ||
+        qualified.allocationFacts.taskRoot.rootPath !== request.taskRoot ||
+        qualified.allocationFacts.source.qualification !== 'preparation' ||
+        qualified.allocationFacts.source.referenceCoverage !==
+          'preparation-head-and-namespace-v1' ||
+        qualified.allocationFactsSha256 !== record.sourceDigest ||
+        qualified.allocationFactsSha256 !== pendingHostTaskDecisionHash(qualified.allocationFacts))
+    )
+      throw new PendingHostTaskError('pending_host_task_ownership_changed');
     if (
       record.state !== 'ready' ||
       !record.localSource ||
@@ -2251,7 +2540,14 @@ export class RepositoryWorkspaces {
     };
     const common = record.localSource!.commonDirectory;
     const branchRef = join(common, 'refs', 'heads', record.featureBranch);
+    const qualified = record.qualifiedLocalPreparation;
     if (
+      ((qualified !== undefined || scope.allocationFactsSha256 !== undefined) &&
+        (!qualified ||
+          !isDeepStrictEqual(qualified.request, request) ||
+          !isDeepStrictEqual(qualified.oldWorkspace, scope.oldWorkspace) ||
+          scope.referenceCoverage !== 'preparation-head-and-namespace-v1' ||
+          scope.allocationFactsSha256 !== qualified.allocationFactsSha256)) ||
       (scope.oldWorkspace !== undefined &&
         !isDeepStrictEqual(scope.oldWorkspace, owner.context.workspace)) ||
       !isDeepStrictEqual(scope.create, { ...expected, intent: 'create' }) ||
@@ -2423,6 +2719,8 @@ export class RepositoryWorkspaces {
         await owner.assertCurrent();
         current();
       },
+      owner.context,
+      consumed.evidence.expiresAt,
     );
   }
   private assertPendingCurrent(request: PendingHostTaskRequest, signal: AbortSignal) {
@@ -2446,6 +2744,10 @@ export class RepositoryWorkspaces {
     phase: PendingHostTaskAccess['phase'],
     signal: AbortSignal,
   ): Promise<PendingHostTaskEffectScope> {
+    // Qualified preparation uses its retained native source/actor capability.
+    // A metadata-only consumed intent cannot admit the legacy ambient inspector.
+    if (record.qualifiedLocalPreparation)
+      throw new PendingHostTaskError('pending_host_task_access_required');
     const current = () => {
       this.assertPendingCurrent(request, signal);
       this.assertUnchangedHostRecord(record);
@@ -2544,6 +2846,8 @@ export class RepositoryWorkspaces {
     return this.runOperation(async () => {
       this.assertPendingCurrent(request, signal);
       const record = this.pendingRecord(request);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       await this.pendingEffectScope(record, request, 'reserve', signal);
       this.assertPendingCurrent(request, signal);
       await this.authorizeHostRecord(record, request.binding, signal);
@@ -2569,6 +2873,79 @@ export class RepositoryWorkspaces {
       return this.getPendingHostTask(request);
     });
   }
+
+  /** Qualified original permission only. No legacy ambient selector/worktree
+   * engine, fake operation, implicit replay or primary attachment is admitted. */
+  async materializeQualifiedPendingHostTask(
+    input: PendingHostTaskRequest,
+    operation: unknown,
+  ): Promise<PendingHostTaskReceipt> {
+    if (!(operation instanceof PendingHostTaskDecisionOperation))
+      throw new PendingHostTaskError('pending_host_task_authority_required');
+    const request = this.snapshotPendingInput(input);
+    operation.assertFor(this, request);
+    const context = operation.contextFor(this, request);
+    const record = this.pendingRecord(request),
+      qualified = record.qualifiedLocalPreparation;
+    if (
+      !qualified ||
+      !qualified.allocationFacts.existingDirectories ||
+      qualified.publication ||
+      !record.pendingHostTask ||
+      record.pendingHostTask.state !== 'materializing' ||
+      qualified.allocationFactsSha256 !== operation.scope.allocationFactsSha256 ||
+      pendingHostTaskDecisionHash(qualified.allocationFacts) !== qualified.allocationFactsSha256
+    )
+      throw new PendingHostTaskError('pending_host_task_authority_required');
+    const raw = this.db
+      .prepare('SELECT record FROM repository_workspaces WHERE id=? AND conversation_id IS NULL')
+      .get(request.id) as { record: string } | undefined;
+    if (!raw || !isDeepStrictEqual(JSON.parse(raw.record), record))
+      throw new PendingHostTaskError('pending_host_task_ownership_changed');
+    operation.claim();
+    try {
+      const result = await materializeQualifiedLocalRepositoryTask({
+        context,
+        facts: freezePendingHostTaskData(structuredClone(qualified.allocationFacts)),
+        factsSha256: qualified.allocationFactsSha256,
+        expiresAt: operation.expiresAt,
+        assertCurrentSync: () => operation.assertCurrentSync(),
+        assertCurrent: () => operation.assertCurrent(),
+      });
+      const taskIdentity = freezePendingHostTaskData({
+        ...result.taskIdentity,
+        localSource: record.localSource!,
+      });
+      const receipt = PendingHostTaskReceiptSchema.parse({
+        ...record.pendingHostTask,
+        state: 'materialized',
+        taskIdentity,
+      });
+      const next = {
+        ...record,
+        qualifiedLocalPreparation: { ...qualified, publication: result.publication },
+        pendingHostTask: receipt,
+      };
+      const serialized = JSON.stringify(next);
+      assertPreparedRepositoryMaterializedRecordBound(serialized);
+      // Original consumed/current operation immediately precedes one exact RAW
+      // row CAS. Creation publication and final receipt appear atomically.
+      operation.assertCurrentSync();
+      const changed = this.db
+        .prepare(
+          'UPDATE repository_workspaces SET record=? WHERE id=? AND record=? AND conversation_id IS NULL',
+        )
+        .run(serialized, request.id, raw.record);
+      if (changed.changes !== 1)
+        throw new PendingHostTaskError('pending_host_task_ownership_changed');
+      operation.completePublication();
+      return freezePendingHostTaskData(receipt);
+    } catch {
+      // Retain materializing/partial effects. Never replay, clean foreign data,
+      // write after expiry, or infer current ownership from historical evidence.
+      throw new PendingHostTaskError('pending_host_task_uncertain');
+    }
+  }
   async materializePendingHostTask(
     input: PendingHostTaskRequest,
     signal: AbortSignal,
@@ -2577,6 +2954,8 @@ export class RepositoryWorkspaces {
     return this.runOperation(async () => {
       this.assertPendingCurrent(request, signal);
       let record = this.pendingRecord(request);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (!record.pendingHostTask)
         throw new PendingHostTaskError('pending_host_task_ownership_changed');
       if (record.pendingHostTask.state === 'materialized')
@@ -2690,6 +3069,8 @@ export class RepositoryWorkspaces {
         signal = input.signal;
       signal.throwIfAborted();
       const record = this.getHostRecord(expected.id);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (record.state !== 'ready') {
         const descriptor = this.getHostReservation(expected);
         await this.authorizeHostRecord(record, record.binding, signal);
@@ -2969,6 +3350,8 @@ export class RepositoryWorkspaces {
   ) {
     return this.runOperation(async () => {
       const record = this.get(id);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (record.hostReservation !== undefined || record.pendingHostTask !== undefined)
         throw new Error('Host repository reservation requires its owning materialization path');
       if (

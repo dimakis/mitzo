@@ -43,12 +43,10 @@ function defaultRuntimeRoutes(
   intent: ChatRuntimeSelection,
   inventory: ExplicitLocalInventory | null,
 ) {
-  const routes = runtimeRoutes(intent, inventory);
-  const native =
-    intent.execution.location === 'local'
-      ? routes.filter((route) => route.account.provider === 'openai' && route.harness === 'codex')
-      : [];
-  return native.length ? native : routes;
+  return runtimeRoutes(intent, inventory).filter(
+    (route) =>
+      !['openai', 'openai-codex'].includes(route.account.provider) || route.harness === 'codex',
+  );
 }
 export function resolveRuntimeTarget(
   intent: ChatRuntimeSelection,
@@ -60,6 +58,8 @@ export function resolveRuntimeTarget(
         target.location === intent.execution.location &&
         inventory.routes.some(
           (route) =>
+            (!['openai', 'openai-codex'].includes(route.account.provider) ||
+              route.harness === 'codex') &&
             route.targetId === target.targetId &&
             route.harness === target.harness &&
             (!route.location || route.location === target.location) &&

@@ -12,6 +12,13 @@ import {
   localRepositoryReadDirectoryExclusions,
 } from './local-repository-git-inspection.js';
 
+import {
+  freezeNativePreparationObservationData,
+  freezeNativePreparationObservationPlan,
+  type NativePreparationObservationPlan,
+  type NativePreparationObservationCapture,
+} from './native-preparation-observation.js';
+
 export type LocalRepositoryReadAnchor = NativeReadAnchor;
 export interface LocalRepositoryReadEntry {
   name: string;
@@ -50,6 +57,14 @@ export interface LocalRepositoryReadAuthority {
     signal: AbortSignal,
     timeoutMs: number,
   ): Promise<readonly { content: string; is_error: boolean }[]>;
+  /** SAME reader-only preparation base view. Never qualifies namespace, ALL
+   * refs, objects or status. Both stages remain original-owner operations. */
+  capturePreparationObservation?(
+    plan: NativePreparationObservationPlan,
+  ): Promise<Readonly<NativePreparationObservationCapture>>;
+  verifyPreparationObservation?(
+    capture: Readonly<NativePreparationObservationCapture>,
+  ): Promise<void>;
   signal?: AbortSignal;
   deadline: number;
 }
@@ -98,6 +113,106 @@ export class LocalRepositoryReadAccess {
   private readonly excludedDirectories = new Set<string>();
   hasExclusionsWithin(path?: string) {
     return [...this.excludedDirectories].some((directory) => !path || contains(directory, path));
+  }
+  private preparationCapture?: Readonly<NativePreparationObservationCapture>;
+  private preparationVerify?: NonNullable<
+    LocalRepositoryReadAuthority['verifyPreparationObservation']
+  >;
+  /** An intentionally partial capability, independent of optional metadata
+   * labels. Consumers must reject it before generic or namespace lookups. */
+  get preparationObservationOnly() {
+    return !!this.preparationCapture;
+  }
+  static async capturePreparationBase(
+    authority: LocalRepositoryReadAuthority,
+    input: NativePreparationObservationPlan,
+  ) {
+    const plan = freezeNativePreparationObservationPlan(input);
+    const access = new LocalRepositoryReadAccess(authority);
+    const captureDescriptor = Object.getOwnPropertyDescriptor(
+      authority,
+      'capturePreparationObservation',
+    );
+    const verifyDescriptor = Object.getOwnPropertyDescriptor(
+      authority,
+      'verifyPreparationObservation',
+    );
+    if (
+      !captureDescriptor ||
+      !('value' in captureDescriptor) ||
+      typeof captureDescriptor.value !== 'function' ||
+      !verifyDescriptor ||
+      !('value' in verifyDescriptor) ||
+      typeof verifyDescriptor.value !== 'function'
+    )
+      throw unavailable();
+    const capture = captureDescriptor.value as NonNullable<
+      LocalRepositoryReadAuthority['capturePreparationObservation']
+    >;
+    const verify = verifyDescriptor.value as NonNullable<
+      LocalRepositoryReadAuthority['verifyPreparationObservation']
+    >;
+    for (const path of [plan.sourceAnchor.rootPath, plan.gitDirectory, plan.commonAnchor.rootPath])
+      await access.authorize(path);
+    const captured = await Reflect.apply(capture, authority, [plan]);
+    const data = freezeNativePreparationObservationData(captured.observation);
+    // Preserve the EXACT actual reader's capture identity for later verification.
+    // Reprojection below validates/retains only immutable physical data.
+    const paths: string[] = [];
+    for (const root of data.anchors) {
+      if (
+        ![plan.sourceAnchor.rootPath, plan.gitDirectory, plan.commonAnchor.rootPath].includes(
+          root.rootPath,
+        )
+      )
+        throw unavailable();
+      const original =
+        root.rootPath === plan.sourceAnchor.rootPath
+          ? plan.sourceAnchor
+          : root.rootPath === plan.commonAnchor.rootPath
+            ? plan.commonAnchor
+            : undefined;
+      if (original && !equalIdentity(root.entry.identity, original.identity)) throw unavailable();
+      await access.authorize(root.rootPath);
+      access.anchors.set(
+        root.rootPath,
+        Object.freeze({ rootPath: root.rootPath, identity: root.entry.identity }),
+      );
+      access.entries.set(root.rootPath, root.entry);
+    }
+    for (const directory of data.directories) {
+      const root = data.anchors[directory.anchor].rootPath;
+      const path = directory.parent === -1 ? root : join(paths[directory.parent], directory.name);
+      if (
+        !contains(path, root) ||
+        (directory.parent !== -1 &&
+          data.directories[directory.parent].anchor !== directory.anchor) ||
+        paths.includes(path)
+      )
+        throw unavailable();
+      await access.authorize(path);
+      paths.push(path);
+      access.entries.set(path, directory.entry);
+      access.directories.set(path, new Map(directory.entries.map((entry) => [entry.name, entry])));
+      for (const entry of directory.entries) access.entries.set(join(path, entry.name), entry);
+      if (directory.incomplete) access.excludedDirectories.add(path);
+    }
+    for (const file of data.files) {
+      const path = join(paths[file.directory], file.name);
+      await access.authorize(path);
+      const observed = access.entries.get(path);
+      if (!observed || !sameEntry(observed, file.entry)) throw unavailable();
+      access.capturedBytes.set(path, Buffer.from(file.bytes, 'base64'));
+    }
+    for (const item of data.absent) {
+      const path = join(paths[item.directory], item.name);
+      await access.authorize(path);
+      if (access.entries.has(path)) throw unavailable();
+      access.absentPaths.add(path);
+    }
+    access.preparationCapture = captured;
+    access.preparationVerify = verify;
+    return access;
   }
   private totalBytes = 0;
   private totalEntries = 0;
@@ -199,6 +314,7 @@ export class LocalRepositoryReadAccess {
     await this.authorize(path);
     const retained = this.anchors.get(path);
     if (retained) return retained;
+    if (this.preparationCapture) throw unavailable();
     if (this.anchors.size >= 256)
       throw new LocalRepositoryGitInspectionError('limit', 'read-anchors');
     // Reconcile any already-observed child identity; never recapture an existing
@@ -247,6 +363,10 @@ export class LocalRepositoryReadAccess {
     // identity, and verify() reconciles every retained witness before exposure.
     const observed = this.entries.get(path);
     if (observed) return observed;
+    if (this.preparationCapture) {
+      if ([...this.absentPaths].some((parent) => contains(path, parent))) return undefined;
+      throw unavailable();
+    }
     if (path === anchor.rootPath) return this.entries.get(path)!;
     const parent = dirname(path);
     if (parent !== anchor.rootPath && !(await this.stat(parent))) return undefined;
@@ -261,6 +381,7 @@ export class LocalRepositoryReadAccess {
     await this.authorize(path);
     this.anchor(path);
     if ([...this.absentPaths].some((parent) => contains(path, parent))) return;
+    if (this.preparationCapture) throw unavailable();
     if (await this.stat(path)) throw unavailable();
     if (!(await this.stat(dirname(path)))) {
       await this.assertAbsent(dirname(path));
@@ -331,6 +452,7 @@ export class LocalRepositoryReadAccess {
   async list(path: string, fresh = false): Promise<LocalRepositoryReadEntry[]> {
     await this.authorize(path);
     if (!fresh && this.directories.has(path)) return [...this.directories.get(path)!.values()];
+    if (this.preparationCapture) throw unavailable();
     const request = await this.directoryRequest(path);
     const result = await (
       this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation
@@ -438,6 +560,13 @@ export class LocalRepositoryReadAccess {
     )
       throw unavailable();
     const captured = Object.freeze([...paths]);
+    if (this.preparationCapture) {
+      for (const path of captured) {
+        await this.authorize(path);
+        if (!this.directories.has(path)) throw unavailable();
+      }
+      return;
+    }
     const known = Object.freeze(
       captured.map((path) => {
         const anchor = this.anchor(path);
@@ -619,6 +748,7 @@ export class LocalRepositoryReadAccess {
   }
   /** File-alias text only; this never grants access to the link target. */
   async readLink(path: string) {
+    if (this.preparationCapture) throw unavailable();
     const entry = await this.stat(path);
     const parent = await this.stat(dirname(path));
     if (
@@ -685,6 +815,7 @@ export class LocalRepositoryReadAccess {
       await this.authorize(path);
       return Buffer.from(prefix ? cached.subarray(0, limit) : cached);
     }
+    if (this.preparationCapture) throw unavailable();
     const parent = await this.stat(dirname(path));
     if (!parent) throw unavailable();
     await this.authorize(path);
@@ -728,6 +859,12 @@ export class LocalRepositoryReadAccess {
     return bytes;
   }
   async verify() {
+    if (this.preparationCapture) {
+      for (const path of this.entries.keys()) await this.authorize(path);
+      await Reflect.apply(this.preparationVerify!, this.authority, [this.preparationCapture]);
+      await this.verifyCurrentOwner();
+      return;
+    }
     const parents = new Map<string, Map<string, LocalRepositoryReadEntry>>();
     const snapshots = [...this.directories];
     const compare = (
@@ -796,6 +933,9 @@ export class LocalRepositoryReadAccess {
       if (!after || !sameEntry(before, after)) throw unavailable();
       await this.authorize(path);
     }
+    await this.verifyCurrentOwner();
+  }
+  private async verifyCurrentOwner() {
     await this.authority.revalidate?.();
     this.check();
     if (this.ceiling) {
