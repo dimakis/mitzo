@@ -200,3 +200,25 @@ it('retains durable uncertainty across process death after metadata commit witho
   expect(cold.getSendCommand('cold-followup')).toBeUndefined();
   expect(cold.getSendCommand('original')?.payload).toEqual(original.payload);
 });
+
+it('preserves current draft settings and retained history while the new-workspace child is only reserved', () => {
+  const root = mkdtempSync(join(tmpdir(), 'prepared-settings-cold-'));
+  roots.push(root);
+  const path = join(root, 'events.db');
+  const first = fixture(path);
+  first.append('session', 'user_message', { messageId: 'original', text: original.payload.text });
+  first.append('session', 'message_start', { messageId: 'retained-reply' });
+  const history = first.getSessionEvents('session');
+  const previous = first.getOrdinaryConversationSettings('session');
+  const reserved = first.reservePreparedRepositoryContinuation('session', transition);
+  const cold = new EventStore(path);
+  stores.push(cold);
+  expect(cold.getOrdinaryConversationSettings('session')).toEqual(previous);
+  expect(cold.getLatestOrdinaryCommandAdmission('session')).toEqual(
+    first.getOrdinaryLocalCommandAdmission('original'),
+  );
+  expect(cold.getSessionEvents('session')).toEqual(history);
+  expect(() => cold.getOrdinaryLocalCommandAdmission(reserved.childCommandId)).toThrow();
+  expect(cold.claimOrdinaryLocalCommandDispatch('original')).toBe(false);
+  expect(cold.hasUncertainOrdinaryCommand('session')).toBe(true);
+});

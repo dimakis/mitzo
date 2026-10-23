@@ -1319,8 +1319,34 @@ export class EventStore {
   getLatestOrdinaryCommandAdmission(sessionId: string): OrdinaryLocalCommandAdmission | undefined {
     this.assertConversationIdentity(sessionId);
     const row = this.db!.prepare(
-      'SELECT client_msg_id FROM send_commands WHERE session_id=? AND ordinary_admission IS NOT NULL ORDER BY rowid DESC LIMIT 1',
-    ).get(sessionId) as { client_msg_id: string } | undefined;
+      'SELECT client_msg_id,ordinary_admission FROM send_commands WHERE session_id=? AND ordinary_admission IS NOT NULL ORDER BY rowid DESC LIMIT 1',
+    ).get(sessionId) as { client_msg_id: string; ordinary_admission: string } | undefined;
+    if (row) {
+      const raw = JSON.parse(row.ordinary_admission);
+      if (raw?.preparedRepositoryTransition) {
+        const pending = this.readPreparedRepositoryTransition(row.client_msg_id);
+        const old = pending.preparedRepositoryTransition!.oldWorkspace;
+        const session = this.getSession(sessionId);
+        if (
+          pending.state === 'uncertain' &&
+          session?.cwd === old.directory &&
+          (old.kind === 'ordinary'
+            ? session.ordinaryWorkspaceId === old.id && session.repositoryWorkspaceId == null
+            : session.repositoryWorkspaceId === old.id && session.ordinaryWorkspaceId == null)
+        ) {
+          const source = this.getOrdinaryLocalCommandAdmission(
+            pending.preparedRepositoryTransition!.source.commandId,
+          );
+          if (
+            !source ||
+            source.state !== 'consumed' ||
+            !isDeepStrictEqual(source.binding, pending.binding)
+          )
+            throw Error('Prepared repository settings source unavailable');
+          return source;
+        }
+      }
+    }
     return row ? this.getOrdinaryCommandAdmission(row.client_msg_id) : undefined;
   }
 
