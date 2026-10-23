@@ -828,7 +828,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '4cd2ba900a4820709d990f23037926a5c41be4be04c44f0c48541dfecc1df205',
+  '../codex-conversation.ts': 'ab22684118104d9a4d8fafc8fa0a58e2d8d1ff74a3c000a71db117e7e5053f98',
   '../codex-conversation-store.ts':
     'ca726a74f1253e7d61b3034b17239a81e59596a9f1835a6ff0ff4e2fdff3bc37',
   '../symposium-custodian-ipc.ts':

@@ -24,6 +24,7 @@ import type { ToolDefinition } from '@mitzo/harness';
 import {
   CodexHostToolRequestError,
   CodexRequestError,
+  CodexServerRequestResolvedError,
   CodexTransportError,
   type CodexLifecycleTransport,
   type CodexServerRequestContext,
@@ -2732,25 +2733,85 @@ export class CodexConversation {
     signal: AbortSignal,
     requestContext?: NativeRequestContext,
   ): Promise<ObjectValue> {
-    if (!this.opts.prepareAgentContext)
-      return this.hostRequest(method, params, signal, requestContext);
+    const prepareAgentContext = this.opts.prepareAgentContext;
+    if (!prepareAgentContext) return this.hostRequest(method, params, signal, requestContext);
     const active = this.active;
+    const activeAbort = active?.abort;
+    const command = active?.command;
+    const commandId = command?.id;
+    const attempt = command?.attempt;
+    const turnId = active?.turnId;
+    const threadId = this.threadId;
+    const client = this.client;
+    const binding = this.binding;
+    const bindingSnapshot = JSON.stringify(binding);
     const generation = this.transportGeneration;
-    const continuationSignal = AbortSignal.any([
-      signal,
-      ...(active ? [active.abort.signal] : []),
-      ...(this.opts.startupSignal ? [this.opts.startupSignal] : []),
+    const startupSignal = this.opts.startupSignal;
+    const requestId = requestContext?.requestId;
+    const requestIdentity = [params.threadId, params.turnId, params.itemId, params.callId];
+    // A consumed RPC may outlive its provider operation. Revalidate authority
+    // without that one cancellation, retaining the original command/startup
+    // signals even when AbortSignal.any has already selected the RPC reason.
+    const authoritySignal = AbortSignal.any([
+      ...(activeAbort ? [activeAbort.signal] : []),
+      ...(startupSignal ? [startupSignal] : []),
     ]);
-    const authorize = async () => {
+    const continuationSignal = AbortSignal.any([signal, authoritySignal]);
+    const assertIdentity = (resolvedCleanup: boolean) => {
+      if (
+        this.closed ||
+        generation !== this.transportGeneration ||
+        this.client !== client ||
+        this.active !== active ||
+        active?.abort !== activeAbort ||
+        active?.command !== command ||
+        command?.id !== commandId ||
+        command?.attempt !== attempt ||
+        active?.turnId !== turnId ||
+        this.threadId !== threadId ||
+        this.binding !== binding ||
+        JSON.stringify(binding) !== bindingSnapshot ||
+        this.opts.prepareAgentContext !== prepareAgentContext ||
+        this.opts.startupSignal !== startupSignal ||
+        requestContext?.requestId !== requestId ||
+        [params.threadId, params.turnId, params.itemId, params.callId].some(
+          (value, index) => value !== requestIdentity[index],
+        )
+      )
+        throw Error('Codex host continuation identity changed');
+      if (
+        resolvedCleanup &&
+        (!active ||
+          !threadId ||
+          !turnId ||
+          requestIdentity[0] !== threadId ||
+          requestIdentity[1] !== turnId)
+      )
+        throw Error('Codex resolved request identity mismatch');
+    };
+    const authorize = async (resolvedCleanup = false): Promise<void> => {
+      const authorizationSignal = resolvedCleanup ? authoritySignal : continuationSignal;
       try {
-        if (this.closed || generation !== this.transportGeneration)
-          throw Error('Codex host continuation is closed or replaced');
-        continuationSignal.throwIfAborted();
-        await this.opts.prepareAgentContext!(continuationSignal);
-        continuationSignal.throwIfAborted();
-        if (this.closed || generation !== this.transportGeneration || this.active !== active)
-          throw Error('Codex host continuation identity changed');
+        assertIdentity(resolvedCleanup);
+        authorizationSignal.throwIfAborted();
+        await prepareAgentContext.call(this.opts, authorizationSignal);
+        authorizationSignal.throwIfAborted();
+        assertIdentity(resolvedCleanup);
       } catch (error) {
+        if (
+          !resolvedCleanup &&
+          signal.aborted &&
+          error === signal.reason &&
+          signal.reason instanceof CodexServerRequestResolvedError &&
+          requestId !== undefined &&
+          signal.reason.requestId === requestId
+        ) {
+          // Exactly one authority-only retry covers resolution during either
+          // admission or final authorization. Never repeat the host operation
+          // or return its result after upstream has consumed this request.
+          await authorize(true);
+          throw error;
+        }
         if (!this.closed) {
           try {
             this.opts.onError?.(
