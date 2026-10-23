@@ -2,9 +2,11 @@ import {
   launchDraftSnapshot,
   subscribeLaunchDrafts,
   launchDeliveryState,
+  briefingLaunchUnsupportedReason,
 } from '../lib/launch-draft-delivery';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useMitzoStore } from '@mitzo/client/hooks';
+import type { OrdinaryRuntimeFirstCommand } from '@mitzo/protocol';
 import type { SendMessageOptions } from '@mitzo/client';
 import { deleteChatDraft, getChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-drafts';
 import {
@@ -14,7 +16,7 @@ import {
 } from '../lib/briefing-registration';
 
 /** Launch chrome belongs to the explicitly opened saved draft. */
-export function usePendingLaunch(requestedDraftId?: string | null) {
+export function usePendingLaunch(requestedDraftId?: string | null, search = '') {
   const snapshot = useSyncExternalStore(subscribeLaunchDrafts, () =>
     launchDraftSnapshot(requestedDraftId),
   );
@@ -137,6 +139,27 @@ export function usePendingLaunch(requestedDraftId?: string | null) {
       },
     });
   }
+  const sendOwned = useMitzoStore((s) => s.sendLocalFirstCommand);
+  const dispatchMessages = useMitzoStore((s) => s.dispatchMessages);
+  const briefingLaunchReason = launch?.briefing
+    ? briefingLaunchUnsupportedReason(requestedDraftId, launch, search)
+    : undefined;
+  function sendBriefingCommand(
+    command: OrdinaryRuntimeFirstCommand,
+    opts?: SendMessageOptions & { draftId?: string },
+  ): boolean {
+    if (
+      !launch?.briefing ||
+      !launch.draftId ||
+      launchSending ||
+      briefingLaunchReason ||
+      !briefingRegistrationCapacityAvailable()
+    )
+      return false;
+    const sent = sendOwned(command, { ...opts, draftId: launch.draftId });
+    if (sent) dispatchMessages({ type: 'SET_SESSION_CONTEXT', context: launch.context });
+    return sent;
+  }
   const storeSend = useMitzoStore((s) => s.sendMessage);
   function sendMessage(text: string, opts?: SendMessageOptions): boolean {
     storeSend(text, opts);
@@ -144,6 +167,8 @@ export function usePendingLaunch(requestedDraftId?: string | null) {
   }
   return {
     launch,
+    briefingLaunchReason,
+    sendBriefingCommand,
     launchSending,
     launchDeliveryPending,
     launchAccountError,
@@ -152,6 +177,7 @@ export function usePendingLaunch(requestedDraftId?: string | null) {
     sendMessage,
     sendLaunch,
     registrationError:
+      briefingLaunchReason ||
       launchAccountError ||
       registration.error ||
       (capacityError?.launch === launch ? capacityError.message : ''),

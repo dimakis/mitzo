@@ -1,5 +1,7 @@
+import { OrdinaryRuntimeFirstCommandSchema } from '@mitzo/protocol';
 import { useMemo, useSyncExternalStore } from 'react';
 import { z } from 'zod';
+import { validateOwnedBriefingAssignment } from './launch-draft-delivery';
 import { apiFetch, getApiBaseUrl, AUTH_LOST_EVENT } from './api-fetch';
 
 const identity = z.strictObject({
@@ -298,6 +300,22 @@ function durableRegistration(binding: BriefingRegistrationIdentity) {
 export const briefingCommandHandoff = {
   prepare(command: Record<string, unknown>): boolean {
     if (
+      command.sessionId === undefined &&
+      (command.payload !== undefined || command.runOn !== undefined)
+    ) {
+      const parsed = OrdinaryRuntimeFirstCommandSchema.safeParse(command);
+      if (!parsed.success) return false;
+      const request = parsed.data;
+      command = {
+        sessionId: null,
+        clientMsgId: request.clientMsgId,
+        accountId: request.runtime.account.accountId,
+        model: request.selection.model,
+        reasoningEffort: request.selection.thinking,
+        sourceSnapshots: request.payload.sourceSnapshots,
+      };
+    }
+    if (
       command.sessionId !== null ||
       !Array.isArray(command.sourceSnapshots) ||
       !command.sourceSnapshots.length
@@ -336,6 +354,53 @@ export const briefingCommandHandoff = {
       if (!hint) return;
     }
     let intent = raw ? commandSchema.parse(JSON.parse(raw)) : null;
+    if (hint?.kind === 'briefing-owned') {
+      if (!validateOwnedBriefingAssignment(hint.draftId, hint.command, sessionId))
+        throw new Error(
+          'The original reviewed briefing launch receipt is unavailable or changed. Keep this command for recovery.',
+        );
+      const command = OrdinaryRuntimeFirstCommandSchema.parse(hint.command);
+      if (command.clientMsgId !== clientMsgId) throw new Error('Briefing command identity changed');
+      const source = command.payload.sourceSnapshots![0];
+      if (source.kind !== 'briefing') throw new Error('Briefing source changed');
+      const expected = commandSchema.parse({
+        clientMsgId,
+        date: source.date,
+        revision: source.revision,
+        accountId: command.runtime.account.accountId,
+        model: command.selection.model,
+        reasoningEffort: command.selection.thinking,
+      });
+      if (!intent) {
+        const assigned = read().records.find((entry) => entry.binding.sessionId === sessionId);
+        if (
+          assigned &&
+          assigned.reasoningEffort === expected.reasoningEffort &&
+          same(
+            assigned.binding,
+            identity.parse({
+              date: expected.date,
+              revision: expected.revision,
+              accountId: expected.accountId,
+              model: expected.model,
+              sessionId,
+            }),
+          )
+        )
+          return;
+      }
+      const retainedIntent = intent;
+      if (
+        !retainedIntent ||
+        Object.keys(expected).some(
+          (field) =>
+            retainedIntent[field as keyof CommandIntent] !== expected[field as keyof CommandIntent],
+        )
+      )
+        throw new Error(
+          'Reviewed briefing command receipt unavailable or changed. Keep this command for recovery.',
+        );
+    }
     // A restored legacy outbox also has the original immutable command metadata.
     if (!intent && hint) intent = commandSchema.parse(hint);
     if (!intent) return;

@@ -312,6 +312,6 @@ it('retains the exact command when durable source assignment fails, then complet
   const posts = f.fetch.mock.calls.filter(([url]) =>
     url.startsWith('/api/ordinary/workspaces/commands/'),
   );
-  expect(posts.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([f.request, f.request]);
+  expect(posts.map(([, init]) => JSON.parse(String(init?.body)))).toEqual([f.request]);
   expect(f.launches.assign).not.toHaveBeenCalled();
 });
