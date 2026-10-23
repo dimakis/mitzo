@@ -313,3 +313,110 @@ it.each(['ordinary', 'repository'] as const)(
     expect(guard).toHaveBeenCalledOnce();
   },
 );
+
+it('retires ordinary current custody durably and refuses stale reacquisition while retaining history', async () => {
+  const f = await fixture('ordinary'),
+    p = await f.pending();
+  const original = f.service.getOrdinaryWorkspace(f.old.id);
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  expect(f.service.getOrdinaryWorkspaceForConversation(f.conversationId)).toBeUndefined();
+  const persisted = f.db
+    .prepare('SELECT conversation_id,record FROM ordinary_workspaces WHERE id=?')
+    .get(original.id) as { conversation_id: string | null; record: string };
+  expect(persisted.conversation_id).toBeNull();
+  expect(JSON.parse(persisted.record)).toMatchObject({
+    conversationId: f.conversationId,
+    directory: f.old.directory,
+    state: 'claimed',
+    primaryDisposition: { version: 1, revision: 1, currentConversationId: null },
+  });
+  const reopened = new RepositoryWorkspaces(join(f.root, 'private'), f.deps);
+  cleanups.push(() => reopened.close());
+  expect(reopened.getOrdinaryWorkspaceForConversation(f.conversationId)).toBeUndefined();
+  expect(reopened.getOrdinaryWorkspace(f.old.id).taskIdentity).toEqual(original.taskIdentity);
+  const claim = {
+    id: original.id,
+    conversationId: f.conversationId,
+    binding,
+    taskRoot: f.taskRoot,
+    signal: signal(),
+  };
+  await expect(reopened.claimOrdinaryWorkspace(claim)).rejects.toThrow();
+  await expect(reopened.revalidateOrdinaryWorkspace(claim)).rejects.toThrow();
+  expect(() => reopened.validateRetainedOrdinaryWorkspace(f.conversationId)).toThrow();
+  expect(() => reopened.validateOrdinaryWorkspace(f.conversationId, f.old.directory)).toThrow();
+  await expect(
+    reopened.reserveOrdinaryWorkspace({
+      preparationId: original.preparationId,
+      allocationOperationId: original.allocationOperationId,
+      binding,
+      taskRoot: f.taskRoot,
+      settings: original.settings,
+      agentProfile: original.agentProfile,
+      signal: signal(),
+    }),
+  ).rejects.toThrow();
+  expect(readFileSync(join(f.old.directory, 'dirty.txt'), 'utf8')).toBe('Unfinished original task');
+  expect(reopened.getForConversation(f.conversationId)?.id).toBe(p.record.id);
+});
+
+it('migrates only the known legacy ordinary pointer schema, preserving exact unrelated records across reopen', async () => {
+  const { OrdinaryWorkspaceCustody } = await import('../ordinary-workspace-custody.js');
+  const db = new Database(':memory:');
+  cleanups.push(() => db.close());
+  db.exec(
+    'CREATE TABLE ordinary_workspaces (id TEXT PRIMARY KEY, record TEXT NOT NULL, conversation_id TEXT NOT NULL UNIQUE); CREATE TABLE ordinary_workspace_preparations (id TEXT PRIMARY KEY, record TEXT NOT NULL)',
+  );
+  const bytes = ' { "historical": "dirty task", "unknown": [ 1, 2 ] } ';
+  db.prepare('INSERT INTO ordinary_workspaces VALUES (?,?,?)').run('old', bytes, 'conversation');
+  db.prepare('INSERT INTO ordinary_workspace_preparations VALUES (?,?)').run('prep', bytes);
+  new OrdinaryWorkspaceCustody(db, undefined);
+  expect(db.prepare('SELECT record,conversation_id FROM ordinary_workspaces').get()).toEqual({
+    record: bytes,
+    conversation_id: 'conversation',
+  });
+  expect(db.prepare('SELECT record FROM ordinary_workspace_preparations').get()).toEqual({
+    record: bytes,
+  });
+  expect(
+    (
+      db.prepare('PRAGMA table_info(ordinary_workspaces)').all() as Array<{
+        name: string;
+        notnull: number;
+      }>
+    ).find((c) => c.name === 'conversation_id')?.notnull,
+  ).toBe(0);
+  db.prepare('UPDATE ordinary_workspaces SET conversation_id=NULL').run();
+  new OrdinaryWorkspaceCustody(db, undefined);
+  expect(db.prepare('SELECT record,conversation_id FROM ordinary_workspaces').get()).toEqual({
+    record: bytes,
+    conversation_id: null,
+  });
+  db.exec('CREATE INDEX retained_custom_index ON ordinary_workspaces(record)');
+  expect(() => new OrdinaryWorkspaceCustody(db, undefined)).toThrow(
+    'Unsupported ordinary custody schema',
+  );
+  expect(
+    db.prepare("SELECT name FROM sqlite_master WHERE name='retained_custom_index'").get(),
+  ).toBeDefined();
+  expect(db.prepare('SELECT record FROM ordinary_workspaces').get()).toEqual({ record: bytes });
+});
+
+it('rolls ordinary retirement back if the new repository pointer cannot commit', async () => {
+  const f = await fixture('ordinary'),
+    p = await f.pending();
+  const before = f.db.prepare('SELECT * FROM ordinary_workspaces WHERE id=?').get(f.old.id);
+  f.db.exec(
+    "CREATE TRIGGER reject_new_primary BEFORE UPDATE ON repository_workspaces WHEN NEW.conversation_id IS NOT NULL BEGIN SELECT RAISE(ABORT,'fixture transaction failure'); END",
+  );
+  expect(() => f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {})).toThrow(
+    'fixture transaction failure',
+  );
+  expect(f.db.prepare('SELECT * FROM ordinary_workspaces WHERE id=?').get(f.old.id)).toEqual(
+    before,
+  );
+  expect(f.service.getOrdinaryWorkspaceForConversation(f.conversationId)?.id).toBe(f.old.id);
+  expect(f.service.getForConversation(f.conversationId)).toBeUndefined();
+  expect(f.raw(p.record.id)).toEqual(p.before);
+  expect(() => f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId)).toThrow();
+});

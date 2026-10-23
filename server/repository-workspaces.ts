@@ -1891,6 +1891,27 @@ export class RepositoryWorkspaces {
             .get(facts.oldWorkspace.id) as { record: string; conversation_id: string } | undefined;
           if (!old || old.record !== ordinaryRaw || old.conversation_id !== request.conversationId)
             throw Error('Original ordinary custody changed before transfer');
+          const historical = JSON.parse(old.record) as ReturnType<OrdinaryWorkspaceCustody['get']>;
+          const retired = {
+            ...historical,
+            primaryDisposition: {
+              version: 1,
+              revision: (historical.primaryDisposition?.revision ?? 0) + 1,
+              currentConversationId: null,
+            },
+          };
+          const changed = this.db
+            .prepare(
+              'UPDATE ordinary_workspaces SET record=?,conversation_id=NULL WHERE id=? AND record=? AND conversation_id=?',
+            )
+            .run(
+              JSON.stringify(retired),
+              facts.oldWorkspace.id,
+              ordinaryRaw,
+              request.conversationId,
+            );
+          if (changed.changes !== 1)
+            throw Error('Original ordinary custody changed before transfer');
         }
         const changed = this.db
           .prepare(
