@@ -195,6 +195,22 @@ export const CodexNativeTurnTargetSchema = z.strictObject({
   generation: z.number().int().nonnegative().safe(),
 });
 export type CodexNativeTurnTarget = z.infer<typeof CodexNativeTurnTargetSchema>;
+const CompletedPreparedRepositorySourceSchema = CodexNativeTurnTargetSchema.extend({
+  callId: z.string().min(1).max(200),
+  toolName: z.literal('PrepareLocalRepository'),
+  requestHash: z.string().regex(/^[a-f0-9]{64}$/),
+  resultSha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+/** Historical correlation only; current operator, read and custody authority
+ * must be supplied separately at the completed-turn admission barrier. */
+export type CompletedPreparedRepositorySource = z.infer<
+  typeof CompletedPreparedRepositorySourceSchema
+>;
+export function preparedRepositoryResultSha256(result: CodexToolResult): string {
+  return createHash('sha256')
+    .update(JSON.stringify(normalizeCodexToolResult(result)))
+    .digest('hex');
+}
 const NativeTurnHistorySchema = z
   .array(
     CodexNativeTurnTargetSchema.omit({ commandId: true }).extend({
@@ -2982,6 +2998,74 @@ export class CodexConversationStore {
         toolName: row.toolName,
         requestHash: row.requestHash,
       });
+    })();
+  }
+  /** Verify a completed source without reviving its expired native callback.
+   * This does not authorize a read, a workspace change or another provider turn.
+   * Old queued work is a hard boundary: never silently retarget that work or
+   * place an automatic continuation behind a later explicit user command. */
+  assertCompletedPreparedRepositorySource(
+    id: string,
+    binding: AccountBinding,
+    rawSource: CompletedPreparedRepositorySource,
+  ): void {
+    this.db.transaction(() => {
+      const source = CompletedPreparedRepositorySourceSchema.parse(rawSource);
+      const current = this.read(id, binding);
+      const row = this.db
+        .prepare(
+          'SELECT status,attempt,native_turns FROM codex_commands WHERE conversation_id=? AND id=?',
+        )
+        .get(id, source.commandId) as
+        { status: string; attempt: number; native_turns: string | null } | undefined;
+      const fail = () => {
+        throw Error('Completed prepared repository source unavailable');
+      };
+      if (
+        !row ||
+        row.status !== 'completed' ||
+        row.attempt !== source.attempt ||
+        current.threadId !== source.threadId ||
+        current.threadGeneration !== source.generation ||
+        current.lastCompletedTurnId !== source.turnId ||
+        current.recovery ||
+        this.commands(id, binding).some((command) => ['queued', 'running'].includes(command.status))
+      )
+        fail();
+      this.assertNoPendingThreadOwnership(id, binding);
+      this.assertNoPendingThreadDispatch(id, binding);
+      const targets = this.nativeTurns(row!.native_turns).filter(
+        (turn) => turn.attempt === source.attempt,
+      );
+      if (
+        targets.length !== 1 ||
+        !isDeepStrictEqual(this.nativeTarget(source.commandId, targets[0]), {
+          commandId: source.commandId,
+          attempt: source.attempt,
+          threadId: source.threadId,
+          turnId: source.turnId,
+          generation: source.generation,
+        })
+      )
+        fail();
+      const receipt = this.readNativeExecution(id, binding, {
+        id: source.commandId,
+        attempt: source.attempt,
+      });
+      if (
+        receipt?.phase !== 'accepted' ||
+        receipt.threadId !== source.threadId ||
+        receipt.turnId !== source.turnId ||
+        receipt.generation !== source.generation
+      )
+        fail();
+      const result = this.replayToolResult(id, binding, source.commandId, source.callId, source);
+      if (
+        !result ||
+        result.isError ||
+        preparedRepositoryResultSha256(result) !== source.resultSha256
+      )
+        fail();
     })();
   }
   /** A completed host result is persisted before it is exposed to the transport.
