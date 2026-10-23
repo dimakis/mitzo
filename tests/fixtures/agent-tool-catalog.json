@@ -242,6 +242,28 @@
     "requirement": "Requires an authorized repository connection for the selected account."
   },
   {
+    "id": "mitzo:DiscoverLocalRepository",
+    "version": 1,
+    "name": "DiscoverLocalRepository",
+    "description": "Find an existing Mac repository in bounded, currently readable locations. Supply a repository name or an explicit path override. Returns selected, ambiguous, missing or access-required facts without enrollment or acquisition.",
+    "source": "Local repositories",
+    "required": false,
+    "behavior": "read",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access."
+  },
+  {
+    "id": "mitzo:InspectLocalRepository",
+    "version": 1,
+    "name": "InspectLocalRepository",
+    "description": "Read an existing Mac repository’s applicable instructions, dirty state and Git/worktree facts within current access. Preserves source work and reports incomplete inspection explicitly.",
+    "source": "Local repositories",
+    "required": false,
+    "behavior": "read",
+    "routes": ["codex-owned-local"],
+    "requirement": "Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access."
+  },
+  {
     "id": "mitzo:SymposiumProposeProfile",
     "version": 1,
     "name": "SymposiumProposeProfile",

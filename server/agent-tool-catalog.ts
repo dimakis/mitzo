@@ -1,3 +1,4 @@
+import { localRepositoryToolDefinitions } from './session-local-repository-tools.js';
 import { taskMcpToolCatalog } from './task-mcp-selection.js';
 import { githubMainPublicationTool } from './telos-main-publication.js';
 import { agentTaskToolDefinitions } from './session-agent-task-tools.js';
@@ -18,6 +19,8 @@ import { telosWorkDefinitions } from './telos-work-tools.js';
 import { sessionHistoryToolDefinitions } from './session-history-tools.js';
 
 const reads = new Set([
+  'DiscoverLocalRepository',
+  'InspectLocalRepository',
   'Read',
   'GitHubRead',
   'ListConnections',
@@ -46,6 +49,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
     { source: 'Workspace', definitions: nativeToolDefinitions },
     { source: 'Connections', definitions: credentialConnectionToolDefinitions },
     { source: 'Repositories', definitions: repositoryChatToolDefinitions },
+    { source: 'Local repositories', definitions: localRepositoryToolDefinitions },
     {
       source: 'Agent Library',
       definitions: [...profileToolDefinitions, ...agentTaskToolDefinitions],
@@ -85,7 +89,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
               ? ('mixed' as const)
               : ('write' as const),
       routes:
-        source === 'Agent communication' || source === 'History'
+        source === 'Agent communication' || source === 'History' || source === 'Local repositories'
           ? ['codex-owned-local']
           : source === 'Telos'
             ? [
@@ -131,19 +135,21 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                         'RequestConnectionAccess',
                       ].includes(tool.name)
                     ? 'Requires a configured connection and current session approval. Missing connections must be set up in Connections; selection grants no access.'
-                    : source === 'Repositories'
-                      ? 'Requires an authorized repository connection for the selected account.'
-                      : source === 'GitHub publishing' || tool.name === 'GitHubRead'
-                        ? 'Requires existing GitHub access and the usual action approval.'
-                        : tool.name === 'Bash'
-                          ? 'Requires an available OS sandbox and existing workspace permissions; no network or credentials.'
-                          : source === 'Web'
-                            ? 'Requires supported provider web search and current approval.'
-                            : source === 'Knowledge'
-                              ? 'Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge.'
-                              : source === 'History'
-                                ? 'Requires the current signed native operator and original owned-local call. Reads only registered visible durable history within current tool and skill scope; no SDK transcript or credential discovery.'
-                                : 'Existing session permissions, cancellation and runtime admission apply.',
+                    : source === 'Local repositories'
+                      ? 'Requires the current signed native call and qualified original base read scope, with current account, tool and skill gates. Reads do not prepare a task or grant filesystem access.'
+                      : source === 'Repositories'
+                        ? 'Requires an authorized repository connection for the selected account.'
+                        : source === 'GitHub publishing' || tool.name === 'GitHubRead'
+                          ? 'Requires existing GitHub access and the usual action approval.'
+                          : tool.name === 'Bash'
+                            ? 'Requires an available OS sandbox and existing workspace permissions; no network or credentials.'
+                            : source === 'Web'
+                              ? 'Requires supported provider web search and current approval.'
+                              : source === 'Knowledge'
+                                ? 'Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge.'
+                                : source === 'History'
+                                  ? 'Requires the current signed native operator and original owned-local call. Reads only registered visible durable history within current tool and skill scope; no SDK transcript or credential discovery.'
+                                  : 'Existing session permissions, cancellation and runtime admission apply.',
     })),
   );
   return [...taskMcpToolCatalog(), ...builtin];

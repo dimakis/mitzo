@@ -273,10 +273,24 @@ export async function inspectLocalRepositoryGitMetadata(
   }
   const pending = [...new Set([gitDirectory, commonDirectory])];
   const visited = new Set<string>();
+  const preloaded = new Set<string>();
   let entries = 0;
   let omittedAttributes = false;
   while (pending.length) {
     check();
+    if (request.readAccess) {
+      // These pending directories came only from already observed parent
+      // listings (or the pinned Git/common roots). Validate each existing
+      // physical/current boundary before the directory-only batch.
+      const ready = [
+        ...new Set(pending.filter((path) => !visited.has(path) && !preloaded.has(path))),
+      ].slice(-8);
+      if (ready.length) {
+        for (const path of ready) await physical(path);
+        await request.readAccess.preloadDirectories(ready);
+        for (const path of ready) preloaded.add(path);
+      }
+    }
     const directory = pending.pop()!;
     if (visited.has(directory)) continue;
     visited.add(directory);
