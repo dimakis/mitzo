@@ -38,6 +38,90 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 
+it('routes an exact native approval to its owner without executing a host tool or replaying a turn', async () => {
+  const f = await setup();
+  const approve = vi.fn(async () => ({ decision: 'decline' }));
+  f.conversationOptions.requestNativeApproval = approve;
+  await f.c.send({ id: 'native-request', prompt: 'Run the permitted action' });
+  const params = {
+    threadId: f.getProviderThread(),
+    turnId: 'turn-1',
+    itemId: 'command-1',
+    command: 'pwd',
+  };
+  const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+  await expect(
+    request('item/commandExecution/requestApproval', params, new AbortController().signal, {
+      requestId: 17,
+    }),
+  ).resolves.toEqual({ decision: 'decline' });
+  expect(approve).toHaveBeenCalledExactlyOnceWith(
+    'item/commandExecution/requestApproval',
+    params,
+    expect.any(AbortSignal),
+    expect.objectContaining({
+      requestId: 17,
+      threadId: f.getProviderThread(),
+      turnId: 'turn-1',
+      assertCurrentSync: expect.any(Function),
+    }),
+  );
+  expect(f.execute).not.toHaveBeenCalled();
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
+it.each(['thread', 'turn', 'request-id'])(
+  'rejects a native approval with stale or missing %s identity',
+  async (mismatch) => {
+    const f = await setup();
+    const approve = vi.fn(async () => ({ decision: 'accept' }));
+    f.conversationOptions.requestNativeApproval = approve;
+    await f.c.send({ id: 'native-request', prompt: 'Run' });
+    const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+    await expect(
+      request(
+        'item/fileChange/requestApproval',
+        {
+          threadId: mismatch === 'thread' ? 'other' : f.getProviderThread(),
+          turnId: mismatch === 'turn' ? 'other' : 'turn-1',
+          itemId: 'file-1',
+        },
+        new AbortController().signal,
+        mismatch === 'request-id' ? undefined : { requestId: 18 },
+      ),
+    ).rejects.toThrow();
+    expect(approve).not.toHaveBeenCalled();
+  },
+);
+
+it('rejects a native grant if Stop arrives while the permission owner is waiting', async () => {
+  const f = await setup();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let permissionSignal!: AbortSignal;
+  f.conversationOptions.requestNativeApproval = async (_method, _params, signal) => {
+    permissionSignal = signal;
+    await held;
+    return { decision: 'accept' };
+  };
+  await f.c.send({ id: 'native-request', prompt: 'Run' });
+  const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+  const result = request(
+    'item/commandExecution/requestApproval',
+    { threadId: f.getProviderThread(), turnId: 'turn-1', itemId: 'command-1' },
+    new AbortController().signal,
+    { requestId: 19 },
+  );
+  await vi.waitFor(() => expect(permissionSignal).toBeDefined());
+  await f.c.interrupt();
+  expect(permissionSignal.aborted).toBe(true);
+  release();
+  await expect(result).rejects.toThrow();
+  expect(f.execute).not.toHaveBeenCalled();
+});
+
 it.each(['commit', 'cancel'] as const)(
   'keeps a guarded uncertain FIFO entry undispatched until %s',
   async (outcome) => {

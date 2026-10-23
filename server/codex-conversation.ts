@@ -51,6 +51,10 @@ import {
 } from './web-search-policy.js';
 import type { ConversationHistoryEntry } from './codex-rollover-context.js';
 type ObjectValue = Record<string, unknown>;
+type NativeRequestContext = Readonly<{
+  requestId: string | number;
+  registerResponseFence?(assertCurrent: () => void): void;
+}>;
 const ROLLOVER_CONTEXT_MAX_CHARS = 64 * 1024;
 const ROLLOVER_CONTEXT_MAX_TURNS = 64;
 const ATTEMPT_CONTEXT_PREFIX = [
@@ -155,6 +159,20 @@ export interface CodexConversationOptions {
   environmentContinuationOwner?: 'external';
   onEnvironmentPending?: (commandId: string, providerTurnId: string) => void;
   requestUserInput?: (params: ObjectValue, signal: AbortSignal) => Promise<ObjectValue>;
+  /** The native provider owns execution and grant enforcement. This callback
+   * only obtains an exact decision from the existing permission owner. */
+  requestNativeApproval?: (
+    method: string,
+    params: ObjectValue,
+    signal: AbortSignal,
+    context: Readonly<{
+      requestId: string | number;
+      threadId: string;
+      turnId: string;
+      assertCurrentSync(): void;
+      registerResponseFence?(assertCurrent: () => void): void;
+    }>,
+  ) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
   displayToolName?: (name: string) => string;
   /** Resolve control-plane prerequisites before the prompt reaches the provider. */
@@ -409,10 +427,10 @@ export class CodexConversation {
       onNotification: (m, p) => {
         if (!this.closed && generation === this.transportGeneration) this.notification(m, p);
       },
-      onRequest: (m, p, s) => {
+      onRequest: (m, p, s, requestContext?: NativeRequestContext) => {
         if (this.closed || generation !== this.transportGeneration)
           return Promise.reject(new CodexTransportError('connection'));
-        return this.request(m, p, s);
+        return this.request(m, p, s, requestContext);
       },
       onClose: (error) => this.transportClosed(generation, error),
     });
@@ -2567,8 +2585,10 @@ export class CodexConversation {
     method: string,
     params: ObjectValue,
     signal: AbortSignal,
+    requestContext?: NativeRequestContext,
   ): Promise<ObjectValue> {
-    if (!this.opts.prepareAgentContext) return this.hostRequest(method, params, signal);
+    if (!this.opts.prepareAgentContext)
+      return this.hostRequest(method, params, signal, requestContext);
     const active = this.active;
     const generation = this.transportGeneration;
     const continuationSignal = AbortSignal.any([
@@ -2603,7 +2623,7 @@ export class CodexConversation {
     };
     await authorize();
     try {
-      return await this.hostRequest(method, params, continuationSignal);
+      return await this.hostRequest(method, params, continuationSignal, requestContext);
     } finally {
       // Covers questions, tool failures, duplicate uncertainty and durable
       // replay/result observers, including authority changes while they await.
@@ -2614,7 +2634,50 @@ export class CodexConversation {
     method: string,
     params: ObjectValue,
     signal: AbortSignal,
+    requestContext?: NativeRequestContext,
   ): Promise<ObjectValue> {
+    if (
+      [
+        'item/commandExecution/requestApproval',
+        'item/fileChange/requestApproval',
+        'item/permissions/requestApproval',
+      ].includes(method)
+    ) {
+      const active = this.active;
+      const generation = this.transportGeneration;
+      const threadId = this.threadId;
+      const turnId = active?.turnId;
+      const approvalSignal = AbortSignal.any([signal, ...(active ? [active.abort.signal] : [])]);
+      const assertCurrentSync = () => {
+        approvalSignal.throwIfAborted();
+        if (
+          this.closed ||
+          !active ||
+          this.active !== active ||
+          generation !== this.transportGeneration ||
+          !threadId ||
+          !turnId ||
+          this.threadId !== threadId ||
+          active.turnId !== turnId ||
+          params.threadId !== threadId ||
+          params.turnId !== turnId ||
+          !requestContext ||
+          !['string', 'number'].includes(typeof requestContext.requestId)
+        )
+          throw new Error('Codex native approval identity mismatch');
+      };
+      assertCurrentSync();
+      if (!this.opts.requestNativeApproval) throw new Error('Codex native approvals unavailable');
+      requestContext!.registerResponseFence?.(assertCurrentSync);
+      const response = await this.opts.requestNativeApproval(method, params, approvalSignal, {
+        ...requestContext!,
+        threadId: threadId!,
+        turnId: turnId!,
+        assertCurrentSync,
+      });
+      assertCurrentSync();
+      return response;
+    }
     if (method === 'item/tool/requestUserInput') {
       const input = CodexUserInput.parse(params);
       const active = this.active;
