@@ -15,6 +15,7 @@ import { telosItemDefinitions } from './telos-item-tools.js';
 import { telosArtifactDefinitions } from './telos-artifact-tools.js';
 import { telosWorkControlDefinitions } from './telos-work-control-tools.js';
 import { telosWorkDefinitions } from './telos-work-tools.js';
+import { sessionHistoryToolDefinitions } from './session-history-tools.js';
 
 const reads = new Set([
   'Read',
@@ -30,6 +31,8 @@ const reads = new Set([
   'TelosFindArtifacts',
   'TelosReadArtifact',
   'ReadKnowledge',
+  'SearchPastSessions',
+  'ReadPastSession',
 ]);
 const mixed = new Set([
   'Bash',
@@ -51,6 +54,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
     { source: 'GitHub publishing', definitions: [githubPublishingDefinition] },
     { source: 'Knowledge', definitions: knowledgeToolDefinitions },
     { source: 'Agent communication', definitions: agentCommunicationDefinitions },
+    { source: 'History', definitions: sessionHistoryToolDefinitions },
     {
       source: 'Telos',
       definitions: [
@@ -81,7 +85,7 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
               ? ('mixed' as const)
               : ('write' as const),
       routes:
-        source === 'Agent communication'
+        source === 'Agent communication' || source === 'History'
           ? ['codex-owned-local']
           : source === 'Telos'
             ? [
@@ -137,7 +141,9 @@ export function agentToolCatalog(): AgentToolCatalogEntry[] {
                             ? 'Requires supported provider web search and current approval.'
                             : source === 'Knowledge'
                               ? 'Requires host Knowledge Library enrollment and current interactive operator authorization. Draft saves do not submit review or change accepted knowledge.'
-                              : 'Existing session permissions, cancellation and runtime admission apply.',
+                              : source === 'History'
+                                ? 'Requires the current signed native operator and original owned-local call. Reads only registered visible durable history within current tool and skill scope; no SDK transcript or credential discovery.'
+                                : 'Existing session permissions, cancellation and runtime admission apply.',
     })),
   );
   return [...taskMcpToolCatalog(), ...builtin];

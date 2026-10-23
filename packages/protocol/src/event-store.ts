@@ -21,6 +21,7 @@ import {
   sessionWorkspaceId,
   type SessionRow,
   type SessionUpsert,
+  type SessionSummaryPage,
 } from './session-metadata-store.js';
 import { SessionLifecycleStore } from './session-lifecycle-store.js';
 import {
@@ -7168,6 +7169,11 @@ export class EventStore {
 
   listSessions(limit?: number): SessionMeta[] {
     return this.sessionMetadata.listSessions(limit);
+  }
+
+  /** Public summary candidates only; caller authorizes/projects before matching. */
+  listSessionSummaries(limit = 100, offset = 0): SessionSummaryPage {
+    return this.sessionMetadata.listSessionSummaries(limit, offset);
   }
 
   /**
