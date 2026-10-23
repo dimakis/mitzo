@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.594-prepared-repository-source-candidate';
+  'v1.0.595-local-repository-ceiling-owner-fence';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,9 +26,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/prepared-repository-candidate.test.ts':
     'b6a8785e0207c70d8ef70e641befdb1a08f6a74670522e3d5e3c06f80f853fae',
   '../__tests__/local-repository-read-ceiling.test.ts':
-    '6d57f15983fa4fa03a6e6d461fa05dcc02142bf19bb3bcf1b1e6faf2e7d8c326',
+    '4a69dd1577ad68e5369c869dca12e62b517ee2d36b9cb9f32e822890e1df49e3',
   '../__tests__/prepared-repository-native-read.test.ts':
-    'c36cd93271211e3f22dd164da78af35ad442884004fb562db19550a52aa065d5',
+    '03f962d36084a18157e0b02f49a1eb5c3fc38a94a3834056e67c4554d8624f1a',
   '../local-repository-allocation-facts.ts':
     'ec770292dcb7f90a2c85517a3c375e3356b51aa8cab9c7cc37b1f38894e478c4',
   '../__tests__/local-repository-allocation-facts.test.ts':
@@ -38,7 +38,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-domain-read.test.ts':
     '114efb143794b10fe69dfaae07c38d981320dab347a147a2ac2e0a1666422768',
   '../local-repository-native-read.ts':
-    '314e31279c42cf92d1e1e09b664c6d206f4ea46f6298fa7cbaa44f9ee8778b09',
+    '1be6bb0d117ddd083b4c385374e6d7e2124b97a4d51956c5b864910de2fdfe25',
   '../__tests__/native-helper-transport.test.ts':
     '2bc4c7907353b8a13b71d6d7b02dd03f7f0357e2e4878a54e1c62846155adbb9',
   '../__tests__/native-read-anchor-capture.test.ts':
@@ -71,7 +71,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-git-snapshot.ts':
     '4d788b944d9698345858493a508c4f065a8f014c9c9cdd6510a37f63ee87dfe7',
   '../local-repository-read-access.ts':
-    'b54b10e2222501bebfc8d575d0e195dcf6c3d00b038cb4c14134de0eb0f026ae',
+    '4b06242933e3dba8473d0cb34d1a29197280e229748994e75c358ba00fdf7184',
   '../__tests__/native-anchored-read.test.ts':
     '7322ab8566b3649a90876e253f5d66a8cc631ac7148ee47602c71eaed5123628',
   '../__tests__/local-repository-read-security.test.ts':

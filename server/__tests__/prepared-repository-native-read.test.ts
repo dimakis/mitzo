@@ -171,6 +171,37 @@ it('cannot use a retained scope after its actual barrier lifetime has ended', as
 });
 
 it.runIf(process.platform === 'darwin')(
+  'refuses a genuine original barrier owner revoked during additional final ceiling validation',
+  async () => {
+    const f = await fixture(),
+      execute = vi.spyOn(sandboxedCommand, 'executeSandboxedCommand');
+    await withPreparedRepositoryBarrierReadScope(f.policy, 'completed', f.owners, async (scope) => {
+      const reader = await capturePreparedRepositoryReader(scope, { deadline: Date.now() + 30000 });
+      try {
+        expect(Object.getOwnPropertyDescriptor(reader, 'assertCurrentSync')).toMatchObject({
+          value: expect.any(Function),
+          enumerable: false,
+          writable: false,
+          configurable: false,
+        });
+        expect(Object.isFrozen(reader.assertCurrentSync)).toBe(true);
+        const access = new LocalRepositoryReadAccess(reader, {
+          async assertReadable() {},
+          async revalidate() {
+            await Promise.resolve();
+            f.revoke();
+          },
+        });
+        await expect(access.verify()).rejects.toThrow();
+        expect(execute).not.toHaveBeenCalled();
+      } finally {
+        await reader.dispose();
+      }
+    });
+  },
+);
+
+it.runIf(process.platform === 'darwin')(
   'checks logical targets against the live scope without repeating physical-owner waits',
   async () => {
     const f = await fixture(),
