@@ -662,7 +662,10 @@ def preparation_observation(request):
     head = optional(os.path.join(plan['gitDirectory'], 'HEAD'), 4096)
     if head is None: fail()
     def next_reference(content):
-        text = content.decode('utf-8', errors='strict').rstrip()
+        # EXACT ECMAScript WhiteSpace + LineTerminator set used by unchanged
+        # headValue.trimEnd(). Python's default rstrip differs (NEL/controls/BOM).
+        js_trim = ''.join(chr(value) for value in (0x0009, 0x000a, 0x000b, 0x000c, 0x000d, 0x0020, 0x00a0, 0x1680, *range(0x2000, 0x200b), 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff))
+        text = content.decode('utf-8', errors='strict').rstrip(js_trim)
         if len(text) in (40, 64) and all(character in '0123456789abcdef' for character in text): return None
         if not text.startswith('ref: refs/'): fail()
         ref = text[5:]

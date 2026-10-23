@@ -597,3 +597,70 @@ actual(
   },
   30000,
 );
+actual(
+  'preserves a valid NEL-suffixed ref under the exact existing JavaScript trimEnd grammar',
+  async () => {
+    git(source, 'config', 'user.name', 'Offline');
+    git(source, 'config', 'user.email', 'offline@example.invalid');
+    await writeFile(join(source, 'tracked'), 'source');
+    git(source, 'add', '.');
+    git(source, 'commit', '-qm', 'fixture');
+    const ref = 'refs/heads/nel\u0085';
+    git(source, 'check-ref-format', ref);
+    git(source, 'update-ref', ref, git(source, 'rev-parse', 'HEAD'));
+    git(source, 'symbolic-ref', 'HEAD', ref);
+    const { access } = await view(await plan());
+    const metadata = await inspectLocalRepositoryGitMetadata({
+      path: source,
+      mode: 'preparation',
+      readAccess: access,
+      assertReadable: (path) => access.assertPath(path),
+      timeoutMs: 15000,
+    });
+    const facts = await readLocalRepositoryPreparationBaseReferences(metadata, {
+      readAccess: access,
+      timeoutMs: 15000,
+    });
+    expect(facts.head).toBe(git(source, 'rev-parse', 'HEAD'));
+    expect(facts.branch).toBe(git(source, 'branch', '--show-current'));
+    await access.verify();
+  },
+  30000,
+);
+actual(
+  'rejects a control-suffixed ref before any dynamic HEAD-chain directory lookup',
+  async () => {
+    const input = await plan(),
+      target = await scratchTarget(),
+      trace = join(scratch, 'invalid-ref-lookup');
+    await writeFile(join(source, '.git', 'HEAD'), 'ref: refs/heads/main\u001c\n');
+    const guarded: NativeFileHelperTransport = (invocation) => {
+      const needle = '    def directory(path):\n';
+      expect(invocation.command.includes(needle)).toBe(true);
+      return transport({
+        ...invocation,
+        command: invocation.command.replace(
+          needle,
+          needle +
+            '        if path == ' +
+            JSON.stringify(join(source, '.git', 'refs')) +
+            ': open(' +
+            JSON.stringify(trace) +
+            ',"w").close()\n',
+        ),
+      });
+    };
+    await expect(
+      observation.captureNativePreparationObservation(
+        input,
+        target,
+        new AbortController().signal,
+        15000,
+        guarded,
+      ),
+    ).rejects.toThrow();
+    await expect(lstat(trace)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(lstat(target.file_path)).rejects.toMatchObject({ code: 'ENOENT' });
+  },
+  30000,
+);

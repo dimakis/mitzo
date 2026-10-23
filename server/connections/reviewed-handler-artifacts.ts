@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.610-preparation-base-observation';
+  'v1.0.611-preparation-reference-trim-grammar';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,11 +24,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-preparation-observation.ts':
-    '88d2a802c52f7c605af1cbdb4ce2bb38e716cb81f4b325dbc901b05be64486d8',
+    'c72eb636f9b9bf76f25c7e2f7d4d0cb1096f304da63f15f8821af45d8cdf4b9d',
   '../local-repository-read-exclusions.ts':
     '33d227b5bebfd0388b161bf369f5d4dbafb4d57b9057e07d945b0deb10394b21',
   '../__tests__/native-preparation-observation.test.ts':
-    '7f40c532fbbcdd74c345906d237281e85cb263425a29287cff835433311b4691',
+    'eae5a26c4d61233732a9c79ba9483f983d4e728bb2fca03995b2fc69dcab242e',
   '../__tests__/native-exclusive-file-batch.test.ts':
     '6f4f65f8e1f2927b65c2635d6a8fe62299aef89a478090c7be8d1911a4752fd6',
   '../__tests__/private-helper-deadline.test.ts':
