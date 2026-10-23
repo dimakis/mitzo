@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import * as filesystem from 'fs/promises';
 import {
   existsSync,
   chmodSync,
@@ -17,9 +18,18 @@ import type { AccountBinding } from '@mitzo/protocol';
 import { OrdinaryLocalWorkspaceOwner } from '../ordinary-local-workspace-owner.js';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 
+vi.mock('fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('fs/promises')>();
+  return { ...original, mkdir: vi.fn(original.mkdir) };
+});
+
+vi.setConfig({ testTimeout: 20_000 });
+
 const roots: string[] = [];
 const services: RepositoryWorkspaces[] = [];
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.mocked(filesystem.mkdir).mockReset();
   services.splice(0).forEach((service) => service.close());
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
 });
@@ -54,12 +64,12 @@ const git = (cwd: string, ...args: string[]) =>
       },
     },
   ).trim();
-function fixture() {
+function fixture(objectFormat: 'sha1' | 'sha256' = 'sha1') {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'existing-repository-owner-')));
   roots.push(root);
   const repositories = ['unrelated-web', 'unrelated-library'].map((name) => {
     const path = join(root, name);
-    execFileSync('git', ['init', '-q', '-b', 'main', path]);
+    execFileSync('git', ['init', '-q', '-b', 'main', `--object-format=${objectFormat}`, path]);
     git(path, 'config', 'user.name', 'Offline');
     git(path, 'config', 'user.email', 'offline@example.invalid');
     writeFileSync(join(path, 'AGENTS.md'), `Instructions for ${name}\n`);
@@ -388,4 +398,108 @@ it('materializes an arbitrary repository without executing checkout hooks or Git
   expect(existsSync(hookMarker)).toBe(false);
   expect(existsSync(filterMarker)).toBe(false);
   expect(readFileSync(join(claimed.directory!, 'code.txt'), 'utf8')).toContain('Original');
+});
+
+it('requires current access to external Git storage before probing repository metadata', async () => {
+  const f = fixture();
+  const source = f.repositories[0];
+  const external = join(f.root, 'external-git');
+  renameSync(join(source, '.git'), external);
+  writeFileSync(join(source, '.git'), `gitdir: ${external}\n`);
+  // An invalid config proves no source Git probe may precede the access denial.
+  writeFileSync(join(external, 'config'), 'not valid Git config\n');
+  f.deps.assertLocalRepositoryAccess.mockImplementation(async (path) => {
+    if (path === external || path.startsWith(`${external}/`))
+      throw Error('External Git storage access denied');
+  });
+  await expect(
+    f.open().selectExistingLocalRepository(binding, source, selection, signal()),
+  ).rejects.toMatchObject({ kind: 'access', reason: 'read-access-required' });
+  expect(f.deps.assertLocalRepositoryAccess).toHaveBeenCalledWith(external, expect.anything());
+  expect(f.deps.ordinaryPreparation.capture).not.toHaveBeenCalled();
+});
+
+it('rechecks Git storage access on recovery without changing retained task edits', async () => {
+  const f = fixture();
+  const source = f.repositories[0];
+  const external = join(f.root, 'external-git');
+  renameSync(join(source, '.git'), external);
+  writeFileSync(join(source, '.git'), `gitdir: ${external}\n`);
+  const service = f.open();
+  const ready = await service.selectExistingLocalRepository(binding, source, selection, signal());
+  const reservation = f.reservation(ready.id);
+  await service.reserveHostTask(reservation);
+  const claimed = await service.claimReservedHostTask(reservation);
+  writeFileSync(join(claimed.directory!, 'code.txt'), 'Retained unfinished work\n');
+  f.deps.assertLocalRepositoryAccess.mockImplementation(async (path) => {
+    if (path === external || path.startsWith(`${external}/`))
+      throw Error('External Git storage access revoked');
+  });
+  await expect(service.claimReservedHostTask(reservation)).rejects.toMatchObject({
+    kind: 'access',
+    reason: 'read-access-required',
+  });
+  await expect(
+    new OrdinaryLocalWorkspaceOwner(service, 'repository', reservation).validate(
+      claimed.directory!,
+    ),
+  ).rejects.toMatchObject({ kind: 'access', reason: 'read-access-required' });
+  expect(readFileSync(join(claimed.directory!, 'code.txt'), 'utf8')).toBe(
+    'Retained unfinished work\n',
+  );
+});
+
+it('prepares and reconnects a local SHA-256 repository through the existing owner', async () => {
+  const f = fixture('sha256');
+  const service = f.open();
+  const ready = await service.selectExistingLocalRepository(
+    binding,
+    f.repositories[0],
+    selection,
+    signal(),
+  );
+  expect(ready.baseOid).toHaveLength(64);
+  const reservation = f.reservation(ready.id);
+  await service.reserveHostTask(reservation);
+  const claimed = await service.claimReservedHostTask(reservation);
+  const owner = new OrdinaryLocalWorkspaceOwner(service, 'repository', reservation);
+  await owner.revalidate(signal());
+  expect((await owner.claim(signal())).directory).toBe(claimed.directory);
+});
+
+it('does not execute a newly included unknown filter between preflight and materialization', async () => {
+  const f = fixture();
+  const source = f.repositories[0];
+  writeFileSync(join(source, '.gitattributes'), '*.txt filter=late\n');
+  git(source, 'add', '.gitattributes');
+  git(source, 'commit', '-qm', 'fixture unknown filter');
+  writeFileSync(join(source, 'code.txt'), 'Dirty source must survive\n');
+  const originalIndex = readFileSync(join(source, '.git', 'index'));
+  const marker = join(f.root, 'late-filter-executed');
+  const helper = join(f.root, 'late-filter');
+  writeFileSync(helper, `#!/bin/sh\nprintf invoked > '${marker}'\ncat\n`);
+  chmodSync(helper, 0o700);
+  const included = join(f.root, 'late-config');
+  writeFileSync(included, `[filter "late"]\n\tsmudge = ${helper}\n\trequired = true\n`);
+  const service = f.open();
+  const ready = await service.selectExistingLocalRepository(binding, source, selection, signal());
+  const reservation = f.reservation(ready.id);
+  await service.reserveHostTask(reservation);
+  let changed = false;
+  const mkdir = (await vi.importActual<typeof import('fs/promises')>('fs/promises')).mkdir;
+  vi.mocked(filesystem.mkdir).mockImplementationOnce(((...args: Parameters<typeof mkdir>) => {
+    if (String(args[0]) === f.taskRoot && !changed) {
+      changed = true;
+      git(source, 'config', 'include.path', included);
+    }
+    return mkdir(...args);
+  }) as typeof mkdir);
+  const outcome = await service.claimReservedHostTask(reservation).catch((error: unknown) => error);
+  expect(changed).toBe(true);
+  expect(existsSync(marker)).toBe(false);
+  // Source metadata changed after preflight, so the owner preserves its uncertain
+  // claim instead of admitting a workspace under different source configuration.
+  expect(outcome).toMatchObject({ kind: 'unsafe', reason: 'included-configuration-unavailable' });
+  expect(readFileSync(join(source, '.git', 'index'))).toEqual(originalIndex);
+  expect(readFileSync(join(source, 'code.txt'), 'utf8')).toBe('Dirty source must survive\n');
 });

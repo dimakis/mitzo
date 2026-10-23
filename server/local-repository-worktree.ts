@@ -63,7 +63,7 @@ export async function captureLocalRepository(
       ? await fetchWorktreeBase(path, signal)
       : git(path, 'rev-parse', '--verify', '--end-of-options', `${startPoint}^{commit}`);
   signal.throwIfAborted();
-  if (!/^[a-f0-9]{40}$/.test(baseOid)) throw unavailable();
+  if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(baseOid)) throw unavailable();
   // HEAD is a valid source ref, but is a reserved Git branch name. Keep the
   // reservation's display branch valid for non-main and detached repositories.
   const branch =

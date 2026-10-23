@@ -14,8 +14,9 @@ import {
   readlinkSync,
   unlinkSync,
 } from 'fs';
-import { mkdir } from 'fs/promises';
+import { mkdir, mkdtemp, rm } from 'fs/promises';
 import { join, basename, resolve } from 'path';
+import { tmpdir } from 'os';
 
 const execFileAsync = promisify(execFileCb);
 import {
@@ -165,7 +166,7 @@ export interface CreateWorktreeOptions {
   safeLocalPreparation?: boolean;
 }
 
-async function safeLocalWorktreeGit(baseRepo: string) {
+function safeLocalWorktreeGit() {
   const config = [
     '-c',
     'core.hooksPath=/dev/null',
@@ -183,6 +184,7 @@ async function safeLocalWorktreeGit(baseRepo: string) {
     'core.sparseCheckout=false',
   ];
   const options = {
+    cwd: '/',
     timeout: WORKTREE_GIT_TIMEOUT_MS,
     maxBuffer: 65536,
     env: {
@@ -195,38 +197,58 @@ async function safeLocalWorktreeGit(baseRepo: string) {
       GIT_ATTR_NOSYSTEM: '1',
     },
   };
-  const run = (args: string[]) =>
-    execFileAsync('git', ['--no-replace-objects', ...config, ...args], options);
-  let keys = '';
+  return (args: string[], environment: Readonly<Record<string, string>> = {}) =>
+    execFileAsync('git', ['--no-replace-objects', ...config, ...args], {
+      ...options,
+      env: { ...options.env, ...environment },
+    });
+}
+
+/** Register with the existing owner, then let Git materialize through a private
+ * config/index view. Source filters, includes and hooks never own checkout. */
+async function materializeLocalWorktree(
+  git: ReturnType<typeof safeLocalWorktreeGit>,
+  baseRepo: string,
+  worktreePath: string,
+  branch: string,
+) {
+  const { stdout: common } = await git([
+    '-C',
+    baseRepo,
+    'rev-parse',
+    '--path-format=absolute',
+    '--git-common-dir',
+  ]);
+  const { stdout: identity } = await git(['-C', worktreePath, ...WORKTREE_IDENTITY_ARGS]);
+  assertWorktreeIdentity(worktreePath, branch, identity, common);
+  const linkedGitDirectory = identity.trim().split('\n')[2]!;
+  const head = (await git(['-C', worktreePath, 'rev-parse', '--verify', 'HEAD'])).stdout.trim();
+  if (!/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(head)) throw Error('Invalid local worktree HEAD');
+  const format = (await git(['-C', baseRepo, 'rev-parse', '--show-object-format'])).stdout.trim();
+  if (!['sha1', 'sha256'].includes(format)) throw Error('Unsupported local Git object format');
+  const scratch = await mkdtemp(join(tmpdir(), 'mitzo-worktree-materialization-'));
   try {
-    ({ stdout: keys } = await run([
-      '-C',
-      baseRepo,
-      'config',
-      '--no-includes',
-      '--null',
-      '--name-only',
-      '--get-regexp',
-      '^filter\\..*\\.(clean|smudge|process|required)$',
-    ]));
-  } catch (error) {
-    if (!(error instanceof Error) || !('code' in error) || error.code !== 1) throw error;
+    await git([
+      'init',
+      '--quiet',
+      '--template=',
+      '--initial-branch=mitzo-materialize',
+      `--object-format=${format}`,
+      scratch,
+    ]);
+    const environment = {
+      GIT_DIR: join(scratch, '.git'),
+      GIT_WORK_TREE: worktreePath,
+      GIT_INDEX_FILE: join(linkedGitDirectory, 'index'),
+      GIT_OBJECT_DIRECTORY: join(common.trim(), 'objects'),
+    };
+    // Match the existing repository-source checkout pattern: only Git-generated
+    // private config is loaded; .gitattributes cannot install a filter driver.
+    await git(['read-tree', head], environment);
+    await git(['checkout-index', '--all'], environment);
+  } finally {
+    await rm(scratch, { recursive: true, force: true });
   }
-  const drivers = new Set(
-    keys
-      .split('\0')
-      .filter(Boolean)
-      .map((key) => key.slice('filter.'.length, key.lastIndexOf('.'))),
-  );
-  for (const driver of drivers)
-    for (const [setting, value] of [
-      ['clean', ''],
-      ['smudge', ''],
-      ['process', ''],
-      ['required', 'false'],
-    ])
-      config.push('-c', `filter.${driver}.${setting}=${value}`);
-  return run;
 }
 
 // Request absolute paths so linked base checkouts and symlinked repo paths
@@ -325,10 +347,11 @@ export async function createWorktreeAsync(
   baseRepo: string,
   opts?: CreateWorktreeOptions,
 ): Promise<string> {
-  if (opts?.safeLocalPreparation && !opts.startPoint)
+  if (opts?.safeLocalPreparation && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(opts.startPoint ?? ''))
     throw Error('Safe local repository preparation requires a pinned source ref');
-  const runGit = opts?.safeLocalPreparation
-    ? await safeLocalWorktreeGit(baseRepo)
+  const safeGit = opts?.safeLocalPreparation ? safeLocalWorktreeGit() : undefined;
+  const runGit = safeGit
+    ? safeGit
     : (args: string[]) => execFileAsync('git', args, { timeout: WORKTREE_GIT_TIMEOUT_MS });
   const prefix = opts?.prefix ?? '.claude';
   const dir = opts?.dir ?? join(baseRepo, prefix, 'worktrees');
@@ -352,17 +375,30 @@ export async function createWorktreeAsync(
   }
 
   const startPoint = opts?.startPoint ?? (await fetchWorktreeBase(baseRepo));
+  const checkout = safeGit ? ['--no-checkout'] : [];
   try {
-    await runGit(['-C', baseRepo, 'worktree', 'add', '-b', branch, worktreePath, startPoint]);
+    await runGit([
+      '-C',
+      baseRepo,
+      'worktree',
+      'add',
+      ...checkout,
+      '-b',
+      branch,
+      worktreePath,
+      startPoint,
+    ]);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     if (message.includes('already exists')) {
       // Reattach at its existing tip: it may contain unfinished session commits.
-      await runGit(['-C', baseRepo, 'worktree', 'add', worktreePath, branch]);
+      await runGit(['-C', baseRepo, 'worktree', 'add', ...checkout, worktreePath, branch]);
     } else {
       throw err;
     }
   }
+
+  if (safeGit) await materializeLocalWorktree(safeGit, baseRepo, worktreePath, branch);
 
   log.info(`created: ${worktreePath} (${branch}) from ${startPoint}`);
   return worktreePath;

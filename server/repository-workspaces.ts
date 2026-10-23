@@ -26,6 +26,7 @@ import {
   assertLocalRepository,
   type LocalRepositorySource,
 } from './local-repository-worktree.js';
+import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
 import {
   snapshotRepositoryTaskCheckout,
   validateRepositoryTaskCheckout,
@@ -177,7 +178,7 @@ const hostRepositoryReservationSchema = z.strictObject({
   binding: AccountBindingSchema,
   repository: reservationReference,
   baseBranch: z.string().min(1).max(1024).refine(isGitBranchName),
-  baseOid: z.string().regex(/^[a-f0-9]{40}$/),
+  baseOid: z.string().regex(/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/),
   featureBranch: reservationReference,
   sourceDigest: z.string().regex(/^[a-f0-9]{64}$/),
   conversationId: reservationReference,
@@ -982,8 +983,11 @@ export class RepositoryWorkspaces {
   ) {
     const source = record.localSource!;
     signal.throwIfAborted();
-    if (source.selection === 'existing')
-      await this.assertExistingLocalRepositoryAccess(source.path, binding, signal);
+    if (source.selection === 'existing') {
+      const metadata = await this.assertExistingLocalRepositoryAccess(source.path, binding, signal);
+      if (metadata.commonDirectory !== source.commonDirectory)
+        throw Error('Original local repository storage changed');
+    }
     assertLocalRepository(
       source,
       source.selection === 'existing'
@@ -1005,7 +1009,18 @@ export class RepositoryWorkspaces {
       binding: structuredClone(binding),
       signal,
     });
+    const metadata = await inspectLocalRepositoryGitMetadata({
+      path,
+      signal,
+      assertReadable: (readPath) =>
+        this.deps.assertLocalRepositoryAccess!(readPath, {
+          binding: structuredClone(binding),
+          signal,
+        }),
+    });
     signal.throwIfAborted();
+    if (metadata.path !== path) throw Error('Original local repository root required');
+    return metadata;
   }
   private async assertOrdinaryPreparation(
     record: RepositoryWorkspace,
