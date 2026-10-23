@@ -84,14 +84,75 @@ change; `command/exec` has no `additionalPermissions` parameter, so it does not 
 the engine's `request_permissions` round trip or turn/session expiry. Those paths
 need lifecycle adapter fixtures and the upstream source evidence above.
 
-A broad private-home denial blocks a synthetic helper inside that home. A more
-specific read allowance for its runtime directory permits execution while a
-credential sibling stays unreadable. The adversarial control also demonstrates
-that an exact child file read allowance inside a denied credential directory makes
-that file readable. Therefore private credential overlap validation is mandatory;
-only explicit immutable directories containing no credentials may receive helper
-exceptions. This fixture uses the official release binary, not a separately frozen
-host binary, and does not qualify the host's executable/wrapper custody.
+The literal-path control shows a more specific child read allowance can override
+a parent denial. After an external actor retargets an approved symlink into a
+credential directory, the next sandbox construction also reads that credential
+through the retained literal allowance. The sandboxed unlink attempt itself was
+blocked; the test labels external mutation separately. Private-root overlap
+validation at approval time alone does not cover retained aliases after mutation.
+
+The pinned macOS sandbox additionally supports absolute **deny globs**, emitted as
+final anchored `deny file-read*`, `deny file-write*` and ancestor unlink rules in
+`sandboxing/src/seatbelt.rs`, `build_seatbelt_unreadable_glob_policy`. Use POSIX glob
+escaping independently of configuration serialization:
+
+```js
+const subtreeDenyGlob = (path) => `${path.replace(/[\\*?[\]{}]/g, '\\$&')}{,/**}`;
+```
+
+The brace alternative covers both the literal base path and every descendant.
+Serialize that complete pattern as a TOML string key separately; the script uses
+`JSON.stringify` for the key. Kernel controls cover literal `\\`, `*`, `?`, brackets
+and braces in directory names, with a neighboring name remaining readable and
+writable. They also cover a standalone credential file, hostile exact child
+read/write allowances, symlink aliases, external retargeting across repeated
+constructions of the same profile, and protected-directory/ancestor rename.
+All credential operations remain denied under the glob fence. This qualifies
+POSIX/macOS patterns only; it does not establish Windows escaping semantics.
+
+A whole-private-home deny glob defeats more-specific runtime read exceptions.
+Actual native `apply_patch` arg0 symlinks under that home fail with both an outside
+target executable and a copied executable inside the home, while positive controls
+without the glob execute. Upstream `arg0/src/lib.rs` fixes their location at
+`CODEX_HOME/tmp/arg0`; there is no separate supported helper-temp-root setting.
+The pinned glob grammar has no direct subtree-exclusion operator. Do not invent a
+complex complement pattern or weaken credential protection to make an alias work.
+
+Direct native helper dispatch is different: the test copies the pinned executable
+to `privateHome/codex-runtime`, denies the entire home with a glob, and supplies
+no explicit helper exceptions. Execution succeeds while reading the executable's
+bytes fails. The native `--codex-run-as-apply-patch` and
+`--codex-run-as-arg0-exec-helper` subprocesses write the workspace successfully.
+The real `--codex-run-as-fs-helper` protocol reads/writes workspace files and
+returns errors for credential reads/writes. Its direct self-executable invocation
+and JSON stdin payload match `exec-server/src/fs_sandbox.rs` and
+`fs_helper_main.rs`. These controls explicitly disable `shell_zsh_fork`, enable
+`unified_exec`, disable hooks, and clear legacy `notify`.
+
+This supports further integration qualification of the direct native process and
+filesystem route while leaving shell PATH aliases unavailable. It does not enable
+that route, execute a model's `unified_exec` turn, qualify the configured host's
+frozen binary identity, or exercise actual thread-grant expiry/resume.
+
+## Source review of other execution paths
+
+`core/src/tools/sandboxing.rs`, `with_cached_approval`, caches session approvals;
+it does not cache an unsandboxed execution result. `tools/orchestrator.rs` still
+computes `unsandboxed_execution_allowed` before execution and retry. Denied-read
+restrictions prevent the execpolicy `Skip`/explicit-escalation sandbox bypass.
+Scoped permission overlays retain the glob entries when constructing the next
+effective profile. Retained process descendants inherit their kernel sandbox.
+The built-in patch runtime passes an explicit effective filesystem sandbox
+context to the native filesystem helpers.
+
+This is not a claim that a model tool's fence covers every app-server subprocess.
+`hooks/src/engine/command_runner.rs` spawns host hook commands directly. Legacy
+`notify` is created independently of the hooks feature flag in `hooks/registry.rs`
+and also spawns a host command; `features.hooks=false` alone does not disable it.
+Require an empty/disabled `notify` configuration separately. MCP servers, host
+tools and integrations have their own execution authority and are not qualified
+by these kernel controls. Keep unqualified paths disabled; do not silently route
+failed native operations through them.
 
 ## Other pinned capability findings
 
