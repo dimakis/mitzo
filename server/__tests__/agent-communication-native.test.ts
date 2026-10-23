@@ -653,8 +653,21 @@ it('captures and disposes genuine signed host scope inside the existing native c
   });
   const priorAck = f.native.hasAcceptedProviderTurn(f.a.sessionId, f.a.initial.lease.binding);
   const priorCommands = f.native.commands(f.a.sessionId, f.a.initial.lease.binding);
+  const command = priorCommands.find((entry) => entry.status === 'running')!;
+  const expectedTarget = f.native.nativeTurnTarget(
+    f.a.sessionId,
+    f.a.initial.lease.binding,
+    command.id,
+    command.attempt,
+  );
   const result = await f.a.call({ operation: 'list' });
   expect(result.response.success).toBe(true);
+  expect(captured.nativeTarget).toEqual(expectedTarget);
+  expect(Object.keys(captured.nativeTarget).sort()).toEqual(
+    ['commandId', 'attempt', 'threadId', 'turnId', 'generation'].sort(),
+  );
+  expect(Object.isFrozen(captured.nativeTarget)).toBe(true);
+  expect(Reflect.set(captured.nativeTarget, 'attempt', 999)).toBe(false);
   expect(captured.conversationId).toBe(f.a.sessionId);
   expect(captured.clientId).toBe(f.a.clientId);
   expect(captured.session).toBe(f.a.session);
@@ -665,9 +678,87 @@ it('captures and disposes genuine signed host scope inside the existing native c
   expect(() => captured.assertCurrentSync()).toThrow();
   expect(f.native.hasAcceptedProviderTurn(f.a.sessionId, f.a.initial.lease.binding)).toBe(priorAck);
   expect(f.native.commands(f.a.sessionId, f.a.initial.lease.binding)).toEqual(priorCommands);
+  const forgedTarget = { ...expectedTarget, commandId: 'model-claimed', attempt: 999 };
+  const forged = await f.a.call({ operation: 'list', nativeTarget: forgedTarget });
+  expect(forged.response.success).toBe(false);
+  expect(captured.nativeTarget).toEqual(expectedTarget);
+  expect(captured.nativeTarget).not.toEqual(forgedTarget);
+  expect(captured.signal.aborted).toBe(true);
+  expect(() => captured.assertCurrentSync()).toThrow();
   expect(f.permissions).toHaveLength(0);
   expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 }, 20000);
+
+it.each(['command-completed', 'thread-replaced', 'tool-completed'] as const)(
+  'retains historical native target data but revokes %s pending proof',
+  async (failure) => {
+    let captured!: NativeHostToolContext;
+    let entered!: () => void, release!: () => void;
+    const executing = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const f = await fixture({
+      observe: async (scope) => {
+        captured = scope;
+        entered();
+        await held;
+      },
+    });
+    const result = f.a.call({ operation: 'list' });
+    const outcome = result.then(
+      (value) => value.response.success,
+      () => false,
+    );
+    await executing;
+    try {
+      captured.assertCurrentSync();
+      const target = structuredClone(captured.nativeTarget);
+      expect(target).toBeDefined();
+      if (failure === 'command-completed')
+        f.native.finish(
+          f.a.sessionId,
+          f.a.initial.lease.binding,
+          target.commandId,
+          'completed',
+          target.turnId,
+        );
+      if (failure === 'thread-replaced')
+        f.native.replaceThread(
+          f.a.sessionId,
+          f.a.initial.lease.binding,
+          target.threadId,
+          `${target.threadId}-replacement`,
+          'provider_transport_failure',
+        );
+      if (failure === 'tool-completed')
+        f.native.recordToolResult(
+          f.a.sessionId,
+          f.a.initial.lease.binding,
+          target.commandId,
+          captured.callId,
+          {
+            turnId: captured.turnId,
+            toolName: captured.toolName,
+            requestHash: captured.requestHash,
+          },
+          { content: 'Already completed', isError: false },
+        );
+      expect(() => captured.assertCurrentSync()).toThrow();
+      await expect(captured.assertCurrent()).rejects.toThrow();
+      expect(captured.nativeTarget).toEqual(target);
+      expect(Object.isFrozen(captured.nativeTarget)).toBe(true);
+    } finally {
+      release();
+    }
+    expect(await outcome).toBe(false);
+    expect(f.permissions).toHaveLength(0);
+    expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  },
+  20000,
+);
 
 it.each(['logout', 'closing', 'root-changed'] as const)(
   'refuses %s signed host scope after its actual asynchronous native wait',
