@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.597-read-tool-composition-checkpoint';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.598-atomic-directory-preload';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/local-repository-initial-directory-batch.test.ts':
+    '817c8bf469218bf2ee18fb7be7b72e5513b7ce1b8606a1e629d4315fdf8ddc8d',
   '../__tests__/fixtures/local-repository-native-tools.ts':
     '7823a1694011217e191bb52716c8176dc34a51ddad39a3825b2703dcf5f8fcc1',
   '../__tests__/native-local-repository-read-projection.test.ts':
@@ -80,7 +81,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../local-repository-git-snapshot.ts':
     '4d788b944d9698345858493a508c4f065a8f014c9c9cdd6510a37f63ee87dfe7',
   '../local-repository-read-access.ts':
-    '4b06242933e3dba8473d0cb34d1a29197280e229748994e75c358ba00fdf7184',
+    'cbe1f776260f18cb5db46002eb14adc2d24536bc0a67b166264cc5f683d10506',
   '../__tests__/native-anchored-read.test.ts':
     '7322ab8566b3649a90876e253f5d66a8cc631ac7148ee47602c71eaed5123628',
   '../__tests__/local-repository-read-security.test.ts':

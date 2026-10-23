@@ -1,0 +1,177 @@
+import { expect, it, vi } from 'vitest';
+import type { NativeAnchoredReadRequest } from '../native-file-operation.js';
+import {
+  LocalRepositoryReadAccess,
+  type LocalRepositoryReadAuthority,
+  type LocalRepositoryReadEntry,
+} from '../local-repository-read-access.js';
+
+const root = '/fixture/anchored';
+const child = (name: string): LocalRepositoryReadEntry => ({
+  name,
+  identity: { dev: '1', ino: String(name.charCodeAt(0)) },
+  kind: 'directory',
+  size: 0,
+  mode: 0o40700,
+  nlink: 1,
+  mtimeNs: '1',
+  ctimeNs: '1',
+});
+function fixture(batch = true) {
+  const abort = new AbortController();
+  let current = true;
+  const rootIdentity = { dev: '1', ino: '1' };
+  const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+  const listing = (path: string) => ({
+    content: JSON.stringify({
+      identity: path === root ? rootIdentity : child(path.at(-1)!).identity,
+      entries: path === root ? names.map(child) : [],
+      truncated: false,
+      incomplete: false,
+    }),
+    is_error: false,
+  });
+  const assertCurrentSync = vi.fn(() => {
+    if (!current) throw Error('Current native owner revoked');
+  });
+  const authority: LocalRepositoryReadAuthority = {
+    deadline: Date.now() + 15000,
+    signal: abort.signal,
+    deniedRoots: [],
+    assertCurrentSync,
+    assertReadable: vi.fn(async () => assertCurrentSync()),
+    captureReadAnchor: vi.fn(async (path) => ({ rootPath: path, identity: rootIdentity })),
+    executeReadOperation: vi.fn(async (request) => listing(request.file_path)),
+    ...(batch
+      ? {
+          executeDirectoryVerification: vi.fn(
+            async (requests: readonly NativeAnchoredReadRequest[]) =>
+              requests.map((request) => listing(request.file_path)),
+          ),
+        }
+      : {}),
+  };
+  const ceiling = {
+    assertReadable: vi.fn(async (_path: string) => {}),
+    revalidate: async () => {},
+  };
+  const access = new LocalRepositoryReadAccess(authority, ceiling);
+  const ready = async () => {
+    await access.pinRoot(root);
+    await access.list(root);
+    vi.mocked(authority.executeReadOperation!).mockClear();
+  };
+  return {
+    access,
+    authority,
+    ceiling,
+    abort,
+    assertCurrentSync,
+    listing,
+    names,
+    ready,
+    revoke: () => {
+      current = false;
+    },
+  };
+}
+
+it('preloads eight already-observed sibling directories with one existing batch and no later helper lookup', async () => {
+  const f = fixture();
+  await f.ready();
+  const paths = Object.freeze(f.names.map((name) => `${root}/${name}`));
+  await f.access.preloadDirectories(paths);
+  expect(f.authority.executeDirectoryVerification).toHaveBeenCalledOnce();
+  const [requests, signal, timeout] = vi.mocked(f.authority.executeDirectoryVerification!).mock
+    .calls[0];
+  expect(requests.map((r) => r.file_path)).toEqual(paths);
+  expect(
+    requests.every((r) => r.operation === 'ListDirectory' && r.rootAnchor.rootPath === root),
+  ).toBe(true);
+  expect(signal).toBe(f.abort.signal);
+  expect(timeout).toBeLessThanOrEqual(15000);
+  for (const path of paths) expect(await f.access.list(path)).toEqual([]);
+  expect(f.authority.executeReadOperation).not.toHaveBeenCalled();
+});
+
+it.each(['unknown', 'nested-unknown', 'duplicate', 'too-many', 'relative'] as const)(
+  'refuses an unready directory set without an unknown lookup: %s',
+  async (kind) => {
+    const f = fixture();
+    await f.ready();
+    const paths =
+      kind === 'unknown'
+        ? [`${root}/unknown`]
+        : kind === 'nested-unknown'
+          ? [`${root}/a/unlisted`]
+          : kind === 'duplicate'
+            ? [`${root}/a`, `${root}/a`]
+            : kind === 'too-many'
+              ? [...f.names.map((name) => `${root}/${name}`), `${root}/i`]
+              : ['relative'];
+    await expect(f.access.preloadDirectories(paths)).rejects.toThrow();
+    expect(f.authority.executeDirectoryVerification).not.toHaveBeenCalled();
+    expect(f.authority.executeReadOperation).not.toHaveBeenCalled();
+    expect(f.authority.captureReadAnchor).toHaveBeenCalledOnce();
+  },
+);
+
+it.each(['malformed', 'limit', 'denied', 'cancelled', 'revoked'] as const)(
+  'commits no earlier directory/exclusion/budget witness after a late %s item',
+  async (kind) => {
+    const f = fixture();
+    await f.ready();
+    let armed = false;
+    f.ceiling.assertReadable.mockImplementation(async (path) => {
+      if (armed && kind === 'denied' && path === `${root}/b`) throw Error('Changed ceiling');
+    });
+    vi.mocked(f.authority.executeDirectoryVerification!).mockImplementation(async (requests) => {
+      const first = {
+        content: JSON.stringify({
+          identity: child('a').identity,
+          entries: [{ ...child('new'), name: 'uncommitted' }],
+          truncated: false,
+          incomplete: true,
+        }),
+        is_error: false,
+      };
+      armed = true;
+      if (kind === 'cancelled') f.abort.abort();
+      if (kind === 'revoked') f.revoke();
+      return [
+        first,
+        kind === 'malformed'
+          ? { content: '{}', is_error: false }
+          : kind === 'limit'
+            ? { content: 'Anchored read limit exceeded', is_error: true }
+            : f.listing(requests[1].file_path),
+      ];
+    });
+    const pending = f.access.preloadDirectories([`${root}/a`, `${root}/b`]);
+    if (kind === 'limit')
+      await expect(pending).rejects.toMatchObject({ kind: 'limit', reason: 'snapshot-entries' });
+    else await expect(pending).rejects.toThrow();
+    expect(f.access.hasExclusionsWithin()).toBe(false);
+    // Actual cache/budget observations, without clearing or replacing the owner.
+    expect(Object.getOwnPropertyDescriptor(f.access, 'totalEntries')?.value).toBe(8);
+    expect(
+      (Object.getOwnPropertyDescriptor(f.access, 'directories')?.value as Map<string, unknown>)
+        .size,
+    ).toBe(1);
+    expect(
+      (Object.getOwnPropertyDescriptor(f.access, 'entries')?.value as Map<string, unknown>).has(
+        `${root}/a/uncommitted`,
+      ),
+    ).toBe(false);
+  },
+);
+
+it('keeps generic no-batch fixture reads sequential and stages them before any cache commit', async () => {
+  const f = fixture(false);
+  await f.ready();
+  await f.access.preloadDirectories([`${root}/a`, `${root}/b`]);
+  expect(f.authority.executeReadOperation).toHaveBeenCalledTimes(2);
+  await f.access.list(`${root}/a`);
+  await f.access.list(`${root}/b`);
+  expect(f.authority.executeReadOperation).toHaveBeenCalledTimes(2);
+});
