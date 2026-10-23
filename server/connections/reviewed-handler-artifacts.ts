@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.495-telos-retained-file-owners';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.496-telos-sqlite-lifetimes';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,15 +25,15 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/sqlite-file-owner/package.json':
     'ba7bf5e9f0a1e20908df2eedb45243cd2ea1cd4c74e157ca80086a1a0b465029',
   '../../packages/sqlite-file-owner/binding.gyp':
-    '59f4b012a0f38af834d10942cb629ee62a33aff9cbf408de585146c6c582a709',
+    '187553a3f6ae88436aa96550bc65ebf427b2c0f681e06ccc7707628ea39fc8d3',
   '../../packages/sqlite-file-owner/index.d.ts':
-    '6c420dfbf270ec361fab00f495d3c404c3832771ee77afdd4cb53303c92381b0',
+    'f89a91c2dfe8d8db48fd4c8303f18dbb59da5d8932659180100a362704f7dd17',
   '../../packages/sqlite-file-owner/index.cjs':
-    '5a39f9a0896a3bcda6f56ece277979c0967b0f1520c19da4aad6b8c89a2797f4',
+    'f3c1aa5c5ef9c8d08ff481e87a7c83a7c06c02c1877ab4b368c2360d2a08a671',
   '../../packages/sqlite-file-owner/file_owner.c':
-    '98266cf78269e7d89cef660bb9b58f2c5273ecb4361cc85dadf4a6224fa568e3',
+    '0d06513fcc4db6a5966c19e9135172b5a9f98d108cd1525930e405eda3eb5c00',
   '../../packages/protocol/src/telos-sqlite-owners.ts':
-    '7c469d8fe4cf5ce64864da712affa5b032c7fd25fedc6424e6642cf810d4e06c',
+    'f30e8622e2b552084969b797dd1fd9d7d44efbbcfac5f3e4fcb9a4eb1529f20f',
   '../../frontend/src/components/TelosItemLifecycle.tsx':
     '74cbe49b6b9e66b73de2f7b7492bc23de40f6e31f03b0068bdb5858e79f8e10e',
   '../../frontend/src/components/WorkspaceActionMenu.tsx':

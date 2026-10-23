@@ -18,8 +18,11 @@ import {
 import { basename, dirname, join, resolve } from 'node:path';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
-  openLease,
-  assertLeaseAdmission,
+  reserveFamily,
+  openReservedLease,
+  retainUnqualifiedConnection,
+  releaseUnqualifiedConnection,
+  type NativeConnectionLifetime,
   closeLease,
   lockLease,
   leaseIdentity,
@@ -192,7 +195,7 @@ class Family {
     this.root = directory(files);
     // Main-thread confinement makes the synchronous check/capture/open sequence
     // non-interleaving. No metadata alias FD is opened before native admission.
-    assertLeaseAdmission();
+    this.lease = reserveFamily();
     try {
       if (exists(join(this.root, 'invalid'))) deny();
       const dir = capture(this.root, true);
@@ -217,10 +220,9 @@ class Family {
       if (!timingSafeEqual(expected, Buffer.from(envelope.mac, 'hex'))) deny();
       const birth = JSON.parse(envelope.payload);
       if (birth.version !== 1 || !same(dir.id, birth.directory) || !same(key.id, birth.key)) deny();
-      // Metadata can be captured without affecting SQLite locks. Authenticate it
-      // before exclusion acquisition, but reject other environments before ANY DB
-      // or sidecar descriptor is opened and later closed during error cleanup.
-      this.lease = openLease(join(this.root, 'exclusion'));
+      // The descriptor-free reservation excludes actual ordinary connections
+      // before metadata capture: malformed metadata itself may alias live SHM.
+      openReservedLease(this.lease, join(this.root, 'exclusion'));
       lockLease(this.lease, 0);
       try {
         for (const role of roles) {
@@ -329,6 +331,40 @@ function retain(files: TelosDatabaseFiles): Family | undefined {
   family.refs++;
   return family;
 }
+/** Release only after SQLite actually closes. Retire numeric descriptors before
+ * any close can fail or make an fd number available for reuse. */
+function releaseConnectionLifetime(
+  family: Family | undefined,
+  role: Role,
+  ordinary: NativeConnectionLifetime | undefined,
+) {
+  if (!family) {
+    if (ordinary) releaseUnqualifiedConnection(ordinary);
+    return;
+  }
+  const errors: unknown[] = [];
+  if (--family.connections[role] === 0) {
+    const captures = family.sidecarSets[role] ?? [];
+    delete family.sidecarSets[role];
+    for (const capture of captures) {
+      if (!('fd' in capture)) continue;
+      try {
+        closeSync(capture.fd);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+  }
+  // Invalidate only this still-live family's retained authority, before disposal
+  // retires its birth descriptor. Never retry an ambiguous numeric fd close.
+  if (errors.length) family.invalidate();
+  try {
+    if (--family.refs === 0) family.dispose();
+  } catch (error) {
+    errors.push(error);
+  }
+  if (errors.length) throw new AggregateError(errors, 'Retained Telos connection cleanup failed');
+}
 export interface TelosOwnedDatabase {
   readonly database: Database.Database;
   /** Call once, after this constructor's own initialization, before publishing it. */
@@ -362,10 +398,16 @@ export function openTelosOwnedDatabase(
     if (aliasesRetained && (resolve(filename) !== files[role] || !activeFamily.matches(files)))
       deny();
   }
-  if (resolve(filename) === files[role] && exists(directory(files))) {
+  if (
+    resolve(filename) === files[role] &&
+    (activeFamily?.matches(files) || exists(directory(files)))
+  ) {
     family = retain(files);
     if (!family) deny();
   }
+  // No pathname absence can waive process-wide admission. This claim grants
+  // exclusion only and is retained until the actual ordinary connection closes.
+  const ordinary = family ? undefined : retainUnqualifiedConnection();
   const anchor = family?.mains[role];
   let database: Database.Database;
   let opened: Database.Database | undefined;
@@ -378,14 +420,29 @@ export function openTelosOwnedDatabase(
     opened = database;
     if (family) installCurrentFileProbe(database);
   } catch (error) {
-    if (opened?.open) opened.close();
-    if (family) {
-      family.connections[role]--;
-      if (--family.refs === 0) family.dispose();
+    const errors: unknown[] = [error];
+    try {
+      if (opened?.open) opened.close();
+    } catch (cleanupError) {
+      errors.push(cleanupError);
     }
+    if (opened?.open) {
+      // A failed close cannot release the connection's exclusion lifetime.
+      // There is no published owner to retry it; conservatively retain admission.
+      family?.invalidate();
+    } else {
+      try {
+        releaseConnectionLifetime(family, role, ordinary);
+      } catch (cleanupError) {
+        errors.push(cleanupError);
+      }
+    }
+    if (errors.length > 1)
+      throw new AggregateError(errors, 'Telos SQLite opening and cleanup failed', { cause: error });
     throw error;
   }
   let closed = false;
+  let lifetimeReleased = false;
   let sealed = false;
   let supportedJournal = false;
   function assertCurrent() {
@@ -458,26 +515,28 @@ export function openTelosOwnedDatabase(
       };
     },
     close() {
-      if (closed) return;
+      if (lifetimeReleased) return;
       closed = true;
+      const errors: unknown[] = [];
       try {
         if (database.open) database.close();
-      } finally {
-        if (database.open) {
-          family?.invalidate();
-          deny();
-        }
-        if (family) {
-          // POSIX locks are process-owned. Close auxiliary DB-family descriptors
-          // only after the LAST managed SQLite connection for this role closes.
-          if (--family.connections[role] === 0) {
-            for (const sidecar of family.sidecarSets[role] ?? [])
-              if ('fd' in sidecar) closeSync(sidecar.fd);
-            delete family.sidecarSets[role];
-          }
-          if (--family.refs === 0) family.dispose();
+      } catch (error) {
+        errors.push(error);
+      }
+      if (database.open) {
+        family?.invalidate();
+        errors.push(new Error('Actual Telos SQLite connection remains open'));
+      } else {
+        // Authority stays closed even when cleanup fails. Another close may retry
+        // an actual still-open SQLite handle, never a retired sidecar descriptor.
+        lifetimeReleased = true;
+        try {
+          releaseConnectionLifetime(family, role, ordinary);
+        } catch (error) {
+          errors.push(error);
         }
       }
+      if (errors.length) throw new AggregateError(errors, 'Telos SQLite close failed');
     },
   });
 }

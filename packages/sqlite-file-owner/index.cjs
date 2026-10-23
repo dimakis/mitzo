@@ -8,7 +8,27 @@ function binding() {
 }
 
 exports.assertLeaseAdmission = () => binding().assertLeaseAdmission();
-exports.openLease = (filename) => binding().openLease(filename);
+exports.reserveFamily = () => binding().reserveFamily();
+exports.openReservedLease = (reservation, filename) =>
+  binding().openReservedLease(reservation, filename);
+exports.openLease = (filename) => {
+  const handle = binding().reserveFamily();
+  try {
+    binding().openReservedLease(handle, filename);
+    return handle;
+  } catch (error) {
+    try {
+      binding().closeLease(handle);
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], 'Lease opening and cleanup failed', {
+        cause: cleanupError,
+      });
+    }
+    throw error;
+  }
+};
+exports.retainUnqualifiedConnection = () => Object.freeze(binding().retainUnqualifiedConnection());
+exports.releaseUnqualifiedConnection = (handle) => binding().releaseUnqualifiedConnection(handle);
 exports.lockLease = (handle, mode) => binding().lockLease(handle, mode);
 exports.closeLease = (handle) => binding().closeLease(handle);
 exports.leaseIdentity = (handle) => binding().leaseIdentity(handle);

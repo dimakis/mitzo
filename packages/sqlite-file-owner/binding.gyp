@@ -7,6 +7,7 @@
         "<!(node -p \"require('path').dirname(require.resolve('better-sqlite3/package.json')) + '/deps/sqlite3'\")"
       ],
       "defines": ["NAPI_VERSION=8"],
+      "conditions": [["OS=='linux'", {"libraries": ["-ldl"]}]],
       "cflags": ["-Wall", "-Wextra"],
       "xcode_settings": {"WARNING_CFLAGS": ["-Wall", "-Wextra"]}
     }

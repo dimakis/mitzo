@@ -7,6 +7,10 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { Worker } from 'node:worker_threads';
 import {
   openLease,
+  reserveFamily,
+  openReservedLease,
+  retainUnqualifiedConnection,
+  releaseUnqualifiedConnection,
   assertLeaseAdmission,
   closeLease,
   lockLease,
@@ -217,4 +221,36 @@ it('checks native lease admission without opening an auxiliary descriptor', () =
   expect(() => assertLeaseAdmission()).toThrow('already open');
   close(handle);
   expect(() => assertLeaseAdmission()).not.toThrow();
+});
+
+it('reserves admission without a descriptor before opening its original exclusion file', () => {
+  const { path } = fixture();
+  const reservation = reserveFamily();
+  leases.push(reservation);
+  expect(() => leaseIdentity(reservation)).toThrow('Original open file lease required');
+  expect(() => retainUnqualifiedConnection()).toThrow(
+    'Retained family excludes ordinary connection admission',
+  );
+  expect(() => reserveFamily()).toThrow('already open');
+  openReservedLease(reservation, path);
+  expect(leaseIdentity(reservation).inode).toBe(String(statSync(path, { bigint: true }).ino));
+  expect(() => openReservedLease(reservation, path)).toThrow();
+  close(reservation);
+  expect(() => assertLeaseAdmission()).not.toThrow();
+});
+
+it('releases only the original ordinary lifetime and rejects forged or duplicate releases', () => {
+  const claim = retainUnqualifiedConnection();
+  let released = false;
+  try {
+    expect(() => assertLeaseAdmission()).toThrow('ordinary SQLite connections remain open');
+    expect(() => releaseUnqualifiedConnection({} as typeof claim)).toThrow();
+    expect(() => reserveFamily()).toThrow('ordinary SQLite connections remain open');
+    releaseUnqualifiedConnection(claim);
+    released = true;
+    expect(() => releaseUnqualifiedConnection(claim)).toThrow();
+    expect(() => assertLeaseAdmission()).not.toThrow();
+  } finally {
+    if (!released) releaseUnqualifiedConnection(claim);
+  }
 });

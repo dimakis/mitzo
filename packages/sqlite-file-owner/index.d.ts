@@ -6,6 +6,15 @@ export interface NativeFileLease {
 }
 /** Denial only; checks the actual main-thread/singleton boundary without opening any FD. */
 export function assertLeaseAdmission(): void;
+export function reserveFamily(): NativeFileLease;
+export function openReservedLease(reservation: NativeFileLease, filename: string): void;
+declare const connectionLifetime: unique symbol;
+export interface NativeConnectionLifetime {
+  readonly [connectionLifetime]: true;
+}
+/** Exclusion only. Release only after the actual ordinary SQLite connection closes. */
+export function retainUnqualifiedConnection(): NativeConnectionLifetime;
+export function releaseUnqualifiedConnection(handle: NativeConnectionLifetime): void;
 export function openLease(filename: string): NativeFileLease;
 /** Shared=0, exclusive=1, unlock=2; never blocks. */
 export function lockLease(handle: NativeFileLease, mode: 0 | 1 | 2): void;

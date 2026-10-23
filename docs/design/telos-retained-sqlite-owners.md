@@ -64,7 +64,11 @@ them on close. Their SQLite objects are never swapped after capture. All actual 
 connection owners (Work, Item, Artifact and SourceApproval), EventStore and
 TaskStore share the same fixed-family descriptor lifetime. Cached descriptor write/close capabilities are retired before disposal, so a
 stale owner cannot use a descriptor number reused for an unrelated file. Auxiliary descriptors
-close only after the final managed SQLite connection for that role closes.
+close only after the final managed SQLite connection for that role closes. Sidecar
+sets are detached before any descriptor close; every close and reference cleanup
+is attempted even after a partial failure. Ambiguous descriptor closes are never
+retried by numeric fd. Cleanup errors invalidate still-live original authority
+before disposal and are reported without restoring a closed owner's authority.
 Unsupported environments and failed retained-family admission reject before
 opening SQLite; they cannot leave an untracked connection behind. WAL is the
 supported deletion mode, established by the existing canonical owner. The helper
@@ -127,3 +131,46 @@ protected checks, accepted references or existing recipes are weakened.
 
 Primary contracts: [SQLite file control](https://sqlite.org/c3ref/file_control.html)
 and [Apple POSIX record locks](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/fcntl.2.html).
+
+## Admission and constructor ordering after the lifetime correction
+
+Before capturing any retained metadata, the helper acquires a descriptor-free
+family reservation. Metadata cannot be assumed independent of SQLite: a malformed
+key or birth path may alias an ordinary connection's SHM file. The reservation
+therefore precedes metadata validation as well as opening the exclusion file.
+
+A single atomic admission count covers actual ordinary connections opened by
+the fixed factory, including cold legacy worker connections. It contains no
+paths, file identities, deletion permission or startup certificate. A qualified
+family reservation excludes ordinary constructors; any ordinary lifetime
+excludes new family capture. Qualified lease operations remain confined to the
+process main thread. Workers can retain ordinary lifetimes, but cannot capture
+a qualified family. An existing warm family is checked even when its ownership
+directory disappears; a secondary module or worker cannot use that absence to
+bypass native admission.
+
+This is deliberately conservative across constructor ordering: while any
+observed ordinary connection remains open, even an unrelated fresh selection
+cannot be qualified. While a family reservation is retained, an unrelated
+ordinary constructor is also refused. Close the actual earlier connections
+before changing between these modes. Cold legacy operation remains available
+where qualified lease operations are unsupported, using the ordinary admission
+API; the matching built helper is a required runtime dependency.
+
+Ordinary claims are released only after the actual SQLite handle is observed
+closed. A failed close that leaves SQLite open retains exclusion; a subsequent
+close may retry that handle, while deletion authority stays retired. A failed
+constructor releases admission only after its SQLite cleanup succeeds. If a
+claim is abandoned or a worker is terminated without explicit close, garbage
+collection cannot prove SQLite closure and admission stays denied until process
+exit. The helper retains its exact loaded module image until process exit so
+unloading a worker environment cannot reset that count. An ambiguous native
+lease-close failure likewise keeps admission denied.
+These are availability consequences, never new deletion authority.
+
+The targeted regressions use real private SQLite files and independent writer
+processes. They cover warm-directory loss in the original module, another module
+and a worker; partial sidecar close followed by actual fd reuse; the actual
+legacy TaskStore SHM alias; failed ordinary close and constructor cleanup; and
+cold ordinary worker lifetime ordering. Permanent-delete App/browser acceptance
+and official frontend/dependency qualification remain separate downstream work.
