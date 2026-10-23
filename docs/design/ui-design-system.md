@@ -2069,6 +2069,33 @@ the disabled input; it does not mount the ordinary queue or send owner early.
 Outline warnings use the semantic warning foreground on a transparent background;
 filled controls retain their existing paired foreground contrast checks.
 
+## Private secret relay setup
+
+Private relay requests reuse the existing connection setup card, focused page,
+authorization and return-to-chat flow. Destination summaries retain the quiet
+connection surface; request templates are native keyboard disclosures. New styles
+use shared spacing, type, monospace and control-height tokens. The entry stays
+masked, clears after submission/route changes, and never enters browser storage.
+Ready requests expose a labelled revoke action. LAN HTTP disclosure appears before
+entry. No approved Chat settings surface or reference is changed.
+
+The all-intercept relay fixture covers mobile WebKit/Chromium and desktop Chromium,
+light/dark themes, alternate accent/font, 320px wrapping, disclosure focus, scrolling,
+44px actions, private submission and revocation. See
+[the feature evidence](../features/private-secret-relay.md#offline-verification-and-design-evidence)
+for inspected captures and the limits of local checks.
+
+Browser and MQTT relay adapters reuse `SecretRelayDestinations` inside the same
+private setup surface. Account, topic, transport, reviewed browser actions and
+request rules are available before capture; details use native disclosures and
+the existing monospace role. A masked one-time-code field and existing primary
+button continue the private sign-in, with the same reauthorization and route
+fences. No new CSS, palette, font, motion or approved settings change is needed.
+The intercepted adapter fixtures cover the code form, keyboard focus, 44px actions,
+320px wrapping and scroll on mobile WebKit/Chromium and desktop Chromium, dark
+Mint/System and light Teal/Georgia. See the private relay feature evidence for
+inspected captures; all values and service responses are synthetic.
+
 ## Repository settings editor
 
 The ordinary Repository editor uses the current Chat settings sheet's surface,

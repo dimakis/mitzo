@@ -1,3 +1,4 @@
+import type { StoredSecretRelay, SecretRelays, RelayTarget } from './secret-relay.js';
 import { ConnectionRequestError, connectionRequestError } from './connection-request-error.js';
 import { CredentialConnectionSetups, type ConnectionSetup } from './credential-setup.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -81,7 +82,8 @@ export class CredentialConnectionStore {
     this.db
       .exec(`CREATE TABLE IF NOT EXISTS credential_connections (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS credential_connection_grants (session_id TEXT NOT NULL, connection_id TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(session_id, connection_id));
-      CREATE TABLE IF NOT EXISTS credential_connection_setups (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);`);
+      CREATE TABLE IF NOT EXISTS credential_connection_setups (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS secret_relays (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);`);
   }
   get(id: string): CredentialConnection | undefined {
     const row = this.db
@@ -161,6 +163,21 @@ export class CredentialConnectionStore {
       this.db.prepare('SELECT metadata FROM credential_connection_setups').all() as {
         metadata: string;
       }[]
+    ).map((row) => JSON.parse(row.metadata));
+  }
+  getRelay(id: string): StoredSecretRelay | undefined {
+    const row = this.db.prepare('SELECT metadata FROM secret_relays WHERE id=?').get(id) as
+      { metadata: string } | undefined;
+    return row ? JSON.parse(row.metadata) : undefined;
+  }
+  putRelay(relay: StoredSecretRelay) {
+    this.db
+      .prepare('INSERT OR REPLACE INTO secret_relays VALUES (?, ?)')
+      .run(relay.id, JSON.stringify(relay));
+  }
+  listRelays(): StoredSecretRelay[] {
+    return (
+      this.db.prepare('SELECT metadata FROM secret_relays').all() as { metadata: string }[]
     ).map((row) => JSON.parse(row.metadata));
   }
   close() {
@@ -265,6 +282,7 @@ function credentialHeaders(
 
 export class CredentialConnections {
   readonly setups: CredentialConnectionSetups;
+  relay?: SecretRelays;
   private dashboardWrites = new Set<string>();
   private active = new Map<string, Set<AbortController>>();
   constructor(
@@ -550,7 +568,10 @@ export class CredentialConnections {
         combined,
       );
       check();
-      const redacted = redactCredentialResponse(body, secret, headers);
+      let redacted = redactCredentialResponse(body, secret, headers);
+      if (this.relay) redacted = await this.relay.redactResponse(session, id, redacted, combined);
+      combined.throwIfAborted();
+      check();
       if (Buffer.byteLength(redacted) > MAX_WEBSOCKET_RESPONSE_BYTES)
         throw new Error('Response too large');
       return redacted;
@@ -646,6 +667,9 @@ export class CredentialConnections {
       let redacted = redactCredentialResponse(body, secret, {
         Authorization: `Bearer ${secret}`,
       });
+      if (this.relay) redacted = await this.relay.redactResponse(session, id, redacted, combined);
+      combined.throwIfAborted();
+      check();
       if (request.operation === 'read' && redacted !== body) {
         const response = JSON.parse(redacted);
         redacted = JSON.stringify({
@@ -685,7 +709,45 @@ export class CredentialConnections {
     stillAllowed: () => boolean = () => true,
     assertRuntimeCurrent?: () => Promise<void>,
   ) {
+    return this.requestInternal(session, id, input, signal, stillAllowed, assertRuntimeCurrent);
+  }
+  /** Host-only final-hop injection. No model-facing API accepts body values. */
+  async applyRelayTarget(
+    session: string,
+    target: RelayTarget,
+    body: string,
+    encoding: 'json' | 'form',
+    signal: AbortSignal,
+    check: () => void,
+    dispatched: () => void,
+    assertRuntimeCurrent?: () => Promise<void>,
+  ): Promise<{ status: number }> {
+    if (!('connectionId' in target)) throw new Error('Connection target required');
+    const result = await this.requestInternal(
+      session,
+      target.connectionId,
+      { path: target.path, method: target.method, body },
+      signal,
+      () => {
+        check();
+        return true;
+      },
+      assertRuntimeCurrent,
+      { revision: target.revision, encoding, dispatched },
+    );
+    return { status: result.status };
+  }
+  private async requestInternal(
+    session: string,
+    id: string,
+    input: unknown,
+    signal: AbortSignal,
+    stillAllowed: () => boolean,
+    assertRuntimeCurrent?: () => Promise<void>,
+    relay?: { revision: number; encoding: 'json' | 'form'; dispatched: () => void },
+  ) {
     const c = this.connection(id);
+    if (relay && c.revision !== relay.revision) throw new Error('Destination changed');
     const request = ConnectionRequestSchema.parse(input);
     const url = requestTarget(c, request.path);
     if (
@@ -709,14 +771,27 @@ export class CredentialConnections {
     controllers.add(controller);
     this.active.set(key, controllers);
     const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30_000)]);
+    // The transport performs additional async checks before HTTP dispatch and
+    // after DNS. Carry the relay's current consent through each of those awaits.
+    const finalAuthority = relay
+      ? async () => {
+          await assertRuntimeCurrent?.();
+          combined.throwIfAborted();
+          check();
+        }
+      : assertRuntimeCurrent;
     try {
       const secret = await this.vault.read(c.credentialRef);
       combined.throwIfAborted();
       check();
       if (!secret || /[\r\n]/.test(secret)) throw new Error('Credential unavailable');
-      await assertRuntimeCurrent?.();
+      await finalAuthority?.();
       check();
       const headers = credentialHeaders(c.auth, secret);
+      if (relay)
+        headers['content-type'] =
+          relay.encoding === 'json' ? 'application/json' : 'application/x-www-form-urlencoded';
+      relay?.dispatched();
       const response = await this.send(
         {
           url,
@@ -724,17 +799,21 @@ export class CredentialConnections {
           headers,
           body: request.body,
           allowPrivateNetwork: c.allowPrivateNetwork,
-          assertRuntimeCurrent,
+          assertRuntimeCurrent: finalAuthority,
         },
         combined,
       );
       combined.throwIfAborted();
       check();
+      if (relay) return { status: response.status, body: '' };
       if (response.status === 401) throw new ConnectionRequestError('authentication_failed');
       if (response.status === 403) throw new ConnectionRequestError('access_denied');
       if (response.status === 429 || response.status >= 500)
         throw new ConnectionRequestError('service_unavailable');
-      const body = redactCredentialResponse(response.body, secret, headers);
+      let body = redactCredentialResponse(response.body, secret, headers);
+      if (this.relay) body = await this.relay.redactResponse(session, id, body, combined);
+      combined.throwIfAborted();
+      check();
       return { status: response.status, body };
     } catch (error) {
       if (error instanceof Error && error.name === 'KeychainUnavailableError') throw error;

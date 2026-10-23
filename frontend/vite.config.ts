@@ -1,32 +1,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { viteStaticCopy } from 'vite-plugin-static-copy';
-import { dirname, join } from 'node:path';
-import { createRequire } from 'node:module';
+import { pdfAssetsPlugin } from './pdf-assets-plugin.js';
 
 import { productionBundleEvidence } from './production-bundle-evidence.js';
 
-const pdfjsDirectory = dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
-
 export default defineConfig({
-  plugins: [
-    react(),
-    ...productionBundleEvidence(),
-    viteStaticCopy({
-      targets: [
-        {
-          src: join(pdfjsDirectory, 'build/pdf.worker.min.mjs'),
-          dest: 'pdfjs',
-          rename: { stripBase: true },
-        },
-        ...['cmaps', 'standard_fonts', 'wasm'].map((directory) => ({
-          src: join(pdfjsDirectory, directory, '*'),
-          dest: `pdfjs/${directory}`,
-          rename: { stripBase: true as const },
-        })),
-      ],
-    }),
-  ],
+  plugins: [react(), ...productionBundleEvidence(), pdfAssetsPlugin()],
   server: {
     port: 5173,
     proxy: {

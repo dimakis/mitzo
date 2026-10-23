@@ -68,3 +68,11 @@ it('protects Mitzo auth and other local credential stores for every native tool'
     expect(check(join(homedir(), file))).toBe(true);
   expect(check(join(homedir(), 'ordinary-project', 'README.md'))).toBe(false);
 });
+
+it('protects host OpenShell operator credentials from native agent reads', () => {
+  expect(
+    isPrivateCodexPath(
+      join(homedir(), '.config', 'openshell', 'gateways', 'relay', 'mtls', 'tls.key'),
+    ),
+  ).toBe(true);
+});
