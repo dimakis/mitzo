@@ -9,7 +9,32 @@ import type { SessionRegistry } from './session-registry.js';
 import { nativeGrantFence } from './codex-native-grant-fence.js';
 import { PERMISSION_TIMEOUT_MS } from './constants.js';
 
+export interface PreparedWorkspaceGrantScope {
+  readonly runtimeId: string;
+  readonly environmentId: string;
+  readonly commandId: string;
+  readonly threadId: string;
+  readonly turnId: string;
+  readonly requestId: string | number;
+  readonly itemId: string;
+  readonly root: string;
+}
+export interface PreparedWorkspaceGrant {
+  /** Existing preparation/authorization owner's receipt; never newly invented here. */
+  readonly receiptId: string;
+  /** Reassert prior operator/target/task-storage WRITE authorization, the active
+   * command reservation, and exact canonical root identity. A prepared row,
+   * accepted prompt or model-selected path alone confers no such authority. */
+  assertCurrentSync(): void;
+}
+/** Existing authority only; this is neither automatic review nor a new model
+ * approval loop. Undefined uses human review and a failed proof denies. */
+export type ApprovePreparedWorkspaceGrant = (
+  scope: Readonly<PreparedWorkspaceGrantScope>,
+) => Promise<PreparedWorkspaceGrant | undefined>;
+
 export interface CodexNativeApprovalContext extends CodexServerRequestContext {
+  readonly commandId?: string;
   readonly threadId: string;
   readonly turnId: string;
   readonly fileChangePaths?: readonly string[];
@@ -28,12 +53,14 @@ export function createCodexNativeApprovalHandler(options: {
   runtimeId: string;
   environmentId: string;
   timeoutMs?: number;
+  approvePreparedWorkspaceGrant?: ApprovePreparedWorkspaceGrant;
   deniedRoots: readonly string[];
   writeProtectedRoots: readonly string[];
 }) {
   const { clientId, registry, runtimeId, environmentId } = options;
   const deniedRoots = [...options.deniedRoots];
   const writeProtectedRoots = [...options.writeProtectedRoots];
+  const approvePreparedWorkspaceGrant = options.approvePreparedWorkspaceGrant;
   const timeoutMs = options.timeoutMs ?? PERMISSION_TIMEOUT_MS;
   if (!runtimeId.trim() || !environmentId.trim() || !Number.isFinite(timeoutMs) || timeoutMs <= 0)
     throw Error('Invalid native approval owner');
@@ -62,6 +89,7 @@ export function createCodexNativeApprovalHandler(options: {
     const request = parsed.data;
     const identity = {
       requestId: context.requestId,
+      commandId: context.commandId,
       threadId: context.threadId,
       turnId: context.turnId,
     };
@@ -79,6 +107,7 @@ export function createCodexNativeApprovalHandler(options: {
         request.params.threadId !== identity.threadId ||
         request.params.turnId !== identity.turnId ||
         context.requestId !== identity.requestId ||
+        context.commandId !== identity.commandId ||
         context.threadId !== identity.threadId ||
         context.turnId !== identity.turnId ||
         context.assertCurrentSync !== assertOwner ||
@@ -94,6 +123,7 @@ export function createCodexNativeApprovalHandler(options: {
       }
     };
     let assertGrantCurrent = () => {};
+    let assertPreparedCurrent = () => {};
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       assertCurrent();
@@ -122,9 +152,83 @@ export function createCodexNativeApprovalHandler(options: {
       const finalFence = () => {
         assertCurrent();
         assertGrantCurrent();
+        assertPreparedCurrent();
       };
       context.registerResponseFence?.(finalFence);
       timer = setTimeout(() => expiry.abort(), Math.max(0, expiresAt - Date.now()));
+      if (
+        request.method === 'item/permissions/requestApproval' &&
+        approvePreparedWorkspaceGrant &&
+        identity.commandId
+      ) {
+        const profile = request.params.permissions;
+        const files = profile.fileSystem;
+        if (
+          profile.network === null &&
+          files &&
+          !files.read?.length &&
+          files.write?.length === 1 &&
+          !files.entries?.length
+        ) {
+          const scope = Object.freeze({
+            runtimeId,
+            environmentId,
+            commandId: identity.commandId,
+            threadId: identity.threadId,
+            turnId: identity.turnId,
+            requestId: identity.requestId,
+            itemId: request.params.itemId,
+            root: files.write[0],
+          });
+          let onAbort = () => {};
+          let proof: PreparedWorkspaceGrant | undefined;
+          try {
+            proof = await Promise.race([
+              Promise.resolve().then(() => {
+                assertCurrent();
+                assertGrantCurrent();
+                return approvePreparedWorkspaceGrant(scope);
+              }),
+              new Promise<never>((_resolve, reject) => {
+                onAbort = () => reject(currentSignal.reason);
+                currentSignal.addEventListener('abort', onAbort, { once: true });
+                if (currentSignal.aborted) onAbort();
+              }),
+            ]);
+          } finally {
+            currentSignal.removeEventListener('abort', onAbort);
+          }
+          assertCurrent();
+          assertGrantCurrent();
+          if (proof) {
+            const receipt = proof;
+            const receiptId = receipt.receiptId;
+            const assertReceipt = receipt.assertCurrentSync;
+            assertPreparedCurrent = () => {
+              if (
+                typeof receiptId !== 'string' ||
+                !receiptId.trim() ||
+                receipt.receiptId !== receiptId ||
+                typeof assertReceipt !== 'function' ||
+                receipt.assertCurrentSync !== assertReceipt
+              )
+                throw Error('Prepared workspace receipt unavailable');
+              const result: unknown = assertReceipt.call(receipt);
+              if (result !== undefined) {
+                void Promise.resolve(result).catch(() => {});
+                throw Error('Prepared workspace receipt requires synchronous ownership');
+              }
+            };
+            assertPreparedCurrent();
+            return parseNativeApprovalResponse(request.method, {
+              permissions: Object.fromEntries(
+                Object.entries(profile).filter(([, value]) => value !== null),
+              ),
+              scope: 'turn',
+            });
+          }
+        }
+      }
       const toolName =
         request.method === 'item/commandExecution/requestApproval'
           ? 'NativeCommandApproval'

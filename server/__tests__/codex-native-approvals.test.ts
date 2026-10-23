@@ -4,13 +4,20 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SessionRegistry } from '../session-registry.js';
 import { resolvePending, getPendingRequestsBySession } from '../permissions.js';
-import { createCodexNativeApprovalHandler } from '../codex-native-approvals.js';
+import {
+  createCodexNativeApprovalHandler,
+  type ApprovePreparedWorkspaceGrant,
+} from '../codex-native-approvals.js';
 
 const permissions = {
   network: null,
   fileSystem: { read: ['/extra/read'], write: ['/extra/write'] },
 };
-function fixture(mode: 'ask' | 'agent' | 'auto' = 'agent', timeoutMs = 60_000) {
+function fixture(
+  mode: 'ask' | 'agent' | 'auto' = 'agent',
+  timeoutMs = 60_000,
+  approvePreparedWorkspaceGrant?: ApprovePreparedWorkspaceGrant,
+) {
   const registry = new SessionRegistry();
   const sent: Record<string, unknown>[] = [];
   registry.register('client', {
@@ -24,6 +31,7 @@ function fixture(mode: 'ask' | 'agent' | 'auto' = 'agent', timeoutMs = 60_000) {
   const controller = new AbortController();
   const fences: Array<() => void> = [];
   const context = {
+    commandId: 'command',
     fileChangePaths: ['/workspace/changed-file'],
     requestId: 'rpc',
     threadId: 'thread',
@@ -41,6 +49,7 @@ function fixture(mode: 'ask' | 'agent' | 'auto' = 'agent', timeoutMs = 60_000) {
     runtimeId: 'owned-runtime',
     environmentId: 'local',
     timeoutMs,
+    approvePreparedWorkspaceGrant,
     deniedRoots: ['/credentials'],
     writeProtectedRoots: ['/authority'],
   });
@@ -75,8 +84,12 @@ afterEach(() => {
   }
   vi.useRealTimers();
 });
-function setup(mode: 'ask' | 'agent' | 'auto' = 'agent', timeoutMs?: number) {
-  const f = fixture(mode, timeoutMs);
+function setup(
+  mode: 'ask' | 'agent' | 'auto' = 'agent',
+  timeoutMs?: number,
+  approvePreparedWorkspaceGrant?: ApprovePreparedWorkspaceGrant,
+) {
+  const f = fixture(mode, timeoutMs, approvePreparedWorkspaceGrant);
   fixtures.push(f);
   return f;
 }
@@ -86,6 +99,128 @@ async function request(f: ReturnType<typeof fixture>) {
 }
 
 describe('native approval adapter with the existing pending owner', () => {
+  it('uses the existing exact prepared-root receipt for a turn grant without another approval card', async () => {
+    const assertCurrentSync = vi.fn();
+    const approve = vi.fn<ApprovePreparedWorkspaceGrant>(async () => ({
+      receiptId: 'existing-reservation-receipt',
+      assertCurrentSync,
+    }));
+    const f = setup('agent', undefined, approve);
+    const params = {
+      ...f.params,
+      permissions: { network: null, fileSystem: { read: null, write: ['/prepared/task'] } },
+    };
+    const pending = f.handler(
+      'item/permissions/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+    expect(approve).toHaveBeenCalledWith({
+      runtimeId: 'owned-runtime',
+      environmentId: 'local',
+      commandId: 'command',
+      threadId: 'thread',
+      turnId: 'turn',
+      requestId: 'rpc',
+      itemId: 'item',
+      root: '/prepared/task',
+    });
+    expect(await pending).toEqual({
+      permissions: { fileSystem: params.permissions.fileSystem },
+      scope: 'turn',
+    });
+    expect(f.sent).toEqual([]);
+    expect(assertCurrentSync).toHaveBeenCalled();
+    assertCurrentSync.mockImplementation(() => {
+      throw Error('reservation released');
+    });
+    expect(f.fences[0]).toThrow('reservation released');
+  });
+
+  it('falls back to the existing human approval when the reservation owner returns no receipt', async () => {
+    const approve = vi.fn<ApprovePreparedWorkspaceGrant>(async () => undefined);
+    const f = setup('agent', undefined, approve);
+    const params = {
+      ...f.params,
+      permissions: { network: null, fileSystem: { read: null, write: ['/prepared/task'] } },
+    };
+    const pending = f.handler(
+      'item/permissions/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    resolvePending(await request(f), 'once', undefined, 'session');
+    expect(approve).toHaveBeenCalledOnce();
+    expect(await pending).toMatchObject({ scope: 'turn' });
+  });
+
+  it('denies a failed reservation proof instead of prompting or granting', async () => {
+    const approve = vi.fn<ApprovePreparedWorkspaceGrant>(async () => ({
+      receiptId: 'existing-receipt',
+      assertCurrentSync() {
+        throw Error('reservation changed');
+      },
+    }));
+    const f = setup('agent', undefined, approve);
+    const params = {
+      ...f.params,
+      permissions: { network: null, fileSystem: { read: null, write: ['/prepared/task'] } },
+    };
+    expect(
+      await f.handler('item/permissions/requestApproval', params, f.controller.signal, f.context),
+    ).toEqual({ permissions: {}, scope: 'turn' });
+    expect(f.sent).toEqual([]);
+  });
+
+  it('cancels a stalled reservation check without emitting a grant or another card', async () => {
+    const approve = vi.fn<ApprovePreparedWorkspaceGrant>(() => new Promise(() => {}));
+    const f = setup('agent', undefined, approve);
+    const params = {
+      ...f.params,
+      permissions: { network: null, fileSystem: { read: null, write: ['/prepared/task'] } },
+    };
+    const pending = f.handler(
+      'item/permissions/requestApproval',
+      params,
+      f.controller.signal,
+      f.context,
+    );
+    await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+    f.controller.abort();
+    expect(await pending).toEqual({ permissions: {}, scope: 'turn' });
+    expect(f.sent).toEqual([]);
+  });
+
+  it('never calls prepared-root approval for unrelated scope or a protected root', async () => {
+    const approve = vi.fn<ApprovePreparedWorkspaceGrant>(async () => undefined);
+    const f = setup('agent', undefined, approve);
+    const params = {
+      ...f.params,
+      permissions: { network: null, fileSystem: { read: null, write: ['/credentials/child'] } },
+    };
+    expect(
+      await f.handler('item/permissions/requestApproval', params, f.controller.signal, f.context),
+    ).toEqual({ permissions: {}, scope: 'turn' });
+    const expanded = f.handler(
+      'item/permissions/requestApproval',
+      {
+        ...f.params,
+        permissions: {
+          network: { enabled: true },
+          fileSystem: { read: ['/unrelated'], write: ['/prepared/task'] },
+        },
+      },
+      f.controller.signal,
+      f.context,
+    );
+    resolvePending(await request(f), 'deny', undefined, 'session');
+    expect(await expanded).toEqual({ permissions: {}, scope: 'turn' });
+    expect(approve).not.toHaveBeenCalled();
+  });
+
   it('shows the exact Ask boundary and returns the actual upstream turn grant once', async () => {
     const f = setup('ask');
     const result = f.handler(
