@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { lstat, mkdtemp, open, opendir, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, open, opendir, realpath, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
@@ -49,6 +49,16 @@ export interface LocalRepositoryGitMetadata {
   commonDirectory: string;
 }
 
+export class LocalRepositoryGitInspectionError extends Error {
+  constructor(
+    public readonly kind: 'limit' | 'unsafe' | 'access',
+    public readonly reason: string,
+  ) {
+    super(`Git metadata inspection ${reason}`);
+    this.name = 'LocalRepositoryGitInspectionError';
+  }
+}
+
 async function readRegular(path: string, maxBytes: number) {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
@@ -71,15 +81,25 @@ export async function inspectLocalRepositoryGitMetadata(
   const deadline = Date.now() + Math.max(1, Math.min(request.timeoutMs ?? 5000, 30000));
   const check = () => {
     request.signal?.throwIfAborted();
-    if (Date.now() >= deadline) throw Error('Git metadata inspection time limit reached');
+    if (Date.now() >= deadline) throw new LocalRepositoryGitInspectionError('limit', 'timeout');
+  };
+  const authorize = async (path: string) => {
+    check();
+    try {
+      await request.assertReadable(path);
+    } catch (error) {
+      request.signal?.throwIfAborted();
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw error;
+      throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+    }
   };
   const physical = async (path: string) => {
     check();
     if (!isAbsolute(path) || isLocalRepositoryCredentialPath(path))
-      throw Error('Git metadata read access required');
-    await request.assertReadable(path);
+      throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
+    await authorize(path);
     if ((await realpath(path)) !== path || (await lstat(path)).isSymbolicLink())
-      throw Error('Git metadata symlinks are unavailable');
+      throw new LocalRepositoryGitInspectionError('unsafe', 'symlinks-unavailable');
   };
   let path = resolve(request.path);
   let marker: Awaited<ReturnType<typeof lstat>>;
@@ -93,8 +113,10 @@ export async function inspectLocalRepositoryGitMetadata(
       path = dirname(path);
     }
   }
-  if (marker.isSymbolicLink()) throw Error('Git metadata symlinks are unavailable');
+  if (marker.isSymbolicLink())
+    throw new LocalRepositoryGitInspectionError('unsafe', 'symlinks-unavailable');
   let gitDirectory = join(path, '.git');
+  await authorize(gitDirectory);
   if (marker.isFile()) {
     const text = (await readRegular(gitDirectory, 4096)).toString('utf8');
     const match = /^gitdir: ([^\r\n\0]+)\r?\n?$/.exec(text);
@@ -105,7 +127,7 @@ export async function inspectLocalRepositoryGitMetadata(
   let commonDirectory = gitDirectory;
   try {
     const commonFile = join(gitDirectory, 'commondir');
-    await request.assertReadable(commonFile);
+    await authorize(commonFile);
     const value = (await readRegular(commonFile, 4096)).toString('utf8');
     if (!/^[^\r\n\0]+\r?\n?$/.test(value)) throw Error('Git common metadata pointer is invalid');
     commonDirectory = resolve(gitDirectory, value.trimEnd());
@@ -125,9 +147,10 @@ export async function inspectLocalRepositoryGitMetadata(
     const opened = await opendir(directory);
     for await (const entry of opened) {
       check();
-      if (++entries > Math.max(1, Math.min(request.maxEntries ?? 20000, 100000)))
-        throw Error('Git metadata entry limit reached');
-      if (entry.isSymbolicLink()) throw Error('Git metadata symlinks are unavailable');
+      if (++entries > Math.max(1, Math.min(request.maxEntries ?? 100000, 500000)))
+        throw new LocalRepositoryGitInspectionError('limit', 'entries');
+      if (entry.isSymbolicLink())
+        throw new LocalRepositoryGitInspectionError('unsafe', 'symlinks-unavailable');
       // These are never consumed by our read-only Git commands; submodules are ignored.
       if (entry.isDirectory() && !['hooks', 'logs', 'modules'].includes(entry.name))
         pending.push(join(directory, entry.name));
@@ -138,7 +161,7 @@ export async function inspectLocalRepositoryGitMetadata(
       check();
       const config = join(directory, name);
       try {
-        await request.assertReadable(config);
+        await authorize(config);
         const bytes = await readRegular(config, 65536);
         // Parse bounded stdin with Git's grammar, outside any repository, without includes.
         const parser = execute(
@@ -160,14 +183,23 @@ export async function inspectLocalRepositoryGitMetadata(
           const key = entry.slice(0, newline === -1 ? undefined : newline).toLowerCase();
           const value = newline === -1 ? '' : entry.slice(newline + 1);
           if (/^include(if)?\./.test(key))
-            throw Error('Included Git configuration is unavailable for inspection');
+            throw new LocalRepositoryGitInspectionError(
+              'unsafe',
+              'included-configuration-unavailable',
+            );
           if (
             key.startsWith('extensions.') &&
             !['extensions.objectformat', 'extensions.worktreeconfig'].includes(key)
           )
-            throw Error('Git configuration extension is unsupported');
+            throw new LocalRepositoryGitInspectionError(
+              'unsafe',
+              'configuration-extension-unsupported',
+            );
           if (key === 'core.worktree' && resolve(directory, value) !== path)
-            throw Error('External Git worktree configuration is unavailable');
+            throw new LocalRepositoryGitInspectionError(
+              'unsafe',
+              'external-worktree-configuration',
+            );
         }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
@@ -175,8 +207,9 @@ export async function inspectLocalRepositoryGitMetadata(
     }
     for (const name of ['objects/info/alternates', 'objects/info/http-alternates']) {
       try {
+        await authorize(join(directory, name));
         if ((await readRegular(join(directory, name), 65536)).toString('utf8').trim())
-          throw Error('Alternate Git metadata is unavailable');
+          throw new LocalRepositoryGitInspectionError('unsafe', 'alternate-storage-unavailable');
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
@@ -190,12 +223,13 @@ export async function readLocalRepositoryStatus(
   metadata: LocalRepositoryGitMetadata,
   options: { signal?: AbortSignal; timeoutMs: number },
 ): Promise<string> {
+  const deadline = Date.now() + options.timeoutMs;
   const run = async (args: string[], extraEnv = {}) =>
     (
       await execute('git', args, {
         env: { ...env, ...extraEnv },
         signal: options.signal,
-        timeout: options.timeoutMs,
+        timeout: Math.max(1, deadline - Date.now()),
         maxBuffer: 262144,
         encoding: 'utf8',
       })
@@ -223,6 +257,9 @@ export async function readLocalRepositoryStatus(
         join(gitDirectory, 'index'),
         await readRegular(join(metadata.gitDirectory, 'index'), 16 * 1024 * 1024),
       );
+      // A newer scratch timestamp can hide same-size edits within the source
+      // index's racy-clean window. Make Git rehash its cached file entries.
+      await utimes(join(gitDirectory, 'index'), 0, 0);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }

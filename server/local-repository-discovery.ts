@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import {
   inspectLocalRepositoryGitMetadata,
   isLocalRepositoryCredentialPath,
+  LocalRepositoryGitInspectionError,
   readLocalRepositoryStatus,
   type LocalRepositoryGitMetadata,
 } from './local-repository-git-inspection.js';
@@ -16,6 +17,7 @@ export type LocalRepositoryReadScope =
 export interface LocalRepositoryLimits {
   maxDirectories?: number;
   maxEntries?: number;
+  maxGitMetadataEntries?: number;
   maxDepth?: number;
   maxCandidates?: number;
   timeoutMs?: number;
@@ -133,6 +135,7 @@ async function context(request: ReadRequest) {
   const limits = {
     maxDirectories: integer(request.limits?.maxDirectories, 2000, 10000),
     maxEntries: integer(request.limits?.maxEntries, 20000, 100000),
+    maxGitMetadataEntries: integer(request.limits?.maxGitMetadataEntries, 100000, 500000),
     maxDepth: integer(request.limits?.maxDepth, 6, 20),
     maxCandidates: integer(request.limits?.maxCandidates, 20, 100),
     timeoutMs: integer(request.limits?.timeoutMs, 5000, 30000),
@@ -146,7 +149,7 @@ async function context(request: ReadRequest) {
   if (request.accessScope.kind === 'roots') {
     for (const root of request.accessScope.roots) {
       request.signal?.throwIfAborted();
-      if (Date.now() >= deadline) throw Error('Repository inspection time limit reached');
+      if (Date.now() >= deadline) throw new LocalRepositoryGitInspectionError('limit', 'timeout');
       if (!isAbsolute(root)) {
         diagnostics.push({ path: root, reason: 'absolute-path-required' });
         continue;
@@ -163,14 +166,17 @@ async function context(request: ReadRequest) {
     (request.accessScope.kind === 'host-wide' || roots.some((root) => within(path, root)));
   const check = () => {
     request.signal?.throwIfAborted();
-    if (Date.now() >= deadline) throw Error('Repository inspection time limit reached');
+    if (Date.now() >= deadline) throw new LocalRepositoryGitInspectionError('limit', 'timeout');
   };
   const canonical = async (path: string) => {
     check();
-    if (!isAbsolute(path)) throw Error('Absolute repository path required');
-    if (credentialPath(path)) throw Error('Credential directories are excluded');
+    if (!isAbsolute(path))
+      throw new LocalRepositoryGitInspectionError('access', 'absolute-path-required');
+    if (credentialPath(path))
+      throw new LocalRepositoryGitInspectionError('access', 'credential-directory-excluded');
     const result = await realpath(path);
-    if (!allowed(result)) throw Error('Repository read access required');
+    if (!allowed(result))
+      throw new LocalRepositoryGitInspectionError('access', 'read-access-required');
     return result;
   };
   const git = async (cwd: string, ...args: string[]) => {
@@ -217,7 +223,7 @@ async function context(request: ReadRequest) {
             await canonical(path);
           },
           signal: request.signal,
-          maxEntries: limits.maxEntries,
+          maxEntries: limits.maxGitMetadataEntries,
           timeoutMs: Math.max(1, deadline - Date.now()),
         }),
       );
@@ -256,13 +262,27 @@ export async function discoverLocalRepository(
       result.state = 'selected';
     } catch (error) {
       request.signal?.throwIfAborted();
-      const missing =
-        errorCode(error) === 'ENOENT' || typeof (error as { code?: unknown }).code === 'number';
-      result.state = missing ? 'missing' : 'access-required';
-      result.needed = missing ? ['source', 'destination'] : ['read-access'];
+      const missing = errorCode(error) === 'ENOENT';
+      const limited = error instanceof LocalRepositoryGitInspectionError && error.kind === 'limit';
+      const access = error instanceof LocalRepositoryGitInspectionError && error.kind === 'access';
+      if (limited) limit(`git-metadata-${error.reason}`);
+      result.state = missing ? 'missing' : access ? 'access-required' : 'ambiguous';
+      result.needed = missing
+        ? ['source', 'destination']
+        : limited
+          ? ['narrower-search']
+          : access
+            ? ['read-access']
+            : [];
       result.diagnostics.push({
         path: request.explicitPath,
-        reason: missing ? 'repository-not-found' : 'read-access-required',
+        reason: missing
+          ? 'repository-not-found'
+          : limited
+            ? 'inspection-limit'
+            : access
+              ? 'read-access-required'
+              : 'inspection-unavailable',
       });
     }
     return result;
@@ -345,9 +365,17 @@ export async function discoverLocalRepository(
         queue.push({ path: join(current.path, entry.name), depth: current.depth + 1 });
       }
       if (result.limitReasons.includes('entries') || result.limitReasons.includes('timeout')) break;
-    } catch {
+    } catch (error) {
       request.signal?.throwIfAborted();
-      result.diagnostics.push({ path: current.path, reason: 'inspection-unavailable' });
+      if (error instanceof LocalRepositoryGitInspectionError && error.kind === 'limit')
+        limit(`git-metadata-${error.reason}`);
+      result.diagnostics.push({
+        path: current.path,
+        reason:
+          error instanceof LocalRepositoryGitInspectionError && error.kind === 'access'
+            ? 'read-access-required'
+            : 'inspection-unavailable',
+      });
     }
   }
   const exact = result.candidates.filter((entry) => entry.name.toLocaleLowerCase() === query);
@@ -363,12 +391,15 @@ export async function discoverLocalRepository(
         ? 'selected'
         : 'ambiguous';
     if (result.truncated) result.needed = ['narrower-search'];
-  } else if (result.diagnostics.length) {
-    result.state = 'access-required';
-    result.needed = ['read-access'];
   } else if (result.truncated) {
     result.state = 'ambiguous';
     result.needed = ['narrower-search'];
+  } else if (result.diagnostics.length) {
+    const access = result.diagnostics.some(
+      (diagnostic) => diagnostic.reason === 'read-access-required',
+    );
+    result.state = access ? 'access-required' : 'ambiguous';
+    result.needed = access ? ['read-access'] : [];
   } else result.needed = ['source', 'destination'];
   return result;
 }

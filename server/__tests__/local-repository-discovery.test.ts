@@ -174,6 +174,23 @@ describe('bounded repository discovery', () => {
       await discoverLocalRepository({ explicitPath: selected, accessScope: scope() }),
     ).toMatchObject({ state: 'selected', candidates: [{ path: selected }] });
   });
+
+  it('reports existing repositories with bounded metadata inspection as incomplete instead of absent or unauthorized', async () => {
+    const selected = await repo(join(root, 'large'));
+    for (const selection of [{ query: 'large' }, { explicitPath: selected }]) {
+      const result = await discoverLocalRepository({
+        ...selection,
+        accessScope: scope(),
+        limits: { maxGitMetadataEntries: 1 },
+      });
+      expect(result).toMatchObject({
+        state: 'ambiguous',
+        truncated: true,
+        needed: ['narrower-search'],
+      });
+      expect(result.limitReasons).toContain('git-metadata-entries');
+    }
+  });
 });
 
 describe('read-only repository inspection', () => {
@@ -255,6 +272,15 @@ describe('read-only repository inspection', () => {
   it('does not execute clean filters or recurse into configured submodules while checking dirty work', async () => {
     const selected = await repo(join(root, 'filtered'));
     const marker = join(root, 'executed');
+    const nested = await repo(join(selected, 'nested'));
+    git(
+      selected,
+      'update-index',
+      '--add',
+      '--cacheinfo',
+      `160000,${git(nested, 'rev-parse', 'HEAD')},nested`,
+    );
+    git(nested, 'config', 'core.fsmonitor', `touch '${marker}'`);
     git(selected, 'config', 'filter.danger.clean', `touch '${marker}'; cat`);
     git(selected, 'config', 'filter.danger.required', 'true');
     await writeFile(join(selected, '.gitattributes'), 'source.txt filter=danger\n');
@@ -280,6 +306,9 @@ describe('read-only repository inspection', () => {
     await expect(inspectLocalRepository({ path: selected, accessScope: scope() })).rejects.toThrow(
       /include|configuration/i,
     );
+    expect(
+      await discoverLocalRepository({ explicitPath: selected, accessScope: scope() }),
+    ).toMatchObject({ state: 'ambiguous', diagnostics: [{ reason: 'inspection-unavailable' }] });
   });
 
   it('rejects linked, symlinked and common Git directories outside the current read scope', async () => {
