@@ -21,6 +21,7 @@ import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { CodexRequestError, CodexTransportError } from '../codex-app-server-client.js';
 import { tracer } from '../tracing.js';
+import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 import {
   context,
   ROOT_CONTEXT,
@@ -37,6 +38,101 @@ const binding = {
   model: 'test-model',
   profileRevision: 'chatgpt:test@example.com:test',
 };
+
+it('refreshes native cwd and workspace policy for the exact command on the same thread', async () => {
+  const f = await setup();
+  const initial = codexNativeExecutionPolicy({
+    bindingRevision: 'owner-v1',
+    mode: 'agent',
+    cwd: '/workspace/one',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace/one'],
+    deniedRoots: ['/private/auth'],
+  });
+  const next = codexNativeExecutionPolicy({
+    bindingRevision: 'owner-v1',
+    mode: 'agent',
+    cwd: '/workspace/two',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace/two'],
+    deniedRoots: ['/private/auth'],
+  });
+  f.conversationOptions.nativeExecution = initial;
+  const resolvePolicy = vi.fn(async () => next);
+  f.conversationOptions.resolveNativeExecutionPolicy = resolvePolicy;
+  await f.c.send({ id: 'frozen-command', prompt: 'Use the admitted workspace' });
+  expect(resolvePolicy).toHaveBeenCalledExactlyOnceWith({
+    commandId: 'frozen-command',
+    signal: expect.any(AbortSignal),
+  });
+  expect(f.requests.find(({ method }) => method === 'turn/start')?.params).toMatchObject({
+    threadId: f.getProviderThread(),
+    cwd: '/workspace/two',
+    runtimeWorkspaceRoots: ['/workspace/two'],
+    permissions: 'mitzo-native-agent',
+    approvalPolicy: 'on-request',
+  });
+  expect(f.requests.filter(({ method }) => method === 'thread/start')).toHaveLength(1);
+});
+
+it('rejects a changed native credential fence before provider dispatch', async () => {
+  const f = await setup();
+  const make = (deniedRoots: string[]) =>
+    codexNativeExecutionPolicy({
+      bindingRevision: 'owner-v1',
+      mode: 'agent',
+      cwd: '/workspace',
+      readableRoots: ['/'],
+      writableRoots: ['/workspace'],
+      deniedRoots,
+    });
+  f.conversationOptions.nativeExecution = make(['/private/auth']);
+  f.conversationOptions.resolveNativeExecutionPolicy = async () => make(['/private/new-auth']);
+  await expect(f.c.send({ id: 'frozen-command', prompt: 'Use workspace' })).rejects.toThrow(
+    'Native execution policy changed',
+  );
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(0);
+  expect(f.c.queue()).toContainEqual(expect.objectContaining({ id: 'frozen-command', status: 'failed' }));
+});
+
+it('fences native grants against the frozen active policy at the final transport write', async () => {
+  const f = await setup();
+  const initial = codexNativeExecutionPolicy({
+    bindingRevision: 'owner-v1',
+    mode: 'agent',
+    cwd: '/workspace',
+    readableRoots: ['/'],
+    writableRoots: ['/workspace'],
+    deniedRoots: ['/private/auth'],
+  });
+  f.conversationOptions.nativeExecution = initial;
+  let current = true;
+  f.conversationOptions.assertNativeExecutionCurrent = (policy, commandId) => {
+    expect(policy).toBe(initial);
+    expect(commandId).toBe('frozen-command');
+    if (!current) throw Error('Native owner revoked');
+  };
+  f.conversationOptions.requestNativeApproval = async () => ({ decision: 'accept' });
+  await f.c.send({ id: 'frozen-command', prompt: 'Run' });
+  let fence!: () => void;
+  const request = f.getCallbacks().onRequest as (...args: unknown[]) => Promise<unknown>;
+  await expect(
+    request(
+      'item/commandExecution/requestApproval',
+      { threadId: f.getProviderThread(), turnId: 'turn-1', itemId: 'cmd' },
+      new AbortController().signal,
+      {
+        requestId: 20,
+        registerResponseFence: (fn: () => void) => {
+          fence = fn;
+        },
+      },
+    ),
+  ).resolves.toEqual({ decision: 'accept' });
+  expect(fence).toBeTypeOf('function');
+  current = false;
+  expect(fence).toThrow('Native owner revoked');
+});
 
 it('routes an exact native approval to its owner without executing a host tool or replaying a turn', async () => {
   const f = await setup();

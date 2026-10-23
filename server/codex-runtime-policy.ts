@@ -49,6 +49,8 @@ export function codexRuntimeOverrides(
   if (nativeExecution) {
     config['features.shell_tool'] = true;
     config['features.unified_exec'] = true;
+    config['features.exec_permission_approvals'] = true;
+    config['features.request_permissions_tool'] = true;
   }
   // Code-mode-only models dispatch registered host tools through the JS wrapper.
   // This enables that dispatcher; native execution tools remain disabled above.

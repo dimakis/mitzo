@@ -26,6 +26,7 @@ import {
   CodexRequestError,
   CodexTransportError,
   type CodexLifecycleTransport,
+  type CodexServerRequestContext,
 } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
 import {
@@ -37,6 +38,11 @@ import {
   type CodexTargetedInterruptReceipt,
 } from './codex-conversation-store.js';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
+import {
+  assertNativeExecutionRefresh,
+  codexNativePermissionProfiles,
+  type CodexNativeExecutionPolicy,
+} from './codex-native-execution-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
 import { classifyProviderFailure, ProviderFailureError } from './provider-failure.js';
 import { tracer } from './tracing.js';
@@ -51,10 +57,7 @@ import {
 } from './web-search-policy.js';
 import type { ConversationHistoryEntry } from './codex-rollover-context.js';
 type ObjectValue = Record<string, unknown>;
-type NativeRequestContext = Readonly<{
-  requestId: string | number;
-  registerResponseFence?(assertCurrent: () => void): void;
-}>;
+type NativeRequestContext = CodexServerRequestContext;
 const ROLLOVER_CONTEXT_MAX_CHARS = 64 * 1024;
 const ROLLOVER_CONTEXT_MAX_TURNS = 64;
 const ATTEMPT_CONTEXT_PREFIX = [
@@ -170,6 +173,7 @@ export interface CodexConversationOptions {
       threadId: string;
       turnId: string;
       assertCurrentSync(): void;
+      fileChangePaths?: readonly string[];
       registerResponseFence?(assertCurrent: () => void): void;
     }>,
   ) => Promise<ObjectValue>;
@@ -214,6 +218,16 @@ export interface CodexConversationOptions {
   webSearchDeploymentRevision?: string;
   getMode?: () => MitzoMode;
   turnSandboxPolicy?: Record<string, unknown>;
+  /** Initial trusted selected target policy. Its named profiles are installed
+   * once; per-command workspace roots remain owned by the admission authority. */
+  nativeExecution?: CodexNativeExecutionPolicy;
+  resolveNativeExecutionPolicy?: (input: {
+    commandId: string;
+    signal: AbortSignal;
+  }) => Promise<CodexNativeExecutionPolicy>;
+  /** Revalidate the frozen command's authority before dispatch and at the exact
+   * response write. A later queued command cannot retarget an active grant. */
+  assertNativeExecutionCurrent?: (policy: CodexNativeExecutionPolicy, commandId: string) => void;
   verifyBinding?: (client: Rpc, stored?: AccountBinding) => Promise<AccountBinding>;
   onQueueChange?: () => void;
   onActivity?: () => boolean | void;
@@ -361,6 +375,8 @@ type ActiveCommand = {
   span?: Span;
   firstOutputSpan?: Span;
   traceContext: Context;
+  nativeExecution?: CodexNativeExecutionPolicy;
+  nativeFileChanges?: Map<string, readonly string[]>;
 };
 const interruptTargetBrand = Symbol('native-interrupt-target');
 /** Identity only: host auth/admission remains required; serialized copies grant nothing. */
@@ -1444,7 +1460,16 @@ export class CodexConversation {
 
   private runtimeConfiguration(configuration: unknown): Record<string, unknown> {
     if (!this.opts.runtimeConfig) {
-      const config = codexRuntimeOverrides(configuration, this.opts.profile.workspaceId);
+      const config = {
+        ...codexRuntimeOverrides(
+          configuration,
+          this.opts.profile.workspaceId,
+          this.opts.nativeExecution,
+        ),
+        ...(this.opts.nativeExecution
+          ? codexNativePermissionProfiles(this.opts.nativeExecution)
+          : {}),
+      };
       return this.disableWebSearch ? { ...config, web_search: 'disabled' } : config;
     }
     const inherited = z
@@ -1491,6 +1516,7 @@ export class CodexConversation {
       webSearch: policy.effective,
       disableProjectDocuments: this.disableProjectDocuments,
       systemPrompt: this.opts.systemPrompt,
+      nativeExecution: this.opts.nativeExecution,
     });
   }
 
@@ -1990,6 +2016,18 @@ export class CodexConversation {
       this.mapper?.setModel(model);
       await this.verifyCurrentBinding(this.binding);
       active.abort.signal.throwIfAborted();
+      if (this.opts.nativeExecution) {
+        const policy = this.opts.resolveNativeExecutionPolicy
+          ? await this.opts.resolveNativeExecutionPolicy({
+              commandId: command.id,
+              signal: active.abort.signal,
+            })
+          : this.opts.nativeExecution;
+        active.abort.signal.throwIfAborted();
+        assertNativeExecutionRefresh(this.opts.nativeExecution, policy);
+        this.opts.assertNativeExecutionCurrent?.(policy, command.id);
+        active.nativeExecution = policy;
+      }
       const systemPrompt = await this.opts.prepareSystemPrompt?.(active.abort.signal, {
         commandId: command.id,
       });
@@ -2044,6 +2082,8 @@ export class CodexConversation {
       await this.opts.prepareAgentContext?.(active.abort.signal);
       active.abort.signal.throwIfAborted();
       this.opts.onProviderDispatch?.(command.id);
+      if (active.nativeExecution)
+        this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, command.id);
       active.span = tracer.startSpan('codex.turn', {}, active.traceContext);
       active.span.setAttribute('mitzo.route', this.opts.route ?? 'chatgpt-subscription');
       active.span.setAttribute('gen_ai.request.model', model);
@@ -2090,6 +2130,7 @@ export class CodexConversation {
             prompt: preparedPrompt,
             images: command.images,
             sandboxPolicy: this.opts.turnSandboxPolicy,
+            nativeExecution: active.nativeExecution,
             reasoningEffort: command.reasoningEffort,
             additionalContext,
           }),
@@ -2351,6 +2392,23 @@ export class CodexConversation {
   }
   private notification(method: string, params: ObjectValue) {
     if (this.closed || params.threadId !== this.threadId) return;
+    if (method === 'item/started' && this.active && params.turnId === this.active.turnId) {
+      const item = z
+        .object({
+          type: z.literal('fileChange'),
+          id: z.string().min(1),
+          changes: z.array(z.object({ path: z.string().min(1) })),
+        })
+        .safeParse(params.item);
+      if (item.success) {
+        this.active.nativeFileChanges ??= new Map();
+        if (!this.active.nativeFileChanges.has(item.data.id))
+          this.active.nativeFileChanges.set(
+            item.data.id,
+            Object.freeze(item.data.changes.map((change) => change.path)),
+          );
+      }
+    }
     if (
       this.active?.firstOutputSpan &&
       [
@@ -2665,6 +2723,8 @@ export class CodexConversation {
           !['string', 'number'].includes(typeof requestContext.requestId)
         )
           throw new Error('Codex native approval identity mismatch');
+        if (active.nativeExecution)
+          this.opts.assertNativeExecutionCurrent?.(active.nativeExecution, active.command.id);
       };
       assertCurrentSync();
       if (!this.opts.requestNativeApproval) throw new Error('Codex native approvals unavailable');
@@ -2674,6 +2734,9 @@ export class CodexConversation {
         threadId: threadId!,
         turnId: turnId!,
         assertCurrentSync,
+        ...(method === 'item/fileChange/requestApproval' && typeof params.itemId === 'string'
+          ? { fileChangePaths: active?.nativeFileChanges?.get(params.itemId) }
+          : {}),
       });
       assertCurrentSync();
       return response;

@@ -56,6 +56,8 @@ describe('native Mac execution permission profile', () => {
     expect(codexRuntimeOverrides({}, undefined, policy)).toMatchObject({
       'features.shell_tool': true,
       'features.unified_exec': true,
+      'features.exec_permission_approvals': true,
+      'features.request_permissions_tool': true,
       'features.apps': false,
       'features.multi_agent': false,
     });
