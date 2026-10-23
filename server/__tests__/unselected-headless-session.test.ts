@@ -18,7 +18,7 @@ it('blocks unselected legacy spawning visibly without allocation, dispatch or au
   roots.push(root);
   const store = new TaskStore(join(root, 'tasks.db'));
   try {
-    const goal = store.create({ title: 'Workflow', description: '', parentId: null });
+    const goal = store.create({ title: 'Workflow', description: '' });
     const task = store.create({
       title: 'Unselected work',
       description: '',
