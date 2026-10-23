@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.566-native-policy-test-narrowing';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.567-native-platform-fixtures';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -30,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/qualify-codex-native-permissions.mjs':
     'ca56ac179cfc28efc71e68a4c88d99b323d9f44aa515f11b26109523d515aba8',
   '../__tests__/codex-chat-session.test.ts':
-    '021a48bef40005ce7b14f17f26024b025faef4de5a417701ad656aa7568e0bd7',
+    '747b3fae2fb77aca94459fa462e7192fe49203e2bd3f85bdae0fb9e1e2bb8633',
   '../__tests__/codex-conversation.test.ts':
     'a7c3eb990ec0a7de78116ff4790ba65878b0c8d3b6e9244b5ad694ec20bb3d48',
   '../__tests__/codex-native-approvals.test.ts':
@@ -52,11 +51,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/owned-local-codex-chat-admission.test.ts':
     'd3ce0c5f730a124de80063e142582260e4ef36b5cb6c4cd0e8a0af1c4461c974',
   '../__tests__/owned-local-codex-native-execution.test.ts':
-    'c8fa08801d2dd073375d9ea9f584e2bb264a27e71cc9e3f66acc11e0e43d2d12',
+    '0bdb9518e1a704fb6bee5106e6e9fc1706d4ed5e75e88a86528b42ccf1ccb12b',
   '../__tests__/owned-local-codex-native-policy.test.ts':
     '92e3f3bdc9f0d180d493bdd981b82f9e86b814fa65bfc35f9ba0932cb05ea179',
   '../__tests__/owned-local-codex-native-unqualified.test.ts':
-    'dfbfd342c315a33019ec1fb560d5d9b76272fc91f0741b82e5e98210d94d7e2a',
+    'a472401aa366f081b91fd99d4d52939375076a88365570a2413ad39354a7e762',
   '../codex-native-approvals.ts':
     'a31a328ed22bffdba3901a3186b03abbeb798f5d4683412df2889cef299b98b1',
   '../codex-native-artifact-qualification.ts':
