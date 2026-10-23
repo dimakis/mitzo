@@ -13,6 +13,7 @@ it('pins existing-repository metadata authorization, private Git preparation and
     '../repository-workspaces.ts',
     '../local-repository-git-inspection.ts',
     '../__tests__/existing-local-repository-workspaces.test.ts',
+    '../__tests__/local-repository-racy-status.test.ts',
   ]) {
     const source = await readFile(
       new URL(file, new URL('../connections/', import.meta.url)),
