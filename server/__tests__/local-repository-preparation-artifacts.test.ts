@@ -1,0 +1,24 @@
+import { readFile } from 'node:fs/promises';
+import { expect, it } from 'vitest';
+import {
+  reviewedHandlerSourceArtifacts,
+  reviewedHandlerSourceFingerprint,
+} from '../connections/reviewed-handler-artifacts.js';
+
+it('pins the private preparation decision producer, same-row custody and signed fixtures', async () => {
+  const artifacts: Readonly<Record<string, string>> = reviewedHandlerSourceArtifacts;
+  for (const file of [
+    '../local-repository-preparation-authorization.ts',
+    '../pending-host-task.ts',
+    '../repository-workspaces.ts',
+    '../__tests__/fixtures/local-preparation-native.ts',
+    '../__tests__/local-repository-preparation-authorization.test.ts',
+    '../__tests__/local-repository-preparation-artifacts.test.ts',
+  ]) {
+    const source = await readFile(
+      new URL(file, new URL('../connections/', import.meta.url)),
+      'utf8',
+    );
+    expect(artifacts[file], file).toBe(reviewedHandlerSourceFingerprint(source));
+  }
+});
