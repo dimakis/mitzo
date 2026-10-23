@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
-import { CodexConversationStore } from '../codex-conversation-store.js';
+import {
+  CodexConversationStore,
+  preparedRepositoryResultSha256,
+} from '../codex-conversation-store.js';
 import { codexNativeExecutionPolicy } from '../codex-native-execution-policy.js';
 
 const binding = {
@@ -26,6 +29,17 @@ const source = {
   resultSha256: createHash('sha256').update(JSON.stringify(result)).digest('hex'),
 };
 const cleanups: Array<() => void> = [];
+it('hashes the actual retained public result, excluding private executor fields', () => {
+  expect(preparedRepositoryResultSha256({ ...result, environmentRefresh: true })).toBe(
+    source.resultSha256,
+  );
+  expect(
+    preparedRepositoryResultSha256({
+      content: result.content + '\nFinal host directive',
+      isError: false,
+    }),
+  ).not.toBe(source.resultSha256);
+});
 afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup();
 });

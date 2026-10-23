@@ -207,9 +207,15 @@ export type CompletedPreparedRepositorySource = z.infer<
   typeof CompletedPreparedRepositorySourceSchema
 >;
 export function preparedRepositoryResultSha256(result: CodexToolResult): string {
-  return createHash('sha256')
-    .update(JSON.stringify(normalizeCodexToolResult(result)))
-    .digest('hex');
+  const checked = normalizeCodexToolResult(result);
+  // Match recordToolResult/replayToolResult's durable public projection exactly.
+  // Private executor metadata is deliberately not part of the retained result.
+  const durable = {
+    content: checked.content,
+    isError: checked.isError,
+    ...(checked.contentItems ? { contentItems: checked.contentItems } : {}),
+  };
+  return createHash('sha256').update(JSON.stringify(durable)).digest('hex');
 }
 const NativeTurnHistorySchema = z
   .array(
