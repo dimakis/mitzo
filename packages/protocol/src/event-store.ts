@@ -1404,6 +1404,8 @@ export class EventStore {
   private completeOrdinaryCommand(clientMsgId: string): void {
     this.db!.transaction(() => {
       const admission = this.getOrdinaryCommandAdmission(clientMsgId);
+      if (admission?.preparedRepositoryTransition)
+        throw Error('Prepared repository continuation requires exact native queue finalization');
       if (!admission || admission.state === 'reserved')
         throw new Error('Ordinary command has not claimed dispatch');
       if (admission.state === 'consumed') return;

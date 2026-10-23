@@ -186,6 +186,8 @@ it('retains durable uncertainty across process death after metadata commit witho
   expect(cold.getSession('session')?.cwd).toBe('/new');
   expect(cold.getOrdinaryLocalCommandAdmission(reserved.childCommandId)?.state).toBe('uncertain');
   expect(cold.claimOrdinaryLocalCommandDispatch(reserved.childCommandId)).toBe(false);
+  expect(() => cold.completeOrdinaryLocalCommand(reserved.childCommandId)).toThrow();
+  expect(cold.getOrdinaryLocalCommandAdmission(reserved.childCommandId)?.state).toBe('uncertain');
   expect(cold.hasUncertainOrdinaryCommand('session')).toBe(true);
   expect(() =>
     cold.admitPreparedRepositoryPrimaryContinuation(
