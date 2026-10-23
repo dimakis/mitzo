@@ -1111,7 +1111,7 @@ export class EventStore {
         AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.newWorkspace.id')=?
         AND json_extract(ordinary_admission,'$.preparedRepositoryTransition.newWorkspace.directory')=?
         LIMIT 2`,
-      ).all(current.session_id, current.rowid, old.id, old.directory) as Array<{
+      ).all(current.session_id, source.rowid, old.id, old.directory) as Array<{
         client_msg_id: string;
       }>;
       if (parents.length !== 1)

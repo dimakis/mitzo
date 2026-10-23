@@ -288,6 +288,31 @@ it('observes the same immutable bootstrap across two private adoptions separated
     store.observePreparedRepositoryBootstrapAdmission(second.childCommandId, 'original'),
   ).toEqual(origin);
   expect(() => store.getOrdinaryLocalCommandAdmission('original')).toThrow();
+  const db = (store as unknown as { db: import('better-sqlite3').Database }).db;
+  const row = (id: string) =>
+    (
+      db.prepare('SELECT rowid FROM send_commands WHERE client_msg_id=?').get(id) as {
+        rowid: number;
+      }
+    ).rowid;
+  const parentOrder = row(first.childCommandId),
+    sourceOrder = row('followup');
+  db.prepare('UPDATE send_commands SET rowid=1000 WHERE client_msg_id=?').run(first.childCommandId);
+  db.prepare('UPDATE send_commands SET rowid=? WHERE client_msg_id=?').run(parentOrder, 'followup');
+  db.prepare('UPDATE send_commands SET rowid=? WHERE client_msg_id=?').run(
+    sourceOrder,
+    first.childCommandId,
+  );
+  // A later primary row cannot retroactively attest an already admitted source.
+  expect(() =>
+    store.observePreparedRepositoryBootstrapAdmission(second.childCommandId, 'original'),
+  ).toThrow();
+  db.prepare('UPDATE send_commands SET rowid=1000 WHERE client_msg_id=?').run(first.childCommandId);
+  db.prepare('UPDATE send_commands SET rowid=? WHERE client_msg_id=?').run(sourceOrder, 'followup');
+  db.prepare('UPDATE send_commands SET rowid=? WHERE client_msg_id=?').run(
+    parentOrder,
+    first.childCommandId,
+  );
   store.markPreparedRepositoryContinuationUncertain(first.childCommandId);
   expect(() =>
     store.observePreparedRepositoryBootstrapAdmission(second.childCommandId, 'original'),
