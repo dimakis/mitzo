@@ -401,6 +401,7 @@ class PendingHostTaskDecisionOperation {
     private readonly currentSync: () => void,
     private readonly currentAsync: () => Promise<void>,
     private readonly originalContext: NativeHostToolContext,
+    readonly expiresAt: number,
   ) {
     Object.freeze(this);
   }
@@ -2713,6 +2714,7 @@ export class RepositoryWorkspaces {
         current();
       },
       owner.context,
+      consumed.evidence.expiresAt,
     );
   }
   private assertPendingCurrent(request: PendingHostTaskRequest, signal: AbortSignal) {
@@ -2900,6 +2902,7 @@ export class RepositoryWorkspaces {
         context,
         facts: freezePendingHostTaskData(structuredClone(qualified.allocationFacts)),
         factsSha256: qualified.allocationFactsSha256,
+        expiresAt: operation.expiresAt,
         assertCurrentSync: () => operation.assertCurrentSync(),
         assertCurrent: () => operation.assertCurrent(),
       });

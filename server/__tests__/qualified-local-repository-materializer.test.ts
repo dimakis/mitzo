@@ -1,5 +1,5 @@
 import { afterAll, afterEach, expect, it, vi } from 'vitest';
-import { readFile, writeFile } from 'node:fs/promises';
+import { lstat, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as actor from '../qualified-local-repository-actor.js';
 import * as sandbox from '../sandboxed-command.js';
@@ -22,8 +22,11 @@ afterEach(async () => {
 const actual = it.runIf(
   process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION === '1',
 );
+const profileOnly = process.env.MITZO_PREPARATION_OWNER_PROFILE === '1';
 actual(
-  'materializes through the original signed permission and fixed actor while preserving dirty source and primary custody',
+  profileOnly
+    ? 'profiles one genuine consumed original full gate without actor effects'
+    : 'materializes through the original signed permission and fixed actor while preserving dirty source and primary custody',
   async () => {
     vi.stubGlobal(
       'fetch',
@@ -95,6 +98,45 @@ actual(
           (f.f.workspace.get(args[0].facts.workspaceId).pendingHostTaskDecision?.evidence
             .expiresAt ?? Date.now()) - Date.now();
         try {
+          if (profileOnly) {
+            const before = structuredClone(metrics);
+            const start = performance.now();
+            await args[0].assertCurrent();
+            const fullGate = {
+              elapsedMs: performance.now() - start,
+              admission: {
+                calls: metrics.admission.calls - before.admission.calls,
+                ms: metrics.admission.ms - before.admission.ms,
+              },
+              source: {
+                calls: metrics.source.calls - before.source.calls,
+                ms: metrics.source.ms - before.source.ms,
+              },
+              readTransports: {
+                calls: metrics.readTransports.calls - before.readTransports.calls,
+                ms: metrics.readTransports.ms - before.readTransports.ms,
+              },
+            };
+            await writeFile(
+              '/private/tmp/mitzo-qualified-preparation-original-owner-profile.json',
+              JSON.stringify(
+                {
+                  fullGate,
+                  phases,
+                  metrics,
+                  approvalExpiry: args[0].expiresAt,
+                  measuredAt: Date.now(),
+                  authority: 'actual original signed consumed operation',
+                  effects: false,
+                },
+                null,
+                2,
+              ),
+            );
+            throw Error(
+              'Bounded original full-owner profile complete; actor deliberately not invoked',
+            );
+          }
           const result = await actualActor(...args);
           mark('actor-complete');
           return result;
@@ -145,6 +187,25 @@ actual(
         metrics.approvalRemainingMs =
           (f.f.workspace.get(authorization.request.id).pendingHostTaskDecision?.evidence
             .expiresAt ?? Date.now()) - Date.now();
+        if (profileOnly) {
+          await expect(authorization.materialize()).rejects.toMatchObject({
+            code: 'pending_host_task_uncertain',
+          });
+          expect(f.f.workspace.get(authorization.request.id).pendingHostTaskDecision?.state).toBe(
+            'consumed',
+          );
+          for (const path of [
+            authorization.scope.create.task.directory,
+            authorization.scope.sourceGitEffects.administrationDirectory,
+            authorization.scope.sourceGitEffects.branchReference,
+          ])
+            await expect(lstat(path)).rejects.toMatchObject({ code: 'ENOENT' });
+          expect(await readFile(join(source, '.git', 'index'))).toEqual(index);
+          expect(await readFile(join(source, '.git', 'HEAD'))).toEqual(head);
+          expect(await readFile(join(source, 'task.txt'), 'utf8')).toBe('DIRTY SOURCE\n');
+          expect(await readFile(join(source, 'untracked'), 'utf8')).toBe('KEEP\n');
+          return { profiled: true };
+        }
         const receipt = await authorization.materialize();
         expect(receipt.state).toBe('materialized');
         expect(receipt.taskIdentity?.linkedGit?.directory).toBe(
@@ -171,8 +232,12 @@ actual(
       result.response.success,
       JSON.stringify({ value: result.value, phases, metrics, permissions: f.permissions.length }),
     ).toBe(true);
-    expect(result.value).toEqual({ prepared: true });
-    expect(prepared).toBe(true);
+    expect(result.value).toEqual(profileOnly ? { profiled: true } : { prepared: true });
+    expect(prepared).toBe(!profileOnly);
+    if (profileOnly) {
+      expect(metrics.effectTransports.calls).toBe(0);
+      expect(metrics.checkouts.calls).toBe(0);
+    }
     expect(f.permissions).toHaveLength(1);
   },
   300000,

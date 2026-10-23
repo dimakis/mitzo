@@ -82,9 +82,9 @@ def create_directory(request):
             os.close(child)
         os.close(directory)
 
-def create_file(request):
+def create_file(request, preflight_only=False, deadline=None, expected_receipt=None):
     # This branch never overwrites, follows links, removes files or runs Git.
-    deadline = time.monotonic() + request['timeoutMs'] / 1000
+    deadline = time.monotonic() + request['timeoutMs'] / 1000 if deadline is None else deadline
     source = request['payload']
     exclusions = request['deniedRoots']
     def check():
@@ -143,6 +143,42 @@ def create_file(request):
         data = read_payload(source_file) # Size/hash BEFORE creating the target.
         target_parent, target_name = parent(request)
         check()
+        if expected_receipt is not None:
+            target_file = os.open(target_name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=target_parent)
+            before = os.fstat(target_file)
+            if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or not matches(before, expected_receipt['identity']) or before.st_size != source['size']:
+                raise RuntimeError('Exclusive batch publication changed')
+            digest = hashlib.sha256()
+            count = 0
+            while count < before.st_size:
+                check()
+                chunk = os.read(target_file, min(65536, before.st_size-count))
+                if not chunk: raise RuntimeError('Exclusive batch publication changed')
+                count += len(chunk)
+                digest.update(chunk)
+            after = os.fstat(target_file)
+            if os.read(target_file, 1) or after.st_nlink != 1 or before.st_size != after.st_size or before.st_mtime_ns != after.st_mtime_ns or before.st_ctime_ns != after.st_ctime_ns or digest.hexdigest() != source['sha256']:
+                raise RuntimeError('Exclusive batch publication changed')
+            # Reopen both ORIGINAL enclosing roots and immediate parents after
+            # final byte verification; retained descriptors alone are not paths.
+            for item, expected, observed in [(source, source['identity'], os.fstat(source_file)), (request, expected_receipt['identity'], after)]:
+                directory, name = parent(item)
+                try:
+                    binding = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                    if not stat.S_ISREG(binding.st_mode) or binding.st_nlink != 1 or not matches(binding, expected) or binding.st_size != observed.st_size or binding.st_mtime_ns != observed.st_mtime_ns or binding.st_ctime_ns != observed.st_ctime_ns:
+                        raise RuntimeError('Exclusive batch publication changed')
+                finally:
+                    os.close(directory)
+            check()
+            return None
+        try:
+            os.stat(target_name, dir_fd=target_parent, follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        else:
+            raise RuntimeError('Exclusive file target exists')
+        if preflight_only:
+            return None
         target_file = os.open(target_name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=target_parent)
         target_info = os.fstat(target_file)
         offset = 0
@@ -543,6 +579,27 @@ def anchored_read(request, deadline=None, budget=None):
         os.close(directory)
 
 def execute(request):
+    if request['operation'] == 'CreateFileBatch':
+        items = request['items']
+        if not isinstance(items, list) or not 1 <= len(items) <= 6:
+            raise RuntimeError('Exclusive file batch unavailable')
+        deadline = time.monotonic() + request['timeoutMs'] / 1000
+        # ALL payload bytes, identities, enclosing roots, parents and actual
+        # target absences qualify before the first exclusive write. Every write
+        # rechecks its binding; a later race retains partial uncertainty.
+        for item in items:
+            create_file(dict(item, timeoutMs=request['timeoutMs']), True, deadline)
+        results = []
+        for item in items:
+            results.append(json.loads(create_file(dict(item, timeoutMs=request['timeoutMs']), False, deadline)))
+        for item, receipt in zip(items, results):
+            create_file(dict(item, timeoutMs=request['timeoutMs']), False, deadline, receipt)
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Exclusive file batch unavailable')
+        content = json.dumps(results, ensure_ascii=True)
+        if len(content.encode('utf-8')) > 16384:
+            raise RuntimeError('Exclusive file batch unavailable')
+        return content
     if request['operation'] == 'ListDirectoryBatch':
         items = request['items']
         if not isinstance(items, list) or not 1 <= len(items) <= 8 or len({item['file_path'] for item in items}) != len(items) or any(item['operation'] != 'ListDirectory' for item in items):
@@ -694,7 +751,9 @@ export function projectPrivateNativeFileHelperRequest(requestJson: string): stri
     typeof request !== 'object' ||
     Array.isArray(request) ||
     JSON.stringify(request) !== requestJson ||
-    !['CreateFile', 'CreateDirectory', 'PublishTree'].includes(request.operation) ||
+    !['CreateFile', 'CreateDirectory', 'PublishTree', 'CreateFileBatch'].includes(
+      request.operation,
+    ) ||
     request.identity !== null ||
     request.limit !== 1 ||
     !Number.isSafeInteger(request.timeoutMs) ||
@@ -711,6 +770,7 @@ export function projectPrivateNativeFileHelperRequest(requestJson: string): stri
           'rootAnchor',
           'payload',
           'entries',
+          'items',
           'originalSourcePath',
           'targetIdentity',
           'expectedAbsent',
@@ -721,8 +781,13 @@ export function projectPrivateNativeFileHelperRequest(requestJson: string): stri
   )
     throw Error('Private file helper unavailable');
   let projected:
-    NativeExclusiveDirectoryRequest | NativeExclusiveFileRequest | NativeExclusiveTreeRequest;
-  if (request.operation === 'PublishTree') projected = projectExclusiveTreeRequest(request);
+    | NativeExclusiveDirectoryRequest
+    | NativeExclusiveFileRequest
+    | NativeExclusiveTreeRequest
+    | NativeExclusiveFileBatchRequest;
+  if (request.operation === 'CreateFileBatch')
+    projected = projectExclusiveFileBatchRequest(request);
+  else if (request.operation === 'PublishTree') projected = projectExclusiveTreeRequest(request);
   else if (request.operation === 'CreateFile') projected = projectExclusiveFileRequest(request);
   else {
     if (
@@ -791,7 +856,7 @@ export function executeNativeFileOperation(
     entries?: NativeExclusiveTreeRequest['entries'];
     originalSourcePath?: string;
     targetIdentity?: NativeReadIdentity;
-    items?: readonly NativeDirectoryVerificationItem[];
+    items?: readonly NativeDirectoryVerificationItem[] | readonly NativeExclusiveFileRequest[];
   },
   signal: AbortSignal,
   timeoutMs = 30_000,
@@ -799,15 +864,23 @@ export function executeNativeFileOperation(
 ): Promise<{ content: string; is_error: boolean }> {
   signal.throwIfAborted();
   if (
-    ['CreateDirectory', 'CreateFile', 'PublishTree', 'ListDirectoryBatch'].includes(
-      request.operation,
-    ) &&
+    [
+      'CreateDirectory',
+      'CreateFile',
+      'CreateFileBatch',
+      'PublishTree',
+      'ListDirectoryBatch',
+    ].includes(request.operation) &&
     typeof privateTransport !== 'function'
   )
     return Promise.reject(Error('Private helper transport unavailable'));
-  const maxBuffer = ['CaptureReadAnchor', 'CreateDirectory', 'CreateFile', 'PublishTree'].includes(
-    request.operation,
-  )
+  const maxBuffer = [
+    'CaptureReadAnchor',
+    'CreateDirectory',
+    'CreateFile',
+    'CreateFileBatch',
+    'PublishTree',
+  ].includes(request.operation)
     ? 32768
     : ['ListDirectory', 'ListDirectoryBatch'].includes(request.operation)
       ? 8 * 1024 * 1024
@@ -841,14 +914,12 @@ export function executeNativeFileOperation(
   };
   if (privateTransport !== undefined) {
     if (typeof privateTransport !== 'function') throw Error('Private helper transport unavailable');
-    const requestJson =
-      request.operation === 'PublishTree'
-        ? projectPrivateNativeFileHelperRequest(JSON.stringify(request))
-        : JSON.stringify(request);
-    const command =
-      request.operation === 'PublishTree'
-        ? privateNativeFileHelperCommand(requestJson)
-        : helperCommand(requestJson);
+    const requestJson = ['PublishTree', 'CreateFileBatch'].includes(request.operation)
+      ? projectPrivateNativeFileHelperRequest(JSON.stringify(request))
+      : JSON.stringify(request);
+    const command = ['PublishTree', 'CreateFileBatch'].includes(request.operation)
+      ? privateNativeFileHelperCommand(requestJson)
+      : helperCommand(requestJson);
     return privateTransport({
       command,
       requestJson,
@@ -1426,6 +1497,171 @@ function projectExclusiveFileRequest(input: unknown): Readonly<NativeExclusiveFi
     }),
     deniedRoots,
   });
+}
+
+export interface NativeExclusiveFileBatchRequest {
+  readonly items: readonly NativeExclusiveFileRequest[];
+  readonly deniedRoots: readonly string[];
+}
+function projectExclusiveFileBatchRequest(
+  input: unknown,
+): Readonly<NativeExclusiveFileBatchRequest> {
+  const original = exclusiveData(input, 'items');
+  const deniedRoots = freezeNativeReadExclusions(
+    exclusiveData(input, 'deniedRoots') as readonly string[],
+  );
+  if (
+    !Array.isArray(original) ||
+    Object.getPrototypeOf(original) !== Array.prototype ||
+    original.length < 1 ||
+    original.length > 6
+  )
+    throw Error('Exclusive file batch unavailable');
+  const items = Array.from({ length: original.length }, (_, index) => {
+    const item = Object.getOwnPropertyDescriptor(original, String(index));
+    if (!item || !('value' in item)) throw Error('Exclusive file batch unavailable');
+    const projected = projectExclusiveFileRequest(item.value);
+    if (JSON.stringify(projected.deniedRoots) !== JSON.stringify(deniedRoots))
+      throw Error('Exclusive file batch unavailable');
+    return projected;
+  });
+  let bytes = 0;
+  const folded = (path: string) => path.normalize('NFD').toLowerCase();
+  const targets = items.map((item) => folded(item.file_path));
+  for (let index = 0; index < items.length; index++) {
+    bytes += items[index].payload.size;
+    const privateNames = new Set([
+      '.ssh',
+      '.aws',
+      '.gnupg',
+      '.kube',
+      '.azure',
+      '.gcloud',
+      '.claude',
+      '.cursor',
+      '.codex',
+      'keychains',
+    ]);
+    if (
+      [items[index].file_path, items[index].payload.file_path].some((path) =>
+        path.split('/').some((part) => privateNames.has(part.normalize('NFKC').toLowerCase())),
+      )
+    )
+      throw Error('Exclusive file batch unavailable');
+    if (
+      targets.some(
+        (path, other) =>
+          other !== index &&
+          (path === targets[index] ||
+            path.startsWith(targets[index] + '/') ||
+            targets[index].startsWith(path + '/')),
+      )
+    )
+      throw Error('Exclusive file batch unavailable');
+    // Negative-only alias refusal, never an authority/path canonicalizer.
+    if (
+      deniedRoots.some((root) =>
+        [items[index].file_path, items[index].payload.file_path].some(
+          (path) =>
+            folded(path) === folded(root) ||
+            folded(path).startsWith(folded(root).replace(/\/$/, '') + '/'),
+        ),
+      )
+    )
+      throw Error('Exclusive file batch unavailable');
+  }
+  if (bytes > 16 * 1024 * 1024 + 65536) throw Error('Exclusive file batch unavailable');
+  // Reject predictable receipt/envelope overflow BEFORE any target lookup or
+  // effect. Python uses ASCII escaping and spaces at both JSON levels; reserve
+  // conservative fixed overhead in addition to the longest identity strings.
+  const ascii = (value: string) =>
+    value.replace(
+      /[\u007f-\uffff]/g,
+      (character) => '\\u' + character.charCodeAt(0).toString(16).padStart(4, '0'),
+    );
+  const estimate = ascii(
+    JSON.stringify(
+      items.map((item) => ({
+        file_path: item.file_path,
+        identity: { dev: '9'.repeat(32), ino: '9'.repeat(32) },
+        byteLength: item.payload.size,
+        sha256: item.payload.sha256,
+      })),
+    ),
+  );
+  if (
+    Buffer.byteLength(estimate) + 1024 > 16384 ||
+    Buffer.byteLength(ascii(JSON.stringify({ content: estimate, is_error: false }))) + 2048 > 32768
+  )
+    throw Error('Exclusive file batch unavailable');
+  const result = Object.freeze({ items: Object.freeze(items), deniedRoots });
+  if (Buffer.byteLength(JSON.stringify(result)) > 120 * 1024)
+    throw Error('Exclusive file batch unavailable');
+  return result;
+}
+/** Private fixed metadata phase only: exact file roots are independently
+ * supplied by the consumed actor. No source directory grant or host fallback. */
+export async function createNativeExclusiveFileBatch(
+  request: NativeExclusiveFileBatchRequest,
+  signal: AbortSignal,
+  timeoutMs: number,
+  privateTransport: NativeFileHelperTransport,
+) {
+  signal.throwIfAborted();
+  try {
+    if (
+      typeof privateTransport !== 'function' ||
+      !Number.isSafeInteger(timeoutMs) ||
+      timeoutMs <= 0 ||
+      timeoutMs > 30000
+    )
+      throw Error('Exclusive file batch unavailable');
+    const projected = projectExclusiveFileBatchRequest(request);
+    const result = await executeNativeFileOperation(
+      {
+        ...projected,
+        operation: 'CreateFileBatch',
+        identity: null,
+        file_path: '',
+        parentIdentity: { dev: '0', ino: '0' },
+        limit: 1,
+        timeoutMs,
+      },
+      signal,
+      timeoutMs,
+      privateTransport,
+    );
+    signal.throwIfAborted();
+    if (result.is_error || Buffer.byteLength(result.content) > 16384)
+      throw Error('Exclusive file batch unavailable');
+    const returned: unknown = JSON.parse(result.content);
+    if (!Array.isArray(returned) || returned.length !== projected.items.length)
+      throw Error('Exclusive file batch unavailable');
+    return Object.freeze(
+      returned.map((item, index) => {
+        const target = projected.items[index];
+        if (
+          !item ||
+          typeof item !== 'object' ||
+          Object.keys(item).length !== 4 ||
+          item.file_path !== target.file_path ||
+          !validExclusiveIdentity(item.identity) ||
+          item.byteLength !== target.payload.size ||
+          item.sha256 !== target.payload.sha256
+        )
+          throw Error('Exclusive file batch unavailable');
+        return Object.freeze({
+          file_path: target.file_path,
+          identity: Object.freeze({ ...item.identity }),
+          byteLength: target.payload.size,
+          sha256: target.payload.sha256,
+        });
+      }),
+    );
+  } catch {
+    signal.throwIfAborted();
+    throw Error('Exclusive native file batch unavailable');
+  }
 }
 
 /** Private exclusive binary publication from an already-owned actor scratch.

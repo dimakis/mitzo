@@ -47,6 +47,8 @@ export interface PrivateNativeFileHelperOptions {
   readonly deniedRoots: readonly string[];
   readonly signal: AbortSignal;
   readonly timeoutMs: number;
+  /** Restrictive absolute expiry from the genuine consumed operation. */
+  readonly deadline?: number;
   readonly maxOutputBytes: number;
   assertCurrentSync(): void;
   revalidate(): Promise<void>;
@@ -94,6 +96,16 @@ function privateArray(value: unknown, max: number): unknown[] {
   return items;
 }
 
+function privateDeadline(original: object, timeout: number) {
+  const descriptor = Object.getOwnPropertyDescriptor(original, 'deadline');
+  if (!descriptor) {
+    if ('deadline' in original) throw Error('Private helper deadline unavailable');
+    return Date.now() + timeout;
+  }
+  if (!('value' in descriptor) || !Number.isSafeInteger(descriptor.value) || descriptor.value <= 0)
+    throw Error('Private helper deadline unavailable');
+  return Math.min(Date.now() + timeout, descriptor.value);
+}
 /** SAME runner, fixed private file program only. This is deliberately not a
  * public Bash option to skip Git/authority checks. No source/Git path is passed
  * to host AuthoritySnapshot or gitMetadataRoots. SRT itself normalizes literal
@@ -114,7 +126,7 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
     timeoutMs > 30000
   )
     throw Error('Private helper owner unavailable');
-  const deadline = Date.now() + timeoutMs;
+  const deadline = privateDeadline(original, timeoutMs);
   const current = () => {
     signal.throwIfAborted();
     if (Date.now() >= deadline) throw Error('Private helper owner unavailable');
@@ -139,7 +151,10 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
   const command = privateNativeFileHelperCommand(requestJson);
   const request = JSON.parse(requestJson);
   const cwd = privateData(options, 'cwd');
-  const inputRoots = privateArray(privateData(options, 'writableRoots'), 2);
+  const inputRoots = privateArray(
+    privateData(options, 'writableRoots'),
+    request.operation === 'CreateFileBatch' ? 7 : 2,
+  );
   const maxOutputBytes = privateData(options, 'maxOutputBytes');
   const deniedRoots = freezeNativeReadExclusions(
     privateArray(privateData(options, 'deniedRoots'), 256) as string[],
@@ -147,7 +162,8 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
   if (
     !privateLiteral(cwd) ||
     !Array.isArray(inputRoots) ||
-    inputRoots.length !== 2 ||
+    inputRoots.length !==
+      (request.operation === 'CreateFileBatch' ? request.items.length + 1 : 2) ||
     typeof maxOutputBytes !== 'number' ||
     !Number.isSafeInteger(maxOutputBytes) ||
     maxOutputBytes < 1 ||
@@ -181,15 +197,18 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
       });
     }),
   );
+  const targets = request.operation === 'CreateFileBatch' ? request.items : [request];
   if (
     new Set(roots.map((root) => root.path)).size !== roots.length ||
     !roots.some((root) => root.path === cwd && root.parentAnchor.rootPath === cwd) ||
-    !roots.some(
-      (root) =>
-        root.path === request.file_path &&
-        root.parentAnchor.rootPath === dirname(request.file_path) &&
-        root.parentAnchor.identity.dev === request.parentIdentity.dev &&
-        root.parentAnchor.identity.ino === request.parentIdentity.ino,
+    !targets.every((target: { file_path: string; parentIdentity: NativeReadAnchor['identity'] }) =>
+      roots.some(
+        (root) =>
+          root.path === target.file_path &&
+          root.parentAnchor.rootPath === dirname(target.file_path) &&
+          root.parentAnchor.identity.dev === target.parentIdentity.dev &&
+          root.parentAnchor.identity.ino === target.parentIdentity.ino,
+      ),
     ) ||
     JSON.stringify(deniedRoots) !==
       JSON.stringify(freezeNativeReadExclusions(request.deniedRoots)) ||
@@ -199,14 +218,17 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
           root.path === denied || root.path.startsWith(denied === '/' ? '/' : denied + '/'),
       ),
     ) ||
-    (['CreateFile', 'PublishTree'].includes(request.operation) &&
-      (request.payload.rootAnchor.rootPath !== cwd ||
-        !roots.some(
-          (root) =>
-            root.path === cwd &&
-            root.parentAnchor.identity.dev === request.payload.rootAnchor.identity.dev &&
-            root.parentAnchor.identity.ino === request.payload.rootAnchor.identity.ino,
-        )))
+    (['CreateFile', 'CreateFileBatch', 'PublishTree'].includes(request.operation) &&
+      !targets.every(
+        (target: { payload: { rootAnchor: NativeReadAnchor } }) =>
+          target.payload.rootAnchor.rootPath === cwd &&
+          roots.some(
+            (root) =>
+              root.path === cwd &&
+              root.parentAnchor.identity.dev === target.payload.rootAnchor.identity.dev &&
+              root.parentAnchor.identity.ino === target.payload.rootAnchor.identity.ino,
+          ),
+      ))
   )
     throw Error('Private helper scope unavailable');
   await revalidate(); // Full actual owner BEFORE any scope-touching host setup.
@@ -238,7 +260,10 @@ export async function executePrivateNativeFileHelper(options: PrivateNativeFileH
     failed = true;
   }
   try {
-    await revalidate(); // ALSO after rejected joined-worker/cleanup awaits.
+    const pending: unknown = Reflect.apply(async, original, []);
+    if (!(pending instanceof Promise) || (await pending) !== undefined)
+      throw Error('Private helper owner unavailable');
+    current(); // ALSO after rejected joined-worker/cleanup awaits and absolute expiry.
     current();
   } catch {
     throw Error('Private native file helper unavailable');
@@ -257,6 +282,8 @@ export interface PrivateRepositoryStagingCheckoutOptions {
   readonly deniedRoots: readonly string[];
   readonly signal: AbortSignal;
   readonly timeoutMs: number;
+  /** Restrictive absolute expiry from the genuine consumed operation. */
+  readonly deadline?: number;
   assertCurrentSync(): void;
   revalidate(): Promise<void>;
 }
@@ -307,7 +334,7 @@ export async function executePrivateRepositoryStagingCheckout(
     typeof ino !== 'string'
   )
     throw Error('Private checkout unavailable');
-  const deadline = Date.now() + timeout;
+  const deadline = privateDeadline(options, timeout);
   const current = () => {
     signal.throwIfAborted();
     if (Date.now() >= deadline) throw Error('Private checkout unavailable');
@@ -432,8 +459,10 @@ export async function executePrivateRepositoryStagingCheckout(
   } catch {
     failed = true;
   }
-  await revalidate(); // Also after joined failures/cleanup; never replay.
-  current();
+  const joinedOwner: unknown = Reflect.apply(async, options, []);
+  if (!(joinedOwner instanceof Promise) || (await joinedOwner) !== undefined)
+    throw Error('Private checkout unavailable');
+  current(); // Also after joined failures/cleanup and absolute expiry; never replay.
   if (failed) throw Error('Private checkout unavailable');
 }
 

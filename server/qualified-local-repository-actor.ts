@@ -19,7 +19,8 @@ import {
 } from './sandboxed-command.js';
 import {
   createNativeExclusiveDirectory,
-  createNativeExclusiveFile,
+  createNativeExclusiveFileBatch,
+  type NativeExclusiveFileRequest,
   createNativeExclusiveTree,
   freezeNativeReadExclusions,
   type NativeFileHelperTransport,
@@ -47,15 +48,18 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
   readonly context: NativeHostToolContext;
   readonly facts: LocalRepositoryAllocationFacts;
   readonly factsSha256: string;
+  readonly expiresAt: number;
   assertCurrentSync(): void;
   assertCurrent(): Promise<void>;
 }) {
-  const { context, facts, factsSha256 } = operation;
+  const { context, facts, factsSha256, expiresAt } = operation;
+  if (!Number.isSafeInteger(expiresAt) || expiresAt <= Date.now()) throw unavailable();
   const owner = captureNativeHostReadOwner(context);
   if (!owner || !facts.existingDirectories || facts.existingDirectories.length > 10)
     throw unavailable();
   const current = () => {
     context.signal.throwIfAborted();
+    if (Date.now() >= expiresAt) throw unavailable();
     operation.assertCurrentSync();
     owner.assertCurrentSync();
   };
@@ -140,6 +144,7 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       deniedRoots: denied,
       signal: context.signal,
       timeoutMs: 30000,
+      deadline: expiresAt,
       assertCurrentSync: current,
       revalidate: full,
     });
@@ -159,20 +164,20 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       entries.push(Object.freeze({ ...entry, identity: await identity(path) }));
     }
     current();
-    const transport =
-      (target: string, parent: NativeReadAnchor): NativeFileHelperTransport =>
+    const transportMany =
+      (
+        targets: readonly { path: string; parentAnchor: NativeReadAnchor }[],
+      ): NativeFileHelperTransport =>
       async (invocation) => {
         current();
         const result = await executePrivateNativeFileHelper({
           requestJson: invocation.requestJson,
           cwd: scratch,
-          writableRoots: [
-            { path: scratch, parentAnchor: scratchAnchor },
-            { path: target, parentAnchor: parent },
-          ],
+          writableRoots: [{ path: scratch, parentAnchor: scratchAnchor }, ...targets],
           deniedRoots: denied,
           signal: context.signal,
           timeoutMs: invocation.timeoutMs,
+          deadline: expiresAt,
           maxOutputBytes: invocation.maxOutputBytes,
           assertCurrentSync: current,
           revalidate: full,
@@ -180,6 +185,8 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
         current();
         return { stdout: result.stdout ?? '', isError: result.isError };
       };
+    const transport = (target: string, parent: NativeReadAnchor) =>
+      transportMany([{ path: target, parentAnchor: parent }]);
     const createDirectory = async (path: string, originalRoot: NativeReadAnchor) => {
       const parentPath = dirname(path),
         parentId = known.get(parentPath);
@@ -234,36 +241,31 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
       30000,
       transport(task, facts.taskRoot),
     );
+    const metadataFiles: NativeExclusiveFileRequest[] = [];
     const publish = async (path: string, bytes: Buffer) => {
       const parentId = known.get(dirname(path));
       if (!parentId) throw unavailable();
       current();
-      const payload = join(scratch, `publication-${files.length}`);
+      const payload = join(scratch, `publication-${metadataFiles.length}`);
       await writeFile(payload, bytes, { flag: 'wx', mode: 0o600 });
       current();
-      const parent = { rootPath: dirname(path), identity: parentId };
-      const created = await createNativeExclusiveFile(
-        {
+      metadataFiles.push(
+        Object.freeze({
           file_path: path,
           rootAnchor: path === join(task, '.git') ? facts.taskRoot : facts.source.commonAnchor,
           parentIdentity: parentId,
           expectedAbsent: true,
           deniedRoots: denied,
-          payload: {
+          payload: Object.freeze({
             file_path: payload,
             rootAnchor: scratchAnchor,
             parentIdentity: scratchAnchor.identity,
             identity: await identity(payload),
             size: bytes.length,
             sha256: sha(bytes),
-          },
-        },
-        context.signal,
-        30000,
-        transport(path, parent),
+          }),
+        }),
       );
-      current();
-      files.push(created);
     };
     // The generated index is an owned private output, never source index bytes.
     const indexFile = await open(
@@ -293,6 +295,19 @@ export async function materializeQualifiedLocalRepositoryTask(operation: {
     await publish(join(admin, 'index'), index);
     await publish(reference, Buffer.from(facts.baseOid + '\n'));
     await publish(join(task, '.git'), Buffer.from(`gitdir: ${admin}\n`));
+    const receipts = await createNativeExclusiveFileBatch(
+      { items: Object.freeze(metadataFiles), deniedRoots: denied },
+      context.signal,
+      30000,
+      transportMany(
+        metadataFiles.map((item) => ({
+          path: item.file_path,
+          parentAnchor: { rootPath: dirname(item.file_path), identity: item.parentIdentity },
+        })),
+      ),
+    );
+    current();
+    files.push(...receipts);
     publication = snapshotQualifiedLocalRepositoryPublication({ version: 1, directories, files });
   } finally {
     try {
