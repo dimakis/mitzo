@@ -1772,7 +1772,7 @@ export function DesktopChatView() {
                                 ).reason
                             : undefined
                     }
-                    savedChatDraft={savedChatDraft}
+                    savedChatDraft={launch ? undefined : savedChatDraft}
                     composerGeneration={chatDraftRevision}
                     key={
                       repositoryHandoff.present

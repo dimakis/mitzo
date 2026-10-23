@@ -1,3 +1,4 @@
+import { enableBriefingRuntime } from '../support/briefing-owned-runtime';
 import { waitForNewFixtureReads } from '../support/fixture-reads';
 import { settingRow, chooseSetting, openChatSetting } from '../support/chat-settings';
 import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
@@ -1351,6 +1352,7 @@ for (const theme of ['dark', 'light']) {
     isMobile,
   }, testInfo) => {
     const fixture = await offline(page);
+    await enableBriefingRuntime(page);
     const base = savedDraft('unsent-launch', 'Explore this saved morning briefing');
     const launch = {
       prompt: base.text,
@@ -1381,14 +1383,14 @@ for (const theme of ['dark', 'light']) {
     await page.route('**/api/home/briefing-chats*', (route) => route.fulfill({ json: [] }));
     // Finish the account-bound catalogue before the next document navigation.
     // WebKit reports an intercepted fetch aborted by reload as a page error.
-    await waitForNewFixtureReads(page, ['/api/repository-workspaces/catalog'], () =>
+    await waitForNewFixtureReads(page, ['/api/chat/runtime/capabilities'], () =>
       page.goto('/chat?draft=unsent-launch'),
     );
     await expect(
       page.getByRole('button', { name: 'Send launch prompt', exact: true }),
     ).toBeVisible();
     await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();
-    await waitForNewFixtureReads(page, ['/api/repository-workspaces/catalog'], () => page.reload());
+    await waitForNewFixtureReads(page, ['/api/chat/runtime/capabilities'], () => page.reload());
     await expect(
       page.getByRole('button', { name: 'Send launch prompt', exact: true }),
     ).toBeVisible();

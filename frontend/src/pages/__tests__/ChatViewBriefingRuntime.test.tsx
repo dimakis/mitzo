@@ -346,3 +346,44 @@ for (const Page of [ChatView, DesktopChatView]) {
     expect(view.send).not.toHaveBeenCalled();
   });
 }
+
+for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} keeps typed launch follow-up text under its existing owner while an owned receipt is pending`, async () => {
+    const { draft, inventory } = briefingFixture();
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      Response.json(String(url).includes('/capabilities') ? inventory : []),
+    );
+    const view = mount(Page, `/chat?draft=${draft.id}`);
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Send launch prompt' })).toHaveProperty(
+        'disabled',
+        false,
+      ),
+    );
+    view.owned.mockImplementation((request, opts) =>
+      launchDraftDelivery.prepare(
+        (opts as { draftId: string }).draftId,
+        request as Record<string, unknown>,
+      ),
+    );
+    const input = screen.getByRole('textbox', { name: 'Message Mitzo' });
+    fireEvent.change(input, { target: { value: 'Keep my independent unsent follow-up' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send launch prompt' }));
+    await waitFor(() => expect(view.owned).toHaveBeenCalledTimes(1));
+    expect(input).toHaveProperty('value', 'Keep my independent unsent follow-up');
+    view.unmount();
+    mount(Page, `/chat?draft=${draft.id}`);
+    await waitFor(() =>
+      expect(screen.getByRole('textbox', { name: 'Message Mitzo' })).toHaveProperty(
+        'value',
+        'Keep my independent unsent follow-up',
+      ),
+    );
+    expect(screen.getByRole('button', { name: 'Send launch prompt' })).toHaveProperty(
+      'disabled',
+      true,
+    );
+    expect(getChatDraft(draft.id)?.settings.launch?.prompt).toBe(draft.text);
+    expect(view.send).not.toHaveBeenCalled();
+  });
+}
