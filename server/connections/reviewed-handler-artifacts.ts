@@ -10,7 +10,8 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.571-private-helper-output';
+export const reviewedConnectionsRuntimeImplementationRevision =
+  'v1.0.572-native-read-anchor-capture';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/native-read-anchor-capture.test.ts':
+    'd592bc4d8200955a98d911299c72b5cc00a6df9ab48e81e65ae3f4976c61b842',
   '../__tests__/sandboxed-command-private-output.test.ts':
     'a2169291ec705b7d15341519df8f5f1309e39d46008cbd5962e59efa1236cc6c',
   '../../implementation-evidence/codex-native-macos-permission-kernel-0.160.0.json':
@@ -728,7 +731,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-permission-revision.ts':
     'cf71bb38e2008352cbccfd22aae88f747625a3533c26aad22537d9509c11a26a',
   '../auth.ts': '5486a4a5312d8214d94d981278a08aaf30e3a24c116023d954aa83b010bb0c14',
-  '../native-file-operation.ts': 'e816dd0eb4f632ecbb696026ea1e36170c5540a3cccdab8a8c4c3306772257f8',
+  '../native-file-operation.ts': 'a068f287771160591e49fbf6f6b35c8313e421a19b3ddac686e86b696ce568d0',
   '../sandboxed-command.ts': '8971204f19d4c7d8b945ed30c4494d24f73a7f0b99d477ca257a3b2419ea884d',
   '../../packages/client/src/sse-connection.ts':
     '03fef53de70e3594cb948ac6ecbfe010979043411c658446eb5e2217911a38ce',

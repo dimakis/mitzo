@@ -6,6 +6,29 @@ import { execFile } from 'node:child_process';
 const helper = String.raw`
 import base64, json, os, stat, sys, time
 
+def capture_read_anchor(request):
+    path = request['file_path']
+    parts = [part for part in path.split('/') if part]
+    deadline = time.monotonic() + request['timeoutMs'] / 1000
+    if os.open not in os.supports_dir_fd or not hasattr(os, 'O_NOFOLLOW'):
+        raise RuntimeError('Anchored native reads unavailable')
+    if any(path == root or path.startswith(root.rstrip('/') + '/') for root in request['deniedRoots']):
+        raise RuntimeError('Anchored read unavailable')
+    directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for part in parts:
+            if time.monotonic() >= deadline:
+                raise RuntimeError('Anchored read deadline exceeded')
+            next_directory = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+            os.close(directory)
+            directory = next_directory
+        info = os.fstat(directory)
+        if not stat.S_ISDIR(info.st_mode) or time.monotonic() >= deadline:
+            raise RuntimeError('Anchored read unavailable')
+        return json.dumps({'rootPath': path, 'identity': {'dev': str(info.st_dev), 'ino': str(info.st_ino)}})
+    finally:
+        os.close(directory)
+
 def anchored_read(request):
     deadline = time.monotonic() + request['timeoutMs'] / 1000
     def check():
@@ -140,6 +163,8 @@ def anchored_read(request):
         os.close(directory)
 
 def execute(request):
+    if request['operation'] == 'CaptureReadAnchor':
+        return capture_read_anchor(request)
     if request['operation'] in ('ReadBytes', 'ListDirectory', 'ReadLink'):
         return anchored_read(request)
     if os.open not in os.supports_dir_fd or not hasattr(os, 'O_NOFOLLOW'):
@@ -238,6 +263,9 @@ export function executeNativeFileOperation(
     content?: string;
     old_string?: string;
     new_string?: string;
+    /** Private CaptureReadAnchor arguments, never legacy model-tool options. */
+    deniedRoots?: readonly string[];
+    timeoutMs?: number;
   },
   signal: AbortSignal,
   timeoutMs = 30_000,
@@ -253,11 +281,13 @@ export function executeNativeFileOperation(
         signal,
         timeout: timeoutMs,
         maxBuffer:
-          request.operation === 'ListDirectory'
-            ? 8 * 1024 * 1024
-            : request.operation === 'ReadBytes'
-              ? Math.ceil(request.limit / 3) * 4 + 1024
-              : Math.max(1024 * 1024, request.limit * 12 + 1024),
+          request.operation === 'CaptureReadAnchor'
+            ? 32768
+            : request.operation === 'ListDirectory'
+              ? 8 * 1024 * 1024
+              : request.operation === 'ReadBytes'
+                ? Math.ceil(request.limit / 3) * 4 + 1024
+                : Math.max(1024 * 1024, request.limit * 12 + 1024),
       },
       (error, stdout) => {
         if (error) {
@@ -335,6 +365,73 @@ export function freezeNativeReadExclusions(value: unknown): readonly string[] {
       throw Error('Actual read exclusions unavailable');
   }
   return Object.freeze([...value]);
+}
+
+/** Private directory fact capture only. The original read owner must qualify
+ * path access before calling; this identity is neither a grant nor a lease. */
+export async function captureNativeReadAnchor(
+  request: { file_path: string; deniedRoots: readonly string[] },
+  signal: AbortSignal,
+  timeoutMs = 30_000,
+): Promise<NativeReadAnchor> {
+  signal.throwIfAborted();
+  const path = request.file_path;
+  const unavailable = () => Error('Anchored native read unavailable');
+  let deniedRoots: readonly string[];
+  try {
+    deniedRoots = freezeNativeReadExclusions(request.deniedRoots);
+  } catch {
+    throw unavailable();
+  }
+  if (
+    !validNativeReadPath(path) ||
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs <= 0 ||
+    timeoutMs > 30_000 ||
+    deniedRoots.some((root) => path === root || path.startsWith(root === '/' ? '/' : root + '/'))
+  )
+    throw unavailable();
+  try {
+    const result = await executeNativeFileOperation(
+      {
+        operation: 'CaptureReadAnchor',
+        file_path: path,
+        deniedRoots,
+        timeoutMs,
+        identity: null,
+        parentIdentity: { dev: '0', ino: '0' },
+        limit: 1,
+      },
+      signal,
+      timeoutMs,
+    );
+    signal.throwIfAborted();
+    if (result.is_error || result.content.length > 8192) throw unavailable();
+    const value: unknown = JSON.parse(result.content);
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      !('rootPath' in value) ||
+      value.rootPath !== path ||
+      !('identity' in value) ||
+      !value.identity ||
+      typeof value.identity !== 'object' ||
+      !('dev' in value.identity) ||
+      typeof value.identity.dev !== 'string' ||
+      !/^\d{1,32}$/.test(value.identity.dev) ||
+      !('ino' in value.identity) ||
+      typeof value.identity.ino !== 'string' ||
+      !/^\d{1,32}$/.test(value.identity.ino)
+    )
+      throw unavailable();
+    return Object.freeze({
+      rootPath: path,
+      identity: Object.freeze({ dev: value.identity.dev, ino: value.identity.ino }),
+    });
+  } catch {
+    signal.throwIfAborted();
+    throw unavailable();
+  }
 }
 
 /** Private filesystem primitive only. This is not a model tool or a grant. */
