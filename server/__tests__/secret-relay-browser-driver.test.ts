@@ -49,3 +49,22 @@ it('requires an authenticated verification response without exposing its body', 
       verifyBrowserResponse(verification, status as number, Buffer.from(body as string)),
     ).toThrow('Private browser verification failed');
 });
+
+it('refuses browser debug logging and launches with a minimal environment and network fallback barrier', async () => {
+  const { privateBrowserLaunchOptions } = await import('../secret-relay-browser-driver.js');
+  for (const env of [
+    { DEBUG: '*' },
+    { PWDEBUG: '1' },
+    { PW_TEST_CONNECT_WS_ENDPOINT: 'ws://remote' },
+  ])
+    expect(() => privateBrowserLaunchOptions(env)).toThrow();
+  const launch = privateBrowserLaunchOptions({
+    PATH: '/usr/bin',
+    HOME: '/private/test-home',
+    LANG: 'en_US.UTF-8',
+    PRODUCTION_TOKEN: 'private-fixture',
+  });
+  expect(launch.env).toEqual({ PATH: '/usr/bin', HOME: '/private/test-home', LANG: 'en_US.UTF-8' });
+  expect(launch.proxy).toEqual({ server: 'http://127.0.0.1:9', bypass: '<-loopback>' });
+  expect(launch.chromiumSandbox).toBe(true);
+});

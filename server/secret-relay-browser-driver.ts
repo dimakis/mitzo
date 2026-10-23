@@ -3,7 +3,7 @@ import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { brotliDecompressSync, gunzipSync, inflateSync } from 'node:zlib';
-import { chromium, type Browser } from 'playwright-core';
+import { chromium, type Browser, type LaunchOptions } from 'playwright-core';
 import { isAllowedConnectionAddress } from './credential-http.js';
 import {
   assertBrowserGate,
@@ -180,6 +180,41 @@ export function verifyBrowserResponse(
     throw new Error('Private browser verification failed');
   }
 }
+export function privateBrowserLaunchOptions(env: NodeJS.ProcessEnv): LaunchOptions {
+  if (
+    Object.entries(env).some(
+      ([key, value]) =>
+        value && (key === 'DEBUG' || key === 'PWDEBUG' || key.startsWith('PW_TEST_')),
+    )
+  )
+    throw new Error(
+      'Private browser requires debug logging and external browser attachment to be disabled',
+    );
+  const safe: Record<string, string> = {};
+  for (const key of [
+    'PATH',
+    'HOME',
+    'LANG',
+    'LC_ALL',
+    'TMPDIR',
+    'TEMP',
+    'TMP',
+    'SystemRoot',
+    'WINDIR',
+  ])
+    if (env[key]) safe[key] = env[key]!;
+  return {
+    headless: true,
+    chromiumSandbox: true,
+    env: safe,
+    proxy: { server: 'http://127.0.0.1:9', bypass: '<-loopback>' },
+    args: [
+      '--disable-quic',
+      '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+      '--disable-features=WebRtcHideLocalIpsWithMdns',
+    ],
+  };
+}
 /** No external browser/CDP attachment, persistent profile, screenshots, tracing,
  * downloads or state export. Unknown traffic fails closed at two boundaries:
  * context routing and an unreachable proxy for any browser-internal bypass. */
@@ -188,15 +223,7 @@ export async function createPrivateRelayBrowser(
   options: { send?: BrowserSend; launch?: () => Promise<Browser> } = {},
 ): Promise<PrivateBrowserDriver> {
   const browser = await (options.launch?.() ??
-    chromium.launch({
-      headless: true,
-      proxy: { server: 'http://127.0.0.1:9', bypass: '<-loopback>' },
-      args: [
-        '--disable-quic',
-        '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
-        '--disable-features=WebRtcHideLocalIpsWithMdns',
-      ],
-    }));
+    chromium.launch(privateBrowserLaunchOptions(process.env)));
   try {
     const context = await browser.newContext({
       serviceWorkers: 'block',

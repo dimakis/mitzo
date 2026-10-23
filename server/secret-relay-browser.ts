@@ -118,7 +118,7 @@ export async function assertBrowserGate(gate: BrowserGate) {
   gate.check();
 }
 export function browserRequestAllowed(
-  target: Pick<BrowserRelayTarget, 'origin' | 'requests'>,
+  target: { origin: string; requests: Array<{ path: string; methods: readonly string[] }> },
   value: string,
   method: string,
 ) {
@@ -128,7 +128,7 @@ export function browserRequestAllowed(
     requestTarget({ endpoint: target.origin, paths: ['/'] }, url.pathname + url.search);
     return target.requests.some(
       (r) =>
-        r.methods.includes(method as never) &&
+        r.methods.includes(method) &&
         (url.pathname === r.path || (r.path.endsWith('/') && url.pathname.startsWith(r.path))),
     );
   } catch {
