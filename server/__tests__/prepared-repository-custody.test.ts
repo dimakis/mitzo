@@ -434,3 +434,188 @@ it('rejects an adopted witness when the retained original decision input is repl
     .run(JSON.stringify(adopted), adopted.id);
   expect(() => f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId)).toThrow();
 });
+
+it('rejects stale repository saves, release and recovery without resurrecting historical custody', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  const old = f.service.get(f.old.id),
+    oldRaw = f.raw(f.old.id).record;
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  const currentRaw = f.raw(p.record.id);
+  const persistence = f.service as unknown as {
+    save(record: RepositoryWorkspace, expectedRecord?: string): void;
+  };
+  old.sourceReleased = true;
+  expect(() => persistence.save(old, oldRaw)).toThrow();
+  expect(() => persistence.save(old)).toThrow();
+  await expect(f.service.releaseSource(old.id, binding, f.conversationId)).rejects.toThrow();
+  const reservation = {
+    id: old.id,
+    binding,
+    conversationId: f.conversationId,
+    taskRoot: f.taskRoot,
+    runtimeBinding: runtime,
+    commandFingerprint: 'e'.repeat(64),
+    signal: signal(),
+  };
+  await expect(f.service.reserveHostTask(reservation)).rejects.toThrow();
+  await expect(f.service.claimReservedHostTask(reservation)).rejects.toThrow();
+  await expect(f.service.validateHostTask(f.conversationId, f.old.directory)).rejects.toThrow();
+  expect(f.raw(p.record.id)).toEqual(currentRaw);
+  expect(f.raw(old.id).conversation_id).toBeNull();
+  expect(readFileSync(join(f.old.directory, 'dirty.txt'), 'utf8')).toBe('Unfinished original task');
+  await f.service.releaseSource(p.record.id, binding, f.conversationId);
+  expect(() =>
+    f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId),
+  ).not.toThrow();
+});
+
+it('prevents a release started before transfer from saving its stale captured record after await', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  // releaseSource reaches its actual asynchronous rm before returning the promise.
+  const released = f.service.releaseSource(f.old.id, binding, f.conversationId);
+  const settled = released.then(
+    () => ({ allowed: true }),
+    () => ({ allowed: false }),
+  );
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {});
+  expect(await settled).toEqual({ allowed: false });
+  expect(f.raw(f.old.id).conversation_id).toBeNull();
+  expect(f.service.getForConversation(f.conversationId)?.id).toBe(p.record.id);
+  expect(() =>
+    f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId),
+  ).not.toThrow();
+  expect(readFileSync(join(f.old.directory, 'dirty.txt'), 'utf8')).toBe('Unfinished original task');
+});
+
+it.each(['ordinary', 'repository'] as const)(
+  'rolls back reentrant guarded changes to the exact %s owner',
+  async (kind) => {
+    const f = await fixture(kind),
+      p = await f.pending();
+    const table = kind === 'ordinary' ? 'ordinary_workspaces' : 'repository_workspaces';
+    const before = f.db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(f.old.id);
+    const internal = (f.service as unknown as { db: Database.Database }).db;
+    expect(() =>
+      f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, () => {
+        internal
+          .prepare(`UPDATE ${table} SET record=? WHERE id=?`)
+          .run(JSON.stringify({ changed: true }), f.old.id);
+      }),
+    ).toThrow();
+    expect(f.db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(f.old.id)).toEqual(before);
+    expect(f.raw(p.record.id)).toEqual(p.before);
+  },
+);
+
+it('requires strict fresh synchronous authority and immutable exact facts before any pointer change', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  const before = f.raw(f.old.id);
+  const guards = [
+    () => false,
+    async () => {},
+    () => {
+      throw Error('revoked');
+    },
+  ];
+  for (const guard of guards) {
+    expect(() => f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, guard)).toThrow();
+    expect(f.raw(f.old.id)).toEqual(before);
+    expect(f.raw(p.record.id)).toEqual(p.before);
+  }
+  const guard = vi.fn(() => {});
+  expect(() =>
+    f.service.adoptPreparedRepositoryTransition(structuredClone(p.facts), p.childId, guard),
+  ).toThrow();
+  expect(() =>
+    f.service.adoptPreparedRepositoryTransition(p.facts, p.childId + '-wrong', guard),
+  ).toThrow();
+  expect(guard).not.toHaveBeenCalled();
+});
+
+it('retains full original row evidence, rejects bounded snapshot overflow and every retained-proof drift', async () => {
+  const f = await fixture(),
+    p = await f.pending();
+  const large = { ...p.record, unknownRetainedData: 'x'.repeat(262144) };
+  f.db
+    .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+    .run(JSON.stringify(large), large.id);
+  const largeFacts = freezePendingHostTaskData({
+    ...p.facts,
+    materializedRecordSha256: pendingHostTaskDecisionHash(large),
+  });
+  const guard = vi.fn(() => {});
+  expect(() => f.service.adoptPreparedRepositoryTransition(largeFacts, p.childId, guard)).toThrow();
+  expect(guard).not.toHaveBeenCalled();
+  f.db
+    .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+    .run(p.before.record, p.record.id);
+  f.service.adoptPreparedRepositoryTransition(p.facts, p.childId, guard);
+  const adopted = f.service.get(p.record.id),
+    before = f.raw(p.record.id);
+  const mutations: Array<(r: RepositoryWorkspace) => void> = [
+    (r) => {
+      r.pendingHostTaskDecision!.evidence.sessionId = 'another-conversation';
+    },
+    (r) => {
+      r.pendingHostTaskDecision!.evidence.toolUseID = 'another-call';
+    },
+    (r) => {
+      r.pendingHostTask!.rootIdentity.ino++;
+    },
+    (r) => {
+      r.hostReservation!.rootIdentity.ino++;
+    },
+    (r) => {
+      r.hostReservation!.taskRoot = f.root;
+    },
+    (r) => {
+      Object.assign(r, { unknownFutureData: { changed: true } });
+    },
+    (r) => {
+      r.localSource!.path = f.root;
+    },
+  ];
+  for (const mutate of mutations) {
+    const changed = structuredClone(adopted);
+    mutate(changed);
+    f.db
+      .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+      .run(JSON.stringify(changed), changed.id);
+    expect(() => f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId)).toThrow();
+    f.db
+      .prepare('UPDATE repository_workspaces SET record=? WHERE id=?')
+      .run(before.record, p.record.id);
+  }
+  expect(() =>
+    f.service.assertPreparedRepositoryTransitionAdopted(p.facts, p.childId),
+  ).not.toThrow();
+});
+
+it('permits a fresh preparation for a revisited repository source, never reattaches its retired exact task', async () => {
+  const f = await fixture(),
+    first = await f.pending();
+  f.service.adoptPreparedRepositoryTransition(first.facts, first.childId, () => {});
+  const second = await f.pending({
+    kind: 'repository',
+    id: first.record.id,
+    directory: first.facts.newWorkspace.directory,
+  });
+  f.service.adoptPreparedRepositoryTransition(second.facts, second.childId, () => {});
+  expect(f.service.getForConversation(f.conversationId)?.id).toBe(second.record.id);
+  expect(f.service.get(first.record.id).conversationId).toBe(f.conversationId);
+  expect(f.raw(first.record.id).conversation_id).toBeNull();
+  expect(() =>
+    f.service.assertPreparedRepositoryTransitionAdopted(first.facts, first.childId),
+  ).toThrow();
+  const guard = vi.fn(() => {});
+  expect(() =>
+    f.service.adoptPreparedRepositoryTransition(first.facts, first.childId, guard),
+  ).toThrow();
+  expect(guard).not.toHaveBeenCalled();
+  expect(() =>
+    f.service.assertPreparedRepositoryTransitionAdopted(second.facts, second.childId),
+  ).not.toThrow();
+});
