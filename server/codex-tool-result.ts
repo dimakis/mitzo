@@ -93,7 +93,7 @@ export function codexToolResultContentItems(result: CodexToolResult): CodexToolC
 function boundedText(text: string, remaining: number): string {
   if (Buffer.byteLength(text) <= remaining) return text;
   const marker = '\n[Output truncated]';
-  if (remaining < Buffer.byteLength(marker)) return '';
+  if (remaining < Buffer.byteLength(marker)) throw new CodexToolResultBoundError();
   const bytes = Buffer.from(text);
   let end = remaining - Buffer.byteLength(marker);
   while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;

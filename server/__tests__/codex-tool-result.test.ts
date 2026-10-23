@@ -98,6 +98,55 @@ describe('Codex product tool image results', () => {
     ).toBe(true);
   });
 
+  it.each([
+    { prefix: 'x'.repeat(65_535), trailing: 'required trailing text' },
+    { prefix: 'x'.repeat(65_534), trailing: 'é' },
+    { prefix: '😀'.repeat(16_383) + 'xxx', trailing: 'Ω' },
+  ])(
+    'refuses rich output when omitted trailing text cannot be marked (%#)',
+    ({ prefix, trailing }) => {
+      const result = normalizeMcpToolResult(
+        [{ type: 'text', text: prefix }, image, { type: 'text', text: trailing }],
+        false,
+      );
+      expect(result).toEqual({
+        content: 'Tool output exceeds the supported result bound. Request a smaller result.',
+        isError: true,
+      });
+    },
+  );
+
+  it('preserves the exact UTF-8 multi-block projection at the complete text bound', () => {
+    const prefix = 'x'.repeat(65_533);
+    const result = normalizeMcpToolResult(
+      [{ type: 'text', text: prefix }, image, { type: 'text', text: 'é' }],
+      false,
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe(`${prefix}\né`);
+    expect(Buffer.byteLength(result.content)).toBe(65_536);
+    expect(codexToolResultContentItems(result)).toEqual([
+      { type: 'inputText', text: prefix },
+      { type: 'inputImage', imageUrl: `data:image/png;base64,${png}` },
+      { type: 'inputText', text: 'é' },
+    ]);
+  });
+
+  it('keeps explicit UTF-8-safe truncation when the last block has marker space', () => {
+    const result = normalizeMcpToolResult(
+      [{ type: 'text', text: 'before' }, image, { type: 'text', text: '😀'.repeat(32_768) }],
+      false,
+    );
+    expect(result.isError).toBe(false);
+    expect(result.content).toMatch(/^before\n😀+\n\[Output truncated\]$/u);
+    expect(result.content).not.toContain('\uFFFD');
+    expect(Buffer.byteLength(result.content)).toBeLessThanOrEqual(65_536);
+    expect(codexToolResultContentItems(result)[1]).toEqual({
+      type: 'inputImage',
+      imageUrl: `data:image/png;base64,${png}`,
+    });
+  });
+
   it('rejects corrupt native payloads rather than downgrading stored rich receipts', () => {
     expect(() =>
       normalizeCodexToolResult({
