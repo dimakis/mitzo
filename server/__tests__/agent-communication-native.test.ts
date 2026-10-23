@@ -18,7 +18,9 @@ import {
 import { bindAgentToolSelection } from '../agent-tool-selection.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import { EventStore } from '../event-store.js';
-import { CodexConversation } from '../codex-conversation.js';
+import { CodexConversation, type CodexConversationOptions } from '../codex-conversation.js';
+import { composeOwnedLocalNativeExecutionPolicy } from '../owned-local-codex-native-policy.js';
+import { createCodexNativeApprovalHandler } from '../codex-native-approvals.js';
 import type { CodexLifecycleTransport } from '../codex-app-server-client.js';
 import {
   OrdinaryLocalCodexOwnedRuntime,
@@ -32,6 +34,17 @@ import {
 
 const cleanups: Array<() => void | Promise<void>> = [];
 const revocations = new EventStore(':memory:');
+type NativeCall = Parameters<CodexConversationOptions['executeTool']>[3];
+type ReadScopeFault =
+  | 'tuple'
+  | 'call'
+  | 'tool'
+  | 'hash'
+  | 'async-assertion'
+  | 'async-capture'
+  | 'getter-facet'
+  | 'getter-data'
+  | 'enumerable-facet';
 setAuthRevocationStore(revocations);
 afterAll(() => revocations.close());
 afterEach(async () => {
@@ -45,9 +58,15 @@ afterEach(async () => {
 // Only external native process/RPC effects use the existing synthetic fixture.
 async function fixture(
   options: {
-    observe?: (scope: NativeHostToolContext) => void | Promise<void>;
+    observe?: (scope: NativeHostToolContext, invocation: NativeCall) => void | Promise<void>;
     assertExtra?: () => unknown;
     cloneCall?: boolean;
+    nativeBaseReads?: boolean;
+    nativePolicyCheck?: () => unknown;
+    /** Defensive fault injection inside a genuine verified callback. These
+     * malformed server facets are not evidence of production authority. */
+    readScopeFault?: ReadScopeFault;
+    onReadScopeGetter?: () => void;
   } = {},
 ) {
   const f = await ownedRuntimeFixture(cleanups, {
@@ -163,6 +182,14 @@ async function fixture(
             await handles.get(target.sessionId!)!.conversation.startQueued();
           },
         });
+        const selectedNativePolicy = () =>
+          composeOwnedLocalNativeExecutionPolicy({
+            session,
+            binding: dispatch.lease.binding,
+            readableRoots: [dispatch.workspace.directory!],
+            assertCurrentSync: () => dispatch.admission.assertCurrentSync(),
+          });
+        const nativeExecution = options.nativeBaseReads ? selectedNativePolicy() : undefined;
         conversation = new CodexConversation({
           conversationId: sessionId,
           cwd: dispatch.workspace.directory!,
@@ -178,6 +205,26 @@ async function fixture(
             return dispatch.admission.attach(cb);
           },
           emit: (event) => f.events.append(sessionId, event.type as string, event),
+          ...(nativeExecution
+            ? {
+                nativeExecution,
+                resolveNativeExecutionPolicy: async () => selectedNativePolicy(),
+                assertNativeExecutionCurrent: (policy: NonNullable<typeof nativeExecution>) => {
+                  dispatch.admission.assertCurrentSync();
+                  if (selectedNativePolicy().policyRevision !== policy.policyRevision)
+                    throw Error('Original selected native read policy changed');
+                  return options.nativePolicyCheck?.();
+                },
+                requestNativeApproval: createCodexNativeApprovalHandler({
+                  clientId,
+                  registry,
+                  runtimeId,
+                  environmentId: 'local',
+                  deniedRoots: nativeExecution.deniedRoots,
+                  writeProtectedRoots: nativeExecution.writeProtectedRoots,
+                }),
+              }
+            : {}),
           verifyBinding: async () => {
             await dispatch.admission.assertCurrent();
             return dispatch.lease.binding;
@@ -204,6 +251,54 @@ async function fixture(
                 isError: false,
               };
             const meta = f.events.getSession(sessionId)!;
+            let contextCall = options.cloneCall ? Object.freeze(structuredClone(call)) : call;
+            if (options.readScopeFault) {
+              const capture = call.captureNativeBaseReadScope!;
+              const faulty = { turnId: call.turnId, callId: call.callId };
+              Object.defineProperty(
+                faulty,
+                'assertCurrentSync',
+                Object.getOwnPropertyDescriptor(call, 'assertCurrentSync')!,
+              );
+              if (options.readScopeFault === 'getter-facet')
+                Object.defineProperty(faulty, 'captureNativeBaseReadScope', {
+                  get() {
+                    options.onReadScopeGetter?.();
+                    return capture;
+                  },
+                });
+              else
+                Object.defineProperty(faulty, 'captureNativeBaseReadScope', {
+                  enumerable: options.readScopeFault === 'enumerable-facet',
+                  value: Object.freeze(() => {
+                    const original = capture.call(call);
+                    if (options.readScopeFault === 'async-capture')
+                      return Promise.resolve(original);
+                    const value = { ...original };
+                    if (options.readScopeFault === 'tuple')
+                      value.nativeTarget = Object.freeze({
+                        ...original.nativeTarget,
+                        generation: original.nativeTarget.generation + 1,
+                      });
+                    if (options.readScopeFault === 'call') value.callId = 'different-call';
+                    if (options.readScopeFault === 'tool') value.toolName = 'OtherTool';
+                    if (options.readScopeFault === 'hash') value.requestHash = 'f'.repeat(64);
+                    if (options.readScopeFault === 'async-assertion')
+                      value.assertCurrentSync = Object.freeze(async () => {
+                        original.assertCurrentSync();
+                      });
+                    if (options.readScopeFault === 'getter-data')
+                      Object.defineProperty(value, 'readableRoots', {
+                        get() {
+                          options.onReadScopeGetter?.();
+                          return original.readableRoots;
+                        },
+                      });
+                    return Object.freeze(value);
+                  }),
+                });
+              contextCall = Object.freeze(faulty) as NativeCall;
+            }
             const scope = captureNativeHostToolContext({
               events: f.events,
               native,
@@ -228,11 +323,11 @@ async function fixture(
               },
               toolName: name,
               input,
-              call: options.cloneCall ? Object.freeze(structuredClone(call)) : call,
+              call: contextCall,
               signal,
             });
             try {
-              await options.observe?.(scope);
+              await options.observe?.(scope, call);
               await scope.assertCurrent();
               return {
                 content: JSON.stringify(await tools.execute(input, scope.signal, call)),
@@ -297,7 +392,11 @@ async function fixture(
       requests,
       rpc: selected.rpc,
       initial,
-      async call(input: Record<string, unknown>, override?: Record<string, unknown>) {
+      async call(
+        input: Record<string, unknown>,
+        override?: Record<string, unknown>,
+        callSignal?: AbortSignal,
+      ) {
         const response = await callbacks.onRequest(
           'item/tool/call',
           {
@@ -309,7 +408,7 @@ async function fixture(
             arguments: input,
             ...override,
           },
-          new AbortController().signal,
+          callSignal ?? new AbortController().signal,
         );
         const item = (response.contentItems as Array<{ text: string }>)[0];
         return { response, value: response.success ? JSON.parse(item.text) : item.text };
@@ -756,6 +855,177 @@ it.each(['command-completed', 'thread-replaced', 'tool-completed'] as const)(
     expect(await outcome).toBe(false);
     expect(f.permissions).toHaveLength(0);
     expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  },
+  20000,
+);
+
+it('retains qualified native base reads as private immutable original-call facts', async () => {
+  let captured!: NativeHostToolContext;
+  const f = await fixture({
+    nativeBaseReads: true,
+    observe: (context, invocation) => {
+      captured = context;
+      const original = invocation.captureNativeBaseReadScope!();
+      original.assertCurrentSync();
+      const scope = context.nativeBaseReadScope!;
+      expect(scope).toBeDefined();
+      expect(scope.nativeTarget).toEqual(context.nativeTarget);
+      expect(scope.nativeTarget).toEqual(original.nativeTarget);
+      expect(scope.nativeTarget).not.toBe(original.nativeTarget);
+      for (const name of ['callId', 'toolName', 'requestHash'] as const)
+        expect(scope[name]).toBe(context[name]);
+      for (const name of ['bindingRevision', 'profileRevision', 'policyRevision'] as const)
+        expect(scope[name]).toBe(original[name]);
+      for (const name of ['readableRoots', 'workspaceRoots', 'deniedRoots'] as const) {
+        expect(scope[name]).toEqual(original[name]);
+        expect(scope[name]).not.toBe(original[name]);
+        expect(Object.isFrozen(scope[name])).toBe(true);
+      }
+      expect(scope.readableRoots).not.toContain('/');
+      expect(Object.isFrozen(scope)).toBe(true);
+      expect(Object.isFrozen(scope.nativeTarget)).toBe(true);
+      expect(Object.isFrozen(scope.assertCurrentSync)).toBe(true);
+      expect(Object.getOwnPropertyDescriptor(context, 'nativeBaseReadScope')).toMatchObject({
+        enumerable: false,
+        writable: false,
+        configurable: false,
+        value: scope,
+      });
+      expect({ ...context }).not.toHaveProperty('nativeBaseReadScope');
+      const serialized = { ...context, session: undefined };
+      expect(JSON.stringify(serialized)).not.toContain('nativeBaseReadScope');
+      scope.assertCurrentSync();
+    },
+  });
+  const result = await f.a.call({ operation: 'list' });
+  expect(captured).toBeDefined();
+  expect(captured.nativeBaseReadScope).toBeDefined();
+  expect(result.response.success).toBe(true);
+  expect(() => captured.nativeBaseReadScope!.assertCurrentSync()).toThrow();
+  expect(f.permissions).toHaveLength(0);
+  expect(f.a.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+}, 20000);
+
+it('keeps signed history context usable when the original native read facet is absent', async () => {
+  const observe = vi.fn((context: NativeHostToolContext, invocation: NativeCall) => {
+    expect(invocation).not.toHaveProperty('captureNativeBaseReadScope');
+    expect(context).not.toHaveProperty('nativeBaseReadScope');
+    context.assertCurrentSync();
+  });
+  const f = await fixture({ observe });
+  expect((await f.a.call({ operation: 'list' })).response.success).toBe(true);
+  expect(observe).toHaveBeenCalledOnce();
+});
+
+it.each(['command', 'policy', 'mode', 'tuple', 'dispose', 'abort', 'async-assertion'] as const)(
+  'revokes retained native base reads on %s without extending the original call lifetime',
+  async (change) => {
+    let captured!: NativeHostToolContext;
+    let original!: ReturnType<NonNullable<NativeCall['captureNativeBaseReadScope']>>;
+    let entered!: () => void, release!: () => void;
+    const executing = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let policyCurrent = true;
+    let assertionResult: unknown;
+    const f = await fixture({
+      nativeBaseReads: true,
+      nativePolicyCheck: () => {
+        if (!policyCurrent) throw Error('Current native policy revoked');
+        return assertionResult;
+      },
+      observe: async (context, invocation) => {
+        captured = context;
+        original = invocation.captureNativeBaseReadScope!();
+        entered();
+        await held;
+      },
+    });
+    const controller = new AbortController();
+    const result = f.a.call({ operation: 'list' }, undefined, controller.signal);
+    const outcome = result.then(
+      (value) => value.response.success,
+      () => false,
+    );
+    await Promise.race([
+      executing,
+      outcome.then(() => {
+        throw Error('Original native read scope was unavailable');
+      }),
+    ]);
+    try {
+      const scope = captured.nativeBaseReadScope!;
+      expect(scope).toBeDefined();
+      scope.assertCurrentSync();
+      if (change === 'command')
+        f.native.finish(
+          f.a.sessionId,
+          f.a.initial.lease.binding,
+          scope.nativeTarget.commandId,
+          'completed',
+          scope.nativeTarget.turnId,
+        );
+      if (change === 'policy') policyCurrent = false;
+      if (change === 'mode') f.registry.setMode(f.a.clientId, 'ask');
+      if (change === 'tuple')
+        f.native.replaceThread(
+          f.a.sessionId,
+          f.a.initial.lease.binding,
+          scope.nativeTarget.threadId,
+          `${scope.nativeTarget.threadId}-replacement`,
+          'provider_transport_failure',
+        );
+      if (change === 'dispose') {
+        captured.dispose();
+        // The consumer's disposal narrows the lifetime even while the original
+        // native producer remains current inside this held callback.
+        expect(() => original.assertCurrentSync()).not.toThrow();
+      }
+      if (change === 'abort') controller.abort();
+      if (change === 'async-assertion') assertionResult = Promise.resolve();
+      expect(() => scope.assertCurrentSync()).toThrow();
+      expect(() => captured.assertCurrentSync()).toThrow();
+      await expect(captured.assertCurrent()).rejects.toThrow();
+    } finally {
+      release();
+    }
+    expect(await outcome).toBe(false);
+    expect(f.permissions).toHaveLength(0);
+    expect(f.a.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  },
+  20000,
+);
+
+it.each([
+  'tuple',
+  'call',
+  'tool',
+  'hash',
+  'async-assertion',
+  'async-capture',
+  'getter-facet',
+  'getter-data',
+  'enumerable-facet',
+] satisfies ReadScopeFault[])(
+  'refuses malformed native read facet %s inside the actual verified callback',
+  async (readScopeFault) => {
+    const observe = vi.fn();
+    const getter = vi.fn();
+    const f = await fixture({
+      nativeBaseReads: true,
+      readScopeFault,
+      onReadScopeGetter: getter,
+      observe,
+    });
+    const result = await f.a.call({ operation: 'list' });
+    expect(result.response.success).toBe(false);
+    expect(observe).not.toHaveBeenCalled();
+    expect(getter).not.toHaveBeenCalled();
+    expect(f.permissions).toHaveLength(0);
+    expect(f.a.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
   },
   20000,
 );
