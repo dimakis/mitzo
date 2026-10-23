@@ -1,3 +1,4 @@
+import { startCommandTimingSpan, finishCommandTimingSpan } from './command-timing-trace.js';
 import {
   codexApplicationContextFragments,
   codexDynamicToolsOption,
@@ -399,6 +400,7 @@ type ActiveCommand = {
   abort: AbortController;
   span?: Span;
   firstOutputSpan?: Span;
+  preparationSpan?: Span;
   traceContext: Context;
   nativeExecution?: CodexNativeExecutionPolicy;
   nativeFileChanges?: Map<string, readonly string[] | null>;
@@ -431,6 +433,7 @@ export class CodexConversation {
   };
   private mapper?: CodexSessionEvents;
   private commandContexts = new Map<string, Context>();
+  private queueTimingSpans = new Map<string, Span>();
   private active?: ActiveCommand;
   private interruptTargets = new WeakMap<
     CodexInterruptTarget,
@@ -1111,6 +1114,9 @@ export class CodexConversation {
     if (saved) {
       this.clearCapacityTimer();
       this.commandContexts.set(input.id, context.active());
+      // The durable enqueue has returned; time waiting for this exact command's claim.
+      const timing = startCommandTimingSpan('codex.command.queue_wait', input.id, context.active());
+      if (timing) this.queueTimingSpans.set(input.id, timing);
     }
     this.opts.onQueueChange?.();
     return { model, reasoningEffort };
@@ -1251,6 +1257,8 @@ export class CodexConversation {
     const result = this.opts.store.cancelQueued(this.opts.conversationId, this.binding, commandId);
     if (result === 'cancelled') {
       this.commandContexts.delete(commandId);
+      finishCommandTimingSpan(this.queueTimingSpans.get(commandId), 'cancelled');
+      this.queueTimingSpans.delete(commandId);
       this.opts.onQueueChange?.();
     }
     return result;
@@ -2024,6 +2032,8 @@ export class CodexConversation {
     }
     const command = this.opts.store.claimNext(this.opts.conversationId, this.binding!);
     if (!command) return;
+    finishCommandTimingSpan(this.queueTimingSpans.get(command.id), 'claimed');
+    this.queueTimingSpans.delete(command.id);
     const continuation = this.opts.store.capacityContinuation(
       this.opts.conversationId,
       this.binding!,
@@ -2048,6 +2058,11 @@ export class CodexConversation {
     let transportGeneration = this.transportGeneration;
     this.opts.onQueueChange?.();
     try {
+      active.preparationSpan = startCommandTimingSpan(
+        'codex.command.preparation',
+        command.id,
+        active.traceContext,
+      );
       const model = command.model ?? this.binding!.model;
       this.validateModel(model, command.reasoningEffort);
       this.mapper?.setModel(model);
@@ -2164,6 +2179,8 @@ export class CodexConversation {
             this.threadId!,
             active.nativeExecution,
           );
+        finishCommandTimingSpan(active.preparationSpan, 'submitted');
+        active.preparationSpan = undefined;
         const pendingAck = this.client.request(
           'turn/start',
           codexTurnStartParams({
@@ -2425,6 +2442,9 @@ export class CodexConversation {
       if (replaceProviderThread || active.accepted) this.retireTransportForRecovery();
       this.opts.onQueueChange?.();
       throw error;
+    } finally {
+      finishCommandTimingSpan(active.preparationSpan, 'stopped');
+      active.preparationSpan = undefined;
     }
   }
   private persistAcceptedTerminalConflict(thread: string, turn: string) {
@@ -3315,6 +3335,10 @@ export class CodexConversation {
   }
   close() {
     this.commandContexts.clear();
+    for (const span of this.queueTimingSpans.values()) finishCommandTimingSpan(span, 'closed');
+    this.queueTimingSpans.clear();
+    finishCommandTimingSpan(this.active?.preparationSpan, 'closed');
+    if (this.active) this.active.preparationSpan = undefined;
     if (this.closed) return;
     this.closed = true;
     this.paused = true;

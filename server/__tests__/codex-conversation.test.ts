@@ -6832,3 +6832,48 @@ it('does not drain further saved commands if the automatic follow-up loses its t
   expect(f.c.queue().find(({ id }) => id === 'preserved')?.status).toBe('queued');
   expect(f.c.isRecovering()).toBe(false);
 });
+
+it('bounds timing spans on duplicate/failed enqueue, queued cancel/close and preparation refusal/close', async () => {
+  const timings: Array<{
+    name: string;
+    end: ReturnType<typeof vi.fn>;
+    setAttribute: ReturnType<typeof vi.fn>;
+  }> = [];
+  const original = tracer.startSpan.bind(tracer);
+  vi.spyOn(tracer, 'startSpan').mockImplementation((name, options, parent) => {
+    if (!name.startsWith('codex.command.')) return original(name, options, parent);
+    const span = { name, end: vi.fn(), setAttribute: vi.fn() };
+    timings.push(span);
+    return span as unknown as Span;
+  });
+  const f = await setup();
+  expect(() => f.c.enqueue({ id: 'invalid', prompt: 'offline', model: 'not-admitted' })).toThrow();
+  expect(timings).toHaveLength(0);
+  f.c.enqueue({ id: 'cancelled', prompt: 'offline' });
+  f.c.enqueue({ id: 'cancelled', prompt: 'offline' });
+  expect(timings).toHaveLength(1);
+  expect(f.c.cancelQueued('cancelled')).toBe('cancelled');
+  expect(timings[0].setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'cancelled');
+  f.c.enqueue({ id: 'closed', prompt: 'offline' });
+  f.c.close();
+  expect(timings[1].setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'closed');
+  const refused = await setup();
+  refused.conversationOptions.prepareSystemPrompt = async () => {
+    throw Error('Private refusal');
+  };
+  await expect(refused.c.send({ id: 'refused', prompt: 'offline' })).rejects.toThrow();
+  expect(timings.at(-1)?.setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'stopped');
+  const closed = await setup();
+  let release!: () => void;
+  closed.conversationOptions.prepareSystemPrompt = () =>
+    new Promise((resolve) => {
+      release = () => resolve(undefined);
+    });
+  const sending = closed.c.send({ id: 'preparing-close', prompt: 'offline' });
+  await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+  closed.c.close();
+  expect(timings.at(-1)?.setAttribute).toHaveBeenCalledWith('mitzo.timing.outcome', 'closed');
+  release();
+  await Promise.allSettled([sending]);
+  for (const span of timings) expect(span.end).toHaveBeenCalledOnce();
+});
