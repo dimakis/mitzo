@@ -667,3 +667,33 @@ it('refuses unknown ordinary schema constraints and rolls a failed legacy migrat
       .get(),
   ).toBeDefined();
 });
+
+it.each([
+  'CREATE VIEW retained_view AS SELECT record FROM ordinary_workspaces',
+  'CREATE TABLE retained_reference (workspace_id TEXT REFERENCES ordinary_workspaces(id))',
+  'CREATE TABLE retained_events (id TEXT); CREATE TRIGGER retained_trigger AFTER INSERT ON retained_events BEGIN UPDATE ordinary_workspaces SET record=record; END',
+])(
+  'preserves external schema references instead of rewriting them during migration: %s',
+  async (external) => {
+    const { OrdinaryWorkspaceCustody } = await import('../ordinary-workspace-custody.js');
+    const db = new Database(':memory:');
+    cleanups.push(() => db.close());
+    db.exec(
+      'CREATE TABLE ordinary_workspaces (id TEXT PRIMARY KEY, record TEXT NOT NULL, conversation_id TEXT NOT NULL UNIQUE)',
+    );
+    db.exec(external);
+    const before = db
+      .prepare("SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name")
+      .all();
+    expect(() => new OrdinaryWorkspaceCustody(db, undefined)).toThrow(
+      'Unsupported ordinary custody schema',
+    );
+    expect(
+      db
+        .prepare(
+          "SELECT name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name!='ordinary_workspace_preparations' ORDER BY name",
+        )
+        .all(),
+    ).toEqual(before);
+  },
+);

@@ -196,6 +196,13 @@ export class OrdinaryWorkspaceCustody {
         )
           throw Error('Unsupported ordinary custody schema; preserve historical records');
         if (!columns[2].notnull) return;
+        const references = this.db
+          .prepare(
+            "SELECT sql FROM sqlite_master WHERE name!='ordinary_workspaces' AND sql IS NOT NULL",
+          )
+          .all() as Array<{ sql: string }>;
+        if (references.some((object) => /\bordinary_workspaces\b/i.test(object.sql)))
+          throw Error('Unsupported ordinary custody schema; preserve external references');
         this.db.exec(`ALTER TABLE ordinary_workspaces RENAME TO ordinary_workspaces_legacy_primary;
         CREATE TABLE ordinary_workspaces (id TEXT PRIMARY KEY, record TEXT NOT NULL, conversation_id TEXT UNIQUE);
         INSERT INTO ordinary_workspaces SELECT id,record,conversation_id FROM ordinary_workspaces_legacy_primary;
