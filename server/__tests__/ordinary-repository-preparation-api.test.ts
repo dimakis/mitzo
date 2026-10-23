@@ -211,3 +211,55 @@ it('does not downgrade an enrolled account after controller loss', async () => {
   ).rejects.toThrow('controller unavailable');
   expect(state.key).not.toHaveBeenCalled();
 });
+
+it('prepares a qualified local Responses endpoint through its selected host key authority', async () => {
+  const { ownedRuntimeFixture } = await import('./fixtures/owned-local-codex-runtime.js');
+  const f = await ownedRuntimeFixture(cleanup, { api: true, chatRoute: true });
+  const connection = {
+    endpoint: 'https://gateway.example.test/v1',
+    protocol: 'responses',
+    qualification: {
+      source: 'operator',
+      streaming: true,
+      toolCalls: true,
+      continuation: true,
+      cancellation: true,
+    },
+  };
+  Object.assign(f.configuration[0], { connection });
+  f.writeProfiles();
+  const { loadAccountProfiles } = await import('../account-profiles.js');
+  const binding = loadAccountProfiles().resolve('work', 'fixture-model');
+  const selection = {
+    runOn: 'local' as const,
+    runtime: {
+      account: {
+        accountId: binding.accountId,
+        provider: binding.provider as 'openai',
+        profileRevision: binding.profileRevision,
+      },
+      harness: 'codex' as const,
+      targetId: 'local-mac',
+    },
+  };
+  const authority = await import('../ordinary-repository-preparation-authority.js');
+  const proof = await authority.captureOrdinaryRepositoryPreparation(
+    binding,
+    selection,
+    f.signal.signal,
+  );
+  expect(proof.runtimeBinding.harness.implementation).toBe('codex');
+  expect(state.key).toHaveBeenCalledWith(f.configuration[0].credentialRef);
+  await expect(
+    authority.assertOrdinaryRepositoryPreparation(proof, binding, f.signal.signal),
+  ).resolves.toBeUndefined();
+  Object.assign(f.configuration[0], {
+    connection: { ...connection, endpoint: 'https://other.example.test/v1' },
+  });
+  f.writeProfiles();
+  state.key.mockClear();
+  await expect(
+    authority.assertOrdinaryRepositoryPreparation(proof, binding, f.signal.signal),
+  ).rejects.toThrow();
+  expect(state.key).not.toHaveBeenCalled();
+});
