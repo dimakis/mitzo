@@ -601,6 +601,22 @@ it('keeps the real frozen bootstrap through exact old-meta and new-meta uncertai
             return adoptedValue;
           },
         };
+        const firstBoundary = firstOwners.assertCurrentSync;
+        const firstWitness = firstOwners.assertAdoptedSync;
+        firstOwners.assertCurrentSync = function () {
+          this.assertAdoptedSync = () => undefined;
+        };
+        expect(() =>
+          selection.preparePreparedRepositoryPrimary(
+            f.expected,
+            child.childCommandId,
+            transition,
+            next,
+            firstOwners,
+          ),
+        ).toThrow();
+        firstOwners.assertCurrentSync = firstBoundary;
+        firstOwners.assertAdoptedSync = firstWitness;
         selection.preparePreparedRepositoryPrimary(
           f.expected,
           child.childCommandId,

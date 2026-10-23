@@ -83,7 +83,11 @@ export class OrdinaryLocalCodexSelectionOwner {
           expected.workspace.cwd !== transition.oldWorkspace.directory)
     )
       throw unavailable();
-    this.sync(owners.assertCurrentSync.call(owners));
+    const assertBoundary = owners.assertCurrentSync,
+      assertAdopted = owners.assertAdoptedSync;
+    this.sync(assertBoundary.call(owners));
+    if (owners.assertCurrentSync !== assertBoundary || owners.assertAdoptedSync !== assertAdopted)
+      throw unavailable();
     const originalAdmission = this.owners.events.observePreparedRepositoryBootstrapAdmission(
       childCommandId,
       this.owners.commandId,
@@ -94,8 +98,8 @@ export class OrdinaryLocalCodexSelectionOwner {
       workspace,
       originalAdmission,
       owners,
-      assertBoundary: owners.assertCurrentSync,
-      assertAdopted: owners.assertAdoptedSync,
+      assertBoundary,
+      assertAdopted,
       previous: this.#preparedPrimary && { ...this.#preparedPrimary, previous: undefined },
     };
   }
