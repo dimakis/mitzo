@@ -138,55 +138,64 @@ export class OrdinaryWorkspaceCustody {
   }
   /** Preserve every historical byte while allowing only the current pointer to retire. */
   private migratePrimaryPointer() {
-    const columns = this.db.prepare('PRAGMA table_info(ordinary_workspaces)').all() as Array<{
-      name: string;
-      type: string;
-      notnull: number;
-      pk: number;
-      dflt_value: unknown;
-    }>;
-    const indexes = this.db.prepare('PRAGMA index_list(ordinary_workspaces)').all() as Array<{
-      name: string;
-      unique: number;
-      origin: string;
-      partial: number;
-    }>;
-    const triggers = this.db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='ordinary_workspaces'",
-      )
-      .all();
-    if (
-      columns.length !== 3 ||
-      columns.some(
-        (c, i) =>
-          c.name !== ['id', 'record', 'conversation_id'][i] ||
-          c.type !== 'TEXT' ||
-          c.pk !== (i === 0 ? 1 : 0) ||
-          c.dflt_value !== null ||
-          c.notnull !== (i === 1 ? 1 : i === 2 ? columns[2].notnull : 0),
-      ) ||
-      ![0, 1].includes(columns[2].notnull) ||
-      triggers.length ||
-      indexes.length !== 2 ||
-      indexes.some(
-        (i) =>
-          i.unique !== 1 ||
-          i.partial !== 0 ||
-          !['pk', 'u'].includes(i.origin) ||
-          (
-            this.db.prepare('SELECT name FROM pragma_index_info(?)').all(i.name) as Array<{
-              name: string;
-            }>
-          )
-            .map((c) => c.name)
-            .join(',') !== (i.origin === 'pk' ? 'id' : 'conversation_id'),
-      )
-    )
-      throw Error('Unsupported ordinary custody schema; preserve historical records');
-    if (!columns[2].notnull) return;
     this.db
       .transaction(() => {
+        const table = this.db
+          .prepare(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='ordinary_workspaces'",
+          )
+          .get() as { sql: string } | undefined;
+        const knownTable =
+          /^CREATE TABLE (?:IF NOT EXISTS )?ordinary_workspaces\s*\(\s*id TEXT PRIMARY KEY\s*,\s*record TEXT NOT NULL\s*,\s*conversation_id TEXT(?: NOT NULL)? UNIQUE\s*\)$/i;
+        if (!table || !knownTable.test(table.sql.replace(/\s+/g, ' ').trim()))
+          throw Error('Unsupported ordinary custody schema; preserve historical records');
+        const columns = this.db.prepare('PRAGMA table_info(ordinary_workspaces)').all() as Array<{
+          name: string;
+          type: string;
+          notnull: number;
+          pk: number;
+          dflt_value: unknown;
+        }>;
+        const indexes = this.db.prepare('PRAGMA index_list(ordinary_workspaces)').all() as Array<{
+          name: string;
+          unique: number;
+          origin: string;
+          partial: number;
+        }>;
+        const triggers = this.db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name='ordinary_workspaces'",
+          )
+          .all();
+        if (
+          columns.length !== 3 ||
+          columns.some(
+            (c, i) =>
+              c.name !== ['id', 'record', 'conversation_id'][i] ||
+              c.type !== 'TEXT' ||
+              c.pk !== (i === 0 ? 1 : 0) ||
+              c.dflt_value !== null ||
+              c.notnull !== (i === 1 ? 1 : i === 2 ? columns[2].notnull : 0),
+          ) ||
+          ![0, 1].includes(columns[2].notnull) ||
+          triggers.length ||
+          indexes.length !== 2 ||
+          indexes.some(
+            (i) =>
+              i.unique !== 1 ||
+              i.partial !== 0 ||
+              !['pk', 'u'].includes(i.origin) ||
+              (
+                this.db.prepare('SELECT name FROM pragma_index_info(?)').all(i.name) as Array<{
+                  name: string;
+                }>
+              )
+                .map((c) => c.name)
+                .join(',') !== (i.origin === 'pk' ? 'id' : 'conversation_id'),
+          )
+        )
+          throw Error('Unsupported ordinary custody schema; preserve historical records');
+        if (!columns[2].notnull) return;
         this.db.exec(`ALTER TABLE ordinary_workspaces RENAME TO ordinary_workspaces_legacy_primary;
         CREATE TABLE ordinary_workspaces (id TEXT PRIMARY KEY, record TEXT NOT NULL, conversation_id TEXT UNIQUE);
         INSERT INTO ordinary_workspaces SELECT id,record,conversation_id FROM ordinary_workspaces_legacy_primary;

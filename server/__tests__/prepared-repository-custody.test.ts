@@ -619,3 +619,51 @@ it('permits a fresh preparation for a revisited repository source, never reattac
     f.service.assertPreparedRepositoryTransitionAdopted(second.facts, second.childId),
   ).not.toThrow();
 });
+
+it('refuses unknown ordinary schema constraints and rolls a failed legacy migration back byte-for-byte', async () => {
+  const { OrdinaryWorkspaceCustody } = await import('../ordinary-workspace-custody.js');
+  const unusual = new Database(':memory:');
+  cleanups.push(() => unusual.close());
+  unusual.exec(
+    'CREATE TABLE ordinary_workspaces (id TEXT PRIMARY KEY, record TEXT NOT NULL CHECK(length(record)>0), conversation_id TEXT NOT NULL UNIQUE)',
+  );
+  unusual
+    .prepare('INSERT INTO ordinary_workspaces VALUES (?,?,?)')
+    .run('old', 'untouched', 'conversation');
+  const unusualSchema = unusual
+    .prepare("SELECT sql FROM sqlite_master WHERE name='ordinary_workspaces'")
+    .get();
+  expect(() => new OrdinaryWorkspaceCustody(unusual, undefined)).toThrow(
+    'Unsupported ordinary custody schema',
+  );
+  expect(
+    unusual.prepare("SELECT sql FROM sqlite_master WHERE name='ordinary_workspaces'").get(),
+  ).toEqual(unusualSchema);
+  expect(unusual.prepare('SELECT record FROM ordinary_workspaces').get()).toEqual({
+    record: 'untouched',
+  });
+  const legacy = new Database(':memory:');
+  cleanups.push(() => legacy.close());
+  legacy.exec(
+    'CREATE TABLE ordinary_workspaces (id TEXT PRIMARY KEY, record TEXT NOT NULL, conversation_id TEXT NOT NULL UNIQUE); CREATE TABLE ordinary_workspaces_legacy_primary (retain TEXT)',
+  );
+  legacy
+    .prepare('INSERT INTO ordinary_workspaces VALUES (?,?,?)')
+    .run('old', ' exact dirty history ', 'conversation');
+  const legacyBefore = legacy.prepare('SELECT * FROM ordinary_workspaces').all();
+  expect(() => new OrdinaryWorkspaceCustody(legacy, undefined)).toThrow();
+  expect(legacy.prepare('SELECT * FROM ordinary_workspaces').all()).toEqual(legacyBefore);
+  expect(
+    (
+      legacy.prepare('PRAGMA table_info(ordinary_workspaces)').all() as Array<{
+        name: string;
+        notnull: number;
+      }>
+    ).find((c) => c.name === 'conversation_id')?.notnull,
+  ).toBe(1);
+  expect(
+    legacy
+      .prepare("SELECT name FROM sqlite_master WHERE name='ordinary_workspaces_legacy_primary'")
+      .get(),
+  ).toBeDefined();
+});
