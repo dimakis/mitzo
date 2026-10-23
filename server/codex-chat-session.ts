@@ -1,10 +1,20 @@
 import {
+  sessionLocalRepositoryTools,
+  nativeRepositoryReadRootUnion,
+  localRepositoryToolDefinitions,
+  LOCAL_REPOSITORY_TOOL_INSTRUCTIONS,
+} from './session-local-repository-tools.js';
+import { captureNativeLocalRepositoryReader } from './local-repository-native-read.js';
+import {
   admissionPhase,
   admissionLifecycle,
   prepareKnowledgeAndCapabilities,
 } from './codex-admission-preparation.js';
 import { executeNativeTelosArtifactOperation } from './native-telos-artifact-operations.js';
-import { captureNativeHostToolContext } from './native-host-tool-context.js';
+import {
+  captureNativeHostReadOwner,
+  captureNativeHostToolContext,
+} from './native-host-tool-context.js';
 import { getTelosMainPublicationRuntime } from './telos-main-publication-runtime.js';
 import { githubMainPublicationTool } from './telos-main-publication.js';
 import type { OrdinaryWorkspaceRecord } from './ordinary-workspace-custody.js';
@@ -1681,6 +1691,7 @@ async function openCodexChatBound(
     !!options.ownedLocal &&
     process.platform === 'darwin' &&
     ['Bash', 'Read', 'Write', 'Edit'].every((name) => agentToolAllowed(options.session, name));
+  const localRepositoryReadDefinitions: typeof localRepositoryToolDefinitions = [];
   const localExecutionTools = nativeExecutionEnabled
     ? nativeToolDefinitions.filter((tool) => !['Bash', 'Read', 'Write', 'Edit'].includes(tool.name))
     : nativeToolDefinitions;
@@ -1693,6 +1704,7 @@ async function openCodexChatBound(
           ...agentTaskToolDefinitions,
           ...agentCommunicationDefinitions,
           ...localHistoryDefinitions,
+          ...localRepositoryReadDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -1806,6 +1818,15 @@ async function openCodexChatBound(
         options.ownedLocal!.nativeExecutionArtifactSha256(),
       );
       nativeExecution = selectedNativePolicy();
+      // The existing reader factory is qualified only for the actual '/' base.
+      // Hints and host placement never widen an otherwise narrower selected policy.
+      if (
+        options.assertAgentContextAuthorization &&
+        [...nativeExecution.readableRoots, ...nativeExecution.workspaceRoots].includes('/')
+      ) {
+        localRepositoryReadDefinitions.push(...localRepositoryToolDefinitions);
+        for (const tool of localRepositoryReadDefinitions) ownedToolNames?.add(tool.name);
+      }
     }
   } catch (error) {
     finish();
@@ -1815,7 +1836,10 @@ async function openCodexChatBound(
   const baseSystemPrompt = options.ownedLocal
     ? options.systemPrompt +
       (nativeExecution ? NATIVE_MAC_EXECUTION_INSTRUCTIONS : HOST_TOOL_INSTRUCTIONS) +
-      GITHUB_PUBLISHING_INSTRUCTIONS
+      GITHUB_PUBLISHING_INSTRUCTIONS +
+      (localRepositoryReadDefinitions.some((tool) => agentToolAllowed(options.session, tool.name))
+        ? `\n${LOCAL_REPOSITORY_TOOL_INSTRUCTIONS}\n`
+        : '')
     : options.systemPrompt +
       CONNECTION_TOOL_INSTRUCTIONS +
       WEB_ACCESS_INSTRUCTIONS +
@@ -1901,6 +1925,7 @@ async function openCodexChatBound(
           ...agentTaskToolDefinitions,
           ...agentCommunicationDefinitions,
           ...localHistoryDefinitions,
+          ...localRepositoryReadDefinitions,
           githubPublishingDefinition,
           ...leadWorkTools,
           ...controlWorkTools,
@@ -2472,6 +2497,55 @@ async function openCodexChatBound(
           throw error;
         }
       };
+      if (localRepositoryReadDefinitions.some((tool) => tool.name === name)) {
+        const context = captureNativeContext();
+        try {
+          const readOwner = captureNativeHostReadOwner(context);
+          const scope = readOwner?.scope;
+          if (
+            !readOwner ||
+            !scope ||
+            readOwner.context !== context ||
+            readOwner.signal !== context.signal ||
+            scope !== context.nativeBaseReadScope
+          )
+            throw Error('Original native read policy unavailable');
+          const tools = sessionLocalRepositoryTools(
+            Object.freeze({
+              capture: () => context,
+              captureReader: captureNativeLocalRepositoryReader,
+              readPolicy: async () => ({
+                limits: { timeoutMs: name === 'InspectLocalRepository' ? 60000 : 30000 },
+                accessScope: {
+                  kind: 'roots' as const,
+                  roots: nativeRepositoryReadRootUnion([
+                    ...scope.readableRoots,
+                    ...scope.workspaceRoots,
+                  ]),
+                  deniedRoots: scope.deniedRoots,
+                },
+                // Current workspace is a bounded scan/orientation hint only.
+                // An explicit source override remains under the actual base policy.
+                discoveryRoots: [context.workspace.directory],
+                orientationHints: [context.workspace.directory],
+                assertCurrentSync: () => {
+                  if (
+                    readOwner.context !== context ||
+                    readOwner.scope !== context.nativeBaseReadScope ||
+                    readOwner.signal !== context.signal
+                  )
+                    throw Error('Original native read projection required');
+                },
+              }),
+            }),
+          );
+          const result = await tools.execute(name, input, signal);
+          if (!result) throw Error('Local repository read tool unavailable');
+          return result;
+        } finally {
+          context.dispose();
+        }
+      }
       if (localHistoryDefinitions.some((tool) => tool.name === name)) {
         const context = captureNativeContext();
         try {

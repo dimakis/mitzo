@@ -1,4 +1,4 @@
-import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import {
   executeNativeAnchoredReadOperation,
   freezeNativeReadExclusions,
@@ -101,6 +101,7 @@ export class LocalRepositoryReadAccess {
   }
   private totalBytes = 0;
   private totalEntries = 0;
+  private directoryRevision = 0;
   private readonly ceiling?: Readonly<{
     owner: LocalRepositoryReadCeiling;
     assertReadable: LocalRepositoryReadCeiling['assertReadable'];
@@ -340,13 +341,10 @@ export class LocalRepositoryReadAccess {
     );
     return this.directoryEntries(path, request.identity, result, fresh);
   }
-  private async directoryEntries(
-    path: string,
+  private parseDirectoryEntries(
     identity: NativeReadIdentity,
     result: { content: string; is_error: boolean },
-    fresh: boolean,
-  ): Promise<LocalRepositoryReadEntry[]> {
-    await this.authorize(path);
+  ) {
     if (result.is_error && result.content === 'Anchored read limit exceeded')
       throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
     if (result.is_error || result.content.length > 6 * 1024 * 1024) throw unavailable();
@@ -371,7 +369,6 @@ export class LocalRepositoryReadAccess {
       typeof value.incomplete !== 'boolean'
     )
       throw unavailable();
-    if (value.incomplete) this.excludedDirectories.add(path);
     const entries = new Map<string, LocalRepositoryReadEntry>();
     let names = 0;
     for (const entry of value.entries as LocalRepositoryReadEntry[]) {
@@ -399,14 +396,226 @@ export class LocalRepositoryReadAccess {
       if (names > 1024 * 1024) throw unavailable();
       entries.set(entry.name, structuredClone(entry));
     }
+    return { entries, incomplete: value.incomplete };
+  }
+  private async directoryEntries(
+    path: string,
+    identity: NativeReadIdentity,
+    result: { content: string; is_error: boolean },
+    fresh: boolean,
+  ): Promise<LocalRepositoryReadEntry[]> {
+    await this.authorize(path);
+    const { entries, incomplete } = this.parseDirectoryEntries(identity, result);
+    if (!fresh && this.totalEntries + entries.size > 100000)
+      throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
+    if (incomplete) this.excludedDirectories.add(path);
     if (!fresh) {
       this.totalEntries += entries.size;
-      if (this.totalEntries > 100000)
-        throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
       this.directories.set(path, entries);
       for (const entry of entries.values()) this.entries.set(join(path, entry.name), entry);
     }
+    if (!fresh || incomplete) this.directoryRevision++;
     return [...entries.values()];
+  }
+
+  /** Initial directory observations only. Every target and its parent must
+   * already have an original anchored identity; this never discovers a root or
+   * infers physical absence. All batch cache writes commit together. */
+  async preloadDirectories(paths: readonly string[]): Promise<void> {
+    this.check();
+    if (
+      !Array.isArray(paths) ||
+      paths.length < 1 ||
+      paths.length > 8 ||
+      new Set(paths).size !== paths.length ||
+      paths.some(
+        (path) =>
+          typeof path !== 'string' ||
+          !isAbsolute(path) ||
+          resolve(path) !== path ||
+          path.includes('\0'),
+      )
+    )
+      throw unavailable();
+    const captured = Object.freeze([...paths]);
+    const known = Object.freeze(
+      captured.map((path) => {
+        const anchor = this.anchor(path);
+        const target = this.entries.get(path);
+        const parentPath = path === anchor.rootPath ? path : dirname(path);
+        const parent = this.entries.get(parentPath);
+        if (!target || target.kind !== 'directory' || !parent || parent.kind !== 'directory')
+          throw unavailable();
+        return Object.freeze({
+          path,
+          parentPath,
+          anchor,
+          target,
+          parent,
+          rootPath: anchor.rootPath,
+          rootIdentity: Object.freeze({ ...anchor.identity }),
+          targetState: Object.freeze({
+            ...target,
+            identity: Object.freeze({ ...target.identity }),
+          }),
+          parentState: Object.freeze({
+            ...parent,
+            identity: Object.freeze({ ...parent.identity }),
+          }),
+        });
+      }),
+    );
+    const assertKnown = () => {
+      for (const item of known) {
+        if (
+          this.anchor(item.path) !== item.anchor ||
+          this.entries.get(item.path) !== item.target ||
+          this.entries.get(item.parentPath) !== item.parent ||
+          item.anchor.rootPath !== item.rootPath ||
+          !equalIdentity(item.anchor.identity, item.rootIdentity) ||
+          item.target.name !== item.targetState.name ||
+          item.parent.name !== item.parentState.name ||
+          !sameEntry(item.target, item.targetState) ||
+          !sameEntry(item.parent, item.parentState)
+        )
+          throw unavailable();
+      }
+    };
+    const descriptor = Object.getOwnPropertyDescriptor(this.authority, 'assertCurrentSync');
+    if (
+      (descriptor && (!('value' in descriptor) || typeof descriptor.value !== 'function')) ||
+      (!descriptor && 'assertCurrentSync' in this.authority)
+    )
+      throw unavailable();
+    const originalCurrent = descriptor?.value as (() => unknown) | undefined;
+    const current = () => {
+      assertKnown();
+      if (originalCurrent) {
+        if (
+          Object.getOwnPropertyDescriptor(this.authority, 'assertCurrentSync')?.value !==
+          originalCurrent
+        )
+          throw unavailable();
+        const result: unknown = Reflect.apply(originalCurrent, this.authority, []);
+        if (result !== undefined) {
+          void Promise.resolve(result).catch(() => {});
+          throw unavailable();
+        }
+        if (
+          Object.getOwnPropertyDescriptor(this.authority, 'assertCurrentSync')?.value !==
+          originalCurrent
+        )
+          throw unavailable();
+      }
+      assertKnown();
+      this.check();
+    };
+    const revision = this.directoryRevision;
+    const pending = captured.filter((path) => !this.directories.has(path));
+    const requests: NativeAnchoredReadRequest[] = [];
+    for (const item of known) {
+      await this.authorize(item.path);
+      current();
+      if (item.parentPath !== item.path) {
+        await this.authorize(item.parentPath);
+        current();
+      }
+      if (pending.includes(item.path))
+        requests.push(
+          Object.freeze({
+            operation: 'ListDirectory',
+            deniedRoots: freezeNativeReadExclusions([
+              ...new Set([
+                ...this.deniedRoots,
+                ...localRepositoryReadDirectoryExclusions(item.path),
+              ]),
+            ]),
+            file_path: item.path,
+            rootAnchor: item.anchor,
+            identity: item.targetState.identity,
+            parentIdentity: item.parentState.identity,
+            limit: 1,
+            maxEntries: 10000,
+            maxNameBytes: 1024 * 1024,
+          }),
+        );
+    }
+    if (this.directoryRevision !== revision) throw unavailable();
+    let results: readonly { content: string; is_error: boolean }[] = [];
+    if (requests.length) {
+      const batch = this.authority.executeDirectoryVerification;
+      if (batch !== undefined && typeof batch !== 'function') throw unavailable();
+      if (batch) {
+        results = await Reflect.apply(batch, this.authority, [
+          Object.freeze(requests),
+          this.authority.signal ?? new AbortController().signal,
+          Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+        ]);
+        current();
+      } else {
+        const sequential: Array<{ content: string; is_error: boolean }> = [];
+        for (const request of requests) {
+          sequential.push(
+            await Reflect.apply(
+              this.authority.executeReadOperation ?? executeNativeAnchoredReadOperation,
+              this.authority,
+              [
+                request,
+                this.authority.signal ?? new AbortController().signal,
+                Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+              ],
+            ),
+          );
+          current();
+        }
+        results = sequential;
+      }
+    }
+    if (!Array.isArray(results) || results.length !== requests.length) throw unavailable();
+    let outputBytes = 0;
+    const staged = results.map((result, index) => {
+      if (!result || typeof result !== 'object' || Array.isArray(result)) throw unavailable();
+      const content = Object.getOwnPropertyDescriptor(result, 'content');
+      const error = Object.getOwnPropertyDescriptor(result, 'is_error');
+      if (
+        !content ||
+        !('value' in content) ||
+        typeof content.value !== 'string' ||
+        !error ||
+        !('value' in error) ||
+        typeof error.value !== 'boolean'
+      )
+        throw unavailable();
+      outputBytes += Buffer.byteLength(content.value);
+      if (outputBytes > 2 * 1024 * 1024 - 1024) throw unavailable();
+      return {
+        path: requests[index].file_path,
+        ...this.parseDirectoryEntries(requests[index].identity, {
+          content: content.value,
+          is_error: error.value,
+        }),
+      };
+    });
+    const added = staged.reduce((sum, item) => sum + item.entries.size, 0);
+    if (this.totalEntries + added > 100000)
+      throw new LocalRepositoryGitInspectionError('limit', 'snapshot-entries');
+    for (const path of captured) {
+      await this.authorize(path);
+      current();
+    }
+    if (this.directoryRevision !== revision) throw unavailable();
+    current();
+    if (this.directoryRevision !== revision) throw unavailable();
+    // No await after the final genuine original-owner fence. Parsing, aggregate
+    // budgets and every target's post-result ceiling all succeeded above.
+    for (const item of staged) {
+      this.directories.set(item.path, item.entries);
+      for (const entry of item.entries.values())
+        this.entries.set(join(item.path, entry.name), entry);
+      if (item.incomplete) this.excludedDirectories.add(item.path);
+    }
+    this.totalEntries += added;
+    if (staged.length) this.directoryRevision++;
   }
   /** File-alias text only; this never grants access to the link target. */
   async readLink(path: string) {
