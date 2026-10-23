@@ -18,6 +18,7 @@ it('pins effective read scope, private call authority and repository read fixtur
     '../__tests__/local-repository-discovery.test.ts',
     '../__tests__/local-repository-racy-status.test.ts',
     '../__tests__/local-repository-status-semantics.test.ts',
+    '../__tests__/local-repository-worktree-facts.test.ts',
     '../__tests__/fixtures/local-repository-read-owner.ts',
     '../session-local-repository-tools.ts',
     '../__tests__/local-repository-read-scope.test.ts',

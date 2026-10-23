@@ -266,6 +266,10 @@ export async function readLocalRepositoryWorktrees(
     const registry = join(metadata.commonDirectory, 'worktrees');
     let names: string[];
     try {
+      // Only authorized definite absence may retain the current worktree alone.
+      // ListDirectory refuses nonexistent/non-directory targets without ENOENT.
+      if (!(await reader.physical(registry)).isDirectory())
+        throw failure('snapshot-worktree-registry-unsupported');
       names = await reader.list(registry);
     } catch (error) {
       if (code(error) !== 'ENOENT') throw error;
