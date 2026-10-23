@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { NativeBaseReadScope } from './codex-conversation.js';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
+import type { PreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
 import type { LocalRepositoryReadAuthority } from './local-repository-read-access.js';
 import { AuthoritySnapshot } from './sandbox-authority.js';
 import { executeSandboxedCommand } from './sandboxed-command.js';
@@ -35,17 +36,51 @@ export async function captureNativeLocalRepositoryReader(
   options: { deadline: number },
 ): Promise<LocalRepositoryReadAuthority & { dispose(): Promise<void> }> {
   const scope: NativeBaseReadScope | undefined = context.nativeBaseReadScope;
+  return captureReader(
+    scope,
+    context.signal,
+    () => {
+      context.assertCurrentSync();
+      if (!scope) throw unavailable();
+      scope.assertCurrentSync();
+    },
+    () => context.assertCurrent(),
+    options,
+  );
+}
+
+/** Fresh completed-turn owner ONLY. Retain the exact original scope object and
+ * its receiver/lifetime; no expired tool context or descriptive receipt is used. */
+export async function capturePreparedRepositoryReader(
+  scope: PreparedRepositoryBarrierReadScope,
+  options: { deadline: number },
+): Promise<LocalRepositoryReadAuthority & { dispose(): Promise<void> }> {
+  return captureReader(
+    scope,
+    scope.signal,
+    () => scope.assertCurrentSync(),
+    () => scope.revalidate(),
+    options,
+  );
+}
+
+async function captureReader(
+  scope: NativeBaseReadScope | PreparedRepositoryBarrierReadScope | undefined,
+  ownerSignal: AbortSignal,
+  assertCurrentSync: () => void,
+  revalidate: () => Promise<void>,
+  options: { deadline: number },
+): Promise<LocalRepositoryReadAuthority & { dispose(): Promise<void> }> {
   const deadline = options.deadline;
   let disposed = false;
   let closing: Promise<void> | undefined;
   const abort = new AbortController();
-  const signal = AbortSignal.any([context.signal, abort.signal]);
+  const signal = AbortSignal.any([ownerSignal, abort.signal]);
   const current = () => {
     signal.throwIfAborted();
     if (disposed || Date.now() >= deadline) throw unavailable();
-    context.assertCurrentSync();
+    assertCurrentSync();
     if (!scope) throw unavailable();
-    scope.assertCurrentSync();
   };
   current();
   if (process.platform !== 'darwin') throw unavailable();
@@ -56,7 +91,7 @@ export async function captureNativeLocalRepositoryReader(
     current();
     if (!canonicalPath(path) || deniedRoots.some((root) => contains(root, path)))
       throw unavailable();
-    await context.assertCurrent();
+    await revalidate();
     current();
   };
   // This is the existing private operation-scratch pattern. No source, parent or
@@ -64,7 +99,7 @@ export async function captureNativeLocalRepositoryReader(
   let scratch: string | undefined;
   const custody = new AuthoritySnapshot();
   try {
-    await context.assertCurrent();
+    await revalidate();
     current();
     scratch = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-native-read-')));
     current();
@@ -96,7 +131,7 @@ export async function captureNativeLocalRepositoryReader(
           timeoutMs: Math.max(1, Math.min(request.timeoutMs, deadline - Date.now())),
           maxOutputBytes: request.maxOutputBytes,
           beforeSpawnAsync: async () => {
-            await context.assertCurrent();
+            await revalidate();
             current();
           },
           beforeSpawn: () => {
@@ -106,7 +141,7 @@ export async function captureNativeLocalRepositoryReader(
         });
         current();
         request.signal.throwIfAborted();
-        await context.assertCurrent();
+        await revalidate();
         current();
         custody.verify();
         if (typeof result.stdout !== 'string') throw unavailable();

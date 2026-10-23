@@ -10,8 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.582-preparation-original-workspace';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.583-private-barrier-reader';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/prepared-repository-native-read.test.ts':
+    '8f90265255fe7e7450fad1060d426aad1e89b196c7b23d6a243811cabf5df72e',
   '../local-repository-allocation-facts.ts':
     '37323b5690d1566ba85c862ce6bf9bcfa7c714aa355ea8b106991460157ca29f',
   '../__tests__/local-repository-allocation-facts.test.ts':
@@ -34,7 +35,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-domain-read.test.ts':
     '114efb143794b10fe69dfaae07c38d981320dab347a147a2ac2e0a1666422768',
   '../local-repository-native-read.ts':
-    'd527a2b89e590c400da0d76d01f4c5a539683204ec4477e2bc6ff8d522894207',
+    'e283479057c78153ee2bae220985fda62dedab519d65d1737be67755c7ab03f7',
   '../__tests__/native-helper-transport.test.ts':
     '2bc4c7907353b8a13b71d6d7b02dd03f7f0357e2e4878a54e1c62846155adbb9',
   '../__tests__/native-read-anchor-capture.test.ts':
@@ -1459,7 +1460,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-authorization.test.ts':
     'f61c6b6bc5e7cad588d6b4e99b62f5c9fc1cdfba8234a045f891abff6a48d50a',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
-    '8e38b04960fbfe954931314b0c5412fff16ee72d91e38dc0eb07891f171657ac',
+    '56ba53d7857a433d9b8f76a530b7617074e36280ee885cbc2b59990f50f49917',
   '../pending-host-task.ts': '1fecf37fffca7518de7946f664b9dbde537b09a0bb300e702a8858c770d2fef9',
   '../__tests__/pending-host-task.test.ts':
     '286badb71f54d57b77e7b57116a566d1772d6c27b520131262ef58551f2ce01d',
