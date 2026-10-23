@@ -478,6 +478,17 @@ export class OrdinaryLocalCodexOwnedRuntime<K extends LocalWorkspaceKind = 'repo
               bridge,
               authSessionId: this.#authSessionId,
               nativeStore: this.owners.nativeStore,
+              preparedRepositoryBoundary: Object.freeze({
+                assertCurrentSync: () => {
+                  this.assertCurrent();
+                  if (this.#lease !== lease || !this.#expected) throw unavailable();
+                  lease.assertCurrentSync();
+                  this.#workspaceOwner.assertCurrentSync(this.#expected.workspace.cwd);
+                },
+                adopt: async () => {
+                  throw Error('Prepared repository selection handoff unavailable');
+                },
+              }),
             };
             const admission = resume
               ? OwnedLocalCodexChatAdmission.captureResume({

@@ -72,6 +72,16 @@ const fixture = (options?: {
   realPreparationAuthority?: boolean;
 }) => ownedRuntimeFixture(cleanups, options);
 
+it('binds a fresh prepared barrier to the actual retained operator, lease and physical old workspace', async () => {
+  const f = await fixture();
+  const runtime = f.create();
+  await runtime.admit(f.request);
+  const admission = f.dispatch.mock.calls[0][0].admission;
+  expect(() => admission.assertPreparedRepositoryBoundaryCurrentSync()).not.toThrow();
+  revokeAuthSession(f.auth);
+  expect(() => admission.assertPreparedRepositoryBoundaryCurrentSync()).toThrow();
+});
+
 it('renews run authority only on an explicit send from another verified operator login', async () => {
   const f = await fixture();
   const runtime = f.create();

@@ -19,6 +19,9 @@ import type { CodexAccountProfile } from './codex-account.js';
 import type { CodexCommandInput } from './codex-conversation-store.js';
 import type { CodexLifecycleTransport } from './codex-app-server-client.js';
 import type { PreparedRepositoryTransition } from '@mitzo/protocol';
+import type { PreparedRepositoryBarrierReadScope } from './prepared-repository-barrier-read.js';
+import type { CodexNativeTurnTarget } from './codex-conversation-store.js';
+import type { PreparedRepositoryTransitionFacts } from './prepared-repository-transition.js';
 const unavailable = () => new Error('Owned local Codex chat unavailable');
 const Images = z
   .array(z.strictObject({ data: z.string().min(1), mediaType: z.string().min(1).max(128) }))
@@ -60,6 +63,13 @@ interface Owner {
   authSessionId?: string;
   custody?: HostCodexCustody;
   nativeStore?: CodexConversationStore;
+  preparedRepositoryBoundary?: {
+    assertCurrentSync(): void;
+    adopt(
+      scope: PreparedRepositoryBarrierReadScope,
+      source: Readonly<CodexNativeTurnTarget>,
+    ): Promise<PreparedRepositoryTransitionFacts['newWorkspace'] | undefined>;
+  };
 }
 /** A server-internal first-command capability built from the existing durable
  * uncertain receipt and actual bootstrap lease. Request JSON cannot forge a class
@@ -313,7 +323,8 @@ export class OwnedLocalCodexChatAdmission {
       this.owner.lease.assertCurrentSync();
       const current = this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId);
       if (
-        current?.state !== 'consumed' ||
+        !current ||
+        !['uncertain', 'consumed'].includes(current.state) ||
         !isDeepStrictEqual(current.preparedRepositoryTransition, frozenTransition) ||
         !isDeepStrictEqual(
           this.owner.eventStore.getPreparedRepositorySourceAdmission(commandId).workspace,
@@ -447,6 +458,29 @@ export class OwnedLocalCodexChatAdmission {
   nativeExecutionArtifactSha256(): string {
     this.assertCurrentSync();
     return this.owner.lease.executableSha256;
+  }
+  /** Current operator, selected native lease and physical workspace authority,
+   * supplied by the existing actual runtime owner, never a completed tool scope. */
+  assertPreparedRepositoryBoundaryCurrentSync(): void {
+    this.assertCurrentSync();
+    const owner = this.owner.preparedRepositoryBoundary;
+    if (!owner) throw unavailable();
+    const result: unknown = owner.assertCurrentSync();
+    if (result !== undefined) {
+      void Promise.resolve(result).catch(() => {});
+      throw unavailable();
+    }
+  }
+  completedPreparedRepositorySourceTarget(): Readonly<CodexNativeTurnTarget> | undefined {
+    this.assertPreparedRepositoryBoundaryCurrentSync();
+    return this.owner.nativeStore?.completedNativeTurnTarget(this.owner.sessionId, this.#binding);
+  }
+  async adoptPreparedRepositoryAtBoundary(
+    scope: PreparedRepositoryBarrierReadScope,
+    source: Readonly<CodexNativeTurnTarget>,
+  ) {
+    this.assertPreparedRepositoryBoundaryCurrentSync();
+    return this.owner.preparedRepositoryBoundary!.adopt(scope, source);
   }
   assertBeforeEnqueue(input: CodexCommandInput): void {
     if (this.#primary) return this.#primary.assertBeforeEnqueue(input);

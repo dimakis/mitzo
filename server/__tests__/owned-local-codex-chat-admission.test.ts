@@ -341,6 +341,29 @@ it('refuses an old queued command introduced during async proof validation befor
     f.close();
   }
 });
+
+it('refuses mutable nested materialization identity instead of diverging from the persisted projection', async () => {
+  const f = preparedOperationFixture();
+  try {
+    const taskIdentity = structuredClone(f.proof.facts.newWorkspace.taskIdentity);
+    const facts = Object.freeze({
+      ...f.proof.facts,
+      newWorkspace: Object.freeze({ ...f.proof.facts.newWorkspace, taskIdentity }),
+    });
+    const proof = {
+      ...f.proof,
+      facts,
+      revalidate: async () => {
+        taskIdentity.root.ino++;
+      },
+    };
+    await expect(performPreparedRepositoryPrimaryTransition(proof, f.owners)).rejects.toThrow();
+    expect(f.proof.adopt).not.toHaveBeenCalled();
+    expect(f.store.hasUncertainOrdinaryCommand('session')).toBe(false);
+  } finally {
+    f.close();
+  }
+});
 it('adopts only its exact committed prepared child under the same lease and preserves original payload/receipt', () => {
   const f = fixture();
   try {
@@ -391,7 +414,7 @@ it('adopts only its exact committed prepared child under the same lease and pres
     f.store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
     commit();
     expect(f.options.session.cwd).toBe('/offline/prepared');
-    expect(owner.canClaimCommand(reserved.childCommandId)).toBe(true);
+    expect(owner.canClaimCommand(reserved.childCommandId)).toBe(false);
     const input = {
       id: reserved.childCommandId,
       prompt: reserved.payload.text,
@@ -400,6 +423,13 @@ it('adopts only its exact committed prepared child under the same lease and pres
       reasoningEffort: null,
     };
     owner.assertBeforeEnqueue(input);
+    f.store.finalizePreparedRepositoryContinuation(
+      'session',
+      reserved.childCommandId,
+      transition,
+      () => {},
+    );
+    expect(owner.canClaimCommand(reserved.childCommandId)).toBe(true);
     expect(() => owner.assertBeforeEnqueue(input)).toThrow();
     owner.assertBeforeDispatch(reserved.childCommandId);
     expect(() => owner.assertBeforeDispatch(reserved.childCommandId)).toThrow();

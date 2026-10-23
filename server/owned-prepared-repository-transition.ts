@@ -36,6 +36,15 @@ async function settle(result: Promise<void>): Promise<void> {
   const checked: unknown = await result;
   if (checked !== undefined) throw Error('Prepared repository owner returned an invalid proof');
 }
+function assertFrozenFacts(value: unknown): void {
+  if (!value || typeof value !== 'object') return;
+  if (!Object.isFrozen(value)) throw Error('Original prepared repository facts unavailable');
+  for (const descriptor of Object.values(Object.getOwnPropertyDescriptors(value))) {
+    if (!('value' in descriptor))
+      throw Error('Prepared repository facts must retain data identity');
+    assertFrozenFacts(descriptor.value);
+  }
+}
 
 /** Existing admission/FIFO operation, not a scheduler or authority producer.
  * Called only inside the original retained-transport preclaim barrier, using the
@@ -48,12 +57,7 @@ export async function performPreparedRepositoryPrimaryTransition(
   const assertProof = proof.assertCurrentSync;
   const revalidate = proof.revalidate;
   const adopt = proof.adopt;
-  if (
-    !Object.isFrozen(facts) ||
-    !Object.isFrozen(facts.request) ||
-    !Object.isFrozen(facts.newWorkspace)
-  )
-    throw Error('Original prepared repository facts unavailable');
+  assertFrozenFacts(facts);
   const request = facts.request;
   if (
     facts.version !== 'prepared-repository-transition-v1' ||
@@ -171,6 +175,18 @@ export async function performPreparedRepositoryPrimaryTransition(
       )
     )
       throw Error('Prepared repository child enqueue requires reconciliation');
+    owners.events.finalizePreparedRepositoryContinuation(
+      owners.conversationId,
+      childCommandId,
+      transition,
+      () =>
+        owners.native.assertQueuedPreparedRepositoryContinuation(
+          owners.conversationId,
+          owners.binding,
+          source,
+          input,
+        ),
+    );
     return { childCommandId, workspace: facts.newWorkspace };
   } catch (error) {
     // Includes an enqueue that persisted the native row before throwing. Current

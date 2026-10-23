@@ -3073,6 +3073,14 @@ export class CodexConversationStore {
     binding: AccountBinding,
     rawSource: CompletedPreparedRepositorySource,
   ): void {
+    this.assertPreparedRepositorySource(id, binding, rawSource);
+  }
+  private assertPreparedRepositorySource(
+    id: string,
+    binding: AccountBinding,
+    rawSource: CompletedPreparedRepositorySource,
+    exactQueuedChildId?: string,
+  ): void {
     this.db.transaction(() => {
       const source = CompletedPreparedRepositorySourceSchema.parse(rawSource);
       const current = this.read(id, binding);
@@ -3095,7 +3103,11 @@ export class CodexConversationStore {
         current.threadGeneration !== source.generation ||
         current.lastCompletedTurnId !== source.turnId ||
         current.recovery ||
-        commands.some((command) => ['queued', 'running'].includes(command.status)) ||
+        commands.some(
+          (command) =>
+            command.status === 'running' ||
+            (command.status === 'queued' && command.id !== exactQueuedChildId),
+        ) ||
         !original?.intent?.trim() ||
         original.allowedTools ||
         original.environmentContinuation ||
@@ -3136,6 +3148,40 @@ export class CodexConversationStore {
         preparedRepositoryResultSha256(result) !== source.resultSha256
       )
         fail();
+    })();
+  }
+  assertQueuedPreparedRepositoryContinuation(
+    id: string,
+    binding: AccountBinding,
+    source: CompletedPreparedRepositorySource,
+    rawInput: CodexCommandInput,
+  ): void {
+    this.db.transaction(() => {
+      const input = CommandInput.parse(rawInput);
+      if (
+        !/^prepared-repository-[a-f0-9]{64}$/.test(input.id) ||
+        input.environmentContinuation ||
+        input.allowedTools
+      )
+        throw Error('Prepared repository child identity unavailable');
+      const expected = JSON.parse(
+        JSON.stringify({
+          ...input,
+          environmentContinuation: {
+            sourceCommandId: source.commandId,
+            sourceTurnId: source.turnId,
+            sourceThreadId: source.threadId,
+            sourceGeneration: source.generation,
+          },
+        }),
+      );
+      const child = this.commands(id, binding).find((command) => command.id === input.id);
+      if (!child || child.status !== 'queued' || child.attempt !== 1)
+        throw Error('Prepared repository child is not exactly queued');
+      const { status: _status, attempt: _attempt, ...retained } = child;
+      if (!isDeepStrictEqual(retained, expected))
+        throw Error('Prepared repository queued child changed');
+      this.assertPreparedRepositorySource(id, binding, source, input.id);
     })();
   }
   /** Called only after the existing admission owner consumed the exact prepared

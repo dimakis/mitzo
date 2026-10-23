@@ -25,15 +25,14 @@ const source = {
   turnId: 'turn',
   generation: 0,
   callId: 'prepare-call',
-  toolName: 'PrepareLocalRepository',
+  toolName: 'PrepareLocalRepository' as const,
   requestHash: 'a'.repeat(64),
   resultSha256: createHash('sha256').update(JSON.stringify(result)).digest('hex'),
 };
 const cleanups: Array<() => void> = [];
 it('hashes the actual retained public result, excluding private executor fields', () => {
-  expect(preparedRepositoryResultSha256({ ...result, environmentRefresh: true })).toBe(
-    source.resultSha256,
-  );
+  const privateResult = { ...result, environmentRefresh: true };
+  expect(preparedRepositoryResultSha256(privateResult)).toBe(source.resultSha256);
   expect(
     preparedRepositoryResultSha256({
       content: result.content + '\nFinal host directive',
@@ -156,7 +155,7 @@ it('refuses altered source identities, hashes, account, or a mismatching termina
       f.store.assertCompletedPreparedRepositorySource('conversation', binding, {
         ...source,
         ...changed,
-      }),
+      } as typeof source),
     ).toThrow();
   expect(() =>
     f.store.assertCompletedPreparedRepositorySource(
@@ -198,6 +197,15 @@ it('queues only one exact original-task child after the completed boundary, reta
   expect(
     f.store.enqueuePreparedRepositoryContinuation('conversation', binding, source, input),
   ).toBe(true);
+  expect(() =>
+    f.store.assertQueuedPreparedRepositoryContinuation('conversation', binding, source, input),
+  ).not.toThrow();
+  expect(() =>
+    f.store.assertQueuedPreparedRepositoryContinuation('conversation', binding, source, {
+      ...input,
+      prompt: 'Changed',
+    }),
+  ).toThrow();
   expect(() =>
     f.store.enqueuePreparedRepositoryContinuation('conversation', binding, source, input),
   ).toThrow();

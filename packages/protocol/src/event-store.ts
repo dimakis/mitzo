@@ -1107,10 +1107,8 @@ export class EventStore {
         old.kind === 'ordinary' ? old.id : '',
       );
       if (changed.changes !== 1) throw Error('Prepared repository primary owner changed');
-      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
-        JSON.stringify({ ...admission, state: 'consumed' }),
-        childCommandId,
-      );
+      // Keep UNCERTAIN across process death until the native owner proves the
+      // exact queued child. Metadata adoption alone never grants dispatch.
     }).immediate();
   }
 
@@ -1119,8 +1117,8 @@ export class EventStore {
   getPreparedRepositorySourceAdmission(childCommandId: string): OrdinaryLocalCommandAdmission {
     const child = this.getOrdinaryLocalCommandAdmission(childCommandId);
     const transition = child?.preparedRepositoryTransition;
-    if (!transition || child.state !== 'consumed')
-      throw Error('Committed prepared repository transition required');
+    if (!transition || !['uncertain', 'consumed'].includes(child.state))
+      throw Error('Prepared repository transition observation required');
     const row = this.db!.prepare(
       'SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?',
     ).get(transition.source.commandId) as { ordinary_admission: string | null } | undefined;
@@ -1136,6 +1134,34 @@ export class EventStore {
     )
       throw Error('Original prepared repository source changed');
     return source;
+  }
+  finalizePreparedRepositoryContinuation(
+    sessionId: string,
+    childCommandId: string,
+    raw: PreparedRepositoryTransition,
+    assertQueuedChildSync: () => void,
+  ): void {
+    const transition = PreparedRepositoryTransitionSchema.parse(raw);
+    this.db!.transaction(() => {
+      const child = this.getOrdinaryLocalCommandAdmission(childCommandId);
+      if (
+        !child ||
+        child.state !== 'uncertain' ||
+        this.getSendCommand(childCommandId)?.sessionId !== sessionId ||
+        !isDeepStrictEqual(child.preparedRepositoryTransition, transition)
+      )
+        throw Error('Prepared repository child finalization requires reconciliation');
+      this.getPreparedRepositorySourceAdmission(childCommandId);
+      const checked: unknown = assertQueuedChildSync();
+      if (checked !== undefined) {
+        void Promise.resolve(checked).catch(() => {});
+        throw Error('Prepared repository child needs synchronous native proof');
+      }
+      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+        JSON.stringify({ ...child, state: 'consumed' }),
+        childCommandId,
+      );
+    }).immediate();
   }
 
   private admitOrdinaryContinuation(

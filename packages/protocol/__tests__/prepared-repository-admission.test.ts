@@ -1,4 +1,7 @@
 import { afterEach, expect, it } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { EventStore } from '../src/event-store.js';
 const binding = {
   version: 2,
@@ -57,11 +60,13 @@ const transition = {
   materializedRecordSha256: 'f'.repeat(64),
 };
 const stores: EventStore[] = [];
+const roots: string[] = [];
 afterEach(() => {
   for (const store of stores.splice(0)) store.close();
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture() {
-  const store = new EventStore(':memory:');
+function fixture(path = ':memory:') {
+  const store = new EventStore(path);
   stores.push(store);
   store.admitOrdinaryLocalCommand(meta, binding, original);
   store.claimOrdinaryLocalCommandDispatch('original');
@@ -87,6 +92,13 @@ it('reserves one deterministic uncertain child before mutation and atomically co
   expect(reserved.payload.text).not.toBe(original.payload.text);
   expect(() => store.getOrdinaryLocalCommandAdmission(reserved.childCommandId)).toThrow();
   store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+  expect(store.getOrdinaryLocalCommandAdmission(reserved.childCommandId)?.state).toBe('uncertain');
+  store.finalizePreparedRepositoryContinuation(
+    'session',
+    reserved.childCommandId,
+    transition,
+    () => {},
+  );
   expect(store.getSession('session')).toMatchObject({
     repositoryWorkspaceId: 'new',
     cwd: '/new',
@@ -118,7 +130,7 @@ it('leaves an incomplete transition uncertain and prevents a second operation or
   expect(() =>
     store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, {
       ...transition,
-      resultSha256: '0'.repeat(64),
+      source: { ...transition.source, resultSha256: '0'.repeat(64) },
     }),
   ).toThrow();
   expect(store.hasUncertainOrdinaryCommand('session')).toBe(true);
@@ -160,4 +172,29 @@ it('retains operation uncertainty after metadata commit if native enqueue cannot
       reserved.childCommandId,
     ),
   ).toThrow();
+});
+
+it('retains durable uncertainty across process death after metadata commit without a catch/finally repair', () => {
+  const root = mkdtempSync(join(tmpdir(), 'prepared-primary-cold-'));
+  roots.push(root);
+  const path = join(root, 'events.db');
+  const first = fixture(path);
+  const reserved = first.reservePreparedRepositoryContinuation('session', transition);
+  first.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+  const cold = new EventStore(path);
+  stores.push(cold);
+  expect(cold.getSession('session')?.cwd).toBe('/new');
+  expect(cold.getOrdinaryLocalCommandAdmission(reserved.childCommandId)?.state).toBe('uncertain');
+  expect(cold.claimOrdinaryLocalCommandDispatch(reserved.childCommandId)).toBe(false);
+  expect(cold.hasUncertainOrdinaryCommand('session')).toBe(true);
+  expect(() =>
+    cold.admitPreparedRepositoryPrimaryContinuation(
+      { ...meta, cwd: '/new', repositoryWorkspaceId: 'new' },
+      binding,
+      { ...original, clientMsgId: 'cold-followup', requestFingerprint: 'cold-followup' },
+      reserved.childCommandId,
+    ),
+  ).toThrow();
+  expect(cold.getSendCommand('cold-followup')).toBeUndefined();
+  expect(cold.getSendCommand('original')?.payload).toEqual(original.payload);
 });
