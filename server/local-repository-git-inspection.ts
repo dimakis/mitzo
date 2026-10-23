@@ -59,6 +59,9 @@ export interface LocalRepositoryComparisonConfig {
   readonly unsupported?: true;
 }
 export interface LocalRepositoryGitMetadata {
+  /** Preparation consumes only actual HEAD resolution and the requested branch
+   * namespace. Never reuse this evidence as an all-ref/object/status view. */
+  referenceCoverage?: 'preparation-head-and-namespace-v1';
   /** Default/legacy complete preflight remains unmarked. Ref-only evidence
    * must be rejected by any object/status consumer before source lookup. */
   qualification?: 'references';
@@ -412,6 +415,8 @@ export async function readLocalRepositoryStatus(
   options: { signal?: AbortSignal; timeoutMs: number; readAccess: LocalRepositoryReadAccess },
 ): Promise<string> {
   options.signal?.throwIfAborted();
+  if (metadata.referenceCoverage)
+    throw new LocalRepositoryGitInspectionError('unsafe', 'preparation-reference-view-unavailable');
   if (metadata.qualification === 'references')
     throw new LocalRepositoryGitInspectionError('unsafe', 'reference-only-metadata');
   await options.readAccess.assertPath(metadata.path);

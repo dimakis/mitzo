@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
+import { NativeReadAnchorMissingError } from './native-file-operation.js';
 import {
   isLocalRepositoryCredentialPath,
   LocalRepositoryGitInspectionError,
@@ -69,6 +70,18 @@ function sourceReader(options: LocalRepositorySnapshotOptions) {
 }
 
 type Reader = ReturnType<typeof sourceReader>;
+/** A lexical omission is not physical absence on case/normalization-insensitive
+ * filesystems. The existing current owner may prove missing with its same
+ * nofollow directory capture; files/aliases/denials/specials are refusals. */
+async function assertPhysicalReferenceAbsent(access: LocalRepositoryReadAccess, path: string) {
+  try {
+    await access.pinRoot(path);
+  } catch (error) {
+    if (error instanceof NativeReadAnchorMissingError) return;
+    throw failure('snapshot-reference-absence-unavailable');
+  }
+  throw failure('snapshot-reference-absence-unavailable');
+}
 async function copyTree(
   source: string,
   destination: string,
@@ -106,7 +119,12 @@ async function privateContext<T>(
     reader: Reader;
     git: (...args: string[]) => Promise<string>;
   }) => Promise<T>,
+  referenceView: 'all' | 'preparation' = 'all',
 ) {
+  if (metadata.referenceCoverage && referenceView !== 'preparation')
+    throw failure('preparation-reference-view-unavailable');
+  if (referenceView === 'preparation' && metadata.qualification !== 'references')
+    throw failure('preparation-reference-view-required');
   const reader = sourceReader(options);
   let scratch: string | undefined;
   try {
@@ -156,8 +174,33 @@ async function privateContext<T>(
     headValue(head.buffer);
     await writeFile(join(gitDirectory, 'HEAD'), head.buffer);
     const refs = join(metadata.commonDirectory, 'refs');
-    if (await options.readAccess.stat(refs))
-      await copyTree(refs, join(gitDirectory, 'refs'), reader, false, true);
+    if (referenceView === 'all') {
+      if (await options.readAccess.stat(refs))
+        await copyTree(refs, join(gitDirectory, 'refs'), reader, false, true);
+    } else {
+      // Copy only the actual bounded symbolic chain. Existing Git below still
+      // resolves/validates the final HEAD/branch/OID; no unrelated ref OID is
+      // fabricated, inferred or read. Packed refs remain independently bounded.
+      let reference = headValue(head.buffer).ref;
+      const seen = new Set<string>();
+      while (reference) {
+        if (seen.has(reference) || seen.size >= 16) throw failure('snapshot-reference-unsupported');
+        seen.add(reference);
+        const value = await reader.optional(join(metadata.commonDirectory, reference), 4096);
+        if (!value) {
+          await assertPhysicalReferenceAbsent(
+            options.readAccess,
+            join(metadata.commonDirectory, reference),
+          );
+          break;
+        }
+        const next = headValue(value.buffer);
+        const destination = join(gitDirectory, reference);
+        await mkdir(dirname(destination), { recursive: true });
+        await writeFile(destination, value.buffer, { mode: value.mode });
+        reference = next.ref;
+      }
+    }
     const packed = await reader.optional(
       join(metadata.commonDirectory, 'packed-refs'),
       16 * 1024 * 1024,
@@ -212,24 +255,100 @@ function headValue(buffer: Buffer) {
   return { ref };
 }
 
+async function resolveHeadFacts(
+  metadata: LocalRepositoryGitMetadata,
+  options: LocalRepositorySnapshotOptions,
+  git: (...args: string[]) => Promise<string>,
+  reader: Reader,
+) {
+  const value = headValue((await reader.read(join(metadata.gitDirectory, 'HEAD'), 4096)).buffer);
+  const branch = (await git('branch', '--show-current')).trim() || null;
+  let head: string | null = null;
+  try {
+    head = (await git('rev-parse', '--verify', 'HEAD')).trim();
+  } catch (error) {
+    if (!value.ref || (await options.readAccess.stat(join(metadata.commonDirectory, value.ref))))
+      throw error; // Only a missing symbolic ref is unborn.
+  }
+  if (head !== null && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(head))
+    throw failure('snapshot-reference-unsupported');
+  return { branch, head };
+}
+
 export async function readLocalRepositoryGitFacts(
   metadata: LocalRepositoryGitMetadata,
   options: LocalRepositorySnapshotOptions,
 ) {
-  return privateContext(metadata, options, async ({ git, reader }) => {
-    const value = headValue((await reader.read(join(metadata.gitDirectory, 'HEAD'), 4096)).buffer);
-    const branch = (await git('branch', '--show-current')).trim() || null;
-    let head: string | null = null;
-    try {
-      head = (await git('rev-parse', '--verify', 'HEAD')).trim();
-    } catch (error) {
-      if (!value.ref || (await options.readAccess.stat(join(metadata.commonDirectory, value.ref))))
-        throw error; // Only a missing symbolic ref is unborn.
-    }
-    if (head !== null && !/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/.test(head))
-      throw failure('snapshot-reference-unsupported');
-    return { branch, head };
-  });
+  return privateContext(metadata, options, ({ git, reader }) =>
+    resolveHeadFacts(metadata, options, git, reader),
+  );
+}
+
+/** Explicit preparation-only coverage. Unrelated loose ref CONTENT is not
+ * consumed; no arbitrary-ref OID/all-ref/object/status qualification is made. */
+export async function readLocalRepositoryPreparationReferences(
+  metadata: LocalRepositoryGitMetadata,
+  options: LocalRepositorySnapshotOptions,
+  candidateReference?: string,
+) {
+  if (
+    candidateReference !== undefined &&
+    (!candidateReference.startsWith('refs/heads/') ||
+      headValue(Buffer.from(`ref: ${candidateReference}`)).ref !== candidateReference)
+  )
+    throw failure('snapshot-reference-unsupported');
+  return privateContext(
+    metadata,
+    options,
+    async ({ git, reader }) => {
+      const facts = await resolveHeadFacts(metadata, options, git, reader);
+      let conflict = false;
+      if (candidateReference !== undefined) {
+        const names = (await git('for-each-ref', '--format=%(refname)', 'refs/heads'))
+          .split('\n')
+          .filter(Boolean);
+        for (const name of names) headValue(Buffer.from(`ref: ${name}`));
+        conflict = names.some(
+          (name) =>
+            name === candidateReference ||
+            name.startsWith(candidateReference + '/') ||
+            candidateReference.startsWith(name + '/'),
+        );
+        const candidate = join(metadata.commonDirectory, candidateReference);
+        await options.readAccess.assertPath(candidate);
+        let directory = join(metadata.commonDirectory, 'refs', 'heads');
+        const base = await options.readAccess.stat(directory);
+        if (!base) await assertPhysicalReferenceAbsent(options.readAccess, directory);
+        if (base && base.kind !== 'directory') throw failure('snapshot-reference-unsupported');
+        if (base) {
+          const parts = candidateReference.slice('refs/heads/'.length).split('/');
+          for (let index = 0; index < parts.length; index++) {
+            const path = join(directory, parts[index]);
+            await options.readAccess.assertPath(path);
+            const entry = await options.readAccess.stat(path);
+            if (!entry) {
+              await assertPhysicalReferenceAbsent(options.readAccess, path);
+              break;
+            }
+            if (entry.kind === 'unsupported') throw failure('snapshot-reference-unsupported');
+            // Ordinary ancestor directories are legitimate namespaces. Existing
+            // ancestor files or ANY exact target entry cannot be adopted/removed.
+            if (entry.kind === 'file' || index === parts.length - 1) {
+              conflict = true;
+              break;
+            }
+            directory = path;
+          }
+        }
+      }
+      return Object.freeze({
+        ...facts,
+        conflict,
+        referenceCoverage: 'preparation-head-and-namespace-v1' as const,
+      });
+    },
+    'preparation',
+  );
 }
 
 /** Private copied-ref qualification only. The source paths/config never enter Git. */

@@ -42,6 +42,7 @@ export interface QualifiedLocalRepositoryPreparationSource {
     commonRoot: Identity;
   }>;
   readonly anchorsSha256: string;
+  readonly referenceCoverage?: 'preparation-head-and-namespace-v1';
   assertCurrentSync(): void;
   assertCurrent(): Promise<void>;
 }
@@ -167,13 +168,21 @@ export async function captureLocalRepositoryPreparationAuthorization(
     .string()
     .regex(/^[a-f0-9]{64}$/)
     .parse(qualified.anchorsSha256);
+  const referenceCoverage = z
+    .literal('preparation-head-and-namespace-v1')
+    .optional()
+    .parse(qualified.referenceCoverage);
   if (source.path !== input.path)
     throw new PendingHostTaskError('pending_host_task_ownership_changed');
   const assertSourceLabels = () => {
     assertOriginal();
     synchronous(() => qualified.assertCurrentSync());
     assertOriginal();
-    if (qualified.anchorsSha256 !== anchorsSha256 || !isDeepStrictEqual(qualified.source, source))
+    if (
+      qualified.anchorsSha256 !== anchorsSha256 ||
+      qualified.referenceCoverage !== referenceCoverage ||
+      !isDeepStrictEqual(qualified.source, source)
+    )
       throw new PendingHostTaskError('pending_host_task_ownership_changed');
   };
   synchronous(() => qualified.assertCurrentSync());
@@ -254,6 +263,7 @@ export async function captureLocalRepositoryPreparationAuthorization(
       taskRootIdentity: hostReservation.rootIdentity,
       sourceDigest: originalRecord.sourceDigest,
       anchorsSha256,
+      ...(referenceCoverage === undefined ? {} : { referenceCoverage }),
       sourceGitEffects: {
         administrationDirectory: join(source.commonDirectory, 'worktrees', `repo-${id}`),
         branchReference: branchRef,

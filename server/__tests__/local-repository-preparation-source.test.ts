@@ -36,6 +36,7 @@ it.each(['sync', 'async'] as const)(
         gitDirectory: '/fixture/source/.git',
         commonDirectory: '/fixture/source/.git',
         objectFormat: 'sha1' as const,
+        referenceCoverage: 'preparation-head-and-namespace-v1' as const,
         comparisonConfig: {},
         sourceAnchor: anchor,
         commonAnchor: { ...anchor, rootPath: '/fixture/source/.git' },

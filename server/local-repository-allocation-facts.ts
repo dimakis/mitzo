@@ -5,10 +5,7 @@ import {
   inspectLocalRepositoryGitMetadata,
   isLocalRepositoryCredentialPath,
 } from './local-repository-git-inspection.js';
-import {
-  hasLocalRepositoryReferenceConflict,
-  readLocalRepositoryGitFacts,
-} from './local-repository-git-snapshot.js';
+import { readLocalRepositoryPreparationReferences } from './local-repository-git-snapshot.js';
 import {
   LocalRepositoryReadAccess,
   type LocalRepositoryReadAnchor,
@@ -87,13 +84,13 @@ export async function captureLocalRepositoryAllocationFacts(
       signal: authority.signal,
       timeoutMs: Math.max(1, authority.deadline - Date.now()),
     };
-    const { branch, head } = await readLocalRepositoryGitFacts(metadata, options);
-    if (!head) throw unavailable();
     const featureBranch = `mitzo/repo-${workspaceId}`;
     const reference = `refs/heads/${featureBranch}`;
+    const { branch, head, conflict, referenceCoverage } =
+      await readLocalRepositoryPreparationReferences(metadata, options, reference);
+    if (!head) throw unavailable();
     await access.assertPath(join(metadata.commonDirectory, reference));
-    if (await hasLocalRepositoryReferenceConflict(metadata, options, reference))
-      throw unavailable();
+    if (conflict) throw unavailable();
     const directories: DirectoryStep[] = [];
     const known = new Map<string, NativeReadIdentity>([
       [taskRoot, taskAnchor.identity],
@@ -158,7 +155,7 @@ export async function captureLocalRepositoryAllocationFacts(
       baseOid: head,
       baseBranch: branch ?? head,
       featureBranch,
-      source: { ...metadata, sourceAnchor, commonAnchor },
+      source: { ...metadata, referenceCoverage, sourceAnchor, commonAnchor },
       taskRoot: taskAnchor,
       directories,
       absentPaths,

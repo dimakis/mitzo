@@ -5,12 +5,13 @@ import { captureNativeLocalRepositoryReader } from './local-repository-native-re
 import { captureLocalRepositoryAllocationFacts } from './local-repository-allocation-facts.js';
 import { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import { inspectLocalRepositoryGitMetadata } from './local-repository-git-inspection.js';
-import { readLocalRepositoryGitFacts } from './local-repository-git-snapshot.js';
+import { readLocalRepositoryPreparationReferences } from './local-repository-git-snapshot.js';
 import { freezePendingHostTaskData } from './pending-host-task.js';
 import type { NativeReadIdentity } from './native-file-operation.js';
 
 type AllocationFacts = Awaited<ReturnType<typeof captureLocalRepositoryAllocationFacts>>['facts'];
 export interface NativeQualifiedLocalRepositoryPreparationSource extends QualifiedLocalRepositoryPreparationSource {
+  readonly referenceCoverage: 'preparation-head-and-namespace-v1';
   readonly baseBranch: string;
   readonly baseOid: string;
   readonly allocationFacts: AllocationFacts;
@@ -40,7 +41,12 @@ function sourceFacts(facts: AllocationFacts) {
     },
     baseBranch: facts.baseBranch,
     baseOid: facts.baseOid,
-    anchorsSha256: hash({ source: source.sourceAnchor, common: source.commonAnchor }),
+    referenceCoverage: source.referenceCoverage,
+    anchorsSha256: hash({
+      source: source.sourceAnchor,
+      common: source.commonAnchor,
+      referenceCoverage: source.referenceCoverage,
+    }),
   };
 }
 
@@ -109,11 +115,14 @@ export async function captureNativeLocalRepositoryPreparationSource(
         timeoutMs: Math.max(1, Math.min(30000, reader.deadline - Date.now())),
       });
       const commonAnchor = await access.pinRoot(metadata.commonDirectory);
-      const { branch, head } = await readLocalRepositoryGitFacts(metadata, {
-        readAccess: access,
-        signal: reader.signal,
-        timeoutMs: Math.max(1, reader.deadline - Date.now()),
-      });
+      const { branch, head, referenceCoverage } = await readLocalRepositoryPreparationReferences(
+        metadata,
+        {
+          readAccess: access,
+          signal: reader.signal,
+          timeoutMs: Math.max(1, reader.deadline - Date.now()),
+        },
+      );
       await access.verify();
       const actual = {
         source: {
@@ -125,7 +134,8 @@ export async function captureNativeLocalRepositoryPreparationSource(
         },
         baseBranch: branch ?? head,
         baseOid: head,
-        anchorsSha256: hash({ source: sourceAnchor, common: commonAnchor }),
+        referenceCoverage,
+        anchorsSha256: hash({ source: sourceAnchor, common: commonAnchor, referenceCoverage }),
       };
       if (hash(actual) !== originalHash) throw unavailable();
     });

@@ -6,7 +6,7 @@ import * as childProcess from 'node:child_process';
 import { captureNativeLocalRepositoryReader } from '../local-repository-native-read.js';
 import { captureNativeLocalRepositoryPreparationSource } from '../local-repository-preparation-source.js';
 import { LocalRepositoryReadAccess } from '../local-repository-read-access.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   SessionRegistry,
   buildPermissionHandler,
@@ -217,6 +217,137 @@ it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION 
       await expect(stat(directory)).rejects.toThrow();
   },
   150000,
+);
+
+it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION === '1')(
+  'qualifies an ordinary unenrolled source with 26 loose refs through the original signed native reader',
+  async () => {
+    let source = '',
+      expectedHead = '',
+      qualified = false,
+      failure: unknown;
+    let phase = 'initial';
+    const timings: { operation: string; elapsedMs: number }[] = [];
+    const runs: Parameters<typeof sandboxedCommand.executeSandboxedCommand>[0][] = [];
+    const actual = sandboxedCommand.executeSandboxedCommand;
+    vi.spyOn(sandboxedCommand, 'executeSandboxedCommand').mockImplementation(async (request) => {
+      runs.push(request);
+      const started = Date.now();
+      try {
+        return await actual(request);
+      } finally {
+        timings.push({
+          operation: request.command.match(/"operation":"([^"]+)"/)?.[1] ?? 'capture',
+          elapsedMs: Date.now() - started,
+        });
+      }
+    });
+    const f = await fixture({
+      nativeBaseReads: true,
+      hostWideNativeReads: true,
+      observe: async (context) => {
+        try {
+          const index = await readFile(join(source, '.git', 'index'));
+          const held = await captureNativeLocalRepositoryPreparationSource(context, {
+            workspaceId: randomUUID(),
+            sourcePath: source,
+            taskRoot: join(f.f.root, 'pending-tasks'),
+          });
+          expect(held.baseOid).toBe(expectedHead);
+          expect(held.baseBranch).toBe('base');
+          expect(held.referenceCoverage).toBe('preparation-head-and-namespace-v1');
+          const original = held.allocationFacts.source;
+          expect(original.referenceCoverage).toBe(held.referenceCoverage);
+          expect(held.anchorsSha256).toBe(
+            createHash('sha256')
+              .update(
+                JSON.stringify({
+                  source: original.sourceAnchor,
+                  common: original.commonAnchor,
+                  referenceCoverage: held.referenceCoverage,
+                }),
+              )
+              .digest('hex'),
+          );
+          phase = 'fresh';
+          const firstScratch = new Set(runs.map((request) => request.cwd));
+          await held.revalidateAllocationFacts();
+          expect(runs.some((request) => !firstScratch.has(request.cwd))).toBe(true);
+          expect(await readFile(join(source, '.git', 'index'))).toEqual(index);
+          expect(await readFile(join(source, 'source.txt'), 'utf8')).toBe('MANY-REF SOURCE BYTES');
+          qualified = true;
+        } catch (error) {
+          failure = error;
+        }
+      },
+    });
+    source = join(f.f.root, 'unenrolled-many-refs');
+    await mkdir(source);
+    await mkdir(join(f.f.root, 'pending-tasks'));
+    const git = (...args: string[]) =>
+      childProcess
+        .execFileSync(
+          'git',
+          [
+            '-C',
+            source,
+            '-c',
+            'commit.gpgsign=false',
+            '-c',
+            'core.hooksPath=/dev/null',
+            '-c',
+            'maintenance.auto=false',
+            '-c',
+            'gc.auto=0',
+            ...args,
+          ],
+          {
+            encoding: 'utf8',
+            env: {
+              PATH: '/usr/bin:/bin',
+              GIT_CONFIG_GLOBAL: '/dev/null',
+              GIT_CONFIG_SYSTEM: '/dev/null',
+            },
+          },
+        )
+        .trim();
+    git('init', '-q', '-b', 'base');
+    git('config', 'user.name', 'Offline fixture');
+    git('config', 'user.email', 'offline@example.invalid');
+    await writeFile(join(source, 'source.txt'), 'MANY-REF SOURCE BYTES');
+    git('add', '.');
+    git('commit', '-qm', 'fixture');
+    for (let index = 0; index < 25; index++)
+      git('branch', `topic/branch-${String(index).padStart(2, '0')}`);
+    expectedHead = git('rev-parse', 'HEAD');
+    expect(git('for-each-ref', '--format=%(refname)', 'refs/heads').split('\n')).toHaveLength(26);
+    const result = await f.a.call({ operation: 'list' });
+    if (failure)
+      console.info('Synthetic many-ref refusal profile', {
+        phase,
+        timings,
+        helperCount: runs.length,
+        referenceByteCalls: runs.filter(
+          (request) =>
+            request.command.includes('"operation":"ReadBytes"') &&
+            request.command.includes('/refs/heads/'),
+        ).length,
+      });
+    expect(failure).toBeUndefined();
+    expect(
+      runs.filter(
+        (request) =>
+          request.command.includes('"operation":"ReadBytes"') &&
+          request.command.includes('/refs/heads/topic/'),
+      ),
+    ).toHaveLength(0);
+    expect(qualified).toBe(true);
+    expect(result.response.success).toBe(true);
+    expect(f.a.requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    for (const path of new Set(runs.map((request) => request.cwd)))
+      await expect(stat(path)).rejects.toMatchObject({ code: 'ENOENT' });
+  },
+  90000,
 );
 
 it.runIf(process.platform === 'darwin' && process.env.MITZO_SANDBOX_INTEGRATION === '1')(
