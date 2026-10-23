@@ -359,6 +359,12 @@ export class OwnedLocalCodexChatAdmission {
     if (client !== this.owner.lease.client) throw unavailable();
     return client;
   }
+  /** The existing physical custody owner supplies this digest. Request metadata
+   * or a runtime version label cannot qualify native sandbox implementation. */
+  nativeExecutionArtifactSha256(): string {
+    this.assertCurrentSync();
+    return this.owner.lease.executableSha256;
+  }
   assertBeforeEnqueue(input: CodexCommandInput): void {
     this.assertCurrentSync();
     const continuation = this.#continuations.get(input.id);

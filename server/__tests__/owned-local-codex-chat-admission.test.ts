@@ -130,6 +130,21 @@ function fixture() {
   };
   return { store, input, options, lease, runtime, binding, selection, agentProfile };
 }
+it('supplies the physical native artifact digest only through the current owned lease', () => {
+  const f = fixture();
+  try {
+    f.lease.executableSha256 = '1'.repeat(64);
+    f.store.claimOrdinaryLocalCommandDispatch('command');
+    const owner = OwnedLocalCodexChatAdmission.capture(f.input);
+    expect(owner.nativeExecutionArtifactSha256()).toBe('1'.repeat(64));
+    vi.mocked(f.lease.assertCurrentSync).mockImplementation(() => {
+      throw Error('Revoked');
+    });
+    expect(() => owner.nativeExecutionArtifactSha256()).toThrow();
+  } finally {
+    f.store.close();
+  }
+});
 it('requires the exact durable uncertain receipt before creating a trusted chat admission', () => {
   const f = fixture();
   try {

@@ -26,6 +26,29 @@ const mocks = vi.hoisted(() => ({
   useTls: false,
   custodianController: false,
 }));
+// These controller tests already replace the conversation, provider and lease.
+// Use a source-faithful qualified lease marker and an explicit synthetic scope;
+// physical qualification/private-root composition have dedicated offline tests.
+vi.mock('../owned-local-codex-native-policy.js', async (original) => {
+  const actual = await original<typeof import('../owned-local-codex-native-policy.js')>();
+  const { codexNativeExecutionPolicy } = await import('../codex-native-execution-policy.js');
+  return {
+    ...actual,
+    composeOwnedLocalNativeExecutionPolicy: (
+      input: Parameters<typeof actual.composeOwnedLocalNativeExecutionPolicy>[0],
+    ) => {
+      input.assertCurrentSync();
+      return codexNativeExecutionPolicy({
+        bindingRevision: input.binding.profileRevision!,
+        mode: input.session.mode,
+        cwd: input.session.cwd!,
+        readableRoots: input.readableRoots ?? ['/'],
+        writableRoots: [input.session.cwd!],
+        deniedRoots: ['/offline/owned-login'],
+      });
+    },
+  };
+});
 vi.mock('../symposium-custodian-mode.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../symposium-custodian-mode.js')>()),
   get custodianControllerMode() {
@@ -345,7 +368,7 @@ function ownedLocalOptions(
     binding,
     profile,
     privateHome: '/private/fixture-home',
-    executableSha256: 'a'.repeat(64),
+    executableSha256: '112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b',
     assertCurrent: vi.fn(async () => {}),
     assertCurrentSync: vi.fn(),
     close: vi.fn(),
@@ -3184,6 +3207,43 @@ it('rechecks owned command authority immediately before native enqueue and provi
   }
 });
 
+it('keeps an already admitted queued command on its frozen scope and refuses mutable workspace retargeting', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const f = ownedLocalOptions('/tmp');
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(f.opts);
+    const controls =
+      mocks.conversationOptions as unknown as import('../codex-conversation.js').CodexConversationOptions;
+    // The command is accepted while another turn can still be active. The
+    // default resolver must not use mutable session roots at later dispatch.
+    const admitted = controls.nativeExecution!;
+    f.opts.session.cwd = '/tmp/new-workspace';
+    await expect(
+      controls.resolveNativeExecutionPolicy!({
+        commandId: 'owned-command',
+        signal: new AbortController().signal,
+      }),
+    ).rejects.toThrow('Owned local Codex chat unavailable');
+    expect(admitted.cwd).toBe('/private/tmp');
+    expect(admitted.workspaceRoots).not.toContain('/tmp/new-workspace');
+    expect(() => controls.assertNativeExecutionCurrent!(admitted, 'owned-command')).toThrow(
+      'Owned local Codex chat unavailable',
+    );
+    expect(mocks.send).toHaveBeenCalledOnce();
+  } finally {
+    chat?.close();
+    f.eventStore.close();
+  }
+});
+
 it('uses the already verified owned client locally regardless of global OpenShell settings', async () => {
   vi.clearAllMocks();
   vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
@@ -3375,7 +3435,9 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
     expect(config.systemPrompt).toContain('RequestGithubPublish');
     expect((config.tools as Array<{ name: string }>).map((tool) => tool.name).sort()).toEqual(
       [
-        ...native.nativeToolDefinitions.map((tool) => tool.name),
+        ...native.nativeToolDefinitions
+          .filter((tool) => !['Bash', 'Read', 'Write', 'Edit'].includes(tool.name))
+          .map((tool) => tool.name),
         ...profileToolDefinitions.map((tool) => tool.name),
         'AgentReadTasks',
         'AgentProposeTask',
@@ -3469,7 +3531,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
         turnId: 'turn',
         callId: 'native',
       }),
-    ).resolves.toEqual({ content: 'Native result', isError: false });
+    ).rejects.toThrow('Tool unavailable for owned local Codex chat');
     await expect(
       execute(mcpDefinition.name, {}, new AbortController().signal, {
         turnId: 'turn',
@@ -3477,7 +3539,7 @@ it('qualifies owned native, MCP, profile and publishing tools and rejects other 
       }),
     ).resolves.toEqual({ content: 'MCP result', isError: false });
     expect(connectionExecute).not.toHaveBeenCalled();
-    expect(nativeExecute).toHaveBeenCalledOnce();
+    expect(nativeExecute).not.toHaveBeenCalled();
     expect(mcpExecute).toHaveBeenCalledOnce();
   } finally {
     chat?.close();
