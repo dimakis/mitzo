@@ -12,6 +12,83 @@ import {
   setSkillPolicy,
 } from '@mitzo/harness';
 
+it('preserves approved MCP screenshot bytes for the native harness', async () => {
+  const data =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+  const call = vi.fn(async () => ({
+    content: [
+      { type: 'text', text: 'screen' },
+      { type: 'image', mimeType: 'image/png', data },
+    ],
+  }));
+  const tools = await connectCodexMcpTools(
+    { browser: { command: 'fixture' } },
+    {
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+      connect: async () => ({
+        listTools: async () => ({ tools: [{ name: 'screenshot', inputSchema: {} }] }),
+        callTool: call,
+        close: async () => {},
+      }),
+    },
+  );
+  try {
+    const result = await tools.execute(
+      tools.definitions[0].name,
+      {},
+      async () => ({ behavior: 'allow' }),
+      new AbortController().signal,
+    );
+    expect(result).toEqual({
+      content: 'screen',
+      isError: false,
+      contentItems: [
+        { type: 'inputText', text: 'screen' },
+        { type: 'inputImage', imageUrl: `data:image/png;base64,${data}` },
+      ],
+    });
+  } finally {
+    await tools.close();
+  }
+});
+
+it('refuses a result if MCP runtime custody is revoked during the call', async () => {
+  let current = true;
+  const tools = await connectCodexMcpTools(
+    { browser: { command: 'fixture' } },
+    {
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+      assertRuntimeCurrent: () => {
+        if (!current) throw Error('revoked');
+      },
+      connect: async () => ({
+        listTools: async () => ({ tools: [{ name: 'screen', inputSchema: {} }] }),
+        callTool: async () => {
+          current = false;
+          return { content: [{ type: 'text', text: 'private result' }] };
+        },
+        close: async () => {},
+      }),
+    },
+  );
+  try {
+    await expect(
+      tools.execute(
+        tools.definitions[0].name,
+        {},
+        async () => ({ behavior: 'allow' }),
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('revoked');
+  } finally {
+    await tools.close();
+  }
+});
+
 it('refuses stale MCP startup before any peer launch', async () => {
   const connect = vi.fn();
   await expect(

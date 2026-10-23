@@ -3,6 +3,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { ToolDefinition } from '@mitzo/harness';
 import type { McpServerConfig } from './mcp-config.js';
+import { normalizeMcpToolResult } from './codex-tool-result.js';
 import {
   mcpStdioEnvironment,
   snapshotMcpEnvironment,
@@ -202,22 +203,10 @@ export async function connectCodexMcpTools(
         { name: tool.name, arguments: decision.updatedInput ?? input },
         signal,
       );
-      const content = Array.isArray(result.content)
-        ? result.content
-            .map((block) => {
-              const item = block as Input;
-              return item.type === 'text' && typeof item.text === 'string'
-                ? item.text
-                : '[Non-text MCP output unavailable in this Codex slice]';
-            })
-            .join('\n')
-        : JSON.stringify(result.content ?? '');
-      const limit = 65536;
-      return {
-        content:
-          content.length > limit ? content.slice(0, limit) + '\n[Output truncated]' : content,
-        isError: !!result.isError,
-      };
+      signal.throwIfAborted();
+      options.assertRuntimeCurrent?.();
+      if (closed) throw new Error('MCP clients closed');
+      return normalizeMcpToolResult(result.content, !!result.isError);
     },
   };
 }

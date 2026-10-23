@@ -1,5 +1,56 @@
 import { expect, it } from 'vitest';
 import { CodexSessionEvents } from '../codex-session-events.js';
+import {
+  extractToolResultImages,
+  extractToolResultText,
+} from '../../packages/protocol/src/content-blocks.js';
+import { normalizeMcpToolResult } from '../codex-tool-result.js';
+
+it.each([
+  ['before', 'after'],
+  ['', 'after'],
+  ['before', ''],
+  ['', ''],
+])(
+  'preserves authoritative mixed MCP text projection through public extraction (%j, %j)',
+  (before, after) => {
+    const events: Record<string, unknown>[] = [];
+    const mapper = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));
+    const data =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+    const result = normalizeMcpToolResult(
+      [
+        { type: 'text', text: before },
+        { type: 'image', mimeType: 'image/png', data },
+        { type: 'text', text: after },
+      ],
+      false,
+    );
+    mapper.toolResult('call', result.content, result.isError, result.contentItems);
+    const blocks = (events[0].message as { content: { content: unknown }[] }).content[0].content;
+    expect(extractToolResultText(blocks as never)).toBe(result.content);
+    expect(extractToolResultText(blocks as never)).toBe(`${before}\n${after}`);
+    expect((blocks as { type: string }[]).map((block) => block.type)).toEqual([
+      'text',
+      'image',
+      'text',
+    ]);
+    expect(extractToolResultImages(blocks as never)).toEqual([{ data, mediaType: 'image/png' }]);
+  },
+);
+
+it('projects native image tool results into existing query-loop image blocks', () => {
+  const events: Record<string, unknown>[] = [];
+  const mapper = new CodexSessionEvents('app', 'thread', 'model', (event) => events.push(event));
+  const data =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+  mapper.toolResult('call', 'screen', false, [
+    { type: 'inputText', text: 'screen' },
+    { type: 'inputImage', imageUrl: `data:image/png;base64,${data}` },
+  ]);
+  const blocks = (events[0].message as { content: { content: unknown }[] }).content[0].content;
+  expect(extractToolResultImages(blocks as never)).toEqual([{ data, mediaType: 'image/png' }]);
+});
 it('maps streamed text and completion using application identity and ignores other threads', () => {
   const events: Record<string, unknown>[] = [];
   const mapper = new CodexSessionEvents('app-id', 'provider-id', 'model', (e) => events.push(e));
