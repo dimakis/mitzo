@@ -49,8 +49,9 @@ export interface LocalRepositoryGitInspectionRequest {
   timeoutMs?: number;
   /** Qualified private reader for product read-tools; legacy workspace preflight retains its own boundary. */
   readAccess?: LocalRepositoryReadAccess;
-  /** Private ref-view only; never object storage or status qualification. */
-  mode?: 'complete' | 'references';
+  /** Private views only; preparation defers selected ref consumption to its
+   * marked snapshot. Neither partial view qualifies object storage or status. */
+  mode?: 'complete' | 'references' | 'preparation';
 }
 export interface LocalRepositoryComparisonConfig {
   readonly coreAutocrlf?: boolean | 'input';
@@ -64,7 +65,7 @@ export interface LocalRepositoryGitMetadata {
   referenceCoverage?: 'preparation-head-and-namespace-v1';
   /** Default/legacy complete preflight remains unmarked. Ref-only evidence
    * must be rejected by any object/status consumer before source lookup. */
-  qualification?: 'references';
+  qualification?: 'references' | 'preparation';
   path: string;
   gitDirectory: string;
   commonDirectory: string;
@@ -151,9 +152,13 @@ function comparisonConfig(
 export async function inspectLocalRepositoryGitMetadata(
   request: LocalRepositoryGitInspectionRequest,
 ): Promise<LocalRepositoryGitMetadata> {
-  if (request.mode !== undefined && !['complete', 'references'].includes(request.mode))
+  if (
+    request.mode !== undefined &&
+    !['complete', 'references', 'preparation'].includes(request.mode)
+  )
     throw new LocalRepositoryGitInspectionError('unsafe', 'inspection-mode-unsupported');
-  const referencesOnly = request.mode === 'references';
+  const preparation = request.mode === 'preparation';
+  const referencesOnly = request.mode === 'references' || preparation;
   if (referencesOnly && !request.readAccess)
     throw new LocalRepositoryGitInspectionError('access', 'read-anchor-required');
   const deadline = Date.now() + Math.max(1, Math.min(request.timeoutMs ?? 5000, 30000));
@@ -182,8 +187,17 @@ export async function inspectLocalRepositoryGitMetadata(
       isSymbolicLink: () => value.kind === 'unsupported',
     };
   };
-  const read = (path: string, limit: number) =>
-    request.readAccess ? request.readAccess.read(path, limit) : readRegular(path, limit);
+  const read = async (path: string, limit: number) => {
+    try {
+      return request.readAccess
+        ? await request.readAccess.read(path, limit)
+        : await readRegular(path, limit);
+    } catch (error) {
+      if (preparation && request.readAccess && (error as NodeJS.ErrnoException).code === 'ENOENT')
+        await request.readAccess.assertAbsent(path);
+      throw error;
+    }
+  };
   const physical = async (path: string) => {
     check();
     if (request.readAccess && !request.readAccess.covers(path))
@@ -281,9 +295,10 @@ export async function inspectLocalRepositoryGitMetadata(
       if (
         referencesOnly &&
         [gitDirectory, commonDirectory].includes(directory) &&
-        !['HEAD', 'refs', 'packed-refs', 'config', 'config.worktree', 'commondir'].includes(
+        (!['HEAD', 'refs', 'packed-refs', 'config', 'config.worktree', 'commondir'].includes(
           entry.name,
-        )
+        ) ||
+          (preparation && entry.name === 'refs'))
       )
         continue;
       if (++entries > Math.max(1, Math.min(request.maxEntries ?? 100000, 500000)))
@@ -393,7 +408,14 @@ export async function inspectLocalRepositoryGitMetadata(
   }
   await authorize(path);
   return {
-    ...(referencesOnly ? { qualification: 'references' as const } : {}),
+    ...(preparation
+      ? {
+          qualification: 'preparation' as const,
+          referenceCoverage: 'preparation-head-and-namespace-v1' as const,
+        }
+      : referencesOnly
+        ? { qualification: 'references' as const }
+        : {}),
     path,
     gitDirectory,
     commonDirectory,
@@ -417,7 +439,7 @@ export async function readLocalRepositoryStatus(
   options.signal?.throwIfAborted();
   if (metadata.referenceCoverage)
     throw new LocalRepositoryGitInspectionError('unsafe', 'preparation-reference-view-unavailable');
-  if (metadata.qualification === 'references')
+  if (metadata.qualification)
     throw new LocalRepositoryGitInspectionError('unsafe', 'reference-only-metadata');
   await options.readAccess.assertPath(metadata.path);
   throw new LocalRepositoryGitInspectionError('unsafe', 'comparison-context-unqualified');

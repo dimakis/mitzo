@@ -12,6 +12,7 @@ it('pins the private preparation decision producer, same-row custody and signed 
     '../local-repository-preparation-source.ts',
     '../__tests__/local-repository-preparation-source.test.ts',
     '../__tests__/local-repository-preparation-references.test.ts',
+    '../__tests__/native-host-read-owner.test.ts',
     '../__tests__/local-repository-reference-metadata.test.ts',
     '../__tests__/local-repository-cached-stat.test.ts',
     '../__tests__/local-repository-verification.test.ts',

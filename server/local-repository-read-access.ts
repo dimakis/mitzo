@@ -40,8 +40,8 @@ export interface LocalRepositoryReadAuthority {
     signal: AbortSignal,
     timeoutMs: number,
   ): ReturnType<typeof executeNativeAnchoredReadOperation>;
-  /** Actual native owner supplies the SAME enforced helper for complete
-   * directory-only verification. Explicit fixture owners retain bounded pairs. */
+  /** Actual native owner supplies the SAME enforced directory-only helper for
+   * original pinned-root listings and verification. Fixtures retain bounded pairs. */
   executeDirectoryVerification?(
     requests: readonly NativeAnchoredReadRequest[],
     signal: AbortSignal,
@@ -84,6 +84,7 @@ export class LocalRepositoryReadAccess {
   private readonly entries = new Map<string, LocalRepositoryReadEntry>();
   private readonly consumed = new Map<string, LocalRepositoryReadEntry>();
   private readonly capturedBytes = new Map<string, Buffer>();
+  private readonly absentPaths = new Set<string>();
   private readonly deniedRoots: readonly string[];
   private readonly excludedDirectories = new Set<string>();
   hasExclusionsWithin(path?: string) {
@@ -186,6 +187,59 @@ export class LocalRepositoryReadAccess {
     if (parent !== anchor.rootPath && !(await this.stat(parent))) return undefined;
     const values = await this.list(parent);
     return values.find((entry) => join(parent, entry.name) === path);
+  }
+  /** Original physical absence only, never a grant or freshness claim. A
+   * directory listing's lexical omission is insufficient on aliasing volumes.
+   * Descendants of one physically missing parent need no additional lookup;
+   * final verify still reconciles the retained parent listing before exposure. */
+  async assertAbsent(path: string): Promise<void> {
+    await this.authorize(path);
+    this.anchor(path);
+    if ([...this.absentPaths].some((parent) => contains(path, parent))) return;
+    if (await this.stat(path)) throw unavailable();
+    if (!(await this.stat(dirname(path)))) {
+      await this.assertAbsent(dirname(path));
+      return;
+    }
+    if (this.absentPaths.size >= 256)
+      throw new LocalRepositoryGitInspectionError('limit', 'read-absences');
+    try {
+      await this.pinRoot(path);
+    } catch (error) {
+      if (!(error instanceof NativeReadAnchorMissingError)) throw unavailable();
+      this.absentPaths.add(path);
+      return;
+    }
+    throw unavailable();
+  }
+  /** Initial metadata for exactly two already-pinned roots. The native owner
+   * supplies the SAME directory-only transport; no new root is inferred here.
+   * Retain original maps for final verification and never overwrite a witness. */
+  async listPinnedRoots(paths: readonly string[]): Promise<void> {
+    if (!Array.isArray(paths) || paths.length !== 2) throw unavailable();
+    const roots = Object.freeze([paths[0], paths[1]]);
+    if (
+      new Set(roots).size !== 2 ||
+      roots.some((path) => !this.anchors.has(path) || this.directories.has(path))
+    )
+      throw unavailable();
+    const batch = this.authority.executeDirectoryVerification;
+    if (!batch) {
+      const results = await Promise.allSettled(roots.map((path) => this.list(path)));
+      for (const result of results) if (result.status === 'rejected') throw result.reason;
+      return;
+    }
+    const requests: NativeAnchoredReadRequest[] = [];
+    for (const path of roots) requests.push(await this.directoryRequest(path));
+    const results = await batch.call(
+      this.authority,
+      requests,
+      this.authority.signal ?? new AbortController().signal,
+      Math.max(1, Math.min(30000, this.authority.deadline - Date.now())),
+    );
+    if (!Array.isArray(results) || results.length !== requests.length) throw unavailable();
+    for (let index = 0; index < requests.length; index++)
+      await this.directoryEntries(roots[index], requests[index].identity, results[index], false);
   }
   private async directoryRequest(path: string): Promise<NativeAnchoredReadRequest> {
     await this.authorize(path);

@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
-import { NativeReadAnchorMissingError } from './native-file-operation.js';
 import {
   isLocalRepositoryCredentialPath,
   LocalRepositoryGitInspectionError,
@@ -75,12 +74,10 @@ type Reader = ReturnType<typeof sourceReader>;
  * nofollow directory capture; files/aliases/denials/specials are refusals. */
 async function assertPhysicalReferenceAbsent(access: LocalRepositoryReadAccess, path: string) {
   try {
-    await access.pinRoot(path);
-  } catch (error) {
-    if (error instanceof NativeReadAnchorMissingError) return;
+    await access.assertAbsent(path);
+  } catch {
     throw failure('snapshot-reference-absence-unavailable');
   }
-  throw failure('snapshot-reference-absence-unavailable');
 }
 async function copyTree(
   source: string,
@@ -121,9 +118,15 @@ async function privateContext<T>(
   }) => Promise<T>,
   referenceView: 'all' | 'preparation' = 'all',
 ) {
-  if (metadata.referenceCoverage && referenceView !== 'preparation')
+  if (
+    referenceView !== 'preparation' &&
+    (metadata.referenceCoverage || metadata.qualification === 'preparation')
+  )
     throw failure('preparation-reference-view-unavailable');
-  if (referenceView === 'preparation' && metadata.qualification !== 'references')
+  if (
+    referenceView === 'preparation' &&
+    !['references', 'preparation'].includes(metadata.qualification ?? '')
+  )
     throw failure('preparation-reference-view-required');
   const reader = sourceReader(options);
   let scratch: string | undefined;
@@ -214,7 +217,11 @@ async function privateContext<T>(
         headValue(Buffer.from(`ref: ${match[2]}`));
       }
       await writeFile(join(gitDirectory, 'packed-refs'), packed.buffer);
-    }
+    } else if (referenceView === 'preparation')
+      await assertPhysicalReferenceAbsent(
+        options.readAccess,
+        join(metadata.commonDirectory, 'packed-refs'),
+      );
     const result = await action({ scratch, gitDirectory, reader, git });
     await reader.authorize(metadata.path);
     return result;
@@ -434,7 +441,7 @@ export async function readLocalRepositorySnapshotStatus(
   metadata: LocalRepositoryGitMetadata,
   options: LocalRepositorySnapshotOptions,
 ) {
-  if (metadata.qualification === 'references') throw failure('reference-only-metadata');
+  if (metadata.qualification) throw failure('reference-only-metadata');
   if (metadata.comparisonConfig.unsupported) throw failure('comparison-configuration-unsupported');
   return privateContext(metadata, options, async ({ scratch, gitDirectory, reader, git }) => {
     if (await options.readAccess.stat(join(metadata.gitDirectory, 'info', 'sparse-checkout')))

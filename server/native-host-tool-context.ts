@@ -32,12 +32,23 @@ export interface NativeHostToolContext extends NativeMainPublicationCall {
   readonly nativeTarget: Readonly<CodexNativeTurnTarget>;
   /** Private original base-read facts; never a grant or a byte/identity witness. */
   readonly nativeBaseReadScope?: NativeBaseReadScope;
+  /** Private original producer only. The facet retains BOTH genuine current
+   * owners; presence is neither read availability nor a filesystem grant. */
+  captureNativeReadOwner?(scope: NativeBaseReadScope): NativeHostReadOwner;
   readonly profile: AgentLibraryVersion | undefined;
   readonly agentContext: AgentContextSnapshot | undefined;
   /** Original admitted root data. A file read still needs its own byte/identity witness. */
   readonly workspace: Readonly<{ kind: 'ordinary' | 'repository'; id: string; directory: string }>;
   assertCurrent(): Promise<void>;
   dispose(): void;
+}
+
+export interface NativeHostReadOwner {
+  readonly context: NativeHostToolContext;
+  readonly scope: NativeBaseReadScope;
+  readonly signal: AbortSignal;
+  assertCurrentSync(): void;
+  assertCurrent(): Promise<void>;
 }
 
 function unavailable(): never {
@@ -74,6 +85,104 @@ function frozenRecord(value: unknown): asserts value is object {
     ![Object.prototype, null].includes(Object.getPrototypeOf(value))
   )
     unavailable();
+}
+function privateReadOwner(
+  context: NativeHostToolContext,
+  scope: NativeBaseReadScope,
+  signal: AbortSignal,
+  assertCurrentSync: () => void,
+  assertCurrent: () => Promise<void>,
+): NativeHostReadOwner {
+  return Object.freeze(
+    Object.defineProperties(
+      {},
+      Object.fromEntries(
+        Object.entries({
+          context,
+          scope,
+          signal,
+          assertCurrentSync: Object.freeze(assertCurrentSync),
+          assertCurrent: Object.freeze(assertCurrent),
+        }).map(([key, value]) => [key, { value }]),
+      ),
+    ),
+  ) as NativeHostReadOwner;
+}
+
+/** Capture immutable original references without executing accessors. A present
+ * malformed/borrowed facet never falls back to independent generic assertions. */
+export function captureNativeHostReadOwner(
+  context: NativeHostToolContext,
+): NativeHostReadOwner | undefined {
+  const descriptor = Object.getOwnPropertyDescriptor(context, 'captureNativeReadOwner');
+  if (!descriptor) {
+    if ('captureNativeReadOwner' in context) unavailable();
+    return undefined;
+  }
+  frozenRecord(context);
+  if (
+    !('value' in descriptor) ||
+    descriptor.enumerable ||
+    descriptor.configurable ||
+    descriptor.writable ||
+    typeof descriptor.value !== 'function' ||
+    !Object.isFrozen(descriptor.value)
+  )
+    unavailable();
+  const scope = frozenProperty(context, 'nativeBaseReadScope');
+  frozenRecord(scope);
+  const captured: unknown = Reflect.apply(descriptor.value, context, [scope]);
+  if (captured instanceof Promise) {
+    void captured.catch(() => {});
+    unavailable();
+  }
+  frozenRecord(captured);
+  const keys = ['context', 'scope', 'signal', 'assertCurrentSync', 'assertCurrent'];
+  if (
+    Reflect.ownKeys(captured).length !== keys.length ||
+    keys.some((key) => Object.getOwnPropertyDescriptor(captured, key)?.enumerable !== false)
+  )
+    unavailable();
+  const originalContext = frozenProperty(captured, 'context');
+  const originalScope = frozenProperty(captured, 'scope');
+  const signal = frozenProperty(captured, 'signal');
+  const sync = frozenProperty(captured, 'assertCurrentSync');
+  const async = frozenProperty(captured, 'assertCurrent');
+  if (
+    originalContext !== context ||
+    originalScope !== scope ||
+    signal !== frozenProperty(context, 'signal') ||
+    typeof sync !== 'function' ||
+    !Object.isFrozen(sync) ||
+    typeof async !== 'function' ||
+    !Object.isFrozen(async)
+  )
+    unavailable();
+  return privateReadOwner(
+    context,
+    scope as unknown as NativeBaseReadScope,
+    signal as AbortSignal,
+    () => assertSynchronous(() => Reflect.apply(sync, captured, [])),
+    async () => {
+      const pending: unknown = Reflect.apply(async, captured, []);
+      if (!(pending instanceof Promise)) {
+        void Promise.resolve(pending).catch(() => {});
+        unavailable();
+      }
+      if ((await pending) !== undefined) unavailable();
+    },
+  );
+}
+
+/** Generic callers retain both independent assertions with their receivers;
+ * identical function references do not establish combined-owner provenance. */
+export function assertNativeHostReadCurrentSync(
+  context: NativeHostToolContext,
+  scope: NativeBaseReadScope | undefined,
+) {
+  assertSynchronous(() => context.assertCurrentSync());
+  if (!scope) unavailable();
+  assertSynchronous(() => scope.assertCurrentSync());
 }
 function boundedString(source: object, key: string): string {
   const value = frozenProperty(source, key);
@@ -312,6 +421,11 @@ export function captureNativeHostToolContext(owners: {
       nativeBaseReadScope = captured.scope;
       assertCurrentSync();
     }
+    const assertCurrent = Object.freeze(async () => {
+      assertCurrentSync();
+      await owners.admission.assertCurrent();
+      assertCurrentSync();
+    });
     const context = {
       operatorId: authorization.auth.id,
       conversationId: owners.conversationId,
@@ -330,11 +444,7 @@ export function captureNativeHostToolContext(owners: {
       workspace,
       signal,
       assertCurrentSync,
-      async assertCurrent() {
-        assertCurrentSync();
-        await owners.admission.assertCurrent();
-        assertCurrentSync();
-      },
+      assertCurrent,
       dispose() {
         if (closed) return;
         closed = true;
@@ -342,8 +452,23 @@ export function captureNativeHostToolContext(owners: {
         operation.dispose();
       },
     };
-    if (nativeBaseReadScope)
+    if (nativeBaseReadScope) {
       Object.defineProperty(context, 'nativeBaseReadScope', { value: nativeBaseReadScope });
+      const readOwner = privateReadOwner(
+        context,
+        nativeBaseReadScope,
+        signal,
+        assertCurrentSync,
+        assertCurrent,
+      );
+      Object.defineProperty(context, 'captureNativeReadOwner', {
+        value: Object.freeze(function (this: unknown, scope: NativeBaseReadScope) {
+          if (this !== context || scope !== nativeBaseReadScope) unavailable();
+          assertCurrentSync();
+          return readOwner;
+        }),
+      });
+    }
     return Object.freeze(context);
   } catch (error) {
     lifetime.abort();
