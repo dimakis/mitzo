@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import type { LocalRepositoryAllocationFacts } from './local-repository-allocation-facts.js';
 import type { LocalRepositoryReadAccess } from './local-repository-read-access.js';
 import type { NativeReadIdentity } from './native-file-operation.js';
@@ -172,10 +172,40 @@ export async function captureQualifiedLocalRepositoryTask(
     await access.listPinnedRoots([facts.source.path, facts.taskRoot.rootPath]);
     const commonAnchor = await access.pinRoot(common);
     if (!equal(commonAnchor.identity, facts.source.commonAnchor.identity)) throw unavailable();
+    const directoryRecords = new Map<string, NativeReadIdentity>();
     for (const directory of [...facts.existingDirectories, ...receipt.directories]) {
-      const entry = await access.stat(directory.directory);
-      if (entry?.kind !== 'directory' || !equal(entry.identity, directory.identity))
-        throw unavailable();
+      const prior = directoryRecords.get(directory.directory);
+      if (prior && !equal(prior, directory.identity)) throw unavailable();
+      directoryRecords.set(directory.directory, directory.identity);
+    }
+    const parents = new Set([
+      ...[...directoryRecords.keys()].map(dirname),
+      ...receipt.files.map((file) => dirname(file.file_path)),
+      common,
+    ]);
+    const listed = new Set([facts.source.path, facts.taskRoot.rootPath]);
+    const pending = new Map(directoryRecords);
+    // Each frontier's exact parent has already been physically observed. Batch
+    // only these known identities, retaining original maps for final verify.
+    while (pending.size) {
+      const frontier = [...pending].filter(
+        ([directory]) =>
+          directory === common || listed.has(dirname(directory)) || listed.has(directory),
+      );
+      if (!frontier.length) throw unavailable();
+      for (let index = 0; index < frontier.length; index += 8) {
+        const wave = frontier.slice(index, index + 8);
+        for (const [directory, expected] of wave) {
+          const entry = await access.stat(directory);
+          if (entry?.kind !== 'directory' || !equal(entry.identity, expected)) throw unavailable();
+        }
+        const paths = wave
+          .map(([directory]) => directory)
+          .filter((directory) => parents.has(directory) && !listed.has(directory));
+        if (paths.length) await access.preloadDirectories(paths);
+        for (const path of paths) listed.add(path);
+        for (const [directory] of wave) pending.delete(directory);
+      }
     }
     const metadata = await inspectLocalRepositoryGitMetadata({
       path: facts.source.path,
@@ -221,13 +251,27 @@ export async function captureQualifiedLocalRepositoryTask(
         (total += file.byteLength) > 32 * 1024 * 1024
       )
         throw unavailable();
-      const bytes = await access.read(file.file_path, 16 * 1024 * 1024);
-      if (
-        createHash('sha256').update(bytes).digest('hex') !== file.sha256 ||
-        (expectedText.has(file.file_path) &&
-          !bytes.equals(Buffer.from(expectedText.get(file.file_path)!)))
-      )
-        throw unavailable();
+    }
+    // All required file entries/parents are known before independent byte waves.
+    // Join failures/cancellation completely; validate in original receipt order.
+    for (let index = 0; index < receipt.files.length; index += 2) {
+      const wave = receipt.files.slice(index, index + 2);
+      const results = await Promise.allSettled(
+        wave.map((file) => access.read(file.file_path, 16 * 1024 * 1024)),
+      );
+      for (const result of results) if (result.status === 'rejected') throw result.reason;
+      for (let offset = 0; offset < results.length; offset++) {
+        const file = wave[offset],
+          result = results[offset];
+        if (result.status !== 'fulfilled') throw unavailable();
+        const bytes = result.value;
+        if (
+          createHash('sha256').update(bytes).digest('hex') !== file.sha256 ||
+          (expectedText.has(file.file_path) &&
+            !bytes.equals(Buffer.from(expectedText.get(file.file_path)!)))
+        )
+          throw unavailable();
+      }
     }
     await access.verify();
     const root = receipt.directories.find((entry) => entry.directory === task),

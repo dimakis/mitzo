@@ -95,7 +95,7 @@ async function fixture() {
     facts: original.facts,
     publication,
     admin,
-    access: () => new LocalRepositoryReadAccess(authority()),
+    access: (signal?: AbortSignal) => new LocalRepositoryReadAccess({ ...authority(), signal }),
   };
 }
 it('captures physical task/linkage only from known-created publication IDs and current anchored reads', async () => {
@@ -145,3 +145,69 @@ it('refuses changed branch bytes before exposure while retaining every source/ta
   expect(await readFile(path, 'utf8')).toBe('1'.repeat(40) + '\n');
   expect(await readFile(join(task, 'source.txt'), 'utf8')).toBe('COMMITTED\n');
 });
+
+it('preloads already-observed task parent frontiers and reads metadata in bounded joined pairs', async () => {
+  const f = await fixture();
+  const access = f.access();
+  const preload = vi.spyOn(access, 'preloadDirectories');
+  const original = access.read.bind(access);
+  let active = 0,
+    peak = 0;
+  vi.spyOn(access, 'read').mockImplementation(async (path, limit) => {
+    active++;
+    peak = Math.max(peak, active);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return await original(path, limit);
+    } finally {
+      active--;
+    }
+  });
+  const observed = await captureQualifiedLocalRepositoryTask(access, f.facts, f.publication);
+  expect(observed.directory).toBe(task);
+  expect(peak).toBe(2);
+  expect(active).toBe(0);
+  expect(preload).toHaveBeenCalled();
+  expect(preload.mock.calls.every(([paths]) => paths.length >= 1 && paths.length <= 8)).toBe(true);
+});
+
+it.each(['failure', 'abort'] as const)(
+  'joins a %s task metadata pair without starting later metadata or returning custody',
+  async (kind) => {
+    const f = await fixture();
+    const controller = new AbortController();
+    const access = f.access(controller.signal);
+    const original = access.read.bind(access);
+    let started = 0,
+      settled = false;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.spyOn(access, 'read').mockImplementation(async (path, limit) => {
+      if (!path.startsWith(f.admin + '/')) return original(path, limit);
+      if (started++ === 0) {
+        if (kind === 'abort') controller.abort(Error('synthetic task abort'));
+        throw Error('synthetic first metadata refusal');
+      }
+      await held;
+      throw Error('synthetic joined metadata refusal');
+    });
+    const pending = captureQualifiedLocalRepositoryTask(access, f.facts, f.publication).finally(
+      () => {
+        settled = true;
+      },
+    );
+    const outcome = expect(pending).rejects.toThrow('Qualified repository task unavailable');
+    try {
+      for (let i = 0; i < 2000 && started < 2 && !settled; i++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(started).toBe(2);
+      expect(settled).toBe(false);
+    } finally {
+      release();
+      await outcome;
+    }
+    expect(started).toBe(2);
+  },
+);
