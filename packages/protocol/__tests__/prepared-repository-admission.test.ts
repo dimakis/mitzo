@@ -79,6 +79,7 @@ it('reserves one deterministic uncertain child before mutation and atomically co
   const reserved = store.reservePreparedRepositoryContinuation('session', transition);
   expect(reserved.fresh).toBe(true);
   expect(reserved.admission.state).toBe('uncertain');
+  expect(store.observePreparedRepositoryBootstrapAdmission(reserved.childCommandId, 'original')).toEqual(before);
   expect(store.getSession('session')?.cwd).toBe('/old');
   expect(store.hasUncertainOrdinaryCommand('session')).toBe(true);
   expect(store.reservePreparedRepositoryContinuation('session', transition)).toMatchObject({
@@ -92,6 +93,7 @@ it('reserves one deterministic uncertain child before mutation and atomically co
   expect(reserved.payload.text).not.toBe(original.payload.text);
   expect(() => store.getOrdinaryLocalCommandAdmission(reserved.childCommandId)).toThrow();
   store.commitPreparedRepositoryContinuation('session', reserved.childCommandId, transition);
+  expect(store.observePreparedRepositoryBootstrapAdmission(reserved.childCommandId, 'original')).toEqual(before);
   expect(store.getOrdinaryLocalCommandAdmission(reserved.childCommandId)?.state).toBe('uncertain');
   store.finalizePreparedRepositoryContinuation(
     'session',

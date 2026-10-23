@@ -1040,6 +1040,23 @@ export class EventStore {
   observePreparedRepositoryContinuation(commandId: string): OrdinaryLocalCommandAdmission {
     return this.readPreparedRepositoryTransition(commandId);
   }
+  /** Immutable bootstrap-command observation under one exact existing private
+   * transition. This never makes the original workspace current again. */
+  observePreparedRepositoryBootstrapAdmission(childCommandId: string, bootstrapCommandId: string): OrdinaryLocalCommandAdmission {
+    const child = this.readPreparedRepositoryTransition(childCommandId);
+    const send = this.getSendCommand(childCommandId), originSend = this.getSendCommand(bootstrapCommandId);
+    const row = this.db!.prepare('SELECT ordinary_admission FROM send_commands WHERE client_msg_id=?')
+      .get(bootstrapCommandId) as { ordinary_admission: string | null } | undefined;
+    const original = OrdinaryLocalCommandAdmissionSchema.parse(row?.ordinary_admission ? JSON.parse(row.ordinary_admission) : undefined);
+    const old = child.preparedRepositoryTransition!.oldWorkspace;
+    if (!send?.sessionId || send.error || !originSend || originSend.error || originSend.sessionId !== send.sessionId ||
+      !['uncertain', 'consumed'].includes(child.state) || original.state !== 'consumed' ||
+      !isDeepStrictEqual(original.binding, child.binding) || original.workspace.workspaceId !== old.id || original.workspace.cwd !== old.directory ||
+      !isDeepStrictEqual(original.selection.agent, child.selection.agent) || !isDeepStrictEqual(original.selection.context, child.selection.context) ||
+      !isDeepStrictEqual(original.selection.permission, child.selection.permission))
+      throw Error('Original prepared repository bootstrap observation unavailable');
+    return original;
+  }
   /** Preserve partial adoption, including a queued native row after a thrown
    * enqueue return. No cold resume or generic dispatch can infer permission. */
   markPreparedRepositoryContinuationUncertain(commandId: string): void {
