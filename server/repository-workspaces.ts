@@ -609,6 +609,8 @@ export class RepositoryWorkspaces {
       )
         throw Error('Silent ordinary preparation settings unavailable');
       const record = this.get(selected.id);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (
         !record.ordinaryPreparation ||
         !isDeepStrictEqual(record.ordinaryPreparation.runtimeBinding, settings.binding) ||
@@ -1078,6 +1080,8 @@ export class RepositoryWorkspaces {
   async discard(id: string, binding: AccountBinding) {
     return this.runOperation(async () => {
       const record = this.get(id);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (
         record.state === 'ready' &&
         record.ordinaryPreparation &&
@@ -1219,6 +1223,8 @@ export class RepositoryWorkspaces {
   async releaseSource(id: string, binding: AccountBinding, conversationId: string) {
     return this.runOperation(async () => {
       const record = this.get(id);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (
         record.state !== 'claimed' ||
         record.conversationId !== conversationId ||
@@ -1336,6 +1342,8 @@ export class RepositoryWorkspaces {
     signal: AbortSignal,
     requireModelReadiness = false,
   ) {
+    if (record.qualifiedLocalPreparation)
+      throw new PendingHostTaskError('pending_host_task_access_required');
     const proof = OrdinaryRepositoryPreparationSchema.parse(record.ordinaryPreparation);
     if (
       ['ready', 'reserved', 'claiming', 'claimed'].includes(record.state) &&
@@ -2937,6 +2945,8 @@ export class RepositoryWorkspaces {
         signal = input.signal;
       signal.throwIfAborted();
       const record = this.getHostRecord(expected.id);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (record.state !== 'ready') {
         const descriptor = this.getHostReservation(expected);
         await this.authorizeHostRecord(record, record.binding, signal);
@@ -3216,6 +3226,8 @@ export class RepositoryWorkspaces {
   ) {
     return this.runOperation(async () => {
       const record = this.get(id);
+      if (record.qualifiedLocalPreparation)
+        throw new PendingHostTaskError('pending_host_task_access_required');
       if (record.hostReservation !== undefined || record.pendingHostTask !== undefined)
         throw new Error('Host repository reservation requires its owning materialization path');
       if (

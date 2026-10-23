@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.596-qualified-local-repository-selection';
+  'v1.0.597-qualified-local-repository-legacy-refusal';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +24,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/qualified-local-repository-selection.test.ts':
-    '69b3d3fe768533d3f58c5409295be529f45ec51cc7ddd54d2b089df7b85209f3',
+    '589b8ac5c633eed195e509f4ec47cb9758fb788846e3d43eb949ce33cbb5b074',
   '../__tests__/prepared-repository-candidate.test.ts':
     'b6a8785e0207c70d8ef70e641befdb1a08f6a74670522e3d5e3c06f80f853fae',
   '../__tests__/local-repository-read-ceiling.test.ts':
@@ -1053,7 +1053,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '8d334e7f2e465ffbb66d4424f09adc04ca4695ce131fbd50d85226ccbf175d16',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
-  '../repository-workspaces.ts': 'a211fe70e31b755c7d2d704d2a7384b47b925fdcd2239a0ce3c9a9e4436ec808',
+  '../repository-workspaces.ts': 'c7040f37bcaddd0cda54f8fef1950b174d00de0decaa2546189e4682eb5fe55c',
   '../../packages/protocol/src/session-metadata-store.ts':
     '019598b360106c0dd8babc08e9366e40c95c1dd4dca9ea649c37bc7d096b8358',
   '../../packages/protocol/src/event-store.ts':

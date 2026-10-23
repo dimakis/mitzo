@@ -14,6 +14,8 @@ import {
 import { fixtureReadAnchor } from './fixtures/local-repository-read-owner.js';
 import { pendingHostTaskDecisionHash, type PendingHostTaskRequest } from '../pending-host-task.js';
 import * as legacy from '../local-repository-worktree.js';
+import { EventStore } from '../event-store.js';
+import { contextDigest } from '../agent-context-compiler.js';
 
 // Real bounded read facts plus fixture-only current callbacks: SQL selection
 // evidence, not signed native authorization, object qualification or effects.
@@ -291,7 +293,88 @@ it('refuses qualified-only rows in legacy selectors/status/materializers before 
   await expect(
     f.service.materializePendingHostTask(f.input.request, new AbortController().signal),
   ).rejects.toThrow();
+  await expect(f.service.claim(id, binding, 'legacy', taskRoot, false)).rejects.toThrow();
+  await expect(f.service.releaseSource(id, binding, 'legacy')).rejects.toThrow();
+  await expect(f.service.prepare(id, binding, new AbortController().signal)).rejects.toThrow();
   expect(f.deps.assertLocalRepositoryAccess).not.toHaveBeenCalled();
   expect(f.deps.assertPendingHostTaskAccess).not.toHaveBeenCalled();
   expect(f.service.get(id)).toEqual(original);
 });
+
+it.each(['discard', 'reserve', 'silent'] as const)(
+  'refuses legacy %s before account/source callbacks, allocation records or historical data removal',
+  async (operation) => {
+    const f = fixture();
+    await f.service.selectQualifiedExistingLocalRepository(f.input, new AbortController().signal);
+    const original = f.service.get(id);
+    const retained = join(f.directory, id);
+    await mkdir(retained);
+    await writeFile(join(retained, 'retained-evidence.txt'), 'RETAINED OPERATION EVIDENCE');
+    const events = new EventStore(':memory:');
+    const db = new Database(join(f.directory, 'workspaces.db'));
+    try {
+      let attempt: Promise<unknown>;
+      if (operation === 'discard') attempt = f.service.discard(id, binding);
+      else if (operation === 'reserve')
+        attempt = f.service.reserveHostTask({
+          id,
+          binding,
+          conversationId: 'legacy',
+          taskRoot,
+          runtimeBinding,
+          commandFingerprint: 'c'.repeat(64),
+          signal: new AbortController().signal,
+        });
+      else {
+        const definition = {
+          name: 'Agent',
+          descriptor: 'Fixture',
+          role: 'agent' as const,
+          instructions: 'Offline',
+          expectedOutput: 'Evidence',
+          acceptanceCriteria: ['Evidence'],
+          modelPolicyRole: 'agent' as const,
+        };
+        attempt = f.service.prepareOrdinarySession(
+          {
+            id,
+            binding,
+            taskRoot,
+            allocationOperationId: 'legacy-allocation',
+            settings: {
+              binding: runtimeBinding,
+              repositoryWorkspaceId: id,
+              selection: {
+                version: 1,
+                agent: { profileId: 'agent', revision: 1 },
+                context: { source: 'none', revision: null },
+                permission: { mode: 'agent', revision: 0 },
+                model: binding.model,
+                thinking: null,
+              },
+            },
+            agentProfile: {
+              profileId: 'agent',
+              revision: 1,
+              definition,
+              contentHash: contextDigest(definition),
+            },
+            signal: new AbortController().signal,
+          },
+          events,
+        );
+      }
+      await expect(attempt).rejects.toThrow();
+      expect(f.deps.ordinaryPreparation.assert).not.toHaveBeenCalled();
+      expect(f.deps.assertLocalRepositoryAccess).not.toHaveBeenCalled();
+      expect(f.service.get(id)).toEqual(original);
+      expect(db.prepare('SELECT * FROM ordinary_preparation_allocations').all()).toEqual([]);
+      expect(await readFile(join(retained, 'retained-evidence.txt'), 'utf8')).toBe(
+        'RETAINED OPERATION EVIDENCE',
+      );
+    } finally {
+      db.close();
+      events.close();
+    }
+  },
+);
