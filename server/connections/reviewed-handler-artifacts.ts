@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../../packages/harness/__tests__/permission-decision-observation.test.ts':
+    '9015a6d277857def583a07698a0b8221fdbadd5914cd4973a24f1960220861fd',
   '../codex-tool-result.ts': '661156d265f7ba2ea92fb7facd4fdb057af454f24d69d65131edbe7f3f7d4667',
 
   '../../implementation-evidence/codex-native-macos-permission-kernel-0.160.0.json':
@@ -732,7 +734,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/store.ts':
     '7a29a55e11501f86abc2e1eaca59b90fb24aacab8a40c95d2ea119787680174f',
   '../../packages/harness/src/permission-handler.ts':
-    '4f3de10802c582ea7ec4ca27378fff84048b0e1aaf6514383736395d325f31d2',
+    '1b6c4cdc9a894ef04ede97a48e00ab4426c9e4cad6863a48de943fe372a52dd8',
   '../../packages/harness/src/permissions.ts':
     '546e88401d53f36462c338ec4ac4b4fe86e257cdc39e4f9af44b04989fa05733',
   '../../packages/protocol/src/session-approval-scope.ts':

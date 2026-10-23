@@ -62,6 +62,76 @@ function fixture() {
 }
 
 describe('private one-shot decision observation', () => {
+  it.each(['agent', 'ask'] as const)(
+    'observes explicit one-shot native boundary consent in %s without a broad cache',
+    async (mode) => {
+      const f = fixture();
+      f.registry.setMode('client', mode);
+      const observed = vi.fn();
+      const current = vi.fn();
+      const pending = f.start(
+        observed,
+        { path: '/fixture/file' },
+        { nativeApproval: { assertCurrentSync: current } },
+      );
+      await Promise.resolve();
+      const card = f.card();
+      expect(card).toBeDefined();
+      expect(resolvePending(card.permId as string, 'once', undefined, 'original-session')).toBe(
+        true,
+      );
+      await expect(pending.result).resolves.toMatchObject({
+        behavior: 'allow',
+        decisionClassification: 'user_temporary',
+      });
+      expect(observed).toHaveBeenCalledOnce();
+      expect(current).toHaveBeenCalled();
+      expect(f.registry.get('client')!.sessionAllowList.size).toBe(0);
+    },
+  );
+  it.each(['callback', 'signal', 'scope'] as const)(
+    'preserves original native-boundary observer %s custody across option normalization',
+    async (changed) => {
+      const f = fixture();
+      const observed = vi.fn();
+      const pending = f.start(
+        observed,
+        { path: '/fixture/file' },
+        { nativeApproval: { assertCurrentSync() {} } },
+      );
+      await Promise.resolve();
+      const card = f.card();
+      expect(card).toBeDefined();
+      if (changed === 'callback') pending.options.onDecision = vi.fn();
+      if (changed === 'signal') pending.options.signal = new AbortController().signal;
+      if (changed === 'scope') pending.options.approvalScope = 'session';
+      resolvePending(card.permId as string, 'once', undefined, 'original-session');
+      await expect(pending.result).resolves.toMatchObject({ behavior: 'deny' });
+      expect(observed).not.toHaveBeenCalled();
+    },
+  );
+  it.each([
+    { forcePrompt: false },
+    { allowSessionGrant: true },
+    { rememberSessionGrant: true },
+    { approvalScope: 'session' as const },
+  ])(
+    'does not manufacture original observation eligibility by native normalization: %j',
+    async (original) => {
+      const f = fixture();
+      const observed = vi.fn();
+      const pending = f.start(
+        observed,
+        {},
+        { nativeApproval: { assertCurrentSync() {} }, ...original },
+      );
+      await Promise.resolve();
+      expect(f.card()).toBeUndefined();
+      await expect(pending.result).resolves.toMatchObject({ behavior: 'deny' });
+      expect(observed).not.toHaveBeenCalled();
+    },
+  );
+
   it('observes immutable original evidence once before outward allow and lifecycle', async () => {
     const f = fixture();
     const decisions: Decision[] = [];

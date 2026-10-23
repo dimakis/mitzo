@@ -238,6 +238,7 @@ export function buildPermissionHandler(
       'TelosAdoptSource',
       'mcp__telos__TelosAdoptSource',
     ].includes(toolName);
+    const originalOptions = opts;
     const nativeApproval = opts.nativeApproval;
     const nativeApprovalAssertion = nativeApproval?.assertCurrentSync;
     const nativeApprovalCurrent = () => {
@@ -266,11 +267,11 @@ export function buildPermissionHandler(
         rememberSessionGrant: false,
         approvalScope: nativeApproval.allowSessionScope === true ? 'session' : 'request',
       };
-    const onDecision = opts.onDecision;
+    const onDecision = originalOptions.onDecision;
     const originalInput = _toolInput;
-    const originalSignal = opts.signal;
-    const originalToolUseID = opts.toolUseID;
-    const originalControlPlane = opts.controlPlane;
+    const originalSignal = originalOptions.signal;
+    const originalToolUseID = originalOptions.toolUseID;
+    const originalControlPlane = originalOptions.controlPlane;
     const originalSessionId = session.sessionId;
     let decisionInput: ReturnType<typeof snapshotDecisionInput> | undefined;
     // Match the guard's checked map facts, including their original task custody.
@@ -286,17 +287,20 @@ export function buildPermissionHandler(
       });
     let decisionWorkspace: string | undefined;
     const observationOptionsCurrent = () =>
-      opts.onDecision === onDecision &&
-      opts.signal === originalSignal &&
-      opts.toolUseID === originalToolUseID &&
-      opts.controlPlane === originalControlPlane &&
-      opts.nativeSourceScope === undefined &&
+      [originalOptions, opts].every(
+        (current) =>
+          current.onDecision === onDecision &&
+          current.signal === originalSignal &&
+          current.toolUseID === originalToolUseID &&
+          current.controlPlane === originalControlPlane &&
+          current.nativeSourceScope === undefined &&
+          current.forcePrompt === true &&
+          current.allowSessionGrant === false &&
+          current.rememberSessionGrant === false &&
+          current.approvalScope === 'request' &&
+          !current.questions,
+      ) &&
       session.sessionId === originalSessionId &&
-      opts.forcePrompt === true &&
-      opts.allowSessionGrant === false &&
-      opts.rememberSessionGrant === false &&
-      opts.approvalScope === 'request' &&
-      !opts.questions &&
       !telosReview &&
       !toolName.startsWith('Telos') &&
       !toolName.startsWith('mcp__telos__') &&
