@@ -14,6 +14,14 @@ export interface ManagedOpenAIAccount {
   providerName: string;
   providerId: string;
 }
+/** Credential custody remains authoritative even when an account cannot rotate keys. */
+export interface OpenAIKeyResourceAccount {
+  readonly id: string;
+  readonly profileRevision?: string;
+  readonly credentialRef: CredentialReference;
+  readonly providerName?: string;
+  readonly providerId?: string;
+}
 export interface VersionedKeychain {
   authorize?(reference: CredentialReference, signal: AbortSignal): Promise<void>;
   read(
@@ -72,6 +80,7 @@ export class OpenAIKeyManagement {
   constructor(
     private readonly options: {
       accounts: () => ManagedOpenAIAccount[];
+      resourceAccounts?: () => readonly OpenAIKeyResourceAccount[];
       store: OpenAIKeyOperationStore;
       keychain: VersionedKeychain;
       gateway: OpenAIKeyGateway;
@@ -120,19 +129,20 @@ export class OpenAIKeyManagement {
     )
       throw new Error('OpenAI account is not configured for key replacement');
     this.assertResourceOwnership(account);
+    const resources = openAIKeyResourceBindings(account);
     if (
-      accounts.some(
+      (this.options.resourceAccounts?.() ?? accounts).some(
         (item) =>
           item.id !== id &&
-          (digest(item.credentialRef) === digest(account.credentialRef) ||
-            item.providerId === account.providerId ||
-            item.providerName === account.providerName),
+          (openAIKeyResourceBindings(item).credentialBinding === resources.credentialBinding ||
+            (!!item.providerId && item.providerId === account.providerId) ||
+            (!!item.providerName && item.providerName === account.providerName)),
       )
     )
       throw new Error('Shared credentials require separate configuration');
     return account;
   }
-  private assertResourceOwnership(account: ManagedOpenAIAccount) {
+  private assertResourceOwnership(account: OpenAIKeyResourceAccount) {
     if (this.options.store.hasOtherResourceOwner(account.id, openAIKeyResourceBindings(account)))
       throw new Error(
         'OpenAI credentials or provider are recorded under another account; operator reconciliation is required',
@@ -273,9 +283,17 @@ export class OpenAIKeyManagement {
     });
   }
   /** Called while ConnectionsService holds its admission gate. Legacy unadopted keys are unchanged. */
-  async assertReady(accountId: string, signal: AbortSignal) {
-    const configured = this.options.accounts().find((account) => account.id === accountId);
-    if (configured) this.assertResourceOwnership(configured);
+  async assertReady(accountId: string, signal: AbortSignal, selected?: OpenAIKeyResourceAccount) {
+    const configured = (this.options.resourceAccounts?.() ?? this.options.accounts()).find(
+      (account) => account.id === accountId,
+    );
+    if (
+      selected &&
+      (selected.id !== accountId || !configured || !isDeepStrictEqual(configured, selected))
+    )
+      throw new Error('OpenAI account credential resource changed');
+    const resource = selected ?? configured;
+    if (resource) this.assertResourceOwnership(resource);
     if (!this.options.store.latest(accountId)) return;
     const account = this.account(accountId);
     const state = await this.state(account, signal);

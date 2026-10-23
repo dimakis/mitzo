@@ -1,6 +1,12 @@
 import { useSearchParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createChatDraft, getChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-drafts';
+import {
+  createChatDraft,
+  getChatDraft,
+  saveChatDraft,
+  ChatDraftSchema,
+  type ChatDraft,
+} from '../lib/chat-drafts';
 import {
   chatAgentProfileFromSearch,
   retainChatRuntimeSelection,
@@ -53,13 +59,15 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
         selection,
         profileChanged ? chatAgentProfileFromSearch(settings.search) : undefined,
       );
-      const next = {
+      // Compare the same stored schema shape: property-order-only differences
+      // must not publish another draft event and refresh a launch indefinitely.
+      const next = ChatDraftSchema.shape.settings.parse({
         ...settings,
         sourceSnapshots: saved.settings.sourceSnapshots,
         selection,
         summary: settings.summary ?? saved.settings.summary,
         ...(runtimeSelection !== undefined ? { runtimeSelection } : {}),
-      };
+      });
       if (JSON.stringify(saved.settings) !== JSON.stringify(next))
         setSettingsError(!saveChatDraft({ ...saved, settings: next }));
     },

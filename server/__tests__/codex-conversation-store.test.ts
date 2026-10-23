@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CodexConversationStore } from '../codex-conversation-store.js';
+import { normalizeMcpToolResult } from '../codex-tool-result.js';
 const roots: string[] = [];
 const binding = {
   accountId: 'personal',
@@ -488,6 +489,34 @@ it('reopens an exact tool result after a crash before reviewer coverage is marke
     }),
   ).toThrow(/identity/);
   s.close();
+});
+
+it('retains bounded mixed-output errors through receipt restart and replay', () => {
+  const { path } = setup();
+  let store = new CodexConversationStore(path);
+  store.create('bounded', binding, '/workspace');
+  store.enqueue('bounded', binding, { id: 'command', prompt: 'inspect' });
+  store.claimNext('bounded', binding);
+  const identity = { turnId: 'turn', toolName: 'screen', requestHash: 'a'.repeat(64) };
+  store.claimTool('bounded', binding, 'command', 'call', identity);
+  const data =
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==';
+  const result = normalizeMcpToolResult(
+    [
+      { type: 'text', text: 'x'.repeat(65_535) },
+      { type: 'image', mimeType: 'image/png', data },
+      { type: 'text', text: 'required trailing text' },
+    ],
+    false,
+  );
+  store.recordToolResult('bounded', binding, 'command', 'call', identity, result);
+  store.close();
+  store = new CodexConversationStore(path);
+  expect(store.replayToolResult('bounded', binding, 'command', 'call', identity)).toEqual({
+    content: 'Tool output exceeds the supported result bound. Request a smaller result.',
+    isError: true,
+  });
+  store.close();
 });
 
 it('retains exact rich tool receipts through restart and rejects changed or corrupt images', () => {

@@ -1,4 +1,9 @@
 import {
+  ApiHarnessConnectionSchema,
+  apiHarnessConnection,
+  type ApiHarnessConnection,
+} from './account-harness-connection.js';
+import {
   summarizeTurnStartFrame,
   type TurnInputWriteObserver,
 } from './codex-turn-input-receipt.js';
@@ -83,6 +88,7 @@ export interface CodexLifecycleTransport {
  * mode, so it cannot replace that owner's proof of the selected billing account.
  */
 export interface CodexApiBootstrapOptions {
+  connection?: ApiHarnessConnection;
   privateHome: string;
   executable: FrozenHostCodexExecutable;
   binding: AccountBinding;
@@ -538,6 +544,7 @@ export class CodexAppServerClient {
     base: NodeJS.ProcessEnv = process.env,
     lifecycle?: CodexLifecycleTransport,
     executable?: FrozenHostCodexExecutable,
+    connection?: ApiHarnessConnection,
   ) {
     if (
       !(executable instanceof FrozenHostCodexExecutable) ||
@@ -545,7 +552,16 @@ export class CodexAppServerClient {
     )
       throw new Error('Host Codex runtime unavailable');
     executable.assertLaunchCurrent();
-    return this.launchHost(privateHome, base, lifecycle, true, executable, 'api');
+    return this.launchHost(
+      privateHome,
+      base,
+      lifecycle,
+      true,
+      executable,
+      'api',
+      undefined,
+      connection,
+    );
   }
 
   /** New-account bootstrap only. Login is private to this operation; the returned
@@ -566,6 +582,11 @@ export class CodexAppServerClient {
     try {
       const binding = Object.freeze(AccountBindingSchema.parse(options.binding));
       if (binding.provider !== 'openai') throw new Error('API account required');
+      // Snapshot and validate before any asynchronous credential access.
+      const connection = options.connection
+        ? ApiHarnessConnectionSchema.parse(options.connection)
+        : undefined;
+      apiHarnessConnection(connection);
       signal.throwIfAborted();
       const home = lstatSync(privateHome);
       const assertNewHome = () => {
@@ -595,7 +616,16 @@ export class CodexAppServerClient {
       signal.throwIfAborted();
       executable.assertLaunchCurrent();
       assertNewHome();
-      client = this.launchHost(privateHome, base, lifecycle, true, executable, 'api');
+      client = this.launchHost(
+        privateHome,
+        base,
+        lifecycle,
+        true,
+        executable,
+        'api',
+        undefined,
+        connection,
+      );
       signal.addEventListener('abort', onAbort, { once: true });
       signal.throwIfAborted();
       await client.initialize();
@@ -633,7 +663,14 @@ export class CodexAppServerClient {
     executable?: FrozenHostCodexExecutable,
     authentication: 'chatgpt' | 'api' = 'chatgpt',
     preflightExecutable?: string,
+    connection?: ApiHarnessConnection,
   ) {
+    const selected =
+      authentication === 'api'
+        ? apiHarnessConnection(
+            connection ? ApiHarnessConnectionSchema.parse(connection) : undefined,
+          )
+        : undefined;
     const env = codexEnvironment(credentialRef, base);
     const executablePath = executable?.path ?? preflightExecutable;
     assertHostCodexRuntimeVersion(isolated ? env : base, executablePath);
@@ -649,7 +686,7 @@ export class CodexAppServerClient {
           '-c',
           'model_provider="openai"',
           ...(authentication === 'api'
-            ? ['-c', 'openai_base_url="https://api.openai.com/v1"']
+            ? ['-c', `openai_base_url=${JSON.stringify(selected!.endpoint)}`]
             : []),
           ...(isolated ? ['-c', 'cli_auth_credentials_store="file"'] : []),
           ...(lifecycle || authentication === 'api'

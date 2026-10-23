@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SessionRuntimeBindingV1Schema, type SessionRuntimeBindingV2 } from '@mitzo/protocol';
+import { sessionHarnessForProvider } from './session-harness-routing.js';
 
 const accountReference = SessionRuntimeBindingV1Schema.shape.account;
 const reference = accountReference.shape.accountId;
@@ -90,6 +91,7 @@ export type OrdinarySessionRuntimeRejectionCode =
   | 'ambiguous_target'
   | 'target_unavailable'
   | 'harness_disabled'
+  | 'new_work_harness_unsupported'
   | 'unsupported_tuple'
   | 'native_auth_ordinary_unsupported'
   | 'ambiguous_codex_api_plan'
@@ -105,6 +107,24 @@ export type OrdinarySessionRuntimeResolution =
 
 function rejected(code: OrdinarySessionRuntimeRejectionCode): OrdinarySessionRuntimeResolution {
   return { status: 'rejected', code };
+}
+
+/** New-entry policy on the existing exact account/target compatibility owner.
+ * Saved bindings continue through resolveOrdinarySessionRuntime; never reinterpret
+ * their native engine, identity, history or continuation as a new session.
+ */
+export function resolveNewOrdinarySessionRuntime(
+  request: unknown,
+  catalog: unknown,
+): OrdinarySessionRuntimeResolution {
+  const resolution = resolveOrdinarySessionRuntime(request, catalog);
+  if (resolution.status !== 'compatible') return resolution;
+  if (
+    resolution.binding.harness.implementation !==
+    sessionHarnessForProvider(resolution.binding.account.provider)
+  )
+    return rejected('new_work_harness_unsupported');
+  return resolution;
 }
 
 /** Pure, dormant configuration compatibility check. Never reads credentials,

@@ -62,6 +62,11 @@ const inventory = {
   ],
   agentProfiles: [],
 };
+const nativeTaskInventory = {
+  ...inventory,
+  targets: inventory.targets.map((target) => ({ ...target, harness: 'codex' })),
+  routes: inventory.routes.map((route) => ({ ...route, harness: 'codex' })),
+};
 function Settings({
   label,
   seed = createChatRuntimeSelection(),
@@ -78,7 +83,10 @@ function Settings({
   );
 }
 it('uses ordinary catalog controls with independent settings and derives software from the route', async () => {
-  vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => inventory } as Response);
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => nativeTaskInventory,
+  } as Response);
   render(
     <MemoryRouter>
       <Settings label="First task" />
@@ -98,7 +106,7 @@ it('uses ordinary catalog controls with independent settings and derives softwar
     target: { value: 'high' },
   });
   fireEvent.click(screen.getByRole('button', { name: 'Local Mac' }));
-  expect(screen.getByText('Runs with Mitzo Responses')).toBeTruthy();
+  expect(screen.getByText('Runs with Codex')).toBeTruthy();
   expect(screen.getByLabelText('First task intent').textContent).toContain('"targetId":"mac"');
   expect(screen.getByLabelText('First task intent').textContent).toContain(
     '"reasoningEffort":"high"',
@@ -310,7 +318,10 @@ it.each([
 ])(
   'automatic target hydration preserves revision $revision, dirty state and retry identity',
   async ({ revision, dirty }) => {
-    vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => inventory } as Response);
+    vi.mocked(apiFetch).mockResolvedValue({
+      ok: true,
+      json: async () => nativeTaskInventory,
+    } as Response);
     const seed = {
       ...createAgentTaskWorkingCopy({
         profileId: 'bob',
