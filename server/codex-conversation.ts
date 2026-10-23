@@ -38,6 +38,11 @@ import {
 } from './codex-conversation-store.js';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
 import { CodexSessionEvents } from './codex-session-events.js';
+import {
+  codexToolResultContentItems,
+  normalizeCodexToolResult,
+  type CodexToolResult,
+} from './codex-tool-result.js';
 import { classifyProviderFailure, ProviderFailureError } from './provider-failure.js';
 import { tracer } from './tracing.js';
 import { createLogger } from './logger.js';
@@ -137,19 +142,19 @@ export interface CodexConversationOptions {
        * keep labels only; new authority-bearing owners must refuse its absence. */
       assertCurrentSync?(): void;
     }>,
-  ): Promise<{ content: string; isError: boolean }>;
+  ): Promise<CodexToolResult>;
   /** Called only after an exact host tool result can be replayed durably. */
   onToolResultDurable?: (
     name: string,
     input: ObjectValue,
-    result: { content: string; isError: boolean },
+    result: CodexToolResult,
     context: { turnId: string; callId: string },
   ) => Promise<void> | void;
   /** Trusted adapter confirms this exact successful tool changed the retained environment. */
   shouldContinueAfterToolResult?: (
     name: string,
     input: ObjectValue,
-    result: { content: string; isError: boolean },
+    result: CodexToolResult,
   ) => boolean;
   /** External owners retain admission authority for unfinished environment changes. */
   environmentContinuationOwner?: 'external';
@@ -2674,7 +2679,7 @@ export class CodexConversation {
           });
           return {
             success: !replay.isError,
-            contentItems: [{ type: 'inputText', text: replay.content }],
+            contentItems: codexToolResultContentItems(replay),
           };
         }
       }
@@ -2693,7 +2698,7 @@ export class CodexConversation {
       this.opts.displayToolName?.(call.tool) ?? call.tool,
       call.arguments,
     );
-    let result: { content: string; isError: boolean };
+    let result: CodexToolResult;
     let callbackOpen = true;
     const callbackBinding = this.binding!;
     // Keep existing label-only JSON/strict store contracts unchanged. Spreading
@@ -2740,7 +2745,9 @@ export class CodexConversation {
       ),
     );
     try {
-      result = await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation);
+      result = normalizeCodexToolResult(
+        await this.opts.executeTool(call.tool, call.arguments, toolSignal, invocation),
+      );
     } catch {
       result = {
         content: 'Tool failed or was interrupted. Inspect current state before retrying.',
@@ -2840,10 +2847,10 @@ export class CodexConversation {
         result,
       );
     }
-    this.mapper!.toolResult(publicId, result.content, result.isError);
+    this.mapper!.toolResult(publicId, result.content, result.isError, result.contentItems);
     return {
       success: !result.isError,
-      contentItems: [{ type: 'inputText', text: result.content }],
+      contentItems: codexToolResultContentItems(result),
     };
   }
   /** Accepted, durably correlated live turn only; no pending/startup target. */
