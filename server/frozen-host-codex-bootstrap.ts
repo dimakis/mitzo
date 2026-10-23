@@ -1,3 +1,4 @@
+import type { ApiHarnessConnection } from './account-harness-connection.js';
 import { z } from 'zod';
 import { observeLocalCodexPhase } from './local-codex-observation.js';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -102,6 +103,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
         executable: FrozenHostCodexExecutable,
         binding: AccountBinding,
         retained: boolean,
+        connection?: ApiHarnessConnection,
       ) => Promise<FrozenHostCodexClient>;
     },
   ) {}
@@ -255,8 +257,19 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
       const authBinding =
         this.owners.retainedAccountBinding ??
         this.owners.loadProfiles().resolve(expected.binding.account.accountId, ownedProfile.model);
+      const connection = api
+        ? this.owners.loadProfiles().apiRoutingProfile(authBinding).connection
+        : undefined;
+      const selectedConnection = api
+        ? this.owners.loadProfiles().harnessConnection(authBinding)
+        : undefined;
+      const endpoint =
+        selectedConnection?.authentication === 'api-key' ? selectedConnection.endpoint : undefined;
       const keyAuthority = api
-        ? openAIAccountKeyAuthority(authBinding, this.owners.loadProfiles(), { consumer: 'host' })
+        ? openAIAccountKeyAuthority(authBinding, this.owners.loadProfiles(), {
+            consumer: 'host',
+            endpoint,
+          })
         : undefined;
       const login = api
         ? retained
@@ -307,7 +320,7 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
           ? await login.connect(async (home) => {
               this.assertSync(expected, undefined, executable);
               if (this.owners.launchApi)
-                return this.owners.launchApi(home, executable, authBinding, !!retained);
+                return this.owners.launchApi(home, executable, authBinding, !!retained, connection);
               if (!this.owners.lifecycle) throw unavailable();
               if (retained)
                 return CodexAppServerClient.launchIsolatedApiResume(
@@ -315,11 +328,13 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
                   this.owners.baseEnv,
                   this.owners.lifecycle,
                   executable,
+                  connection,
                 );
               const result = await CodexAppServerClient.launchIsolatedApi({
                 privateHome: home,
                 executable,
                 binding: authBinding,
+                connection,
                 signal: this.owners.signal,
                 lifecycle: this.owners.lifecycle,
                 base: this.owners.baseEnv,
@@ -388,20 +403,27 @@ export class FrozenHostCodexBootstrapAuthority implements OrdinaryLocalCodexBoot
             this.profile(expected).workspaceId,
           );
           let pages = 0;
-          const models = await readCodexModels({
-            request: async (method, params) => {
-              if (++pages > 16) throw unavailable();
-              const response = await ownedLogin.client.request(method, params);
-              assertCurrentSync();
-              if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1024 * 1024)
-                throw unavailable();
-              z.object({
-                data: z.array(z.unknown()).max(100),
-                nextCursor: z.string().min(1).max(200).nullable().optional(),
-              }).parse(response);
-              return response;
-            },
-          });
+          // Custom endpoints use their operator-qualified configured catalog.
+          // Native model/list is an OpenAI catalog, not gateway capability evidence.
+          const models = connection
+            ? this.owners
+                .loadProfiles()
+                .catalog()
+                .find((account) => account.id === authBinding.accountId)!.models
+            : await readCodexModels({
+                request: async (method, params) => {
+                  if (++pages > 16) throw unavailable();
+                  const response = await ownedLogin.client.request(method, params);
+                  assertCurrentSync();
+                  if (Buffer.byteLength(JSON.stringify(response), 'utf8') > 1024 * 1024)
+                    throw unavailable();
+                  z.object({
+                    data: z.array(z.unknown()).max(100),
+                    nextCursor: z.string().min(1).max(200).nullable().optional(),
+                  }).parse(response);
+                  return response;
+                },
+              });
           assertCurrentSync();
           for (const selection of selections) {
             const profiles = this.owners.loadProfiles();

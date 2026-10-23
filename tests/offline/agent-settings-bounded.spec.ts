@@ -43,20 +43,24 @@ const inventory = {
       targetRevision: 't1',
       label: 'OpenShell',
       location: 'openshell',
-      harness: 'responses',
+      harness: 'codex',
     },
     {
       targetId: 'task-mac',
       targetRevision: 't1',
       label: 'Local Mac',
       location: 'local',
-      harness: 'responses',
+      harness: 'codex',
     },
   ],
-  routes: ['task-shell', 'task-mac'].map((targetId) => ({
+  routes: [
+    ['task-shell', 'openshell'],
+    ['task-mac', 'local'],
+  ].map(([targetId, location]) => ({
     account,
     targetId,
-    harness: 'responses',
+    location,
+    harness: 'codex',
     modes: ['agent'],
   })),
   locations: [
@@ -266,7 +270,7 @@ for (const appearance of [
       model: 'luna-fixture',
       reasoningEffort: 'high',
       targetId: 'task-mac',
-      harness: 'responses',
+      harness: 'codex',
     });
     expect(errors).toEqual([]);
     expect(unexpected).toEqual([]);

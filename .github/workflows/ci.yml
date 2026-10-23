@@ -104,6 +104,13 @@ jobs:
       fail-fast: false
       matrix:
         project: [mobile-webkit, mobile-chromium, desktop-chromium]
+        include:
+          - project: mobile-webkit
+            browser: webkit
+          - project: mobile-chromium
+            browser: chromium
+          - project: desktop-chromium
+            browser: chromium
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -120,7 +127,7 @@ jobs:
           apt-config dump Acquire::Retries Acquire::http::Timeout Acquire::https::Timeout
       - name: Install browsers and dependencies
         timeout-minutes: 8
-        run: npx playwright install --with-deps webkit chromium
+        run: npx playwright install --with-deps ${{ matrix.browser }}
       - name: Verify shared theme and mobile layouts without a backend
         id: offline-tests
         run: npm run test:ui -- --project=${{ matrix.project }}

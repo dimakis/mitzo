@@ -6,6 +6,35 @@ import {
   runtimeModelAccounts,
   selectedRuntimeRoute,
 } from '../chat-runtime-route';
+it('does not default a fresh API chat to Responses when Codex is unavailable', () => {
+  const data = multiRuntimeInventoryFixture();
+  const api = data.accounts.find((entry) => entry.account.accountId === 'api')!;
+  const intent = {
+    ...createChatRuntimeSelection(),
+    account: { accountId: 'api', model: 'local-model', reasoningEffort: null },
+    accountReference: api.account,
+    execution: { location: 'local' as const, targetId: null },
+  };
+  expect(resolveRuntimeTarget(intent, data)).toBeNull();
+  expect(runtimeModelAccounts(intent, data).find((entry) => entry.id === 'api')?.models).toEqual(
+    [],
+  );
+  expect(
+    selectedRuntimeRoute(
+      { ...intent, execution: { location: 'local', targetId: 'responses' } },
+      data,
+    )?.harness,
+  ).toBe('responses');
+  const onlyLegacy = {
+    ...data,
+    accounts: [api],
+    targets: data.targets.filter((target) => target.harness === 'responses'),
+    routes: data.routes.filter((route) => route.harness === 'responses'),
+  };
+  expect(
+    resolveRuntimeTarget({ ...intent, account: null, accountReference: null }, onlyLegacy),
+  ).toBeNull();
+});
 it('chooses local Codex for a fresh API chat while retaining the Responses target of saved history', () => {
   const data = multiRuntimeInventoryFixture();
   const api = data.accounts.find((entry) => entry.account.accountId === 'api')!;
@@ -100,7 +129,7 @@ it('rejects an unlocated route shared across environments while explicit locatio
   );
   route.location = 'local';
   expect(selectedRuntimeRoute(intent, data)?.harness).toBe('responses');
-  expect(resolveRuntimeTarget(intent, data)).toBe('responses');
+  expect(resolveRuntimeTarget(intent, data)).toBeNull();
   expect(intent.account).toEqual({
     accountId: 'api',
     model: 'local-model',
