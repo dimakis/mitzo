@@ -41,6 +41,7 @@ it.skipIf(
 )(
   'registered owned Discover and Inspect use the actual SRT reader and retain denial/current/cleanup fences',
   async () => {
+    const inspectOnly = process.env.MITZO_NATIVE_READ_TOOLS_INSPECT_ONLY === '1';
     const setupStarted = performance.now();
     vi.stubEnv('TMPDIR', '/private/tmp');
     const artifacts = await mkdtemp('/private/tmp/mitzo-read-tools-artifact-');
@@ -277,12 +278,40 @@ it.skipIf(
     const setupMs = performance.now() - setupStarted;
     const operationTimings: Record<string, number> = {};
     const outcomes: Record<string, unknown> = {};
-    recordCleanup = async (cleanupMs) => {
+    let phase = 'ready';
+    // Keep retained outcomes bounded and payload-free, including denial paths.
+    const outcome = (result: Awaited<ReturnType<typeof f.a.call>>) => {
+      let parsed = result.value;
+      if (typeof parsed === 'string' && Buffer.byteLength(parsed) <= 4096) {
+        try {
+          parsed = JSON.parse(parsed);
+        } catch {
+          // Non-JSON errors never enter the retained payload-free projection.
+        }
+      }
+      const value = typeof parsed === 'object' && parsed !== null ? parsed : {};
+      const code = (value: unknown) =>
+        typeof value === 'string' && /^[a-z-]{1,80}$/.test(value) ? value : undefined;
+      return {
+        success: result.response.success,
+        state: code(value.state),
+        reason: code(value.reason),
+        branch: value.branch === 'main' ? 'main' : undefined,
+        dirtyState: code(value.dirty?.state),
+        candidateCount: Array.isArray(value.candidates) ? value.candidates.length : undefined,
+        instructionCount: Array.isArray(value.instructions?.files)
+          ? value.instructions.files.length
+          : undefined,
+      };
+    };
+    const writeEvidence = async (cleanupMs?: number) => {
       await writeFile(
         '/private/tmp/mitzo-registered-read-tools-phase-evidence.json',
         JSON.stringify(
           {
             compilation,
+            inspectOnly,
+            phase,
             setupMs,
             operationTimings,
             outcomes,
@@ -300,56 +329,43 @@ it.skipIf(
         ),
       );
     };
-    const discoverStarted = performance.now();
-    const discovery = await f.a.call({ path: join(f.f.root, 'source') });
-    operationTimings.DiscoverLocalRepository = performance.now() - discoverStarted;
-    outcomes.DiscoverLocalRepository = {
-      success: discovery.response.success,
-      value: discovery.value,
-    };
-    expect(declaredBudgets).toEqual([30000]);
-    for (const scratch of new Set(trace.scratch))
-      await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });
-    for (const settings of sourceSettings)
-      await expect(stat(settings)).rejects.toMatchObject({ code: 'ENOENT' });
-    expect(sourceSettings.length).toBeGreaterThan(0);
-    await writeFile(
-      '/private/tmp/mitzo-registered-read-tools-phase-evidence.json',
-      JSON.stringify(
-        { compilation, setupMs, operationTimings, outcomes, metrics: f.a.metrics, trace, phases },
-        null,
-        2,
-      ),
-    );
-    expect(discovery.response.success, JSON.stringify(discovery.value)).toBe(true);
-    expect(
-      discovery.value,
-      JSON.stringify({ value: discovery.value, metrics: f.a.metrics, trace, phases }),
-    ).toMatchObject({
-      state: 'selected',
-      candidates: [{ path: join(f.f.root, 'source') }],
-      truncated: false,
-    });
+    recordCleanup = writeEvidence;
+    await writeEvidence();
+    if (!inspectOnly) {
+      phase = 'discover';
+      const discoverStarted = performance.now();
+      const discovery = await f.a.call({ path: join(f.f.root, 'source') });
+      operationTimings.DiscoverLocalRepository = performance.now() - discoverStarted;
+      outcomes.DiscoverLocalRepository = outcome(discovery);
+      await writeEvidence();
+      expect(declaredBudgets).toEqual([30000]);
+      for (const scratch of new Set(trace.scratch))
+        await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });
+      for (const settings of sourceSettings)
+        await expect(stat(settings)).rejects.toMatchObject({ code: 'ENOENT' });
+      expect(sourceSettings.length).toBeGreaterThan(0);
+      expect(discovery.response.success, JSON.stringify(discovery.value)).toBe(true);
+      expect(
+        discovery.value,
+        JSON.stringify({ value: discovery.value, metrics: f.a.metrics, trace, phases }),
+      ).toMatchObject({
+        state: 'selected',
+        candidates: [{ path: join(f.f.root, 'source') }],
+        truncated: false,
+      });
+    }
+    phase = 'inspect';
+    await writeEvidence();
     const inspectStarted = performance.now();
     const inspection = await f.a.call(
       { path: join(f.f.root, 'source') },
       { tool: 'InspectLocalRepository' },
     );
     operationTimings.InspectLocalRepository = performance.now() - inspectStarted;
-    outcomes.InspectLocalRepository = {
-      success: inspection.response.success,
-      value: inspection.value,
-    };
-    await writeFile(
-      '/private/tmp/mitzo-registered-read-tools-phase-evidence.json',
-      JSON.stringify(
-        { compilation, setupMs, operationTimings, outcomes, metrics: f.a.metrics, trace, phases },
-        null,
-        2,
-      ),
-    );
-    expect(declaredBudgets).toEqual([30000, 30000]);
-    expect(factsBudgets).toHaveLength(2);
+    outcomes.InspectLocalRepository = outcome(inspection);
+    await writeEvidence();
+    expect(declaredBudgets).toEqual(inspectOnly ? [30000] : [30000, 30000]);
+    expect(factsBudgets).toHaveLength(inspectOnly ? 1 : 2);
     expect(inspection.response.success, JSON.stringify(inspection.value)).toBe(true);
     expect(inspection.value).toMatchObject({
       path: join(f.f.root, 'source'),
@@ -361,16 +377,20 @@ it.skipIf(
         expect.objectContaining({ path: join(join(f.f.root, 'source'), 'AGENTS.md') }),
       ]),
     );
+    phase = 'denied';
     const denied = await f.a.call(
       { path: join(f.f.root, 'login') },
       { tool: 'InspectLocalRepository' },
     );
-    outcomes.denied = { success: denied.response.success, value: denied.value };
+    outcomes.denied = outcome(denied);
+    await writeEvidence();
     expect(JSON.stringify(denied.value)).not.toContain('access_token');
     expect(denied.response.success).toBe(false);
+    phase = 'revoked';
     revokeAuthSession(f.auth);
     const revoked = await f.a.call({ path: join(f.f.root, 'source') });
-    outcomes.revoked = { success: revoked.response.success, value: revoked.value };
+    outcomes.revoked = outcome(revoked);
+    await writeEvidence();
     expect(revoked.response.success).toBe(false);
     expect(
       processBoundary.mock.calls.some((args) =>
@@ -380,9 +400,14 @@ it.skipIf(
     expect(f.a.requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
     for (const scratch of new Set(trace.scratch))
       await expect(stat(scratch)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(sourceSettings.length).toBeGreaterThan(0);
+    for (const settings of sourceSettings)
+      await expect(stat(settings)).rejects.toMatchObject({ code: 'ENOENT' });
     expect(await readFile(join(join(f.f.root, 'source'), 'task.txt'), 'utf8')).toBe(
       'accepted source',
     );
+    phase = 'completed';
+    await writeEvidence();
   },
   90000,
 );
