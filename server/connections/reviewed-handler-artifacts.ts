@@ -11,7 +11,7 @@ export const reviewedGithubPublicationImplementationRevision = 'v1.0.10';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
 export const reviewedConnectionsRuntimeImplementationRevision =
-  'v1.0.593-local-repository-read-ceiling';
+  'v1.0.594-prepared-repository-source-candidate';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../__tests__/prepared-repository-candidate.test.ts':
+    'b6a8785e0207c70d8ef70e641befdb1a08f6a74670522e3d5e3c06f80f853fae',
   '../__tests__/local-repository-read-ceiling.test.ts':
     '6d57f15983fa4fa03a6e6d461fa05dcc02142bf19bb3bcf1b1e6faf2e7d8c326',
   '../__tests__/prepared-repository-native-read.test.ts':
@@ -87,7 +89,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../__tests__/local-repository-preparation-authorization.test.ts':
     'b112bfe74d265c4abeefaf30ce82e07d344f84ba13a83b1f7fd9c85c63ef1523',
   '../__tests__/local-repository-preparation-artifacts.test.ts':
-    '31e111111044b0b32ddf44d5d7f399e56e9dfb01588f3505c9f601453a3c9a2b',
+    '81bc83a740fb7fd5e8a7544340e2bab15ea9e32a28433849177c48459772ff01',
   '../pending-host-task.ts': '8a7883bbee6a9b29d0fdfca7b0c5d1e2b169d7bf33df67c76bf706dff5a196ae',
   '../__tests__/pending-host-task.test.ts':
     '286badb71f54d57b77e7b57116a566d1772d6c27b520131262ef58551f2ce01d',
@@ -1049,7 +1051,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-hooks.ts': '8d334e7f2e465ffbb66d4424f09adc04ca4695ce131fbd50d85226ccbf175d16',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '67c286127895774cb81c4b5611ff06823cae4670c659b1a39e09355c09ba060a',
-  '../repository-workspaces.ts': 'bf072098d0149cfac2a0dc6a262646ec4b2fa9052669a71acd74e8dfbaaaa684',
+  '../repository-workspaces.ts': '0b61fc1fc024a86f8458f4c312bc40e5dd8a41942b1f6606e17113c659fd785d',
   '../../packages/protocol/src/session-metadata-store.ts':
     '019598b360106c0dd8babc08e9366e40c95c1dd4dca9ea649c37bc7d096b8358',
   '../../packages/protocol/src/event-store.ts':

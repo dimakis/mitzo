@@ -1,4 +1,8 @@
-import type { PreparedRepositoryTransitionFacts } from './prepared-repository-transition.js';
+import type {
+  PreparedRepositoryTransitionFacts,
+  PreparedRepositoryTransitionCaptureInput,
+} from './prepared-repository-transition.js';
+import { CodexNativeTurnTargetSchema } from './codex-conversation-store.js';
 import {
   PendingHostTaskError,
   PendingHostTaskRequestSchema,
@@ -230,14 +234,22 @@ const transitionFactsSchema = z
     (value) => Buffer.byteLength(JSON.stringify(value), 'utf8') <= 65536,
     'Transition facts exceed custody bound',
   );
+const transitionMaterializedRecordSchema = z
+  .string()
+  .min(1)
+  .refine((value) => Buffer.byteLength(value, 'utf8') <= 262144);
+/** Same custody bound used before native child reservation and by the durable
+ * adoption witness. This validates bytes only; it supplies no adoption grant. */
+export function assertPreparedRepositoryMaterializedRecordBound(
+  value: unknown,
+): asserts value is string {
+  transitionMaterializedRecordSchema.parse(value);
+}
 const transitionAdoptionSchema = z.strictObject({
   version: z.literal(1),
   childCommandId: reservationReference,
   factsSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  materializedRecord: z
-    .string()
-    .min(1)
-    .refine((value) => Buffer.byteLength(value, 'utf8') <= 262144),
+  materializedRecord: transitionMaterializedRecordSchema,
   facts: transitionFactsSchema,
 });
 function transitionFacts(input: PreparedRepositoryTransitionFacts) {
@@ -1084,6 +1096,107 @@ export class RepositoryWorkspaces {
   get(id: string): RepositoryWorkspace {
     this.assertAvailable();
     return this.getHostRecord(id);
+  }
+  /** Bounded private metadata lookup for a trusted completed source tuple.
+   * No latest/path/model-ID selection, filesystem reads, effects or replay.
+   * The eventual producer must separately validate the fresh current owner,
+   * physical task and durable successful result before native reservation. */
+  findPreparedRepositoryTransitionCandidate(input: PreparedRepositoryTransitionCaptureInput) {
+    this.assertAvailable();
+    let selected: PreparedRepositoryTransitionCaptureInput;
+    try {
+      selected = freezePendingHostTaskData(
+        z
+          .strictObject({
+            binding: AccountBindingSchema,
+            conversationId: reservationReference,
+            sourceTarget: CodexNativeTurnTargetSchema,
+            oldWorkspace: transitionFactsSchema.shape.oldWorkspace,
+          })
+          .parse(structuredClone(input)),
+      );
+    } catch {
+      throw new PendingHostTaskError('pending_host_task_invalid_input');
+    }
+    return this.db
+      .transaction(() => {
+        const rows = this.db
+          .prepare(
+            `SELECT id,record,conversation_id FROM repository_workspaces
+             WHERE json_extract(record,'$.pendingHostTask.request.conversationId')=?
+               AND json_extract(record,'$.pendingHostTask.request.nativeTarget.commandId')=?
+               AND json_extract(record,'$.pendingHostTask.request.nativeTarget.attempt')=?
+               AND json_extract(record,'$.pendingHostTask.request.nativeTarget.threadId')=?
+               AND json_extract(record,'$.pendingHostTask.request.nativeTarget.turnId')=?
+               AND json_extract(record,'$.pendingHostTask.request.nativeTarget.generation')=?
+               AND json_extract(record,'$.binding.accountId')=?
+               AND json_extract(record,'$.binding.accountLabel')=?
+               AND json_extract(record,'$.binding.provider')=?
+               AND json_extract(record,'$.binding.model')=?
+               AND json_extract(record,'$.binding.profileRevision')=?
+               AND json_extract(record,'$.pendingHostTaskDecision.scope.oldWorkspace.kind')=?
+               AND json_extract(record,'$.pendingHostTaskDecision.scope.oldWorkspace.id')=?
+               AND json_extract(record,'$.pendingHostTaskDecision.scope.oldWorkspace.directory')=?
+             LIMIT 2`,
+          )
+          .all(
+            selected.conversationId,
+            selected.sourceTarget.commandId,
+            selected.sourceTarget.attempt,
+            selected.sourceTarget.threadId,
+            selected.sourceTarget.turnId,
+            selected.sourceTarget.generation,
+            selected.binding.accountId,
+            selected.binding.accountLabel,
+            selected.binding.provider,
+            selected.binding.model,
+            selected.binding.profileRevision,
+            selected.oldWorkspace.kind,
+            selected.oldWorkspace.id,
+            selected.oldWorkspace.directory,
+          ) as Array<{ id: string; record: string; conversation_id: string | null }>;
+        if (rows.length === 0) return undefined;
+        if (rows.length !== 1) throw new PendingHostTaskError('pending_host_task_uncertain');
+        try {
+          const raw = rows[0];
+          assertPreparedRepositoryMaterializedRecordBound(raw.record);
+          const retained = JSON.parse(raw.record) as RepositoryWorkspace;
+          const request = this.snapshotPendingInput(
+            retained.pendingHostTask?.request as PendingHostTaskRequest,
+          );
+          // This read transaction retains the same SQL snapshot while the
+          // existing pending-record validator checks all original row facts.
+          const record = this.pendingRecord(request);
+          const receipt = PendingHostTaskReceiptSchema.parse(record.pendingHostTask);
+          const decision = PendingHostTaskDecisionSchema.parse(record.pendingHostTaskDecision);
+          const payload = pendingHostTaskDecisionPayload(request, decision.scope);
+          if (
+            raw.id !== request.id ||
+            raw.conversation_id !== null ||
+            record.preparedRepositoryTransitionAdoption !== undefined ||
+            receipt.state !== 'materialized' ||
+            !receipt.taskIdentity ||
+            request.conversationId !== selected.conversationId ||
+            !isDeepStrictEqual(request.nativeTarget, selected.sourceTarget) ||
+            !isDeepStrictEqual(request.binding, selected.binding) ||
+            decision.state !== 'consumed' ||
+            !isDeepStrictEqual(decision.request, request) ||
+            !isDeepStrictEqual(decision.scope.oldWorkspace, selected.oldWorkspace) ||
+            decision.scopeSha256 !== pendingHostTaskDecisionHash(decision.scope) ||
+            decision.scope.sourceDigest !== record.sourceDigest ||
+            !isDeepStrictEqual(decision.scope.sourceIdentity, record.localSource) ||
+            decision.evidence.sessionId !== selected.conversationId ||
+            decision.evidence.toolUseID !== request.prepareCallId ||
+            !isDeepStrictEqual(decision.evidence.input, payload) ||
+            decision.evidence.inputSha256 !== pendingHostTaskDecisionHash(payload)
+          )
+            throw new PendingHostTaskError('pending_host_task_ownership_changed');
+          return freezePendingHostTaskData({ request, record, rawRecord: raw.record });
+        } catch {
+          throw new PendingHostTaskError('pending_host_task_ownership_changed');
+        }
+      })
+      .deferred();
   }
   private source(record: RepositoryWorkspace) {
     if (record.localSource) return record.localSource.path;
