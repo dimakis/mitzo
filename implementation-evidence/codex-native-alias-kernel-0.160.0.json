@@ -1,0 +1,167 @@
+{
+  "version": "codex-cli 0.160.0",
+  "executableSha256": "112fae7a5a1223e673c8a1791d32338f37df8b527ff1159bb8adac6c4dbf1b4b",
+  "modelCalls": 0,
+  "nativeThreadOrTurnTested": false,
+  "publicRuntime": {
+    "directWrite": {
+      "exitCode": 1,
+      "rpcRejected": false,
+      "stderr": "chmod: Unable to change file mode on <fixture>/public-runtime/native-origin: Operation not permitted"
+    },
+    "hostPreexistingHardlinkWrite": {
+      "exitCode": 0,
+      "rpcRejected": false,
+      "stderr": ""
+    },
+    "hostPreexistingHardlinkOriginalChanged": true,
+    "nativeLinkSourceInitiallySingleLink": true,
+    "nativeHardlinkCreate": {
+      "exitCode": 1,
+      "rpcRejected": false,
+      "stderr": "ln: <fixture>/workspace/native-runtime-link: Operation not permitted"
+    },
+    "nativeHardlinkWrite": null,
+    "nativeHardlinkOriginalChanged": false,
+    "nativeOwnerWritableSource": {
+      "sourceInitiallySingleLink": true,
+      "sourceMode": "0644",
+      "hardlinkCreate": {
+        "exitCode": 1,
+        "rpcRejected": false,
+        "stderr": "ln: <fixture>/workspace/native-owner-writable-link: Operation not permitted"
+      },
+      "hardlinkWrite": null,
+      "originalChanged": false
+    },
+    "positiveWritablePolicyControl": {
+      "sourceMode": "0644",
+      "hardlinkCreate": {
+        "exitCode": 0,
+        "rpcRejected": false,
+        "stderr": ""
+      },
+      "hardlinkWrite": {
+        "exitCode": 0,
+        "rpcRejected": false,
+        "stderr": ""
+      },
+      "originalChangedAsAuthorized": true
+    }
+  },
+  "credential": {
+    "directRead": {
+      "exitCode": 1,
+      "rpcRejected": false,
+      "stderr": "cat: <fixture>/private-home/credentials/native-origin: Operation not permitted"
+    },
+    "hostPreexistingHardlinkReadAllowed": true,
+    "nativeLinkSourceInitiallySingleLink": true,
+    "nativeHardlinkCreate": {
+      "exitCode": 1,
+      "rpcRejected": false,
+      "stderr": "ln: <fixture>/private-home/credentials/native-origin: Operation not permitted"
+    },
+    "nativeHardlinkReadAllowed": null
+  },
+  "retainedWritableSymlink": {
+    "retainedWrite": {
+      "initialGrantAdmission": {
+        "exitCode": null,
+        "rpcRejected": true,
+        "stderr": "{\"code\":-32603,\"message\":\"exec failed: unsupported operation: writable root <fixture>/workspace/safe/root contains symlink component <fixture>/workspace/safe/root; symlinked writable roots are not supported.\\nIf this writable root is at or beneath CODEX_HOME and you trust its symlink targets, set `allow_symlinked_codex_home = true` at the top level of `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`) on the execution host, then restart Codex or its executor. This opt-out trusts targets outside CODEX_HOME and targets changed between commands. It does not apply to other writable roots.\"}"
+      },
+      "nativeAliasReplacementProfile": "base",
+      "nativeAliasReplacement": {
+        "exitCode": 0,
+        "rpcRejected": false,
+        "stderr": ""
+      },
+      "outsideMutationRequired": false,
+      "nextConstructionWrite": {
+        "exitCode": null,
+        "rpcRejected": true,
+        "stderr": "{\"code\":-32603,\"message\":\"exec failed: unsupported operation: writable root <fixture>/workspace/safe/root contains symlink component <fixture>/workspace/safe/root; symlinked writable roots are not supported.\\nIf this writable root is at or beneath CODEX_HOME and you trust its symlink targets, set `allow_symlinked_codex_home = true` at the top level of `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`) on the execution host, then restart Codex or its executor. This opt-out trusts targets outside CODEX_HOME and targets changed between commands. It does not apply to other writable roots.\"}"
+      },
+      "originalChanged": false
+    },
+    "readTrailingSubtree": {
+      "initialGrantAdmission": {
+        "exitCode": null,
+        "rpcRejected": true,
+        "stderr": "{\"code\":-32603,\"message\":\"exec failed: unsupported operation: writable root <fixture>/workspace/safe/root contains symlink component <fixture>/workspace/safe/root; symlinked writable roots are not supported.\\nIf this writable root is at or beneath CODEX_HOME and you trust its symlink targets, set `allow_symlinked_codex_home = true` at the top level of `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`) on the execution host, then restart Codex or its executor. This opt-out trusts targets outside CODEX_HOME and targets changed between commands. It does not apply to other writable roots.\"}"
+      },
+      "nativeAliasReplacementProfile": "base",
+      "nativeAliasReplacement": {
+        "exitCode": 0,
+        "rpcRejected": false,
+        "stderr": ""
+      },
+      "outsideMutationRequired": false,
+      "nextConstructionWrite": {
+        "exitCode": null,
+        "rpcRejected": true,
+        "stderr": "{\"code\":-32603,\"message\":\"exec failed: unsupported operation: writable root <fixture>/workspace/safe/root contains symlink component <fixture>/workspace/safe/root; symlinked writable roots are not supported.\\nIf this writable root is at or beneath CODEX_HOME and you trust its symlink targets, set `allow_symlinked_codex_home = true` at the top level of `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`) on the execution host, then restart Codex or its executor. This opt-out trusts targets outside CODEX_HOME and targets changed between commands. It does not apply to other writable roots.\"}"
+      },
+      "originalChanged": false
+    },
+    "publicDenyGlob": {
+      "initialGrantAdmission": {
+        "exitCode": null,
+        "rpcRejected": true,
+        "stderr": "{\"code\":-32603,\"message\":\"exec failed: unsupported operation: writable root <fixture>/workspace/safe/root contains symlink component <fixture>/workspace/safe/root; symlinked writable roots are not supported.\\nIf this writable root is at or beneath CODEX_HOME and you trust its symlink targets, set `allow_symlinked_codex_home = true` at the top level of `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`) on the execution host, then restart Codex or its executor. This opt-out trusts targets outside CODEX_HOME and targets changed between commands. It does not apply to other writable roots.\"}"
+      },
+      "nativeAliasReplacementProfile": "base",
+      "nativeAliasReplacement": {
+        "exitCode": 0,
+        "rpcRejected": false,
+        "stderr": ""
+      },
+      "outsideMutationRequired": false,
+      "nextConstructionWrite": {
+        "exitCode": null,
+        "rpcRejected": true,
+        "stderr": "{\"code\":-32603,\"message\":\"exec failed: unsupported operation: writable root <fixture>/workspace/safe/root contains symlink component <fixture>/workspace/safe/root; symlinked writable roots are not supported.\\nIf this writable root is at or beneath CODEX_HOME and you trust its symlink targets, set `allow_symlinked_codex_home = true` at the top level of `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`) on the execution host, then restart Codex or its executor. This opt-out trusts targets outside CODEX_HOME and targets changed between commands. It does not apply to other writable roots.\"}"
+      },
+      "originalChanged": false
+    }
+  },
+  "retainedWritableDirectory": {
+    "initialGrantAdmission": {
+      "exitCode": 0,
+      "rpcRejected": false,
+      "stderr": ""
+    },
+    "nativeRootReplacement": {
+      "exitCode": 1,
+      "rpcRejected": false,
+      "stderr": "mv: rename <fixture>/workspace/safe/actual-directory to <fixture>/workspace/safe/actual-directory-old: Operation not permitted"
+    },
+    "outsideMutationRequired": true,
+    "nextConstructionWrite": {
+      "exitCode": null,
+      "rpcRejected": true,
+      "stderr": "{\"code\":-32603,\"message\":\"exec failed: unsupported operation: writable root <fixture>/workspace/safe/actual-directory contains symlink component <fixture>/workspace/safe/actual-directory; symlinked writable roots are not supported.\\nIf this writable root is at or beneath CODEX_HOME and you trust its symlink targets, set `allow_symlinked_codex_home = true` at the top level of `$CODEX_HOME/config.toml` (normally `~/.codex/config.toml`) on the execution host, then restart Codex or its executor. This opt-out trusts targets outside CODEX_HOME and targets changed between commands. It does not apply to other writable roots.\"}"
+    },
+    "originalChanged": false
+  },
+  "remedyControls": {
+    "denyGlobAlsoDeniesPublicRead": true,
+    "denyGlobNativeHardlinkCreate": {
+      "exitCode": 1,
+      "rpcRejected": false,
+      "stderr": "ln: <fixture>/public-runtime/native-origin: Operation not permitted"
+    },
+    "denyGlobHostPreexistingHardlinkWrite": {
+      "exitCode": 0,
+      "rpcRejected": false,
+      "stderr": ""
+    },
+    "denyGlobHostAliasOriginalChanged": true,
+    "readBraceGlobParserRejected": true,
+    "readBraceGlobParserDiagnostic": "Error: filesystem glob path `<fixture>/public-runtime{,/**}` only supports `deny` access; use an exact path or trailing `/**` for `read` subtree access"
+  },
+  "safetyInvariantsMet": false,
+  "testedNativeControlsPreservedOriginals": true,
+  "scope": "Synthetic named profiles through pinned command/exec. Host preexisting aliases and host retargets are explicitly distinguished from native creation/replacement. No claim about untested content or other credentials."
+}
