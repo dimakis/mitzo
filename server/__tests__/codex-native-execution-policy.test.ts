@@ -55,6 +55,8 @@ describe('native Mac execution permission profile', () => {
       version: 'native-mac-permissions-v1',
       bindingRevision: input.bindingRevision,
       enforcement: 'configured',
+      scopeKind: 'base-profile',
+      grantState: 'upstream-owned',
       readableRoots: ['/'],
       writableRoots: ['/workspace/one'],
       networkAccess: 'restricted',

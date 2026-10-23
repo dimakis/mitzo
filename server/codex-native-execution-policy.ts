@@ -11,6 +11,8 @@ export interface CodexNativeExecutionPolicy {
   readonly policyRevision: string;
   readonly profileRevision: string;
   readonly enforcement: 'configured';
+  readonly scopeKind: 'base-profile';
+  readonly grantState: 'upstream-owned';
   readonly cwd: string;
   readonly readableRoots: readonly string[];
   readonly writableRoots: readonly string[];
@@ -86,6 +88,8 @@ export function codexNativeExecutionPolicy(input: {
     profileRevision,
     policyRevision: digest([profileRevision, cwd, workspaceRoots, permissions]),
     enforcement: 'configured',
+    scopeKind: 'base-profile',
+    grantState: 'upstream-owned',
     cwd,
     readableRoots,
     writableRoots: input.mode === 'ask' ? Object.freeze([]) : workspaceRoots,
