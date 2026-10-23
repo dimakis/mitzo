@@ -1,9 +1,11 @@
+import { capturePreparedRepositoryTransition } from './prepared-repository-transition-capture.js';
 import { materializeQualifiedLocalRepositoryTask } from './qualified-local-repository-actor.js';
 import type { QualifiedLocalRepositoryPublication } from './qualified-local-repository-task.js';
 import type { NativeHostToolContext } from './native-host-tool-context.js';
 import type {
   PreparedRepositoryTransitionFacts,
   PreparedRepositoryTransitionCaptureInput,
+  PreparedRepositoryTransitionCaptureOwners,
 } from './prepared-repository-transition.js';
 import { CodexNativeTurnTargetSchema } from './codex-conversation-store.js';
 import {
@@ -1130,10 +1132,14 @@ export class RepositoryWorkspaces {
     this.assertAvailable();
     return this.getHostRecord(id);
   }
-  /** Bounded private metadata lookup for a trusted completed source tuple.
-   * No latest/path/model-ID selection, filesystem reads, effects or replay.
-   * The eventual producer must separately validate the fresh current owner,
-   * physical task and durable successful result before native reservation. */
+  /** Private live completed-turn composition; no native registration/admission. */
+  async capturePreparedRepositoryTransition(
+    input: PreparedRepositoryTransitionCaptureInput,
+    owners: PreparedRepositoryTransitionCaptureOwners,
+  ) {
+    return capturePreparedRepositoryTransition(this, input, owners);
+  }
+  /** Bounded read-only metadata selector. No path/latest/model ID inference. */
   findPreparedRepositoryTransitionCandidate(input: PreparedRepositoryTransitionCaptureInput) {
     this.assertAvailable();
     let selected: PreparedRepositoryTransitionCaptureInput;
