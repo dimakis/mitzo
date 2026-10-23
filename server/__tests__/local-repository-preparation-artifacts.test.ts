@@ -31,6 +31,8 @@ it('pins the private preparation decision producer, same-row custody and signed 
     '../pending-host-task.ts',
     '../native-file-operation.ts',
     '../__tests__/native-exclusive-directory.test.ts',
+    '../__tests__/native-exclusive-file.test.ts',
+    '../__tests__/sandboxed-command-worker.test.ts',
     '../repository-workspaces.ts',
     '../__tests__/fixtures/local-preparation-native.ts',
     '../__tests__/fixtures/qualified-local-preparation-source.ts',

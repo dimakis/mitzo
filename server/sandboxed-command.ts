@@ -6,7 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { AuthoritySnapshot, identity, validatePath } from './sandbox-authority.js';
 import type { SandboxWorkerPayload } from './sandboxed-command-worker.js';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import {
+  freezeNativeReadExclusions,
+  privateNativeFileHelperCommand,
+  projectPrivateNativeFileHelperRequest,
+  type NativeReadAnchor,
+} from './native-file-operation.js';
 
 export interface SandboxedCommandOptions {
   command: string;
@@ -25,6 +31,213 @@ export interface SandboxedCommandOptions {
   privateOutput?: 'separate';
   beforeSpawn?: () => void;
   beforeSpawnAsync?: () => Promise<void>;
+}
+
+/** Private actor facts only, not a permission grant. Actual callers derive the
+ * exact roots from consumed scope plus phase-owned/original pinned identities. */
+export interface PrivateNativeFileHelperOptions {
+  readonly requestJson: string;
+  readonly cwd: string;
+  readonly writableRoots: readonly Readonly<{ path: string; parentAnchor: NativeReadAnchor }>[];
+  readonly deniedRoots: readonly string[];
+  readonly signal: AbortSignal;
+  readonly timeoutMs: number;
+  readonly maxOutputBytes: number;
+  assertCurrentSync(): void;
+  revalidate(): Promise<void>;
+}
+interface PrivateHelperScope {
+  readonly requestJson: string;
+  readonly deadline: number;
+  readonly cwdIdentity: Readonly<{ dev: string; ino: string }>;
+}
+const privateLiteral = (path: unknown): path is string =>
+  typeof path === 'string' &&
+  isAbsolute(path) &&
+  path !== '/' &&
+  resolve(path) === path &&
+  !path.includes('\0') &&
+  !/[*?[\]{}]/.test(path) &&
+  Buffer.byteLength(path) <= 4096 &&
+  path.split('/').length <= 129;
+function privateData(value: unknown, key: string): unknown {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+  )
+    throw Error('Private helper scope unavailable');
+  const descriptor = Object.getOwnPropertyDescriptor(value, key);
+  if (!descriptor || !('value' in descriptor)) throw Error('Private helper scope unavailable');
+  return descriptor.value;
+}
+function privateArray(value: unknown, max: number): unknown[] {
+  if (
+    !Array.isArray(value) ||
+    Object.getPrototypeOf(value) !== Array.prototype ||
+    value.length > max
+  )
+    throw Error('Private helper scope unavailable');
+  const items: unknown[] = [];
+  for (let index = 0; index < value.length; index++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !('value' in descriptor)) throw Error('Private helper scope unavailable');
+    items.push(descriptor.value);
+  }
+  return items;
+}
+
+/** SAME runner, fixed private file program only. This is deliberately not a
+ * public Bash option to skip Git/authority checks. No source/Git path is passed
+ * to host AuthoritySnapshot or gitMetadataRoots. SRT itself normalizes literal
+ * roots: the caller must already hold original/phase custody of those roots and
+ * each nearest existing parent, under the current original owner. */
+export async function executePrivateNativeFileHelper(options: PrivateNativeFileHelperOptions) {
+  const original = options;
+  const sync = privateData(options, 'assertCurrentSync');
+  const async = privateData(options, 'revalidate');
+  const signal = privateData(options, 'signal') as AbortSignal;
+  const timeoutMs = privateData(options, 'timeoutMs');
+  if (
+    typeof sync !== 'function' ||
+    typeof async !== 'function' ||
+    typeof timeoutMs !== 'number' ||
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs <= 0 ||
+    timeoutMs > 30000
+  )
+    throw Error('Private helper owner unavailable');
+  const deadline = Date.now() + timeoutMs;
+  const current = () => {
+    signal.throwIfAborted();
+    if (Date.now() >= deadline) throw Error('Private helper owner unavailable');
+    const returned: unknown = Reflect.apply(sync, original, []);
+    if (returned !== undefined) {
+      void Promise.resolve(returned).catch(() => {});
+      throw Error('Private helper owner unavailable');
+    }
+  };
+  const revalidate = async () => {
+    current();
+    const pending: unknown = Reflect.apply(async, original, []);
+    if (!(pending instanceof Promise)) throw Error('Private helper owner unavailable');
+    if ((await pending) !== undefined) throw Error('Private helper owner unavailable');
+    current();
+  };
+  // Capture immutable plain data before awaiting either owner. No source path
+  // lookup/normalization happens in this validation phase.
+  const suppliedRequestJson = privateData(options, 'requestJson');
+  if (typeof suppliedRequestJson !== 'string') throw Error('Private helper input unavailable');
+  const requestJson = projectPrivateNativeFileHelperRequest(suppliedRequestJson);
+  const command = privateNativeFileHelperCommand(requestJson);
+  const request = JSON.parse(requestJson);
+  const cwd = privateData(options, 'cwd');
+  const inputRoots = privateArray(privateData(options, 'writableRoots'), 2);
+  const maxOutputBytes = privateData(options, 'maxOutputBytes');
+  const deniedRoots = freezeNativeReadExclusions(
+    privateArray(privateData(options, 'deniedRoots'), 256) as string[],
+  );
+  if (
+    !privateLiteral(cwd) ||
+    !Array.isArray(inputRoots) ||
+    inputRoots.length !== 2 ||
+    typeof maxOutputBytes !== 'number' ||
+    !Number.isSafeInteger(maxOutputBytes) ||
+    maxOutputBytes < 1 ||
+    maxOutputBytes > 32768
+  )
+    throw Error('Private helper scope unavailable');
+  const roots = Object.freeze(
+    inputRoots.map((value) => {
+      const path = privateData(value, 'path');
+      const parent = privateData(value, 'parentAnchor');
+      const parentPath = privateData(parent, 'rootPath');
+      const id = privateData(parent, 'identity');
+      const dev = privateData(id, 'dev'),
+        ino = privateData(id, 'ino');
+      if (
+        !privateLiteral(path) ||
+        !privateLiteral(parentPath) ||
+        (path !== parentPath && dirname(path) !== parentPath) ||
+        typeof dev !== 'string' ||
+        !/^\d{1,32}$/.test(dev) ||
+        typeof ino !== 'string' ||
+        !/^\d{1,32}$/.test(ino)
+      )
+        throw Error('Private helper parent custody unavailable');
+      return Object.freeze({
+        path,
+        parentAnchor: Object.freeze({
+          rootPath: parentPath,
+          identity: Object.freeze({ dev, ino }),
+        }),
+      });
+    }),
+  );
+  if (
+    new Set(roots.map((root) => root.path)).size !== roots.length ||
+    !roots.some((root) => root.path === cwd && root.parentAnchor.rootPath === cwd) ||
+    !roots.some(
+      (root) =>
+        root.path === request.file_path &&
+        root.parentAnchor.rootPath === dirname(request.file_path) &&
+        root.parentAnchor.identity.dev === request.parentIdentity.dev &&
+        root.parentAnchor.identity.ino === request.parentIdentity.ino,
+    ) ||
+    JSON.stringify(deniedRoots) !==
+      JSON.stringify(freezeNativeReadExclusions(request.deniedRoots)) ||
+    roots.some((root) =>
+      deniedRoots.some(
+        (denied) =>
+          root.path === denied || root.path.startsWith(denied === '/' ? '/' : denied + '/'),
+      ),
+    ) ||
+    (request.operation === 'CreateFile' &&
+      (request.payload.rootAnchor.rootPath !== cwd ||
+        !roots.some(
+          (root) =>
+            root.path === cwd &&
+            root.parentAnchor.identity.dev === request.payload.rootAnchor.identity.dev &&
+            root.parentAnchor.identity.ino === request.payload.rootAnchor.identity.ino,
+        )))
+  )
+    throw Error('Private helper scope unavailable');
+  await revalidate(); // Full actual owner BEFORE any scope-touching host setup.
+  let failed = false;
+  let result: Awaited<ReturnType<typeof runSandboxedCommand>> | undefined;
+  try {
+    result = await runSandboxedCommand(
+      {
+        command,
+        cwd,
+        writableRoots: roots.map((root) => root.path),
+        deniedRoots: [...deniedRoots],
+        env: { PATH: '/usr/bin:/bin' },
+        signal,
+        privateOutput: 'separate',
+        timeoutMs: Math.max(1, deadline - Date.now()),
+        maxOutputBytes,
+        beforeSpawnAsync: revalidate,
+        beforeSpawn: current,
+      },
+      {
+        requestJson,
+        deadline,
+        cwdIdentity: roots.find((root) => root.path === cwd)!.parentAnchor.identity,
+      },
+    );
+  } catch {
+    // Joining/cleanup can fail after a real effect. Never retry or erase it.
+    failed = true;
+  }
+  try {
+    await revalidate(); // ALSO after rejected joined-worker/cleanup awaits.
+    current();
+  } catch {
+    throw Error('Private native file helper unavailable');
+  }
+  if (failed || !result) throw Error('Private native file helper unavailable');
+  return result;
 }
 
 function contains(root: string, path: string) {
@@ -101,6 +314,13 @@ function gitMetadataRoots(
 export async function executeSandboxedCommand(
   options: SandboxedCommandOptions,
 ): Promise<{ content: string; isError: boolean; stdout?: string; stderr?: string }> {
+  return runSandboxedCommand(options);
+}
+
+async function runSandboxedCommand(
+  options: SandboxedCommandOptions,
+  privateHelper?: PrivateHelperScope,
+): Promise<{ content: string; isError: boolean; stdout?: string; stderr?: string }> {
   options.signal.throwIfAborted();
   if (options.privateOutput !== undefined && options.privateOutput !== 'separate')
     throw new Error('Invalid private command output transport');
@@ -117,14 +337,25 @@ export async function executeSandboxedCommand(
     env: { ...options.env },
   };
   const authority = new AuthoritySnapshot();
-  for (const path of [
-    options.cwd,
-    ...options.writableRoots,
-    ...options.deniedRoots,
-    ...(options.readableRoots ?? []),
-  ]) {
+  for (const path of privateHelper
+    ? [options.cwd, process.execPath]
+    : [
+        options.cwd,
+        ...options.writableRoots,
+        ...options.deniedRoots,
+        ...(options.readableRoots ?? []),
+      ]) {
     validatePath(path);
     authority.capture(path);
+  }
+  if (privateHelper) {
+    const current = identity(options.cwd);
+    if (
+      !current?.isDirectory() ||
+      current.dev.toString() !== privateHelper.cwdIdentity.dev ||
+      current.ino.toString() !== privateHelper.cwdIdentity.ino
+    )
+      throw Error('Private helper scratch custody changed');
   }
   if (
     options.readableRoots &&
@@ -135,7 +366,9 @@ export async function executeSandboxedCommand(
     )
   )
     throw Error('Sandbox readable scope overlaps private storage');
-  const metadata = options.writableRoots.map((root) => gitMetadataRoots(root, authority));
+  const metadata = privateHelper
+    ? []
+    : options.writableRoots.map((root) => gitMetadataRoots(root, authority));
   const metadataRoots = metadata.flatMap((entry) => entry.writable);
   const protectedMetadata = metadata.flatMap((entry) => entry.protected);
   for (const path of [...metadataRoots, ...protectedMetadata]) authority.capture(path);
@@ -172,6 +405,7 @@ export async function executeSandboxedCommand(
     const payload: SandboxWorkerPayload = {
       cwd: options.cwd,
       command: options.command,
+      ...(privateHelper ? { privateNativeFileRequestJson: privateHelper.requestJson } : {}),
       ...(options.networkAccess ? { networkAccess: options.networkAccess } : {}),
       authority: authority.serialize(),
       config: {
@@ -218,9 +452,10 @@ export async function executeSandboxedCommand(
     await options.beforeSpawnAsync?.();
     return await new Promise((resolveResult) => {
       options.signal.throwIfAborted();
-      options.beforeSpawn?.();
+      if (!privateHelper) options.beforeSpawn?.();
       // No await between revalidating authority and handing policy to the child.
       authority.verify();
+      if (privateHelper) options.beforeSpawn?.();
       const child = spawn(process.execPath, [...workerArgs, settings], {
         cwd: options.cwd,
         env,
@@ -245,7 +480,10 @@ export async function executeSandboxedCommand(
         kill();
       };
       const onAbort = () => stop('Command cancelled');
-      const timer = setTimeout(() => stop('Command timed out'), timeout);
+      const timer = setTimeout(
+        () => stop('Command timed out'),
+        privateHelper ? Math.max(1, privateHelper.deadline - Date.now()) : timeout,
+      );
       options.signal.addEventListener('abort', onAbort, { once: true });
       if (options.signal.aborted) onAbort();
       const collect = (chunk: Buffer, stream: Buffer[]) => {

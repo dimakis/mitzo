@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process';
 // Keep the helper embedded so tsc/deploy cannot omit a required runtime asset.
 // No user text is interpolated into source or argv: the request travels over stdin.
 const helper = String.raw`
-import base64, json, os, stat, sys, time
+import base64, hashlib, json, os, stat, sys, time
 
 def capture_read_anchor(request):
     path = request['file_path']
@@ -77,6 +77,112 @@ def create_directory(request):
         if child is not None:
             os.close(child)
         os.close(directory)
+
+def create_file(request):
+    # This branch never overwrites, follows links, removes files or runs Git.
+    deadline = time.monotonic() + request['timeoutMs'] / 1000
+    source = request['payload']
+    exclusions = request['deniedRoots']
+    def check():
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Exclusive file deadline exceeded')
+    def matches(info, expected):
+        return str(info.st_dev) == expected['dev'] and str(info.st_ino) == expected['ino']
+    def parent(item):
+        check()
+        path = item['file_path']
+        parts = [part for part in path.split('/') if part]
+        root = item['rootAnchor']
+        root_parts = [part for part in root['rootPath'].split('/') if part]
+        if not parts or parts[:-1][:len(root_parts)] != root_parts or any(path == denied or path.startswith(denied.rstrip('/') + '/') for denied in exclusions):
+            raise RuntimeError('Exclusive file unavailable')
+        directory = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            if not root_parts and not matches(os.fstat(directory), root['identity']):
+                raise RuntimeError('Exclusive file root changed')
+            for index, part in enumerate(parts[:-1]):
+                check()
+                next_directory = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory)
+                os.close(directory)
+                directory = next_directory
+                if index + 1 == len(root_parts) and not matches(os.fstat(directory), root['identity']):
+                    raise RuntimeError('Exclusive file root changed')
+            if not matches(os.fstat(directory), item['parentIdentity']):
+                raise RuntimeError('Exclusive file parent changed')
+            return directory, parts[-1]
+        except:
+            os.close(directory)
+            raise
+    def read_payload(file):
+        check()
+        payload_info = os.fstat(file)
+        if not stat.S_ISREG(payload_info.st_mode) or payload_info.st_nlink != 1 or not matches(payload_info, source['identity']) or payload_info.st_size != source['size'] or not 0 <= payload_info.st_size <= 16 * 1024 * 1024:
+            raise RuntimeError('Exclusive file payload unavailable')
+        os.lseek(file, 0, os.SEEK_SET)
+        data = bytearray()
+        while len(data) < payload_info.st_size:
+            check()
+            chunk = os.read(file, min(65536, payload_info.st_size - len(data)))
+            if not chunk:
+                raise RuntimeError('Exclusive file payload changed')
+            data.extend(chunk)
+        after = os.fstat(file)
+        if os.read(file, 1) or after.st_size != payload_info.st_size or after.st_mtime_ns != payload_info.st_mtime_ns or after.st_ctime_ns != payload_info.st_ctime_ns or after.st_nlink != 1 or hashlib.sha256(data).hexdigest() != source['sha256']:
+            raise RuntimeError('Exclusive file payload changed')
+        return data
+    source_parent = target_parent = source_file = target_file = None
+    try:
+        if os.open not in os.supports_dir_fd or not hasattr(os, 'O_NOFOLLOW') or request['expectedAbsent'] is not True:
+            raise RuntimeError('Exclusive file unavailable')
+        source_parent, source_name = parent(source)
+        source_file = os.open(source_name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=source_parent)
+        data = read_payload(source_file) # Size/hash BEFORE creating the target.
+        target_parent, target_name = parent(request)
+        check()
+        target_file = os.open(target_name, os.O_RDWR | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=target_parent)
+        target_info = os.fstat(target_file)
+        offset = 0
+        while offset < len(data):
+            check()
+            written = os.write(target_file, data[offset:offset + 65536])
+            if written <= 0:
+                raise RuntimeError('Exclusive file write failed')
+            offset += written
+        os.fsync(target_file)
+        written_info = os.fstat(target_file)
+        os.lseek(target_file, 0, os.SEEK_SET)
+        digest = hashlib.sha256()
+        copied = 0
+        while copied < len(data):
+            check()
+            chunk = os.read(target_file, min(65536, len(data) - copied))
+            if not chunk:
+                raise RuntimeError('Exclusive file copy changed')
+            copied += len(chunk)
+            digest.update(chunk)
+        after = os.fstat(target_file)
+        if os.read(target_file, 1) or not stat.S_ISREG(after.st_mode) or after.st_nlink != 1 or not matches(after, {'dev': str(target_info.st_dev), 'ino': str(target_info.st_ino)}) or after.st_size != len(data) or after.st_mtime_ns != written_info.st_mtime_ns or after.st_ctime_ns != written_info.st_ctime_ns or digest.hexdigest() != source['sha256']:
+            raise RuntimeError('Exclusive file copy changed')
+        # Verify bytes AND the current path-to-parent/root/file bindings after
+        # publication. Pinned descriptors alone do not detect renamed ancestors.
+        read_payload(source_file)
+        source_after = os.fstat(source_file)
+        for item, expected, observed in [(source, source['identity'], source_after), (request, {'dev': str(after.st_dev), 'ino': str(after.st_ino)}, after)]:
+            directory, name = parent(item)
+            file = None
+            try:
+                file = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory)
+                current = os.fstat(file)
+                if not stat.S_ISREG(current.st_mode) or current.st_nlink != 1 or not matches(current, expected) or current.st_size != observed.st_size or current.st_mtime_ns != observed.st_mtime_ns or current.st_ctime_ns != observed.st_ctime_ns:
+                    raise RuntimeError('Exclusive file path changed')
+            finally:
+                if file is not None: os.close(file)
+                os.close(directory)
+        check()
+        return json.dumps({'file_path': request['file_path'], 'identity': {'dev': str(after.st_dev), 'ino': str(after.st_ino)}, 'byteLength': copied, 'sha256': digest.hexdigest()})
+    finally:
+        for file in [source_file, target_file, source_parent, target_parent]:
+            if file is not None: os.close(file)
 
 def anchored_read(request, deadline=None, budget=None):
     deadline = time.monotonic() + request['timeoutMs'] / 1000 if deadline is None else deadline
@@ -240,6 +346,8 @@ def execute(request):
         return json.dumps(results, ensure_ascii=True)
     if request['operation'] == 'CreateDirectory':
         return create_directory(request)
+    if request['operation'] == 'CreateFile':
+        return create_file(request)
     if request['operation'] == 'CaptureReadAnchor':
         return capture_read_anchor(request)
     if request['operation'] in ('ReadBytes', 'ListDirectory', 'ReadLink'):
@@ -329,10 +437,12 @@ try:
     envelope = json.dumps({'content': execute(request), 'is_error': False})
     if request['operation'] == 'ListDirectoryBatch' and len((envelope + '\n').encode('utf-8')) > 8 * 1024 * 1024:
         raise RuntimeError('Anchored directory batch unavailable')
+    if request['operation'] == 'CreateFile' and len((envelope + '\n').encode('utf-8')) > 32768:
+        raise RuntimeError('Exclusive file unavailable')
     print(envelope)
 except Exception as error:
     # OS errors may contain filenames, but never file contents or request payloads.
-    content = 'Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else str(error)
+    content = 'Exclusive file unavailable' if isinstance(request, dict) and request.get('operation') == 'CreateFile' else ('Anchored directory batch unavailable' if isinstance(request, dict) and request.get('operation') == 'ListDirectoryBatch' else str(error))
     print(json.dumps({'content': content, 'is_error': True}))
 `;
 
@@ -340,10 +450,99 @@ except Exception as error:
  * owner. Supplying it never permits fallback to the direct host runner. */
 export type NativeFileHelperTransport = (request: {
   command: string;
+  /** Bounded original fixed-helper arguments, never an arbitrary program. */
+  requestJson: string;
   maxOutputBytes: number;
   signal: AbortSignal;
   timeoutMs: number;
 }) => Promise<{ stdout: string; isError: boolean }>;
+
+function helperCommand(requestJson: string) {
+  const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
+  return `/usr/bin/printf '%s' ${quote(requestJson)} | /usr/bin/python3 -I -c ${quote(helper)}`;
+}
+
+/** Narrow private runner input: the program is always this embedded helper.
+ * Legacy/public file or arbitrary shell operations cannot select this branch. */
+export function projectPrivateNativeFileHelperRequest(requestJson: string): string {
+  if (typeof requestJson !== 'string' || Buffer.byteLength(requestJson) > 128 * 1024)
+    throw Error('Private file helper unavailable');
+  const request = JSON.parse(requestJson);
+  if (
+    !request ||
+    typeof request !== 'object' ||
+    Array.isArray(request) ||
+    JSON.stringify(request) !== requestJson ||
+    !['CreateFile', 'CreateDirectory'].includes(request.operation) ||
+    request.identity !== null ||
+    request.limit !== 1 ||
+    !Number.isSafeInteger(request.timeoutMs) ||
+    request.timeoutMs <= 0 ||
+    request.timeoutMs > 30000 ||
+    Object.keys(request).some(
+      (key) =>
+        ![
+          'operation',
+          'identity',
+          'file_path',
+          'limit',
+          'parentIdentity',
+          'rootAnchor',
+          'payload',
+          'expectedAbsent',
+          'deniedRoots',
+          'timeoutMs',
+        ].includes(key),
+    )
+  )
+    throw Error('Private file helper unavailable');
+  let projected: NativeExclusiveDirectoryRequest | NativeExclusiveFileRequest;
+  if (request.operation === 'CreateFile') projected = projectExclusiveFileRequest(request);
+  else {
+    if (
+      !validNativeReadPath(request.file_path) ||
+      !validNativeReadPath(request.rootAnchor?.rootPath) ||
+      !validExclusiveIdentity(request.rootAnchor?.identity) ||
+      !validExclusiveIdentity(request.parentIdentity) ||
+      request.expectedAbsent !== true ||
+      request.file_path === request.rootAnchor.rootPath ||
+      !request.file_path.startsWith(
+        request.rootAnchor.rootPath === '/' ? '/' : request.rootAnchor.rootPath + '/',
+      )
+    )
+      throw Error('Private file helper unavailable');
+    const denied = freezeNativeReadExclusions(request.deniedRoots);
+    if (
+      denied.some(
+        (path) =>
+          request.file_path === path ||
+          request.file_path.startsWith(path === '/' ? '/' : path + '/'),
+      )
+    )
+      throw Error('Private file helper unavailable');
+    if ('payload' in request) throw Error('Private file helper unavailable');
+    projected = {
+      file_path: request.file_path,
+      rootAnchor: {
+        rootPath: request.rootAnchor.rootPath,
+        identity: { dev: request.rootAnchor.identity.dev, ino: request.rootAnchor.identity.ino },
+      },
+      parentIdentity: { dev: request.parentIdentity.dev, ino: request.parentIdentity.ino },
+      expectedAbsent: true,
+      deniedRoots: denied,
+    };
+  }
+  return JSON.stringify({
+    ...projected,
+    operation: request.operation,
+    identity: null,
+    limit: 1,
+    timeoutMs: request.timeoutMs,
+  });
+}
+export function privateNativeFileHelperCommand(requestJson: string) {
+  return helperCommand(projectPrivateNativeFileHelperRequest(requestJson));
+}
 
 export function executeNativeFileOperation(
   request: {
@@ -360,6 +559,7 @@ export function executeNativeFileOperation(
     timeoutMs?: number;
     rootAnchor?: NativeReadAnchor;
     expectedAbsent?: true;
+    payload?: NativeExclusiveFilePayload;
     items?: readonly NativeDirectoryVerificationItem[];
   },
   signal: AbortSignal,
@@ -368,11 +568,13 @@ export function executeNativeFileOperation(
 ): Promise<{ content: string; is_error: boolean }> {
   signal.throwIfAborted();
   if (
-    ['CreateDirectory', 'ListDirectoryBatch'].includes(request.operation) &&
+    ['CreateDirectory', 'CreateFile', 'ListDirectoryBatch'].includes(request.operation) &&
     typeof privateTransport !== 'function'
   )
     return Promise.reject(Error('Private helper transport unavailable'));
-  const maxBuffer = ['CaptureReadAnchor', 'CreateDirectory'].includes(request.operation)
+  const maxBuffer = ['CaptureReadAnchor', 'CreateDirectory', 'CreateFile'].includes(
+    request.operation,
+  )
     ? 32768
     : ['ListDirectory', 'ListDirectoryBatch'].includes(request.operation)
       ? 8 * 1024 * 1024
@@ -406,21 +608,25 @@ export function executeNativeFileOperation(
   };
   if (privateTransport !== undefined) {
     if (typeof privateTransport !== 'function') throw Error('Private helper transport unavailable');
-    const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
-    const command = `/usr/bin/printf '%s' ${quote(JSON.stringify(request))} | /usr/bin/python3 -I -c ${quote(helper)}`;
-    return privateTransport({ command, signal, timeoutMs, maxOutputBytes: maxBuffer }).then(
-      (result) => {
-        signal.throwIfAborted();
-        if (
-          !result ||
-          result.isError !== false ||
-          typeof result.stdout !== 'string' ||
-          Buffer.byteLength(result.stdout) > maxBuffer
-        )
-          throw Error('Private helper transport unavailable');
-        return decode(result.stdout, true);
-      },
-    );
+    const requestJson = JSON.stringify(request);
+    const command = helperCommand(requestJson);
+    return privateTransport({
+      command,
+      requestJson,
+      signal,
+      timeoutMs,
+      maxOutputBytes: maxBuffer,
+    }).then((result) => {
+      signal.throwIfAborted();
+      if (
+        !result ||
+        result.isError !== false ||
+        typeof result.stdout !== 'string' ||
+        Buffer.byteLength(result.stdout) > maxBuffer
+      )
+        throw Error('Private helper transport unavailable');
+      return decode(result.stdout, true);
+    });
   }
   return new Promise((resolve, reject) => {
     const child = execFile(
@@ -889,6 +1095,151 @@ export interface NativeExclusiveDirectoryRequest {
   readonly parentIdentity: NativeReadIdentity;
   readonly expectedAbsent: true;
   readonly deniedRoots: readonly string[];
+}
+
+export interface NativeExclusiveFilePayload {
+  readonly file_path: string;
+  readonly rootAnchor: NativeReadAnchor;
+  readonly parentIdentity: NativeReadIdentity;
+  readonly identity: NativeReadIdentity;
+  readonly size: number;
+  readonly sha256: string;
+}
+export interface NativeExclusiveFileRequest extends NativeExclusiveDirectoryRequest {
+  readonly payload: NativeExclusiveFilePayload;
+}
+function exclusiveData(value: unknown, key: string): unknown {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(value))
+  )
+    throw Error('Exclusive file data unavailable');
+  const property = Object.getOwnPropertyDescriptor(value, key);
+  if (!property || !('value' in property)) throw Error('Exclusive file data unavailable');
+  return property.value;
+}
+function validExclusiveIdentity(value: unknown): value is NativeReadIdentity {
+  try {
+    return (
+      Reflect.ownKeys(value as object).length === 2 &&
+      ['dev', 'ino'].every((key) => {
+        const field = exclusiveData(value, key);
+        return typeof field === 'string' && /^\d{1,32}$/.test(field);
+      })
+    );
+  } catch {
+    return false;
+  }
+}
+function projectExclusiveFileRequest(input: unknown): Readonly<NativeExclusiveFileRequest> {
+  const identity = (value: unknown) => {
+    if (!validExclusiveIdentity(value)) throw Error('Exclusive file data unavailable');
+    return Object.freeze({ dev: value.dev, ino: value.ino });
+  };
+  const endpoint = (value: unknown) => {
+    const path = exclusiveData(value, 'file_path');
+    const root = exclusiveData(value, 'rootAnchor');
+    const rootPath = exclusiveData(root, 'rootPath');
+    if (
+      !validNativeReadPath(path) ||
+      !validNativeReadPath(rootPath) ||
+      path === rootPath ||
+      !path.startsWith(rootPath === '/' ? '/' : rootPath + '/')
+    )
+      throw Error('Exclusive file data unavailable');
+    return {
+      file_path: path,
+      rootAnchor: Object.freeze({ rootPath, identity: identity(exclusiveData(root, 'identity')) }),
+      parentIdentity: identity(exclusiveData(value, 'parentIdentity')),
+    };
+  };
+  const target = endpoint(input);
+  const originalPayload = exclusiveData(input, 'payload');
+  const source = endpoint(originalPayload);
+  const size = exclusiveData(originalPayload, 'size');
+  const sha256 = exclusiveData(originalPayload, 'sha256');
+  const deniedRoots = freezeNativeReadExclusions(
+    exclusiveData(input, 'deniedRoots') as readonly string[],
+  );
+  if (
+    exclusiveData(input, 'expectedAbsent') !== true ||
+    typeof size !== 'number' ||
+    !Number.isSafeInteger(size) ||
+    size < 0 ||
+    size > 16 * 1024 * 1024 ||
+    typeof sha256 !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(sha256) ||
+    target.file_path === source.file_path ||
+    [target.file_path, source.file_path].some((path) =>
+      deniedRoots.some((root) => path === root || path.startsWith(root === '/' ? '/' : root + '/')),
+    )
+  )
+    throw Error('Exclusive file data unavailable');
+  return Object.freeze({
+    ...target,
+    expectedAbsent: true,
+    payload: Object.freeze({
+      ...source,
+      identity: identity(exclusiveData(originalPayload, 'identity')),
+      size,
+      sha256,
+    }),
+    deniedRoots,
+  });
+}
+
+/** Private exclusive binary publication from an already-owned actor scratch.
+ * The enforced transport owns scratch/scope/current custody. No host fallback,
+ * overwrite, source-config evaluation or cleanup is available in this primitive. */
+export async function createNativeExclusiveFile(
+  request: NativeExclusiveFileRequest,
+  signal: AbortSignal,
+  timeoutMs: number,
+  privateTransport: NativeFileHelperTransport,
+): Promise<
+  Readonly<{ file_path: string; identity: NativeReadIdentity; byteLength: number; sha256: string }>
+> {
+  signal.throwIfAborted();
+  try {
+    if (
+      typeof privateTransport !== 'function' ||
+      !Number.isSafeInteger(timeoutMs) ||
+      timeoutMs <= 0 ||
+      timeoutMs > 30000
+    )
+      throw Error('Invalid private helper');
+    const projected = projectExclusiveFileRequest(request);
+    const result = await executeNativeFileOperation(
+      { ...projected, operation: 'CreateFile', identity: null, limit: 1, timeoutMs },
+      signal,
+      timeoutMs,
+      privateTransport,
+    );
+    signal.throwIfAborted();
+    if (result.is_error || Buffer.byteLength(result.content) > 8192)
+      throw Error('Invalid helper result');
+    const value = JSON.parse(result.content);
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Object.keys(value).length !== 4 ||
+      value.file_path !== projected.file_path ||
+      !validExclusiveIdentity(value.identity) ||
+      value.byteLength !== projected.payload.size ||
+      value.sha256 !== projected.payload.sha256
+    )
+      throw Error('Invalid helper result');
+    return Object.freeze({
+      file_path: value.file_path,
+      identity: Object.freeze({ ...value.identity }),
+      byteLength: value.byteLength,
+      sha256: value.sha256,
+    });
+  } catch {
+    signal.throwIfAborted();
+    throw Error('Exclusive native file unavailable');
+  }
 }
 
 /** Private same-helper mkdirat effect. Never falls back to a host executor and

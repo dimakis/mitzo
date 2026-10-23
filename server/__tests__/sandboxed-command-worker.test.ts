@@ -234,3 +234,31 @@ it('builds runtime-only policy with unrestricted networking and filesystem fenci
   expect(command).toContain(secret);
   expect(manager.initialize).not.toHaveBeenCalled();
 });
+
+it.each(['program', 'operation', 'network'] as const)(
+  'rejects a private helper %s substitution before initializing policy or spawning',
+  async (change) => {
+    const { payload, manager, spawn } = fixture();
+    const request = {
+      operation: 'CreateDirectory',
+      file_path: root + '/child',
+      rootAnchor: { rootPath: root, identity: { dev: '1', ino: '2' } },
+      parentIdentity: { dev: '1', ino: '2' },
+      expectedAbsent: true,
+      deniedRoots: [],
+      identity: null,
+      limit: 1,
+      timeoutMs: 1000,
+    };
+    const { privateNativeFileHelperCommand } = await import('../native-file-operation.js');
+    payload.privateNativeFileRequestJson = JSON.stringify(request);
+    payload.command = privateNativeFileHelperCommand(payload.privateNativeFileRequestJson);
+    if (change === 'program') payload.command = 'arbitrary shell text';
+    if (change === 'operation')
+      payload.privateNativeFileRequestJson = JSON.stringify({ ...request, operation: 'Write' });
+    if (change === 'network') payload.networkAccess = 'approved-command';
+    await expect(runSandboxedWorker(payload, { manager, spawn: spawn as never })).rejects.toThrow();
+    expect(manager.initialize).not.toHaveBeenCalled();
+    expect(spawn).not.toHaveBeenCalled();
+  },
+);
