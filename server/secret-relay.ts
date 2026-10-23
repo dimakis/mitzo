@@ -1,3 +1,4 @@
+import { BrowserRelayTargetSchema, type PrivateRelayBrowsers } from './secret-relay-browser.js';
 import { MqttRelayTargetSchema, validateMqttRelayTarget } from './secret-relay-mqtt.js';
 import { validateLanRelayEndpoint } from './secret-relay-lan.js';
 import { redactCredentialResponse } from './credential-redaction.js';
@@ -40,7 +41,7 @@ const HttpTargetSchema = z.union([
   }).strict(),
 ]);
 export type HttpRelayTarget = z.infer<typeof HttpTargetSchema>;
-const TargetSchema = z.union([HttpTargetSchema, MqttRelayTargetSchema]);
+const TargetSchema = z.union([HttpTargetSchema, MqttRelayTargetSchema, BrowserRelayTargetSchema]);
 export const PrepareSecretRelaySchema = z
   .object({
     label: z.string().trim().min(1).max(100),
@@ -49,7 +50,8 @@ export const PrepareSecretRelaySchema = z
   .strict();
 export type RelayTarget = z.infer<typeof TargetSchema>;
 export type RelayOutcome = {
-  outcome: 'not_sent' | 'unconfirmed' | 'confirmed';
+  outcome: 'not_sent' | 'unconfirmed' | 'confirmed' | 'challenge_required';
+  challenge?: 'awaiting_code' | 'code_ready';
   status?: number;
   acknowledgement?: 'connack' | 'puback';
 };
@@ -62,6 +64,8 @@ export interface SecretRelay {
   status: 'pending' | 'verifying' | 'ready' | 'cancelled' | 'expired' | 'unconfirmed';
   targets: Array<RelayTarget & { endpoint: string; label: string }>;
   outcomes: RelayOutcome[];
+  actionOutcomes?: Record<string, RelayOutcome>;
+  continuation?: number;
   setupUrl: string;
   delivery?: 'pending' | 'delivered';
 }
@@ -135,9 +139,19 @@ export class SecretRelays {
     private connection: (id: string) => Destination,
     private send: Apply,
     private allowLan = false,
-    private adapters: { mqtt?: boolean; mqttLan?: boolean } = {},
+    private adapters: { mqtt?: boolean; mqttLan?: boolean; browser?: PrivateRelayBrowsers } = {},
   ) {}
   private checkedTarget(target: RelayTarget) {
+    if ('adapter' in target && target.adapter === 'browser') {
+      if (!this.adapters.browser) throw new Error('Private browser adapter disabled');
+      const {
+        endpoint: _endpoint,
+        label: _label,
+        ...input
+      } = target as typeof target & { endpoint?: string; label?: string };
+      const t = BrowserRelayTargetSchema.parse(input);
+      return { endpoint: t.origin, label: new URL(t.origin).hostname };
+    }
     if ('adapter' in target) {
       if (!this.adapters.mqtt) throw new Error('MQTT relay adapter is disabled');
       const url = validateMqttRelayTarget(target, !!this.adapters.mqttLan);
@@ -198,6 +212,7 @@ export class SecretRelays {
     const relay = this.store.getRelay(id);
     if (!relay) throw new Error('Secret request unavailable');
     if (relay.expiresAt <= Date.now() && !['cancelled', 'expired'].includes(relay.status)) {
+      void this.adapters.browser?.closeRelay(id).catch(() => {});
       relay.status = 'expired';
       relay.revision++;
       this.store.putRelay(relay);
@@ -269,10 +284,43 @@ export class SecretRelays {
   cancel(id: string, revision: number) {
     const relay = this.get(id);
     if (relay.revision !== revision) throw new Error('Secret request changed');
+    void this.adapters.browser?.closeRelay(id).catch(() => {});
     this.active.get(id)?.abort();
     for (const [key, controller] of this.active) if (key.startsWith(`${id}:`)) controller.abort();
     this.store.putRelay({ ...relay, status: 'cancelled', revision: relay.revision + 1 });
     return this.browserStatus(id);
+  }
+  provideBrowserCode(
+    id: string,
+    revision: number,
+    targetIndex: number,
+    value: string,
+    allowed: () => boolean,
+  ) {
+    const relay = this.get(id);
+    const target = relay.targets[targetIndex];
+    if (
+      relay.status !== 'ready' ||
+      relay.revision !== revision ||
+      !allowed() ||
+      !target ||
+      !('adapter' in target) ||
+      target.adapter !== 'browser' ||
+      relay.outcomes[targetIndex]?.challenge !== 'awaiting_code'
+    )
+      throw new Error('Private verification request changed');
+    this.checkedTarget(target);
+    this.adapters.browser!.provideCode(`${id}:${targetIndex}`, value);
+    relay.outcomes[targetIndex] = { outcome: 'challenge_required', challenge: 'code_ready' };
+    relay.revision++;
+    relay.delivery = 'pending';
+    relay.continuation = (relay.continuation ?? 0) + 1;
+    this.store.putRelay(relay);
+    return this.browserStatus(id);
+  }
+  async dispose() {
+    for (const controller of this.active.values()) controller.abort();
+    await this.adapters.browser?.dispose();
   }
   async redactResponse(_session: string, connectionId: string, body: string, signal: AbortSignal) {
     const endpoint = this.connection(connectionId).endpoint;
@@ -314,6 +362,7 @@ export class SecretRelays {
     signal: AbortSignal,
     allowed: () => boolean,
     assertRuntimeCurrent?: () => Promise<void>,
+    actionIndex?: number,
   ) {
     const relay = this.get(id);
     const target = relay.targets[targetIndex];
@@ -332,9 +381,32 @@ export class SecretRelays {
     if (!Number.isInteger(targetIndex) || targetIndex < 0 || !target)
       throw new Error('Unknown target');
     check();
-    const previous = relay.outcomes[targetIndex];
-    if (previous.outcome !== 'not_sent') return previous;
-    const key = `${id}:${targetIndex}`;
+    const browserTarget = 'adapter' in target && target.adapter === 'browser' ? target : undefined;
+    if (
+      actionIndex !== undefined &&
+      (!browserTarget ||
+        !Number.isInteger(actionIndex) ||
+        actionIndex < 0 ||
+        !browserTarget.actions[actionIndex])
+    )
+      throw new Error('Unknown browser action');
+    if (actionIndex !== undefined && relay.outcomes[targetIndex].outcome !== 'confirmed')
+      throw new Error('Browser sign-in incomplete');
+    const actionKey = `${targetIndex}:${actionIndex}`;
+    const previous =
+      actionIndex === undefined
+        ? relay.outcomes[targetIndex]
+        : (relay.actionOutcomes?.[actionKey] ?? { outcome: 'not_sent' as const });
+    const codeReady =
+      actionIndex === undefined &&
+      browserTarget &&
+      previous.outcome === 'challenge_required' &&
+      previous.challenge === 'code_ready';
+    if (previous.outcome !== 'not_sent' && !codeReady) return previous;
+    const key =
+      actionIndex === undefined
+        ? `${id}:${targetIndex}`
+        : `${id}:${targetIndex}:action:${actionIndex}`;
     if (this.active.has(key)) throw new Error('Secret write in progress');
     const controller = new AbortController();
     this.active.set(key, controller);
@@ -345,7 +417,12 @@ export class SecretRelays {
     ]);
     const receipt = (outcome: RelayOutcome) => {
       const current = this.get(id);
-      current.outcomes[targetIndex] = outcome;
+      if (actionIndex === undefined) current.outcomes[targetIndex] = outcome;
+      else {
+        current.actionOutcomes ??= {};
+        current.actionOutcomes[actionKey] = outcome;
+      }
+      if (outcome.outcome === 'challenge_required') current.revision++;
       this.store.putRelay(current);
       return outcome;
     };
@@ -353,9 +430,45 @@ export class SecretRelays {
     try {
       await assertRuntimeCurrent?.();
       check();
+      const dispatchedNow = () => {
+        combined.throwIfAborted();
+        check();
+        receipt({ outcome: 'unconfirmed' });
+        dispatched = true;
+      };
+      const gate = {
+        signal: combined,
+        check,
+        dispatched: dispatchedNow,
+        assertCurrent: assertRuntimeCurrent,
+      };
+      if (browserTarget && (codeReady || actionIndex !== undefined)) {
+        const result = codeReady
+          ? await this.adapters.browser!.completeProvidedCode(`${id}:${targetIndex}`, gate)
+          : await this.adapters.browser!.action(`${id}:${targetIndex}`, actionIndex!, gate);
+        combined.throwIfAborted();
+        check();
+        return receipt(result);
+      }
       const secret = await this.vault.read(relay.vaultRef!, combined);
       combined.throwIfAborted();
       check();
+      if (browserTarget) {
+        const result = await this.adapters.browser!.login(
+          `${id}:${targetIndex}`,
+          browserTarget,
+          secret,
+          relay.expiresAt,
+          gate,
+        );
+        combined.throwIfAborted();
+        check();
+        return receipt(
+          result.outcome === 'challenge_required'
+            ? { ...result, challenge: 'awaiting_code' }
+            : result,
+        );
+      }
       const body = 'adapter' in target ? secret : injectRelayValue(target, secret);
       const result = await this.send(
         session,
@@ -376,7 +489,7 @@ export class SecretRelays {
       check();
       return receipt({ outcome: 'confirmed', ...result });
     } catch {
-      if (dispatched) return receipt({ outcome: 'unconfirmed' });
+      if (dispatched || codeReady) return receipt({ outcome: 'unconfirmed' });
       throw new Error('Secret write was not sent');
     } finally {
       this.active.delete(key);

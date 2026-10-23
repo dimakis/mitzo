@@ -22,6 +22,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../secret-relay-browser-driver.ts':
+    'e73918f0e3f51dd9f18f14056f6249bf676acb3ce4220668ceae06be2363300a',
+  '../secret-relay-browser.ts': '3da18091f444a4b87ceeb4097c09708f95988ff0192f9be743019d597afc1f2e',
   '../secret-relay-mqtt.ts': '42538b8d4072ba8bdb59d7342de416d31a49c20d5b25fcf10a145335892efd32',
   '../../packages/protocol/src/agent-communication-store.ts':
     '7a611a0953117b064f89e966c5520dc70598e6856e707ce735e8419acfbb4753',
@@ -1300,9 +1303,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '87d6517e779b9b29f2e636a1919ea844beb0fc034f01fbfdf1c740fa5117ab52',
   '../../frontend/src/lib/telos-source-updates.ts':
     'd04a21a711eb8c7118491d94b1363f02b36b0f7457bbe711906f3d67bdbb6e8d',
-  '../secret-relay.ts': '9a1c6964d4a8090c3350b4213f59b5dcc49c3cc3c8c69fa061b687b130f0ec40',
+  '../secret-relay.ts': '5cb7cd3fae3f144c462ce7a8109d316f4b308a59f8327b750705a58503d5be95',
   '../secret-relay-lan.ts': '03442b04b8a16ddc3146813f43ed45d9b4ae8fa0a64971a100de48d9a791a812',
-  '../secret-relay-runtime.ts': '03f2c6876bceedd8bcba47e2e53d22cd292b29f08d779ab1dacd8efd3e748096',
+  '../secret-relay-runtime.ts': '3e9985e05b5e5128565bd8d88810cb8585ea5a95c921740925c725986ff65450',
   '../openshell-secret-vault.ts':
     'dd0346a13927ed22f468d573695bb082d866d0d5f2d2dc72180a4c86f0f22838',
   '../openshell-secret-protocol.ts':

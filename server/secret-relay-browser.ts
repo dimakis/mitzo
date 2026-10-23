@@ -144,7 +144,8 @@ export interface PrivateBrowserDriver {
 type Entry = {
   target: BrowserRelayTarget;
   expiresAt: number;
-  state: 'starting' | 'challenge' | 'authenticated' | 'busy';
+  state: 'starting' | 'challenge' | 'code_ready' | 'authenticated' | 'busy';
+  code?: string;
   driver?: PrivateBrowserDriver;
   timer?: ReturnType<typeof setTimeout>;
 };
@@ -206,6 +207,23 @@ export class PrivateRelayBrowsers {
       await this.close(key);
       throw new Error('Private browser sign-in unconfirmed');
     }
+  }
+  provideCode(key: string, value: string) {
+    const entry = this.current(key);
+    if (entry.state !== 'challenge' || !entry.target.mfa || !/^\d{6,10}$/.test(value))
+      throw new Error('Private verification unavailable');
+    entry.code = value;
+    entry.state = 'code_ready';
+  }
+  async completeProvidedCode(key: string, gate: BrowserGate) {
+    const entry = this.current(key);
+    if (entry.state !== 'code_ready' || !entry.code)
+      throw new Error('Private verification unavailable');
+    const code = entry.code;
+    delete entry.code;
+    entry.state = 'challenge';
+    await this.completeCode(key, code, gate);
+    return { outcome: 'confirmed' as const };
   }
   async completeCode(key: string, value: string, gate: BrowserGate) {
     const entry = this.current(key);

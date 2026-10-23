@@ -1,3 +1,5 @@
+import { PrivateRelayBrowsers } from './secret-relay-browser.js';
+import { createPrivateRelayBrowser } from './secret-relay-browser-driver.js';
 import { sendMqttRelayTarget } from './secret-relay-mqtt.js';
 import { sendLanRelayTarget } from './secret-relay-lan.js';
 import { homedir } from 'node:os';
@@ -45,7 +47,9 @@ export function attachSecretRelay(
     (id) => service.connection(id),
     (session, target, body, encoding, signal, check, dispatched, assertCurrent) =>
       'adapter' in target
-        ? sendMqttRelayTarget(target, body, signal, check, dispatched, assertCurrent)
+        ? target.adapter === 'browser'
+          ? Promise.reject(new Error('Browser adapter requires a private session'))
+          : sendMqttRelayTarget(target, body, signal, check, dispatched, assertCurrent)
         : 'lanEndpoint' in target
           ? sendLanRelayTarget(target, body, encoding, signal, check, dispatched, assertCurrent)
           : service.applyRelayTarget(
@@ -60,6 +64,10 @@ export function attachSecretRelay(
             ),
     env.MITZO_SECRET_RELAY_LAN_HTTP_ENABLED === '1',
     {
+      browser:
+        env.MITZO_SECRET_RELAY_BROWSER_ENABLED === '1'
+          ? new PrivateRelayBrowsers(createPrivateRelayBrowser)
+          : undefined,
       mqtt: env.MITZO_SECRET_RELAY_MQTT_ENABLED === '1',
       mqttLan: env.MITZO_SECRET_RELAY_LAN_MQTT_ENABLED === '1',
     },
